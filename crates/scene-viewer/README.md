@@ -243,10 +243,28 @@ The callback runs once per renderer startup, on the calling thread, before devic
 creation and GPU scene preparation. Desktop selection accounts for surface
 compatibility. The selected adapter is then consumed to create the device; the
 host does not select a second adapter. Return `Ok(Some(FrameSettings {
-frame_profile, presentation_budget }))` to choose the initial frame profile
-(including samples and render scale) and presentation sizing policy. These are
+frame_profile, presentation_budget, shadows }))` to choose the initial frame profile
+(including samples and render scale) and presentation sizing policy, plus the initial directional shadow settings. These are
 the same fields and types that `ViewerOptions` carries, with no engine preset
 names. `Ok(None)` or no callback preserves the supplied options.
+
+Use `RetainedHost::with_initial_content(options, supplier)` when content depends on
+that adapter. The one-shot supplier receives the same `AdapterIdentity` and returns
+`InitialContent { scene, settings: Option<FrameSettings> }`. It replaces
+`adapter_callback`; specifying both fails with `ViewerError::InvalidOptions`.
+The selected scene is validated and its object/decal IDs, readiness, capture
+features and capture pool are derived before negotiating device features or
+allocating presentation and resident resources. No temporary scene is uploaded.
+Supplier errors are `ViewerError::InitialContent`; validation uses the existing
+typed scene and option errors. The supplier is consumed even when startup fails.
+
+Before startup, a supplier host has no scene: object queries are empty, `view()`
+returns `Ok(None)`, and all scene edits return `InitialSceneUnavailable`.
+Generation-zero capture requests queue within the configured admission bound;
+recipe features, page dependencies and pool reservations are checked against the
+selected content and settings before device creation. Input and exit controls
+remain available. Concrete-scene construction keeps its synchronous validation
+and pre-start editing behavior.
 
 Desktop and windowless retained startup apply the decision before presentation
 target allocation, scene preparation or residency. They use the existing option,

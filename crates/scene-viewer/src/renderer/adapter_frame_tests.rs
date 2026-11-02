@@ -6,8 +6,9 @@ use crate::{
 use worldrunner_render_gpu::configuration::ConfigurationError;
 use worldrunner_render_plan::post::{RenderScale, UpscaleMode, UpscaleSettings};
 
-fn selected_frame() -> FrameSettings {
+pub(super) fn selected_frame() -> FrameSettings {
     FrameSettings {
+        shadows: None,
         frame_profile: FrameProfile::HdrUpscaled {
             samples: 4,
             tone_map: ToneMap::Reinhard,

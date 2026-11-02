@@ -298,6 +298,9 @@ impl RetainedHost {
         generation: u64,
         mut recipe: RetainedCaptureRecipe,
     ) -> Result<u64, CaptureRequestError> {
+        if self.initial_scene.is_none() {
+            return self.queue_initial_recipe(generation, recipe);
+        }
         recipe.frame_samples = match self.options.frame_profile {
             crate::FrameProfile::Legacy => 1,
             crate::FrameProfile::Hdr { samples, .. }
@@ -327,6 +330,41 @@ impl RetainedHost {
         self.captures.recipes.insert(id, recipe);
         self.captures.reservations.insert(id, required);
         Ok(id)
+    }
+
+    fn queue_initial_recipe(
+        &mut self,
+        generation: u64,
+        recipe: RetainedCaptureRecipe,
+    ) -> Result<u64, CaptureRequestError> {
+        let id = self.request_capture_with_dependency(generation, recipe.require_pages)?;
+        if recipe.require_geometry {
+            self.captures.geometry.insert(id);
+        }
+        self.captures.recipes.insert(id, recipe);
+        Ok(id)
+    }
+
+    pub(super) fn validate_initial_captures(&mut self) -> Result<(), super::ViewerError> {
+        for (_, generation, pages) in &self.captures.waiting {
+            if *pages && !self.readiness.pages_enabled_for(*generation) {
+                return Err(CaptureRequestError::PagingDisabled {
+                    generation: *generation,
+                }
+                .into());
+            }
+        }
+        let mut recipes = self.captures.recipes.clone();
+        for recipe in recipes.values_mut() {
+            recipe.ao_format = self.validate_capture_features(0, recipe)?;
+            if recipe.outputs.iter().any(|output| output.term().is_some()) && recipe.accumulated() {
+                return Err(CaptureRequestError::UnsupportedRecipe.into());
+            }
+        }
+        self.captures.recipes = recipes;
+        self.captures
+            .resolve_frame(&self.options, self.capture_pool)?;
+        Ok(())
     }
 
     /// Configures the bound before issuing requests. Notifications count until delivered.
@@ -365,7 +403,10 @@ impl RetainedHost {
                 ready: self.readiness.published,
             });
         }
-        if require_pages && !self.readiness.pages_enabled_for(generation) {
+        if require_pages
+            && self.initial_scene.is_some()
+            && !self.readiness.pages_enabled_for(generation)
+        {
             return Err(CaptureRequestError::PagingDisabled { generation });
         }
         if (generation == self.ready_generation() && !self.readiness.queue.is_empty())

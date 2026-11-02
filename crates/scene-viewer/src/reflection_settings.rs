@@ -53,11 +53,14 @@ mod tests {
             ..crate::tests::options()
         };
         let mut host = crate::RetainedHost::new(crate::tests::scene(false), options).unwrap();
-        assert_eq!(host.scene.effects().unwrap().ssr(), Some(&settings));
-        assert_eq!(host.initial_scene.effects().unwrap().ssr(), Some(&settings));
+        assert_eq!(host.scene().effects().unwrap().ssr(), Some(&settings));
+        assert_eq!(
+            host.initial_scene().effects().unwrap().ssr(),
+            Some(&settings)
+        );
         let next = settings_with_distance(settings);
         let effects = host
-            .scene
+            .scene()
             .effects()
             .unwrap()
             .clone()
@@ -65,7 +68,7 @@ mod tests {
             .unwrap();
         host.apply(crate::RetainedUpdate::Settings(Box::new(effects.clone())))
             .unwrap();
-        assert_eq!(host.scene.effects().unwrap().ssr(), Some(&next));
+        assert_eq!(host.scene().effects().unwrap().ssr(), Some(&next));
         let rebuilds =
             |host: &crate::RetainedHost| host.readiness.queue.back().unwrap().scene.is_some();
         assert!(!rebuilds(&host), "SSR parameters apply without a rebuild");

@@ -10,7 +10,7 @@
 mod activity;
 pub use activity::ActivityReason;
 mod adapter;
-pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings};
+pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent};
 mod app;
 pub mod cpu_profile;
 mod live;
@@ -114,6 +114,10 @@ impl Default for PresentationCadence {
 /// Startup, presentation or scene rendering failed.
 #[derive(Debug, thiserror::Error)]
 pub enum ViewerError {
+    #[error("initial content supplier failed: {0}")]
+    InitialContent(String),
+    #[error("initial scene is unavailable before selected-adapter startup")]
+    InitialSceneUnavailable,
     #[error(transparent)]
     Capture(#[from] CaptureRequestError),
     #[error(transparent)]

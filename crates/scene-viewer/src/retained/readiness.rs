@@ -108,9 +108,10 @@ impl RetainedHost {
     /// Accepts an edit whose generation becomes ready only when the current view's
     /// selected terrain material pages are resident. Paging must be enabled.
     pub fn apply_with_pages(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
+        self.require_initial_scene()?;
         let terrain = match &update {
             RetainedUpdate::Terrain(terrain) => terrain.as_deref(),
-            _ => self.scene.terrain(),
+            _ => self.scene().terrain(),
         };
         if terrain
             .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
@@ -179,7 +180,7 @@ impl RetainedHost {
         objects: &BTreeMap<ObjectId, SceneObject>,
         effects: Option<SceneEffects>,
     ) -> Result<RenderScene, ViewerError> {
-        self.scene
+        self.scene()
             .with_resources(
                 resources,
                 SceneGeometry::new(meshes, objects.values().copied().collect())
@@ -196,7 +197,7 @@ impl RetainedHost {
             "a rebuild prepares the materialized scene, so its objects must be current"
         );
         let scene = rebuild.then(|| {
-            let scene = self.scene.clone();
+            let scene = self.scene().clone();
             let (send, receive) = mpsc::sync_channel(1);
             // GPU objects remain on the event thread. CPU content preparation
             // runs here; publication never joins or waits for this worker.
@@ -215,10 +216,10 @@ impl RetainedHost {
         });
         self.readiness.queue.push_back(Preparation {
             generation: self.readiness.accepted,
-            capture_features: super::capture::features(self.scene.effects()),
-            capture_ao_format: super::capture::ao_format(self.scene.effects()),
+            capture_features: super::capture::features(self.scene().effects()),
+            capture_ao_format: super::capture::ao_format(self.scene().effects()),
             pages_enabled: self
-                .scene
+                .scene()
                 .terrain()
                 .and_then(worldrunner_render_plan::SceneTerrain::page_policy)
                 .is_some(),

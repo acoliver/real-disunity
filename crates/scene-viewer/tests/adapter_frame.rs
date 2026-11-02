@@ -9,13 +9,14 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
-    AdapterCallback, FrameProfile, FrameSettings, OrbitLimits, PresentationBudget, RetainedDriver,
-    RetainedEvent, RetainedEventHost, RetainedHost, RetainedTick, ToneMap, ViewerError,
-    ViewerOptions,
+    AdapterCallback, FrameProfile, FrameSettings, InitialContent, OrbitLimits, PresentationBudget,
+    RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost, RetainedTick, ToneMap,
+    ViewerError, ViewerOptions,
 };
 
 fn selected_frame() -> FrameSettings {
     FrameSettings {
+        shadows: None,
         frame_profile: FrameProfile::HdrUpscaled {
             samples: 4,
             tone_map: ToneMap::Reinhard,
@@ -70,22 +71,10 @@ fn main() {
     });
     let mode = std::env::args().nth(1).unwrap_or_else(|| "desktop".into());
     let calls = Arc::new(AtomicUsize::new(0));
-    let observed = calls.clone();
-    let mut options = options();
-    let reject = mode == "reject";
-    options.adapter_callback = Some(AdapterCallback::new(move |identity| {
-        eprintln!("adapter frame selected {identity:?}");
-        assert!(!identity.name.is_empty());
-        observed.fetch_add(1, Ordering::SeqCst);
-        let mut frame = selected_frame();
-        if reject {
-            frame.presentation_budget = PresentationBudget(1).into();
-        }
-        Ok(Some(frame))
-    }));
-    let host = RetainedHost::new(scene(), options).unwrap();
+    let reject = mode.ends_with("reject");
+    let host = startup_host(&mode, calls.clone());
     let mut driver = Driver::default();
-    if mode == "windowless" {
+    if mode.ends_with("windowless") {
         let mut run = host.windowless(&mut driver).unwrap();
         assert!(run.frame().unwrap());
         run.shutdown().unwrap();
@@ -102,6 +91,33 @@ fn main() {
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(driver.presented, !reject);
+}
+
+fn startup_host(mode: &str, calls: Arc<AtomicUsize>) -> RetainedHost {
+    let reject = mode.ends_with("reject");
+    let decide = move |identity: &worldrunner_scene_viewer::AdapterIdentity| {
+        eprintln!("adapter frame selected {identity:?}");
+        assert!(!identity.name.is_empty());
+        calls.fetch_add(1, Ordering::SeqCst);
+        let mut frame = selected_frame();
+        if reject {
+            frame.presentation_budget = PresentationBudget(1).into();
+        }
+        Ok(Some(frame))
+    };
+    let mut options = options();
+    if mode.starts_with("supplier") {
+        RetainedHost::with_initial_content(options, move |identity| {
+            Ok(InitialContent {
+                scene: scene(),
+                settings: decide(identity)?,
+            })
+        })
+        .unwrap()
+    } else {
+        options.adapter_callback = Some(AdapterCallback::new(decide));
+        RetainedHost::new(scene(), options).unwrap()
+    }
 }
 
 fn scene() -> RenderScene {

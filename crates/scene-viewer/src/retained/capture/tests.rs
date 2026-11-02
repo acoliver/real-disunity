@@ -188,7 +188,7 @@ fn feature_availability_uses_requested_generation_and_counts_native_storage() {
         tone_map: crate::ToneMap::Reinhard,
     };
     let effects = host
-        .scene
+        .scene()
         .effects()
         .unwrap()
         .clone()
@@ -243,7 +243,7 @@ fn ao_capture_budget_uses_requested_generations_native_format() {
         samples: 1,
         tone_map: crate::ToneMap::Reinhard,
     };
-    let initial = host.scene.effects().unwrap();
+    let initial = host.scene().effects().unwrap();
     let effects = SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: *initial.sky(),

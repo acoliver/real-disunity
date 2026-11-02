@@ -68,13 +68,14 @@ impl RetainedHost {
         if !self.objects_stale {
             return Ok(());
         }
-        self.scene = self
-            .scene
-            .with_objects_and_effects(
-                self.objects.values().copied().collect(),
-                self.scene.effects().cloned(),
-            )
-            .map_err(|error| ViewerError::Driver(error.to_string()))?;
+        self.scene = Some(
+            self.scene()
+                .with_objects_and_effects(
+                    self.objects.values().copied().collect(),
+                    self.scene().effects().cloned(),
+                )
+                .map_err(|error| ViewerError::Driver(error.to_string()))?,
+        );
         self.objects_stale = false;
         Ok(())
     }

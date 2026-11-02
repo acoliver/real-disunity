@@ -6,7 +6,7 @@ use super::{
 impl Renderer {
     pub(crate) async fn windowless(host: &mut crate::RetainedHost) -> Result<Self, ViewerError> {
         let (instance, context) = windowless_context(host).await?;
-        let scene = &host.initial_scene;
+        let scene = host.initial_scene();
         let options = &host.options;
         let errors = device_errors(context.device(), context.submission());
         let extents = Extents::new(
@@ -61,7 +61,7 @@ impl Renderer {
     }
 }
 
-async fn windowless_context(
+pub(super) async fn windowless_context(
     host: &mut crate::RetainedHost,
 ) -> Result<(wgpu::Instance, super::GpuContext), ViewerError> {
     let instance =
@@ -69,16 +69,11 @@ async fn windowless_context(
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await?;
-    crate::adapter::resolve_startup(
-        &adapter.get_info().into(),
-        &host.initial_scene,
-        &mut host.options,
-        Some((&mut host.capture_pool, &mut host.captures, &host.readiness)),
-    )?;
+    let resolved = super::startup::resolve(super::SceneSource::Retained(host), &adapter)?;
     let context = super::timing::context(
         adapter,
-        required_features(&host.initial_scene),
-        host.options.gpu_timing,
+        required_features(&resolved.scene),
+        resolved.startup.gpu_timing,
     )
     .await?;
     Ok((instance, context))

@@ -187,8 +187,8 @@ fn observations_count_only_encoded_water_sky_and_shadow_passes() {
         .with_objects_and_effects(base.geometry().objects().to_vec(), Some(effects))
         .unwrap();
     let mut host = configured_host(false, false);
-    host.initial_scene = source.clone();
-    host.scene = source;
+    host.initial_scene = Some(source.clone());
+    host.scene = Some(source);
     let mut driver = Driver::default();
     let mut run = host.windowless(&mut driver).unwrap();
     run.frame().unwrap();

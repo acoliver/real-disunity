@@ -40,18 +40,18 @@ fn table(host: &RetainedHost) -> Vec<SceneObject> {
 #[test]
 fn object_edits_leave_the_materialized_objects_until_they_are_needed() {
     let mut host = host();
-    let before = host.scene.clone();
+    let before = host.scene().clone();
     host.apply(RetainedUpdate::Objects(vec![add(5, 50), add(6, 60)]))
         .unwrap();
     host.apply(RetainedUpdate::Remove(ObjectId(5))).unwrap();
-    assert_eq!(host.scene, before);
+    assert_eq!(host.scene(), &before);
     host.materialize_objects().unwrap();
-    assert_eq!(host.scene.geometry().objects(), table(&host).as_slice());
-    assert_eq!(host.scene.resources(), before.resources());
-    assert_eq!(host.scene.effects(), before.effects());
-    let materialized = host.scene.clone();
+    assert_eq!(host.scene().geometry().objects(), table(&host).as_slice());
+    assert_eq!(host.scene().resources(), before.resources());
+    assert_eq!(host.scene().effects(), before.effects());
+    let materialized = host.scene().clone();
     host.materialize_objects().unwrap();
-    assert_eq!(host.scene, materialized);
+    assert_eq!(host.scene(), &materialized);
 }
 
 #[test]
@@ -129,8 +129,8 @@ fn a_rebuild_after_object_edits_prepares_the_edited_objects() {
     ]))
     .unwrap();
     host.apply(RetainedUpdate::Resources {
-        resources: host.scene.resources().clone(),
-        meshes: host.scene.geometry().meshes().to_vec(),
+        resources: host.scene().resources().clone(),
+        meshes: host.scene().geometry().meshes().to_vec(),
     })
     .unwrap();
     let preparation = host.readiness.queue.back().unwrap();
@@ -147,7 +147,7 @@ fn a_rebuild_after_object_edits_prepares_the_edited_objects() {
         prepared.scene().geometry().objects(),
         table(&host).as_slice()
     );
-    assert_eq!(prepared.scene(), &host.scene);
+    assert_eq!(prepared.scene(), host.scene());
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn terrain_replacement_after_object_edits_keeps_the_edited_objects() {
     host.apply(RetainedUpdate::Objects(vec![add(5, 50)]))
         .unwrap();
     host.apply(RetainedUpdate::Terrain(None)).unwrap();
-    assert_eq!(host.scene.geometry().objects(), table(&host).as_slice());
+    assert_eq!(host.scene().geometry().objects(), table(&host).as_slice());
 }
 
 /// Prints the cost of one stream-sized batch on a large scene. Run with `--ignored --nocapture`
@@ -181,4 +181,34 @@ fn time_one_large_batch_on_a_large_scene() {
         "apply of 100000 edits on 300000 objects: {:?}",
         start.elapsed()
     );
+}
+
+#[test]
+fn supplier_rejects_in_place_object_edits_before_startup() {
+    let mut host = RetainedHost::with_initial_content(crate::tests::options(), |_| {
+        panic!("edits must not resolve initial content")
+    })
+    .unwrap();
+    for update in [
+        RetainedUpdate::Add {
+            id: ObjectId(1),
+            object: object_at(1),
+        },
+        RetainedUpdate::Replace {
+            id: ObjectId(0),
+            object: object_at(2),
+        },
+        RetainedUpdate::Remove(ObjectId(0)),
+        RetainedUpdate::Objects(vec![add(1, 3)]),
+    ] {
+        assert!(matches!(
+            host.apply(update),
+            Err(ViewerError::InitialSceneUnavailable)
+        ));
+        assert_eq!(host.objects().count(), 0);
+        assert_eq!(host.accepted_generation(), 0);
+        assert_eq!(host.preparations_in_flight(), 0);
+        assert!(!host.objects_stale);
+        assert!(host.scene.is_none());
+    }
 }

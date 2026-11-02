@@ -222,11 +222,11 @@ fn pending_preparation_keeps_rendering_then_publishes_whole_generations() {
     let mut streaming = Streaming::new(None, FrameProfile::Legacy);
     let mut target = OffscreenTarget::new(context.device(), size).unwrap();
     let before_view = host.view().unwrap().unwrap().view_matrix();
-    let textures = host.scene.resources().textures().as_ptr();
-    let meshes = host.scene.geometry().meshes().as_ptr();
+    let textures = host.scene().resources().textures().as_ptr();
+    let meshes = host.scene().geometry().meshes().as_ptr();
     let send = enqueue_replacement(&mut host, &source);
-    let replacement_textures = host.scene.resources().textures().as_ptr();
-    let replacement_meshes = host.scene.geometry().meshes().as_ptr();
+    let replacement_textures = host.scene().resources().textures().as_ptr();
+    let replacement_meshes = host.scene().geometry().meshes().as_ptr();
     assert_ne!(textures, replacement_textures);
     assert_ne!(meshes, replacement_meshes);
     assert_eq!(host.view().unwrap().unwrap().view_matrix(), before_view);
@@ -402,8 +402,8 @@ fn keep_previous_generation(
 ) -> RgbaImage {
     let initial = draw(context, resident, presentation, host, target);
     let before_view = host.view().unwrap().unwrap().view_matrix();
-    let replacement_textures = host.scene.resources().textures().as_ptr();
-    let replacement_meshes = host.scene.geometry().meshes().as_ptr();
+    let replacement_textures = host.scene().resources().textures().as_ptr();
+    let replacement_meshes = host.scene().geometry().meshes().as_ptr();
     for _ in 0..3 {
         context.device().poll(wgpu::PollType::Poll).unwrap();
         streaming
@@ -412,10 +412,13 @@ fn keep_previous_generation(
         assert_eq!(host.ready_generation(), 0);
         assert_eq!(host.view().unwrap().unwrap().view_matrix(), before_view);
         assert_eq!(
-            host.scene.resources().textures().as_ptr(),
+            host.scene().resources().textures().as_ptr(),
             replacement_textures
         );
-        assert_eq!(host.scene.geometry().meshes().as_ptr(), replacement_meshes);
+        assert_eq!(
+            host.scene().geometry().meshes().as_ptr(),
+            replacement_meshes
+        );
         assert_eq!(draw(context, resident, presentation, host, target), initial);
     }
     initial

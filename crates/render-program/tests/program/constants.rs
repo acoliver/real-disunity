@@ -177,6 +177,28 @@ fn the_buffer_is_at_least_the_shaders_size_rounded_to_sixteen_bytes() {
 }
 
 #[test]
+fn a_negative_size_is_a_named_error() {
+    let array = buffer(vec![param(0, 0, -1, FLOAT, 4)], vec![], 16);
+    assert_eq!(
+        pack_constant_buffer(&array, &names(), &[], 0).unwrap_err(),
+        ConstantError::NegativeSize {
+            name: "_Tint".to_owned(),
+            field: "array size",
+            value: -1
+        }
+    );
+    let whole = buffer(vec![param(0, 0, 1, FLOAT, 4)], vec![], -16);
+    assert!(matches!(
+        pack_constant_buffer(&whole, &names(), &[], 0).unwrap_err(),
+        ConstantError::NegativeSize {
+            field: "size",
+            value: -16,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn bad_declarations_and_values_are_named_errors() {
     let tint = |value| {
         let mut material = PropertySet::new();

@@ -31,6 +31,8 @@ pub enum StateError {
     Unsupported { field: &'static str, value: f32 },
     #[error("state property {property} is not a float")]
     NotAFloat { property: String },
+    #[error("state property {property} is the integer {value}, beyond any state value")]
+    IntegerOutOfRange { property: String, value: i32 },
     #[error("the pass has no blend state for render target 0")]
     NoBlendTarget,
 }
@@ -48,9 +50,14 @@ impl Resolver<'_> {
         };
         match lookup(self.layers, property) {
             Some(PropertyValue::Float(found)) => Ok(*found),
-            // An integer beyond i16 is no state value; it becomes one the field rejects.
+            // State values are small enums and masks; i16 converts to f32 exactly.
             Some(PropertyValue::Int(found)) => {
-                Ok(f32::from(i16::try_from(*found).unwrap_or(i16::MAX)))
+                i16::try_from(*found)
+                    .map(f32::from)
+                    .map_err(|_| StateError::IntegerOutOfRange {
+                        property: property.clone(),
+                        value: *found,
+                    })
             }
             Some(_) => Err(StateError::NotAFloat {
                 property: property.clone(),

@@ -26,6 +26,12 @@ pub enum ConstantError {
     },
     #[error("{name} has a value kind or width this renderer does not write ({kind})")]
     UnsupportedValue { name: String, kind: i8 },
+    #[error("{name} declares a negative {field} ({value})")]
+    NegativeSize {
+        name: String,
+        field: &'static str,
+        value: i32,
+    },
     #[error("struct member {name} is not packed")]
     UnsupportedStruct { name: String },
     #[error("property {property} has {given} elements, its declaration {declared}")]
@@ -67,7 +73,11 @@ pub fn pack_constant_buffer(
             name: name_of(names, member.name_index)?.to_owned(),
         });
     }
-    let declared = usize::try_from(buffer.size).unwrap_or(0);
+    let declared = usize::try_from(buffer.size).map_err(|_| ConstantError::NegativeSize {
+        name: name_of(names, buffer.name_index).unwrap_or("?").to_owned(),
+        field: "size",
+        value: buffer.size,
+    })?;
     let mut packer = Packer {
         names,
         layers,
@@ -122,7 +132,8 @@ impl Found<'_> {
         }
     }
 
-    /// How many elements the parameter declares.
+    /// How many elements the parameter declares. Unity writes 0 for a parameter that is not an
+    /// array; `check_declared` has already rejected a negative size.
     fn declared(&self) -> usize {
         usize::try_from(self.param.array_size).unwrap_or(0).max(1)
     }
@@ -187,13 +198,21 @@ impl Packer<'_> {
             _ => false,
         };
         let name = name_of(self.names, param.name_index)?;
+        if param.array_size < 0 {
+            return Err(ConstantError::NegativeSize {
+                name: name.to_owned(),
+                field: "array size",
+                value: param.array_size,
+            });
+        }
         if !supported {
             return Err(ConstantError::UnsupportedValue {
                 name: name.to_owned(),
                 kind: param.kind,
             });
         }
-        let width = usize::try_from(param.dimension).unwrap_or(0);
+        // `supported` limits the dimension to 1 through 4.
+        let width = usize::from(param.dimension.unsigned_abs());
         let count = usize::try_from(param.array_size).unwrap_or(0).max(1);
         let extent = if matrix {
             count * width * REGISTER

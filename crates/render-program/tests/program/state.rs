@@ -259,9 +259,9 @@ fn an_integer_property_is_a_state_value_too() {
     material.set("_ZTest", PropertyValue::Int(i32::MAX));
     assert_eq!(
         resolve_state(&state, &[&material]).unwrap_err(),
-        StateError::UnknownValue {
-            field: "ZTest",
-            value: f32::from(i16::MAX)
+        StateError::IntegerOutOfRange {
+            property: "_ZTest".to_owned(),
+            value: i32::MAX
         }
     );
     material.set("_ZTest", PropertyValue::Int(5));

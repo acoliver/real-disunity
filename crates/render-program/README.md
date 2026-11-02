@@ -18,9 +18,9 @@ The crate takes data that the importer has already prepared. It does not read bu
 ## What it does
 
 - **Layouts.** `layout::ProgramLayout::build` merges the stages' resources into one pipeline layout and checks them against Unity's parameters. An unsupported parameter, a resource without a parameter, a parameter of another kind than its resource and stages that declare one binding differently are named errors. A parameter the entry point does not use is reported, not bound.
-- **Constants.** `constants::pack_constant_buffer` writes vectors, matrices and arrays at Unity's byte offsets, a register of 16 bytes apart, sizes the buffer for the shader's needs and reports missing properties. `StageProgram::constant_buffer_targets` and `texture_targets` give the prepared set and binding each parameter fills.
+- **Constants.** `constants::pack_constant_buffer` writes vectors, matrices and arrays at Unity's byte offsets, a register of 16 bytes apart, sizes the buffer for the shader's needs and reports missing properties, which stay zero. A negative size, a parameter outside the buffer, a struct member and a value kind the packer does not write are named errors. `StageProgram::constant_buffer_targets` and `texture_targets` give the prepared set and binding each parameter fills.
 - **Variants.** An exact keyword match selects the sub program. A missing combination is a named error.
-- **State.** Cull, `ZTest`, `ZWrite`, color mask and blend for render target 0 resolve from fixed or property-controlled values. Unknown values and state this slice does not draw (stencil, alpha to mask, depth bias, conservative raster, clip off, separate blend) are named errors.
+- **State.** Cull, `ZTest`, `ZWrite`, color mask and blend for render target 0 resolve from fixed or property-controlled values. A property no layer has keeps the pass's fixed value and is listed in `ResolvedState::defaulted`. Color and alpha blend resolve separately. Unknown values and state this slice does not draw (stencil that is not off, alpha to coverage, depth bias, conservative rasterisation, depth clip off) are named errors. A draw has one color attachment, so the blend state of render targets 1 to 7 is not read, whether or not the pass sets `separate_blend`.
 - **Draws.** `ProgramRuntime::draw` renders non-indexed or indexed triangles with a vertex layout the caller gives, into a color target with an optional depth target. `read_target` returns the pixels. Render and compute pipelines and shader modules are cached by content.
 - **Compute.** `ProgramRuntime::dispatch` runs a kernel with Unity-style bindings; `read_buffer` returns a storage buffer.
 
@@ -48,4 +48,4 @@ The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare 
 cargo test -p worldrunner-render-program -- --test-threads=1
 ```
 
-The draw and dispatch tests need a Vulkan adapter. Set `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json` to run them on lavapipe.
+The draw and dispatch tests need a Vulkan adapter and use the one wgpu selects. The first test to create a runtime prints the adapter's name to stderr; run with `--nocapture` to see it. Set `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json` to run them on lavapipe.

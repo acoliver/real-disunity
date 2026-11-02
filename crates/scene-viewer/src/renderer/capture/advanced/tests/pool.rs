@@ -42,7 +42,7 @@ use super::*;
 use crate::{CapturePoolPolicy, CaptureRequestError, RetainedInput};
 
 fn setup_pool(size: [u32; 2]) -> (RetainedHost, Renderer) {
-    let host = RetainedHost::new(
+    let mut host = RetainedHost::new(
         crate::renderer::retained_tests::source(),
         crate::ViewerOptions {
             size,
@@ -57,7 +57,7 @@ fn setup_pool(size: [u32; 2]) -> (RetainedHost, Renderer) {
         },
     )
     .unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     (host, renderer)
 }
 
@@ -160,7 +160,7 @@ fn default_capture_pool_execution_after_resize_preserves_driver_error() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     let temporal = RetainedCaptureRecipe::new(
         1,
         2,

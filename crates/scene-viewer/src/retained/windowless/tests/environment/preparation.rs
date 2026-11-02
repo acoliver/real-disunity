@@ -45,7 +45,7 @@ fn host(scene: RenderScene) -> RetainedHost {
 fn environment_source_preparation_rejects_budget_before_upload() {
     let mut host = host(prepared_scene(1024));
     host.options.presentation_budget = crate::PresentationBudget(300 * 1024 * 1024).into();
-    let result = pollster::block_on(crate::renderer::Renderer::windowless(&host));
+    let result = pollster::block_on(crate::renderer::Renderer::windowless(&mut host));
     assert!(matches!(result,
         Err(crate::ViewerError::Configuration(
             worldrunner_render_gpu::configuration::ConfigurationError::Budget { required, budget }

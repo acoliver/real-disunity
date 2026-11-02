@@ -40,10 +40,10 @@ impl RetainedHost {
 }
 
 fn initialize(
-    host: RetainedHost,
+    mut host: RetainedHost,
     driver: &mut dyn RetainedDriver,
 ) -> Result<(Session<'_>, Renderer), ViewerError> {
-    let renderer = pollster::block_on(Renderer::windowless(&host));
+    let renderer = pollster::block_on(Renderer::windowless(&mut host));
     let mut session = Session::new(host, driver);
     match renderer {
         Ok(mut renderer) => {

@@ -73,7 +73,7 @@ mod tests {
             crate::tests::options(),
         )
         .unwrap();
-        let renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+        let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
         assert!(
             !renderer
                 .context
@@ -112,12 +112,12 @@ mod tests {
 
     #[test]
     fn disabled_request_does_not_enable_queries_on_the_device_or_renderer() {
-        let host = crate::RetainedHost::new(
+        let mut host = crate::RetainedHost::new(
             crate::renderer::retained_tests::source(),
             crate::tests::options(),
         )
         .unwrap();
-        let renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+        let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
         assert!(!renderer.context.device().features().contains(features()));
         assert_eq!(
             renderer.presentation.scheduler.configuration().timing,

@@ -233,10 +233,23 @@ The backend reports the selected graphics API independently of hardware class.
 The callback runs once per renderer startup, on the calling thread, before device
 creation and GPU scene preparation. Desktop selection accounts for surface
 compatibility. The selected adapter is then consumed to create the device; the
-host does not select a second adapter. Returning `Err(String)` aborts startup as
-`ViewerError::Driver`. Capture shared caller state to record a quality decision
-for subsequent retained scene edits; the callback does not change the initial
-scene or presentation settings.
+host does not select a second adapter. Return `Ok(Some(FrameSettings {
+frame_profile, presentation_budget }))` to choose the initial frame profile
+(including samples and render scale) and presentation sizing policy. These are
+the same fields and types that `ViewerOptions` carries, with no engine preset
+names. `Ok(None)` or no callback preserves the supplied options.
+
+Desktop and windowless retained startup apply the decision before presentation
+target allocation, scene preparation or residency. They use the existing option,
+selected-adapter capability and presentation-budget validation, with the same
+`ViewerError::InvalidOptions` and `ViewerError::Configuration` errors. No quality
+reduction or budget fallback is performed. Every prequeued retained settings
+generation is revalidated against the resolved profile before device creation;
+incompatible effects fail as `ViewerError::UnsupportedScene`, even if a later
+generation removes them. Derived capture-pool capacity uses the resolved sample
+count and then remains fixed for the run. `RetainedHost::options()`
+exposes the effective settings from the first driver update. Returning `Err(String)`
+aborts startup as `ViewerError::Driver` before device creation.
 
 ## Retained frame statistics
 

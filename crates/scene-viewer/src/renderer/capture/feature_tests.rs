@@ -11,7 +11,7 @@ fn setup(samples: u32, half_resolution: bool) -> (RetainedHost, Renderer) {
     setup_policy(samples, half_resolution, false)
 }
 fn setup_policy(samples: u32, half_resolution: bool, full: bool) -> (RetainedHost, Renderer) {
-    let host = RetainedHost::new(
+    let mut host = RetainedHost::new(
         crate::renderer::retained_tests::source(),
         crate::ViewerOptions {
             size: if full { [65, 49] } else { [64, 64] },
@@ -33,7 +33,7 @@ fn setup_policy(samples: u32, half_resolution: bool, full: bool) -> (RetainedHos
         },
     )
     .unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     (host, renderer)
 }
 fn recipe() -> RetainedCaptureRecipe {

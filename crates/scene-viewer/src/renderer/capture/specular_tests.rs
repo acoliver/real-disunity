@@ -128,7 +128,7 @@ fn setup(metalness: u32, decal: bool, samples: u32) -> (RetainedHost, Renderer) 
 }
 
 pub(super) fn setup_scene(scene: RenderScene, samples: u32) -> (RetainedHost, Renderer) {
-    let host = RetainedHost::new(
+    let mut host = RetainedHost::new(
         scene,
         crate::ViewerOptions {
             size: [32, 32],
@@ -144,7 +144,7 @@ pub(super) fn setup_scene(scene: RenderScene, samples: u32) -> (RetainedHost, Re
         },
     )
     .unwrap();
-    let renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     (host, renderer)
 }
 
@@ -389,7 +389,7 @@ fn retained_term_capture_replays_paged_terrain_in_the_fitted_transaction() {
         },
     )
     .unwrap();
-    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     let products = capture_outputs(
         &mut host,
         &mut renderer,

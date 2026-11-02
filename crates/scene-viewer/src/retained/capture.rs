@@ -73,6 +73,30 @@ impl Default for Captures {
     }
 }
 impl Captures {
+    pub(crate) fn resolve_frame(
+        &mut self,
+        options: &crate::ViewerOptions,
+        pool: u64,
+    ) -> Result<(), CaptureRequestError> {
+        let mut reserved = 0;
+        for (id, recipe) in &mut self.recipes {
+            recipe.frame_samples = options.frame_profile.target().1;
+            if (recipe.outputs.contains(&CaptureOutput::LinearHdr)
+                || recipe.native_rcas().is_some())
+                && matches!(options.frame_profile, crate::FrameProfile::Legacy)
+            {
+                return Err(CaptureRequestError::HdrRequired);
+            }
+            let bytes =
+                options
+                    .capture_pool
+                    .reservation_bytes(recipe, options.size, pool, reserved)?;
+            reserved += bytes;
+            self.reservations.insert(*id, bytes);
+        }
+        Ok(())
+    }
+
     pub(crate) fn accepts_result(&self, id: u64) -> bool {
         self.outstanding.contains_key(&id) && !self.events.iter().any(|e| matches!(e,
             RetainedEvent::Capture { id: event_id, outcome: RetainedCaptureOutcome::Cancelled, .. } if *event_id == id))

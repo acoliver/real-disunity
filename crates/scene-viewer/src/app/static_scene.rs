@@ -70,12 +70,10 @@ impl Content for StaticScene {
     fn cadence(&self) -> crate::PresentationCadence {
         self.options.cadence
     }
-    fn source(&self) -> SceneSource<'_> {
+    fn source(&mut self) -> SceneSource<'_> {
         SceneSource::Static {
             scene: &self.scene,
-            shadows: self.options.shadows,
-            profile: self.options.frame_profile,
-            startup: (&self.options).into(),
+            options: &mut self.options,
         }
     }
 

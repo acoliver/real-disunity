@@ -122,7 +122,7 @@ impl Content for Session<'_> {
     fn interval(&self) -> Duration {
         self.options.frame_interval
     }
-    fn source(&self) -> SceneSource<'_> {
+    fn source(&mut self) -> SceneSource<'_> {
         SceneSource::Live
     }
     fn close_immediately(&self) -> bool {

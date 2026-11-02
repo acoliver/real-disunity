@@ -129,16 +129,8 @@ impl Content for Session<'_> {
             self.input(RetainedInput::RawMotion([delta.0, delta.1]));
         }
     }
-    fn source(&self) -> SceneSource<'_> {
-        let mut startup = crate::renderer::Startup::from(&self.host.options);
-        startup.recipes = true;
-        startup.capture_pool = self.host.capture_pool;
-        SceneSource::Static {
-            scene: &self.host.initial_scene,
-            shadows: self.host.options.shadows,
-            profile: self.host.options.frame_profile,
-            startup,
-        }
+    fn source(&mut self) -> SceneSource<'_> {
+        SceneSource::Retained(&mut self.host)
     }
     fn exit_requested(&self) -> bool {
         self.host.exit

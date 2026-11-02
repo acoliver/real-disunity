@@ -10,7 +10,7 @@
 mod activity;
 pub use activity::ActivityReason;
 mod adapter;
-pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity};
+pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings};
 mod app;
 pub mod cpu_profile;
 mod live;
@@ -89,7 +89,7 @@ pub struct ViewerOptions {
     pub present_mode: wgpu::PresentMode,
     /// Positive desired latency, default 2. wgpu clamps this hint to backend limits.
     pub desired_maximum_frame_latency: u32,
-    /// Observes the actual selected adapter before GPU scene preparation.
+    /// Resolves optional frame settings from the selected adapter before GPU scene preparation.
     pub adapter_callback: Option<AdapterCallback>,
     /// Presentation scheduling; defaults to a 16 ms fixed interval.
     pub cadence: PresentationCadence,

@@ -38,7 +38,7 @@ fn ordinary_capture(host: &mut RetainedHost, renderer: &mut Renderer) -> RgbaIma
 #[test]
 fn native_rcas_recipe_is_applied_and_ordinary_frames_restore_the_profile() {
     let mut host = edge_host();
-    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     let ordinary = completed(&mut host, &mut renderer, recipe(1, 1, CaptureJitter::None));
     assert_edge(&ordinary);
     let settings = crate::NativeRcasSettings {
@@ -65,7 +65,7 @@ fn native_rcas_recipe_is_applied_and_ordinary_frames_restore_the_profile() {
 #[test]
 fn native_rcas_profile_is_available_to_interactive_presentation() {
     let mut host = edge_host();
-    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     let ordinary = completed(&mut host, &mut renderer, recipe(1, 1, CaptureJitter::None));
     assert_edge(&ordinary);
     let rcas = crate::NativeRcasSettings {
@@ -77,7 +77,7 @@ fn native_rcas_profile_is_available_to_interactive_presentation() {
         tone_map: crate::ToneMap::Reinhard,
         rcas,
     };
-    let mut renderer = pollster::block_on(Renderer::windowless(&host)).unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
     assert_rcas(&renderer, Some(rcas));
     let first = completed(&mut host, &mut renderer, recipe(1, 1, CaptureJitter::None));
     assert_sharpened_edge(&ordinary, &first);

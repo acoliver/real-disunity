@@ -69,8 +69,51 @@ impl Renderer {
         profile: crate::FrameProfile,
         startup: Startup,
     ) -> Result<Self, ViewerError> {
-        let (instance, presenter, context, policy) =
-            surface_context(display, window.clone(), scene, &startup).await?;
+        Self::surface(display, window, scene, shadows, |_| Ok((profile, startup))).await
+    }
+
+    async fn with_options(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        scene: &RenderScene,
+        options: &mut crate::ViewerOptions,
+        retained: Option<(
+            &mut u64,
+            &mut crate::retained::Captures,
+            &crate::retained::readiness::Readiness,
+        )>,
+    ) -> Result<Self, ViewerError> {
+        let shadows = options.shadows;
+        Self::surface(display, window, scene, shadows, |adapter| {
+            let recipes = retained.is_some();
+            let mut retained = retained;
+            crate::adapter::resolve_startup(
+                &adapter.get_info().into(),
+                scene,
+                options,
+                retained
+                    .as_mut()
+                    .map(|(pool, captures, readiness)| (&mut **pool, &mut **captures, *readiness)),
+            )?;
+            let mut startup = Startup::from(&*options);
+            startup.recipes = recipes;
+            if let Some((pool, _, _)) = retained {
+                startup.capture_pool = *pool;
+            }
+            Ok((options.frame_profile, startup))
+        })
+        .await
+    }
+
+    async fn surface(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        scene: &RenderScene,
+        shadows: Option<DirectionalShadowSettings>,
+        resolve: impl FnOnce(&wgpu::Adapter) -> Result<(crate::FrameProfile, Startup), ViewerError>,
+    ) -> Result<Self, ViewerError> {
+        let (instance, surface, context, policy, profile, startup) =
+            surface_context(display, window.clone(), scene, resolve).await?;
         let errors = device_errors(context.device(), context.submission());
         let size = window.inner_size();
         let extents = Extents::for_device([size.width, size.height], context.device())?;
@@ -88,6 +131,8 @@ impl Renderer {
                 recipes: startup.recipes,
             },
         )?;
+        let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
+            .map_err(surface_error)?;
         let resident =
             environment::new_resident(&context, scene, shadows, profile, &mut presentation)?;
         #[cfg(all(test, target_os = "linux"))]
@@ -563,7 +608,6 @@ pub(crate) struct Startup {
     gpu_timing: bool,
     present_mode: wgpu::PresentMode,
     desired_maximum_frame_latency: u32,
-    adapter_callback: Option<crate::AdapterCallback>,
 }
 impl From<&crate::ViewerOptions> for Startup {
     fn from(options: &crate::ViewerOptions) -> Self {
@@ -575,7 +619,6 @@ impl From<&crate::ViewerOptions> for Startup {
             gpu_timing: options.gpu_timing,
             present_mode: options.present_mode,
             desired_maximum_frame_latency: options.desired_maximum_frame_latency,
-            adapter_callback: options.adapter_callback.clone(),
         }
     }
 }
@@ -589,7 +632,6 @@ impl From<usize> for Startup {
             gpu_timing: false,
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
-            adapter_callback: None,
         }
     }
 }
@@ -598,13 +640,15 @@ async fn surface_context(
     display: OwnedDisplayHandle,
     window: Arc<Window>,
     scene: &RenderScene,
-    startup: &Startup,
+    resolve: impl FnOnce(&wgpu::Adapter) -> Result<(crate::FrameProfile, Startup), ViewerError>,
 ) -> Result<
     (
         wgpu::Instance,
-        Presenter<'static>,
+        wgpu::Surface<'static>,
         GpuContext,
         SurfacePolicy,
+        crate::FrameProfile,
+        Startup,
     ),
     ViewerError,
 > {
@@ -620,15 +664,14 @@ async fn surface_context(
         .await?;
     let size = window.inner_size();
     let capabilities = surface.get_capabilities(&adapter);
-    let policy = surface_policy(&capabilities, [size.width, size.height], startup)?;
-    if let Some(callback) = &startup.adapter_callback {
-        callback.notify(&adapter)?;
-    }
+    let (profile, startup) = resolve(&adapter)?;
+    let policy = surface_policy(&capabilities, [size.width, size.height], &startup)?;
     let context = timing::context(adapter, required_features(scene), startup.gpu_timing).await?;
-    let presenter = Presenter::new(surface, context.adapter(), context.device(), policy)
-        .map_err(surface_error)?;
-    Ok((instance, presenter, context, policy))
+    Ok((instance, surface, context, policy, profile, startup))
 }
 
 #[cfg(test)]
 mod adapter_tests;
+
+#[cfg(test)]
+mod adapter_frame_tests;

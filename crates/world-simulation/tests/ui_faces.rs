@@ -158,8 +158,8 @@ fn a_signed_distance_field_is_half_at_the_edge_and_high_inside() {
     let edge_out = at(&atlas, stride, left - 1, bottom + 20);
     let far_out = at(&atlas, stride, left + 45, bottom + 65);
     assert!(inside > 200, "inside {inside}");
-    assert!((100..=160).contains(&edge_in), "edge inside {edge_in}");
-    assert!((96..=156).contains(&edge_out), "edge outside {edge_out}");
+    assert!((145..=150).contains(&edge_in), "edge inside {edge_in}");
+    assert!((114..=118).contains(&edge_out), "edge outside {edge_out}");
     assert!(edge_in > edge_out);
     assert!(far_out < 40, "far outside {far_out}");
     assert_eq!(at(&atlas, stride, rect.x, rect.y), 0);
@@ -240,7 +240,7 @@ fn kern_pairs_become_scaled_advance_adjustments_in_both_orders_asked() {
     );
     let mut book = FaceBook::default();
     let id = book.load(bytes, 0, 50.).unwrap();
-    let pairs = book.pair_adjustments(id, &[1, 2, 0]).unwrap();
+    let pairs = book.pair_adjustments(id, &[2, 1, 0, 1, 2]).unwrap();
     assert_eq!(pairs.len(), 2);
     let find = |first, second| {
         pairs
@@ -288,4 +288,13 @@ fn unloading_a_face_frees_its_share_of_the_limits() {
         ..limits
     });
     assert_eq!(small.load(bytes, 0, 12.), Err(UiError::InvalidFont));
+}
+
+#[test]
+fn the_padding_is_the_spread_of_the_distance_field() {
+    let (atlas, rect, stride) = render(RenderMode::Sdf, 100., 2);
+    // One pixel and a bit inside the vertical edge: 1.625 pixels from it at the sampled point,
+    // 0.906 of the way across a spread of 2.
+    let value = at(&atlas, stride, rect.x + 2 + 1, rect.y + 2 + 20);
+    assert!((228..=234).contains(&value), "value {value}");
 }

@@ -197,7 +197,7 @@ impl FaceBook {
         ))
     }
 
-    /// Kerning for every ordered pair of `glyphs` whose advance the font's `kern` table changes.
+    /// Kerning for every ordered pair of the distinct `glyphs` (in glyph order) whose advance the font's `kern` table changes.
     /// The `GPOS` pair tables are not read, which is the engine's choice, so a font that kerns only
     /// through them has no adjustments.
     pub fn pair_adjustments(&self, id: FaceId, glyphs: &[u32]) -> Result<Vec<GlyphPair>, UiError> {
@@ -207,10 +207,12 @@ impl FaceBook {
         let Some(kern) = face.tables().kern else {
             return Ok(Vec::new());
         };
-        let ids: Vec<GlyphId> = glyphs
+        let mut ids: Vec<GlyphId> = glyphs
             .iter()
             .filter_map(|&g| u16::try_from(g).ok().map(GlyphId))
             .collect();
+        ids.sort_by_key(|id| id.0);
+        ids.dedup();
         let mut pairs = Vec::new();
         for &first in &ids {
             for &second in &ids {

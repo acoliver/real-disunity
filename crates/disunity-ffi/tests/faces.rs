@@ -134,6 +134,21 @@ fn loading_validates_pointers_lengths_and_font_bytes() {
 }
 
 #[test]
+fn a_face_id_with_high_bits_is_not_a_face_of_this_world() {
+    let world = world();
+    let face = load(world, 20.);
+    let high = face | (1 << 32);
+    let mut info = DisunityFaceInfo::default();
+    assert_ne!(
+        unsafe { disunity_face_info(world, high, &mut info) }.code,
+        OK
+    );
+    assert_ne!(disunity_face_set_size(world, high, 10.).code, OK);
+    assert_ne!(disunity_face_unload(world, high).code, OK);
+    assert_eq!(disunity_face_unload(world, face).code, OK);
+}
+
+#[test]
 fn queries_reject_null_outputs_and_unknown_faces() {
     let world = world();
     let face = load(world, 20.);

@@ -21,6 +21,7 @@ internal static class CanvasRendererGraphicsTests
             APlaceholderGlyphAtlasHasNoTexelsToDraw();
             Console.WriteLine("PASS: a CanvasRenderer drawing a one-texel alpha texture (an unfilled dynamic font atlas) gets an identity with no texels");
             AMaterialThatWritesNoColourHidesTheQuads();
+            ADistanceFieldMaterialMarksItsAtlas();
             Console.WriteLine("PASS: a CanvasRenderer whose material writes no colour (a hidden mask graphic) gets an identity with no texels");
         }
         finally { DisunityHost.UnloadWorld(); }
@@ -83,10 +84,14 @@ internal static class CanvasRendererGraphicsTests
         renderer.SetMesh(null);
         Ensure(Read(renderer).Info.vertex_count == 0, "a null mesh clears the geometry");
         renderer.SetMesh(QuadMesh());
-        renderer.SetTexture(new Texture2D(2, 2));
+        var texture = new Texture2D(2, 2);
+        renderer.SetTexture(texture);
         renderer.Clear();
         var (info, _) = Read(renderer);
-        Ensure(info.vertex_count == 0 && info.texture == 0, "Clear drops the geometry and the drawing texture");
+        Ensure(info.vertex_count == 0 && info.texture == texture.RendererIdentity, "Clear drops the geometry and keeps the drawing texture");
+        renderer.SetMesh(QuadMesh());
+        Ensure(Read(renderer).Info.texture == texture.RendererIdentity && Read(renderer).Info.vertex_count == 4,
+            "a mesh sent after Clear draws with the texture set before it");
     }
 
     private static void TexturesGiveTheirIdentity()
@@ -164,5 +169,42 @@ internal static class CanvasRendererGraphicsTests
         partial.SetInt("_ColorMask", 14);
         renderer.SetMaterial(partial, 0);
         Ensure(Read(renderer).Info.texture == texture.RendererIdentity, "a material that writes some colour channels still draws");
+    }
+
+    private static unsafe uint StoredSpread(ulong identity)
+    {
+        var info = new DisunityTextureInfo();
+        DisunityHost.ThrowIfError(NativeBindings.disunity_texture_read(DisunityHost.WorldHandle, identity, &info, null, 0));
+        return info.distance_spread;
+    }
+
+    private static Material WithGradientScale(float scale)
+    {
+        var material = new Material(Canvas.GetDefaultCanvasMaterial());
+        material.SetFloat("_GradientScale", scale);
+        return material;
+    }
+
+    private static void ADistanceFieldMaterialMarksItsAtlas()
+    {
+        var renderer = NewRenderer();
+        renderer.materialCount = 1;
+        var atlas = new Texture2D(8, 8, TextureFormat.Alpha8, false);
+        renderer.SetMaterial(WithGradientScale(6f), 0);
+        renderer.SetTexture(atlas);
+        Ensure(Read(renderer).Info.texture == atlas.RendererIdentity && StoredSpread(atlas.RendererIdentity) == 5,
+            "an alpha atlas drawn with gradient scale 6 is stored as distance fields of spread 5");
+        renderer.SetMaterial(WithGradientScale(10.4f), 0);
+        Ensure(StoredSpread(atlas.RendererIdentity) == 9, "a new scale stores the atlas again with the rounded spread");
+        var plain = new Texture2D(8, 8, TextureFormat.Alpha8, false);
+        renderer.SetMaterial(WithGradientScale(1f), 0);
+        renderer.SetTexture(plain);
+        Ensure(StoredSpread(plain.RendererIdentity) == 0, "a scale of one marks nothing");
+        renderer.SetMaterial(Canvas.GetDefaultCanvasMaterial(), 0);
+        Ensure(StoredSpread(plain.RendererIdentity) == 0, "a material without a gradient scale marks nothing");
+        var colour = new Texture2D(8, 8, TextureFormat.RGBA32, false);
+        renderer.SetMaterial(WithGradientScale(6f), 0);
+        renderer.SetTexture(colour);
+        Ensure(StoredSpread(colour.RendererIdentity) == 0, "only alpha atlases hold distance fields");
     }
 }

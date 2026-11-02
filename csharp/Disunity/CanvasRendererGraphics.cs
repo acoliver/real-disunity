@@ -44,10 +44,14 @@ public sealed partial class CanvasRenderer
     /// texture gives an identity with no texels, so the frame leaves its quads out. So does a one-texel alpha texture,
     /// the placeholder atlas of a dynamic font that has drawn no glyph (the engine's choice: it holds no glyph shape).
     /// So does a renderer whose first material writes no colour channel (the graphic of a mask that is not shown),
-    /// whatever the texture.</summary>
+    /// whatever the texture. An alpha texture drawn with a material that has a <c>_GradientScale</c> above one (a
+    /// distance-field text material, whose scale is the atlas padding plus one) is marked as holding distance fields
+    /// of spread scale minus one, so the renderer draws glyphs from it (the engine's choice).</summary>
     private void SendTexture(Texture? texture)
     {
         var material = GetMaterial(0);
+        if (texture is Texture2D { format: TextureFormat.Alpha8 } atlas && DistanceSpreadOf(material) is { } spread)
+            atlas.MarkDistanceField(spread);
         var identity = material is not null && WritesNoColour(material)
             ? DisunityHost.UndrawnTextureIdentity(material)
             : texture switch
@@ -59,6 +63,11 @@ public sealed partial class CanvasRenderer
             };
         DisunityHost.ThrowIfError(NativeBindings.disunity_canvas_renderer_texture_write(DisunityHost.WorldHandle, Handle, identity));
     }
+
+    private static uint? DistanceSpreadOf(Material? material) =>
+        material is not null && material.HasProperty("_GradientScale") && material.GetFloat("_GradientScale") is var scale && scale > 1f
+            ? (uint)MathF.Round(scale - 1f)
+            : null;
 
     private static bool WritesNoColour(Material material) => material.HasProperty("_ColorMask") && material.GetInt("_ColorMask") == 0;
 }

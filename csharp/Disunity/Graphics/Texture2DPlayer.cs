@@ -43,6 +43,15 @@ public sealed partial class Texture2D
             DisunityHost.ThrowIfError(NativeBindings.disunity_texture_store(DisunityHost.WorldHandle, _identity, &info, bytes, info.length));
     }
 
+    /// <summary>Marks the texture as holding distance fields of this spread, storing it again for the renderer when the
+    /// spread changes and it already has an identity.</summary>
+    internal void MarkDistanceField(uint spread)
+    {
+        if (DistanceSpread == spread) return;
+        DistanceSpread = spread;
+        if (_identity != 0) StoreForRenderer();
+    }
+
     /// <summary>The raw bytes, which a player's pixels are read into.</summary>
     internal Span<byte> PixelBytes => _data;
 

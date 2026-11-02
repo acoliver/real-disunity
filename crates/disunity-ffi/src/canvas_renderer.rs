@@ -104,13 +104,10 @@ impl DisunityCanvasRenderer {
             mesh: self.mesh,
             texture: self.texture,
             alpha_texture: self.alpha_texture,
-            // The mesh and the texture it draws with go when the managed mesh or texture does.
+            // The geometry goes when the managed mesh does. The texture the quads are drawn with is
+            // set only by `disunity_canvas_renderer_texture_write`: a graphic may draw with a texture
+            // its material slot gave while the main texture field stays 0.
             geometry: current.geometry.filter(|_| self.mesh != 0),
-            graphic_texture: if self.texture == 0 {
-                0
-            } else {
-                current.graphic_texture
-            },
             ..current
         };
         Ok(renderer.normalized().map_err(WorldError::from)?)

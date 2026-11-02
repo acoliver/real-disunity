@@ -238,6 +238,7 @@ internal static class FontEngineTests
         for (var i = 0; i < used.Count; i++)
             for (var j = i + 1; j < used.Count; j++) Expect.That(!Overlap(used[i], used[j]), "used rectangles do not overlap");
         Expect.That(NonZero(texture) > 100, "the glyphs are drawn");
+        Expect.That(used.Any(r => r.y > 0) && glyphs.Where(g => g.glyphRect.width > 0).All(g => Pixel(texture, g.glyphRect.x + 3, g.glyphRect.y + 3) > 200), "every glyph is drawn inside its own rectangle, wherever it was placed");
         var crowded = Atlas(64);
         var crowdedFree = new List<GlyphRect> { new(0, 0, 64, 64) };
         var crowdedUsed = new List<GlyphRect>();

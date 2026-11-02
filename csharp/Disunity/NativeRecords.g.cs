@@ -651,7 +651,7 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  A stored texture's description. `present` is zero when a read names an identity nothing stored.
+    ///  A stored texture's description. `format` is the engine's `TextureFormat` value. `present` is zero when a read names an identity nothing stored. `distance_spread` is the spread in texels of the signed distance fields in an `Alpha8` atlas (0.5 at a glyph's edge, `1 / (2 * spread)` per texel), or zero.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityTextureInfo
@@ -661,9 +661,6 @@ namespace Disunity.Native
         ///  Starts at 1 and rises by one each time the identity is stored again.
         /// </summary>
         public ulong generation;
-        /// <summary>
-        ///  The engine's `TextureFormat` value.
-        /// </summary>
         public uint format;
         public uint width;
         public uint height;
@@ -674,6 +671,7 @@ namespace Disunity.Native
         public uint linear;
         public uint length;
         public uint present;
+        public uint distance_spread;
     }
 
     /// <summary>

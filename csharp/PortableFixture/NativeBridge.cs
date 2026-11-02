@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using UnityEngine.TextCore;
+using UnityEngine.TextCore.LowLevel;
 using Disunity.Hosting;
 
 namespace PortableFixture;
@@ -53,7 +55,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1"))
+            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1"))
             {
                 return -2;
             }
@@ -70,6 +72,7 @@ public static class NativeBridge
             if (kind == "portable-lit-sprites-v1") SpriteLightPulse.Create();
             if (kind is "portable-perspective-v1" or "portable-camera-rect-v1") AddPerspectiveCamera(kind == "portable-camera-rect-v1");
             if (kind == "portable-texture-v1") AddTexture();
+            if (kind == "portable-atlas-v1") AddAtlas();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
             DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
@@ -108,6 +111,16 @@ public static class NativeBridge
         texture.SetPixel(0, 0, new Color32(9, 8, 7, 6));
         texture.SetPixel(1, 0, new Color32(5, 4, 3, 2));
         Sprite.Create(texture, new Rect(0, 0, 2, 1), new Vector2(0.5f, 0.5f));
+    }
+    /// <summary>An Alpha8 atlas that takes its renderer identity and then has a distance field glyph drawn into it, as TextMesh Pro does.</summary>
+    private static void AddAtlas()
+    {
+        var atlas = new Texture2D(64, 64, TextureFormat.Alpha8, false, true);
+        Sprite.Create(atlas, new Rect(0, 0, 64, 64), new Vector2(0.5f, 0.5f));
+        FontEngine.LoadFontFace(SyntheticFont.Bytes(), 40);
+        var free = new List<GlyphRect> { new(0, 0, 64, 64) };
+        FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, free,
+            new List<GlyphRect>(), GlyphRenderMode.SDFAA, atlas, out _);
     }
     private static void AddPerspectiveCamera(bool partialRect)
     {

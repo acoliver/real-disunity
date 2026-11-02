@@ -167,6 +167,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_managed_lighting(&mut host, &root);
     assert_presentation_cameras(&mut host, &root);
     assert_player_textures(&mut host, &root);
+    assert_player_distance_field_atlas(&mut host, &root);
     host.run_slice(&fixture).unwrap();
     assert_cross_language_writes(&mut host);
     drop(host);
@@ -297,11 +298,31 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
             mips: 1,
             linear: true,
             generation: 1,
+            distance_spread: 0,
             bytes: vec![9, 8, 7, 6, 5, 4, 3, 2],
         }
     );
     assert_eq!(host.player_texture(identity, 1).unwrap(), None);
     assert_eq!(host.player_texture(identity, 0).unwrap().unwrap(), texture);
     assert_eq!(host.player_texture(FIRST + 1000, 0).unwrap(), None);
+    host.unload_slice().unwrap();
+}
+
+fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {
+    const FIRST: u64 = 1 << 40;
+    host.run_slice(&root.join("csharp/PortableFixture/atlas.fixture"))
+        .unwrap();
+    let atlas = (FIRST..FIRST + 64)
+        .find_map(|id| host.player_texture(id, 0).unwrap())
+        .expect("the fixture's atlas reaches the host");
+    assert_eq!((atlas.format, atlas.width, atlas.height), (1, 64, 64));
+    assert_eq!(
+        atlas.distance_spread, 4,
+        "the distance field glyph marks the atlas"
+    );
+    assert!(
+        atlas.bytes.iter().any(|byte| *byte > 200),
+        "the glyph was drawn"
+    );
     host.unload_slice().unwrap();
 }

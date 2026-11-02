@@ -547,7 +547,6 @@ pub struct DisunityTextureInfo {
     pub identity: u64,
     /// Starts at 1 and rises by one each time the identity is stored again.
     pub generation: u64,
-    /// The engine's `TextureFormat` value.
     pub format: u32,
     pub width: u32,
     pub height: u32,
@@ -556,6 +555,7 @@ pub struct DisunityTextureInfo {
     pub linear: u32,
     pub length: u32,
     pub present: u32,
+    pub distance_spread: u32,
 }
 
 #[repr(C)]

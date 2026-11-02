@@ -16,6 +16,7 @@ public static unsafe partial class FontEngine
     {
         ArgumentNullException.ThrowIfNull(texture);
         texture.PixelBytes.Clear();
+        texture.DistanceSpread = 0;
     }
 
     /// <summary>
@@ -112,10 +113,13 @@ public static unsafe partial class FontEngine
         return glyph;
     }
 
-    /// <summary>Hands the texture to the renderer once a batch has drawn into it.</summary>
+    /// <summary>Hands the texture to the renderer once a batch has drawn into it, marked with the spread of the distance
+    /// fields drawn (the padding, at least one texel as the glyph drawing spreads it) or as coverage.</summary>
     private static void Publish(AtlasTarget target, bool drew)
     {
-        if (drew) target.Texture.Apply(false);
+        if (!drew) return;
+        target.Texture.DistanceSpread = IsDistanceField(target.Mode) ? (uint)Math.Max(1, target.Padding) : 0;
+        target.Texture.Apply(false);
     }
 
     private static bool Render(uint index, GlyphRect rect, AtlasTarget target)

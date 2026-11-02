@@ -407,7 +407,8 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityTextureInfo>("linear").ToInt32() != 32) throw new InvalidOperationException("DisunityTextureInfo.linear offset");
         if (Marshal.OffsetOf<DisunityTextureInfo>("length").ToInt32() != 36) throw new InvalidOperationException("DisunityTextureInfo.length offset");
         if (Marshal.OffsetOf<DisunityTextureInfo>("present").ToInt32() != 40) throw new InvalidOperationException("DisunityTextureInfo.present offset");
-        if (Marshal.SizeOf<DisunityTextureInfo>() != 48 || typeof(DisunityTextureInfo).GetFields().Length != 9) throw new InvalidOperationException("DisunityTextureInfo layout");
+        if (Marshal.OffsetOf<DisunityTextureInfo>("distance_spread").ToInt32() != 44) throw new InvalidOperationException("DisunityTextureInfo.distance_spread offset");
+        if (Marshal.SizeOf<DisunityTextureInfo>() != 48 || typeof(DisunityTextureInfo).GetFields().Length != 10) throw new InvalidOperationException("DisunityTextureInfo layout");
         if (Marshal.OffsetOf<DisunityFaceInfo>("face_index").ToInt32() != 0) throw new InvalidOperationException("DisunityFaceInfo.face_index offset");
         if (Marshal.OffsetOf<DisunityFaceInfo>("units_per_em").ToInt32() != 4) throw new InvalidOperationException("DisunityFaceInfo.units_per_em offset");
         if (Marshal.OffsetOf<DisunityFaceInfo>("point_size").ToInt32() != 8) throw new InvalidOperationException("DisunityFaceInfo.point_size offset");

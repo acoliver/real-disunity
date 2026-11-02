@@ -13,6 +13,9 @@ pub struct PlayerTexture {
     pub linear: bool,
     /// Rises each time the managed engine stores the texture again.
     pub generation: u64,
+    /// Zero for colour, data and coverage. For an `Alpha8` atlas holding signed distance fields,
+    /// their spread in texels (see `DisunityTextureInfo`).
+    pub distance_spread: u32,
     pub bytes: Vec<u8>,
 }
 
@@ -55,6 +58,7 @@ impl DisunityHost {
             mips: info.mips,
             linear: info.linear != 0,
             generation: info.generation,
+            distance_spread: info.distance_spread,
             bytes,
         }))
     }

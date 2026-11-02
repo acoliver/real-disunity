@@ -20,7 +20,7 @@ impl PreparedFeature for Resident<'_> {
         self.scene.reset_pass_statistics();
     }
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
-        self.publications.publish(context);
+        self.publications.publish(context, self.scene);
     }
     fn draw(&self, context: &DrawContext, pass: &mut wgpu::RenderPass<'_>) {
         if context.slot == PassSlot::Celestial {

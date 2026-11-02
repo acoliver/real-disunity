@@ -67,7 +67,7 @@ cargo run -p worldrunner --features scene --example frame-feature
 
 `crates/worldrunner/examples/frame-feature.rs` depends only on public facade APIs. It registers a custom `FrameFeature`, draws into `opaque`, declares immutable opaque colour/depth snapshot reads, and samples the colour snapshot in a later pass. Its integration test runs the same example headlessly and checks output and snapshot bytes. The facade exposes the feature contracts through `worldrunner::scene::gpu::executor`.
 
-Declare every pass and sampled resource before preparation. Build pipelines through `BuildContext`; use `PrepareContext::resource` for checked snapshot views. Stage uploads during `prepare` and publish resident state only in `commit`. The executor opens passes and owns attachments. Features receive no queue and cannot submit or change attachments. Snapshot consumers require the HDR profile. External features must provide matching metadata passes to participate as SSR receivers.
+Declare every pass and sampled resource before preparation. Build pipelines through `BuildContext`; use `PrepareContext::resource` for checked snapshot views. Stage uploads during `prepare` and publish resident state only in `commit`. `PrepareContext::completed_in_prefix` identifies slots already encoded by a validated geometry prefix belonging to this same frame, including a capture continuation. Features can preserve execution observations for those slots without inheriting a previous submitted frame. The executor opens passes and owns attachments. Features receive no queue and cannot submit or change attachments. Snapshot consumers require the HDR profile. External features must provide matching metadata passes to participate as SSR receivers.
 
 ## Temporal state
 

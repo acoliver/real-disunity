@@ -309,8 +309,18 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
         },
         pixels: vec![0; 4],
     };
+    let scene = super::super::statistics::SceneStatistics {
+        terrain_pages: pages,
+        meshes: super::super::statistics::DrawCount {
+            calls: 2,
+            instances: 3,
+        },
+        decals_visible: 1,
+        decals_total: 4,
+        ..Default::default()
+    };
     host.captures
-        .complete(id, 7, std::time::Duration::ZERO, image, pages);
+        .complete(id, 7, std::time::Duration::ZERO, image, scene);
     host.readiness.published = 1;
     let RetainedEvent::Capture {
         outcome: RetainedCaptureOutcome::Completed {
@@ -325,5 +335,5 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
     assert_eq!(frame, 7);
     assert_eq!(generation, 0);
     assert_eq!(observation.generation, 0);
-    assert_eq!(observation.terrain_pages, pages);
+    assert_eq!(observation.scene, scene);
 }

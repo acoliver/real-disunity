@@ -25,7 +25,7 @@ fn source() -> RenderScene {
     .unwrap()
 }
 
-fn encode(
+pub(super) fn encode(
     context: &GpuContext,
     resident: &mut ShadowedScene,
     frame: &mut FrameRenderer,

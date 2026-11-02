@@ -4,7 +4,7 @@ mod velocity;
 use super::*;
 use crate::shadows::cascades::CascadeViews;
 use worldrunner_render_shadow::{DepthRange, RangeFit};
-fn policy() -> RangeFit {
+pub(super) fn policy() -> RangeFit {
     RangeFit {
         near_step: 0.1,
         far_step: 1.0,
@@ -401,7 +401,9 @@ fn gpu_stock_sdsm_capture_reuses_hdr_ssao_and_reflection_metadata() {
     }
 }
 
-fn screen_renderers(context: &GpuContext) -> (crate::compositor::FrameRenderer, ShadowedScene) {
+pub(super) fn screen_renderers(
+    context: &GpuContext,
+) -> (crate::compositor::FrameRenderer, ShadowedScene) {
     let source = screen_source();
     let size = [view().viewport().width, view().viewport().height];
     let frame = crate::compositor::FrameRenderer::hdr(

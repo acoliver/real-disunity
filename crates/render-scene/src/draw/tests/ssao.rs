@@ -244,6 +244,7 @@ pub(super) fn capture_metadata(
     .unwrap();
     renderer.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();
+    assert_observations(&gpu, source);
     let read = |texture: &wgpu::Texture| read_texture(context, size, texture);
     let ssao = renderer.ssao.as_ref().unwrap();
     let normals = read(&ssao.normals);
@@ -402,4 +403,21 @@ fn metadata_view(size: [u32; 2]) -> SceneView {
         },
     )
     .unwrap()
+}
+
+fn assert_observations(gpu: &SceneGpu, source: &RenderScene) {
+    let stats = gpu.statistics().effects.ssao;
+    assert_eq!(stats.installation, crate::draw::PassInstallation::Installed);
+    assert_eq!(stats.prepass, crate::draw::PassExecution::Ran);
+    assert_eq!(stats.receivers.meshes, crate::draw::ReceiverBinding::Bound);
+    assert_eq!(
+        stats.receivers.terrain,
+        crate::draw::ReceiverBinding::from_bound(source.terrain().is_some())
+    );
+    assert_eq!(
+        stats.enabled,
+        crate::draw::EffectEnabled::from_enabled(
+            source.effects().unwrap().ssao().unwrap().intensity_micro != 0
+        )
+    );
 }

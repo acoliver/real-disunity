@@ -1,6 +1,144 @@
 use super::*;
 
 #[test]
+fn supplier_prestart_capture_freezes_selected_scene_statistics_and_shadows() {
+    for shadows in [
+        None,
+        Some(crate::renderer::retained_tests::shadow_settings()),
+    ] {
+        let mut driver = Driver::default();
+        let events = driver.events.clone();
+        let mut host = supplier_capture_host(shadows);
+        assert!(host.statistics().is_none());
+        let id = host.request_capture(0).unwrap();
+        assert!(host.statistics().is_none());
+        let mut run = host.windowless(&mut driver).unwrap();
+        assert_eq!(run.host().options().shadows, shadows);
+        assert!(run.host().statistics().is_none());
+        assert!(run.frame().unwrap());
+        let source = *run.host().statistics().unwrap();
+        assert_eq!(source.generation, 0);
+        assert_eq!(source.scene.meshes.instances, 1);
+        run.renderer.drain().unwrap();
+        run.poll().unwrap();
+        let events = events.borrow();
+        let (generation, frame, observation) = events
+            .iter()
+            .find_map(|event| match event {
+                RetainedEvent::Capture {
+                    id: actual,
+                    generation,
+                    outcome:
+                        RetainedCaptureOutcome::Completed {
+                            frame, observation, ..
+                        },
+                } if *actual == id => Some((*generation, *frame, observation)),
+                _ => None,
+            })
+            .expect("queued supplier capture completed");
+        assert_eq!(frame, source.frame);
+        assert_eq!(generation, source.generation);
+        assert_eq!(observation.generation, source.generation);
+        assert_eq!(observation.scene, source.scene);
+        assert_capture_shadows(observation.scene.effects.shadows, shadows.is_some());
+        drop(events);
+        run.shutdown().unwrap();
+    }
+}
+
+fn assert_capture_shadows(observed: crate::ShadowStatistics, enabled: bool) {
+    let (installation, binding) = if enabled {
+        (
+            crate::PassInstallation::Installed,
+            crate::ReceiverBinding::Bound,
+        )
+    } else {
+        (
+            crate::PassInstallation::Absent,
+            crate::ReceiverBinding::Unbound,
+        )
+    };
+    assert_eq!(observed.installation, installation);
+    assert_eq!(observed.receivers.meshes, binding);
+    assert_eq!(observed.receivers.terrain, crate::ReceiverBinding::Unbound);
+}
+
+fn supplier_capture_host(
+    shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
+) -> RetainedHost {
+    let options = crate::ViewerOptions {
+        size: [64, 64],
+        shadows: shadows
+            .is_none()
+            .then(crate::renderer::retained_tests::shadow_settings),
+        render_clock: RenderClock::Fixed(Duration::ZERO),
+        ..crate::tests::options()
+    };
+    RetainedHost::with_initial_content(options, move |identity| {
+        assert!(!identity.name.is_empty());
+        Ok(crate::InitialContent {
+            scene: crate::renderer::retained_tests::source(),
+            settings: Some(crate::FrameSettings {
+                shadows,
+                frame_profile: crate::FrameProfile::Hdr {
+                    samples: 1,
+                    tone_map: crate::ToneMap::Reinhard,
+                },
+                presentation_budget: crate::PresentationBudget::default().into(),
+            }),
+        })
+    })
+    .unwrap()
+}
+
+#[test]
+fn capture_statistics_match_source_frame_and_survive_later_edits() {
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = host(crate::renderer::retained_tests::source())
+        .windowless(&mut driver)
+        .unwrap();
+    let id = run.host_mut().request_capture(0).unwrap();
+    assert!(run.frame().unwrap());
+    let first = *run.host().statistics().unwrap();
+    run.host_mut()
+        .apply(RetainedUpdate::Remove(crate::ObjectId(0)))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while run.host().statistics().unwrap().generation == 0 {
+        run.frame().unwrap();
+        run.poll().unwrap();
+        assert!(Instant::now() < deadline);
+    }
+    run.renderer.drain().unwrap();
+    run.poll().unwrap();
+    let events = events.borrow();
+    let outcome = events
+        .iter()
+        .find_map(|event| match event {
+            RetainedEvent::Capture {
+                id: actual,
+                outcome,
+                ..
+            } if *actual == id => Some(outcome),
+            _ => None,
+        })
+        .unwrap();
+    let crate::RetainedCaptureOutcome::Completed {
+        frame, observation, ..
+    } = outcome
+    else {
+        panic!("completed capture");
+    };
+    assert_eq!(*frame, first.frame);
+    assert_eq!(observation.generation, first.generation);
+    assert_eq!(observation.scene, first.scene);
+    assert_ne!(observation.scene, run.host().statistics().unwrap().scene);
+    drop(events);
+    run.shutdown().unwrap();
+}
+
+#[test]
 fn statistics_follow_presented_frames_and_consume_uploads_once() {
     let mut driver = Driver::default();
     let mut run = host(crate::renderer::retained_tests::source())

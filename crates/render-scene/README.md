@@ -471,7 +471,14 @@ water, background sky (including discs), and each of four directional shadow
 cascades. Counts are recorded alongside the draw commands and published only on
 submission. A skipped cascade reports zero draws, even when its cached map is
 reused. Metadata, water masks and separate celestial mesh passes are excluded.
-Receiver coverage is outside this observation API.
+Submitted `SceneStatistics::effects` records directional-shadow installation,
+SSAO installation and enablement, prepass execution, and typed mesh/terrain
+receiver bindings. These follow the installed features and encoded binding
+paths, independently of pixel coverage. A reused shadow cascade remains installed
+and bound even when its per-frame draw count is zero. Raw draws and abandoned
+transactions preserve the previous submitted observations. Reflection-only receivers
+can bind neutral AO while SSAO is disabled. A depth-fitted frame includes its
+completed geometry-prefix prepass; a later frame never inherits that execution.
 
 `terrain_pages` counts exact selected leaf pages: requested, resident in the
 frame's draw table, and pending. Ancestor substitutes do not count as exact

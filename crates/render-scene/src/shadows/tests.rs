@@ -7,6 +7,7 @@ mod hdr;
 mod independent;
 mod jitter;
 mod lighting_terms;
+mod observations;
 mod receiver;
 mod retained;
 mod sampling;

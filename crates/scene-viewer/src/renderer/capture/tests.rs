@@ -1,4 +1,34 @@
 #[test]
+fn capture_readback_uses_submission_statistics_after_later_frames() {
+    let mut h = Harness::new();
+    let id = h.host.request_capture(0).unwrap();
+    h.frame();
+    let source = h.resident.scene_mut().take_statistics();
+    let handle = h.resident.scene_mut().instance_handles().next().unwrap();
+    h.resident
+        .scene_mut()
+        .set_instance_visible(handle, false)
+        .unwrap();
+    let later = h.frame();
+    assert_ne!(h.resident.scene_mut().statistics(), source);
+    later.wait(h.context.device()).unwrap();
+    h.streaming.captures.collect(&mut h.host).unwrap();
+    let Some(RetainedEvent::Capture {
+        id: actual,
+        outcome: RetainedCaptureOutcome::Completed {
+            frame, observation, ..
+        },
+        ..
+    }) = h.host.captures.take_event()
+    else {
+        panic!("completed capture");
+    };
+    assert_eq!(actual, id);
+    assert_eq!(frame, 0);
+    assert_eq!(observation.scene, source);
+}
+
+#[test]
 fn recipe_returns_linear_hdr_before_tone_mapping_and_plain_bytes_are_unchanged() {
     let mut h = Harness::with_profile(
         FrameProfile::Hdr {
@@ -281,7 +311,7 @@ impl Harness {
                 capture,
                 ticket.clone(),
                 std::time::Duration::ZERO,
-                self.resident.scene_mut().statistics().terrain_pages,
+                self.resident.scene_mut().statistics(),
             )
             .unwrap();
         ticket

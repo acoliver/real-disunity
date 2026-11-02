@@ -33,7 +33,12 @@ pub(crate) mod pass_statistics;
 mod publication;
 mod retained;
 pub use retained::reflections_enabled;
+mod effect_statistics;
 mod statistics;
+pub use effect_statistics::{
+    EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
+    ReceiverBindings, ShadowStatistics, SsaoStatistics,
+};
 pub use pass_statistics::PassDrawStatistics;
 mod streaming;
 pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
@@ -202,6 +207,7 @@ struct Retained {
 #[derive(Debug)]
 pub struct SceneGpu {
     pub(crate) pass_counters: pass_statistics::PassCounters,
+    effect_statistics: std::rc::Rc<Cell<EffectStatistics>>,
     resource_counters: statistics::ResourceCounters,
     decal_counts: std::rc::Rc<Cell<[usize; 2]>>,
     decals: decals::Decals,
@@ -306,6 +312,7 @@ impl SceneGpu {
         let (frame_buffer, frame_group) = frame_slots[0].clone();
         let gpu = Self {
             pass_counters: pass_statistics::PassCounters::default(),
+            effect_statistics: std::rc::Rc::default(),
             resource_counters: statistics::ResourceCounters::new(&prepared),
             decal_counts: std::rc::Rc::default(),
             decals,
@@ -478,7 +485,7 @@ impl SceneGpu {
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
-        let terrain = self.draw_terrain_color(pass, pipelines, shadow);
+        let (terrain, terrain_bound) = self.draw_terrain_color(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if dynamic {
             if let Some(sky) = &self.sky {
@@ -497,6 +504,11 @@ impl SceneGpu {
             selection,
             terrain,
             sky: sky_count,
+            shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),
+            ssao: ReceiverBindings::new(
+                pipelines.has_ao_receiver(),
+                terrain_bound && pipelines.has_ao_receiver(),
+            ),
         }
     }
 
@@ -505,8 +517,9 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
-    ) -> DrawCount {
+    ) -> (DrawCount, bool) {
         let mut count = DrawCount::default();
+        let mut bound = false;
         if let Some(terrain) = &self.terrain {
             let cached_group = terrain
                 .pages
@@ -539,10 +552,11 @@ impl SceneGpu {
                 if let Some(shadow) = shadow {
                     pass.set_bind_group(2, shadow, &[]);
                 }
+                bound = true;
                 count = Self::draw_terrain_geometry(pass, terrain);
             }
         }
-        count
+        (count, bound)
     }
 
     pub(crate) fn draw_terrain_depth(

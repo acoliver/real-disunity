@@ -16,17 +16,17 @@ fn depth_fitted_recipe_then_ordinary_frame_and_plain_capture_keep_frame_identity
     let id = host
         .request_capture_recipe(0, recipe(1, 2, CaptureJitter::Halton23))
         .unwrap();
+    let mut source = None;
     for frame in 0..2 {
         assert!(!renderer.render_retained(&mut host).unwrap());
         assert_eq!(renderer.streaming.captures.next_frame(), frame + 1);
+        if frame == 0 {
+            source = Some(renderer.resident.scene_mut().statistics());
+        }
         renderer.drain().unwrap();
         renderer.collect_retained(&mut host).unwrap();
     }
-    assert!(
-        matches!(host.captures.take_event(), Some(RetainedEvent::Capture {
-        id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { frame: 0, .. }, ..
-    }) if actual == id)
-    );
+    assert_recipe_observation(&mut host, id, source.unwrap());
     assert!(renderer.render_retained(&mut host).unwrap());
     assert_eq!(renderer.streaming.captures.next_frame(), 3);
     renderer.drain().unwrap();
@@ -470,4 +470,26 @@ fn accumulated_capture_freezes_left_handed_camera_across_queued_edit_and_resize(
         }
     );
     assert_eq!(host.ready_generation(), 0);
+}
+
+fn assert_recipe_observation(
+    host: &mut RetainedHost,
+    id: u64,
+    source: worldrunner_render_scene::draw::SceneStatistics,
+) {
+    let Some(RetainedEvent::Capture {
+        id: actual,
+        outcome:
+            RetainedCaptureOutcome::RecipeCompleted {
+                frame: 0,
+                observation,
+                ..
+            },
+        ..
+    }) = host.captures.take_event()
+    else {
+        panic!("recipe completion");
+    };
+    assert_eq!(actual, id);
+    assert_eq!(observation.scene, source);
 }

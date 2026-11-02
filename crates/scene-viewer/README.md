@@ -306,8 +306,18 @@ residency; an unchanged subsequent frame reports zero uploaded bytes.
 `scene.passes` reports CPU-encoded calls and instances for main terrain,
 transparent water, background sky including discs, and four shadow cascades.
 Skipped cascades report zero for that frame. Metadata, water masks, dynamic
-quads and separate celestial mesh passes are excluded. Receiver coverage is
-outside this API.
+quads and separate celestial mesh passes are excluded.
+
+`scene.effects.shadows` reports installation of the directional shadow feature
+and its mesh and terrain receiver bindings. Cached cascades remain installed
+and bound even when `scene.passes.shadow_cascades` reports no redraws.
+`scene.effects.ssao` reports installation of screen-space AO resources, whether
+AO has nonzero intensity, whether its depth/normal prepass ran, and which
+receiver pipelines sample it. Reflection-only neutral AO resources are installed
+but disabled. Receiver bindings come from the encoded receiver paths, independent
+of visibility or pixel coverage; absent terrain is unbound. The resident
+composition adapter reports its own unshadowed bindings. Raw `SceneGpu` draws
+publish none of these observations, preserving the previous submitted snapshot.
 
 `scene.terrain_pages` reports requested selected leaves, exact residents used by
 the draw table, and pending leaves. Ancestor fallback pages do not count as exact
@@ -315,8 +325,12 @@ residency. Unpaged terrain reports zero page counts. The counts remain tied to
 the submitted frame even while subsequent page uploads settle.
 
 Both completed capture outcomes retain their source `frame` and an `observation`
-with its accepted `generation` and `terrain_pages`. Readiness is frozen at source
-submission, not reconstructed when GPU readback completes. Accumulated recipes
+with its accepted `generation` and full `scene: SceneStatistics`, including pass
+draws, meshes, impostors, decals, resource bytes, terrain pages and installed
+effects. Terrain readiness lives only in `observation.scene.terrain_pages`.
+The snapshot is frozen at source submission, before resource-upload statistics
+are consumed by ordinary presentation, and never reconstructed from the latest
+presentation when GPU readback completes. Accumulated recipes
 report the first rendered sample after any warmup frames, including that sample's
 readiness. Recipe products use owned boxed storage. Cancellation carries no frame
 observation. Timing retains its typed disabled, pending, unavailable or complete

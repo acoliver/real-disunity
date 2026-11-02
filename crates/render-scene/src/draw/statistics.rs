@@ -43,6 +43,7 @@ pub struct ResourceStatistics {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SceneStatistics {
     pub passes: super::PassDrawStatistics,
+    pub effects: super::EffectStatistics,
     pub terrain_pages: TerrainPageStatistics,
     pub meshes: DrawCount,
     pub impostors: DrawCount,
@@ -105,6 +106,7 @@ impl SceneGpu {
         let selection = self.camera_selection.borrow();
         let mut stats = SceneStatistics {
             passes: self.pass_counters.snapshot(),
+            effects: self.effect_statistics.get(),
             textures: resource(
                 self.resource_counters.textures,
                 self.resource_counters.uploaded,

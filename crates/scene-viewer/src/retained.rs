@@ -15,6 +15,7 @@ pub use statistics::{
 mod decals;
 pub use decals::DecalUpdate;
 mod event_host;
+mod objects;
 pub use event_host::RetainedEventHost;
 mod windowless;
 pub use windowless::WindowlessRetained;
@@ -179,6 +180,8 @@ pub struct RetainedHost {
     pub(crate) readiness: readiness::Readiness,
     pub(crate) options: ViewerOptions,
     objects: BTreeMap<ObjectId, SceneObject>,
+    /// `scene`'s object list predates edits to `objects`; see `materialize_objects`.
+    objects_stale: bool,
     decals: BTreeMap<u64, worldrunner_render_plan::SceneDecal>,
     input_state: input::InputState,
     size: [u32; 2],
@@ -241,6 +244,7 @@ impl RetainedHost {
             scene,
             options,
             objects,
+            objects_stale: false,
             input_state: input::InputState::default(),
             size,
             exit: false,
@@ -296,6 +300,7 @@ impl RetainedHost {
             return Ok(());
         }
         if let RetainedUpdate::Terrain(terrain) = &update {
+            self.materialize_objects()?;
             let scene = self
                 .scene
                 .with_terrain(terrain.clone())
@@ -312,43 +317,47 @@ impl RetainedHost {
         if matches!(&update, RetainedUpdate::Objects(edits) if edits.is_empty()) {
             return Ok(());
         }
-        let mut objects = self.objects.clone();
+        let single = |edit| [edit];
+        let edited = match &update {
+            RetainedUpdate::Objects(edits) => {
+                Some(self.edit_objects(edits).map_err(|(index, error)| {
+                    ViewerError::Driver(format!("object edit {index}: {error}"))
+                }))
+            }
+            RetainedUpdate::Add { id, object } => Some(
+                self.edit_objects(&single(SceneObjectEdit::Add {
+                    id: *id,
+                    object: *object,
+                }))
+                .map_err(|(_, error)| error),
+            ),
+            RetainedUpdate::Remove(id) => Some(
+                self.edit_objects(&single(SceneObjectEdit::Remove(*id)))
+                    .map_err(|(_, error)| error),
+            ),
+            RetainedUpdate::Replace { id, object } => Some(
+                self.edit_objects(&single(SceneObjectEdit::Replace {
+                    id: *id,
+                    object: *object,
+                }))
+                .map_err(|(_, error)| error),
+            ),
+            _ => None,
+        };
+        if let Some(edited) = edited {
+            edited?;
+            self.enqueue(update, false);
+            return Ok(());
+        }
+        self.apply_scene_replacement(update)
+    }
+
+    /// Settings and resource updates, which read or replace the whole scene.
+    fn apply_scene_replacement(&mut self, update: RetainedUpdate) -> Result<(), ViewerError> {
+        self.materialize_objects()?;
         let mut effects = self.scene.effects().cloned();
         let mut replacement = None;
         let rebuild = match &update {
-            RetainedUpdate::Add { id, object } => {
-                self.edit_object(
-                    &mut objects,
-                    SceneObjectEdit::Add {
-                        id: *id,
-                        object: *object,
-                    },
-                )?;
-                false
-            }
-            RetainedUpdate::Remove(id) => {
-                self.edit_object(&mut objects, SceneObjectEdit::Remove(*id))?;
-                false
-            }
-            RetainedUpdate::Replace { id, object } => {
-                self.edit_object(
-                    &mut objects,
-                    SceneObjectEdit::Replace {
-                        id: *id,
-                        object: *object,
-                    },
-                )?;
-                false
-            }
-            RetainedUpdate::Objects(edits) => {
-                self.edit_objects(&mut objects, edits)?;
-                false
-            }
-            RetainedUpdate::Camera { .. }
-            | RetainedUpdate::Terrain(_)
-            | RetainedUpdate::Decal(_) => {
-                unreachable!("camera and terrain accepted above")
-            }
             RetainedUpdate::Settings(next) => {
                 Self::validate_streamed_effects(next, &self.options)?;
                 let rebuild = readiness::resource_settings_changed(self.scene.effects(), next);
@@ -362,51 +371,12 @@ impl RetainedHost {
                 replacement = Some((next.clone(), next_meshes.clone()));
                 true
             }
+            _ => unreachable!("object, camera, terrain and decal updates are accepted earlier"),
         };
-        let scene = self.edited_scene(replacement, &objects, effects)?;
+        let scene = self.edited_scene(replacement, &self.objects, effects)?;
         worldrunner_render_scene::draw::validate_decal_materials(&scene)?;
         self.scene = scene;
-        self.objects = objects;
         self.enqueue(update, rebuild);
-        Ok(())
-    }
-
-    fn edit_objects(
-        &self,
-        objects: &mut BTreeMap<ObjectId, SceneObject>,
-        edits: &[SceneObjectEdit],
-    ) -> Result<(), ViewerError> {
-        for (index, edit) in edits.iter().enumerate() {
-            self.edit_object(objects, *edit)
-                .map_err(|error| ViewerError::Driver(format!("object edit {index}: {error}")))?;
-        }
-        Ok(())
-    }
-
-    fn edit_object(
-        &self,
-        objects: &mut BTreeMap<ObjectId, SceneObject>,
-        edit: SceneObjectEdit,
-    ) -> Result<(), ViewerError> {
-        match edit {
-            SceneObjectEdit::Add { id, object } => {
-                self.validate_object(object)?;
-                if objects.insert(id, object).is_some() {
-                    return Err(ViewerError::Driver("duplicate object ID".into()));
-                }
-            }
-            SceneObjectEdit::Remove(id) => {
-                objects
-                    .remove(&id)
-                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))?;
-            }
-            SceneObjectEdit::Replace { id, object } => {
-                self.validate_object(object)?;
-                *objects
-                    .get_mut(&id)
-                    .ok_or_else(|| ViewerError::Driver("unknown object ID".into()))? = object;
-            }
-        }
         Ok(())
     }
 

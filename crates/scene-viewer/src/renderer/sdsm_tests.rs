@@ -355,3 +355,51 @@ fn sky_ssr_interactive_and_same_frame_capture() {
         assert_eq!(fit.source_frame, fit.adopted_frame);
     }
 }
+
+#[test]
+fn shadowed_ssr_parameters_change_in_place_and_toggling_is_rejected() {
+    use worldrunner_render_plan::SceneSsr;
+    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let scene = sky_ssr_source(false);
+    let profile = crate::FrameProfile::Hdr {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let mut resident = Resident::new(&context, &scene, Some(shadow_settings()), profile).unwrap();
+    let size = Viewport {
+        width: 8,
+        height: 8,
+    };
+    let mut presentation = Presentation::with_profile(
+        &context,
+        crate::presentation::COLOR,
+        size,
+        size,
+        profile,
+        scene.effects(),
+    )
+    .unwrap();
+    let effects = scene.effects().unwrap().clone();
+    let ssr = *effects.ssr().unwrap();
+    let nearer = effects
+        .clone()
+        .with_ssr(SceneSsr {
+            max_distance_millimeters: 12_000,
+            ..ssr
+        })
+        .unwrap();
+    super::retained::configure_effects(&context, &mut resident, &mut presentation, &nearer)
+        .unwrap();
+    render(&context, &mut resident, &mut presentation, false);
+    let off = effects
+        .with_ssr(SceneSsr {
+            enabled: false,
+            ..ssr
+        })
+        .unwrap();
+    assert!(
+        super::retained::configure_effects(&context, &mut resident, &mut presentation, &off)
+            .is_err()
+    );
+    render(&context, &mut resident, &mut presentation, false);
+}

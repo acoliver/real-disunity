@@ -55,6 +55,66 @@ fn baked_effect_edits_prepare_then_publish_through_the_shared_renderer() {
     }
 }
 
+#[test]
+fn ssr_parameter_settings_publish_without_a_rebuild() {
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let effects = baked_effects()[1].clone();
+    let base = super::super::retained_tests::source();
+    let source = base
+        .with_objects_and_effects(base.geometry().objects().to_vec(), Some(effects.clone()))
+        .unwrap();
+    let size = Viewport {
+        width: 64,
+        height: 64,
+    };
+    let profile = FrameProfile::Hdr {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let options = crate::ViewerOptions {
+        size: [64, 64],
+        frame_profile: profile,
+        ..crate::tests::options()
+    };
+    let mut host = RetainedHost::new(source.clone(), options).unwrap();
+    let mut resident = Resident::new(&context, &source, None, profile).unwrap();
+    let mut presentation = Presentation::with_profile(
+        &context,
+        crate::presentation::COLOR,
+        size,
+        size,
+        profile,
+        source.effects(),
+    )
+    .unwrap();
+    let mut streaming = Streaming::new(None, profile);
+    let mut target = OffscreenTarget::new(context.device(), size).unwrap();
+    let ssr = *effects.ssr().unwrap();
+    let next = effects
+        .with_ssr(SceneSsr {
+            max_distance_millimeters: 12_000,
+            ..ssr
+        })
+        .unwrap();
+    host.apply(RetainedUpdate::Settings(Box::new(next.clone())))
+        .unwrap();
+    assert!(host.readiness.queue.back().unwrap().scene.is_none());
+    streaming
+        .publish(&context, &mut resident, &mut presentation, &mut host)
+        .unwrap();
+    assert_eq!(host.ready_generation(), host.accepted_generation());
+    assert!(streaming.retired.is_empty(), "the resident scene was kept");
+    assert_configured(&presentation, &next);
+    draw(
+        &context,
+        &mut resident,
+        &mut presentation,
+        &host,
+        &mut target,
+    );
+}
+
 fn baked_effects() -> Vec<SceneEffects> {
     let base = crate::tests::scene(false).effects().unwrap().clone();
     let ssao = SceneEffects::new(SceneEffectsParts {

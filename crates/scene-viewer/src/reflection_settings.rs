@@ -63,9 +63,21 @@ mod tests {
             .clone()
             .with_ssr(next)
             .unwrap();
-        host.apply(crate::RetainedUpdate::Settings(Box::new(effects)))
+        host.apply(crate::RetainedUpdate::Settings(Box::new(effects.clone())))
             .unwrap();
         assert_eq!(host.scene.effects().unwrap().ssr(), Some(&next));
+        let rebuilds =
+            |host: &crate::RetainedHost| host.readiness.queue.back().unwrap().scene.is_some();
+        assert!(!rebuilds(&host), "SSR parameters apply without a rebuild");
+        let off = effects
+            .with_ssr(SceneSsr {
+                enabled: false,
+                ..next
+            })
+            .unwrap();
+        host.apply(crate::RetainedUpdate::Settings(Box::new(off)))
+            .unwrap();
+        assert!(rebuilds(&host), "turning reflections off changes pipelines");
     }
 
     fn settings_with_distance(settings: SceneSsr) -> SceneSsr {

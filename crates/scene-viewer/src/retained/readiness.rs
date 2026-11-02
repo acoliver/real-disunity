@@ -191,6 +191,10 @@ impl RetainedHost {
 
     pub(super) fn enqueue(&mut self, update: RetainedUpdate, rebuild: bool) {
         self.readiness.accepted += 1;
+        debug_assert!(
+            !rebuild || !self.objects_stale,
+            "a rebuild prepares the materialized scene, so its objects must be current"
+        );
         let scene = rebuild.then(|| {
             let scene = self.scene.clone();
             let (send, receive) = mpsc::sync_channel(1);

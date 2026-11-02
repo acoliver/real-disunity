@@ -60,10 +60,11 @@ same shadow direction, including when depth fitting is enabled.
 ## Batch object updates
 
 `RetainedUpdate::Objects(Vec<SceneObjectEdit>)` applies many `Add { id, object }`,
-`Replace { id, object }` and `Remove(id)` edits as one atomic update. The host
-clones its object table once, validates and applies the edits in order, rebuilds
-the scene once and takes one preparation slot, so a game can edit hundreds of
-objects per frame without reaching the preparation limit. Edits apply in order:
+`Replace { id, object }` and `Remove(id)` edits as one atomic update that takes one
+preparation slot. The host validates every edit first, then applies them to its object
+table in place, so the cost grows with the size of the batch, not of the scene. The
+scene's object list is rebuilt from the table only when the whole scene is needed: before a
+settings, resources or terrain update. Edits apply in order:
 the last edit to an ID wins, and an `Add` after a `Remove` of the same ID is
 accepted. Adding an ID that is present, or replacing or removing an unknown ID,
 fails the whole batch. A failing batch leaves the host unchanged and the error

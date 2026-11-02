@@ -29,12 +29,14 @@ mod descriptors;
 mod dynamic;
 mod lod_material;
 mod pages;
+pub(crate) mod pass_statistics;
 mod publication;
 mod retained;
 mod statistics;
+pub use pass_statistics::PassDrawStatistics;
 mod streaming;
-pub(crate) use publication::{DrawPublications, SelectionPublication};
-pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics};
+pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
+pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
 mod visibility;
 use crate::instances::Instances;
@@ -198,6 +200,7 @@ struct Retained {
 /// One scene resident on the GPU, ready to draw.
 #[derive(Debug)]
 pub struct SceneGpu {
+    pub(crate) pass_counters: pass_statistics::PassCounters,
     resource_counters: statistics::ResourceCounters,
     decal_counts: std::rc::Rc<Cell<[usize; 2]>>,
     decals: decals::Decals,
@@ -300,7 +303,8 @@ impl SceneGpu {
         let (decals, frame_slots) =
             decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
         let (frame_buffer, frame_group) = frame_slots[0].clone();
-        let mut gpu = Self {
+        let gpu = Self {
+            pass_counters: pass_statistics::PassCounters::default(),
             resource_counters: statistics::ResourceCounters::new(&prepared),
             decal_counts: std::rc::Rc::default(),
             decals,
@@ -334,9 +338,7 @@ impl SceneGpu {
                 material_uniforms,
             },
         };
-        gpu.install_terrain_page_policy(device, authority, pipelines, scene)?;
-        gpu.flush_instances(device, authority)?;
-        Ok(gpu)
+        gpu.finish_upload(device, authority, pipelines, scene)
     }
 
     /// Writes the per-frame uniform the next draw will read.
@@ -398,7 +400,7 @@ impl SceneGpu {
         group: &BindGroup,
     ) -> SelectionPublication {
         pass.set_bind_group(3, group, &[]);
-        self.draw_color_pass(pass, pipelines, None, false)
+        self.draw_color_pass(pass, pipelines, None, false).selection
     }
 
     pub(crate) fn draw_shadowed(
@@ -406,7 +408,7 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         shadow: &BindGroup,
-    ) -> SelectionPublication {
+    ) -> ColorDraw {
         self.draw_color(pass, pipelines, Some(shadow))
     }
 
@@ -424,7 +426,7 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
-    ) -> SelectionPublication {
+    ) -> ColorDraw {
         self.draw_color_pass(pass, pipelines, shadow, true)
     }
 
@@ -463,7 +465,7 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
         dynamic: bool,
-    ) -> SelectionPublication {
+    ) -> ColorDraw {
         let frame = self.drawing_uniform();
         let receiver = self
             .ssao
@@ -475,6 +477,35 @@ impl SceneGpu {
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
+        let terrain = self.draw_terrain_color(pass, pipelines, shadow);
+        let mut sky_count = DrawCount::default();
+        if dynamic {
+            if let Some(sky) = &self.sky {
+                sky_count = sky.draw_targets(pass, &frame_group, pipelines.sky_targets());
+            }
+            if let Some(meshes) = &self.celestial {
+                self.sky
+                    .as_ref()
+                    .expect("celestial atmosphere")
+                    .bind_background(pass, &frame_group);
+                meshes.draw(pass, pipelines.sky_targets());
+            }
+            self.dynamic.draw(pass, &frame_group, pipelines);
+        }
+        ColorDraw {
+            selection,
+            terrain,
+            sky: sky_count,
+        }
+    }
+
+    fn draw_terrain_color(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        shadow: Option<&BindGroup>,
+    ) -> DrawCount {
+        let mut count = DrawCount::default();
         if let Some(terrain) = &self.terrain {
             let cached_group = terrain
                 .pages
@@ -507,23 +538,10 @@ impl SceneGpu {
                 if let Some(shadow) = shadow {
                     pass.set_bind_group(2, shadow, &[]);
                 }
-                Self::draw_terrain_geometry(pass, terrain);
+                count = Self::draw_terrain_geometry(pass, terrain);
             }
         }
-        if dynamic {
-            if let Some(sky) = &self.sky {
-                sky.draw_targets(pass, &frame_group, pipelines.sky_targets());
-            }
-            if let Some(meshes) = &self.celestial {
-                self.sky
-                    .as_ref()
-                    .expect("celestial atmosphere")
-                    .bind_background(pass, &frame_group);
-                meshes.draw(pass, pipelines.sky_targets());
-            }
-            self.dynamic.draw(pass, &frame_group, pipelines);
-        }
-        selection
+        count
     }
 
     pub(crate) fn draw_terrain_depth(
@@ -532,26 +550,30 @@ impl SceneGpu {
         frame: &BindGroup,
         pipeline: &wgpu::RenderPipeline,
         matrix: glam::Mat4,
-    ) {
+    ) -> DrawCount {
         if let Some(terrain) = &self.terrain
             && visibility::Frustum::new(matrix).intersects(terrain.bounds)
         {
             pass.set_pipeline(pipeline);
             pass.set_bind_group(FRAME_GROUP, frame, &[]);
-            Self::draw_terrain_geometry(pass, terrain);
+            return Self::draw_terrain_geometry(pass, terrain);
         }
+        DrawCount::default()
     }
 
-    fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) {
+    fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) -> DrawCount {
         if let Some(streaming) = &terrain.streaming {
-            streaming.draw(pass, &terrain.instances);
-            return;
+            return streaming.draw(pass, &terrain.instances);
         }
         let lod = terrain.lod.as_ref().expect("nonstreaming mesh");
         pass.set_vertex_buffer(0, lod.vertices.slice(..));
         pass.set_vertex_buffer(1, terrain.instances.slice(..));
         pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
         pass.draw_indexed(0..lod.index_count, 0, 0..1);
+        DrawCount {
+            calls: 1,
+            instances: 1,
+        }
     }
 
     pub(crate) fn draw_objects(
@@ -593,8 +615,12 @@ impl SceneGpu {
             frame.camera_position_millimeters,
         );
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
+        let mut count = DrawCount::default();
         for range in &selection.ranges {
-            self.record_lod_range(pass, pipelines, range);
+            count.add(self.record_lod_range(pass, pipelines, range));
+        }
+        if let Some((index, _)) = shadow_matrix {
+            self.pass_counters.shadows[index as usize].record(count);
         }
         SelectionPublication {
             destination: published,
@@ -699,3 +725,6 @@ fn water_bodies(scene: &RenderScene) -> Vec<worldrunner_render_plan::SceneWaterB
 }
 
 mod fade;
+
+#[cfg(test)]
+mod statistics_tests;

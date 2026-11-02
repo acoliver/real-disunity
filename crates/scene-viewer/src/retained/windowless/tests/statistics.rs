@@ -94,3 +94,17 @@ fn resource_replacement_reports_new_generation_uploads() {
     );
     run.shutdown().unwrap();
 }
+
+#[test]
+fn empty_scene_records_zero_optional_pass_draws() {
+    let source = crate::renderer::retained_tests::source();
+    let source = source.with_objects_and_effects(vec![], None).unwrap();
+    let mut driver = Driver::default();
+    let mut run = host(source).windowless(&mut driver).unwrap();
+    run.frame().unwrap();
+    assert_eq!(
+        run.host().statistics().unwrap().scene.passes,
+        worldrunner_render_scene::draw::PassDrawStatistics::default()
+    );
+    run.shutdown().unwrap();
+}

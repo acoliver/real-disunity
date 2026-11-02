@@ -464,7 +464,20 @@ compositor publishes both at submission; cancelled encoders do not publish them.
 The immediate `set_frame` API updates decal counts with its CPU frame state.
 Counts include each material slot and
 LOD transition complement, with instance counts summed across those draws.
-Shadow, metadata, dynamic quad, terrain, water and sky draws are excluded.
+These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
+
+`passes` counts CPU-encoded calls and instances for main terrain, transparent
+water, background sky (including discs), and each of four directional shadow
+cascades. Counts are recorded alongside the draw commands and published only on
+submission. A skipped cascade reports zero draws, even when its cached map is
+reused. Metadata, water masks and separate celestial mesh passes are excluded.
+Receiver coverage is outside this observation API.
+
+`terrain_pages` counts exact selected leaf pages: requested, resident in the
+frame's draw table, and pending. Ancestor substitutes do not count as exact
+residency. Pages uploaded but not used in that frame remain pending for that
+observation. Unpaged terrain reports three zero counts. Cancelled preparation
+does not replace the submitted snapshot.
 
 Resource counters describe logical authored texture payloads and mesh vertex,
 index and transition bytes. They exclude internal resources, terrain, instances,

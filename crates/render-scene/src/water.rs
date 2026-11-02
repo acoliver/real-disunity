@@ -147,6 +147,7 @@ pub fn refraction_pixel(
 
 #[derive(Clone, Debug)]
 pub(crate) struct Water {
+    pub draw_count: crate::draw::pass_statistics::PassCounter,
     pub settings: std::sync::Arc<[SceneWaterBody]>,
     bodies: std::sync::Arc<[Body]>,
     pub snapshots: [Snapshots; 3],
@@ -218,6 +219,7 @@ impl Water {
             .collect::<Vec<_>>()
             .into();
         Ok(Self {
+            draw_count: crate::draw::pass_statistics::PassCounter::default(),
             receivers: std::array::from_fn(|_| receivers::textures(device, config)),
             environment: receivers::empty_environment(device),
             environment_intensity_micro: 1_000_000,
@@ -626,6 +628,7 @@ impl PreparedFeature for WaterFeature {
     ) {
         match context.slot {
             PassSlot::TransparentWater => {
+                let mut count = crate::draw::DrawCount::default();
                 if let Some(shadow) = &self.shadow {
                     pass.set_bind_group(1, shadow, &[]);
                 }
@@ -639,8 +642,10 @@ impl PreparedFeature for WaterFeature {
                             pass.set_vertex_buffer(1, seed.slice(..));
                         }
                         pass.draw(0..body.vertices, 0..1);
+                        count.draw(1);
                     }
                 }
+                self.water.draw_count.record(count);
             }
             PassSlot::TransparentWaterMask => self.draw_mask(pass),
             _ => unreachable!("declared water slot"),

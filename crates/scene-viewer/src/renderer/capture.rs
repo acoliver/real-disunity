@@ -9,6 +9,7 @@ use worldrunner_render_gpu::flight::CompletionTicket;
 struct Pending {
     id: u64,
     frame: u64,
+    terrain_pages: worldrunner_render_scene::draw::TerrainPageStatistics,
     time: std::time::Duration,
     ticket: CompletionTicket,
     image: Products,
@@ -86,6 +87,7 @@ impl Captures {
         image: Option<(u64, Products)>,
         ticket: CompletionTicket,
         time: std::time::Duration,
+        terrain_pages: worldrunner_render_scene::draw::TerrainPageStatistics,
     ) -> Result<(), ViewerError> {
         let frame = self.frame;
         self.advance_frame();
@@ -101,6 +103,7 @@ impl Captures {
             self.pending.push(Pending {
                 id,
                 frame,
+                terrain_pages,
                 time,
                 ticket,
                 image,
@@ -131,14 +134,20 @@ impl Captures {
                 if !host.captures.accepts_result(pending.id) {
                     // Cancellation delivery must not publish a second result.
                 } else if host.captures.recipes.contains_key(&pending.id) {
-                    host.captures
-                        .complete_recipe(pending.id, pending.frame, pending.time, image);
+                    host.captures.complete_recipe(
+                        pending.id,
+                        pending.frame,
+                        pending.time,
+                        image,
+                        pending.terrain_pages,
+                    );
                 } else {
                     host.captures.complete(
                         pending.id,
                         pending.frame,
                         pending.time,
                         image.srgb8.expect("plain capture"),
+                        pending.terrain_pages,
                     );
                 }
                 let pending = self.pending.remove(index);

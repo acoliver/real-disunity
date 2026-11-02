@@ -167,3 +167,37 @@ fn celestial_free_same_frame_capture_is_byte_identical() {
     assert_eq!(first, capture(&mut run, &events));
     run.shutdown().unwrap();
 }
+
+#[test]
+fn observations_count_only_encoded_water_sky_and_shadow_passes() {
+    let base = scene(false, false);
+    let water = crate::tests::scene(true)
+        .effects()
+        .unwrap()
+        .water()
+        .unwrap()
+        .clone();
+    let effects = base
+        .effects()
+        .unwrap()
+        .clone()
+        .with_water_bodies(vec![water])
+        .unwrap();
+    let source = base
+        .with_objects_and_effects(base.geometry().objects().to_vec(), Some(effects))
+        .unwrap();
+    let mut host = configured_host(false, false);
+    host.initial_scene = source.clone();
+    host.scene = source;
+    let mut driver = Driver::default();
+    let mut run = host.windowless(&mut driver).unwrap();
+    run.frame().unwrap();
+    let passes = run.host().statistics().unwrap().scene.passes;
+    assert_eq!(passes.terrain.calls, 0);
+    assert!(passes.water.calls > 0);
+    assert!(passes.sky.calls > 0);
+    assert!(passes.shadow_cascades.iter().any(|count| count.calls > 0));
+    assert_eq!(passes.water.calls, passes.water.instances);
+    assert_eq!(passes.sky.calls, passes.sky.instances);
+    run.shutdown().unwrap();
+}

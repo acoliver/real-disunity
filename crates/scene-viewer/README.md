@@ -256,7 +256,9 @@ aborts startup as `ViewerError::Driver` before device creation.
 `RetainedHost::statistics()` and `RetainedEventHost::statistics()` return the
 latest `RetainedFrameStatistics`. It is absent before the first ordinary
 submission and replaced before each `Presented` callback. A snapshot identifies
-its frame and published scene generation. `presentation_budget_bytes` reports the
+its renderer submission frame and published accepted scene generation. Frame IDs
+share the capture/timing sequence; capture-only subframes can leave gaps between
+ordinary snapshots. `presentation_budget_bytes` reports the
 effective presentation admission budget, including the admitted replacement peak. Polling, capture-only work and queued
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
@@ -274,10 +276,24 @@ padding, instance buffers, internal textures and terrain resources. Uploaded
 bytes are reported once per resident scene generation, including initial
 residency; an unchanged subsequent frame reports zero uploaded bytes.
 
-Terrain geometry/material page statistics, water and sky draws, all-pass draw
-counts are not yet exposed. These omissions are
-not represented by zero-valued category fields. The host still requests no GPU
-timestamp capability and allocates no timing queries by default.
+`scene.passes` reports CPU-encoded calls and instances for main terrain,
+transparent water, background sky including discs, and four shadow cascades.
+Skipped cascades report zero for that frame. Metadata, water masks, dynamic
+quads and separate celestial mesh passes are excluded. Receiver coverage is
+outside this API.
+
+`scene.terrain_pages` reports requested selected leaves, exact residents used by
+the draw table, and pending leaves. Ancestor fallback pages do not count as exact
+residency. Unpaged terrain reports zero page counts. The counts remain tied to
+the submitted frame even while subsequent page uploads settle.
+
+Both completed capture outcomes retain their source `frame` and an `observation`
+with its accepted `generation` and `terrain_pages`. Readiness is frozen at source
+submission, not reconstructed when GPU readback completes. Accumulated recipes
+report the first rendered sample after any warmup frames, including that sample's
+readiness. Recipe products use owned boxed storage. Cancellation carries no frame
+observation. Timing retains its typed disabled, pending, unavailable or complete
+status; unavailable durations are never represented as zero.
 
 ## GPU pass timing
 

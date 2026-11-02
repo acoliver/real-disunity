@@ -1,4 +1,4 @@
-//! Submitted main-camera geometry counters and authored resource payload sizes.
+//! Submitted pass draws, terrain page readiness and authored resource payload sizes.
 use super::{SceneGpu, visibility::SelectedRange};
 
 /// Instances count each indexed draw, including material slots and LOD complements.
@@ -6,6 +6,26 @@ use super::{SceneGpu, visibility::SelectedRange};
 pub struct DrawCount {
     pub calls: u64,
     pub instances: u64,
+}
+
+/// Exact selected material pages used to prepare this frame's draw table.
+/// Pending includes selected pages not resident for that draw, even if uploaded in it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TerrainPageStatistics {
+    pub requested: usize,
+    pub resident: usize,
+    pub pending: usize,
+}
+impl TerrainPageStatistics {
+    pub(crate) fn from_residency(pages: impl IntoIterator<Item = bool>) -> Self {
+        let mut counts = Self::default();
+        for resident in pages {
+            counts.requested += 1;
+            counts.resident += usize::from(resident);
+            counts.pending += usize::from(!resident);
+        }
+        counts
+    }
 }
 
 /// Logical payload bytes, excluding driver allocation overhead and staging alignment.
@@ -16,12 +36,14 @@ pub struct ResourceStatistics {
     pub uploaded_bytes: u64,
 }
 
-/// Main-camera mesh draws only, excluding shadow/metadata passes, dynamic quads,
-/// terrain, water and sky. Decals shade receivers inline and issue no draws.
+/// Mesh and impostor fields cover main-camera geometry only. `passes` covers
+/// the additional owning passes. Decals shade receivers inline and issue no draws.
 /// Texture bytes cover the authored texture table; mesh bytes cover vertex,
 /// index and transition buffers, excluding instances and internal resources.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SceneStatistics {
+    pub passes: super::PassDrawStatistics,
+    pub terrain_pages: TerrainPageStatistics,
     pub meshes: DrawCount,
     pub impostors: DrawCount,
     pub textures: ResourceStatistics,
@@ -82,6 +104,7 @@ impl SceneGpu {
     pub fn statistics(&self) -> SceneStatistics {
         let selection = self.camera_selection.borrow();
         let mut stats = SceneStatistics {
+            passes: self.pass_counters.snapshot(),
             textures: resource(
                 self.resource_counters.textures,
                 self.resource_counters.uploaded,
@@ -90,6 +113,13 @@ impl SceneGpu {
                 self.resource_counters.meshes,
                 self.resource_counters.uploaded,
             ),
+            terrain_pages: self
+                .terrain
+                .as_ref()
+                .and_then(|terrain| terrain.pages.as_ref())
+                .map_or_else(TerrainPageStatistics::default, |pages| {
+                    pages.borrow().statistics.get()
+                }),
             decals_visible: self.decal_counts.get()[0],
             decals_total: self.decal_counts.get()[1],
             ..SceneStatistics::default()

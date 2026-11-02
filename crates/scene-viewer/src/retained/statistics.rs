@@ -1,5 +1,7 @@
 //! Bounded observation of ordinary submitted frames.
-pub use worldrunner_render_scene::draw::{DrawCount, ResourceStatistics, SceneStatistics};
+pub use worldrunner_render_scene::draw::{
+    DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics,
+};
 
 /// The latest ordinary submission, available during `Presented` and subsequent updates.
 /// Captures and polls do not replace this snapshot. GPU completion is not implied.

@@ -292,3 +292,38 @@ fn ao_capture_budget_uses_requested_generations_native_format() {
     assert_eq!(id, 0);
     assert_eq!(host.captures.reservations[&id], 2840);
 }
+
+#[test]
+fn capture_completion_keeps_submitted_readiness_and_generation() {
+    let mut host = host();
+    let id = host.request_capture(0).unwrap();
+    let pages = super::super::statistics::TerrainPageStatistics {
+        requested: 4,
+        resident: 1,
+        pending: 3,
+    };
+    let image = RgbaImage {
+        viewport: worldrunner_render_scene::Viewport {
+            width: 1,
+            height: 1,
+        },
+        pixels: vec![0; 4],
+    };
+    host.captures
+        .complete(id, 7, std::time::Duration::ZERO, image, pages);
+    host.readiness.published = 1;
+    let RetainedEvent::Capture {
+        outcome: RetainedCaptureOutcome::Completed {
+            frame, observation, ..
+        },
+        generation,
+        ..
+    } = host.captures.take_event().unwrap()
+    else {
+        panic!("completed capture")
+    };
+    assert_eq!(frame, 7);
+    assert_eq!(generation, 0);
+    assert_eq!(observation.generation, 0);
+    assert_eq!(observation.terrain_pages, pages);
+}

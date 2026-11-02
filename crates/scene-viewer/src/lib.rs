@@ -35,10 +35,10 @@ mod retained;
 mod world_edits;
 pub use retained::{
     CaptureJitter, CaptureOutput, CaptureRequestError, CursorError, CursorGrabMode, KeyCode,
-    LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureOutcome,
-    RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent,
-    RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, SceneObjectEdit,
-    WheelDelta, WindowlessRetained,
+    LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureObservation,
+    RetainedCaptureOutcome, RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver,
+    RetainedEvent, RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate,
+    SceneObjectEdit, WheelDelta, WindowlessRetained,
 };
 pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 
@@ -314,7 +314,9 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
     Ok(())
 }
 
-pub use retained::{DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics};
+pub use retained::{
+    DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics, TerrainPageStatistics,
+};
 pub use retained::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
 };

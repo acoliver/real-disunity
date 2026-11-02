@@ -185,7 +185,7 @@ pub(super) fn capture_outputs(
     else {
         panic!("recipe result")
     };
-    products
+    *products
 }
 
 fn assert_oracle(products: &RetainedCaptureProducts, metalness: u32, decal: bool) {

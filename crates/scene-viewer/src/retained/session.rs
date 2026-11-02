@@ -159,6 +159,7 @@ impl Content for Session<'_> {
             .unwrap_or(self.host.options.render_clock);
         renderer.set_clock(clock);
         if renderer.render_retained(&mut self.host)? {
+            self.frame = renderer.submitted_frame();
             self.host.statistics = Some(super::RetainedFrameStatistics {
                 frame: self.frame,
                 generation: self.host.readiness.published,

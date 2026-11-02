@@ -305,7 +305,10 @@ fn submit_binary(
         &depth,
         true,
     ));
-    frame.bind_water_inputs(&renderer.gpu.water_inputs);
+    frame.bind_water_inputs(
+        &renderer.gpu.water_inputs,
+        renderer.gpu.pass_counters.water.clone(),
+    );
     let uniform = frame
         .prepare_uniform(crate::frame::FrameUniform::new(view, Some(&renderer.effects)).unwrap())
         .unwrap();

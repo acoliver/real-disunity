@@ -35,13 +35,18 @@ fn terrain_pages_cancelled_scene_selection_and_source_failures_do_not_publish() 
             .prepare(device, &mut frame, glam::Mat4::IDENTITY, [32, 32])
             .unwrap();
         assert!(pages.published_selection.borrow().is_none());
+        assert_eq!(pages.statistics.get().requested, 0);
         if cancel {
             frame.finish().cancel();
             assert!(pages.cache.lookup(PageKey::ROOT, 0).is_none());
+            assert_eq!(pages.statistics.get().requested, 0);
         } else {
             frame.finish().submit().unwrap();
             assert!(pages.published_selection.borrow().is_some());
             assert!(pages.cache.lookup(PageKey::ROOT, 0).is_some());
+            let counts = pages.statistics.get();
+            assert!(counts.requested > 0);
+            assert_eq!(counts.pending, counts.requested);
         }
     }
 }

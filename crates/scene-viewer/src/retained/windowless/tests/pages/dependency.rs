@@ -302,3 +302,49 @@ fn streamed_accumulation_combines_geometry_and_page_dependencies() {
     }
     run.shutdown().unwrap();
 }
+
+#[test]
+fn observations_freeze_selected_page_readiness_at_capture_submission() {
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = paged_host().windowless(&mut driver).unwrap();
+    let id = run.host_mut().request_capture(0).unwrap();
+    run.frame().unwrap();
+    let first = *run.host().statistics().unwrap();
+    assert!(first.scene.terrain_pages.pending > 0);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while run.host().statistics().unwrap().scene.terrain_pages.pending != 0 {
+        run.frame().unwrap();
+        run.poll().unwrap();
+        assert!(Instant::now() < deadline);
+    }
+    run.renderer.drain().unwrap();
+    run.poll().unwrap();
+    let settled = run.host().statistics().unwrap().scene.terrain_pages;
+    assert!(settled.requested > 0);
+    assert_eq!(settled.resident, settled.requested);
+    assert!(run.host().statistics().unwrap().scene.passes.terrain.calls > 0);
+    let events = events.borrow();
+    let outcome = events
+        .iter()
+        .find_map(|event| match event {
+            RetainedEvent::Capture {
+                id: actual,
+                outcome,
+                ..
+            } if *actual == id => Some(outcome),
+            _ => None,
+        })
+        .unwrap();
+    let RetainedCaptureOutcome::Completed {
+        frame, observation, ..
+    } = outcome
+    else {
+        panic!("capture completion")
+    };
+    assert_eq!(*frame, first.frame);
+    assert_eq!(observation.generation, first.generation);
+    assert_eq!(observation.terrain_pages, first.scene.terrain_pages);
+    drop(events);
+    run.shutdown().unwrap();
+}

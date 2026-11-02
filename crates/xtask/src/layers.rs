@@ -69,6 +69,7 @@ const PACKAGES: &[(&str, Layer)] = &[
     ("worldrunner-render-shadow", Layer::Graphics),
     ("worldrunner-render-lighting", Layer::Graphics),
     ("worldrunner-render-post", Layer::Graphics),
+    ("worldrunner-render-program", Layer::Graphics),
     ("worldrunner-scene-viewer", Layer::Host),
     ("worldrunner-disunity-runtime", Layer::Managed),
     ("worldrunner-content-tool", Layer::Tool),

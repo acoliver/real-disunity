@@ -3,7 +3,8 @@
 //! Colors keep the numbers the player stored, as the project planner keeps its YAML colors.
 
 use worldrunner_unity_serialized::{
-    camera::Camera as Serialized, light::Light as SerializedLight,
+    camera::Camera as Serialized,
+    light::Light as SerializedLight,
     ui::{Canvas as SerializedCanvas, CanvasGroup as SerializedGroup},
 };
 

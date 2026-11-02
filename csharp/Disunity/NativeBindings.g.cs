@@ -545,6 +545,17 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_presentation_coverage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_presentation_coverage(ulong world, uint index, DisunityCoverage* output, byte* bytes, uint capacity);
+        /// <summary>
+        ///  Copies out mesh object `index` of the last prepared frame: the record, its matrix from mesh
+        ///  coordinates to the frame's view basis, and its slots when `capacity` is nonzero (a capacity
+        ///  below `slot_count` is rejected).
+        ///
+        ///  # Safety
+        ///  `output` and `matrix` are writable for one record; `slots` is writable for `capacity` records,
+        ///  or null when `capacity` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_mesh_object", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_mesh_object(ulong world, uint index, DisunityMeshObject* output, DisunityMatrix* matrix, DisunityDrawnMaterial* slots, uint capacity);
         [DllImport(__DllName, EntryPoint = "disunity_abi_check", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_abi_check(uint revision);
         /// <summary>
@@ -731,15 +742,5 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
         [DllImport(__DllName, EntryPoint = "disunity_coroutine_stop", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_coroutine_stop(ulong world, ulong routine);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one identity, or zero when the queue is empty.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_cancelled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_cancelled(ulong world, ulong* output);
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_ready", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_ready(ulong world, ulong identity);
-        [DllImport(__DllName, EntryPoint = "disunity_input_push", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_input_push(ulong world, ulong num, ulong den, uint kind, uint code, float value);
     }
 }

@@ -12,6 +12,16 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one identity, or zero when the queue is empty.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_cancelled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_cancelled(ulong world, ulong* output);
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_ready", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_ready(ulong world, ulong identity);
+        [DllImport(__DllName, EntryPoint = "disunity_input_push", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_push(ulong world, ulong num, ulong den, uint kind, uint code, float value);
+        /// <summary>
+        ///  # Safety
         ///  `keys` and `axis` are writable for one value each.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_input_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

@@ -237,6 +237,8 @@ pub struct DisunityPresentation {
     pub present: u32,
     pub quads: u32,
     pub textures: u32,
+    /// How many mesh renderers the frame shows; read them with `disunity_presentation_mesh_object`.
+    pub mesh_objects: u32,
     pub width: u32,
     pub height: u32,
     /// 0 for an orthographic lens, 1 for a perspective lens.
@@ -299,6 +301,14 @@ pub struct DisunityCoverage {
     pub width: u32,
     pub height: u32,
     pub length: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityMeshObject {
+    pub object: u64,
+    pub mesh: u64,
+    pub slot_count: u32,
 }
 
 #[repr(C)]

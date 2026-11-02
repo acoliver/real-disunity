@@ -92,7 +92,7 @@ pub fn extract_world(
     Ok(result)
 }
 /// The basis change from the native world's axes to the view's.
-fn view_basis() -> Mat4 {
+pub(crate) fn view_basis() -> Mat4 {
     Mat4::from_cols_array(&[
         1., 0., 0., 0., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., 1.,
     ])

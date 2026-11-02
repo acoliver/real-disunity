@@ -623,6 +623,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_presentation_mesh_object",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_presentation_prepare",
       "since": "2.0.0",
       "rets": "DisunityResult"

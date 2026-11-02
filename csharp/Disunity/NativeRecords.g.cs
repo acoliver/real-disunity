@@ -307,6 +307,10 @@ namespace Disunity.Native
         public uint present;
         public uint quads;
         public uint textures;
+        /// <summary>
+        ///  How many mesh renderers the frame shows; read them with `disunity_presentation_mesh_object`.
+        /// </summary>
+        public uint mesh_objects;
         public uint width;
         public uint height;
         /// <summary>
@@ -373,6 +377,19 @@ namespace Disunity.Native
         public uint width;
         public uint height;
         public uint length;
+    }
+
+    /// <summary>
+    ///  One mesh renderer of the last prepared frame. `mesh` is the renderer identity of the mesh
+    ///  contents (see `disunity_mesh_read`), `object` the object's identity, and `slot_count` the
+    ///  number of records `disunity_presentation_mesh_object` copies out.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshObject
+    {
+        public ulong @object;
+        public ulong mesh;
+        public uint slot_count;
     }
 
     /// <summary>
@@ -722,26 +739,6 @@ namespace Disunity.Native
         public uint index_count;
         public uint submesh_count;
         public uint left_out;
-    }
-
-    /// <summary>
-    ///  One vertex: position, normal, first texture coordinate and colour (linear RGBA).
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityMeshVertex
-    {
-        public float x;
-        public float y;
-        public float z;
-        public float nx;
-        public float ny;
-        public float nz;
-        public float u;
-        public float v;
-        public float r;
-        public float g;
-        public float b;
-        public float a;
     }
 
 }

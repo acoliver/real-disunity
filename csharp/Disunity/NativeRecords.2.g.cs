@@ -12,6 +12,26 @@ namespace Disunity.Native
 {
 
     /// <summary>
+    ///  One vertex: position, normal, first texture coordinate and colour (linear RGBA).
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshVertex
+    {
+        public float x;
+        public float y;
+        public float z;
+        public float nx;
+        public float ny;
+        public float nz;
+        public float u;
+        public float v;
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+    }
+
+    /// <summary>
     ///  A run of triangle indices that one material slot draws. `slot` is the sub-mesh's number in
     ///  the managed mesh, so a left-out sub-mesh leaves a gap in the slots.
     /// </summary>

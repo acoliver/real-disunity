@@ -92,7 +92,9 @@ fn temporal_taa_adds_the_lock_state_only_when_locks_are_on() {
 
 /// The temporal bytes of a configuration without locks.
 fn unlocked_bytes() -> u64 {
-    let shared = texels(OUTPUT) * HALF_RGBA;
+    // Two output sized `Rgba16Float` histories: the upscale pass reads one and writes the other,
+    // so there is no copy back. The second history is the 8 O bytes the removed copy did not need.
+    let shared = texels(OUTPUT) * HALF_RGBA * 2;
     let per_slot_output = texels(OUTPUT) * HALF_RGBA * SLOTS;
     let dilated_depth = texels(RENDER) * FLOAT_R;
     let dilated_motion = texels(RENDER) * 2 * FLOAT_R;

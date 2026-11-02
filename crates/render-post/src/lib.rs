@@ -86,6 +86,7 @@ mod hdr_temporal_reset_tests;
 mod history_key;
 #[cfg(test)]
 mod history_key_tests;
+mod history_parity;
 mod jitter;
 #[cfg(test)]
 mod jitter_tests;

@@ -1,5 +1,5 @@
 //! Stage targets, operations and their encoding.
-use crate::fullscreen_pass_timed;
+use crate::{fullscreen_pass_timed, history_parity::HistoryParity};
 
 /// Output is supplied per encode, allowing the same chain to target a surface or capture.
 #[derive(Clone, Debug)]
@@ -8,6 +8,8 @@ pub enum StageTarget {
     Texture(wgpu::TextureView),
     /// Two colour attachments, locations 0 and 1, both cleared and stored.
     Pair(wgpu::TextureView, wgpu::TextureView),
+    /// Three colour attachments, locations 0, 1 and 2, all cleared and stored.
+    Triple(wgpu::TextureView, wgpu::TextureView, wgpu::TextureView),
 }
 
 /// A linear authored sequence, not a render graph. Bind groups carry explicit caller layouts.
@@ -43,6 +45,19 @@ pub enum Operation {
         groups: Vec<wgpu::BindGroup>,
         target: StageTarget,
     },
+    /// A fullscreen pass of one pipeline with two sets of bind groups and targets. `parity`
+    /// picks the set at encode time: the first when even, the second when odd.
+    FullscreenAlternating {
+        pipeline: wgpu::RenderPipeline,
+        parity: HistoryParity,
+        variants: Box<[(Vec<wgpu::BindGroup>, StageTarget); 2]>,
+    },
+}
+
+/// One bind group set and target of an alternating fullscreen pass.
+pub struct Variant<'a> {
+    pub groups: &'a [&'a wgpu::BindGroup],
+    pub target: StageTarget,
 }
 
 impl Operation {
@@ -95,6 +110,29 @@ impl Stage {
                 pipeline: pipeline.clone(),
                 groups: groups.iter().map(|group| (*group).clone()).collect(),
                 target,
+            },
+        }
+    }
+
+    /// A fullscreen pass whose bind groups and target alternate with the parity of the history.
+    pub(crate) fn fullscreen_alternating(
+        id: crate::StageId,
+        pipeline: &wgpu::RenderPipeline,
+        parity: &HistoryParity,
+        variants: [Variant<'_>; 2],
+    ) -> Self {
+        let owned = variants.map(|variant| {
+            let groups = variant.groups.iter().map(|group| (*group).clone());
+            (groups.collect(), variant.target)
+        });
+        Self {
+            id,
+            label: id.name,
+            enabled: true,
+            operation: Operation::FullscreenAlternating {
+                pipeline: pipeline.clone(),
+                parity: parity.clone(),
+                variants: Box::new(owned),
             },
         }
     }
@@ -203,6 +241,19 @@ impl Stage {
                 (pipeline, groups),
                 &views_of(target, output),
             ),
+            Operation::FullscreenAlternating {
+                pipeline,
+                parity,
+                variants,
+            } => {
+                let (groups, target) = &variants[usize::from(parity.odd())];
+                self.fullscreen_pass(
+                    encoder,
+                    stamp,
+                    (pipeline, groups),
+                    &views_of(target, output),
+                );
+            }
         }
     }
 }
@@ -215,5 +266,6 @@ fn views_of<'a>(
         StageTarget::Output => vec![output],
         StageTarget::Texture(view) => vec![view],
         StageTarget::Pair(first, second) => vec![first, second],
+        StageTarget::Triple(first, second, third) => vec![first, second, third],
     }
 }

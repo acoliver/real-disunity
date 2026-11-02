@@ -139,7 +139,8 @@ struct Stage1 {
     render: [u32; 2],
     uniform: wgpu::Buffer,
     camera: wgpu::Buffer,
-    history: wgpu::Texture,
+    history: [wgpu::Texture; 2],
+    parity: crate::history_parity::HistoryParity,
     output: wgpu::Texture,
 }
 impl StageFactory for Stage1 {
@@ -160,7 +161,8 @@ impl StageFactory for Stage1 {
                 render: self.render,
                 uniform: &self.uniform,
                 camera: &self.camera,
-                history: &self.history,
+                history: [&self.history[0], &self.history[1]],
+                parity: &self.parity,
                 output: &self.output,
                 locks: None,
                 mask: None,
@@ -206,8 +208,9 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
         .take(4 * case.color.pixels.len())
         .collect();
     write_texture(&queue, &motion, &field, 4);
-    let history = taa_upscale_gpu::history(&device, output);
-    write_texture(&queue, &history, &bytes16(&case.history.pixels), 8);
+    // The default parity is even: the pass reads the second history and writes the first.
+    let history = [0, 1].map(|_| taa_upscale_gpu::history(&device, output));
+    write_texture(&queue, &history[1], &bytes16(&case.history.pixels), 8);
     let block = TemporalBlock {
         render,
         output,
@@ -240,6 +243,7 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
             uniform,
             camera,
             history,
+            parity: crate::history_parity::HistoryParity::default(),
             output: target.clone(),
         },
     )

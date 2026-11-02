@@ -248,6 +248,10 @@ impl HdrPost {
     ) -> Result<(), PostError> {
         crate::hdr_taa::upload_temporal(&self.device, encoder, &self.taa[slot], block)
     }
+    /// Selects which temporal history the next frame writes.
+    pub fn select_history_parity(&self, odd: bool) {
+        self.taa_history.parity().select(odd);
+    }
     /// Uploads the camera term of the temporal stage of `slot`.
     pub fn prepare_temporal_camera(
         &self,

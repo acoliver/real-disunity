@@ -147,6 +147,9 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
     ) -> Result<(), PostError> {
         if let Some(block) = self.pending_temporal_block() {
+            // The parity of the frames really submitted since the last reset, not of the frames
+            // encoded: a cancelled frame must leave the history that the next frame reads alone.
+            factory.select_history_parity(self.temporal.borrow().frame_index % 2 == 1);
             let camera = self.temporal.borrow().pending_camera;
             #[cfg(test)]
             let camera = camera.filter(|_| !self.temporal.borrow().camera_term_disabled);

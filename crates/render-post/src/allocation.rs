@@ -93,6 +93,8 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     set.texture("taa history", [w, h, 1], colour, [1, 1], 1);
     set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
     if temporal {
+        // The upscale pass reads one colour history and writes the other, see `taa_upscale_gpu`.
+        set.texture("taa history alternate", [w, h, 1], colour, [1, 1], 1);
         // Held by the frame targets, one field for every slot: it is cleared, written and read
         // inside one encoded frame. At equal extents the chain is the native TAA and has none.
         let [rw, rh] = config.size;

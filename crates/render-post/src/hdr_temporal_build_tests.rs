@@ -77,22 +77,20 @@ fn shared(sets: &[StageSet]) -> Vec<wgpu::Texture> {
         .collect()
 }
 
-const UNLOCKED_STAGES: [&str; 6] = [
+const UNLOCKED_STAGES: [&str; 5] = [
     "temporal depth clear",
     "temporal reconstruct dilate",
     "temporal depth clip",
     "temporal upscale",
-    "temporal upscale history",
     "tone",
 ];
 
-const LOCKED_STAGES: [&str; 8] = [
+const LOCKED_STAGES: [&str; 7] = [
     "temporal depth clear",
     "temporal reconstruct dilate",
     "temporal depth clip",
     "temporal create locks",
     "temporal upscale",
-    "temporal upscale history",
     "temporal lock history",
     "tone",
 ];
@@ -130,11 +128,11 @@ fn assert_bank(locks: bool) {
     let history = shared(&sets);
     assert_eq!(
         history.len(),
-        1 + usize::from(locks),
-        "colour history, lock history if on"
+        2 + usize::from(locks),
+        "the colour history pair, lock history if on"
     );
     for set in &sets {
-        assert_eq!(set.resources.textures.len(), 5 + 3 * usize::from(locks));
+        assert_eq!(set.resources.textures.len(), 6 + 3 * usize::from(locks));
         let at_output = set
             .resources
             .textures
@@ -144,8 +142,8 @@ fn assert_bank(locks: bool) {
             .count();
         assert_eq!(
             at_output,
-            2 + 2 * usize::from(locks),
-            "output, history, lock bank and history"
+            3 + 2 * usize::from(locks),
+            "output, both histories, lock bank and history"
         );
         let at_render: Vec<_> = set
             .resources

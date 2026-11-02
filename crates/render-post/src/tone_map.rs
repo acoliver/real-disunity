@@ -170,6 +170,16 @@ impl ToneMapOutput {
             .as_ref()
             .map_or(Ok(()), |post| post.prepare_temporal(encoder, slot, block))
     }
+    /// Selects which of the two temporal histories the next encoded frame writes: `odd` writes
+    /// the second and reads the first, even does the reverse. The host passes the parity of the
+    /// number of frames it has really submitted since the last reset, so a frame that was encoded
+    /// and then cancelled does not change which history the next frame reads. A reset history
+    /// starts even. Without effects there is nothing to select.
+    pub fn select_history_parity(&self, odd: bool) {
+        if let Some(post) = &self.post {
+            post.select_history_parity(odd);
+        }
+    }
     /// Uploads the camera term of the temporal stage of `slot`. Without effects there is nothing
     /// to upload to. A slot that never receives one applies the object residual alone.
     pub fn prepare_temporal_camera(

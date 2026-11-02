@@ -60,7 +60,7 @@ impl Resources {
 
 #[path = "chain_stage.rs"]
 mod stage;
-pub use stage::{Operation, Stage, StageTarget};
+pub use stage::{Operation, Stage, StageTarget, Variant};
 
 #[derive(Default, Debug)]
 pub struct StageSet {

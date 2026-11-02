@@ -31,8 +31,8 @@ const EDGE_BAND: f64 = 2.0;
 pub(crate) struct Recording {
     pub(crate) inner: ToneMapOutput,
     pub(crate) output: Arc<Mutex<Option<wgpu::Texture>>>,
-    /// The shared history texture, the second texture of slot 0 in the temporal bank.
-    pub(crate) history: Arc<Mutex<Option<wgpu::Texture>>>,
+    /// The two history textures, the second and third texture of slot 0 in the temporal bank.
+    pub(crate) history: Arc<Mutex<Option<[wgpu::Texture; 2]>>>,
     /// The lock bank of slot 0, present only when the locks are on.
     pub(crate) lock_bank: Arc<Mutex<Option<wgpu::Texture>>>,
 }
@@ -65,9 +65,12 @@ impl StageFactory for Recording {
             .build_for_slot(device, targets, persistent, slot)?;
         if slot == 0 {
             *self.output.lock().unwrap() = set.resources.textures.first().cloned();
-            *self.history.lock().unwrap() = set.resources.textures.get(1).cloned();
+            *self.history.lock().unwrap() = set.resources.textures.get(1..3).map(|pair| {
+                let [even, odd] = pair else { unreachable!() };
+                [even.clone(), odd.clone()]
+            });
             *self.lock_bank.lock().unwrap() = crate::taa_upscale_gpu::locks_enabled()
-                .then(|| set.resources.textures.get(2).cloned())
+                .then(|| set.resources.textures.get(3).cloned())
                 .flatten();
         }
         Ok(set)
@@ -89,6 +92,7 @@ pub(crate) struct Rig {
     hdr: wgpu::Texture,
     sink: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
+    frames: crate::history_parity::SubmittedFrames,
     render: [u32; 2],
     pub(crate) jitter: ProjectionJitter,
 }
@@ -105,6 +109,7 @@ impl Rig {
             history: Arc::default(),
             lock_bank: Arc::default(),
         };
+        let frames = crate::history_parity::SubmittedFrames::default();
         let chain = PostChain::new(&device, config, Resources::default(), factory).unwrap();
         let hdr = output.lock().unwrap().take().expect("slot 0 was built");
         assert_eq!((hdr.width(), hdr.height()), (OUTPUT[0], OUTPUT[1]));
@@ -127,6 +132,7 @@ impl Rig {
             hdr,
             sink,
             pipeline,
+            frames,
             render,
             jitter: ProjectionJitter::for_extents(render, OUTPUT).unwrap(),
         }
@@ -210,6 +216,7 @@ impl Rig {
         if let Some(camera) = camera {
             factory.prepare_temporal_camera(&mut encoder, 0, camera);
         }
+        self.frames.select(factory, history_valid);
         factory.prepare_temporal(&mut encoder, 0, &block).unwrap();
         factory
             .prepare_effects(&mut encoder, 0, 0.031, true)
@@ -219,6 +226,7 @@ impl Rig {
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.chain.encode(&mut encoder, &view);
         self.queue.submit([encoder.finish()]);
+        self.frames.submitted();
     }
 
     /// The HDR reconstruction of the last frame, mean of the three colour channels per pixel.

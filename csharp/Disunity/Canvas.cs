@@ -52,6 +52,10 @@ public sealed class Font
     internal readonly ulong World;
     internal Font(ulong handle, ulong world) { Handle = handle; World = world; }
 
+    /// <summary>The font file this font was made from, which <see cref="UnityEngine.TextCore.LowLevel.FontEngine"/>
+    /// loads a face from; null for a font made without one, which stays unusable there.</summary>
+    internal byte[]? FontData { get; init; }
+
     private static readonly object RebuildLock = new();
     private static Action<Font>? _textureRebuilt;
 

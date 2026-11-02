@@ -5,6 +5,7 @@ use crate::presentation::SpriteLighting;
 use crate::presentation::extraction::{
     SpriteQuad, WorldRenderPlan, camera_admits, selected_camera, ui_corners,
 };
+use crate::ui::clip::{CanvasClip, Clipped};
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::ui::{CanvasRenderer, RectLayout, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, ObjectSnapshot, World, WorldError};
@@ -45,6 +46,7 @@ pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphi
     let rects: BTreeMap<ObjectHandle, &RectLayout> =
         layout.rects.iter().map(|r| (r.object, r)).collect();
     let order = hierarchy_order(world, &snapshot.objects)?;
+    let roots = root_canvases(world, &snapshot.components)?;
     let mut found = Vec::new();
     for component in &snapshot.components {
         let ComponentDesc::CanvasRenderer(renderer) = &component.desc else {
@@ -61,7 +63,11 @@ pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphi
         {
             continue;
         }
-        if let Some(graphic) = graphic(renderer, rect, overlay, alpha) {
+        let clip = renderer.clip_rect.and_then(|clip| {
+            let root = rects.get(roots.get(&rect.canvas)?)?;
+            CanvasClip::new(clip, root.local_to_world)
+        });
+        if let Some(graphic) = graphic(renderer, rect, overlay, alpha, clip) {
             let at = order.get(&component.object).copied().unwrap_or(usize::MAX);
             found.push((at, graphic));
         }
@@ -75,6 +81,7 @@ fn graphic(
     rect: &RectLayout,
     overlay: bool,
     alpha: f32,
+    clip: Option<CanvasClip>,
 ) -> Option<UiGraphic> {
     let found = renderer.geometry.as_ref()?.quads();
     let tint = [
@@ -86,12 +93,21 @@ fn graphic(
     let quads = found
         .quads
         .iter()
-        .map(|quad| UiGraphicQuad {
-            corners: quad
+        .filter_map(|quad| {
+            let world = quad
                 .positions
-                .map(|p| rect.drawn_point(glam::Vec3::from(p)).to_array()),
-            uv_rect: quad.uv_rect,
-            color: std::array::from_fn(|i| tint[i] * quad.color[i]),
+                .map(|p| rect.local_to_world.transform_point3(glam::Vec3::from(p)));
+            let (world, uv_rect) =
+                match clip.map_or(Clipped::Whole, |c| c.clip(world, quad.uv_rect)) {
+                    Clipped::Whole => (world, quad.uv_rect),
+                    Clipped::Outside => return None,
+                    Clipped::Cut(world, uv_rect) => (world, uv_rect),
+                };
+            Some(UiGraphicQuad {
+                corners: world.map(|p| rect.drawn_world_point(p).to_array()),
+                uv_rect,
+                color: std::array::from_fn(|i| tint[i] * quad.color[i]),
+            })
         })
         .collect();
     Some(UiGraphic {
@@ -104,6 +120,32 @@ fn graphic(
         quads,
         left_out_triangles: found.left_out_triangles,
     })
+}
+
+/// The topmost canvas above (or at) each canvas object: the canvas whose space clip rectangles
+/// are measured in.
+fn root_canvases(
+    world: &World,
+    components: &[crate::ComponentSnapshot],
+) -> Result<BTreeMap<ObjectHandle, ObjectHandle>, WorldError> {
+    let canvases: Vec<ObjectHandle> = components
+        .iter()
+        .filter(|c| matches!(c.desc, ComponentDesc::Canvas(_)))
+        .map(|c| c.object)
+        .collect();
+    let mut roots = BTreeMap::new();
+    for &canvas in &canvases {
+        let mut root = canvas;
+        let mut current = world.parent(canvas)?;
+        while let Some(node) = current {
+            if canvases.contains(&node) {
+                root = node;
+            }
+            current = world.parent(node)?;
+        }
+        roots.insert(canvas, root);
+    }
+    Ok(roots)
 }
 
 /// Each object's place in a depth-first walk of the hierarchy.

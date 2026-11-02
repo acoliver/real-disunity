@@ -34,7 +34,13 @@ impl RectLayout {
     /// lower left on a screen-space canvas, a point of the native world otherwise.
     #[must_use]
     pub fn drawn_point(&self, local: Vec3) -> Vec3 {
-        let world = self.local_to_world.transform_point3(local);
+        self.drawn_world_point(self.local_to_world.transform_point3(local))
+    }
+
+    /// Where a point of the native world is drawn, as [`RectLayout::drawn_point`] for a point
+    /// already in world space.
+    #[must_use]
+    pub fn drawn_world_point(&self, world: Vec3) -> Vec3 {
         self.pixels_from_world
             .map_or(world, |pixels| pixels.transform_point3(world))
     }

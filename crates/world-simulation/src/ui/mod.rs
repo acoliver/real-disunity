@@ -4,6 +4,7 @@
 //! only, with character wrapping and font kerning, without shaping or substitution.
 
 mod atlas;
+mod clip;
 mod font_data;
 mod fonts;
 mod geometry;

@@ -60,6 +60,7 @@ fn main() {
 
 fn options() -> ViewerOptions {
     ViewerOptions {
+        activity_reason: worldrunner_scene_viewer::ActivityReason::default(),
         presentation_budget: PresentationBudget::default().into(),
         capture_pool: worldrunner_scene_viewer::CapturePoolPolicy::default(),
         window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),

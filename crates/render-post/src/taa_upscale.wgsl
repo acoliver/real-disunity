@@ -80,17 +80,10 @@ fn load_history(p: vec2<i32>) -> vec3<f32> {
     let last = vec2<i32>(temporal.extents.zw) - 1;
     return textureLoad(history, clamp(p, vec2<i32>(0), last), 0).rgb;
 }
-// The normalised Lanczos2 of the 4x4 texels around q and the YCoCg box of the 3x3 texels around
-// the one nearest q. The 3x3 box always lies inside the 4x4 footprint (the nearest texel is floor(q)
-// or floor(q) + 1), so both statistics come from one load per texel.
-struct Reconstruction {
-    current: vec4<f32>,
-    bounds: array<vec3<f32>, 2>,
-}
-fn reconstruct(q: vec2<f32>) -> Reconstruction {
+// Normalised Lanczos2 of the 4x4 texels around q.
+fn reconstruct(q: vec2<f32>) -> vec4<f32> {
     let base = floor(q);
     let origin = vec2<i32>(base);
-    let nearest = vec2<i32>(floor(q + 0.5)) - origin;
     let wx = vec4<f32>(
         lanczos2(q.x - (base.x - 1.0)),
         lanczos2(q.x - base.x),
@@ -105,22 +98,25 @@ fn reconstruct(q: vec2<f32>) -> Reconstruction {
     );
     var sum = vec4<f32>(0.0);
     var total = 0.0;
-    var lo = vec3<f32>(3.4e38);
-    var hi = vec3<f32>(-3.4e38);
     for (var i = 0; i < 16; i++) {
         let d = vec2<i32>(i % 4 - 1, i / 4 - 1);
         let w = wx[d.x + 1] * wy[d.y + 1];
-        let c = load_color(origin + d);
-        sum += w * c;
+        sum += w * load_color(origin + d);
         total += w;
-        let from_nearest = abs(d - nearest);
-        if from_nearest.x <= 1 && from_nearest.y <= 1 {
-            let s = to_ycocg(compress(c.rgb));
-            lo = min(lo, s);
-            hi = max(hi, s);
-        }
     }
-    return Reconstruction(sum / total, array<vec3<f32>, 2>(0.5 * (lo + hi), 0.5 * (hi - lo)));
+    return sum / total;
+}
+// Centre and half-extent of the YCoCg box of the 3x3 texels around the one nearest q.
+fn neighbourhood(q: vec2<f32>) -> array<vec3<f32>, 2> {
+    let centre = vec2<i32>(floor(q + 0.5));
+    var lo = vec3<f32>(3.4e38);
+    var hi = vec3<f32>(-3.4e38);
+    for (var i = 0; i < 9; i++) {
+        let s = to_ycocg(compress(load_color(centre + vec2<i32>(i % 3 - 1, i / 3 - 1)).rgb));
+        lo = min(lo, s);
+        hi = max(hi, s);
+    }
+    return array<vec3<f32>, 2>(0.5 * (lo + hi), 0.5 * (hi - lo));
 }
 fn catmull_rom_weights(f: f32) -> vec4<f32> {
     return vec4<f32>(
@@ -241,8 +237,7 @@ fn prepare(position: vec4<f32>) -> Prepared {
         && all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     let confidence = history_confidence(q);
     let mask = gather_masks(q);
-    let r = reconstruct(q);
-    return Prepared(q, flow, uv, usable, confidence, mask.x, mask.y, r.bounds, r.current);
+    return Prepared(q, flow, uv, usable, confidence, mask.x, mask.y, neighbourhood(q), reconstruct(q));
 }
 // The resolved color. `locked` halves the share of the new sample.
 fn blend(s: Prepared, locked: bool) -> vec4<f32> {

@@ -5,6 +5,8 @@
 
 mod atlas;
 mod clip;
+mod faces;
+mod faces_render;
 mod font_data;
 mod fonts;
 mod geometry;
@@ -12,10 +14,13 @@ mod graphics;
 mod group;
 mod layout;
 mod renderer;
+mod sdf;
 mod text;
 mod wrap;
 use crate::{ObjectHandle, WorldError};
 pub use atlas::GlyphAtlas;
+pub use faces::{FaceBook, FaceId, FaceInfo, FaceLimits, GlyphMetrics, GlyphPair, MAX_POINT_SIZE};
+pub use faces_render::{GlyphJob, GlyphRect, RenderMode};
 pub use fonts::{FontBook, UiLimits};
 pub use geometry::{
     GeometryQuad, GeometryQuads, MAX_UI_INDICES, MAX_UI_VERTICES, UiGeometry, UiVertex,

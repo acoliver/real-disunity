@@ -22,6 +22,10 @@ pub enum UiError {
     InvalidFont,
     #[error("font is not registered: {0:?}")]
     MissingFont(FontId),
+    #[error("font face is not loaded")]
+    MissingFace,
+    #[error("font has no glyph with that index")]
+    InvalidGlyph,
     #[error("font storage limit")]
     FontLimit,
     #[error("invalid text settings")]

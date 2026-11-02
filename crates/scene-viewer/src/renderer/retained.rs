@@ -82,6 +82,14 @@ fn apply_edit(
 }
 
 impl Renderer {
+    pub(crate) fn submitted_frame(&self) -> u64 {
+        self.streaming
+            .captures
+            .next_frame()
+            .checked_sub(1)
+            .expect("submitted frame")
+    }
+
     pub(crate) fn capture_pool_bytes(&self) -> u64 {
         self.presentation.capture_pool_bytes()
     }

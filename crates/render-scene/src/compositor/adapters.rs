@@ -16,6 +16,9 @@ impl PreparedFeature for Resident<'_> {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         Ok(())
     }
+    fn commit(&mut self, _: &mut PrepareContext<'_>) {
+        self.scene.reset_pass_statistics();
+    }
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
         self.publications.publish(context);
     }
@@ -24,8 +27,10 @@ impl PreparedFeature for Resident<'_> {
             self.scene.draw_celestial(pass);
             return;
         }
-        self.publications
-            .record(self.scene.draw_color(pass, self.pipelines, None));
+        self.publications.record_color(
+            self.scene,
+            self.scene.draw_color(pass, self.pipelines, None),
+        );
     }
 }
 

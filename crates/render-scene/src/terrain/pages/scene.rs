@@ -32,6 +32,7 @@ pub struct TerrainPageSource {
 
 pub(crate) struct ScenePages {
     pub cache: ResidentPages,
+    pub statistics: std::rc::Rc<std::cell::Cell<crate::draw::TerrainPageStatistics>>,
     identity: u64,
     generation: u64,
     writer: PageWriter,
@@ -91,6 +92,7 @@ impl ScenePages {
         )?;
         Ok(Self {
             cache,
+            statistics: std::rc::Rc::default(),
             identity: capture::identity(),
             generation: 1,
             writer: PageWriter::new(device, settings),
@@ -250,10 +252,27 @@ impl ScenePages {
         self.draw_transaction =
             Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
         table::upload(self, device, encoder)?;
+        self.publish_statistics(encoder)?;
         let destination = self.published_selection.clone();
         let selection = self.selection.clone();
         crate::compositor::publication::encode(encoder, &destination.clone(), move || {
             *destination.borrow_mut() = selection;
+        })?;
+        Ok(())
+    }
+
+    fn publish_statistics(&self, encoder: &wgpu::CommandEncoder) -> Result<(), FrameError> {
+        let counts = crate::draw::TerrainPageStatistics::from_residency(
+            self.selection
+                .as_ref()
+                .expect("selected")
+                .leaves()
+                .iter()
+                .map(|key| self.draw_residents.iter().any(|page| page.key() == *key)),
+        );
+        let destination = self.statistics.clone();
+        crate::compositor::publication::encode(encoder, &destination.clone(), move || {
+            destination.set(counts);
         })?;
         Ok(())
     }

@@ -148,3 +148,92 @@ fn target(context: &GpuContext) -> OffscreenTarget {
     )
     .unwrap()
 }
+
+#[test]
+fn raw_terrain_and_sky_draw_preserves_submitted_statistics() {
+    let context = context();
+    let base = terrain_scene(1);
+    let atmosphere = worldrunner_render_plan::SceneAtmosphere {
+        celestial_composition: worldrunner_render_plan::SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy:
+            worldrunner_render_plan::SceneBackgroundDepthPolicy::ConstantDistance,
+        scattering: None,
+        horizon_radiance_micro: [1_000_000; 3],
+        zenith_radiance_micro: [1_000_000; 3],
+        gradient_exponent_micro: 1_000_000,
+        sun_angular_radius_millidegrees: 0,
+        fog: None,
+        discs: vec![],
+        meshes: vec![],
+        background_distance_millimeters: 20_000,
+    };
+    let source = base
+        .with_objects_and_effects(
+            base.geometry().objects().to_vec(),
+            Some(
+                base.effects()
+                    .unwrap()
+                    .clone()
+                    .with_atmosphere(atmosphere)
+                    .unwrap(),
+            ),
+        )
+        .unwrap();
+    let pipelines = ScenePipelines::new(context.device(), TextureFormat::Rgba16Float);
+    let gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    gpu.set_frame(context.queue(), frame_from(pose()));
+    let previous = gpu.statistics();
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    raw_draw(context.device(), &mut encoder, &gpu, &pipelines);
+    encoder.finish().submit().unwrap();
+    assert_eq!(gpu.statistics(), previous);
+}
+
+fn raw_draw(
+    device: &Device,
+    encoder: &mut CommandEncoder,
+    gpu: &SceneGpu,
+    pipelines: &ScenePipelines,
+) {
+    let views = [TextureFormat::Rgba16Float, TextureFormat::Depth32Float].map(|format| {
+        device
+            .create_texture(&TextureDescriptor {
+                label: None,
+                size: Extent3d {
+                    width: 16,
+                    height: 16,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format,
+                usage: TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+            .create_view(&TextureViewDescriptor::default())
+    });
+    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+        color_attachments: &[Some(RenderPassColorAttachment {
+            view: &views[0],
+            depth_slice: None,
+            resolve_target: None,
+            ops: Operations {
+                load: LoadOp::Clear(Color::BLACK),
+                store: StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+            view: &views[1],
+            depth_ops: Some(Operations {
+                load: LoadOp::Clear(1.0),
+                store: StoreOp::Store,
+            }),
+            stencil_ops: None,
+        }),
+        ..Default::default()
+    });
+    gpu.draw(&mut pass, pipelines);
+}

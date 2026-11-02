@@ -9,7 +9,9 @@ pub use timing::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
 };
 mod statistics;
-pub use statistics::{DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics};
+pub use statistics::{
+    DrawCount, ResourceStatistics, RetainedFrameStatistics, SceneStatistics, TerrainPageStatistics,
+};
 mod decals;
 pub use decals::DecalUpdate;
 mod event_host;
@@ -25,8 +27,8 @@ pub use input::{
 };
 mod capture;
 pub use capture::{
-    CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureOutcome,
-    RetainedCaptureProducts, RetainedCaptureRecipe,
+    CaptureJitter, CaptureOutput, CaptureRequestError, RetainedCaptureObservation,
+    RetainedCaptureOutcome, RetainedCaptureProducts, RetainedCaptureRecipe,
 };
 pub(crate) use capture::{Captures, ao_format_from_settings};
 pub(crate) mod readiness;

@@ -45,6 +45,7 @@ impl ScenePages {
     pub fn capture_write_keys(&self) -> Vec<worldrunner_render_gpu::submission::capture::WriteKey> {
         let mut keys = vec![
             crate::compositor::publication::key(&self.published_selection),
+            crate::compositor::publication::key(&self.statistics),
             self.cache.capture_write_key(),
         ];
         keys.extend(

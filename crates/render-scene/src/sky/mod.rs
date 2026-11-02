@@ -297,7 +297,8 @@ impl Sky {
         pass: &mut wgpu::RenderPass<'_>,
         frame: &wgpu::BindGroup,
         key: (bool, bool),
-    ) {
+    ) -> crate::draw::DrawCount {
+        let mut count = crate::draw::DrawCount::default();
         let mut variants = self.variants.borrow_mut();
         let pipeline = variants.entry(key).or_insert_with(|| {
             pipeline(
@@ -313,7 +314,9 @@ impl Sky {
         for group in &self.groups {
             pass.set_bind_group(1, group, &[]);
             pass.draw(0..3, 0..1);
+            count.draw(1);
         }
+        count
     }
 }
 #[expect(

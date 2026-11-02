@@ -223,7 +223,12 @@ impl Streaming {
                 ) <= threshold
         }))
     }
-    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, instances: &wgpu::Buffer) {
+    pub fn draw(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        instances: &wgpu::Buffer,
+    ) -> super::DrawCount {
+        let mut count = super::DrawCount::default();
         let drawing = self.drawing.borrow();
         let committed = self.committed.borrow();
         let residents = drawing
@@ -238,7 +243,9 @@ impl Streaming {
             pass.set_vertex_buffer(0, lod.vertices.slice(..));
             pass.set_index_buffer(lod.indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..lod.index_count, 0, 0..1);
+            count.draw(1);
         }
+        count
     }
 }
 #[cfg(test)]

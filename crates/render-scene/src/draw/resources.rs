@@ -541,3 +541,17 @@ pub(super) fn scene_materials(
         },
     )
 }
+
+impl super::SceneGpu {
+    pub(super) fn finish_upload(
+        mut self,
+        device: &wgpu::Device,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+        pipelines: &crate::renderer::ScenePipelines,
+        scene: &worldrunner_render_plan::RenderScene,
+    ) -> Result<Self, super::DrawError> {
+        self.install_terrain_page_policy(device, authority, pipelines, scene)?;
+        self.flush_instances(device, authority)?;
+        Ok(self)
+    }
+}

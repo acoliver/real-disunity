@@ -13,6 +13,47 @@ pub(super) fn source_with(source: &RenderScene, shadows: SceneShadowCascades) ->
 }
 
 #[test]
+fn resident_statistics_clear_shadows_only_after_submission() {
+    let context = context();
+    let source = scene(&[[0, 0, 1_000]], 600_000, None);
+    let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    render_target(&mut shadowed, &context, &view(), &target).unwrap();
+    let previous = shadowed.scene_mut().statistics();
+    assert!(
+        previous
+            .passes
+            .shadow_cascades
+            .iter()
+            .any(|count| count.calls > 0)
+    );
+    let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
+    let mut renderer = crate::compositor::FrameRenderer::new(context.device());
+    for submit in [false, true] {
+        let mut encoder = context.submission().begin(context.device()).unwrap();
+        crate::compositor::encode_resident(
+            &mut renderer,
+            context.device(),
+            &mut encoder,
+            (shadowed.scene_mut(), &pipelines),
+            (&target.color_attachment(), &target.depth_attachment()),
+        )
+        .unwrap();
+        assert_eq!(shadowed.scene_mut().statistics(), previous);
+        if submit {
+            encoder.finish().submit().unwrap();
+            assert_eq!(
+                shadowed.scene_mut().statistics().passes.shadow_cascades,
+                [crate::draw::DrawCount::default(); 4]
+            );
+        } else {
+            drop(encoder);
+            assert_eq!(shadowed.scene_mut().statistics(), previous);
+        }
+    }
+}
+
+#[test]
 fn gpu_four_layers_have_distinct_coverage_and_keep_retained_handles() {
     let context = context();
     let source = source_with(
@@ -48,6 +89,11 @@ fn gpu_four_layers_have_distinct_coverage_and_keep_retained_handles() {
         })
         .collect();
     assert!(drawn.windows(2).all(|w| w[0] < w[1]), "{drawn:?}");
+    let counts = renderer.scene_mut().statistics().passes.shadow_cascades;
+    for (count, selected) in counts.iter().zip(&drawn) {
+        assert_eq!(count.instances, u64::try_from(*selected).unwrap());
+    }
+    assert!(counts.iter().all(|count| count.calls > 0));
     renderer
         .scene_mut()
         .set_instance_visible(handle, false)

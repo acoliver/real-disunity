@@ -66,7 +66,7 @@ fn recipe_result(h: &mut Harness, request: u64) -> crate::RetainedCaptureProduct
         }) = h.host.captures.take_event()
         {
             assert_eq!((id, generation, frame), (request, 1, 0));
-            return products;
+            return *products;
         }
         assert!(std::time::Instant::now() < deadline);
         std::thread::yield_now();
@@ -281,6 +281,7 @@ impl Harness {
                 capture,
                 ticket.clone(),
                 std::time::Duration::ZERO,
+                self.resident.scene_mut().statistics().terrain_pages,
             )
             .unwrap();
         ticket

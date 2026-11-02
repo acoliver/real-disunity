@@ -274,9 +274,14 @@ impl FrameRenderer {
         Ok(())
     }
 
-    pub(crate) fn bind_water_inputs(&mut self, inputs: &[[Option<wgpu::TextureView>; 3]]) {
+    pub(crate) fn bind_water_inputs(
+        &mut self,
+        inputs: &[[Option<wgpu::TextureView>; 3]],
+        counter: crate::draw::pass_statistics::PassCounter,
+    ) {
         if let Some(water) = &mut self.water {
             water.surface_inputs = inputs.to_vec();
+            water.draw_count = counter;
         }
     }
     /// Opaque-only read inputs for the currently selected admitted frame slot.

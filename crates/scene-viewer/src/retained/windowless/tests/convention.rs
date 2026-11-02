@@ -101,7 +101,7 @@ fn products(
             }
             _ => None,
         }) {
-            return products;
+            return *products;
         }
         assert!(Instant::now() < deadline, "camera capture timed out");
         std::thread::yield_now();

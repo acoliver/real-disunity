@@ -150,7 +150,7 @@ fn await_capture(
         }) = host.captures.take_event()
         {
             assert_eq!(id, actual);
-            return products;
+            return *products;
         }
         assert!(std::time::Instant::now() < deadline);
         std::thread::yield_now();
@@ -461,7 +461,7 @@ fn accumulated_capture_freezes_left_handed_camera_across_queued_edit_and_resize(
     else {
         panic!("fixed capture");
     };
-    assert_eq!(products, reference);
+    assert_eq!(*products, reference);
     assert_eq!(
         products.srgb8.unwrap().viewport,
         Viewport {

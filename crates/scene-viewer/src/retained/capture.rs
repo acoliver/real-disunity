@@ -7,17 +7,26 @@ pub use recipe::{CaptureJitter, CaptureOutput, RetainedCaptureProducts, Retained
 use std::collections::{BTreeMap, VecDeque};
 use worldrunner_render_scene::offscreen::RgbaImage;
 
+/// Readiness frozen when the capture's source frame was submitted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetainedCaptureObservation {
+    pub generation: u64,
+    pub terrain_pages: super::statistics::TerrainPageStatistics,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedCaptureOutcome {
     Completed {
         frame: u64,
+        observation: RetainedCaptureObservation,
         time: std::time::Duration,
         image: RgbaImage,
     },
     RecipeCompleted {
         frame: u64,
+        observation: RetainedCaptureObservation,
         time: std::time::Duration,
-        products: RetainedCaptureProducts,
+        products: Box<RetainedCaptureProducts>,
     },
     Cancelled,
 }
@@ -108,12 +117,21 @@ impl Captures {
         frame: u64,
         time: std::time::Duration,
         image: RgbaImage,
+        terrain_pages: super::statistics::TerrainPageStatistics,
     ) {
         let generation = self.outstanding[&id];
         self.events.push_back(RetainedEvent::Capture {
             id,
             generation,
-            outcome: RetainedCaptureOutcome::Completed { frame, time, image },
+            outcome: RetainedCaptureOutcome::Completed {
+                frame,
+                time,
+                image,
+                observation: RetainedCaptureObservation {
+                    generation,
+                    terrain_pages,
+                },
+            },
         });
     }
     pub(crate) fn resize_reservation(
@@ -141,6 +159,7 @@ impl Captures {
         frame: u64,
         time: std::time::Duration,
         products: RetainedCaptureProducts,
+        terrain_pages: super::statistics::TerrainPageStatistics,
     ) {
         self.events.push_back(RetainedEvent::Capture {
             id,
@@ -148,7 +167,11 @@ impl Captures {
             outcome: RetainedCaptureOutcome::RecipeCompleted {
                 frame,
                 time,
-                products,
+                products: Box::new(products),
+                observation: RetainedCaptureObservation {
+                    generation: self.outstanding[&id],
+                    terrain_pages,
+                },
             },
         });
     }

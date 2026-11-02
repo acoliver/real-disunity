@@ -8,6 +8,7 @@ use worldrunner_render_scene::{SceneView, Viewport};
 pub(in crate::renderer) struct Active {
     id: u64,
     frame: u64,
+    terrain_pages: Option<worldrunner_render_scene::draw::TerrainPageStatistics>,
     time: Duration,
     view: SceneView,
     size: Viewport,
@@ -43,8 +44,13 @@ impl Active {
         Ok(true)
     }
     pub(super) fn finish(self, host: &mut RetainedHost) {
-        host.captures
-            .complete_recipe(self.id, self.frame, self.time, self.accumulation.finish());
+        host.captures.complete_recipe(
+            self.id,
+            self.frame,
+            self.time,
+            self.accumulation.finish(),
+            self.terrain_pages.expect("submitted sample"),
+        );
     }
 }
 impl Renderer {
@@ -96,6 +102,7 @@ impl Renderer {
             self.streaming.captures.active = Some(Active {
                 id,
                 frame: self.streaming.captures.next_frame(),
+                terrain_pages: None,
                 time: self.clock.time(),
                 view,
                 size,
@@ -173,7 +180,19 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         let prepared = self.encode_frame(view, None, &output, Some(&mut image))?;
         let ticket = self.execution.submit_capture(ready, prepared)?;
+        let frame = self.streaming.captures.next_frame();
         self.streaming.captures.advance_frame();
+        let pages = self.resident.scene_mut().statistics().terrain_pages;
+        let active = self
+            .streaming
+            .captures
+            .active
+            .as_mut()
+            .expect("active recipe");
+        if active.sample == 0 {
+            active.frame = frame;
+            active.terrain_pages = Some(pages);
+        }
         image.begin()?;
         self.streaming
             .captures

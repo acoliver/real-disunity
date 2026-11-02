@@ -262,6 +262,7 @@ impl Renderer {
                 retained_capture,
                 ticket.clone(),
                 self.frame_time,
+                self.resident.scene_mut().statistics().terrain_pages,
             )?;
         } else {
             self.streaming.captures.advance_frame();

@@ -499,7 +499,7 @@ impl ShadowedScene {
         let (color, depth) = attachments;
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
-        scheduler.bind_water_inputs(&self.gpu.water_inputs);
+        scheduler.bind_water_inputs(&self.gpu.water_inputs, self.gpu.pass_counters.water.clone());
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
@@ -611,6 +611,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
+        self.gpu.reset_pass_statistics();
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
         // Each light view has its own immutable uniform range; billboards keep the main eye.
@@ -663,8 +664,10 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 self.depth_pipelines,
                 Some((index, matrix)),
             ));
-            self.gpu
-                .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
+            let terrain =
+                self.gpu
+                    .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
+            self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
         } else {
             if let Some(screen) = &self.screen {
                 pass.set_bind_group(
@@ -677,11 +680,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 );
             }
             pass.set_bind_group(2, self.shadow_group, &[]);
-            self.publications.record(self.gpu.draw_shadowed(
-                pass,
-                self.pipelines,
-                self.shadow_group,
-            ));
+            self.publications.record_color(
+                self.gpu,
+                self.gpu
+                    .draw_shadowed(pass, self.pipelines, self.shadow_group),
+            );
         }
     }
 }

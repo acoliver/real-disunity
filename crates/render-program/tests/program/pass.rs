@@ -84,3 +84,15 @@ fn the_add_variant_adds_the_offset_to_the_color_and_keeps_the_texel_alpha() {
         "add",
     );
 }
+
+#[test]
+fn a_split_combined_sampler_binds_its_texture_and_sampler_and_samples_the_texel() {
+    // The texture sits at prepared binding 1 and the sampler the importer split off at 2,
+    // with the draw constants moved to 3; the pass is otherwise the multiply variant.
+    let image = draw(&pass(Samplers::Split), &[MULTIPLY]);
+    assert_pixels(
+        &image,
+        |texel| std::array::from_fn(|c| texel[c] * f64::from(TINT_VALUE[c])),
+        "split sampler",
+    );
+}

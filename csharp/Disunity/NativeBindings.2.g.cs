@@ -363,8 +363,9 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_face_glyph_render(ulong world, ulong face, DisunityGlyphRender* render, byte* atlas, uint atlas_length);
         /// <summary>
         ///  Writes the kerning of every ordered pair of `glyphs` that the face adjusts. `count` holds the
-        ///  record capacity on entry and the number of adjustments on return; with more adjustments than
-        ///  capacity nothing is copied and the call fails, so a zero capacity asks for the count.
+        ///  record capacity on entry and the number of adjustments on return. A zero capacity asks for the
+        ///  count and copies nothing; with more adjustments than a nonzero capacity nothing is copied and
+        ///  the call fails.
         ///
         ///  # Safety
         ///  `glyphs` is readable for `glyph_count` values; `records` is writable for the capacity in

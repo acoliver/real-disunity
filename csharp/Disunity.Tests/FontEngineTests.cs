@@ -25,6 +25,8 @@ internal static class FontEngineTests
             AddsGlyphsToAnAtlas();
             AddsGlyphListsAndKeepsWhatDoesNotFit();
             EveryPackingModePlacesWithoutOverlap();
+            ModesPickTheirSlot();
+            LargeFieldsAndShortSlotsAddNothing();
             RefusesUnsupportedAtlases();
             ResetsAtlas();
             FaceEndsWithTheWorld();
@@ -152,9 +154,33 @@ internal static class FontEngineTests
         Expect.Equal(0, FontEngine.GetGlyphPairAdjustmentTable([1, 1]).Length, "a font with no kern table has no pair adjustments");
         Expect.Equal(0, FontEngine.GetGlyphPairAdjustmentTable([]).Length, "no glyphs, no pairs");
         Expect.Throws<ArgumentNullException>(() => FontEngine.GetGlyphPairAdjustmentTable(null!), "null glyph indexes");
+        Expect.Throws<ArgumentNullException>(() => FontEngine.GetPairAdjustmentRecords(null!), "null glyph index list");
+        Expect.Equal(0, FontEngine.GetPairAdjustmentRecords([1, 1]).Length, "the list form of a font with no kern table");
+        Expect.Equal(0, FontEngine.GetMarkToBaseAdjustmentRecords([1, 0]).Length, "no mark-to-base records for a list");
+        Expect.Equal(0, FontEngine.GetMarkToMarkAdjustmentRecords([1, 0]).Length, "no mark-to-mark records for a list");
+        Expect.Equal(0, FontEngine.GetLigatureSubstitutionRecords([1, 0]).Length, "no ligature records for a list");
+        Expect.Throws<ArgumentNullException>(() => FontEngine.GetMarkToBaseAdjustmentRecords((List<uint>)null!), "null mark-to-base list");
+        Expect.Throws<ArgumentNullException>(() => FontEngine.GetMarkToMarkAdjustmentRecords((List<uint>)null!), "null mark-to-mark list");
+        Expect.Throws<ArgumentNullException>(() => FontEngine.GetLigatureSubstitutionRecords((List<uint>)null!), "null ligature list");
+        KernPairs();
         Expect.Equal(0, FontEngine.GetMarkToBaseAdjustmentRecords(1).Length, "mark to base records");
         Expect.Equal(0, FontEngine.GetMarkToMarkAdjustmentRecords(1).Length, "mark to mark records");
         Expect.Equal(0, FontEngine.GetLigatureSubstitutionRecords(1).Length, "ligature records");
+    }
+
+    private static void KernPairs()
+    {
+        Expect.Equal(FontEngineError.Success, FontEngine.LoadFontFace(SyntheticFont.Bytes([(1, 1, -100), (0, 1, 30)]), 50), "a font with a kern table");
+        var records = FontEngine.GetGlyphPairAdjustmentTable([1, 0, 1]);
+        Expect.Equal(2, records.Length, "the kerned pairs among the glyphs asked about, each pair once");
+        var pair = records.Single(r => r.firstAdjustmentRecord.glyphIndex == 1 && r.secondAdjustmentRecord.glyphIndex == 1);
+        Expect.Near(-5, pair.firstAdjustmentRecord.glyphValueRecord.xAdvance, "the kerning in pixels at 50 points", 1e-3f);
+        Expect.That(pair.secondAdjustmentRecord.glyphValueRecord == default, "the second glyph is not moved");
+        var other = records.Single(r => r.firstAdjustmentRecord.glyphIndex == 0);
+        Expect.Near(1.5f, other.firstAdjustmentRecord.glyphValueRecord.xAdvance, "a positive adjustment", 1e-3f);
+        Expect.Equal(2, FontEngine.GetPairAdjustmentRecords([0, 1]).Length, "the list form finds the same pairs");
+        Expect.Equal(1, FontEngine.GetPairAdjustmentRecords([1]).Length, "a single glyph kerns with itself");
+        FontEngine.LoadFontFace(SyntheticFont.Bytes(), 100);
     }
 
     private static Texture2D Atlas(int side) => new(side, side, TextureFormat.Alpha8, false);
@@ -246,6 +272,56 @@ internal static class FontEngineTests
         var bottomLeftUsed = new List<GlyphRect>();
         FontEngine.TryAddGlyphToTexture(1, 1, GlyphPackingMode.BottomLeftRule, bottomLeft, bottomLeftUsed, GlyphRenderMode.SMOOTH, Atlas(96), out var first);
         Expect.That(first!.glyphRect.x == 0 && first.glyphRect.y == 0, "the first rectangle goes to the corner");
+    }
+
+    private static GlyphRect Place(GlyphPackingMode mode, params GlyphRect[] slots)
+    {
+        var free = new List<GlyphRect>(slots);
+        var used = new List<GlyphRect>();
+        Expect.That(FontEngine.TryAddGlyphToTexture(1, 4, mode, free, used, GlyphRenderMode.SMOOTH, Atlas(512), out var glyph), $"{mode}: the glyph fits");
+        var rect = glyph!.glyphRect;
+        Expect.That(used.Count == 1 && used[0] == rect, $"{mode}: the placed rectangle is recorded");
+        Expect.That(free.All(f => !Overlap(f, rect)), $"{mode}: free space excludes the glyph");
+        Expect.That(free.Select((a, i) => free.Where((b, j) => i != j && a.x >= b.x && a.y >= b.y && a.x + a.width <= b.x + b.width && a.y + a.height <= b.y + b.height).Any())
+            .All(contained => !contained), $"{mode}: no free rectangle lies inside another");
+        return rect;
+    }
+
+    private static void ModesPickTheirSlot()
+    {
+        FontEngine.LoadFontFace(SyntheticFont.Bytes(), 100);
+        var roomy = new GlyphRect(0, 100, 400, 400);
+        var snug = new GlyphRect(420, 200, 60, 80);
+        var tall = new GlyphRect(100, 0, 300, 90);
+        foreach (var mode in new[] { GlyphPackingMode.BestShortSideFit, GlyphPackingMode.BestLongSideFit, GlyphPackingMode.BestAreaFit })
+            Expect.That(Place(mode, roomy, snug).x == 420, $"{mode}: the slot with the least waste wins");
+        Expect.Equal(100, Place(GlyphPackingMode.BottomLeftRule, roomy, tall).x, "BottomLeftRule: the lowest placement wins");
+        Expect.Equal(0, Place(GlyphPackingMode.BottomLeftRule, new GlyphRect(0, 0, 100, 100), new GlyphRect(200, 0, 100, 100)).x, "BottomLeftRule: the left one wins a tie");
+        var corner = Place(GlyphPackingMode.ContactPointRule, new GlyphRect(100, 100, 200, 200), new GlyphRect(0, 0, 200, 200));
+        Expect.That(corner.x == 0 && corner.y == 0, "ContactPointRule: the corner of the atlas wins");
+        var free = new List<GlyphRect> { new(0, 0, 512, 512) };
+        var used = new List<GlyphRect>();
+        for (var i = 0; i < 3; i++)
+            FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.ContactPointRule, free, used, GlyphRenderMode.SMOOTH, Atlas(512), out _);
+        Expect.That(used.Skip(1).All(u => used.Take(1).Any(first => u.x == first.x + first.width || u.y == first.y + first.height || u.x + u.width == first.x)),
+            "ContactPointRule: later rectangles touch the first");
+    }
+
+    private static void LargeFieldsAndShortSlotsAddNothing()
+    {
+        FontEngine.LoadFontFace(SyntheticFont.Bytes(), 400);
+        var free = new List<GlyphRect> { new(0, 0, 512, 512) };
+        var used = new List<GlyphRect>();
+        var texture = Atlas(512);
+        Expect.That(!FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, free, used, Sdf, texture, out var none) && none == null,
+            "a distance field larger than 256 pixels is not drawn");
+        Expect.That(used.Count == 0 && free.Count == 1 && free[0] == new GlyphRect(0, 0, 512, 512) && NonZero(texture) == 0, "and it takes no space");
+        Expect.That(FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, free, used, GlyphRenderMode.SMOOTH, texture, out _), "the same glyph as coverage is drawn");
+        FontEngine.LoadFontFace(SyntheticFont.Bytes(), 100);
+        var squat = new List<GlyphRect> { new(0, 0, 400, 20) };
+        Expect.That(!FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, squat, new List<GlyphRect>(), Sdf, Atlas(512), out _), "a slot that is wide enough but too short");
+        var narrow = new List<GlyphRect> { new(0, 0, 20, 400) };
+        Expect.That(!FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, narrow, new List<GlyphRect>(), Sdf, Atlas(512), out _), "a slot that is tall enough but too narrow");
     }
 
     private static void RefusesUnsupportedAtlases()

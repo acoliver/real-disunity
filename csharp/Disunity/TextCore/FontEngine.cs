@@ -205,9 +205,37 @@ public static unsafe partial class FontEngine
         }
     }
 
+    /// <summary><see cref="GetGlyphPairAdjustmentTable"/> for a list of glyph indexes.</summary>
+    public static GlyphPairAdjustmentRecord[] GetPairAdjustmentRecords(List<uint> glyphIndexes)
+    {
+        ArgumentNullException.ThrowIfNull(glyphIndexes);
+        return GetGlyphPairAdjustmentTable(glyphIndexes.ToArray());
+    }
+
     public static MarkToBaseAdjustmentRecord[] GetMarkToBaseAdjustmentRecords(uint glyphIndex) => [];
+
+    /// <summary>The engine reads no <c>GPOS</c> mark tables, so a list of glyph indexes has no records either.</summary>
+    public static MarkToBaseAdjustmentRecord[] GetMarkToBaseAdjustmentRecords(List<uint> glyphIndexes)
+    {
+        ArgumentNullException.ThrowIfNull(glyphIndexes);
+        return [];
+    }
 
     public static MarkToMarkAdjustmentRecord[] GetMarkToMarkAdjustmentRecords(uint glyphIndex) => [];
 
+    /// <summary>The engine reads no <c>GPOS</c> mark tables, so a list of glyph indexes has no records either.</summary>
+    public static MarkToMarkAdjustmentRecord[] GetMarkToMarkAdjustmentRecords(List<uint> glyphIndexes)
+    {
+        ArgumentNullException.ThrowIfNull(glyphIndexes);
+        return [];
+    }
+
     public static LigatureSubstitutionRecord[] GetLigatureSubstitutionRecords(uint glyphIndex) => [];
+
+    /// <summary>The engine reads no <c>GSUB</c> ligature tables, so a list of glyph indexes has no records either.</summary>
+    public static LigatureSubstitutionRecord[] GetLigatureSubstitutionRecords(List<uint> glyphIndexes)
+    {
+        ArgumentNullException.ThrowIfNull(glyphIndexes);
+        return [];
+    }
 }

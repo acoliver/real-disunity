@@ -287,8 +287,9 @@ pub unsafe extern "C" fn disunity_face_glyph_render(
 }
 
 /// Writes the kerning of every ordered pair of `glyphs` that the face adjusts. `count` holds the
-/// record capacity on entry and the number of adjustments on return; with more adjustments than
-/// capacity nothing is copied and the call fails, so a zero capacity asks for the count.
+/// record capacity on entry and the number of adjustments on return. A zero capacity asks for the
+/// count and copies nothing; with more adjustments than a nonzero capacity nothing is copied and
+/// the call fails.
 ///
 /// # Safety
 /// `glyphs` is readable for `glyph_count` values; `records` is writable for the capacity in
@@ -321,7 +322,7 @@ pub unsafe extern "C" fn disunity_face_pairs(
             .map_err(AbiError::from)?;
         let needed = u32::try_from(pairs.len()).map_err(|_| "too many glyph pairs")?;
         unsafe { *count = needed };
-        if capacity == 0 && needed == 0 {
+        if capacity == 0 {
             return Ok(());
         }
         if capacity < needed {

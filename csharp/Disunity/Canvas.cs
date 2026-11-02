@@ -64,6 +64,17 @@ public sealed class Font : Object
         FontData = file.Length == 0 ? null : file;
     }
 
+    private Material? _material;
+
+    /// <summary>The material UI text draws this font with: a copy of the default UI material named after the font,
+    /// made on first use and kept until destroyed. The engine builds no atlas for a font, so it has no main texture
+    /// (the engine's choice); setting it replaces it.</summary>
+    public Material material
+    {
+        get => _material ? _material! : _material = new Material(Canvas.GetDefaultCanvasMaterial()) { name = name };
+        set => _material = value;
+    }
+
     private static readonly object RebuildLock = new();
     private static Action<Font>? _textureRebuilt;
 

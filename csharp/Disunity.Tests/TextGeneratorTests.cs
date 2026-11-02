@@ -11,6 +11,7 @@ internal static class TextGeneratorTests
         TextNeedingLayoutNamesTheMember();
         InvalidateClearsTheResult();
         SettingsCompareByValue();
+        AFontHasItsOwnMaterial();
         Console.WriteLine("PASS: TextGenerator builds, populates empty text, and rejects text it cannot lay out by member name");
     }
 
@@ -117,5 +118,22 @@ internal static class TextGeneratorTests
         var line = new UILineInfo { startCharIdx = 4, height = 5, topY = 6f, leading = 7f };
         Expect.Near(3f, info.charWidth, "UICharInfo.charWidth");
         Expect.Equal(4, line.startCharIdx, "UILineInfo.startCharIdx");
+    }
+
+    private static void AFontHasItsOwnMaterial()
+    {
+        var font = new Font("Serif", [1, 2, 3]);
+        var material = font.material;
+        Expect.That(material != null && material.name == "Serif", "a font's material is named after it");
+        Expect.That(ReferenceEquals(material, font.material), "the font keeps its material");
+        Expect.That(!ReferenceEquals(material, Canvas.GetDefaultCanvasMaterial()) && material!.shader == Canvas.GetDefaultCanvasMaterial().shader,
+            "it is a copy on the default UI shader");
+        Expect.That(material.mainTexture == null, "the engine builds no font atlas, so it has no texture");
+        Expect.That(!ReferenceEquals(material, new Font("Serif", [1]).material), "each font has its own");
+        var replaced = new Material(Canvas.GetDefaultCanvasMaterial());
+        font.material = replaced;
+        Expect.That(ReferenceEquals(font.material, replaced), "setting the material replaces it");
+        UnityEngine.Object.DestroyImmediate(replaced);
+        Expect.That(font.material != null && !ReferenceEquals(font.material, replaced), "a destroyed material is made again");
     }
 }

@@ -407,9 +407,6 @@ pub(crate) fn surface_policy(
     size: [u32; 2],
     startup: &Startup,
 ) -> Result<SurfacePolicy, ViewerError> {
-    if !capabilities.present_modes.contains(&startup.present_mode) {
-        return Err(ViewerError::UnsupportedPresentMode(startup.present_mode));
-    }
     let format = worldrunner_render_gpu::surface::select_format(
         capabilities,
         worldrunner_render_gpu::surface::FormatPreference::Srgb,
@@ -420,7 +417,7 @@ pub(crate) fn surface_policy(
         .alpha_modes
         .first()
         .ok_or(ViewerError::SurfaceFormat)?;
-    Ok(SurfacePolicy {
+    let policy = SurfacePolicy {
         format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | (capabilities.usages & wgpu::TextureUsages::COPY_SRC),
@@ -428,7 +425,9 @@ pub(crate) fn surface_policy(
         present_mode: startup.present_mode,
         desired_maximum_frame_latency: startup.desired_maximum_frame_latency,
         alpha_mode,
-    })
+    };
+    worldrunner_render_gpu::surface::configuration(capabilities, policy).map_err(surface_error)?;
+    Ok(policy)
 }
 
 impl Resident {

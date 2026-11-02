@@ -84,8 +84,8 @@ pub struct ViewerOptions {
     /// Opt-in asynchronous GPU pass timestamps. Unsupported adapters keep rendering
     /// and report `GpuTiming::Unavailable`; disabled requests allocate no queries.
     pub gpu_timing: bool,
-    /// Explicit surface mode: `Fifo`, `FifoRelaxed`, `Mailbox` or `Immediate`. Default: `Fifo`.
-    /// Unsupported surface modes fail at startup. Ignored in windowless runs.
+    /// Surface mode. `AutoVsync` and `AutoNoVsync` let the surface choose a supported mode; a concrete
+    /// mode the surface lacks fails at startup. Default: `Fifo`. Ignored in windowless runs.
     pub present_mode: wgpu::PresentMode,
     /// Positive desired latency, default 2. wgpu clamps this hint to backend limits.
     pub desired_maximum_frame_latency: u32,
@@ -295,17 +295,6 @@ pub use retained::DecalUpdate;
 fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
     options.presentation_budget.validate()?;
     options.capture_pool.validate()?;
-    if !matches!(
-        options.present_mode,
-        wgpu::PresentMode::Fifo
-            | wgpu::PresentMode::FifoRelaxed
-            | wgpu::PresentMode::Mailbox
-            | wgpu::PresentMode::Immediate
-    ) {
-        return Err(ViewerError::InvalidOptions(
-            "present mode must be Fifo, FifoRelaxed, Mailbox or Immediate",
-        ));
-    }
     if options.desired_maximum_frame_latency == 0 {
         return Err(ViewerError::InvalidOptions(
             "desired maximum frame latency must be positive",

@@ -50,6 +50,8 @@ fn presentation_settings_validate_without_a_display() {
         wgpu::PresentMode::FifoRelaxed,
         wgpu::PresentMode::Mailbox,
         wgpu::PresentMode::Immediate,
+        wgpu::PresentMode::AutoVsync,
+        wgpu::PresentMode::AutoNoVsync,
     ] {
         let mut options = options();
         options.present_mode = mode;
@@ -63,13 +65,34 @@ fn presentation_settings_validate_without_a_display() {
             Err(ViewerError::InvalidOptions(_))
         ));
     }
+}
+
+#[test]
+fn auto_present_modes_validate_without_a_display() {
     for mode in [wgpu::PresentMode::AutoVsync, wgpu::PresentMode::AutoNoVsync] {
         let mut options = options();
         options.present_mode = mode;
-        assert!(matches!(
-            RetainedHost::new(scene(false), options),
-            Err(ViewerError::InvalidOptions(_))
-        ));
+        assert!(validate(&scene(false), &options).is_ok());
+        assert!(RetainedHost::new(scene(false), options).is_ok());
+    }
+}
+
+#[test]
+fn auto_present_modes_accept_fifo_only_surface_capabilities() {
+    let capabilities = wgpu::SurfaceCapabilities {
+        formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb],
+        present_modes: vec![wgpu::PresentMode::Fifo],
+        alpha_modes: vec![wgpu::CompositeAlphaMode::Opaque],
+        usages: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        ..Default::default()
+    };
+    for mode in [wgpu::PresentMode::AutoVsync, wgpu::PresentMode::AutoNoVsync] {
+        let mut options = options();
+        options.present_mode = mode;
+        let policy =
+            crate::renderer::surface_policy(&capabilities, [800, 600], &(&options).into()).unwrap();
+        assert_eq!(policy.present_mode, mode);
+        assert_eq!(policy.desired_maximum_frame_latency, 2);
     }
 }
 

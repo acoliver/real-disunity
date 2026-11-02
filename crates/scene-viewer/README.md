@@ -116,13 +116,13 @@ only; scale stays a ratio. Whole world units are exact up to 2^24 because positi
 
 ## Presentation settings
 
-Set `present_mode` explicitly to `PresentMode::Fifo`, `FifoRelaxed`, `Mailbox` or
-`Immediate`. The examples use FIFO and `desired_maximum_frame_latency: 2`, the
-host's default presentation behavior. Automatic fallback modes (`AutoVsync` and
-`AutoNoVsync`) are rejected as `ViewerError::InvalidOptions`. If the selected
-surface does not advertise the requested mode, startup returns
-`ViewerError::UnsupportedPresentMode` before configuring the surface. There is no
-fallback to a different mode.
+Set `present_mode` to `PresentMode::Fifo`, `FifoRelaxed`, `Mailbox`, `Immediate`,
+`AutoVsync` or `AutoNoVsync`. The examples use FIFO and
+`desired_maximum_frame_latency: 2`, the host's default presentation behavior.
+Automatic modes delegate concrete mode selection to wgpu and do not need to
+appear in the surface's advertised modes. For an explicitly selected concrete
+mode, startup returns `ViewerError::UnsupportedPresentMode` before configuring
+the surface if it does not advertise that mode. Concrete modes have no fallback.
 
 `desired_maximum_frame_latency` must be positive. It is a wgpu hint, which the
 backend can clamp to its supported range. It is independent of

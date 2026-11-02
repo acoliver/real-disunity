@@ -108,3 +108,12 @@ fn before_a_start_the_input_moves_nothing() {
     navigation.accept(&RetainedInput::Wheel(WheelDelta::Lines([0.0, 1.0])), SIZE);
     assert_eq!(navigation.take_moved(), None);
 }
+
+#[test]
+fn forty_wheel_pixels_zoom_as_far_as_one_line() {
+    let mut by_lines = started();
+    by_lines.accept(&RetainedInput::Wheel(WheelDelta::Lines([0.0, 1.0])), SIZE);
+    let mut by_pixels = started();
+    by_pixels.accept(&RetainedInput::Wheel(WheelDelta::Pixels([0.0, 40.0])), SIZE);
+    assert_eq!(by_pixels.take_moved(), by_lines.take_moved());
+}

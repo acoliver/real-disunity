@@ -75,6 +75,17 @@ fn the_opposite_turn_flips_the_vector_part_and_keeps_w_positive() {
 }
 
 #[test]
+fn a_reverse_turn_past_a_quarter_keeps_w_positive_on_every_axis() {
+    for axis in 0..3 {
+        let rotation = scene_transform(&turned(axis, -135.0, 1.0)).unwrap().rotation;
+        let parts = [rotation.x, rotation.y, rotation.z];
+        assert!(rotation.w > 0, "axis {axis}: {rotation:?}");
+        assert!(close(rotation.w, 382_683, 3), "axis {axis}: {rotation:?}");
+        assert!(close(parts[axis], -923_880, 3), "axis {axis}: {rotation:?}");
+    }
+}
+
+#[test]
 fn a_half_turn_keeps_a_normalised_quaternion() {
     for axis in 0..3 {
         let transform = scene_transform(&turned(axis, 180.0, 1.0)).unwrap();
@@ -245,5 +256,18 @@ fn a_lens_beyond_the_scene_range_is_clamped_into_it() {
     assert_eq!(scene.vertical_fov_millidegrees, 179_999);
     assert_eq!(scene.near_plane_millimeters, 1);
     assert_eq!(scene.far_plane_millimeters, u32::MAX);
+    assert!(scene.validate().is_ok());
+}
+
+#[test]
+fn a_far_plane_not_beyond_the_near_plane_is_moved_one_millimeter_past_it() {
+    let lens = CameraLens::Perspective {
+        vertical_fov_radians: 1.0,
+        near_meters: 5.0,
+        far_meters: 2.0,
+    };
+    let (_, scene) = scene_camera(&state([0., 0., 5.], [0., 1., 0.], lens)).unwrap();
+    assert_eq!(scene.near_plane_millimeters, 5_000);
+    assert_eq!(scene.far_plane_millimeters, 5_001);
     assert!(scene.validate().is_ok());
 }

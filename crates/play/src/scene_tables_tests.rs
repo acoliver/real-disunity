@@ -379,3 +379,23 @@ fn the_initial_scene_is_valid_before_any_frame_arrives() {
     assert_eq!(scene.resources().textures().len(), 1);
     assert_eq!(scene.resources().materials().len(), 1);
 }
+
+#[test]
+fn objects_sharing_a_texture_share_one_material_across_frames() {
+    let mut tables = SceneTables::new().unwrap();
+    let mut shown = content(&[100]);
+    shown.textures.insert(5, texture(200));
+    let two = |x: f32| {
+        [
+            with_slot(object(1, 100, at(x, 0., 0.)), slot([1.; 4], 5)),
+            with_slot(object(2, 100, at(x, 1., 0.)), slot([0.5; 4], 5)),
+        ]
+    };
+    let first = update(&mut tables, &two(0.), &shown);
+    let ids = adds(&first);
+    assert_eq!(material_of(&first, ids[0]), material_of(&first, ids[1]));
+    assert_eq!(first.resources.as_ref().expect("new texture").0.materials().len(), 2);
+    let moved = update(&mut tables, &two(3.), &shown);
+    assert!(moved.resources.is_none(), "no further material is built");
+    assert_eq!(material_of(&moved, ids[0]), material_of(&first, ids[0]));
+}

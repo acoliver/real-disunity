@@ -109,6 +109,10 @@ fn a_variant_whose_parameters_describe_its_module_builds_a_layout() {
     assert_eq!(report.unused_parameters, 0);
     assert_eq!((report.targets.total, report.targets.matched), (1, 1));
     assert!(report.layout_failures.is_empty());
+    assert_eq!(
+        report.member_shapes.iter().collect::<Vec<_>>(),
+        [(&"kind 0 1x4: packs".to_owned(), &1)]
+    );
 }
 
 #[test]
@@ -308,4 +312,32 @@ fn a_vertex_and_a_fragment_stage_build_one_layout() {
         (1, 1)
     );
     assert_eq!(report.conflicts_despite_agreement, 0);
+}
+
+#[test]
+fn members_the_packer_refuses_are_counted_by_shape() {
+    let mut parameters = parameters(vec![block_binding(VERTEX)]);
+    let member = |kind, rows, columns, is_matrix, array_size| BufferMember {
+        name: "m".to_owned(),
+        kind,
+        rows,
+        columns,
+        is_matrix,
+        array_size,
+        offset: 0,
+    };
+    parameters.constant_buffers[0].members = vec![
+        member(0, 4, 4, true, 0),
+        member(1, 1, 3, false, 5),
+        member(2, 1, 1, false, 0),
+    ];
+    let report = report_of(&parameters, &[vertex_stage()]);
+    assert_eq!(
+        report.member_shapes.iter().collect::<Vec<_>>(),
+        [
+            (&"kind 0 4x4 matrix: packs".to_owned(), &1),
+            (&"kind 1 1x3 array: refused".to_owned(), &1),
+            (&"kind 2 1x1: refused".to_owned(), &1),
+        ]
+    );
 }

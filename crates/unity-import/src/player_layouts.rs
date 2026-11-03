@@ -5,13 +5,16 @@
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use worldrunner_render_program::{
+    constants::pack_variant_buffer,
     layout::{LayoutError, ProgramLayout},
     module::{ModuleError, Reflected, StageKind, StageModule, StageProgram},
 };
 use worldrunner_unity_serialized::{
     ClassId, SerializedError,
     shader::Shader,
-    shader_parameters::{ResourceKind, VariantParameters, read_parameters},
+    shader_parameters::{
+        BufferMember, ConstantBuffer, ResourceKind, VariantParameters, read_parameters,
+    },
     shader_program::Program,
     shader_records::{
         ProgramEntry, platform_program_types, program_table, read_record, vulkan_stages,
@@ -67,6 +70,9 @@ pub struct LayoutReport {
     /// Layouts that failed with stages declaring a binding differently although their
     /// numbering agrees.
     pub conflicts_despite_agreement: usize,
+    /// Constant buffer members of the variants' bound buffers, by scalar kind, shape and whether
+    /// the renderer packs them.
+    pub member_shapes: BTreeMap<String, usize>,
     /// Texture bindings by dimension code and the image the module declares there.
     pub texture_codes: BTreeMap<String, usize>,
 }
@@ -189,6 +195,7 @@ impl LayoutReport {
     /// Prepares `stages`, builds their programs from `parameters` and lays the variant out.
     pub fn add_variant(&mut self, parameters: &VariantParameters, stages: &[RawStage]) {
         self.variants += 1;
+        self.add_members(parameters);
         let programs: Vec<Option<StageProgram>> = stages
             .iter()
             .map(|stage| self.stage_program(parameters, stage))
@@ -264,6 +271,48 @@ impl LayoutReport {
             Err(error) => {
                 count(&mut self.module_failures, module_cause(&error));
                 None
+            }
+        }
+    }
+
+    /// Counts the members of the constant buffers the variant binds by shape, and whether the
+    /// packer accepts a member of that shape.
+    fn add_members(&mut self, parameters: &VariantParameters) {
+        let bound = parameters
+            .bindings
+            .iter()
+            .filter(|binding| binding.kind == ResourceKind::ConstantBuffer);
+        for binding in bound {
+            let layouts = parameters.constant_buffers.iter();
+            for buffer in layouts.filter(|buffer| buffer.name == binding.name) {
+                if !buffer.structs.is_empty() {
+                    count(&mut self.member_shapes, "buffer with structs: refused");
+                }
+                for member in &buffer.members {
+                    let alone = ConstantBuffer {
+                        name: String::new(),
+                        size: 1 << 16,
+                        members: vec![BufferMember {
+                            name: String::new(),
+                            offset: 0,
+                            ..member.clone()
+                        }],
+                        structs: Vec::new(),
+                    };
+                    let shape = format!(
+                        "kind {} {}x{}{}{}",
+                        member.kind,
+                        member.rows,
+                        member.columns,
+                        if member.is_matrix { " matrix" } else { "" },
+                        if member.array_size > 0 { " array" } else { "" },
+                    );
+                    let packs = match pack_variant_buffer(&alone, &[], 0) {
+                        Ok(_) => "packs",
+                        Err(_) => "refused",
+                    };
+                    count(&mut self.member_shapes, format!("{shape}: {packs}"));
+                }
             }
         }
     }
@@ -477,6 +526,7 @@ impl fmt::Display for LayoutReport {
             "layouts that conflicted although the numbering agrees: {}",
             self.conflicts_despite_agreement
         )?;
+        failures(f, "constant buffer members by shape", &self.member_shapes)?;
         failures(
             f,
             "texture bindings by dimension code and the module's image",

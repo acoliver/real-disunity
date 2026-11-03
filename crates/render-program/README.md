@@ -24,6 +24,8 @@ An editor-style sub program describes one stage with a name index for every prop
 - The binding table is `unity_serialized::spirv_prep::ResourceBinding`. A player binding names a set and a binding in Unity's module, before the sampler split, and `entry` finds the table entry with that set and Unity binding. Editor-style bindings name no set, so the Unity binding must be unique across sets (`LayoutError::AmbiguousBinding` otherwise).
 - A texture binding declares the image at the entry's prepared binding. When the entry's combined image sampler was split, the split sampler is declared too. A texture's sampler slot and a sampler binding declare a sampler at the entry's split sampler binding, or else at its own prepared binding. This is why a texture that names its own slot as its sampler, a texture with no sampler slot and a combined image sampler that was split all lay out alike.
 
+This crate runs SPIR-V only. On macOS the engine uses the Linux build's data, because the macOS build of the same Steam build ships no shader with a Vulkan platform (the Linux and Windows builds ship 171), and loading the macOS build's shaders fails with `PlayerError::NoSpirvPrograms` ("no SPIR-V programs; Metal programs unsupported").
+
 ### Player bindings
 
 | Binding | Declared as | Notes |

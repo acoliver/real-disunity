@@ -7,10 +7,20 @@ impl SceneResources {
     ///
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        for texture in self.textures.iter() {
+        self.validate_from(0, 0)
+    }
+
+    /// Validates the textures from `first_texture` and the materials from `first_material`
+    /// on, each against the whole tables. Earlier entries are assumed valid.
+    pub(super) fn validate_from(
+        &self,
+        first_texture: usize,
+        first_material: usize,
+    ) -> Result<(), SceneValidationError> {
+        for texture in &self.textures[first_texture..] {
             texture.validate()?;
         }
-        for material in self.materials.iter() {
+        for material in &self.materials[first_material..] {
             validate_auxiliary_textures(material, &self.textures)?;
             require_texture("material albedo", material.albedo(), &self.textures)?;
             if let Some(atlas) = material.impostor() {

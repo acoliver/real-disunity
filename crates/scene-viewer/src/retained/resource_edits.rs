@@ -7,6 +7,7 @@
 use super::{RetainedHost, RetainedUpdate};
 use crate::ViewerError;
 use worldrunner_render_gpu::configuration::AllocationSet;
+use worldrunner_render_plan::SceneAppend;
 use worldrunner_render_scene::draw::{
     PreparedAppend, PreparedMeshReplacement, PreparedTextureReplacement, ResourceBase,
 };
@@ -62,7 +63,7 @@ impl RetainedHost {
             return Ok(());
         }
         let edit = self.prepare_edit(&update)?;
-        self.edit_resources(&update)?;
+        let update = self.edit_resources(update)?;
         self.enqueue(update, false);
         self.readiness
             .queue
@@ -94,20 +95,43 @@ impl RetainedHost {
         })
     }
 
-    /// Changes the host's scene, which stays what a full replacement would build.
-    fn edit_resources(&mut self, update: &RetainedUpdate) -> Result<(), ViewerError> {
+    /// Changes the host's scene, which stays what a full replacement would build, and returns
+    /// the update to queue. The scene takes the appended meshes without a copy: the renderer
+    /// needs only the textures and materials of the queued append, for decals.
+    fn edit_resources(&mut self, update: RetainedUpdate) -> Result<RetainedUpdate, ViewerError> {
         let scene = self.scene.as_mut().expect("scene resolved before edits");
         match update {
-            RetainedUpdate::AppendResources(append) => scene.append_resources(append.clone()),
+            RetainedUpdate::AppendResources(append) => {
+                let SceneAppend {
+                    textures,
+                    materials,
+                    meshes,
+                } = append;
+                scene
+                    .append_resources(SceneAppend {
+                        textures: textures.clone(),
+                        materials: materials.clone(),
+                        meshes,
+                    })
+                    .map_err(invalid)?;
+                Ok(RetainedUpdate::AppendResources(SceneAppend {
+                    textures,
+                    materials,
+                    meshes: Vec::new(),
+                }))
+            }
             RetainedUpdate::ReplaceTexture { handle, texture } => {
-                scene.replace_texture(*handle, texture.clone())
+                scene
+                    .replace_texture(handle, texture.clone())
+                    .map_err(invalid)?;
+                Ok(RetainedUpdate::ReplaceTexture { handle, texture })
             }
             RetainedUpdate::ReplaceMesh { handle, mesh } => {
-                scene.replace_mesh(*handle, mesh.clone())
+                scene.replace_mesh(handle, mesh.clone()).map_err(invalid)?;
+                Ok(RetainedUpdate::ReplaceMesh { handle, mesh })
             }
             _ => unreachable!("only resource edits change resources"),
         }
-        .map_err(invalid)
     }
 }
 

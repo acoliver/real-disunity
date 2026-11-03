@@ -61,6 +61,33 @@ fn pointer_and_class(kind: Kind) -> (u32, u32) {
     }
 }
 
+/// The types and constants every test stage declares, used or not.
+fn type_declarations() -> Vec<u32> {
+    [
+        op(19, &[4]),
+        op(33, &[5, 4]),
+        op(22, &[7, 32]),
+        op(23, &[8, 7, 4]),
+        op(32, &[14, 3, 8]),
+        op(59, &[14, 2, 3]),
+        op(23, &[16, 7, 2]),
+        op(43, &[7, 17, 0]),
+        op(44, &[16, 18, 17, 17]),
+        op(44, &[8, 29, 17, 17, 17, 17]),
+        op(25, &[11, 7, 1, 0, 0, 0, 1, 0]),
+        op(27, &[12, 11]),
+        op(32, &[13, 0, 12]),
+        op(26, &[31]),
+        op(32, &[32, 0, 31]),
+        op(32, &[33, 0, 11]),
+        op(30, &[34, 8]),
+        op(32, &[35, 2, 34]),
+        op(30, &[36, 8]),
+        op(32, &[37, 2, 36]),
+    ]
+    .concat()
+}
+
 /// A stage module of `model` (0 vertex, 4 fragment) declaring `resources`, which it does not
 /// use except that it samples every combined sampler with an explicit level. IDs: 1 main,
 /// 2 output, 4 void, 5 function type, 7 float, 8 vec4, 11 image, 12 sampled image, 13..14
@@ -90,31 +117,7 @@ fn stage(model: u32, resources: &[Res]) -> Vec<u32> {
         words.extend(op(71, &[id, 34, resource.set]));
         words.extend(op(71, &[id, 33, resource.binding]));
     }
-    words.extend(
-        [
-            op(19, &[4]),
-            op(33, &[5, 4]),
-            op(22, &[7, 32]),
-            op(23, &[8, 7, 4]),
-            op(32, &[14, 3, 8]),
-            op(59, &[14, 2, 3]),
-            op(23, &[16, 7, 2]),
-            op(43, &[7, 17, 0]),
-            op(44, &[16, 18, 17, 17]),
-            op(44, &[8, 29, 17, 17, 17, 17]),
-            op(25, &[11, 7, 1, 0, 0, 0, 1, 0]),
-            op(27, &[12, 11]),
-            op(32, &[13, 0, 12]),
-            op(26, &[31]),
-            op(32, &[32, 0, 31]),
-            op(32, &[33, 0, 11]),
-            op(30, &[34, 8]),
-            op(32, &[35, 2, 34]),
-            op(30, &[36, 8]),
-            op(32, &[37, 2, 36]),
-        ]
-        .concat(),
-    );
+    words.extend(type_declarations());
     for (n, resource) in (0..).zip(resources) {
         let (pointer, class) = pointer_and_class(resource.kind);
         words.extend(op(59, &[pointer, FIRST_RESOURCE + n, class]));

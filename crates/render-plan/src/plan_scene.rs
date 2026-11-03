@@ -8,14 +8,13 @@
 //! document, the root payload, and all contributions into one validated
 //! [`RenderScene`].
 
-use worldrunner_world_model::SemanticWorldDocument;
 use worldrunner_world_runtime::ContributionKind;
 
 use crate::adapter::RenderPayload;
 use crate::document::{CapabilityRouteDeclaration, ComponentRouteDeclaration, ContractDocument};
 use crate::error::RenderPlanError;
 use crate::implementation_registry::{ActivatedRenderWorldContract, RenderRouteKind};
-use crate::plan::{RenderContribution, claimant_route_key};
+use crate::plan::RenderContribution;
 use crate::scene::{
     DocumentSceneInput, ProvenSceneContribution, RenderScene, RouteDeclarationRef,
     RouteSceneFactory, RouteSceneInput, SceneContribution,
@@ -28,7 +27,6 @@ use std::sync::Arc;
 /// the composer observes reproducible provenance regardless of publication
 /// iteration order.
 pub(crate) fn compose_scene(
-    world: &SemanticWorldDocument,
     activated: &ActivatedRenderWorldContract,
     root_payload: &RenderPayload,
     contributions: &[RenderContribution],
@@ -36,7 +34,7 @@ pub(crate) fn compose_scene(
     let authored = activated.authored_contract();
     let mut proven = Vec::with_capacity(contributions.len());
     for contribution in contributions {
-        let scene = compose_contribution(world, activated, contribution)?;
+        let scene = compose_contribution(activated, contribution)?;
         proven.push(ProvenSceneContribution::new(
             contribution.claimant().to_owned(),
             scene,
@@ -44,7 +42,12 @@ pub(crate) fn compose_scene(
     }
     let composer = activated.document_scene_composer();
     let scene = composer
-        .compose_scene(DocumentSceneInput::new(authored, root_payload, &proven))
+        .compose_scene(DocumentSceneInput::new(
+            authored,
+            root_payload,
+            &proven,
+            contributions,
+        ))
         .map_err(|source| RenderPlanError::SceneCompositionRejected {
             handler_factory_uri: authored
                 .routes()
@@ -62,22 +65,20 @@ pub(crate) fn compose_scene(
 
 /// Produces one contribution through its exact activation-bound route factory.
 fn compose_contribution(
-    world: &SemanticWorldDocument,
     activated: &ActivatedRenderWorldContract,
     contribution: &RenderContribution,
 ) -> Result<SceneContribution, RenderPlanError> {
     let authored = activated.authored_contract();
     match contribution.kind() {
         ContributionKind::Component => {
-            let route_key =
-                claimant_route_key(contribution.kind(), contribution.claimant(), world)?;
-            let route = authored_declaration_component(authored, &route_key)?;
+            let route_key = contribution.route_key();
+            let route = authored_declaration_component(authored, route_key)?;
             let factory = activated
-                .component_scene_factory(&route_key)
-                .ok_or_else(|| scene_route_mismatch(RenderRouteKind::Component, &route_key))?;
+                .component_scene_factory(route_key)
+                .ok_or_else(|| scene_route_mismatch(RenderRouteKind::Component, route_key))?;
             invoke_factory(
                 RenderRouteKind::Component,
-                &route_key,
+                route_key,
                 route.identity().handler_factory_uri(),
                 contribution,
                 RouteDeclarationRef::Component(route),
@@ -85,15 +86,14 @@ fn compose_contribution(
             )
         }
         ContributionKind::Resource => {
-            let route_key =
-                claimant_route_key(contribution.kind(), contribution.claimant(), world)?;
-            let route = authored_declaration_capability(authored, &route_key)?;
+            let route_key = contribution.route_key();
+            let route = authored_declaration_capability(authored, route_key)?;
             let factory = activated
-                .capability_scene_factory(&route_key)
-                .ok_or_else(|| scene_route_mismatch(RenderRouteKind::Capability, &route_key))?;
+                .capability_scene_factory(route_key)
+                .ok_or_else(|| scene_route_mismatch(RenderRouteKind::Capability, route_key))?;
             invoke_factory(
                 RenderRouteKind::Capability,
-                &route_key,
+                route_key,
                 route.identity().handler_factory_uri(),
                 contribution,
                 RouteDeclarationRef::Capability(route),

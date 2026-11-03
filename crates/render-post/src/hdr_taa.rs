@@ -1,15 +1,16 @@
 //! Wires the TAA resolve into the HDR post path.
 //!
 //! `HdrPost` builds one stage set per frame slot, but the history texture must see every
-//! frame, so one texture per render size is shared by all slots. Each slot owns its output
-//! texture and its uniform buffer.
+//! frame, so one texture per render size is shared by all slots. Each slot owns its uniform
+//! buffer; native TAA also gives each slot an output texture.
 use std::{cell::RefCell, rc::Rc};
 
 use wgpu::util::DeviceExt;
 
 use crate::{
     StageSet, TAA_UNIFORM_BYTES, TEMPORAL_CAMERA_BYTES, TaaSettings, TemporalBlock, TemporalCamera,
-    history_key::HistoryKey, taa_gpu, taa_upscale_gpu,
+    history_key::HistoryKey, history_parity::HistoryParity, scene_color::SceneColor, taa_gpu,
+    taa_upscale_gpu,
 };
 
 /// The history textures of one bank: colour and linear depth on the render grid for native TAA,
@@ -19,6 +20,9 @@ use crate::{
 struct TaaHistory {
     key: HistoryKey,
     texture: wgpu::Texture,
+    /// The second colour history of temporal reconstruction: the upscale pass reads one and writes
+    /// the other. Native TAA has none.
+    alternate: Option<wgpu::Texture>,
     depth: Option<wgpu::Texture>,
     /// The lock history at the output grid, for temporal reconstruction with locks on only.
     locks: Option<wgpu::Texture>,
@@ -29,6 +33,7 @@ impl TaaHistory {
             Self {
                 key,
                 texture: taa_upscale_gpu::history(device, key.history_extent()),
+                alternate: Some(taa_upscale_gpu::history(device, key.history_extent())),
                 depth: None,
                 locks: taa_upscale_gpu::locks_enabled()
                     .then(|| taa_upscale_gpu::lock_history(device, key.history_extent())),
@@ -38,6 +43,7 @@ impl TaaHistory {
             Self {
                 key,
                 texture: taa_gpu::history(device, size),
+                alternate: None,
                 depth: Some(taa_gpu::depth_history(device, size)),
                 locks: None,
             }
@@ -54,6 +60,8 @@ struct Banks {
     candidate: Option<TaaHistory>,
     /// Settings that no longer use TAA asked to drop the committed bank when their build is accepted.
     release_pending: bool,
+    /// Which temporal history the next frame writes, chosen by the host per frame.
+    parity: HistoryParity,
 }
 
 /// History shared by the stage sets of every slot. Cloning shares it.
@@ -96,6 +104,11 @@ impl SharedHistory {
         }
     }
 
+    /// The parity the temporal upscale stages of every slot read when they are encoded.
+    pub fn parity(&self) -> HistoryParity {
+        self.0.borrow().parity.clone()
+    }
+
     /// Asks to drop the history, for settings that no longer use TAA. The bank stays until the
     /// build of those settings is accepted, because the live stage sets still read it.
     pub fn release(&self) {
@@ -113,7 +126,7 @@ impl SharedHistory {
 /// `color`: the render extent, or the output extent after temporal reconstruction.
 pub(crate) struct Scene<'a> {
     pub targets: &'a crate::FrameTargets,
-    pub color: &'a wgpu::TextureView,
+    pub color: &'a SceneColor,
     pub extent: [u32; 2],
 }
 
@@ -159,20 +172,21 @@ pub(crate) fn upload_camera(
 
 /// Schedules the TAA stages at the end of `set` and returns the resolved color: "taa resolve",
 /// "taa history" and "taa depth history" on the render grid, or, for `temporal`, "temporal
-/// upscale" and "temporal upscale history" on the output grid. `set` owns the output; the shared
-/// history is also kept alive by it.
+/// upscale" on the output grid, which writes the history of the frame's parity and nothing else:
+/// the stages after it read that history. `set` keeps the shared history alive.
 pub(crate) fn append(
     device: &wgpu::Device,
     set: &mut StageSet,
     targets: &crate::FrameTargets,
     (settings, history, uniform): (TaaSettings, &SharedHistory, &wgpu::Buffer),
     temporal: Option<&wgpu::Buffer>,
-) -> wgpu::TextureView {
+) -> SceneColor {
     let config = targets.config();
     let output = temporal.map(|_| config.output_extent());
     let bank = history.acquire(device, HistoryKey::new(config.size, output, config.samples));
-    if let (Some(output), Some(camera)) = (output, temporal) {
-        append_temporal(device, set, targets, (&bank, output), (uniform, camera))
+    if let (Some(_), Some(camera)) = (output, temporal) {
+        let parity = history.parity();
+        append_temporal(device, set, targets, (&bank, &parity), (uniform, camera))
     } else {
         append_native(device, set, targets, (settings, &bank, uniform))
     }
@@ -182,14 +196,17 @@ fn append_temporal(
     device: &wgpu::Device,
     set: &mut StageSet,
     targets: &crate::FrameTargets,
-    (bank, output_extent): (&TaaHistory, [u32; 2]),
+    (bank, parity): (&TaaHistory, &HistoryParity),
     (uniform, camera): (&wgpu::Buffer, &wgpu::Buffer),
-) -> wgpu::TextureView {
-    let history = &bank.texture;
+) -> SceneColor {
+    let alternate = bank
+        .alternate
+        .as_ref()
+        .expect("a temporal bank has two colour histories");
+    let history = [&bank.texture, alternate];
     let lock_history = bank.locks.as_ref();
-    let output = taa_upscale_gpu::output(device, output_extent);
-    let lock_bank = lock_history.map(|_| taa_upscale_gpu::lock_bank(device, output_extent));
-    let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+    let lock_bank =
+        lock_history.map(|_| taa_upscale_gpu::lock_bank(device, bank.key.history_extent()));
     let reconstructed = taa_upscale_gpu::append(
         device,
         set,
@@ -203,15 +220,16 @@ fn append_temporal(
             uniform,
             camera,
             history,
-            output: &output,
+            parity,
             locks: lock_history
                 .zip(lock_bank.as_ref())
                 .map(|(history, bank)| taa_upscale_gpu::LockInputs { history, bank }),
             mask: targets.temporal_mask(),
         },
     );
-    set.resources.textures.push(output);
-    set.resources.textures.push(history.clone());
+    set.resources
+        .textures
+        .extend(history.map(wgpu::Texture::clone));
     set.resources.textures.extend(lock_bank);
     set.resources.textures.extend(lock_history.cloned());
     set.resources.textures.extend(reconstructed.candidates);
@@ -228,7 +246,10 @@ fn append_temporal(
     set.resources
         .buffers
         .push(reconstructed.reconstructed.scatter);
-    output_view
+    SceneColor::alternating(
+        history.map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default())),
+        parity.clone(),
+    )
 }
 
 fn append_native(
@@ -236,7 +257,7 @@ fn append_native(
     set: &mut StageSet,
     targets: &crate::FrameTargets,
     (settings, bank, uniform): (TaaSettings, &TaaHistory, &wgpu::Buffer),
-) -> wgpu::TextureView {
+) -> SceneColor {
     let config = targets.config();
     let depth_history = bank
         .depth
@@ -266,7 +287,7 @@ fn append_native(
     set.resources.textures.push(bank.texture.clone());
     set.resources.textures.push(depth_output);
     set.resources.textures.push(depth_history.clone());
-    output_view
+    SceneColor::single(output_view)
 }
 
 /// Copies `block` (zeros for `None`) into `destination` through an immutable staging buffer.

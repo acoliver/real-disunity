@@ -92,15 +92,17 @@ fn temporal_taa_adds_the_lock_state_only_when_locks_are_on() {
 
 /// The temporal bytes of a configuration without locks.
 fn unlocked_bytes() -> u64 {
-    let shared = texels(OUTPUT) * HALF_RGBA;
-    let per_slot_output = texels(OUTPUT) * HALF_RGBA * SLOTS;
+    // Two output sized `Rgba16Float` histories: the upscale pass reads one and writes the other,
+    // so there is no copy back, and the stages after it read the one it wrote. There is no
+    // separate output texture per slot.
+    let shared = texels(OUTPUT) * HALF_RGBA * 2;
     let dilated_depth = texels(RENDER) * FLOAT_R;
     let dilated_motion = texels(RENDER) * 2 * FLOAT_R;
     let reconstructed_depth = texels(RENDER) * FLOAT_R;
     let confidence = texels(RENDER) * FLOAT_R;
     let per_slot_reconstruction =
         (dilated_depth + dilated_motion + reconstructed_depth + confidence) * SLOTS;
-    shared + per_slot_output + per_slot_reconstruction + mask_bytes() * (1 + SLOTS)
+    shared + per_slot_reconstruction + mask_bytes() * (1 + SLOTS)
 }
 
 /// One mask field of temporal reconstruction: `Rg8Unorm` at `R` (2R). The producer field is shared

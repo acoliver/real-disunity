@@ -77,22 +77,20 @@ fn shared(sets: &[StageSet]) -> Vec<wgpu::Texture> {
         .collect()
 }
 
-const UNLOCKED_STAGES: [&str; 6] = [
+const UNLOCKED_STAGES: [&str; 5] = [
     "temporal depth clear",
     "temporal reconstruct dilate",
     "temporal depth clip",
     "temporal upscale",
-    "temporal upscale history",
     "tone",
 ];
 
-const LOCKED_STAGES: [&str; 8] = [
+const LOCKED_STAGES: [&str; 7] = [
     "temporal depth clear",
     "temporal reconstruct dilate",
     "temporal depth clip",
     "temporal create locks",
     "temporal upscale",
-    "temporal upscale history",
     "temporal lock history",
     "tone",
 ];
@@ -130,8 +128,8 @@ fn assert_bank(locks: bool) {
     let history = shared(&sets);
     assert_eq!(
         history.len(),
-        1 + usize::from(locks),
-        "colour history, lock history if on"
+        2 + usize::from(locks),
+        "the colour history pair, lock history if on"
     );
     for set in &sets {
         assert_eq!(set.resources.textures.len(), 5 + 3 * usize::from(locks));
@@ -145,7 +143,7 @@ fn assert_bank(locks: bool) {
         assert_eq!(
             at_output,
             2 + 2 * usize::from(locks),
-            "output, history, lock bank and history"
+            "both histories, lock bank and history"
         );
         let at_render: Vec<_> = set
             .resources
@@ -173,14 +171,48 @@ fn assert_bank(locks: bool) {
         .count();
     assert_eq!(
         own,
-        3 * (4 + 2 * usize::from(locks)),
-        "per slot output, depth, motion, confidence, then candidates and lock bank"
+        3 * (3 + 2 * usize::from(locks)),
+        "per slot depth, motion, confidence, then candidates and lock bank"
     );
 }
 
 #[test]
-fn the_temporal_bank_is_one_shared_history_and_one_output_per_slot_without_locks() {
+fn the_temporal_bank_is_one_shared_history_pair_and_no_output_texture_per_slot_without_locks() {
     assert_bank(false);
+}
+
+/// The colour targets of the "temporal upscale" stage in each parity variant of slot 0.
+fn upscale_targets() -> Vec<[usize; 2]> {
+    let (device, _) = crate::gpu_tests::gpu();
+    let post = HdrPost::new(&device, &settings()).unwrap();
+    let sets = slots(&post, &device, &targets(&device, [10, 10], [16, 16]));
+    let count = |target: &crate::StageTarget| match target {
+        crate::StageTarget::Output => 0,
+        crate::StageTarget::Texture(_) => 1,
+        crate::StageTarget::Pair(..) => 2,
+        crate::StageTarget::Triple(..) => 3,
+    };
+    sets.iter()
+        .flat_map(|set| &set.stages)
+        .filter(|stage| stage.id.name == "temporal upscale")
+        .map(|stage| match &stage.operation {
+            crate::Operation::FullscreenAlternating { variants, .. } => {
+                [count(&variants[0].1), count(&variants[1].1)]
+            }
+            other => panic!("the upscale stage alternates, found {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn the_unlocked_upscale_stage_writes_one_colour_target_in_either_parity() {
+    assert_eq!(upscale_targets(), vec![[1, 1]; 3]);
+}
+
+#[test]
+fn the_locked_upscale_stage_writes_the_history_and_the_lock_bank_in_either_parity() {
+    let _on = crate::taa_upscale_gpu::WithLocks::new();
+    assert_eq!(upscale_targets(), vec![[2, 2]; 3]);
 }
 
 #[test]
@@ -376,14 +408,17 @@ fn every_stage_of_a_temporal_chain_is_sized_by_the_output_extent() {
             .stages
             .iter()
             .find_map(|stage| match &stage.operation {
-                crate::Operation::Compute { dispatch, .. } if stage.id.name == "histogram" => {
+                crate::Operation::Compute { dispatch, .. }
+                | crate::Operation::ComputeAlternating { dispatch, .. }
+                    if stage.id.name == "histogram" =>
+                {
                     Some(*dispatch)
                 }
                 _ => None,
             })
             .expect("a metering dispatch");
         assert_eq!(histogram, [3, 3, 1], "ceil(24 / 8), not ceil(14 / 8) = 2");
-        // The reconstruction targets at the render extent 14, reconstruction output and history, the display-linear input of RCAS, CAS input and the
+        // The reconstruction targets at the render extent 14, the two histories, the display-linear input of RCAS, CAS input and the
         // first bloom level are full size; the other bloom levels halve from 24, never from 14.
         for texture in &set.resources.textures {
             let side = texture.width();

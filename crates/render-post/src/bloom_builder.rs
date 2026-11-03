@@ -41,7 +41,7 @@ impl BloomPyramid {
         }
         Ok(
             crate::gaussian_gpu::GaussianPyramid::new(device, set).build(
-                source,
+                &crate::scene_color::SceneColor::single(source.clone()),
                 self.bloom,
                 &self.levels,
                 exposure.map(|buffer| (buffer, 1.0)),

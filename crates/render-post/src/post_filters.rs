@@ -1,5 +1,6 @@
 use crate::hdr_taa::Scene;
-use crate::{FrameTargets, HdrPostSettings, Stage, StageSet, StageTarget, color_texture};
+use crate::scene_color::{self, Read};
+use crate::{FrameTargets, HdrPostSettings, StageSet, StageTarget, color_texture};
 
 pub(crate) struct Filters<'a> {
     pub device: &'a wgpu::Device,
@@ -18,8 +19,8 @@ struct LaterStages {
 struct FilterPass<'a> {
     entry: &'static str,
     level: u32,
-    source: &'a wgpu::TextureView,
-    lower: Option<&'a wgpu::TextureView>,
+    source: Read<'a>,
+    lower: Option<Read<'a>>,
     exposure: Option<&'a wgpu::Buffer>,
     constants: &'a [(&'a str, f64)],
     format: wgpu::TextureFormat,
@@ -68,8 +69,8 @@ impl<'a> Filters<'a> {
         self.pass(FilterPass {
             entry: "tone",
             level: 0,
-            source: scene.color,
-            lower: Some(&bloom),
+            source: Read::Scene(scene.color),
+            lower: Some(bloom.as_ref().map_or(Read::Scene(scene.color), Read::View)),
             exposure: Some(exposure),
             constants: &constants,
             format: ldr.as_ref().map_or(output.0, |_| display_format),
@@ -173,7 +174,7 @@ impl<'a> Filters<'a> {
             self.pass(FilterPass {
                 entry: "fxaa",
                 level: 0,
-                source,
+                source: Read::View(source),
                 lower: None,
                 exposure: None,
                 constants: &quality.constants(strength),
@@ -196,46 +197,43 @@ impl<'a> Filters<'a> {
         self.set.resources.textures.push(texture);
         view
     }
+    /// The bloom the tone pass adds, if any; without bloom the tone pass binds the scene colour.
     fn bloom_source(
         &mut self,
         scene: &Scene<'_>,
         settings: &HdrPostSettings,
         exposure: &wgpu::Buffer,
         fixed: f64,
-    ) -> wgpu::TextureView {
-        settings.bloom.map_or_else(
-            || scene.color.clone(),
-            |b| match settings.bloom_kernel {
-                crate::BloomKernel::Tent => self.bloom(scene, b),
-                crate::BloomKernel::SeparablePyramid(levels) => {
-                    let fixed_buffer = (settings.adaptive.is_none()
-                        && matches!(b.policies.extraction, crate::BrightExtraction::ToneCurve(_)))
-                    .then(|| {
-                        use wgpu::util::DeviceExt;
-                        self.device
-                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("stock fixed bloom exposure"),
-                                contents: &1.0_f32.to_le_bytes(),
-                                usage: wgpu::BufferUsages::STORAGE,
-                            })
-                    });
-                    let view = crate::gaussian_gpu::GaussianPyramid::new(self.device, self.set)
-                        .build(
-                            scene.color,
-                            b,
-                            &levels,
-                            Some((
-                                fixed_buffer.as_ref().unwrap_or(exposure),
-                                if fixed_buffer.is_some() { fixed } else { 1.0 },
-                            )),
-                        );
-                    if let Some(buffer) = fixed_buffer {
-                        self.set.resources.buffers.push(buffer);
-                    }
-                    view
+    ) -> Option<wgpu::TextureView> {
+        settings.bloom.map(|b| match settings.bloom_kernel {
+            crate::BloomKernel::Tent => self.bloom(scene, b),
+            crate::BloomKernel::SeparablePyramid(levels) => {
+                let fixed_buffer = (settings.adaptive.is_none()
+                    && matches!(b.policies.extraction, crate::BrightExtraction::ToneCurve(_)))
+                .then(|| {
+                    use wgpu::util::DeviceExt;
+                    self.device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("stock fixed bloom exposure"),
+                            contents: &1.0_f32.to_le_bytes(),
+                            usage: wgpu::BufferUsages::STORAGE,
+                        })
+                });
+                let view = crate::gaussian_gpu::GaussianPyramid::new(self.device, self.set).build(
+                    scene.color,
+                    b,
+                    &levels,
+                    Some((
+                        fixed_buffer.as_ref().unwrap_or(exposure),
+                        if fixed_buffer.is_some() { fixed } else { 1.0 },
+                    )),
+                );
+                if let Some(buffer) = fixed_buffer {
+                    self.set.resources.buffers.push(buffer);
                 }
-            },
-        )
+                view
+            }
+        })
     }
     fn bloom(&mut self, scene: &Scene<'_>, b: crate::Bloom) -> wgpu::TextureView {
         let mut levels = Vec::new();
@@ -243,7 +241,7 @@ impl<'a> Filters<'a> {
         let first = self.texture(size);
         self.filter(
             ("prefilter", 0),
-            scene.color,
+            Read::Scene(scene.color),
             None,
             &[("THRESHOLD", b.threshold.into()), ("KNEE", b.knee.into())],
             &first,
@@ -257,7 +255,7 @@ impl<'a> Filters<'a> {
             let next = self.texture(size);
             self.filter(
                 ("downsample", level),
-                levels.last().unwrap(),
+                Read::View(levels.last().unwrap()),
                 None,
                 &[],
                 &next,
@@ -269,7 +267,7 @@ impl<'a> Filters<'a> {
             let next = self.texture([high.texture().width(), high.texture().height()]);
             self.filter(
                 ("upsample", u32::try_from(level).unwrap()),
-                high,
+                Read::View(high),
                 Some(&bloom),
                 &[],
                 &next,
@@ -281,7 +279,7 @@ impl<'a> Filters<'a> {
     fn filter(
         &mut self,
         id: (&'static str, u32),
-        source: &wgpu::TextureView,
+        source: Read<'_>,
         lower: Option<&wgpu::TextureView>,
         constants: &[(&str, f64)],
         target: &wgpu::TextureView,
@@ -290,7 +288,7 @@ impl<'a> Filters<'a> {
             entry: id.0,
             level: id.1,
             source,
-            lower,
+            lower: lower.map(Read::View),
             exposure: None,
             constants,
             format: wgpu::TextureFormat::Rgba16Float,
@@ -335,14 +333,32 @@ impl<'a> Filters<'a> {
                 multiview_mask: None,
                 cache: None,
             });
+        let reads: Vec<Read<'_>> = std::iter::once(p.source).chain(p.lower).collect();
+        let groups: Vec<_> = (0..scene_color::variants(&reads))
+            .map(|variant| self.bind_group(&p, &pipeline, variant))
+            .collect();
+        self.set.stages.push(scene_color::fullscreen_stage(
+            crate::StageId::new(p.entry, p.level),
+            &pipeline,
+            (&reads, &groups),
+            p.target,
+        ));
+    }
+    /// The bind group of `p` reading the scene colour of `variant`.
+    fn bind_group(
+        &self,
+        p: &FilterPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        variant: usize,
+    ) -> wgpu::BindGroup {
         let mut entries = vec![wgpu::BindGroupEntry {
             binding: 0,
-            resource: wgpu::BindingResource::TextureView(p.source),
+            resource: wgpu::BindingResource::TextureView(p.source.view(variant)),
         }];
         if let Some(lower) = p.lower {
             entries.push(wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(lower),
+                resource: wgpu::BindingResource::TextureView(lower.view(variant)),
             });
         }
         if let Some(exposure) = p.exposure {
@@ -351,17 +367,11 @@ impl<'a> Filters<'a> {
                 resource: exposure.as_entire_binding(),
             });
         }
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(p.entry),
             layout: &pipeline.get_bind_group_layout(0),
             entries: &entries,
-        });
-        self.set.stages.push(Stage::fullscreen(
-            crate::StageId::new(p.entry, p.level),
-            &pipeline,
-            &[&group],
-            p.target,
-        ));
+        })
     }
 }
 

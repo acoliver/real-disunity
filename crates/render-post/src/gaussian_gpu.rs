@@ -1,4 +1,5 @@
-use crate::{Bloom, GaussianLevel, Stage, StageId, StageSet, StageTarget, color_texture};
+use crate::scene_color::{self, Read, SceneColor};
+use crate::{Bloom, GaussianLevel, StageId, StageSet, StageTarget, color_texture};
 use wgpu::util::DeviceExt;
 
 pub(crate) struct GaussianPyramid<'a> {
@@ -12,7 +13,7 @@ pub(crate) struct GaussianPyramid<'a> {
 struct Pass<'a> {
     entry: &'static str,
     level: u32,
-    source: &'a wgpu::TextureView,
+    source: Read<'a>,
     lower: Option<&'a wgpu::TextureView>,
     weights: Option<&'a wgpu::Buffer>,
     exposure: Option<&'a wgpu::Buffer>,
@@ -43,23 +44,25 @@ impl<'a> GaussianPyramid<'a> {
 
     pub fn build(
         &mut self,
-        source: &wgpu::TextureView,
+        source: &SceneColor,
         bloom: Bloom,
         levels: &[GaussianLevel; 8],
         exposure: Option<(&wgpu::Buffer, f64)>,
     ) -> wgpu::TextureView {
         let extents = crate::gaussian_extents_with_terminal(
-            [source.texture().width(), source.texture().height()],
+            [
+                source.view(0).texture().width(),
+                source.view(0).texture().height(),
+            ],
             bloom.levels,
             bloom.policies.terminal,
         )
         .expect("validated Gaussian extents");
         let mut pyramid = Vec::new();
-        let mut source = source.clone();
         for (index, size) in extents.into_iter().enumerate() {
             let target = self.texture(size);
-            self.reduce_level(index, &source, &target, bloom, exposure);
-            source = target.clone();
+            let read = pyramid.last().map_or(Read::Scene(source), Read::View);
+            self.reduce_level(index, read, &target, bloom, exposure);
             pyramid.push(target);
         }
         let mut lower = None;
@@ -83,7 +86,7 @@ impl<'a> GaussianPyramid<'a> {
     fn reduce_level(
         &mut self,
         index: usize,
-        source: &wgpu::TextureView,
+        source: Read<'_>,
         target: &wgpu::TextureView,
         bloom: Bloom,
         exposure: Option<(&wgpu::Buffer, f64)>,
@@ -168,7 +171,7 @@ impl<'a> GaussianPyramid<'a> {
             self.pass(Pass {
                 entry,
                 level: u32::try_from(index).unwrap(),
-                source,
+                source: Read::View(source),
                 lower,
                 weights: Some(buffer),
                 exposure: None,
@@ -238,9 +241,27 @@ impl<'a> GaussianPyramid<'a> {
 
     fn pass(&mut self, p: Pass<'_>) {
         let pipeline = self.pipeline(&p);
+        let reads = [p.source];
+        let groups: Vec<_> = (0..scene_color::variants(&reads))
+            .map(|variant| self.bind_group(&p, &pipeline, p.source.view(variant)))
+            .collect();
+        self.set.stages.push(scene_color::fullscreen_stage(
+            StageId::new(p.entry, p.level),
+            &pipeline,
+            (&reads, &groups),
+            StageTarget::Texture(p.target.clone()),
+        ));
+    }
+
+    fn bind_group(
+        &self,
+        p: &Pass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        source: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
         let mut entries = vec![wgpu::BindGroupEntry {
             binding: 0,
-            resource: wgpu::BindingResource::TextureView(p.source),
+            resource: wgpu::BindingResource::TextureView(source),
         }];
         if p.filtered {
             entries.push(wgpu::BindGroupEntry {
@@ -264,20 +285,14 @@ impl<'a> GaussianPyramid<'a> {
         if p.entry == "gaussian_vertical" {
             entries.push(wgpu::BindGroupEntry {
                 binding: 2,
-                resource: wgpu::BindingResource::TextureView(p.lower.unwrap_or(p.source)),
+                resource: wgpu::BindingResource::TextureView(p.lower.unwrap_or(source)),
             });
         }
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(p.entry),
             layout: &pipeline.get_bind_group_layout(0),
             entries: &entries,
-        });
-        self.set.stages.push(Stage::fullscreen(
-            StageId::new(p.entry, p.level),
-            &pipeline,
-            &[&group],
-            StageTarget::Texture(p.target.clone()),
-        ));
+        })
     }
 }
 

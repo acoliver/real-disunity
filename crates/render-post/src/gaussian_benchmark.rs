@@ -22,7 +22,7 @@ impl StageFactory for BenchmarkFactory {
             weight: 0.2,
         });
         gaussian.build(
-            targets.resolved(),
+            &crate::scene_color::SceneColor::single(targets.resolved().clone()),
             Bloom {
                 policies: crate::BloomPolicies::default(),
                 threshold: 1.0,

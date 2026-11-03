@@ -95,6 +95,8 @@ pub(crate) struct Lifecycle {
     /// The scripts a phase visits, kept equal to a scan of `scripts` by the methods below. Change
     /// a script's `start`, `awake`, `active`, `messages` or presence only through them.
     index: crate::phase_index::PhaseIndex,
+    /// Objects the next frame start has to refresh. See `frame_rescan`.
+    pub(crate) unsettled: crate::frame_rescan::Unsettled,
 }
 
 impl Lifecycle {

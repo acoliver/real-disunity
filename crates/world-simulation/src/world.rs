@@ -339,6 +339,7 @@ impl World {
         script: bool,
     ) {
         if script {
+            self.mark_unsettled(object);
             let messages = self.enroll_script_type(handle);
             self.lifecycle.register(
                 handle,

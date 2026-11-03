@@ -3,7 +3,7 @@ use crate::{
     Clock, ComponentHandle, DestroyWhen, InputPhase, LifecycleWork, MutationId, ScriptMessage,
     TimeError, TimeSpan, WaitCondition, World, WorldError,
 };
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScriptFailure {
@@ -93,8 +93,8 @@ struct Scope {
 #[derive(Clone, Default)]
 pub(crate) struct Scheduler {
     scopes: Vec<Scope>,
-    /// Set at the start of a frame: the next look at new scripts revisits every script.
-    pub(crate) rescan_scripts: bool,
+    /// Set at the start of a frame: the next look at new scripts also revisits unsettled objects.
+    pub(crate) frame_start: bool,
     sequence: u64,
     fixed_steps: u32,
     frame_delta: TimeSpan,
@@ -197,7 +197,7 @@ impl World {
         self.scheduler.fixed_steps = u32::try_from(phases.len()).expect("bounded steps");
         self.scheduler.frame_delta = clock.delta;
         self.scheduler.frame_unscaled_delta = clock.unscaled_delta;
-        self.scheduler.rescan_scripts = true;
+        self.scheduler.frame_start = true;
         self.clock = clock;
         self.expire_destruction()?;
         let mut tasks = VecDeque::from([Task::Phase(ScriptMessage::Start)]);
@@ -256,7 +256,7 @@ impl World {
     pub(crate) fn open_lifecycle(&mut self, mutation: MutationId) -> Result<Advance, WorldError> {
         if self.scheduler.scopes.is_empty() {
             self.lifecycle.added.clear();
-            self.scheduler.rescan_scripts = false;
+            self.scheduler.frame_start = false;
         }
         let tasks = self
             .take_lifecycle_work(mutation)?
@@ -332,25 +332,16 @@ impl World {
         }
         self.poll_scheduler()
     }
-    /// Runs the lifecycle of objects whose scripts were registered since the last look, or of
-    /// every scripted object at the start of a frame. Only the new registrations are read
-    /// otherwise, so a callback's resume does not cost a pass over every script.
+    /// Runs the lifecycle of objects whose scripts were registered since the last look, and at the
+    /// start of a frame also of the objects noted as unsettled since the last frame. A callback's
+    /// resume reads only the new registrations, so it does not cost a pass over every script.
     pub(crate) fn initialize_scripts(&mut self) -> Result<(), WorldError> {
         let added = std::mem::take(&mut self.lifecycle.added);
-        let candidates: Vec<_> = if std::mem::take(&mut self.scheduler.rescan_scripts) {
-            self.lifecycle.scripts.keys().copied().collect()
-        } else {
-            added
-        };
-        let nodes: BTreeSet<_> = candidates
-            .into_iter()
-            .filter(|script| self.lifecycle.scripts.contains_key(script))
-            .filter_map(|script| self.component(script).ok().map(|c| c.object))
-            .filter(|&object| !self.is_unpublished(object))
-            .collect();
+        let frame_start = std::mem::take(&mut self.scheduler.frame_start);
+        let nodes = self.refresh_candidates(added, frame_start);
         if !nodes.is_empty() {
             let mutation = self.reserve_mutation()?;
-            self.refresh_lifecycle(&nodes.into_iter().collect::<Vec<_>>(), mutation);
+            self.refresh_lifecycle(&nodes, mutation);
         }
         Ok(())
     }
@@ -504,6 +495,9 @@ impl World {
             if !active {
                 self.lifecycle
                     .edit_script(work.script, |state| state.awake = false);
+                if let Ok(component) = self.component(work.script) {
+                    self.mark_unsettled(component.object);
+                }
                 return None;
             }
             state.entered = EnteredState::Awake;

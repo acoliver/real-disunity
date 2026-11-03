@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 /// Looks at every scripted object, as the frame start did.
 pub(super) fn frame_start(world: &mut World) {
     world.lifecycle.added.clear();
-    world.scheduler.rescan_scripts = false;
+    world.scheduler.frame_start = false;
     let nodes: BTreeSet<_> = world
         .lifecycle
         .scripts
@@ -22,7 +22,8 @@ pub(super) fn frame_start(world: &mut World) {
     }
 }
 
-/// What a frame start leaves behind that a script or the host can see.
+/// What a frame start leaves behind that a script or the host can see. An empty batch of work
+/// is not counted: the rescan queued one every frame and nothing reads it.
 #[derive(Debug, PartialEq)]
 pub(super) struct Observed {
     scripts: Vec<(ComponentHandle, u8)>,
@@ -55,6 +56,7 @@ fn observe(world: &World) -> Observed {
             .lifecycle
             .mutations
             .iter()
+            .filter(|(_, work)| !work.is_empty())
             .map(|(&sequence, work)| (sequence, work.clone()))
             .collect(),
         cleanup: world.lifecycle.cleanup.clone(),
@@ -66,9 +68,18 @@ fn observe(world: &World) -> Observed {
 /// Asserts that starting a frame now leaves the world as the full rescan would.
 pub(super) fn assert_frame_start_matches(world: &World) {
     let mut fast = world.clone();
-    fast.scheduler.rescan_scripts = true;
+    fast.scheduler.frame_start = true;
     fast.initialize_scripts().unwrap();
     let mut full = world.clone();
     frame_start(&mut full);
-    assert_eq!(observe(&fast), observe(&full));
+    let (fast, full) = (observe(&fast), observe(&full));
+    let differing: Vec<_> = fast
+        .scripts
+        .iter()
+        .zip(&full.scripts)
+        .filter(|(a, b)| a != b)
+        .collect();
+    assert_eq!(differing, Vec::<(&_, &_)>::new(), "script states differ");
+    assert_eq!(fast.work, full.work, "queued work differs");
+    assert_eq!(fast, full);
 }

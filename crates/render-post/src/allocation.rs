@@ -70,7 +70,8 @@ pub fn post_allocations(config: FrameConfig, settings: HdrPostSettings) -> Alloc
     set
 }
 /// The TAA history bank and the slot outputs. The history is shared by the three slots and
-/// counted once. Native TAA works on the render grid and keeps a linear-depth history for the
+/// counted once. Temporal reconstruction has no slot output: the stages after it read its history.
+/// Native TAA works on the render grid and keeps a linear-depth history for the
 /// disocclusion test. Temporal reconstruction keeps its colour history on the output grid and
 /// has no depth history; its dilated depth, dilated motion and reconstructed depth are per slot
 /// at the render grid.
@@ -91,8 +92,9 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
     // and the bank is reused, a retiring generation is counted twice until it retires.
     let colour = crate::taa_gpu::FORMAT;
     set.texture("taa history", [w, h, 1], colour, [1, 1], 1);
-    set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
     if temporal {
+        // The upscale pass reads one colour history and writes the other, see `taa_upscale_gpu`.
+        set.texture("taa history alternate", [w, h, 1], colour, [1, 1], 1);
         // Held by the frame targets, one field for every slot: it is cleared, written and read
         // inside one encoded frame. At equal extents the chain is the native TAA and has none.
         let [rw, rh] = config.size;
@@ -116,6 +118,7 @@ fn taa_allocations(set: &mut AllocationSet, config: FrameConfig, settings: &HdrP
             temporal_lock_allocations(set, config.size, [w, h]);
         }
     } else {
+        set.texture("taa output", [w, h, 1], colour, [1, 1], 3);
         let depth = crate::taa_gpu::DEPTH_FORMAT;
         set.texture("taa depth history", [w, h, 1], depth, [1, 1], 1);
         set.texture("taa depth output", [w, h, 1], depth, [1, 1], 3);

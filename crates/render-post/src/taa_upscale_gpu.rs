@@ -2,37 +2,30 @@
 //! `taa_common.wgsl` helpers, after the reconstruction stages of `taa_reconstruct_gpu`.
 //!
 //! It reads the jittered current color at the internal extent `R` and writes the output extent
-//! `O`. With the thin-feature locks on it also writes the lock bank and copies both into the shared
-//! histories; with them off (the default) there are no lock passes and no lock resources. The uniform block is a [`crate::TemporalBlock`], the camera block, read by the reconstruction,
-//! a [`crate::TemporalCamera`].
+//! `O`. Its one colour target is the colour history of the frame; the stages after it (tone,
+//! exposure metering, bloom) read that history, see [`crate::scene_color`]. With the thin-feature
+//! locks on it also writes the lock bank, which is then copied into the lock history; with the
+//! locks off (the default) there are no lock passes and no lock resources. There are two colour
+//! histories: the pass reads the one the previous frame wrote and writes the other, chosen by a
+//! [`crate::history_parity::HistoryParity`], so there is no copy back. The uniform block is a
+//! [`crate::TemporalBlock`], the camera block, read by the reconstruction, a
+//! [`crate::TemporalCamera`].
 use crate::{
-    Stage, StageId, StageSet, StageTarget, taa_mask_gpu, taa_reconstruct_gpu, taa_thin_gpu,
+    Stage, StageId, StageSet, StageTarget, chain::Variant, history_parity::HistoryParity,
+    taa_mask_gpu, taa_reconstruct_gpu, taa_thin_gpu,
 };
 
 /// Stage names, in execution order. Identities are stable for timing. With locks on, the candidate
 /// pass, [`crate::taa_thin_gpu::STAGE`], runs before the first of them and "temporal lock history"
-/// is the last. Without locks only the first two exist.
-pub const STAGES: [&str; 3] = [
-    "temporal upscale",
-    "temporal upscale history",
-    "temporal lock history",
-];
+/// follows it. Without locks only the first exists.
+pub const STAGES: [&str; 2] = ["temporal upscale", "temporal lock history"];
 
-/// Format of the output and of the history, and of the current color it reads.
+/// Format of the history, which is also the scene colour the stages after the upscale read, and of
+/// the current color it reads.
 pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
-/// The output texture "temporal upscale output" at the output extent. Frame slots each own one.
-pub fn output(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
-    texture(
-        device,
-        "temporal upscale output",
-        size,
-        wgpu::TextureUsages::empty(),
-    )
-}
-
-/// The history texture "temporal upscale history" at the output extent, shared by every frame
-/// slot like the native history.
+/// A colour history texture "temporal upscale history" at the output extent. A bank holds two,
+/// shared by every frame slot like the native history.
 pub fn history(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
     texture(
         device,
@@ -42,7 +35,7 @@ pub fn history(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
     )
 }
 
-/// The lock bank "temporal lock bank" at `O`, written next to the output. Frame slots each own one.
+/// The lock bank "temporal lock bank" at `O`, written next to the history. Frame slots each own one.
 /// Per texel: frames left, reference luminance, contrast, unused. Four 16 bit lanes, 8 bytes per
 /// texel, because two 16 bit float channels are not a core storage format.
 pub fn lock_bank(device: &wgpu::Device, size: [u32; 2]) -> wgpu::Texture {
@@ -99,10 +92,11 @@ pub struct Inputs<'a> {
     pub uniform: &'a wgpu::Buffer,
     /// A [`crate::TemporalCamera`] block.
     pub camera: &'a wgpu::Buffer,
-    /// [`history`] at `O`.
-    pub history: &'a wgpu::Texture,
-    /// [`output`] at `O`.
-    pub output: &'a wgpu::Texture,
+    /// Two [`history`] textures at `O`. With an even `parity` the pass reads the second and writes
+    /// the first; with an odd one it reads the first and writes the second.
+    pub history: [&'a wgpu::Texture; 2],
+    /// Which history the pass writes, read at encode time.
+    pub parity: &'a HistoryParity,
     /// The lock resources, present only when [`locks_enabled`].
     pub locks: Option<LockInputs<'a>>,
     /// The producer mask at `R`, present when the frame targets carry one.
@@ -126,9 +120,8 @@ pub struct Outputs {
     pub prepared_mask: Option<wgpu::Texture>,
 }
 
-/// Appends the stages of [`taa_reconstruct_gpu`], "temporal upscale", which writes `inputs.output`
-/// from the total motion, and "temporal upscale history", a texture copy into `inputs.history`.
-/// With `inputs.locks`, "temporal create locks" marks thin feature candidates at `R` before the
+/// Appends the stages of [`taa_reconstruct_gpu`], "temporal upscale", which writes the history of
+/// this frame from the total motion and the colour history the previous frame wrote. With `inputs.locks`, "temporal create locks" marks thin feature candidates at `R` before the
 /// upscale, which then also writes the lock bank, and "temporal lock history" copies the bank into
 /// the lock history. With `inputs.mask`, "temporal mask dilate" prepares the mask after the
 /// reconstruction. Returns the resources of the stages before the reconstruction, which the
@@ -165,14 +158,9 @@ pub fn append(device: &wgpu::Device, set: &mut StageSet, inputs: &Inputs<'_>) ->
             prepared_view.as_ref(),
         ),
     ));
-    set.stages.push(Stage::copy_texture(
-        StageId::new(STAGES[1], 0),
-        inputs.output,
-        inputs.history,
-    ));
     if let Some(locks) = &inputs.locks {
         set.stages.push(Stage::copy_texture(
-            StageId::new(STAGES[2], 0),
+            StageId::new(STAGES[1], 0),
             locks.bank,
             locks.history,
         ));
@@ -189,8 +177,9 @@ fn view(texture: &wgpu::Texture) -> wgpu::TextureView {
 }
 
 /// The "temporal upscale" stage: reads the colour, the colour history, the dilated motion and the
-/// confidence and writes the output. With locks it also reads the candidates and the lock history
-/// and writes the lock bank.
+/// confidence and writes the other colour history. With locks it also reads the
+/// candidates and the lock history and writes the lock bank. The stage has two variants of bind
+/// groups and targets, one pipeline: the history read and the history written swap with the parity.
 fn resolve_stage(
     device: &wgpu::Device,
     inputs: &Inputs<'_>,
@@ -215,34 +204,73 @@ fn resolve_stage(
         &module,
         (inputs.locks.is_some(), prepared.is_some()),
     );
-    let (history, motion) = (view(inputs.history), view(&reconstructed.motion));
-    let confidence = view(&reconstructed.confidence);
-    let entry = |binding, resource| wgpu::BindGroupEntry { binding, resource };
+    let (motion, confidence) = (view(&reconstructed.motion), view(&reconstructed.confidence));
     let zero_mask = view(&zero_mask_texture(device));
-    let mask = prepared.unwrap_or(&zero_mask);
-    let mut entries = vec![
-        entry(0, wgpu::BindingResource::TextureView(inputs.color)),
-        entry(1, wgpu::BindingResource::TextureView(&history)),
-        entry(2, wgpu::BindingResource::TextureView(&motion)),
-        entry(3, inputs.uniform.as_entire_binding()),
-        entry(4, wgpu::BindingResource::TextureView(&confidence)),
-        entry(7, wgpu::BindingResource::TextureView(mask)),
-    ];
     let lock_history = inputs.locks.as_ref().map(|l| view(l.history));
+    let mut fixed = vec![
+        (0, inputs.color),
+        (2, &motion),
+        (4, &confidence),
+        (7, prepared.unwrap_or(&zero_mask)),
+    ];
     if let (Some(candidates), Some(lock_history)) = (candidates, &lock_history) {
-        entries.push(entry(5, wgpu::BindingResource::TextureView(candidates)));
-        entries.push(entry(6, wgpu::BindingResource::TextureView(lock_history)));
+        fixed.push((5, candidates));
+        fixed.push((6, lock_history));
     }
-    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let histories = inputs.history.map(view);
+    let bank = inputs.locks.as_ref().map(|locks| view(locks.bank));
+    // Variant `odd` writes history `odd` and reads the other one.
+    let variant = |odd: usize| {
+        let group = bind_group(device, &pipeline, (&fixed, &histories[1 - odd]), inputs);
+        let written = histories[odd].clone();
+        let target = match &bank {
+            Some(bank) => StageTarget::Pair(written, bank.clone()),
+            None => StageTarget::Texture(written),
+        };
+        (group, target)
+    };
+    let (even_group, even_target) = variant(0);
+    let (odd_group, odd_target) = variant(1);
+    Stage::fullscreen_alternating(
+        StageId::new(STAGES[0], 0),
+        &pipeline,
+        inputs.parity,
+        [
+            Variant {
+                groups: &[&even_group],
+                target: even_target,
+            },
+            Variant {
+                groups: &[&odd_group],
+                target: odd_target,
+            },
+        ],
+    )
+}
+
+/// The bind group of the upscale: the views that do not change with the parity, the history read
+/// at binding 1 and the temporal block at binding 3.
+fn bind_group(
+    device: &wgpu::Device,
+    pipeline: &wgpu::RenderPipeline,
+    (fixed, history): (&[(u32, &wgpu::TextureView)], &wgpu::TextureView),
+    inputs: &Inputs<'_>,
+) -> wgpu::BindGroup {
+    let entry = |binding, resource| wgpu::BindGroupEntry { binding, resource };
+    let mut entries = vec![
+        entry(1, wgpu::BindingResource::TextureView(history)),
+        entry(3, inputs.uniform.as_entire_binding()),
+    ];
+    entries.extend(
+        fixed
+            .iter()
+            .map(|&(binding, view)| entry(binding, wgpu::BindingResource::TextureView(view))),
+    );
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some(STAGES[0]),
         layout: &pipeline.get_bind_group_layout(0),
         entries: &entries,
-    });
-    let target = match &inputs.locks {
-        Some(locks) => StageTarget::Pair(view(inputs.output), view(locks.bank)),
-        None => StageTarget::Texture(view(inputs.output)),
-    };
-    Stage::fullscreen(StageId::new(STAGES[0], 0), &pipeline, &[&group], target)
+    })
 }
 
 /// The 1x1 mask a stage without a producer mask binds: zero everywhere, so no texel is reactive.
@@ -319,8 +347,9 @@ impl Drop for WithLocks {
     }
 }
 
-/// The unlocked pipeline has one target and binds no lock texture. The locked one sets the shader's
-/// `locks` override, which gates its lock branches. `masks` says whether the bound mask is real.
+/// The unlocked pipeline has the history as its only target and binds no lock texture. The locked
+/// one adds the lock bank and sets the shader's `locks` override, which gates its lock branches.
+/// The two targets are 16 bytes per sample, below the 32 byte limit of the colour attachments. `masks` says whether the bound mask is real.
 fn pipeline(
     device: &wgpu::Device,
     module: &wgpu::ShaderModule,
@@ -331,13 +360,13 @@ fn pipeline(
         (
             "taa_upscale",
             [("locks", 1.0), masks],
-            vec![Some(FORMAT.into()), Some(FORMAT.into())],
+            vec![Some(FORMAT.into()); 2],
         )
     } else {
         (
             "taa_upscale_unlocked",
             [("locks", 0.0), masks],
-            vec![Some(FORMAT.into())],
+            vec![Some(FORMAT.into()); 1],
         )
     };
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

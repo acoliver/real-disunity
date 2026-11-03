@@ -439,8 +439,10 @@ presentation extent remains unchanged. Reconfiguration rebuilds stage bindings.
 `UpscaleMode::Temporal` is not a `SpatialUpscale` pass (`SpatialUpscale::validate_config` rejects it).
 With a TAA resolve, one sample per pixel and a render extent of at least half the output,
 `hdr_taa::append` builds a temporal bank instead of the native one: the `temporal upscale` stage
-(`taa_upscale.wgsl`) reads the render-extent frame, the velocity target and a shared `Rgba16Float`
-history at the output extent and writes three per-slot outputs at the output extent. Three compute
+(`taa_upscale.wgsl`) reads the render-extent frame, the velocity target and the `Rgba16Float`
+history the previous frame wrote, and writes the other history at the output extent; the stages
+after it read that history and there is no per-slot output texture. The bank holds two such histories shared by every slot and the pass
+alternates them (see "History without a copy" below). Three compute
 stages at the render extent (`taa_reconstruct.wgsl`, scheduled by `taa_reconstruct_gpu::append`) run
 ahead of it, listed below. A `TemporalBlock` (48 bytes: both extents, jitter, phase count, history weight, clip scale,
 `history_valid`) is uploaded per frame with `ToneMapOutput::prepare_temporal`; there is no all-zero
@@ -451,13 +453,13 @@ keyed by render extent, output extent, mode and sample count and replaced transa
 rejected configuration keeps the committed bank (`StageFactory::settle_build`).
 `HdrPostSettings::effective_jitter` gives `ProjectionJitter::for_extents(render, output)` when no
 explicit sequence is chosen, and `validate_jitter` rejects a shorter one. The allocation budget
-counts one shared history and three outputs at the output extent, plus per slot the dilated depth (R32Float), dilated motion (Rg32Float), depth confidence (R32Float) and reconstructed depth buffer at the render extent (20R bytes), each a per-generation entry (a shared entry would need one descriptor across generations, #399). Measured static error ratios
+counts two shared histories at the output extent and no output texture, plus per slot the dilated depth (R32Float), dilated motion (Rg32Float), depth confidence (R32Float) and reconstructed depth buffer at the render extent (20R bytes), each a per-generation entry (a shared entry would need one descriptor across generations, #399). Measured static error ratios
 against reset-every-frame are in [docs/rendering.md](../../docs/rendering.md#temporal-upscaling).
 
 Passes of a temporal slot, in order (each a `StageSet` stage). Pass 4, the lock half of pass 5 and the lock history copy of
 pass 6 exist only when the thin-feature locks are on, which is test only (`WithLocks`). With locks off, the
 default, there is no `temporal create locks`, no `temporal lock history`, no lock bank and no lock
-memory, and `temporal upscale` runs its single target `taa_upscale_unlocked` entry point.
+memory, and `temporal upscale` runs its `taa_upscale_unlocked` entry point with the history as its only target.
 
 1. `temporal depth clear`: fills the reconstructed depth buffer (`array<atomic<u32>>`, 4R bytes) with the bits of +inf.
 2. `temporal reconstruct dilate`: per texel, the nearest valid depth (`0 < z < 1`) of the 3x3 neighbourhood
@@ -481,8 +483,25 @@ memory, and `temporal upscale` runs its single target `taa_upscale_unlocked` ent
    of the new sample (`w` becomes `1 - (1 - w) / 2`); `history_weight == 0` stays 0. The `Rgba16Float` lock
    bank holds frames left, reference luminance, contrast and one unused lane, 8O bytes per image (two 16
    bit float channels are not a core storage format).
-6. `temporal upscale history`, and with locks `temporal lock history`: the shared history copies of colour and
-   locks.
+6. With locks only, `temporal lock history`: the shared copy of the lock bank. The colour history has no copy.
+
+History without a copy. The bank holds two `Rgba16Float` histories at the output extent. `temporal upscale`
+writes its colour only to the history it does not read, and tone, exposure metering and bloom read that
+history (`scene_color::SceneColor`, bind groups per parity), so there is no slot output texture and the former `temporal upscale history` texture copy (about 1.5 ms of the 1080p frame on a Radeon 780M, the
+ablation with the copy stage disabled) is gone. The target is the history alone unlocked (8 bytes per
+sample) and history and lock bank locked (8 + 8 = 16 bytes per sample). The stage keeps two bind group and target variants of one pipeline
+(`Operation::FullscreenAlternating`), and each reader of the history keeps two bind groups
+(`FullscreenAlternating`, `ComputeAlternating` for the luminance histogram); the variant is chosen at encode time by a `HistoryParity`. The host
+sets the parity with `ToneMapOutput::select_history_parity` before it encodes a frame: `render-scene`
+passes the parity of its submitted frame count (`TemporalHistory::frame_index`), which advances only when
+a frame is submitted and is zero after a reset. An encoded frame that is cancelled or fails therefore
+does not change which history the next frame reads, and a reset starts even. Even parity reads the second
+history and writes the first, odd parity the reverse; a stage never reads and writes one texture in a pass.
+The output is bit-identical to the copying version (checked on lavapipe for the pass alone, locked and
+unlocked, and for eight frames of the quality scene at three render scales). The second history costs
+8 O bytes (16,588,800 bytes at 1920x1080). Reading the history the pass wrote, instead of a separate
+output, removes the three per-slot output textures (3 x 8 O bytes, 49,766,400 bytes at 1920x1080) and the
+second colour target of the pass.
 
 With a temporal mask, `temporal mask dilate` runs after `temporal depth clip` and the upscale pass consumes the
 prepared mask; see [Reactive and composition mask](#reactive-and-composition-mask).
@@ -556,7 +575,7 @@ Device: AMD Radeon 780M, Mesa 26.0.8 RADV. Quality cells use a 4x4 supersampled 
 
 At 0.77 on 1920x1080 the bound needs `Temporal` at or below 6.35 ms; the matrix run measured 10.36 ms.
 
-**Per-stage breakdown at 1920x1080.** `qualification_stage_timings` reports the median GPU time of every timed pass over 30 warm-up and 120 measured frames. Scene rasterisation, clears and the output-sized history copy have no timing slot and sit in the gap between the whole-frame median and the sum of the stage medians.
+**Per-stage breakdown at 1920x1080.** `qualification_stage_timings` reports the median GPU time of every timed pass over 30 warm-up and 120 measured frames. Scene rasterisation, clears and texture copies have no timing slot (the measured temporal versions still copied the output-sized history, which `temporal upscale` now writes itself) and sit in the gap between the whole-frame median and the sum of the stage medians.
 
 | Mode and scale | Stage medians, ms | Sum of stages | Whole frame median (p95) | Gap |
 |---|---|---|---|---|

@@ -126,6 +126,38 @@ impl<'a> Rig<'a> {
             .unwrap()
     }
 
+    /// Encodes one frame in `slot` from a camera at `eye_x` millimetres and cancels the
+    /// transaction, so nothing of it is submitted or published.
+    fn cancel_frame(&mut self, slot: usize, eye_x: i64) {
+        let device = self.context.device();
+        let renderer = self.renderer.renderer_mut();
+        renderer.select_frame_slot(slot);
+        let prepared = renderer
+            .prepare_uniform(frame(eye_x, self.render[0]))
+            .unwrap();
+        let view = self
+            .output
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let scene = &self.scene;
+        let transaction = self
+            .context
+            .submission()
+            .prepare(device, |encoder, _| {
+                let targets = renderer.targets();
+                let target = Target {
+                    color: targets.scene(),
+                    resolve: None,
+                    depth: targets.depth(),
+                };
+                scene.draw(device, encoder, &target, prepared.view_projection);
+                renderer.encode_frame(device, encoder, (&[], &[]), &mut [], (prepared, None))?;
+                renderer.encode_output(encoder, &view).unwrap();
+                Ok::<_, FrameError>(())
+            })
+            .unwrap();
+        transaction.cancel();
+    }
+
     /// The output of a frame without history, whatever came before.
     fn reset_frame(&mut self) -> Vec<u8> {
         self.renderer.reset_temporal_history();
@@ -225,6 +257,34 @@ fn the_static_error_against_reset_every_frame_meets_the_design_ratio_at_each_sca
             temporal <= RATIO_BOUND * reset,
             "{scale}: temporal {temporal} reset {reset}"
         );
+    }
+}
+
+/// Three submitted frames of a panning camera, `cancelled` frames that are encoded and dropped,
+/// then a fourth submitted frame in slot 0. Returns the fourth frame's bytes.
+fn fourth_frame_after(context: &GpuContext, scale: u32, cancelled: usize) -> Vec<u8> {
+    let mut rig = Rig::new(context, scale);
+    for index in 0..3_i64 {
+        rig.render_from(usize::try_from(index).unwrap(), index * 60);
+    }
+    for _ in 0..cancelled {
+        rig.cancel_frame(0, 180);
+    }
+    rig.render_from(0, 180)
+}
+
+/// Which of the two histories a frame reads follows the frames that were submitted, not the
+/// frames that were encoded: dropped frames in between leave the fourth frame equal to the
+/// fourth frame of a renderer that never encoded them. Same device, same code, byte equal.
+#[test]
+fn cancelled_frames_do_not_change_which_history_the_next_frame_reads() {
+    let context = context();
+    for scale in SCALES {
+        let fresh = fourth_frame_after(&context, scale, 0);
+        for cancelled in 1..=2 {
+            let after = fourth_frame_after(&context, scale, cancelled);
+            assert_eq!(after, fresh, "{scale}: {cancelled} cancelled frame(s)");
+        }
     }
 }
 

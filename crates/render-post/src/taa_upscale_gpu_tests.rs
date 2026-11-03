@@ -139,8 +139,8 @@ struct Stage1 {
     render: [u32; 2],
     uniform: wgpu::Buffer,
     camera: wgpu::Buffer,
-    history: wgpu::Texture,
-    output: wgpu::Texture,
+    history: [wgpu::Texture; 2],
+    parity: crate::history_parity::HistoryParity,
 }
 impl StageFactory for Stage1 {
     fn build(
@@ -160,8 +160,8 @@ impl StageFactory for Stage1 {
                 render: self.render,
                 uniform: &self.uniform,
                 camera: &self.camera,
-                history: &self.history,
-                output: &self.output,
+                history: [&self.history[0], &self.history[1]],
+                parity: &self.parity,
                 locks: None,
                 mask: None,
             },
@@ -177,7 +177,7 @@ impl StageFactory for Stage1 {
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view(&self.output)),
+                resource: wgpu::BindingResource::TextureView(&view(&self.history[0])),
             }],
         });
         set.stages.push(Stage::fullscreen(
@@ -190,7 +190,8 @@ impl StageFactory for Stage1 {
     }
 }
 
-/// Runs the stage on lavapipe and reads the output texture.
+/// Runs the stage on lavapipe and reads the history it wrote: the default parity is even, so the
+/// first one, which is also what the stages after the pass read.
 fn run(case: &Case) -> Vec<[f64; 4]> {
     let (device, queue) = crate::gpu_tests::gpu();
     let render = case.color.size.map(|v| u32::try_from(v).unwrap());
@@ -206,8 +207,9 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
         .take(4 * case.color.pixels.len())
         .collect();
     write_texture(&queue, &motion, &field, 4);
-    let history = taa_upscale_gpu::history(&device, output);
-    write_texture(&queue, &history, &bytes16(&case.history.pixels), 8);
+    // The default parity is even: the pass reads the second history and writes the first.
+    let history = [0, 1].map(|_| taa_upscale_gpu::history(&device, output));
+    write_texture(&queue, &history[1], &bytes16(&case.history.pixels), 8);
     let block = TemporalBlock {
         render,
         output,
@@ -227,7 +229,6 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
         contents: &case.camera.to_bytes(),
         usage: wgpu::BufferUsages::UNIFORM,
     });
-    let target = taa_upscale_gpu::output(&device, output);
     let chain = PostChain::new(
         &device,
         FrameConfig::new(output, taa_upscale_gpu::FORMAT, 1),
@@ -239,8 +240,8 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
             render,
             uniform,
             camera,
-            history,
-            output: target.clone(),
+            history: history.clone(),
+            parity: crate::history_parity::HistoryParity::default(),
         },
     )
     .unwrap();
@@ -248,7 +249,7 @@ fn run(case: &Case) -> Vec<[f64; 4]> {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     chain.encode(&mut encoder, &view(&sink));
     queue.submit([encoder.finish()]);
-    read((&device, &queue), &target)
+    read((&device, &queue), &history[0])
 }
 
 /// Largest absolute difference between horizontally or vertically adjacent texels.

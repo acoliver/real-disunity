@@ -38,6 +38,7 @@ struct Rig {
     device: wgpu::Device,
     queue: wgpu::Queue,
     chain: PostChain<ToneMapOutput>,
+    frames: crate::history_parity::SubmittedFrames,
     output: [u32; 2],
 }
 
@@ -52,6 +53,7 @@ impl Rig {
             device,
             queue,
             chain,
+            frames: crate::history_parity::SubmittedFrames::default(),
             output,
         }
     }
@@ -134,6 +136,7 @@ impl Rig {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         self.upload_scene(&mut encoder, seed);
         let factory = self.chain.factory();
+        self.frames.select(factory, block.history_valid);
         factory.prepare_temporal(&mut encoder, slot, block).unwrap();
         factory
             .prepare_effects(&mut encoder, slot, 0.031, true)
@@ -141,6 +144,7 @@ impl Rig {
         let view = out.create_view(&wgpu::TextureViewDescriptor::default());
         self.chain.encode(&mut encoder, &view);
         self.queue.submit([encoder.finish()]);
+        self.frames.submitted();
         crate::Readback::new(
             &self.device,
             FrameConfig::new(self.output, out.format(), 1),

@@ -86,6 +86,7 @@ mod hdr_temporal_reset_tests;
 mod history_key;
 #[cfg(test)]
 mod history_key_tests;
+mod history_parity;
 mod jitter;
 #[cfg(test)]
 mod jitter_tests;
@@ -96,6 +97,7 @@ mod post_extent_allocation_tests;
 mod post_filters;
 #[cfg(test)]
 mod quality_metrics;
+mod scene_color;
 mod smaa;
 mod smaa_gpu;
 mod smaa_lut;

@@ -48,6 +48,8 @@ const HALF_PI: f32 = 1.5707963267948966;
 // composition of the mask moves the share linearly to 1 (no protection); a composition of 1 also
 // kills the lock itself.
 const LOCK_SHARE: f32 = 0.5;
+// `color` is written to the history of this frame, which the stages after the pass read, so no
+// output texture and no copy back follow.
 struct Resolved {
     @location(0) color: vec4<f32>,
     @location(1) lock: vec4<f32>,
@@ -73,22 +75,34 @@ fn lanczos2(x: f32) -> f32 {
     return select(s * s * c, 0.0, abs(x) >= 2.0);
 }
 fn load_color(p: vec2<i32>) -> vec4<f32> {
-    let last = vec2<i32>(textureDimensions(color)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     return clean(textureLoad(color, clamp(p, vec2<i32>(0), last), 0));
 }
 fn load_history(p: vec2<i32>) -> vec3<f32> {
-    let last = vec2<i32>(textureDimensions(history)) - 1;
+    let last = vec2<i32>(temporal.extents.zw) - 1;
     return textureLoad(history, clamp(p, vec2<i32>(0), last), 0).rgb;
 }
 // Normalised Lanczos2 of the 4x4 texels around q.
 fn reconstruct(q: vec2<f32>) -> vec4<f32> {
     let base = floor(q);
     let origin = vec2<i32>(base);
+    let wx = vec4<f32>(
+        lanczos2(q.x - (base.x - 1.0)),
+        lanczos2(q.x - base.x),
+        lanczos2(q.x - (base.x + 1.0)),
+        lanczos2(q.x - (base.x + 2.0)),
+    );
+    let wy = vec4<f32>(
+        lanczos2(q.y - (base.y - 1.0)),
+        lanczos2(q.y - base.y),
+        lanczos2(q.y - (base.y + 1.0)),
+        lanczos2(q.y - (base.y + 2.0)),
+    );
     var sum = vec4<f32>(0.0);
     var total = 0.0;
     for (var i = 0; i < 16; i++) {
         let d = vec2<i32>(i % 4 - 1, i / 4 - 1);
-        let w = lanczos2(q.x - (base.x + f32(d.x))) * lanczos2(q.y - (base.y + f32(d.y)));
+        let w = wx[d.x + 1] * wy[d.y + 1];
         sum += w * load_color(origin + d);
         total += w;
     }
@@ -133,7 +147,7 @@ fn catmull_rom(uv: vec2<f32>) -> vec3<f32> {
 // agree that it belongs to the surface.
 fn history_confidence(q: vec2<f32>) -> f32 {
     let base = vec2<i32>(floor(q));
-    let last = vec2<i32>(textureDimensions(confidence)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     var least = 1.0;
     for (var i = 0; i < 4; i++) {
         let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
@@ -150,7 +164,7 @@ fn gather_masks(q: vec2<f32>) -> vec2<f32> {
         return vec2<f32>(0.0);
     }
     let base = vec2<i32>(floor(q));
-    let last = vec2<i32>(textureDimensions(prepared_mask)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     var most = vec2<f32>(0.0);
     for (var i = 0; i < 4; i++) {
         let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
@@ -166,7 +180,7 @@ fn gather_candidate(q: vec2<f32>, flow: vec2<f32>, confidence: f32) -> f32 {
         return 0.0;
     }
     let base = vec2<i32>(floor(q));
-    let last = vec2<i32>(textureDimensions(candidates)) - 1;
+    let last = vec2<i32>(temporal.extents.xy) - 1;
     var best = 0.0;
     for (var i = 0; i < 4; i++) {
         let t = clamp(base + vec2<i32>(i % 2, i / 2), vec2<i32>(0), last);
@@ -183,7 +197,7 @@ fn reproject_lock(uv: vec2<f32>, usable: bool, reference: f32) -> vec4<f32> {
     if !usable {
         return vec4<f32>(0.0);
     }
-    let last = vec2<i32>(textureDimensions(lock_history)) - 1;
+    let last = vec2<i32>(temporal.extents.zw) - 1;
     let at = clamp(vec2<i32>(floor(uv * temporal.extents.zw)), vec2<i32>(0), last);
     let prev = textureLoad(lock_history, at, 0);
     let alive = prev.x > 0.5 && finite(prev.y) && abs(reference - prev.y) <= prev.z;
@@ -254,10 +268,11 @@ fn blend(s: Prepared, locked: bool) -> vec4<f32> {
     let prev = reproject_lock(s.uv, s.usable && locking && s.confidence > 0.0, s.bounds[0].x);
     let candidate = select(0.0, gather_candidate(s.q, s.flow, s.confidence), locking);
     let lock = next_lock(prev, candidate, s.bounds[0].x);
-    return Resolved(blend(s, lock.x > 0.0), lock);
+    let color = blend(s, lock.x > 0.0);
+    return Resolved(color, lock);
 }
 // The entry point without locks: binds neither the candidates nor the lock history and has one
-// target.
+// colour target, the history.
 @fragment fn taa_upscale_unlocked(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     return blend(prepare(position), false);
 }

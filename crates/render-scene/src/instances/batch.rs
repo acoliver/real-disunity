@@ -128,11 +128,34 @@ impl InstanceBatch {
         self.free.len() != self.placements.len()
     }
 
+    /// Forgets dirty slots whose bytes the last published frame already holds. Staged bytes are
+    /// published at submit and preparations never overlap, so `uploaded` is exact when a frame
+    /// prepares, and a forgotten slot becomes pending again only through `pack`, which marks it
+    /// dirty. Without this the set keeps every slot ever written, and each draw pass rescans it.
+    fn prune_published(&mut self) {
+        let Self {
+            dirty,
+            uploaded,
+            bytes,
+            ..
+        } = self;
+        let uploaded = uploaded.borrow();
+        dirty.retain(|position| {
+            let range = position * STRIDE..(position + 1) * STRIDE;
+            uploaded.get(range.clone()) != Some(&bytes[range])
+        });
+    }
+
     pub fn pending_ranges(&self) -> Vec<Range<u32>> {
         ranges(self.dirty.iter().copied().filter(|position| {
             let range = position * STRIDE..(position + 1) * STRIDE;
             self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
         }))
+    }
+
+    #[cfg(test)]
+    pub fn dirty_count(&self) -> usize {
+        self.dirty.len()
     }
 
     #[cfg(test)]
@@ -171,6 +194,7 @@ pub(crate) fn flush_prepared(
     context: &mut worldrunner_render_post::PrepareContext<'_>,
     track_previous: bool,
 ) -> Vec<Range<u32>> {
+    batch.prune_published();
     let writes = batch.pending_ranges();
     let mut ranges = writes.clone();
     if batch.bytes.is_empty() {

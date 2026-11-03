@@ -270,13 +270,13 @@ fn abandoned_standalone_draw_does_not_publish_selection() {
         &pipelines,
     );
     assert_eq!(gpu.view_stats(), before);
-    assert!(gpu.camera_selection.borrow().ranges.is_empty());
+    assert!(gpu.views[0].published.borrow().ranges.is_empty());
     drop(encoder);
     assert_eq!(gpu.view_stats(), before);
     assert_eq!(gpu.shadow_view_stats().considered, 0);
     target.render(&context, &gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().considered, 2);
-    assert!(!gpu.camera_selection.borrow().ranges.is_empty());
+    assert!(!gpu.views[0].published.borrow().ranges.is_empty());
 }
 
 #[test]
@@ -316,9 +316,9 @@ fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
         })
         .unwrap();
     assert_eq!(gpu.view_stats(), before);
-    assert!(gpu.camera_selection.borrow().ranges.is_empty());
+    assert!(gpu.views[0].published.borrow().ranges.is_empty());
     assert_eq!(gpu.shadow_view_stats().considered, 0);
     target.render(&context, &gpu, &pipelines).unwrap();
     assert_eq!(gpu.view_stats().considered, 2);
-    assert!(!gpu.camera_selection.borrow().ranges.is_empty());
+    assert!(!gpu.views[0].published.borrow().ranges.is_empty());
 }

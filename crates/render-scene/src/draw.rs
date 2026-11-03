@@ -52,8 +52,8 @@ mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use resources::prepared_terrain;
+use visibility::MeshSelection;
 pub use visibility::ViewStats;
-use visibility::{MeshSelection, Selection};
 
 #[cfg(test)]
 pub(crate) struct StreamingPreparation {
@@ -238,8 +238,7 @@ pub struct SceneGpu {
             FrameUniform,
         )>,
     >,
-    camera_selection: std::rc::Rc<RefCell<Selection>>,
-    shadow_selection: [std::rc::Rc<RefCell<Selection>>; 4],
+    views: [selection_reuse::View; 5],
     terrain: Option<GpuTerrain>,
     dynamic: crate::dynamic::DynamicGpu,
     retained: Retained,
@@ -338,8 +337,7 @@ impl SceneGpu {
             instances: Instances::new(scene).tracking_previous(pipelines.writes_velocity()),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
-            camera_selection: std::rc::Rc::default(),
-            shadow_selection: std::array::from_fn(|_| std::rc::Rc::default()),
+            views: Default::default(),
             terrain,
             dynamic: crate::dynamic::DynamicGpu::default(),
             retained: Retained {
@@ -620,19 +618,10 @@ impl SceneGpu {
             })
             .or_else(|| self.frame.get())
             .expect("set a frame before drawing");
-        let published = if let Some((index, _)) = shadow_matrix {
-            self.shadow_selection[index as usize].clone()
-        } else {
-            self.camera_selection.clone()
-        };
-        let mut selection = published.borrow().clone();
-        selection.casters_only = shadow_matrix.is_some();
-        selection.rebuild(
-            &self.instances,
-            &self.mesh_selection,
-            shadow_matrix.map_or(frame.selection_view_projection(), |(_, matrix)| matrix),
-            frame.camera_position_millimeters,
-        );
+        let published = self.views[selection_reuse::view_index(shadow_matrix)]
+            .published
+            .clone();
+        let selection = self.select_objects(shadow_matrix, &frame);
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
         let mut count = DrawCount::default();
         for range in &selection.ranges {
@@ -649,7 +638,11 @@ impl SceneGpu {
 
     /// Owned statistics from the most recently submitted main-camera pass.
     pub fn view_stats(&self) -> ViewStats {
-        self.camera_selection.borrow().stats.clone()
+        self.views[selection_reuse::CAMERA]
+            .published
+            .borrow()
+            .stats
+            .clone()
     }
 
     /// Owned statistics from the most recently submitted shadow cascade zero.
@@ -659,7 +652,7 @@ impl SceneGpu {
 
     /// Owned statistics for one of the four supported shadow view indices.
     pub fn cascade_view_stats(&self, index: usize) -> ViewStats {
-        self.shadow_selection[index].borrow().stats.clone()
+        self.views[index + 1].published.borrow().stats.clone()
     }
 
     pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
@@ -689,6 +682,7 @@ use resources::{upload_meshes, upload_textures};
 mod environment;
 mod prepared;
 mod resources;
+mod selection_reuse;
 pub mod source_environment;
 pub use prepared::PreparedScene;
 

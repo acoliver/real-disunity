@@ -12,6 +12,7 @@ pub(super) struct Resolved<'a> {
 pub(super) fn resolve<'a>(
     source: SceneSource<'a>,
     adapter: &wgpu::Adapter,
+    surface_extent: [u32; 2],
 ) -> Result<Resolved<'a>, ViewerError> {
     let identity = adapter.get_info().into();
     let resolved = match source {
@@ -25,7 +26,10 @@ pub(super) fn resolve<'a>(
             }
         }
         SceneSource::Retained(host) => {
-            host.resolve_initial_content(&identity)?;
+            host.resolve_initial_content(crate::InitialContext {
+                adapter: &identity,
+                surface_extent,
+            })?;
             let mut startup = Startup::from(&host.options);
             startup.recipes = true;
             startup.capture_pool = host.capture_pool;

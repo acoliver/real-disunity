@@ -10,7 +10,9 @@
 mod activity;
 pub use activity::ActivityReason;
 mod adapter;
-pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent};
+pub use adapter::{
+    AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent, InitialContext,
+};
 mod app;
 pub mod cpu_profile;
 mod live;

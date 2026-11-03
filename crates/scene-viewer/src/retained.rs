@@ -380,6 +380,12 @@ impl RetainedHost {
     /// physical-key order, then buttons in button order, before the focus event.
     /// Repeated focus loss never repeats a release.
     pub fn input(&mut self, input: RetainedInput) -> Vec<RetainedInput> {
+        if let RetainedInput::Resized(size) = &input {
+            if self.input_state.surface_extent == Some(*size) {
+                return Vec::new();
+            }
+            self.input_state.surface_extent = Some(*size);
+        }
         let mut events = self.input_state.accept(&input);
         match &input {
             RetainedInput::Resized(size) => self.size = *size,

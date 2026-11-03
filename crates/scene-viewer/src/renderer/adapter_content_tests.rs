@@ -46,12 +46,14 @@ fn concrete_startup_reuses_object_and_decal_storage() {
     let scene = storage_scene();
     let mut options = crate::tests::options();
     let adapter = startup_adapter();
+    let size = options.size;
     let resolved = super::startup::resolve(
         super::SceneSource::Static {
             scene: &scene,
             options: &mut options,
         },
         &adapter,
+        size,
     )
     .unwrap();
     assert_storage(&scene, &resolved.scene);
@@ -73,7 +75,8 @@ fn retained_and_supplier_startup_borrow_stored_scene() {
         }
         .unwrap();
         let resolved =
-            super::startup::resolve(super::SceneSource::Retained(&mut host), &adapter).unwrap();
+            super::startup::resolve(super::SceneSource::Retained(&mut host), &adapter, [64, 32])
+                .unwrap();
         let objects = resolved.scene.geometry().objects().as_ptr();
         let decals = resolved.scene.decals().as_ptr();
         drop(resolved);
@@ -155,8 +158,9 @@ fn supplier_first_residency_uses_selected_content_frame_and_shadows() {
     let received = observed.clone();
     let mut options = crate::tests::options();
     options.size = [64, 32];
-    let mut host = RetainedHost::with_initial_content(options, move |identity| {
-        received.lock().unwrap().push(identity.clone());
+    let mut host = RetainedHost::with_initial_content(options, move |context| {
+        assert_eq!(context.surface_extent, [64, 32]);
+        received.lock().unwrap().push(context.adapter.clone());
         let mut settings = super::adapter_frame_tests::selected_frame();
         settings.shadows = Some(super::retained_tests::shadow_settings());
         Ok(InitialContent {

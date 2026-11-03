@@ -19,6 +19,7 @@ use crate::{
 
 mod cadence;
 mod static_scene;
+mod surface;
 
 pub(super) trait Content {
     fn title(&self) -> &str;
@@ -153,12 +154,7 @@ impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.suspended = false;
         let result = if let Some(renderer) = &mut self.renderer {
-            let size = renderer
-                .window
-                .as_ref()
-                .expect("windowed renderer")
-                .inner_size();
-            renderer.resize([size.width, size.height])
+            surface::resume(&mut *self.content, renderer)
         } else {
             let size = self.content.size();
             event_loop
@@ -182,14 +178,9 @@ impl ApplicationHandler for App<'_> {
             return;
         }
         if let Some(renderer) = &self.renderer {
-            let size = renderer
-                .window
-                .as_ref()
-                .expect("windowed renderer")
-                .inner_size();
             self.content
                 .window_ready(renderer.window.as_ref().expect("windowed renderer").clone());
-            self.content.surface_size([size.width, size.height]);
+            surface::notify(&mut *self.content, renderer);
             renderer
                 .window
                 .as_ref()
@@ -251,7 +242,9 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::Resized(size) => {
-                if let Err(error) = renderer.resize([size.width, size.height]) {
+                if let Err(error) =
+                    surface::resize(&mut *self.content, renderer, [size.width, size.height])
+                {
                     self.fail(event_loop, error);
                 }
             }

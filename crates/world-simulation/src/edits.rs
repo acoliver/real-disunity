@@ -125,7 +125,7 @@ impl World {
             object.components.retain(|owned| *owned != handle);
         }
         self.leave_script_type(handle);
-        self.lifecycle.scripts.remove(&handle);
+        self.lifecycle.remove_script(handle);
         self.lifetime.components.remove(&handle);
         self.components.unwind_insert(handle.0);
     }
@@ -261,5 +261,30 @@ mod tests {
         world.add_component(object, desc).unwrap();
         world.roll_back();
         assert!(world.lifecycle.types.is_empty());
+    }
+
+    #[test]
+    fn rolling_back_staged_scripts_leaves_the_phase_index_as_it_was() {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let object = world.create_object(ObjectDesc::default()).unwrap();
+        let kept = world.add_component(object, script_desc()).unwrap();
+        world.set_script_enabled(kept, true).unwrap();
+        world.staging = Some(Staging {
+            undo: Vec::new(),
+            physics: None,
+        });
+        let staged = world.add_component(object, script_desc()).unwrap();
+        world.set_script_enabled(staged, true).unwrap();
+        world.roll_back();
+        crate::phase_index::reference::assert_phases_match(&mut world);
+        world.lifecycle.assert_index_matches_scripts();
+        assert!(!world.lifecycle.scripts.contains_key(&staged));
+    }
+
+    fn script_desc() -> ComponentDesc {
+        ComponentDesc::Script {
+            assembly: "Example".into(),
+            type_name: "Actor".into(),
+        }
     }
 }

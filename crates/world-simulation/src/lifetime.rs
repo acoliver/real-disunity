@@ -159,7 +159,7 @@ impl World {
     pub(crate) fn retire_component(&mut self, component: ComponentHandle) {
         self.lifetime.components.remove(&component);
         self.leave_script_type(component);
-        self.lifecycle.scripts.remove(&component);
+        self.lifecycle.remove_script(component);
         self.physics.targets.remove(&component);
         self.note_component_removed(component);
         if let Some(owner) = self.components.get(component.0).map(|c| c.object)

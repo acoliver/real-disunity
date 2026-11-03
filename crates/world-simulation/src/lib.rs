@@ -61,6 +61,7 @@ mod follow;
 mod hierarchy;
 mod lifecycle;
 mod lifetime;
+mod phase_index;
 mod script_messages;
 mod transform;
 mod unpublished;

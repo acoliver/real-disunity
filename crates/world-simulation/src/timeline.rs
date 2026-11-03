@@ -383,8 +383,8 @@ impl World {
     fn eligible(&self, script: ComponentHandle) -> bool {
         self.script_ready(script).unwrap_or(false)
     }
-    fn phase_tasks(&mut self, message: ScriptMessage) -> Vec<Task> {
-        let scripts: Vec<_> = self.lifecycle.scripts.keys().copied().collect();
+    pub(crate) fn phase_tasks(&mut self, message: ScriptMessage) -> Vec<Task> {
+        let scripts = self.lifecycle.phase_candidates(message);
         let mut tasks = Vec::new();
         for script in scripts {
             let state = &self.lifecycle.scripts[&script];
@@ -557,11 +557,7 @@ impl World {
             return Ok(None);
         }
         if work.message == ScriptMessage::Start {
-            self.lifecycle
-                .scripts
-                .get_mut(&work.script)
-                .expect("ready script")
-                .start = crate::lifecycle::StartState::Started;
+            self.lifecycle.mark_started(work.script);
         }
         self.issue_callback(work)
     }

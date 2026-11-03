@@ -141,9 +141,7 @@ impl World {
     ) -> Result<(), WorldError> {
         crate::components::validate_script_name(assembly, type_name)?;
         for handle in self.lifecycle.types.report(assembly, type_name, messages) {
-            if let Some(state) = self.lifecycle.scripts.get_mut(&handle) {
-                state.messages = messages;
-            }
+            self.lifecycle.set_messages(handle, messages);
         }
         Ok(())
     }

@@ -77,13 +77,57 @@ pub(crate) struct Lifecycle {
     pub cleanup: Vec<LifecycleWork>,
     /// Script types by assembly and name, with the per-frame messages reported for each.
     pub(crate) types: crate::script_messages::ScriptTypes,
+    /// The scripts a phase visits, kept equal to a scan of `scripts` by the methods below. Change
+    /// a script's `start`, `messages` or presence only through them.
+    index: crate::phase_index::PhaseIndex,
 }
 
 impl Lifecycle {
     /// Stores a script's state and notes it for the scheduler's next look at new scripts.
     pub(crate) fn register(&mut self, script: ComponentHandle, state: ScriptState) {
+        self.remove_script(script);
+        self.index.insert(script, &state);
         self.scripts.insert(script, state);
         self.added.push(script);
+    }
+
+    /// Forgets a removed or retired script.
+    pub(crate) fn remove_script(&mut self, script: ComponentHandle) {
+        if let Some(state) = self.scripts.remove(&script) {
+            self.index.remove(script, &state);
+        }
+    }
+
+    /// Records that the script's `Start` was issued.
+    pub(crate) fn mark_started(&mut self, script: ComponentHandle) {
+        let state = self.scripts.get_mut(&script).expect("ready script");
+        state.start = StartState::Started;
+        self.index.started(script);
+    }
+
+    /// Gives a registered script the per-frame messages its type defines.
+    pub(crate) fn set_messages(
+        &mut self,
+        script: ComponentHandle,
+        messages: crate::ScriptMessages,
+    ) {
+        if let Some(state) = self.scripts.get_mut(&script) {
+            let old = std::mem::replace(&mut state.messages, messages);
+            self.index.retarget(script, old, messages);
+        }
+    }
+
+    /// The scripts a phase for `message` has to look at, in handle order.
+    pub(crate) fn phase_candidates(&self, message: crate::ScriptMessage) -> Vec<ComponentHandle> {
+        match self.index.visit(message) {
+            crate::phase_index::Visit::Listed(scripts) => scripts,
+            crate::phase_index::Visit::All => self.scripts.keys().copied().collect(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_index_matches_scripts(&self) {
+        assert!(self.index.matches(&self.scripts), "phase index drifted");
     }
 }
 

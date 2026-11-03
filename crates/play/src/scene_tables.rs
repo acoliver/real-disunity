@@ -4,7 +4,10 @@
 //! texture and material the frame has used, never reusing or moving a handle, and the objects
 //! the viewer holds, so each frame becomes the smallest edit that turns the viewer's scene into
 //! the frame's: one replacement of the resource tables when a mesh, texture or material is new
-//! or changed, and one batch of object additions, replacements and removals.
+//! or changed and the interval since the last replacement has passed, and one batch of object
+//! additions, replacements and removals. Replacing the tables clones and validates all of them,
+//! so a stream of new meshes would cost that on every frame; the objects that need a resource
+//! the viewer lacks wait for the next replacement.
 //!
 //! A mesh renderer with several material slots draws its whole mesh with slot 0, as the
 //! engine's choice for now. The slot's texture picks the material and the slot's colour tints
@@ -28,6 +31,8 @@ const MICRO: f64 = 1_000_000.0;
 /// built on it.
 const WHITE: u32 = 0;
 const WHITE_TINT: u32 = 1_000_000;
+/// The frames between two replacements of the viewer's resource tables.
+pub const RESOURCE_INTERVAL: u64 = 8;
 
 /// Where the tables read the contents of the meshes and textures a frame names.
 pub trait FrameContent {
@@ -52,7 +57,8 @@ pub struct Skipped {
 /// What turns the viewer's scene into the frame's.
 #[derive(Debug)]
 pub struct FrameUpdate {
-    /// The full texture, material and mesh tables, when any of them gained or changed an entry.
+    /// The full texture, material and mesh tables, when the interval allows a send and any of
+    /// them gained or changed an entry since the last one.
     pub resources: Option<(SceneResources, Vec<SceneMesh>)>,
     pub edits: Vec<SceneObjectEdit>,
     pub skipped: Vec<Skipped>,
@@ -69,6 +75,22 @@ pub struct SceneTables {
     /// What the viewer shows for each object identity.
     placed: BTreeMap<u64, (ObjectId, SceneObject)>,
     next_id: u64,
+    /// How many textures, materials and meshes the viewer holds. Handles at or past these are in
+    /// the tables only.
+    sent: SentCounts,
+    /// Meshes and textures the viewer holds whose contents changed since the last send.
+    stale: Changes,
+    /// Whether any resource table has gone to the viewer yet.
+    sent_any: bool,
+    /// The updates since the last send.
+    frames_since_send: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SentCounts {
+    textures: usize,
+    materials: usize,
+    meshes: usize,
 }
 
 fn white_texture() -> SceneTexture {
@@ -117,6 +139,14 @@ impl SceneTables {
             mesh_index: BTreeMap::new(),
             placed: BTreeMap::new(),
             next_id: 0,
+            sent: SentCounts {
+                textures: 1,
+                materials: 1,
+                meshes: 0,
+            },
+            stale: Changes::default(),
+            sent_any: false,
+            frames_since_send: 0,
         })
     }
 
@@ -133,20 +163,24 @@ impl SceneTables {
 
     /// The edits that turn the viewer's scene into the one `objects` list, reading the contents
     /// of new or changed meshes and textures from `content`.
+    ///
+    /// New and changed resources go to the viewer on the first frame with any, and after that
+    /// once [`RESOURCE_INTERVAL`] frames have passed since the last send. Until then an object
+    /// that needs a resource the viewer lacks is held back: it is not added, and one already
+    /// shown stays as it is. Objects that need nothing new are edited on every frame.
     pub fn update(
         &mut self,
         objects: &[MeshObjectView],
         content: &impl FrameContent,
         changes: &Changes,
     ) -> Result<FrameUpdate, SceneValidationError> {
-        let mut dirty = self.replace_changed(content, changes);
-        let mut wanted = BTreeMap::new();
+        self.frames_since_send = self.frames_since_send.saturating_add(1);
+        self.note_changes(changes);
+        let mut resolved = Vec::new();
         let mut skipped = Vec::new();
         for view in objects {
-            match self.place(view, content, &mut dirty) {
-                Ok(Some(object)) => {
-                    wanted.insert(view.object, object);
-                }
+            match self.place(view, content) {
+                Ok(Some(object)) => resolved.push((view.object, object)),
                 Ok(None) => {}
                 Err(reason) => skipped.push(Skipped {
                     object: view.object,
@@ -154,15 +188,9 @@ impl SceneTables {
                 }),
             }
         }
+        let resources = self.send_if_due(content)?;
+        let wanted = self.shown(resolved);
         let edits = self.diff(&wanted);
-        let resources = if dirty {
-            Some((
-                SceneResources::new(self.textures.clone(), self.materials.clone())?,
-                self.meshes.clone(),
-            ))
-        } else {
-            None
-        };
         Ok(FrameUpdate {
             resources,
             edits,
@@ -170,27 +198,89 @@ impl SceneTables {
         })
     }
 
-    /// Puts the new contents of the meshes and textures in `changes` into their table entries.
-    /// Returns whether any entry changed.
-    fn replace_changed(&mut self, content: &impl FrameContent, changes: &Changes) -> bool {
-        let mut dirty = false;
-        for identity in &changes.meshes {
+    /// Records which of the meshes and textures the viewer holds have new contents.
+    fn note_changes(&mut self, changes: &Changes) {
+        self.stale.meshes.extend(
+            changes
+                .meshes
+                .iter()
+                .filter(|identity| self.mesh_index.contains_key(identity)),
+        );
+        self.stale.textures.extend(
+            changes
+                .textures
+                .iter()
+                .filter(|identity| self.texture_index.contains_key(identity)),
+        );
+    }
+
+    fn unsent_changes(&self) -> bool {
+        !self.stale.meshes.is_empty()
+            || !self.stale.textures.is_empty()
+            || self.textures.len() > self.sent.textures
+            || self.materials.len() > self.sent.materials
+            || self.meshes.len() > self.sent.meshes
+    }
+
+    /// The whole resource tables, when something is unsent and the interval allows a send.
+    fn send_if_due(
+        &mut self,
+        content: &impl FrameContent,
+    ) -> Result<Option<(SceneResources, Vec<SceneMesh>)>, SceneValidationError> {
+        let waiting = self.sent_any && self.frames_since_send < RESOURCE_INTERVAL;
+        if waiting || !self.unsent_changes() {
+            return Ok(None);
+        }
+        self.take_stale_contents(content);
+        let resources = SceneResources::new(self.textures.clone(), self.materials.clone())?;
+        self.sent = SentCounts {
+            textures: self.textures.len(),
+            materials: self.materials.len(),
+            meshes: self.meshes.len(),
+        };
+        self.sent_any = true;
+        self.frames_since_send = 0;
+        Ok(Some((resources, self.meshes.clone())))
+    }
+
+    /// Puts the latest contents of the changed meshes and textures into their table entries.
+    fn take_stale_contents(&mut self, content: &impl FrameContent) {
+        for identity in std::mem::take(&mut self.stale.meshes) {
             if let (Some(index), Some(mesh)) =
-                (self.mesh_index.get(identity), content.mesh(*identity))
+                (self.mesh_index.get(&identity), content.mesh(identity))
             {
                 self.meshes[*index as usize] = mesh.clone();
-                dirty = true;
             }
         }
-        for identity in &changes.textures {
+        for identity in std::mem::take(&mut self.stale.textures) {
             if let (Some(index), Some(texture)) =
-                (self.texture_index.get(identity), content.texture(*identity))
+                (self.texture_index.get(&identity), content.texture(identity))
             {
                 self.textures[*index as usize] = texture.clone();
-                dirty = true;
             }
         }
-        dirty
+    }
+
+    /// The objects the viewer shows after this frame: those whose mesh and material it holds, and
+    /// the held-back ones it already shows as they are.
+    fn shown(&self, resolved: Vec<(u64, SceneObject)>) -> BTreeMap<u64, SceneObject> {
+        let mut wanted = BTreeMap::new();
+        for (identity, object) in resolved {
+            if self.viewer_holds(&object) {
+                wanted.insert(identity, object);
+            } else if let Some((_, held)) = self.placed.get(&identity) {
+                wanted.insert(identity, *held);
+            }
+        }
+        wanted
+    }
+
+    /// Whether the viewer has the mesh and material of `object`. A material is built only on
+    /// textures already in the tables and all three tables go out together, so the material
+    /// covers the texture.
+    fn viewer_holds(&self, object: &SceneObject) -> bool {
+        (object.mesh().raw() as usize) < self.sent.meshes
+            && (object.material().raw() as usize) < self.sent.materials
     }
 
     /// The scene object a frame's renderer becomes. `None` while its mesh has no scene mesh yet.
@@ -198,16 +288,15 @@ impl SceneTables {
         &mut self,
         view: &MeshObjectView,
         content: &impl FrameContent,
-        dirty: &mut bool,
     ) -> Result<Option<SceneObject>, String> {
         let transform = scene_transform(&view.local_to_world).map_err(|error| error.to_string())?;
-        let Some(mesh) = self.mesh_handle(view.mesh, content, dirty) else {
+        let Some(mesh) = self.mesh_handle(view.mesh, content) else {
             return Ok(None);
         };
         let slot = view.slots.first();
-        let texture = self.texture_handle(slot.map_or(0, |slot| slot.texture), content, dirty);
+        let texture = self.texture_handle(slot.map_or(0, |slot| slot.texture), content);
         let material = self
-            .material_handle(texture, dirty)
+            .material_handle(texture)
             .map_err(|error| error.to_string())?;
         let tint = slot.map_or([WHITE_TINT; 3], |slot| {
             [slot.color[0], slot.color[1], slot.color[2]].map(tint_channel)
@@ -223,12 +312,7 @@ impl SceneTables {
         ))
     }
 
-    fn mesh_handle(
-        &mut self,
-        identity: u64,
-        content: &impl FrameContent,
-        dirty: &mut bool,
-    ) -> Option<u32> {
+    fn mesh_handle(&mut self, identity: u64, content: &impl FrameContent) -> Option<u32> {
         if let Some(index) = self.mesh_index.get(&identity) {
             return Some(*index);
         }
@@ -236,18 +320,12 @@ impl SceneTables {
         let index = u32::try_from(self.meshes.len()).ok()?;
         self.meshes.push(mesh);
         self.mesh_index.insert(identity, index);
-        *dirty = true;
         Some(index)
     }
 
     /// The texture handle of player texture `identity`, white for no texture and for one whose
     /// texels have not arrived.
-    fn texture_handle(
-        &mut self,
-        identity: u64,
-        content: &impl FrameContent,
-        dirty: &mut bool,
-    ) -> u32 {
+    fn texture_handle(&mut self, identity: u64, content: &impl FrameContent) -> u32 {
         if identity == 0 {
             return WHITE;
         }
@@ -262,15 +340,10 @@ impl SceneTables {
         };
         self.textures.push(texture);
         self.texture_index.insert(identity, index);
-        *dirty = true;
         index
     }
 
-    fn material_handle(
-        &mut self,
-        texture: u32,
-        dirty: &mut bool,
-    ) -> Result<u32, SceneValidationError> {
+    fn material_handle(&mut self, texture: u32) -> Result<u32, SceneValidationError> {
         if let Some(index) = self.material_index.get(&texture) {
             return Ok(*index);
         }
@@ -281,7 +354,6 @@ impl SceneTables {
         })?;
         self.materials.push(material_on(texture)?);
         self.material_index.insert(texture, index);
-        *dirty = true;
         Ok(index)
     }
 

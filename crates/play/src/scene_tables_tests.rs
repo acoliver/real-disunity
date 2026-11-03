@@ -6,7 +6,7 @@ use worldrunner_render_plan::{
 };
 use worldrunner_scene_viewer::{ObjectId, SceneObjectEdit};
 
-use crate::scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables};
+use crate::scene_tables::{Changes, FrameContent, FrameUpdate, RESOURCE_INTERVAL, SceneTables};
 
 #[derive(Default)]
 struct Content {
@@ -119,6 +119,35 @@ fn mesh_count(update: &FrameUpdate) -> usize {
         .map_or(0, |(_, meshes)| meshes.len())
 }
 
+/// Runs `count` frames of the same objects with no content changes.
+fn frames(
+    tables: &mut SceneTables,
+    objects: &[MeshObjectView],
+    content: &Content,
+    count: u64,
+) -> Vec<FrameUpdate> {
+    (0..count)
+        .map(|_| update(tables, objects, content))
+        .collect()
+}
+
+/// Runs the frames up to the next resource send, `waited` frames after the last one, and returns
+/// that frame's update. Every frame before it must send nothing.
+fn until_sent(
+    tables: &mut SceneTables,
+    objects: &[MeshObjectView],
+    content: &Content,
+    waited: u64,
+) -> FrameUpdate {
+    let mut waiting = frames(tables, objects, content, RESOURCE_INTERVAL - 1 - waited);
+    assert!(
+        waiting.iter().all(|frame| frame.resources.is_none()),
+        "no send before the interval has passed"
+    );
+    waiting.clear();
+    update(tables, objects, content)
+}
+
 #[test]
 fn the_first_frame_appends_its_meshes_and_adds_its_objects_in_one_update() {
     let mut tables = SceneTables::new().unwrap();
@@ -203,7 +232,7 @@ fn a_new_mesh_is_appended_after_the_existing_ones_without_touching_their_objects
         object(7, 100, at(0., 0., 0.)),
         object(8, 101, at(1., 0., 0.)),
     ];
-    let next = update(&mut tables, &second, &shown);
+    let next = until_sent(&mut tables, &second, &shown, 0);
     assert_eq!(mesh_count(&next), 2);
     assert_eq!(adds(&next).len(), 1);
     assert!(replaces(&next).is_empty(), "object 7 kept its mesh handle");
@@ -220,7 +249,9 @@ fn a_changed_mesh_replaces_its_table_entry_and_leaves_the_objects_alone() {
         meshes: [100].into(),
         textures: BTreeSet::new(),
     };
-    let next = tables.update(&objects, &shown, &changed).unwrap();
+    let first_wait = tables.update(&objects, &shown, &changed).unwrap();
+    assert!(first_wait.resources.is_none());
+    let next = until_sent(&mut tables, &objects, &shown, 1);
     let (_, meshes) = next.resources.expect("the mesh table changed");
     assert_eq!(meshes.len(), 1);
     assert_eq!(
@@ -239,7 +270,7 @@ fn an_object_whose_mesh_is_not_converted_yet_waits_and_appears_when_it_is() {
     ];
     let early = update(&mut tables, &objects, &content(&[100]));
     assert_eq!(adds(&early).len(), 1, "only the object whose mesh exists");
-    let later = update(&mut tables, &objects, &content(&[100, 101]));
+    let later = until_sent(&mut tables, &objects, &content(&[100, 101]), 0);
     assert_eq!(adds(&later).len(), 1);
     assert_eq!(mesh_count(&later), 2);
 }
@@ -371,7 +402,11 @@ fn a_texture_that_has_no_texels_yet_draws_white_until_it_arrives() {
         meshes: BTreeSet::new(),
         textures: [5].into(),
     };
-    let later = tables.update(&[view], &shown, &changed).unwrap();
+    let first_wait = tables
+        .update(std::slice::from_ref(&view), &shown, &changed)
+        .unwrap();
+    assert!(first_wait.resources.is_none() && first_wait.edits.is_empty());
+    let later = until_sent(&mut tables, &[view], &shown, 1);
     assert_eq!(replaces(&later), vec![id]);
     assert_ne!(material_of(&later, id), 0);
     assert_eq!(
@@ -444,4 +479,183 @@ fn objects_sharing_a_texture_share_one_material_across_frames() {
     let moved = update(&mut tables, &two(3.), &shown);
     assert!(moved.resources.is_none(), "no further material is built");
     assert_eq!(material_of(&moved, ids[0]), material_of(&first, ids[0]));
+}
+
+fn moved_pair(second_x: f32) -> [MeshObjectView; 2] {
+    [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 101, at(second_x, 0., 0.)),
+    ]
+}
+
+#[test]
+fn the_first_frame_with_content_sends_the_resources_at_once() {
+    let mut tables = SceneTables::new().unwrap();
+    let shown = content(&[100]);
+    let objects = [object(7, 100, at(0., 0., 0.))];
+    let empty = frames(&mut tables, &[], &shown, 3);
+    assert!(empty.iter().all(|frame| frame.resources.is_none()));
+    let first = update(&mut tables, &objects, &shown);
+    assert_eq!(mesh_count(&first), 1);
+    assert_eq!(adds(&first).len(), 1);
+}
+
+#[test]
+fn a_new_mesh_waits_for_the_interval_and_its_objects_appear_with_it() {
+    let mut tables = SceneTables::new().unwrap();
+    update(
+        &mut tables,
+        &[object(7, 100, at(0., 0., 0.))],
+        &content(&[100]),
+    );
+    let both = moved_pair(1.);
+    let shown = content(&[100, 101]);
+    let waiting = frames(&mut tables, &both, &shown, RESOURCE_INTERVAL - 1);
+    for frame in &waiting {
+        assert!(frame.resources.is_none(), "the new mesh is not sent yet");
+        assert!(adds(frame).is_empty(), "its object is held back");
+        assert!(frame.skipped.is_empty());
+    }
+    let sent = update(&mut tables, &both, &shown);
+    assert_eq!(mesh_count(&sent), 2);
+    assert_eq!(adds(&sent).len(), 1, "the object appears with its mesh");
+    let after = update(&mut tables, &both, &shown);
+    assert!(after.resources.is_none() && after.edits.is_empty());
+}
+
+#[test]
+fn a_send_carries_every_mesh_that_arrived_while_it_waited() {
+    let mut tables = SceneTables::new().unwrap();
+    update(
+        &mut tables,
+        &[object(7, 100, at(0., 0., 0.))],
+        &content(&[100]),
+    );
+    let three = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 101, at(1., 0., 0.)),
+        object(9, 102, at(2., 0., 0.)),
+    ];
+    frames(&mut tables, &three[..2], &content(&[100, 101]), 2);
+    frames(
+        &mut tables,
+        &three,
+        &content(&[100, 101, 102]),
+        RESOURCE_INTERVAL - 3,
+    );
+    let sent = update(&mut tables, &three, &content(&[100, 101, 102]));
+    assert_eq!(mesh_count(&sent), 3);
+    assert_eq!(adds(&sent).len(), 2);
+}
+
+#[test]
+fn the_interval_counts_from_the_last_send() {
+    let mut tables = SceneTables::new().unwrap();
+    update(
+        &mut tables,
+        &[object(7, 100, at(0., 0., 0.))],
+        &content(&[100]),
+    );
+    let both = moved_pair(1.);
+    let shown = content(&[100, 101]);
+    until_sent(&mut tables, &both, &shown, 0);
+    let three = [
+        both[0].clone(),
+        both[1].clone(),
+        object(9, 102, at(2., 0., 0.)),
+    ];
+    let all = content(&[100, 101, 102]);
+    let next = until_sent(&mut tables, &three, &all, 0);
+    assert_eq!(mesh_count(&next), 3);
+}
+
+#[test]
+fn a_moved_object_is_edited_at_once_while_resources_wait() {
+    let mut tables = SceneTables::new().unwrap();
+    let first = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 100, at(1., 0., 0.)),
+    ];
+    let added = adds(&update(&mut tables, &first, &content(&[100])));
+    let shown = content(&[100, 101]);
+    let waiting = [
+        object(7, 100, at(0., 0., 0.)),
+        object(8, 100, at(5., 0., 0.)),
+        object(9, 101, at(2., 0., 0.)),
+    ];
+    let next = update(&mut tables, &waiting, &shown);
+    assert!(next.resources.is_none());
+    assert_eq!(replaces(&next), vec![added[1]]);
+    assert!(adds(&next).is_empty() && removes(&next).is_empty());
+}
+
+#[test]
+fn an_object_placed_earlier_keeps_its_old_state_while_its_new_texture_waits() {
+    let mut tables = SceneTables::new().unwrap();
+    let mut shown = content(&[100]);
+    let plain = with_slot(object(1, 100, at(0., 0., 0.)), slot([1.; 4], 5));
+    let id = adds(&update(&mut tables, std::slice::from_ref(&plain), &shown))[0];
+    shown.textures.insert(5, texture(90));
+    let changed = Changes {
+        meshes: BTreeSet::new(),
+        textures: [5].into(),
+    };
+    let moved = with_slot(object(1, 100, at(3., 0., 0.)), slot([1.; 4], 5));
+    let waiting = tables
+        .update(std::slice::from_ref(&moved), &shown, &changed)
+        .unwrap();
+    assert!(waiting.resources.is_none());
+    assert!(waiting.edits.is_empty(), "not removed, not replaced");
+    assert!(waiting.skipped.is_empty());
+    let sent = until_sent(&mut tables, &[moved], &shown, 1);
+    assert_eq!(replaces(&sent), vec![id]);
+    assert_eq!(sent.resources.expect("sent").0.textures().len(), 2);
+}
+
+#[test]
+fn a_changed_mesh_is_sent_with_its_latest_contents_on_the_next_send() {
+    let mut tables = SceneTables::new().unwrap();
+    let mut shown = content(&[100]);
+    let objects = [object(7, 100, at(0., 0., 0.))];
+    update(&mut tables, &objects, &shown);
+    shown.meshes.insert(100, mesh(2000));
+    let changed = Changes {
+        meshes: [100].into(),
+        textures: BTreeSet::new(),
+    };
+    let wait = tables.update(&objects, &shown, &changed).unwrap();
+    assert!(wait.resources.is_none());
+    shown.meshes.insert(100, mesh(3000));
+    let sent = until_sent(&mut tables, &objects, &shown, 1);
+    let (_, meshes) = sent.resources.expect("the changed mesh is sent");
+    assert_eq!(
+        meshes[0].lods()[0].vertices()[1].position_millimeters,
+        [3000, 0, 0]
+    );
+    assert!(sent.edits.is_empty());
+}
+
+#[test]
+fn nothing_is_sent_while_nothing_changes() {
+    let mut tables = SceneTables::new().unwrap();
+    let objects = moved_pair(1.);
+    let shown = content(&[100, 101]);
+    update(&mut tables, &objects, &shown);
+    for frame in frames(&mut tables, &objects, &shown, 3 * RESOURCE_INTERVAL) {
+        assert!(frame.resources.is_none() && frame.edits.is_empty());
+    }
+}
+
+#[test]
+fn objects_held_back_for_their_mesh_are_not_reported_as_skipped() {
+    let mut tables = SceneTables::new().unwrap();
+    update(
+        &mut tables,
+        &[object(7, 100, at(0., 0., 0.))],
+        &content(&[100]),
+    );
+    let both = moved_pair(1.);
+    let waiting = frames(&mut tables, &both, &content(&[100, 101]), 2);
+    assert!(waiting.iter().all(|frame| frame.skipped.is_empty()));
+    assert!(waiting.iter().all(|frame| frame.edits.is_empty()));
 }

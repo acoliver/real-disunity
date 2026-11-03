@@ -6,17 +6,21 @@
 //! the arena, and a draw can only be admitted against an arena that the runtime opened and the
 //! frame's own authority can retain.
 
+use std::sync::Arc;
+
 use worldrunner_render_gpu::configuration::{AllocationReservation, AllocationSet};
 use worldrunner_render_gpu::submission::{FrameLease, FrameOwner, Publications};
 
-use crate::budget::Ledger;
+use crate::budget::{Backing, Ledger};
 use crate::error::ProgramError;
 use crate::packet::{DrawPacket, PreparedProgramDraw, TargetSignature};
 use crate::runtime::ProgramRuntime;
 
-/// What the owner keeps alive: the renderer's reservation of the arena.
+/// What the owner keeps alive: a share of the renderer's reservation of the arena. The runtime's
+/// allocations hold the other shares, so the reservation outlasts the owner for as long as any
+/// of them is live.
 struct Hold {
-    _reservation: AllocationReservation,
+    _backing: Backing,
 }
 
 /// The renderer's reservation of the storage a runtime may use, owned by an explicit
@@ -24,6 +28,7 @@ struct Hold {
 pub struct ProgramArena {
     owner: FrameOwner<Hold>,
     ledger: Ledger,
+    id: u64,
 }
 
 impl std::fmt::Debug for ProgramArena {
@@ -33,14 +38,25 @@ impl std::fmt::Debug for ProgramArena {
 }
 
 impl ProgramArena {
-    /// Releases the reservation. A frame that holds the arena, whether it is still being
-    /// recorded or has been submitted and not completed, keeps it from retiring.
+    /// Stops the runtime allocating under the reservation and gives up the arena's share of
+    /// it. The renderer's bytes stay counted until every allocation the runtime still holds,
+    /// including released ones the GPU may still use, has gone. A frame that holds the arena,
+    /// whether it is still being recorded or has been submitted and not completed, keeps it
+    /// from retiring.
     ///
     /// # Errors
     /// Fails with `Busy` while a frame holds the arena and with `Expired` once it has retired.
     pub fn retire(&mut self) -> Result<(), ProgramError> {
         self.owner.retire()?;
+        self.ledger.close_arena(self.id);
         Ok(())
+    }
+}
+
+/// Dropping the arena stops the runtime allocating under it, as retiring does.
+impl Drop for ProgramArena {
+    fn drop(&mut self) {
+        self.ledger.close_arena(self.id);
     }
 }
 
@@ -74,9 +90,10 @@ impl AdmittedPrograms {
     ///
     /// # Errors
     /// Fails with `ForeignAuthority` when the frame belongs to another submission authority
-    /// than the arena's, with `Expired` when the arena has retired or been dropped, and when
-    /// `encoder` is not a frame being recorded.
+    /// than the arena's, with `Expired` when the arena has retired or been dropped, even if
+    /// the frame retained it earlier, and when `encoder` is not a frame being recorded.
     pub fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ProgramError> {
+        self.lease.check()?;
         Publications::retain_lease(encoder, &self.lease)?;
         Ok(())
     }
@@ -114,7 +131,8 @@ impl ProgramRuntime {
     }
 
     /// Opens an arena over the renderer's `reservation`, owned through this runtime's
-    /// submission authority.
+    /// submission authority. Allocations made from now on hold a share of the reservation;
+    /// those made earlier are not covered by it.
     ///
     /// # Errors
     /// Fails when the reservation is smaller than the runtime's budget, since the runtime could
@@ -132,14 +150,12 @@ impl ProgramRuntime {
                 arena,
             });
         }
+        let backing = Arc::new(reservation);
+        let id = self.ledger.open_arena(backing.clone());
         Ok(ProgramArena {
-            owner: FrameOwner::new(
-                Hold {
-                    _reservation: reservation,
-                },
-                &self.authority,
-            ),
+            owner: FrameOwner::new(Hold { _backing: backing }, &self.authority),
             ledger: self.ledger.clone(),
+            id,
         })
     }
 

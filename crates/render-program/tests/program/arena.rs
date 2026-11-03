@@ -14,14 +14,14 @@ use crate::surface::{Surface, pixel, read};
 
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-const ARENA: u64 = 4096;
+pub const ARENA: u64 = 4096;
 
-fn signature() -> TargetSignature {
+pub fn signature() -> TargetSignature {
     TargetSignature::new(&[RGBA8], Some(DEPTH), 1).unwrap()
 }
 
 /// A runtime capped at `ARENA` bytes and the arena the renderer's configuration reserved for it.
-fn arena_runtime(gpu: &Gpu) -> (ProgramRuntime, ProgramArena) {
+pub fn arena_runtime(gpu: &Gpu) -> (ProgramRuntime, ProgramArena) {
     let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
     let arena = open(gpu, &mut runtime, ARENA).unwrap();
     (runtime, arena)
@@ -44,13 +44,13 @@ fn open(gpu: &Gpu, runtime: &mut ProgramRuntime, bytes: u64) -> Result<ProgramAr
 }
 
 /// Everything one patch draw needs, built in `runtime`.
-struct Draw {
-    patch: Patch,
-    bindings: Vec<worldrunner_render_program::runtime::BoundResource>,
-    input: worldrunner_render_program::runtime::VertexInput,
+pub struct Draw {
+    pub patch: Patch,
+    pub bindings: Vec<worldrunner_render_program::runtime::BoundResource>,
+    pub input: worldrunner_render_program::runtime::VertexInput,
 }
 
-fn draw(runtime: &mut ProgramRuntime) -> Draw {
+pub fn draw(runtime: &mut ProgramRuntime) -> Draw {
     let patch = patch(runtime);
     let bindings = patch.color(runtime, [0.0, 1.0, 0.0, 1.0]);
     let input = rectangle(runtime, [-0.5, -0.5, 0.5, 0.5], 0.5);
@@ -61,11 +61,26 @@ fn draw(runtime: &mut ProgramRuntime) -> Draw {
     }
 }
 
-fn admit(
+pub fn admit(
     runtime: &mut ProgramRuntime,
     encoder: &wgpu::CommandEncoder,
     arena: &ProgramArena,
     draw: &Draw,
+) -> Result<AdmittedPrograms, ProgramError> {
+    admit_geometry(
+        runtime,
+        encoder,
+        (arena, draw),
+        Geometry::Vertices { first: 0, count: 6 },
+    )
+}
+
+/// Admits the draw's one packet with `geometry` in place of its six vertices.
+pub fn admit_geometry(
+    runtime: &mut ProgramRuntime,
+    encoder: &wgpu::CommandEncoder,
+    (arena, draw): (&ProgramArena, &Draw),
+    geometry: Geometry,
 ) -> Result<AdmittedPrograms, ProgramError> {
     let state = state();
     runtime.admit_draws(
@@ -78,7 +93,7 @@ fn admit(
             front_face: wgpu::FrontFace::Cw,
             vertex_inputs: std::slice::from_ref(&draw.input),
             bindings: &draw.bindings,
-            geometry: Geometry::Vertices { first: 0, count: 6 },
+            geometry,
         }],
     )
 }

@@ -2,7 +2,9 @@
 
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
+
+use worldrunner_render_gpu::submission::SubmissionAuthority;
 
 use crate::budget::Reservation;
 use crate::error::ProgramError;
@@ -79,15 +81,44 @@ pub(crate) struct TargetEntry {
     pub(crate) depth: Option<TextureEntry>,
 }
 
-/// A resource with the budget reservation that accounts for it.
+/// A resource with the budget reservation that accounts for it. Prepared draws share the
+/// reservation, so its bytes stay counted while a draw can still use the resource.
 struct Held<T> {
     entry: T,
-    _reservation: Reservation,
+    reservation: Arc<Reservation>,
 }
 
 /// Anything released but possibly still in use by submitted work, and the submission that last
 /// could have used it.
 type Retired = (u64, Box<dyn Any + Send + Sync>);
+
+type RetiredQueue = Arc<Mutex<Vec<Retired>>>;
+
+/// Shares of the reservations of the resources a prepared draw uses. When the draw is dropped
+/// the shares wait out the frames that may have recorded it, as released resources do.
+pub(crate) struct Pins {
+    reservations: Vec<Arc<Reservation>>,
+    retired: RetiredQueue,
+    authority: SubmissionAuthority,
+}
+
+impl Drop for Pins {
+    fn drop(&mut self) {
+        if self.reservations.is_empty() {
+            return;
+        }
+        // Frames submitted so far are covered by the submitted serial. A frame still being
+        // recorded may have recorded the draw and will be the next submission. Replacement
+        // is refused exactly while a frame is being recorded or configured.
+        let recording = self.authority.try_replacement().is_err();
+        let last = self.authority.submitted_serial() + u64::from(recording);
+        let reservations = std::mem::take(&mut self.reservations);
+        self.retired
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((last, Box::new(reservations)));
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Store {
@@ -95,13 +126,13 @@ pub(crate) struct Store {
     buffers: HashMap<u64, Held<BufferEntry>>,
     textures: HashMap<u64, Held<TextureEntry>>,
     targets: HashMap<u64, Held<TargetEntry>>,
-    retired: Mutex<Vec<Retired>>,
+    retired: RetiredQueue,
 }
 
 fn held<T>(entry: T, reservation: Reservation) -> Held<T> {
     Held {
         entry,
-        _reservation: reservation,
+        reservation: Arc::new(reservation),
     }
 }
 
@@ -152,6 +183,42 @@ impl Store {
             .get(&handle.0)
             .map(|held| &held.entry)
             .ok_or(ProgramError::UnknownHandle { kind: "target" })
+    }
+
+    /// The reservation of the buffer, to keep its bytes counted.
+    pub(crate) fn buffer_reservation(
+        &self,
+        handle: BufferHandle,
+    ) -> Result<Arc<Reservation>, ProgramError> {
+        self.buffers
+            .get(&handle.0)
+            .map(|held| held.reservation.clone())
+            .ok_or(ProgramError::UnknownHandle { kind: "buffer" })
+    }
+
+    /// The reservation of the texture, to keep its bytes counted.
+    pub(crate) fn texture_reservation(
+        &self,
+        handle: TextureHandle,
+    ) -> Result<Arc<Reservation>, ProgramError> {
+        self.textures
+            .get(&handle.0)
+            .map(|held| held.reservation.clone())
+            .ok_or(ProgramError::UnknownHandle { kind: "texture" })
+    }
+
+    /// Holds `reservations` until the frames that may use them have completed after the
+    /// returned pins are dropped.
+    pub(crate) fn pin(
+        &self,
+        authority: &SubmissionAuthority,
+        reservations: Vec<Arc<Reservation>>,
+    ) -> Pins {
+        Pins {
+            reservations,
+            retired: self.retired.clone(),
+            authority: authority.clone(),
+        }
     }
 
     /// Takes the resource out of use for new work. Its reservation stays until the work

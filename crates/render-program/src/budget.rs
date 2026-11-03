@@ -5,13 +5,37 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, ConfigurationError};
+use worldrunner_render_gpu::configuration::{
+    AllocationBudget, AllocationReservation, AllocationSet, ConfigurationError,
+};
+use worldrunner_render_gpu::submission::LeaseError;
 
 use crate::error::ProgramError;
+
+/// The renderer's reservation of the storage the runtime may use. Every allocation made under
+/// it holds a share, so the renderer's bytes stay counted until the last of them is gone.
+pub(crate) type Backing = Arc<AllocationReservation>;
+
+/// Whether the runtime allocates under an arena's reservation.
+#[derive(Default)]
+enum Arena {
+    /// No arena was opened: the runtime is bounded by its own budget alone.
+    #[default]
+    None,
+    Open {
+        id: u64,
+        backing: Backing,
+    },
+    /// The arena retired or was dropped. What it admitted keeps its share, and nothing new is
+    /// admitted, since it would hold storage nobody reserved.
+    Closed,
+}
 
 #[derive(Default)]
 struct Held {
     next: u64,
+    arena: Arena,
+    arenas: u64,
     /// Each live set with the descriptor bytes it alone accounts for.
     sets: HashMap<u64, (AllocationSet, u64)>,
     bytes: u64,
@@ -35,6 +59,11 @@ impl Ledger {
         set: AllocationSet,
     ) -> Result<Reservation, ProgramError> {
         let mut held = lock(&self.0);
+        let backing = match &held.arena {
+            Arena::None => None,
+            Arena::Open { backing, .. } => Some(backing.clone()),
+            Arena::Closed => return Err(LeaseError::Expired.into()),
+        };
         let mut peak = AllocationSet::default();
         for (live, _) in held.sets.values() {
             peak.extend(live.clone());
@@ -51,7 +80,26 @@ impl Ledger {
         Ok(Reservation {
             ledger: self.clone(),
             id,
+            _backing: backing,
         })
+    }
+
+    /// Makes `backing` the reservation later allocations are made under and returns the id
+    /// that closes it again.
+    pub(crate) fn open_arena(&self, backing: Backing) -> u64 {
+        let mut held = lock(&self.0);
+        held.arenas += 1;
+        let id = held.arenas;
+        held.arena = Arena::Open { id, backing };
+        id
+    }
+
+    /// Stops admitting allocations under arena `id`, unless a newer arena has replaced it.
+    pub(crate) fn close_arena(&self, id: u64) {
+        let mut held = lock(&self.0);
+        if matches!(held.arena, Arena::Open { id: open, .. } if open == id) {
+            held.arena = Arena::Closed;
+        }
     }
 
     /// Whether both handles are the one ledger.
@@ -68,6 +116,7 @@ impl Ledger {
 pub(crate) struct Reservation {
     ledger: Ledger,
     id: u64,
+    _backing: Option<Backing>,
 }
 
 impl Drop for Reservation {

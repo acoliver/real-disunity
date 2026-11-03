@@ -9,7 +9,7 @@ use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
 use crate::pipeline_key::Key;
 use crate::program::GraphicsProgram;
-use crate::resources::BoundResource;
+use crate::resources::{BoundResource, Pins, Resource};
 use crate::runtime::ProgramRuntime;
 use crate::state::RenderState;
 
@@ -118,8 +118,11 @@ enum PreparedGeometry {
 /// state, so it can be recorded into any compatible pass, any number of times.
 ///
 /// It holds clones of the wgpu objects it draws with, which wgpu keeps alive for as long as a
-/// command recorded with them is unfinished or in flight.
+/// command recorded with them is unfinished or in flight, and shares of the runtime's
+/// reservations of the resources they belong to. Those bytes stay counted when the resources are
+/// released, until the draw is dropped and the frames that may have recorded it have completed.
 pub struct PreparedProgramDraw {
+    _pins: Pins,
     signature: TargetSignature,
     pipeline: wgpu::RenderPipeline,
     groups: Vec<(u32, wgpu::BindGroup)>,
@@ -206,12 +209,31 @@ impl ProgramRuntime {
             },
         };
         Ok(PreparedProgramDraw {
+            _pins: self.pin_resources(packet)?,
             signature,
             pipeline,
             groups,
             vertex_buffers,
             geometry,
         })
+    }
+
+    /// Shares of the reservations of every buffer and texture the packet draws with.
+    fn pin_resources(&self, packet: &DrawPacket<'_>) -> Result<Pins, ProgramError> {
+        let mut reservations = Vec::new();
+        for bound in packet.bindings {
+            reservations.push(match bound.resource {
+                Resource::Buffer(buffer) => self.store.buffer_reservation(buffer)?,
+                Resource::Texture(texture) => self.store.texture_reservation(texture)?,
+            });
+        }
+        for input in packet.vertex_inputs {
+            reservations.push(self.store.buffer_reservation(input.buffer)?);
+        }
+        if let Geometry::Indexed { buffer, .. } = packet.geometry {
+            reservations.push(self.store.buffer_reservation(buffer)?);
+        }
+        Ok(self.store.pin(&self.authority, reservations))
     }
 
     fn render_pipeline(

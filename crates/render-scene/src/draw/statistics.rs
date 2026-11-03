@@ -105,7 +105,9 @@ impl SceneGpu {
 
     /// Reads submitted mesh draws and prepared decal counts without polling or allocation.
     pub fn statistics(&self) -> SceneStatistics {
-        let selection = self.camera_selection.borrow();
+        let selection = self.views[super::selection_reuse::CAMERA]
+            .published
+            .borrow();
         let mut stats = SceneStatistics {
             passes: self.pass_counters.snapshot(),
             effects: self.effect_statistics.get(),

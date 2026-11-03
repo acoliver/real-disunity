@@ -117,6 +117,7 @@ public partial class Mesh
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         if (count < _subMeshes.Count) _subMeshes.RemoveRange(count, _subMeshes.Count - count);
         while (_subMeshes.Count < count) _subMeshes.Add(new SubMesh());
+        Changed();
     }
 
     private int[] ReadIndices(int submesh, bool applyBaseVertex)
@@ -151,6 +152,7 @@ public partial class Mesh
         _subMeshes.Clear();
         _subMeshes.Add(new SubMesh { Indices = indices });
         RecalculateBounds();
+        Changed();
     }
 
     private void StoreSubMesh(int submesh, int[] indices, MeshTopology topology, bool calculateBounds, int baseVertex)
@@ -163,6 +165,7 @@ public partial class Mesh
         target.Topology = topology;
         target.BaseVertex = baseVertex;
         if (calculateBounds) RecalculateBounds();
+        Changed();
     }
 
     private void CheckIndices(int submesh, int[] indices, MeshTopology topology, int baseVertex)

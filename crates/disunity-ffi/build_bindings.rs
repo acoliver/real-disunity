@@ -21,10 +21,7 @@ pub fn generate(output: &Path) {
         .split_once("    internal static unsafe partial class")
         .expect("generated namespace header");
     let mut generated = import_files(imports);
-    generated.push((
-        "NativeRecords.g.cs".to_owned(),
-        format!("{header}{records}"),
-    ));
+    generated.extend(record_files(header, records));
     for (name, contents) in &generated {
         assert!(
             contents.lines().count() < LIMIT,
@@ -81,6 +78,38 @@ fn import_files(imports: &str) -> Vec<(String, String)> {
                 format!("NativeBindings.{}.g.cs", index + 1)
             };
             (name, format!("{}\n    }}\n}}\n", lines.join("\n")))
+        })
+        .collect()
+}
+
+/// Packs the record declarations into as many files as stay below [`LIMIT`]:
+/// `NativeRecords.g.cs`, then `NativeRecords.2.g.cs` and so on. A record is never split.
+fn record_files(header: &str, records: &str) -> Vec<(String, String)> {
+    let body = records.trim_end().trim_end_matches('}');
+    let mut files: Vec<Vec<&str>> = vec![Vec::new()];
+    let mut lines = header.lines().count() + 3;
+    for block in body.split("\n\n").map(|b| b.trim_matches('\n')) {
+        if block.is_empty() {
+            continue;
+        }
+        let size = block.lines().count() + 1;
+        if lines + size >= LIMIT && !files.last().is_some_and(Vec::is_empty) {
+            files.push(Vec::new());
+            lines = header.lines().count() + 3;
+        }
+        files.last_mut().expect("record file").push(block);
+        lines += size;
+    }
+    files
+        .into_iter()
+        .enumerate()
+        .map(|(index, blocks)| {
+            let name = if index == 0 {
+                "NativeRecords.g.cs".to_owned()
+            } else {
+                format!("NativeRecords.{}.g.cs", index + 1)
+            };
+            (name, format!("{header}\n{}\n\n}}\n", blocks.join("\n\n")))
         })
         .collect()
 }

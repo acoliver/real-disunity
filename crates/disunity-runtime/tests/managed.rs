@@ -167,6 +167,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_managed_lighting(&mut host, &root);
     assert_presentation_cameras(&mut host, &root);
     assert_player_textures(&mut host, &root);
+    assert_player_meshes(&mut host, &root);
     assert_player_distance_field_atlas(&mut host, &root);
     host.run_slice(&fixture).unwrap();
     assert_cross_language_writes(&mut host);
@@ -306,6 +307,48 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
     assert_eq!(host.player_texture(identity, 0).unwrap().unwrap(), texture);
     assert_eq!(host.player_texture(FIRST + 1000, 0).unwrap(), None);
     host.unload_slice().unwrap();
+}
+
+fn assert_player_meshes(host: &mut DisunityHost, root: &Path) {
+    const FIRST: u64 = 1 << 41;
+    host.run_slice(&root.join("csharp/PortableFixture/mesh.fixture"))
+        .unwrap();
+    host.export_presentation([80, 40], 8).unwrap();
+    let objects = host.mesh_objects().unwrap();
+    assert_eq!(objects.len(), 1, "the fixture shows one mesh renderer");
+    let object = &objects[0];
+    assert!(object.mesh >= FIRST, "the mesh has a player mesh identity");
+    assert_eq!(
+        &object.local_to_world[12..15],
+        &[3., -2., 0.],
+        "the matrix places the object in the view basis"
+    );
+    assert_eq!(object.slots.len(), 2);
+    assert_eq!(object.slots[0].color, [0.25, 0.5, 0.75, 1.]);
+    assert_eq!(object.slots[1].color, [1.; 4], "an empty slot draws white");
+    assert_eq!(object.slots[0].texture, 0);
+    assert_player_mesh(host, object.mesh);
+    assert_eq!(host.player_mesh(object.mesh, 1).unwrap(), None);
+    assert_eq!(host.player_mesh(FIRST + 1000, 0).unwrap(), None);
+    host.unload_slice().unwrap();
+}
+
+fn assert_player_mesh(host: &mut DisunityHost, identity: u64) {
+    let mesh = host.player_mesh(identity, 0).unwrap().expect("the mesh");
+    assert_eq!(mesh.generation, 1);
+    assert_eq!(mesh.positions.len(), 4);
+    assert_eq!(mesh.positions[2], [1., 1., 0.]);
+    assert!(mesh.normals.is_empty(), "the fixture's mesh has no normals");
+    assert_eq!(mesh.uvs[2], [1., 1.]);
+    assert!(mesh.colors.is_empty());
+    assert_eq!(mesh.indices, vec![0, 2, 1, 0, 3, 2]);
+    let runs: Vec<_> = mesh
+        .submeshes
+        .iter()
+        .map(|r| (r.slot, r.first_index, r.index_count))
+        .collect();
+    assert_eq!(runs, vec![(0, 0, 3), (1, 3, 3)]);
+    assert_eq!(mesh.left_out, 0);
 }
 
 fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {

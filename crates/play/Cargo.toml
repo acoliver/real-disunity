@@ -11,12 +11,16 @@ publish.workspace = true
 png.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+worldrunner-camera = { path = "../camera" }
 worldrunner-disunity-runtime = { path = "../disunity-runtime" }
 worldrunner-original-games = { path = "../original-games" }
 worldrunner-render-plan = { path = "../render-plan", features = ["simulation"] }
 worldrunner-render-scene = { path = "../render-scene" }
 worldrunner-scene-viewer = { path = "../scene-viewer" }
 worldrunner-unity-import = { path = "../unity-import" }
+
+[dev-dependencies]
+glam.workspace = true
 
 [[bin]]
 name = "play"

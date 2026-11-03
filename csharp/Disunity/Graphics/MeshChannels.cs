@@ -92,19 +92,29 @@ public partial class Mesh
             DropMismatchedChannels(positions.Length);
         }
         _positions = positions;
+        Changed();
     }
 
-    private void StoreNormals(IReadOnlyList<Vector3>? values) => _normals = Validated("normals", Map(values, value => value));
+    private void StoreNormals(IReadOnlyList<Vector3>? values)
+    {
+        _normals = Validated("normals", Map(values, value => value));
+        Changed();
+    }
 
     private void StoreTangents(IReadOnlyList<Vector4>? values) => _tangents = Validated("tangents", Map(values, value => value));
 
-    private void StoreColors(string channel, IReadOnlyList<Color>? values) => _colors = Validated(channel, Map(values, value => value));
+    private void StoreColors(string channel, IReadOnlyList<Color>? values)
+    {
+        _colors = Validated(channel, Map(values, value => value));
+        Changed();
+    }
 
     private void StoreUvs(int channel, Vector4[] values, int dimension)
     {
         CheckUvChannel(channel);
         _uvs[channel] = Validated(UvName(channel), values);
         _uvDimensions[channel] = values.Length == 0 ? 0 : dimension;
+        if (channel == 0) Changed();
     }
 
     private void DropMismatchedChannels(int newCount)

@@ -4055,9 +4055,11 @@ dependencies = [
 name = "worldrunner-play"
 version = "0.1.0"
 dependencies = [
+ "glam",
  "png",
  "serde_json",
  "thiserror 2.0.21",
+ "worldrunner-camera",
  "worldrunner-disunity-runtime",
  "worldrunner-original-games",
  "worldrunner-render-plan",

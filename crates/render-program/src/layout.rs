@@ -40,8 +40,11 @@ pub enum LayoutError {
     UndescribedConstantBuffer { name_index: i32 },
     #[error("constant buffer {name:?} has a binding but no layout of that name")]
     UndescribedBuffer { name: String },
-    #[error("texture dimension code {code} has not been checked against a module")]
-    UnmeasuredTextureDimension { code: i32 },
+    #[error(
+        "texture dimension code {code} is a multisampled texture in the player checked, which \
+         this renderer does not bind"
+    )]
+    MultisampledTexture { code: i32 },
     #[error(
         "the {stage:?} module uses set {set} binding {binding}, which the parameters bind for \
          stages {stages:#b} only"

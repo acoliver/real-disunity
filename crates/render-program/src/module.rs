@@ -30,7 +30,8 @@ impl StageKind {
 
     /// The bit that names this stage in a player variant's descriptor slots. Only the vertex and
     /// fragment bits have been measured, so a compute stage has none.
-    pub(crate) fn stage_bit(self) -> Option<u8> {
+    #[must_use]
+    pub fn stage_bit(self) -> Option<u8> {
         match self {
             Self::Vertex => Some(DescriptorSlot::VERTEX),
             Self::Fragment => Some(DescriptorSlot::FRAGMENT),

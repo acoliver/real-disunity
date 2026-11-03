@@ -192,15 +192,16 @@ fn program_texture_class(texture: &TextureParam) -> Result<Class, LayoutError> {
 }
 
 /// A player texture's dimension code, as measured against the SPIR-V of the Old World player:
-/// 4, 6, 8 and 10 are 2D, 3D, cube and 2D array textures. Codes 5 and 11 occur in the
-/// parameters but have not been checked against a module.
+/// 4, 6, 8 and 10 are 2D, 3D, cube and 2D array textures. Codes 5 and 11 were measured last
+/// (6 and 3 bindings) as multisampled 2D and multisampled 2D array images, which this
+/// renderer has no way to bind, so they are named errors.
 fn variant_dimension(code: i32) -> Result<wgpu::TextureViewDimension, LayoutError> {
     match code {
         4 => Ok(wgpu::TextureViewDimension::D2),
         6 => Ok(wgpu::TextureViewDimension::D3),
         8 => Ok(wgpu::TextureViewDimension::Cube),
         10 => Ok(wgpu::TextureViewDimension::D2Array),
-        5 | 11 => Err(LayoutError::UnmeasuredTextureDimension { code }),
+        5 | 11 => Err(LayoutError::MultisampledTexture { code }),
         other => Err(unsupported(format!("texture dimension {other}"))),
     }
 }

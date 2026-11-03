@@ -144,7 +144,7 @@ fn dimension_codes_not_measured_and_storage_images_are_named_errors() {
     for code in [5, 11] {
         assert_eq!(
             build(texture_pair(code)),
-            LayoutError::UnmeasuredTextureDimension { code },
+            LayoutError::MultisampledTexture { code },
             "code {code}"
         );
     }

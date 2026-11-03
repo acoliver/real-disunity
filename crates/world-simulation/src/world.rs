@@ -335,8 +335,14 @@ impl World {
         script: bool,
     ) {
         if script {
-            self.lifecycle
-                .register(handle, crate::lifecycle::ScriptState::default());
+            let messages = self.enroll_script_type(handle);
+            self.lifecycle.register(
+                handle,
+                crate::lifecycle::ScriptState {
+                    messages,
+                    ..Default::default()
+                },
+            );
         }
         if self.lifetime.objects.contains(&object) {
             self.lifetime.components.insert(handle);

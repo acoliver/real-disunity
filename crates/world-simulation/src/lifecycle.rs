@@ -48,6 +48,7 @@ pub(crate) struct ScriptState {
     pub awake: bool,
     pub active: bool,
     pub entered: EnteredState,
+    pub messages: crate::ScriptMessages,
 }
 
 impl Default for ScriptState {
@@ -59,6 +60,7 @@ impl Default for ScriptState {
             awake: false,
             active: false,
             entered: EnteredState::Dormant,
+            messages: crate::ScriptMessages::ALL,
         }
     }
 }
@@ -73,6 +75,8 @@ pub(crate) struct Lifecycle {
     next_sequence: usize,
     pub(crate) unpublished: crate::unpublished::Unpublished,
     pub cleanup: Vec<LifecycleWork>,
+    /// Script types by assembly and name, with the per-frame messages reported for each.
+    pub(crate) types: crate::script_messages::ScriptTypes,
 }
 
 impl Lifecycle {

@@ -158,6 +158,7 @@ impl World {
 
     pub(crate) fn retire_component(&mut self, component: ComponentHandle) {
         self.lifetime.components.remove(&component);
+        self.leave_script_type(component);
         self.lifecycle.scripts.remove(&component);
         self.physics.targets.remove(&component);
         self.note_component_removed(component);

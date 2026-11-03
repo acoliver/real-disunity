@@ -326,7 +326,7 @@ pub fn upload_texture(
 }
 
 /// The placeholder with its default view, which is how scene upload binds it.
-pub fn placeholder_with_view(device: &Device, queue: &Queue) -> (Texture, TextureView) {
+pub(crate) fn placeholder_with_view(device: &Device, queue: &Queue) -> (Texture, TextureView) {
     let texture = placeholder_texture(device, queue);
     let view = texture.create_view(&TextureViewDescriptor::default());
     (texture, view)

@@ -218,11 +218,36 @@ impl Fixture {
         TargetSignature::new(&[self.pipelines.color_format], Some(DEPTH_FORMAT), 1).unwrap()
     }
 
+    /// Replaces the arena with a fresh one over a new reservation and drops the old arena, as a
+    /// host does when it lets go of the arena the admitted draws came from.
+    pub fn drop_arena(&mut self) {
+        let reservation = self
+            .renderer
+            .reserve(&self.context, ProgramRuntime::arena_allocations(ARENA))
+            .unwrap();
+        let fresh = self.runtime.open_arena(reservation).unwrap();
+        drop(std::mem::replace(&mut self.arena, fresh));
+    }
+
     /// Admits both patches, in the order near then far, into the frame being recorded.
     pub fn admit(
         &mut self,
         encoder: &wgpu::CommandEncoder,
         signature: TargetSignature,
+    ) -> Result<AdmittedPrograms, worldrunner_render_program::error::ProgramError> {
+        self.admit_geometry(
+            encoder,
+            signature,
+            Geometry::Vertices { first: 0, count: 6 },
+        )
+    }
+
+    /// Admits both patches drawn with `geometry`.
+    pub fn admit_geometry(
+        &mut self,
+        encoder: &wgpu::CommandEncoder,
+        signature: TargetSignature,
+        geometry: Geometry,
     ) -> Result<AdmittedPrograms, worldrunner_render_program::error::ProgramError> {
         let state = RenderState {
             cull: None,
@@ -240,7 +265,7 @@ impl Fixture {
                 front_face: wgpu::FrontFace::Cw,
                 vertex_inputs: std::slice::from_ref(&patch.input),
                 bindings: &patch.bindings,
-                geometry: Geometry::Vertices { first: 0, count: 6 },
+                geometry,
             })
             .collect();
         self.runtime
@@ -335,8 +360,8 @@ impl Image {
 }
 
 /// The camera: 3 m south of the card, level with its middle, looking north.
-pub(super) fn frame() -> FrameUniform {
-    let view = SceneView::new(
+pub(super) fn view() -> SceneView {
+    SceneView::new(
         CameraPose {
             eye_millimeters: [0, -3_000, 1_000],
             target_millimeters: [0, 0, 1_000],
@@ -347,8 +372,11 @@ pub(super) fn frame() -> FrameUniform {
             height: TARGET,
         },
     )
-    .unwrap();
-    FrameUniform::unlit(&view)
+    .unwrap()
+}
+
+pub(super) fn frame() -> FrameUniform {
+    FrameUniform::unlit(&view())
 }
 
 fn patch(

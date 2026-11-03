@@ -127,11 +127,11 @@ fn variant() -> VariantParameters {
 /// Values that name their member and element: the weight is `[e, 1, 2, 3] + 10 e`, the matrix's
 /// float `i` is `100 e + i`, and the slot is `[e, e + 1, e + 2, e + 3]`.
 fn weight(e: usize) -> [f32; 4] {
-    std::array::from_fn(|i| (10 * e + i) as f32)
+    std::array::from_fn(|i| f32::from(u8::try_from(10 * e + i).unwrap()))
 }
 
 fn basis(e: usize) -> [f32; 16] {
-    std::array::from_fn(|i| (100 * e + i) as f32)
+    std::array::from_fn(|i| f32::from(u8::try_from(100 * e + i).unwrap()))
 }
 
 fn slot_value(e: usize) -> [i32; 4] {
@@ -265,7 +265,7 @@ fn the_gpu_reads_each_element_the_packer_wrote() {
     for e in 0..ELEMENTS {
         want.extend(weight(e));
         want.extend(&basis(e)[4..8]);
-        want.extend(slot_value(e).map(|v| v as f32));
+        want.extend(slot_value(e).map(|v| f32::from(i16::try_from(v).unwrap())));
     }
     assert_eq!(got, want);
 }

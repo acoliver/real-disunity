@@ -149,7 +149,9 @@ fn an_array_of_structs_puts_element_e_of_each_array_property_at_e_times_the_stru
 fn a_matrix_member_writes_four_rows_a_register_apart_in_every_element() {
     let members = vec![matrix("_Basis", 0), member("_Pos", FLOAT, (1, 4), 64)];
     let buffer = buffer_of(vec![item(2, 80, members)], 160);
-    let sequence = |first: f32| -> [f32; 16] { std::array::from_fn(|i| first + i as f32) };
+    let sequence = |first: f32| -> [f32; 16] {
+        std::array::from_fn(|i| first + f32::from(u8::try_from(i).unwrap()))
+    };
     let set = properties(vec![
         (
             "_Basis",

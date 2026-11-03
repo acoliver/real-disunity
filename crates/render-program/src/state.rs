@@ -1,9 +1,9 @@
 //! Fixed-function render state from a pass's `ShaderState`.
 //!
-//! The enum values follow the engine's own definitions in
-//! `csharp/Disunity/Enums/Rendering.cs` (`CullMode`, `CompareFunction`, `BlendMode`, `BlendOp`
-//! and `ColorWriteMask`). `BlendOp` values above `Max` (the logical and advanced blend
-//! operations) have no wgpu equivalent and are rejected as unknown values.
+//! The enum values follow the managed engine's own definitions in `Disunity/Enums/Rendering.cs`
+//! (`CullMode`, `CompareFunction`, `BlendMode`, `BlendOp` and `ColorWriteMask`). `BlendOp`
+//! values above `Max` (the logical and advanced blend operations) have no wgpu equivalent and
+//! are rejected as unknown values.
 
 use worldrunner_unity_serialized::shader_state::{
     ShaderState, StateValue, StencilOps, TargetBlend,

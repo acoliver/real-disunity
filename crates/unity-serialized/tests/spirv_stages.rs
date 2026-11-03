@@ -3,7 +3,9 @@
 
 use std::collections::BTreeMap;
 
-use worldrunner_unity_serialized::spirv_prep::prepare;
+use worldrunner_unity_serialized::spirv_prep::{
+    PrepareError, PreparedModule, ResourceBinding, prepare, prepare_stages,
+};
 
 /// The class of a resource a test stage declares.
 #[derive(Clone, Copy, Debug)]
@@ -237,4 +239,208 @@ fn each_descriptor_set_is_numbered_on_its_own() {
     let prepared = prepare(&module).unwrap();
     assert_eq!(place(&prepared.words, 1), (1, 1));
     assert_naga_accepts(&prepared.words);
+}
+
+fn binding(unity_binding: u32, binding: u32, sampler_binding: Option<u32>) -> ResourceBinding {
+    ResourceBinding {
+        set: 0,
+        unity_binding,
+        binding,
+        sampler_binding,
+    }
+}
+
+/// Prepares `stages` together and checks that naga accepts every module.
+fn prepare_together(stages: &[&[u32]]) -> Vec<PreparedModule> {
+    let prepared = prepare_stages(stages).unwrap();
+    assert_eq!(prepared.modules.len(), stages.len());
+    for module in &prepared.modules {
+        assert_naga_accepts(&module.words);
+    }
+    prepared.modules
+}
+
+#[test]
+fn a_sampler_only_the_fragment_splits_moves_the_vertex_buffers_too() {
+    let vertex = stage(VERTEX, &[res(0, Kind::Uniform), res(2, Kind::Storage)]);
+    let fragment = stage(
+        FRAGMENT,
+        &[
+            res(0, Kind::Uniform),
+            res(1, Kind::Combined),
+            res(2, Kind::Storage),
+        ],
+    );
+    let [vertex, fragment] = <[_; 2]>::try_from(prepare_together(&[&vertex, &fragment])).unwrap();
+    let table = [
+        binding(0, 0, None),
+        binding(1, 1, Some(2)),
+        binding(2, 3, None),
+    ];
+    assert_eq!(vertex.bindings, table);
+    assert_eq!(fragment.bindings, table);
+    // The stages decorate the shared Unity bindings alike, and the vertex stage keeps the
+    // slots of the image and sampler it does not declare.
+    assert_eq!(place(&vertex.words, 0), (0, 0));
+    assert_eq!(place(&vertex.words, 1), (0, 3));
+    assert_eq!(place(&fragment.words, 0), (0, 0));
+    assert_eq!(place(&fragment.words, 1), (0, 1));
+    assert_eq!(place(&fragment.words, 2), (0, 3));
+    assert_eq!(sampler_places(&vertex.words), []);
+    assert_eq!(sampler_places(&fragment.words), [(0, 2)]);
+}
+
+#[test]
+fn stages_that_split_different_samplers_share_the_slots_of_both() {
+    let vertex = stage(
+        VERTEX,
+        &[
+            res(0, Kind::Combined),
+            res(1, Kind::Uniform),
+            res(3, Kind::Storage),
+        ],
+    );
+    let fragment = stage(
+        FRAGMENT,
+        &[
+            res(1, Kind::Uniform),
+            res(2, Kind::Combined),
+            res(3, Kind::Storage),
+        ],
+    );
+    let [vertex, fragment] = <[_; 2]>::try_from(prepare_together(&[&vertex, &fragment])).unwrap();
+    let table = [
+        binding(0, 0, Some(1)),
+        binding(1, 2, None),
+        binding(2, 3, Some(4)),
+        binding(3, 5, None),
+    ];
+    assert_eq!(vertex.bindings, table);
+    assert_eq!(fragment.bindings, table);
+    let vertex_places: Vec<_> = (0..3).map(|n| place(&vertex.words, n)).collect();
+    assert_eq!(vertex_places, [(0, 0), (0, 2), (0, 5)]);
+    assert_eq!(sampler_places(&vertex.words), [(0, 1)]);
+    let fragment_places: Vec<_> = (0..3).map(|n| place(&fragment.words, n)).collect();
+    assert_eq!(fragment_places, [(0, 2), (0, 3), (0, 5)]);
+    assert_eq!(sampler_places(&fragment.words), [(0, 4)]);
+}
+
+#[test]
+fn a_binding_split_in_one_stage_and_a_plain_image_in_the_other_keeps_the_sampler_slot() {
+    let vertex = stage(VERTEX, &[res(0, Kind::Combined), res(1, Kind::Uniform)]);
+    let fragment = stage(FRAGMENT, &[res(0, Kind::Image), res(1, Kind::Uniform)]);
+    let [vertex, fragment] = <[_; 2]>::try_from(prepare_together(&[&vertex, &fragment])).unwrap();
+    let table = [binding(0, 0, Some(1)), binding(1, 2, None)];
+    assert_eq!(vertex.bindings, table);
+    assert_eq!(fragment.bindings, table);
+    assert_eq!(place(&fragment.words, 0), (0, 0));
+    assert_eq!(place(&fragment.words, 1), (0, 2));
+    assert_eq!(sampler_places(&fragment.words), []);
+}
+
+#[test]
+fn descriptor_sets_are_planned_separately_across_stages() {
+    let in_set = |set, binding, kind| Res { set, binding, kind };
+    let vertex = stage(
+        VERTEX,
+        &[in_set(1, 0, Kind::Uniform), in_set(0, 0, Kind::Uniform)],
+    );
+    let fragment = stage(
+        FRAGMENT,
+        &[in_set(0, 1, Kind::Combined), in_set(1, 1, Kind::Storage)],
+    );
+    let [vertex, fragment] = <[_; 2]>::try_from(prepare_together(&[&vertex, &fragment])).unwrap();
+    assert_eq!(vertex.bindings, fragment.bindings);
+    assert_eq!(place(&vertex.words, 0), (1, 0));
+    assert_eq!(place(&vertex.words, 1), (0, 0));
+    assert_eq!(place(&fragment.words, 0), (0, 1));
+    assert_eq!(sampler_places(&fragment.words), [(0, 2)]);
+    // Set 1 has no split sampler, so its bindings stay where Unity put them.
+    assert_eq!(place(&fragment.words, 1), (1, 1));
+}
+
+#[test]
+fn one_stage_is_prepared_as_prepare_does() {
+    let module = stage(
+        FRAGMENT,
+        &[
+            res(0, Kind::Combined),
+            res(2, Kind::Uniform),
+            res(3, Kind::Image),
+            res(4, Kind::Sampler),
+            res(6, Kind::Combined),
+        ],
+    );
+    let together = prepare_together(&[&module]);
+    assert_eq!(together, [prepare(&module).unwrap()]);
+}
+
+#[test]
+fn preparation_is_deterministic() {
+    let vertex = stage(VERTEX, &[res(0, Kind::Combined), res(1, Kind::Combined)]);
+    let fragment = stage(FRAGMENT, &[res(1, Kind::Combined), res(2, Kind::Combined)]);
+    let first = prepare_stages(&[&vertex, &fragment]).unwrap();
+    for _ in 0..16 {
+        assert_eq!(prepare_stages(&[&vertex, &fragment]).unwrap(), first);
+    }
+}
+
+#[test]
+fn no_stages_prepare_to_no_modules() {
+    assert!(prepare_stages(&[]).unwrap().modules.is_empty());
+}
+
+#[test]
+fn a_unity_binding_used_as_two_resource_classes_is_a_named_error() {
+    let cases = [
+        (Kind::Uniform, Kind::Storage),
+        (Kind::Uniform, Kind::Combined),
+        (Kind::Sampler, Kind::Image),
+    ];
+    for (first, second) in cases {
+        let vertex = stage(VERTEX, &[res(0, Kind::Uniform), res(1, first)]);
+        let fragment = stage(FRAGMENT, &[res(1, second)]);
+        let error = prepare_stages(&[&vertex, &fragment]).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                PrepareError::BindingClass {
+                    set: 0,
+                    binding: 1,
+                    ..
+                }
+            ),
+            "{first:?} and {second:?} gave {error}"
+        );
+        assert_eq!(error.cause(), "binding class");
+    }
+}
+
+#[test]
+fn one_stage_using_a_binding_as_two_classes_is_a_named_error() {
+    let module = stage(FRAGMENT, &[res(1, Kind::Uniform), res(1, Kind::Storage)]);
+    let error = prepare_stages(&[&module]).unwrap_err();
+    assert!(
+        matches!(error, PrepareError::BindingClass { .. }),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_malformed_stage_is_an_error_whichever_stage_it_is() {
+    let good = stage(FRAGMENT, &[res(0, Kind::Combined)]);
+    let mut broken = good.clone();
+    let last = broken.last_mut().unwrap();
+    *last = op(56, &[0])[0];
+    for stages in [[&good, &broken], [&broken, &good]] {
+        let stages: Vec<&[u32]> = stages.iter().map(|words| words.as_slice()).collect();
+        assert!(matches!(
+            prepare_stages(&stages),
+            Err(PrepareError::Module(_))
+        ));
+    }
+    assert!(matches!(
+        prepare_stages(&[&good[..4]]),
+        Err(PrepareError::Module(_))
+    ));
 }

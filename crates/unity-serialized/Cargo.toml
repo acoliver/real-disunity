@@ -11,8 +11,5 @@ publish.workspace = true
 thiserror.workspace = true
 spirv-webgpu-transform = "0.1.7"
 
-[dev-dependencies]
-naga = { version = "30.0.0", features = ["spv-in"] }
-
 [lints]
 workspace = true

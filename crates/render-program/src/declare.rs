@@ -1,9 +1,11 @@
 //! The resources a stage's Unity parameters declare, placed through its binding table.
 
-use worldrunner_unity_serialized::shader_program::{Binding, ProgramParameters, TextureParam};
+use wgpu::ShaderStages;
+use worldrunner_unity_serialized::shader_parameters::DescriptorSlot;
 
 use crate::layout::LayoutError;
-use crate::module::ResourceBinding;
+use crate::module::{ResourceBinding, StageKind, StageParameters};
+use crate::source::{At, Source};
 
 /// What kind of resource a parameter declares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,8 +16,12 @@ pub(crate) enum Class {
         multisampled: bool,
     },
     Sampler,
+    /// A read-only storage buffer.
     StructuredBuffer,
+    /// A storage buffer the shader may write.
     UnorderedAccess,
+    /// A storage buffer whose access the module decides.
+    StorageBuffer,
 }
 
 /// A declared resource at its prepared set and binding.
@@ -24,124 +30,133 @@ pub(crate) struct Declared {
     pub(crate) set: u32,
     pub(crate) binding: u32,
     pub(crate) class: Class,
+    /// The stage bits that use the resource, or `None` when the parameters do not say.
+    pub(crate) stages: Option<u8>,
 }
 
-fn unsupported(kind: impl Into<String>) -> LayoutError {
-    LayoutError::UnsupportedParameter { kind: kind.into() }
+impl Declared {
+    /// Whether `kind`'s stage uses the resource. Parameters that name no stages, and stages
+    /// with no bit, leave every resource to the module.
+    pub(crate) fn applies(&self, kind: StageKind) -> bool {
+        applies(self.stages, kind)
+    }
+
+    /// The stages the resource is visible to, from the stage bits.
+    pub(crate) fn visibility(&self) -> ShaderStages {
+        let mask = self.stages.unwrap_or_default();
+        let mut visibility = ShaderStages::empty();
+        if mask & DescriptorSlot::VERTEX != 0 {
+            visibility |= ShaderStages::VERTEX;
+        }
+        if mask & DescriptorSlot::FRAGMENT != 0 {
+            visibility |= ShaderStages::FRAGMENT;
+        }
+        visibility
+    }
 }
 
-/// The table entry for a Unity binding, which must be unique across descriptor sets.
-pub(crate) fn entry(
-    table: &[ResourceBinding],
-    unity_binding: i32,
-) -> Result<&ResourceBinding, LayoutError> {
-    let wanted = u32::try_from(unity_binding).map_err(|_| LayoutError::UnboundResource {
-        unity_binding: i64::from(unity_binding),
-    })?;
-    let mut matches = table.iter().filter(|e| e.unity_binding == wanted);
+pub(crate) fn applies(stages: Option<u8>, kind: StageKind) -> bool {
+    match (stages, kind.stage_bit()) {
+        (Some(mask), Some(bit)) => mask & bit != 0,
+        _ => true,
+    }
+}
+
+/// The table entry for a Unity binding. Without a set, the binding must be unique across
+/// descriptor sets.
+pub(crate) fn entry(table: &[ResourceBinding], at: At) -> Result<&ResourceBinding, LayoutError> {
+    let unbound = || match at.set {
+        Some(set) => LayoutError::UnboundSlot {
+            set,
+            binding: u32::try_from(at.binding).unwrap_or_default(),
+        },
+        None => LayoutError::UnboundResource {
+            unity_binding: i64::from(at.binding),
+        },
+    };
+    let wanted = u32::try_from(at.binding).map_err(|_| unbound())?;
+    let mut matches = table
+        .iter()
+        .filter(|e| e.unity_binding == wanted && at.set.is_none_or(|set| e.set == set));
     match (matches.next(), matches.next()) {
         (Some(found), None) => Ok(found),
         (Some(_), Some(_)) => Err(LayoutError::AmbiguousBinding {
             unity_binding: wanted,
         }),
-        _ => Err(LayoutError::UnboundResource {
-            unity_binding: i64::from(unity_binding),
-        }),
+        _ => Err(unbound()),
     }
 }
 
-/// Unity's `TextureDimension`, with the values of the managed engine's
-/// `Disunity/Enums/Rendering.cs`, as a view dimension; `Any`, `None` and unknown have none.
-fn view_dimension(code: i8) -> Result<wgpu::TextureViewDimension, LayoutError> {
-    match code {
-        2 => Ok(wgpu::TextureViewDimension::D2),
-        3 => Ok(wgpu::TextureViewDimension::D3),
-        4 => Ok(wgpu::TextureViewDimension::Cube),
-        5 => Ok(wgpu::TextureViewDimension::D2Array),
-        6 => Ok(wgpu::TextureViewDimension::CubeArray),
-        other => Err(unsupported(format!("texture dimension {other}"))),
-    }
-}
-
-/// Every resource `parameters` declares, with duplicates merged.
-pub(crate) fn declarations(
-    parameters: &ProgramParameters,
-    table: &[ResourceBinding],
-) -> Result<Vec<Declared>, LayoutError> {
-    if !parameters.vectors.is_empty() {
-        return Err(unsupported("loose vector"));
-    }
-    if !parameters.matrices.is_empty() {
-        return Err(unsupported("loose matrix"));
-    }
-    let mut out = Vec::new();
-    for binding in &parameters.constant_buffer_bindings {
-        out.push(simple(
-            table,
-            binding,
-            "constant buffer",
-            Class::ConstantBuffer,
-        )?);
-    }
-    for binding in &parameters.buffers {
-        out.push(simple(
-            table,
-            binding,
-            "structured buffer",
-            Class::StructuredBuffer,
-        )?);
-    }
-    for uav in &parameters.uavs {
-        let placed = entry(table, uav.index)?;
-        out.push(declared(placed.set, placed.binding, Class::UnorderedAccess));
-    }
-    for texture in &parameters.textures {
-        out.extend(texture_declarations(table, texture)?);
-    }
-    for sampler in &parameters.samplers {
-        let placed = entry(table, sampler.bind_point)?;
-        let binding = placed.sampler_binding.unwrap_or(placed.binding);
-        out.push(declared(placed.set, binding, Class::Sampler));
-    }
-    out.sort_by_key(|d| (d.set, d.binding));
-    out.dedup();
-    Ok(out)
-}
-
-fn declared(set: u32, binding: u32, class: Class) -> Declared {
-    Declared {
-        set,
+/// The resources a resource of `class` takes in the prepared module: a texture and the sampler
+/// split off its combined image sampler, or a sampler, which is the split one when there is
+/// one.
+fn placed(
+    entry: &ResourceBinding,
+    class: Class,
+    stages: Option<u8>,
+) -> impl Iterator<Item = Declared> {
+    let at = |binding, class| Declared {
+        set: entry.set,
         binding,
         class,
-    }
-}
-
-fn simple(
-    table: &[ResourceBinding],
-    binding: &Binding,
-    what: &str,
-    class: Class,
-) -> Result<Declared, LayoutError> {
-    if binding.array_size > 1 {
-        return Err(unsupported(format!("{what} array")));
-    }
-    let placed = entry(table, binding.index)?;
-    Ok(declared(placed.set, placed.binding, class))
-}
-
-/// A texture, and the sampler of a combined image sampler that was split.
-fn texture_declarations(
-    table: &[ResourceBinding],
-    texture: &TextureParam,
-) -> Result<Vec<Declared>, LayoutError> {
-    let placed = entry(table, texture.index)?;
-    let class = Class::Texture {
-        dimension: view_dimension(texture.dimension)?,
-        multisampled: texture.multisampled,
+        stages,
     };
-    let mut out = vec![declared(placed.set, placed.binding, class)];
-    if let Some(sampler) = placed.sampler_binding {
-        out.push(declared(placed.set, sampler, Class::Sampler));
+    let (first, second) = match class {
+        Class::Sampler => (
+            at(entry.sampler_binding.unwrap_or(entry.binding), class),
+            None,
+        ),
+        Class::Texture { .. } => (
+            at(entry.binding, class),
+            entry
+                .sampler_binding
+                .map(|binding| at(binding, Class::Sampler)),
+        ),
+        _ => (at(entry.binding, class), None),
+    };
+    std::iter::once(first).chain(second)
+}
+
+/// Every resource `parameters` declares for the stage of `kind`, with duplicates merged.
+///
+/// A resource that names other stages only is kept when the table places it, so a module that
+/// uses it can be told it belongs elsewhere, and is otherwise ignored, whatever it is.
+pub(crate) fn declarations(
+    parameters: &StageParameters,
+    table: &[ResourceBinding],
+    kind: StageKind,
+) -> Result<Vec<Declared>, LayoutError> {
+    let mut out = Vec::new();
+    for resource in parameters.resources()? {
+        let here = applies(resource.stages, kind);
+        let class = match resource.class {
+            Ok(class) => class,
+            Err(error) if here => return Err(error),
+            Err(_) => continue,
+        };
+        let found = match entry(table, resource.at) {
+            Ok(found) => found,
+            Err(error) if here => return Err(error),
+            Err(_) => continue,
+        };
+        out.extend(placed(found, class, resource.stages));
     }
-    Ok(out)
+    out.sort_by_key(|d| (d.set, d.binding));
+    Ok(merged(out))
+}
+
+/// Declarations of one resource, with the stages of each merged.
+fn merged(sorted: Vec<Declared>) -> Vec<Declared> {
+    let mut out: Vec<Declared> = Vec::new();
+    for next in sorted {
+        match out.last_mut() {
+            Some(last)
+                if (last.set, last.binding, last.class) == (next.set, next.binding, next.class) =>
+            {
+                last.stages = last.stages.zip(next.stages).map(|(a, b)| a | b);
+            }
+            _ => out.push(next),
+        }
+    }
+    out
 }

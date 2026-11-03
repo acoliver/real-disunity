@@ -2,26 +2,40 @@
 
 use worldrunner_render_gpu::submission::TransactionError;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::module::StageKind;
+use worldrunner_render_program::module::{StageKind, StageParameters};
 use worldrunner_render_program::runtime::{
     BoundResource, ComputeProgram, DispatchRequest, ProgramRuntime,
 };
+use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
 use worldrunner_unity_serialized::shader_program::{ProgramParameters, UavParam};
 
-use crate::common::{Gpu, same, stage, words_to_bytes};
+use crate::common::{Form, Gpu, each_form, player_binding, same, slot, stage, words_to_bytes};
 
 const FILL: &str = "
 @group(0) @binding(0) var<storage, read_write> result: array<u32>;
 @compute @workgroup_size(1) fn main() { result[0] = 42u; result[1] = 43u; }";
 
-fn fill_program(runtime: &ProgramRuntime) -> ComputeProgram {
-    let parameters = ProgramParameters {
-        uavs: vec![UavParam {
-            name_index: 0,
-            index: 0,
-            original_index: 0,
-        }],
-        ..ProgramParameters::default()
+fn fill_program(runtime: &ProgramRuntime, form: Form) -> ComputeProgram {
+    let parameters: StageParameters = match form {
+        Form::Program => ProgramParameters {
+            uavs: vec![UavParam {
+                name_index: 0,
+                index: 0,
+                original_index: 0,
+            }],
+            ..ProgramParameters::default()
+        }
+        .into(),
+        // A compute stage has no bit in a variant's stage mask, which is not consulted.
+        Form::Variant => VariantParameters {
+            constant_buffers: Vec::new(),
+            bindings: vec![player_binding(
+                "result",
+                slot(0, 0, 0),
+                ResourceKind::Buffer,
+            )],
+        }
+        .into(),
     };
     let kernel = stage(
         FILL,
@@ -41,9 +55,13 @@ fn words(bytes: &[u8]) -> Vec<u32> {
 
 #[test]
 fn two_runtimes_recorded_into_one_frame_are_submitted_once() {
+    each_form(two_runtimes_recorded_into_one_frame_are_submitted_once_in);
+}
+
+fn two_runtimes_recorded_into_one_frame_are_submitted_once_in(form: Form) {
     let gpu = Gpu::new();
     let (mut compute, mut drawing) = (gpu.runtime(), gpu.runtime());
-    let program = fill_program(&compute);
+    let program = fill_program(&compute, form);
     let output = compute
         .create_buffer("result", &words_to_bytes(&[0; 2]))
         .unwrap();

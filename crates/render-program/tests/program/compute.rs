@@ -1,17 +1,23 @@
 //! A compute kernel with Unity-style sparse bindings, run on the GPU and read back.
 
-use worldrunner_render_program::constants::pack_constant_buffer;
+use worldrunner_render_program::constants::pack_layout;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::module::StageKind;
+use worldrunner_render_program::module::{StageKind, StageParameters, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::runtime::{
-    BoundResource, ComputeProgram, DispatchRequest, ProgramRuntime,
+    BoundResource, BufferHandle, ComputeProgram, DispatchRequest, ProgramRuntime,
+};
+use worldrunner_unity_serialized::shader_parameters::{
+    BufferMember, ConstantBuffer as PlayerBuffer, ResourceKind, VariantParameters,
 };
 use worldrunner_unity_serialized::shader_program::{
     ConstantBuffer, ProgramParameters, UavParam, ValueParam,
 };
 
-use crate::common::{binding, run, runtime, same, stage, submit, words_to_bytes};
+use crate::common::{
+    Form, binding, each_form, player_binding, run, runtime, same, slot, stage, submit,
+    words_to_bytes,
+};
 
 const KERNEL: &str = "
 struct Params { scale: u32, bias: u32, count: u32 }
@@ -59,10 +65,56 @@ fn parameters() -> ProgramParameters {
     }
 }
 
+fn int_member(name: &str, offset: i32) -> BufferMember {
+    BufferMember {
+        name: name.to_owned(),
+        kind: 1,
+        rows: 1,
+        columns: 1,
+        is_matrix: false,
+        array_size: 0,
+        offset,
+    }
+}
+
+/// The kernel's bindings as a player variant describes them. A compute stage has no bit in the
+/// stage mask, which is not consulted.
+fn variant() -> VariantParameters {
+    VariantParameters {
+        constant_buffers: vec![PlayerBuffer {
+            name: "Params".to_owned(),
+            size: 16,
+            members: vec![
+                int_member("_Scale", 0),
+                int_member("_Bias", 4),
+                int_member("_Count", 8),
+            ],
+            structs: vec![],
+        }],
+        bindings: vec![
+            player_binding("Params", slot(0, 3, 0), ResourceKind::ConstantBuffer),
+            player_binding("source", slot(0, 5, 0), ResourceKind::Buffer),
+            player_binding("result", slot(0, 7, 0), ResourceKind::Buffer),
+        ],
+    }
+}
+
+fn kernel(form: Form) -> StageProgram {
+    let parameters: StageParameters = match form {
+        Form::Program => parameters().into(),
+        Form::Variant => variant().into(),
+    };
+    let table = vec![same(0, 3), same(0, 5), same(0, 7)];
+    stage(KERNEL, ("main", StageKind::Compute), table, parameters)
+}
+
 #[test]
 fn a_kernel_writes_the_storage_buffer_and_only_within_its_count() {
-    let table = vec![same(0, 3), same(0, 5), same(0, 7)];
-    let kernel = stage(KERNEL, ("main", StageKind::Compute), table, parameters());
+    each_form(a_kernel_writes_in);
+}
+
+fn a_kernel_writes_in(form: Form) {
+    let kernel = kernel(form);
     let mut runtime = runtime();
     let program = runtime.compute_program(&kernel).unwrap();
 
@@ -78,8 +130,10 @@ fn a_kernel_writes_the_storage_buffer_and_only_within_its_count() {
         "_Count",
         PropertyValue::Int(i32::try_from(ELEMENTS).unwrap()),
     );
-    let packed = pack_constant_buffer(
-        &parameters().constant_buffers[0],
+    let targets = kernel.constant_buffer_targets().unwrap();
+    assert_eq!((targets[0].set, targets[0].binding), (0, 3));
+    let packed = pack_layout(
+        &targets[0].buffer,
         &names,
         &[&material],
         usize::try_from(program.layout().slot(0, 3).unwrap().min_size).unwrap(),
@@ -111,15 +165,7 @@ fn a_kernel_writes_the_storage_buffer_and_only_within_its_count() {
     })
     .unwrap();
 
-    let (pending, index) = submit(&mut runtime, |runtime, encoder| {
-        runtime.read_buffer(encoder, output)
-    })
-    .unwrap();
-    let bytes = pending.resolve(index).unwrap();
-    let got: Vec<u32> = bytes
-        .chunks_exact(4)
-        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect();
+    let got = read_words(&mut runtime, output);
     // Closed form: source[i] = 7i + 1, so result[i] = 3 (7i + 1) + 100 + i = 22i + 103 for the
     // first ten elements; invocations 10 and 11 run in the third group and must write nothing.
     let expected: Vec<u32> = (0..12)
@@ -128,12 +174,21 @@ fn a_kernel_writes_the_storage_buffer_and_only_within_its_count() {
     assert_eq!(got, expected);
 }
 
-fn kernel_program(
-    runtime: &worldrunner_render_program::runtime::ProgramRuntime,
-) -> worldrunner_render_program::runtime::ComputeProgram {
-    let table = vec![same(0, 3), same(0, 5), same(0, 7)];
-    let kernel = stage(KERNEL, ("main", StageKind::Compute), table, parameters());
-    runtime.compute_program(&kernel).unwrap()
+fn read_words(runtime: &mut ProgramRuntime, buffer: BufferHandle) -> Vec<u32> {
+    let (pending, index) = submit(runtime, |runtime, encoder| {
+        runtime.read_buffer(encoder, buffer)
+    })
+    .unwrap();
+    pending
+        .resolve(index)
+        .unwrap()
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+fn kernel_program(runtime: &ProgramRuntime, form: Form) -> ComputeProgram {
+    runtime.compute_program(&kernel(form)).unwrap()
 }
 
 fn failure(
@@ -156,8 +211,12 @@ fn failure(
 
 #[test]
 fn a_binding_set_that_differs_from_the_programs_is_a_named_error() {
+    each_form(a_binding_set_that_differs_from_the_programs_is_a_named_error_in);
+}
+
+fn a_binding_set_that_differs_from_the_programs_is_a_named_error_in(form: Form) {
     let mut runtime = runtime();
-    let program = kernel_program(&runtime);
+    let program = kernel_program(&runtime, form);
     let big = runtime.create_buffer("big", &[0; 64]).unwrap();
     let complete = [
         BoundResource::buffer(0, 3, big),
@@ -192,8 +251,12 @@ fn a_binding_set_that_differs_from_the_programs_is_a_named_error() {
 
 #[test]
 fn a_resource_that_does_not_suit_its_binding_is_a_named_error() {
+    each_form(a_resource_that_does_not_suit_its_binding_is_a_named_error_in);
+}
+
+fn a_resource_that_does_not_suit_its_binding_is_a_named_error_in(form: Form) {
     let mut runtime = runtime();
-    let program = kernel_program(&runtime);
+    let program = kernel_program(&runtime, form);
     let big = runtime.create_buffer("big", &[0; 64]).unwrap();
     let small = runtime.create_buffer("small", &[0; 4]).unwrap();
     let texture = runtime
@@ -226,8 +289,12 @@ fn a_resource_that_does_not_suit_its_binding_is_a_named_error() {
 
 #[test]
 fn equal_dispatches_share_one_pipeline_and_one_module() {
+    each_form(equal_dispatches_share_one_pipeline_and_one_module_in);
+}
+
+fn equal_dispatches_share_one_pipeline_and_one_module_in(form: Form) {
     let mut runtime = runtime();
-    let program = kernel_program(&runtime);
+    let program = kernel_program(&runtime, form);
     let [uniform, input, output] =
         ["u", "i", "o"].map(|name| runtime.create_buffer(name, &[0; 64]).unwrap());
     let bindings = [
@@ -251,7 +318,7 @@ fn equal_dispatches_share_one_pipeline_and_one_module() {
         (1, 1)
     );
     // A program built again from the same SPIR-V has the same content.
-    let again = kernel_program(&runtime);
+    let again = kernel_program(&runtime, form);
     run(&mut runtime, |runtime, encoder| {
         runtime.dispatch(
             encoder,

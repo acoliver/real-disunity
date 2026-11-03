@@ -12,5 +12,6 @@ mod layout;
 mod module;
 mod pass;
 mod player_constants;
+mod player_layout;
 mod rig;
 mod state;

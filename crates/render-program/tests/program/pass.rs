@@ -3,7 +3,7 @@
 use worldrunner_render_gpu::tolerance_test_support::assert_code_within;
 use worldrunner_render_program::runtime::TargetImage;
 
-use crate::common::{opaque_state, runtime};
+use crate::common::{FORMS, opaque_state, runtime};
 use crate::rig::{
     ADD, MULTIPLY, OFFSET_VALUE, Pass, QUAD, Samplers, Scene, TEXELS, TINT_VALUE, pass, properties,
 };
@@ -60,40 +60,46 @@ fn draw(pass: &Pass, enabled: &[u16]) -> TargetImage {
 
 #[test]
 fn the_multiply_variant_scales_each_texel_by_the_tint() {
-    let image = draw(&pass(Samplers::Separate), &[MULTIPLY]);
-    assert_pixels(
-        &image,
-        |texel| std::array::from_fn(|c| texel[c] * f64::from(TINT_VALUE[c])),
-        "multiply",
-    );
+    for form in FORMS {
+        let image = draw(&pass(Samplers::Separate, form), &[MULTIPLY]);
+        assert_pixels(
+            &image,
+            |texel| std::array::from_fn(|c| texel[c] * f64::from(TINT_VALUE[c])),
+            &format!("multiply {form:?}"),
+        );
+    }
 }
 
 #[test]
 fn the_add_variant_adds_the_offset_to_the_color_and_keeps_the_texel_alpha() {
-    let image = draw(&pass(Samplers::Separate), &[ADD]);
-    assert_pixels(
-        &image,
-        |texel| {
-            std::array::from_fn(|c| {
-                if c == 3 {
-                    texel[c]
-                } else {
-                    texel[c] + 255.0 * f64::from(OFFSET_VALUE[c])
-                }
-            })
-        },
-        "add",
-    );
+    for form in FORMS {
+        let image = draw(&pass(Samplers::Separate, form), &[ADD]);
+        assert_pixels(
+            &image,
+            |texel| {
+                std::array::from_fn(|c| {
+                    if c == 3 {
+                        texel[c]
+                    } else {
+                        texel[c] + 255.0 * f64::from(OFFSET_VALUE[c])
+                    }
+                })
+            },
+            &format!("add {form:?}"),
+        );
+    }
 }
 
 #[test]
 fn a_split_combined_sampler_binds_its_texture_and_sampler_and_samples_the_texel() {
     // The texture sits at prepared binding 1 and the sampler the importer split off at 2,
     // with the draw constants moved to 3; the pass is otherwise the multiply variant.
-    let image = draw(&pass(Samplers::Split), &[MULTIPLY]);
-    assert_pixels(
-        &image,
-        |texel| std::array::from_fn(|c| texel[c] * f64::from(TINT_VALUE[c])),
-        "split sampler",
-    );
+    for form in FORMS {
+        let image = draw(&pass(Samplers::Split, form), &[MULTIPLY]);
+        assert_pixels(
+            &image,
+            |texel| std::array::from_fn(|c| texel[c] * f64::from(TINT_VALUE[c])),
+            &format!("split sampler {form:?}"),
+        );
+    }
 }

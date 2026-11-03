@@ -34,6 +34,7 @@ pub(super) struct InputState {
     keys: BTreeMap<PhysicalKey, (String, LogicalKey)>,
     buttons: BTreeSet<MouseButton>,
     pub window: Option<Arc<Window>>,
+    pub surface_extent: Option<[u32; 2]>,
 }
 
 impl InputState {

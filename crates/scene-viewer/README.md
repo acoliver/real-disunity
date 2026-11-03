@@ -249,9 +249,18 @@ the same fields and types that `ViewerOptions` carries, with no engine preset
 names. `Ok(None)` or no callback preserves the supplied options.
 
 Use `RetainedHost::with_initial_content(options, supplier)` when content depends on
-that adapter. The one-shot supplier receives the same `AdapterIdentity` and returns
-`InitialContent { scene, settings: Option<FrameSettings> }`. It replaces
-`adapter_callback`; specifying both fails with `ViewerError::InvalidOptions`.
+that adapter or the physical surface size. The one-shot supplier receives
+`InitialContext { adapter: &AdapterIdentity, surface_extent: [u32; 2] }` and returns
+`InitialContent { scene, settings: Option<FrameSettings> }`. Desktop startup uses
+the window's physical inner size at surface creation, regardless of the logical
+window size or render scale. Windowless startup uses the configured `options.size`.
+A zero dimension is preserved for a minimized desktop surface; rendering stays
+suspended until a nonzero resize. Windowless sizes still require nonzero dimensions.
+The supplied extent initializes `RetainedHost::size()` without a separate resize
+event for that same size. Later different physical sizes still deliver
+`RetainedInput::Resized`, including suspension and restoration.
+The supplier replaces `adapter_callback`; specifying both fails with
+`ViewerError::InvalidOptions`.
 The selected scene is validated and its object/decal IDs, readiness, capture
 features and capture pool are derived before negotiating device features or
 allocating presentation and resident resources. No temporary scene is uploaded.

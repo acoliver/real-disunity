@@ -135,7 +135,7 @@ fn supplier_capture_host(
         ..crate::tests::options()
     };
     RetainedHost::with_initial_content(options, move |identity| {
-        assert!(!identity.name.is_empty());
+        assert!(!identity.adapter.name.is_empty());
         Ok(crate::InitialContent {
             scene: crate::renderer::retained_tests::source(),
             settings: Some(crate::FrameSettings {

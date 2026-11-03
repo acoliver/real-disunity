@@ -110,6 +110,15 @@ pub(crate) fn apply_settings(options: &mut crate::ViewerOptions, settings: Frame
     options.shadows = settings.shadows;
 }
 
+/// Inputs available before the initial retained scene is prepared or made resident.
+#[derive(Clone, Copy, Debug)]
+pub struct InitialContext<'a> {
+    pub adapter: &'a AdapterIdentity,
+    /// Physical pixels at surface creation, or the configured windowless extent.
+    /// A zero dimension preserves the desktop surface's suspended state.
+    pub surface_extent: [u32; 2],
+}
+
 /// Initial scene and optional options chosen on the selected rendering adapter.
 pub struct InitialContent {
     pub scene: worldrunner_render_plan::RenderScene,

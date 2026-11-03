@@ -7,8 +7,8 @@
 //! [`SceneContribution`] tagged by renderer meaning, and the document scene
 //! composition factory receives the exact retained
 //! [`ContractDocument`](crate::document::ContractDocument), the root payload,
-//! and every produced contribution with exact claimant provenance, and
-//! returns one validated
+//! every produced contribution with exact claimant provenance, and all adapted
+//! route-qualified payloads for cross-route joins. It returns one validated
 //! [`RenderScene`](crate::scene::RenderScene).
 
 use crate::adapter::RenderPayload;
@@ -71,6 +71,10 @@ impl ScenePlacement {
 /// meshes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SceneContribution {
+    /// This route deliberately produces no renderer-domain data. Its adapted
+    /// payload remains available to the document composer for cross-route joins.
+    /// A factory must return this explicitly; an absent factory is still an error.
+    NonRendering,
     /// One owned texture.
     Texture(SceneTexture),
     /// One owned material.
@@ -183,21 +187,45 @@ pub struct DocumentSceneInput<'a> {
     document: &'a crate::document::ContractDocument,
     root_payload: &'a RenderPayload,
     contributions: &'a [ProvenSceneContribution],
+    prepared_payloads: &'a [crate::plan::RenderContribution],
 }
 
 impl<'a> DocumentSceneInput<'a> {
-    /// Bundles the retained document, root payload, and proven contributions.
+    /// Bundles the retained document, root payload, proven scene contributions
+    /// and route-qualified adapted payloads from the same preparation.
     #[must_use]
     pub const fn new(
         document: &'a crate::document::ContractDocument,
         root_payload: &'a RenderPayload,
         contributions: &'a [ProvenSceneContribution],
+        prepared_payloads: &'a [crate::plan::RenderContribution],
     ) -> Self {
         Self {
             document,
             root_payload,
             contributions,
+            prepared_payloads,
         }
+    }
+
+    /// Returns all adapted payloads with route and claimant identity.
+    #[must_use]
+    pub const fn prepared_payloads(&self) -> &'a [crate::plan::RenderContribution] {
+        self.prepared_payloads
+    }
+
+    /// Selects the payloads produced on one exact declared route.
+    /// Declared idle routes return an empty iterator.
+    ///
+    /// # Errors
+    /// Returns a named route mismatch for an undeclared route.
+    pub fn payloads_for_route<'b>(
+        &'b self,
+        kind: worldrunner_world_runtime::ContributionKind,
+        route_key: &'b str,
+    ) -> Result<impl Iterator<Item = &'b crate::plan::RenderContribution>, crate::RenderPlanError>
+    {
+        crate::plan::payloads_for_route(self.document, self.prepared_payloads, kind, route_key)
     }
 
     /// Returns the exact retained authored contract document.
@@ -241,8 +269,9 @@ pub trait RouteSceneFactory: Send + Sync {
 /// Object-safe document scene composition factory.
 ///
 /// The factory composes the complete [`RenderScene`](crate::scene::RenderScene)
-/// from the exact retained contract document, the root payload, and every
-/// produced route contribution; it is bound at activation and invoked
+/// from the exact retained contract document, the root payload, adapted
+/// route-qualified payloads and every produced route contribution. It is bound
+/// at activation and invoked
 /// exactly once per plan build.
 pub trait SceneCompositionFactory: Send + Sync {
     /// Composes one validated scene from the exact retained document.

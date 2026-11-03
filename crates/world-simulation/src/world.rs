@@ -96,6 +96,7 @@ pub struct World {
     pub(crate) coroutines: crate::coroutines::Coroutines,
     pub(crate) scheduler: crate::timeline::Scheduler,
     pub(crate) physics: crate::physics2d::Physics,
+    pub(crate) physics_population: crate::physics2d::population::Population,
     pub(crate) identity: u64,
     pub(crate) objects: Arena<Object>,
     pub(crate) lifetime: crate::lifetime::Lifetime,
@@ -116,6 +117,7 @@ impl World {
             coroutines: crate::coroutines::Coroutines::default(),
             scheduler: crate::timeline::Scheduler::default(),
             physics: crate::physics2d::Physics::default(),
+            physics_population: crate::physics2d::population::Population::default(),
             identity: next_world()?,
             lifetime: crate::lifetime::Lifetime::default(),
             lifecycle: crate::lifecycle::Lifecycle::default(),
@@ -310,6 +312,7 @@ impl World {
                 .mesh_instance = Some(handle);
         }
         let script = matches!(desc, ComponentDesc::Script { .. });
+        self.physics_population.note_stored(&desc);
         self.objects
             .get_mut(object.0)
             .expect("validated object")

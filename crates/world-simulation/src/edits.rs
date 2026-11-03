@@ -95,6 +95,19 @@ impl World {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn stage_for_test(&mut self) {
+        self.staging = Some(Staging {
+            undo: Vec::new(),
+            physics: None,
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn roll_back_for_test(&mut self) {
+        self.roll_back();
+    }
+
     fn restore_component(&mut self, handle: ComponentHandle, desc: ComponentDesc) {
         let Some(slot) = self.components.get_mut(handle.0) else {
             return;
@@ -124,6 +137,7 @@ impl World {
         if let Some(object) = self.objects.get_mut(owner.0) {
             object.components.retain(|owned| *owned != handle);
         }
+        self.physics_population.note_retired(&component.desc);
         self.leave_script_type(handle);
         self.lifecycle.remove_script(handle);
         self.lifetime.components.remove(&handle);

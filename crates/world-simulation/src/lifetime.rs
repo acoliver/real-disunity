@@ -167,6 +167,9 @@ impl World {
         {
             object.components.retain(|owned| *owned != component);
         }
+        if let Some(stored) = self.components.get(component.0) {
+            self.physics_population.note_retired(&stored.desc);
+        }
         self.components.remove(component.0);
     }
 

@@ -464,22 +464,7 @@ impl SceneGpu {
                 heights: &self.retained.contact_heights,
                 view: &lookup,
             };
-            let mut samplers = crate::sampling::MaterialSamplers::default();
-            let mut groups = Vec::with_capacity(prepared.materials.len());
-            let mut uniforms = Vec::with_capacity(prepared.materials.len());
-            for material in &prepared.materials {
-                let uniform = upload_buffer(
-                    device,
-                    queue,
-                    "material",
-                    BufferUsages::UNIFORM,
-                    &crate::pipeline::MaterialUniform::from_material(material).to_bytes(),
-                );
-                let sampler = samplers.get(device, material);
-                groups.push(material_group(device, &inputs, material, &uniform, sampler));
-                uniforms.push(uniform);
-            }
-            (groups, uniforms)
+            new_material_groups(device, queue, &inputs, &prepared.materials)
         };
         let meshes = upload_meshes(device, queue, &prepared.meshes);
         self.decals.append(source)?;
@@ -510,7 +495,7 @@ impl SceneGpu {
         device: &Device,
         authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
         pipelines: &ScenePipelines,
-        replacement: PreparedTextureReplacement,
+        replacement: &PreparedTextureReplacement,
     ) -> Result<(), DrawError> {
         let index = replacement.index;
         if index >= self.retained.textures.len() {
@@ -593,4 +578,29 @@ impl SceneGpu {
         self.caster_generation = self.caster_generation.wrapping_add(1);
         Ok(())
     }
+}
+
+/// One bind group and uniform buffer for each new material.
+fn new_material_groups(
+    device: &Device,
+    queue: &wgpu::Queue,
+    inputs: &GroupInputs<'_>,
+    materials: &[worldrunner_render_plan::SceneMaterial],
+) -> (Vec<wgpu::BindGroup>, Vec<wgpu::Buffer>) {
+    let mut samplers = crate::sampling::MaterialSamplers::default();
+    let mut groups = Vec::with_capacity(materials.len());
+    let mut uniforms = Vec::with_capacity(materials.len());
+    for material in materials {
+        let uniform = upload_buffer(
+            device,
+            queue,
+            "material",
+            BufferUsages::UNIFORM,
+            &crate::pipeline::MaterialUniform::from_material(material).to_bytes(),
+        );
+        let sampler = samplers.get(device, material);
+        groups.push(material_group(device, inputs, material, &uniform, sampler));
+        uniforms.push(uniform);
+    }
+    (groups, uniforms)
 }

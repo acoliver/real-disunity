@@ -75,9 +75,7 @@ fn object(object: u64, mesh: u64, matrix: [f32; 16]) -> MeshObjectView {
 }
 
 fn update(tables: &mut SceneTables, objects: &[MeshObjectView], content: &Content) -> FrameUpdate {
-    tables
-        .update(objects, content, &Changes::default())
-        .expect("the tables stay valid")
+    tables.update(objects, content, &Changes::default())
 }
 
 fn adds(update: &FrameUpdate) -> Vec<ObjectId> {
@@ -300,7 +298,7 @@ fn a_changed_mesh_is_replaced_by_handle_and_leaves_the_objects_alone() {
         meshes: [101].into(),
         textures: BTreeSet::new(),
     };
-    let next = tables.update(&objects, &shown, &changed).unwrap();
+    let next = tables.update(&objects, &shown, &changed);
     assert!(next.append.is_none());
     assert_eq!(next.replaced_meshes.len(), 1);
     let (handle, replaced) = &next.replaced_meshes[0];
@@ -455,9 +453,7 @@ fn a_texture_that_has_no_texels_yet_draws_white_until_it_arrives() {
         meshes: BTreeSet::new(),
         textures: [5].into(),
     };
-    let later = tables
-        .update(std::slice::from_ref(&view), &shown, &changed)
-        .unwrap();
+    let later = tables.update(std::slice::from_ref(&view), &shown, &changed);
     assert_eq!(replaces(&later), vec![id]);
     assert_ne!(material_of(&later, id), 0);
     assert_eq!(appended_textures(&later), 1);
@@ -493,8 +489,7 @@ fn a_colour_above_one_or_below_zero_stays_within_the_tint_range() {
 
 #[test]
 fn the_initial_scene_is_valid_before_any_frame_arrives() {
-    let tables = SceneTables::new().unwrap();
-    let scene = tables.initial_scene().unwrap();
+    let scene = SceneTables::initial_scene().unwrap();
     assert!(scene.geometry().objects().is_empty());
     assert_eq!(scene.resources().textures().len(), 1);
     assert_eq!(scene.resources().materials().len(), 1);
@@ -585,10 +580,10 @@ fn a_changed_mesh_is_sent_with_its_latest_contents() {
         meshes: [100].into(),
         textures: BTreeSet::new(),
     };
-    let first = tables.update(&objects, &shown, &changed).unwrap();
+    let first = tables.update(&objects, &shown, &changed);
     assert_eq!(first.replaced_meshes.len(), 1);
     shown.meshes.insert(100, mesh(3000));
-    let second = tables.update(&objects, &shown, &changed).unwrap();
+    let second = tables.update(&objects, &shown, &changed);
     let (_, latest) = &second.replaced_meshes[0];
     assert_eq!(
         latest.lods()[0].vertices()[1].position_millimeters,
@@ -609,7 +604,7 @@ fn a_changed_texture_is_replaced_by_handle_with_its_latest_texels() {
         meshes: BTreeSet::new(),
         textures: [5].into(),
     };
-    let sent = tables.update(&objects, &shown, &changed).unwrap();
+    let sent = tables.update(&objects, &shown, &changed);
     assert!(sent.append.is_none());
     assert_eq!(sent.replaced_textures.len(), 1);
     let (handle, replaced) = &sent.replaced_textures[0];
@@ -631,7 +626,7 @@ fn a_change_to_something_the_viewer_never_received_is_not_sent() {
         meshes: [555].into(),
         textures: [666].into(),
     };
-    let next = tables.update(&objects, &shown, &changed).unwrap();
+    let next = tables.update(&objects, &shown, &changed);
     assert!(sends_no_resources(&next));
 }
 
@@ -662,10 +657,7 @@ fn the_updates_go_out_as_appends_then_replacements_then_objects() {
         textures: [5].into(),
     };
     let both = [first, object(2, 101, at(1., 0., 0.))];
-    let updates = tables
-        .update(&both, &shown, &changed)
-        .unwrap()
-        .into_updates();
+    let updates = tables.update(&both, &shown, &changed).into_updates();
     assert!(matches!(
         updates.as_slice(),
         [
@@ -690,13 +682,18 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
         keys: Vec::new(),
     };
     let options: ViewerOptions = viewer_options(&window);
-    let mut viewer = RetainedHost::new(tables.initial_scene().unwrap(), options).unwrap();
+    let mut viewer = RetainedHost::new(SceneTables::initial_scene().unwrap(), options).unwrap();
     let mut shown = content(&[100]);
     shown.textures.insert(5, texture(10));
     let mut objects = vec![with_slot(object(1, 100, at(0., 0., 0.)), slot([1.; 4], 5))];
-    for frame in 0..6_u64 {
-        shown.meshes.insert(200 + frame, mesh(1000 + frame as i64));
-        objects.push(object(10 + frame, 200 + frame, at(frame as f32, 0., 0.)));
+    for frame in 0..6_u32 {
+        let id = u64::from(frame);
+        shown.meshes.insert(200 + id, mesh(1000 + i64::from(frame)));
+        objects.push(object(
+            10 + id,
+            200 + id,
+            at(f32::from(u16::try_from(frame).unwrap()), 0., 0.),
+        ));
         let changed = Changes {
             meshes: [100].into(),
             textures: if frame == 3 {
@@ -708,7 +705,7 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
         if frame == 3 {
             shown.textures.insert(5, texture(99));
         }
-        let update = tables.update(&objects, &shown, &changed).unwrap();
+        let update = tables.update(&objects, &shown, &changed);
         for update in update.into_updates() {
             viewer.apply(update).unwrap();
         }

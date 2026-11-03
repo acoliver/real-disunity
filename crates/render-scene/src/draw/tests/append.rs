@@ -40,7 +40,7 @@ fn a_replacement_for_a_missing_mesh_is_refused_and_changes_nothing() {
             .unwrap();
         PreparedMeshReplacement::new(
             &grown,
-            MeshHandle::from_raw(base.meshes as u32),
+            MeshHandle::from_raw(u32::try_from(base.meshes).unwrap()),
             &grown.geometry().meshes()[0],
         )
         .unwrap()

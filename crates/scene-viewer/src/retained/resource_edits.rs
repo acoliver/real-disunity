@@ -49,7 +49,7 @@ pub(super) fn is_resource_edit(update: &RetainedUpdate) -> bool {
     )
 }
 
-fn invalid(error: worldrunner_render_plan::SceneValidationError) -> ViewerError {
+fn invalid(error: &worldrunner_render_plan::SceneValidationError) -> ViewerError {
     ViewerError::Driver(error.to_string())
 }
 
@@ -113,7 +113,7 @@ impl RetainedHost {
                         materials: materials.clone(),
                         meshes,
                     })
-                    .map_err(invalid)?;
+                    .map_err(|error| invalid(&error))?;
                 Ok(RetainedUpdate::AppendResources(SceneAppend {
                     textures,
                     materials,
@@ -123,11 +123,13 @@ impl RetainedHost {
             RetainedUpdate::ReplaceTexture { handle, texture } => {
                 scene
                     .replace_texture(handle, texture.clone())
-                    .map_err(invalid)?;
+                    .map_err(|error| invalid(&error))?;
                 Ok(RetainedUpdate::ReplaceTexture { handle, texture })
             }
             RetainedUpdate::ReplaceMesh { handle, mesh } => {
-                scene.replace_mesh(handle, mesh.clone()).map_err(invalid)?;
+                scene
+                    .replace_mesh(handle, mesh.clone())
+                    .map_err(|error| invalid(&error))?;
                 Ok(RetainedUpdate::ReplaceMesh { handle, mesh })
             }
             _ => unreachable!("only resource edits change resources"),

@@ -72,10 +72,8 @@ pub fn play_player_window(
     let mut host = DisunityHost::boot(&prepared.config)?;
     host.run_slice(&prepared.request)?;
     let mut driver = PlayerRetainedDriver::new(host, window)?;
-    let scene = driver
-        .tables
-        .initial_scene()
-        .map_err(|error| scene_error("the initial scene", &error))?;
+    let scene =
+        SceneTables::initial_scene().map_err(|error| scene_error("the initial scene", &error))?;
     let viewer = RetainedHost::new(scene, viewer_options(&driver.window))
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
     viewer
@@ -222,10 +220,7 @@ impl PlayerRetainedDriver {
             meshes: &self.meshes,
             textures: &self.sprites,
         };
-        let update = self
-            .tables
-            .update(&objects, &content, &changes)
-            .map_err(|error| scene_error("the frame", &error))?;
+        let update = self.tables.update(&objects, &content, &changes);
         self.report(&update.skipped);
         apply(viewer, update)?;
         if let Some(update) = self

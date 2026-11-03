@@ -164,7 +164,7 @@ impl SceneTables {
 
     /// The smallest scene the viewer accepts: the white texture and material, no meshes and no
     /// objects.
-    pub fn initial_scene(&self) -> Result<RenderScene, SceneValidationError> {
+    pub fn initial_scene() -> Result<RenderScene, SceneValidationError> {
         RenderScene::new(SceneParts {
             resources: SceneResources::new(vec![white_texture()], vec![material_on(WHITE)?])?,
             geometry: SceneGeometry::new(Vec::new(), Vec::new())?,
@@ -184,7 +184,7 @@ impl SceneTables {
         objects: &[MeshObjectView],
         content: &impl FrameContent,
         changes: &Changes,
-    ) -> Result<FrameUpdate, SceneValidationError> {
+    ) -> FrameUpdate {
         self.note_changes(changes);
         let mut resolved = BTreeMap::new();
         let mut skipped = Vec::new();
@@ -201,13 +201,13 @@ impl SceneTables {
             }
         }
         let append = std::mem::take(&mut self.pending);
-        Ok(FrameUpdate {
+        FrameUpdate {
             append: (!append.is_empty()).then_some(append),
             replaced_textures: self.replaced_textures(content),
             replaced_meshes: self.replaced_meshes(content),
             edits: self.diff(&resolved),
             skipped,
-        })
+        }
     }
 
     /// Records which of the meshes and textures the viewer holds have new contents.

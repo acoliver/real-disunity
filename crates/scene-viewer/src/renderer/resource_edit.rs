@@ -44,7 +44,7 @@ pub(super) fn publish(
             gpu.append_prepared(device, authority, pipelines, prepared, source)?;
         }
         (PreparedEdit::Texture(replacement), _) => {
-            gpu.replace_texture_prepared(device, authority, pipelines, replacement)?;
+            gpu.replace_texture_prepared(device, authority, pipelines, &replacement)?;
         }
         (PreparedEdit::Mesh(replacement), _) => {
             gpu.replace_mesh_prepared(device, authority.queue(), replacement)?;

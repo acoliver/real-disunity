@@ -8,6 +8,7 @@ mod configuration;
 mod depth_prefix;
 mod environment;
 mod output;
+mod programs;
 pub(crate) mod publication;
 mod temporal;
 mod validation;

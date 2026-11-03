@@ -30,6 +30,7 @@ mod dynamic;
 mod lod_material;
 mod pages;
 pub(crate) mod pass_statistics;
+mod programs;
 mod publication;
 mod retained;
 pub use retained::reflections_enabled;
@@ -238,6 +239,7 @@ pub struct SceneGpu {
     shadow_selection: [std::rc::Rc<RefCell<Selection>>; 4],
     terrain: Option<GpuTerrain>,
     dynamic: crate::dynamic::DynamicGpu,
+    programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
     retained: Retained,
 }
 
@@ -338,6 +340,7 @@ impl SceneGpu {
             shadow_selection: std::array::from_fn(|_| std::rc::Rc::default()),
             terrain,
             dynamic: crate::dynamic::DynamicGpu::default(),
+            programs: None,
             retained: Retained {
                 contact_heights,
                 textures,

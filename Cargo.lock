@@ -4146,7 +4146,9 @@ dependencies = [
  "worldrunner-render-lighting",
  "worldrunner-render-plan",
  "worldrunner-render-post",
+ "worldrunner-render-program",
  "worldrunner-render-shadow",
+ "worldrunner-unity-serialized",
  "worldrunner-world-simulation",
 ]
 

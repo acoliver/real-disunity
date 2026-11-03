@@ -371,3 +371,113 @@ fn object_edits_alone_still_publish_one_generation_per_frame() {
     renderer.publish_retained(&mut host).unwrap();
     assert_eq!(host.ready_generation(), 1);
 }
+
+/// A square of half extent `half` centred at `shift` millimetres east and `height` above the
+/// ground, so the mesh's own bounds decide where objects using it are visible.
+fn placed_mesh(shift: i64, half: i64, height: i64) -> worldrunner_render_plan::SceneMesh {
+    use worldrunner_render_plan::{SceneMesh, SceneMeshLod, SceneVertex};
+    let corners = [[-half, -half], [half, -half], [half, half], [-half, half]];
+    let vertices = corners
+        .into_iter()
+        .map(|[x, y]| SceneVertex {
+            tangent_micro: None,
+            position_millimeters: [shift + x, y, height],
+            normal_micro: [0, 0, 1_000_000],
+            texcoord_micro: [0, 0],
+        })
+        .collect();
+    SceneMesh::new(vec![
+        SceneMeshLod::new(0, vertices, vec![0, 1, 2, 0, 2, 3], None).unwrap(),
+    ])
+    .unwrap()
+}
+
+fn object_at(x: i64, mesh: u32) -> worldrunner_render_plan::SceneObject {
+    let placed = object(mesh, 0);
+    worldrunner_render_plan::SceneObject::new(
+        worldrunner_render_plan::SceneTransform {
+            position_millimeters: [x, 0, 0],
+            ..*placed.transform()
+        },
+        placed.mesh(),
+        placed.material(),
+    )
+}
+
+#[test]
+fn a_replaced_mesh_is_culled_and_drawn_by_its_new_bounds() {
+    for shadows in both_residents() {
+        let mut fixture = Fixture::new(shadows);
+        fixture.apply(RetainedUpdate::Add {
+            id: ObjectId(1),
+            object: object_at(-50_000, 0),
+        });
+        let before = fixture.frame();
+        fixture.apply(RetainedUpdate::ReplaceMesh {
+            handle: worldrunner_render_plan::MeshHandle::from_raw(0),
+            mesh: placed_mesh(50_000, 600, 0),
+        });
+        let replaced = fixture.frame();
+        assert_ne!(replaced, before);
+        assert_eq!(replaced, fixture.rebuilt_frame(shadows));
+    }
+}
+
+#[test]
+fn a_replaced_mesh_casts_its_new_shadow() {
+    let shadows = Some(shadow_settings());
+    let mut fixture = Fixture::new(shadows);
+    let before = fixture.frame();
+    fixture.apply(RetainedUpdate::ReplaceMesh {
+        handle: worldrunner_render_plan::MeshHandle::from_raw(0),
+        mesh: placed_mesh(0, 1_500, 1_500),
+    });
+    let replaced = fixture.frame();
+    assert_ne!(replaced, before);
+    assert_eq!(replaced, fixture.rebuilt_frame(shadows));
+}
+
+#[test]
+fn an_append_prepared_for_other_tables_is_refused_and_changes_nothing() {
+    let mut fixture = Fixture::new(None);
+    fixture.resident = Resident::new(
+        &fixture.context,
+        &combined(&source(), &append()),
+        None,
+        crate::FrameProfile::Legacy,
+    )
+    .unwrap();
+    let base = fixture.resident.scene_mut().resource_base();
+    fixture
+        .host
+        .apply(RetainedUpdate::AppendResources(append()))
+        .unwrap();
+    let mut presentation = crate::presentation::Presentation::new(
+        &fixture.context,
+        COLOR,
+        Viewport {
+            width: 64,
+            height: 64,
+        },
+    );
+    let error = fixture
+        .streaming
+        .publish(
+            &fixture.context,
+            &mut fixture.resident,
+            &mut presentation,
+            &mut fixture.host,
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            crate::ViewerError::Draw(worldrunner_render_scene::draw::DrawError::NeedsRebuild {
+                item: "append",
+                ..
+            })
+        ),
+        "{error}"
+    );
+    assert_eq!(fixture.resident.scene_mut().resource_base(), base);
+}

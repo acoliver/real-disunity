@@ -401,3 +401,34 @@ fn replacing_a_texture_with_a_cube_needs_a_rebuild() {
     );
     assert_eq!(snapshot(&host), before);
 }
+
+#[test]
+fn a_material_that_reads_the_terrain_heights_needs_a_rebuild_and_changes_nothing() {
+    let mut host = host(4);
+    let before = snapshot(&host);
+    let contact = worldrunner_render_plan::SceneTerrainContact::new(
+        worldrunner_render_plan::SceneTint::WHITE,
+        500_000,
+        0,
+        1_000,
+    )
+    .unwrap();
+    let error = host
+        .apply(RetainedUpdate::AppendResources(SceneAppend {
+            materials: vec![material_on(0), material_on(0).with_terrain_contact(contact)],
+            ..SceneAppend::default()
+        }))
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            ViewerError::Draw(DrawError::NeedsRebuild {
+                item: "material",
+                index: 2,
+                ..
+            })
+        ),
+        "{error}"
+    );
+    assert_eq!(snapshot(&host), before);
+}

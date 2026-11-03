@@ -312,3 +312,39 @@ fn scripts_that_cannot_be_ready_are_not_candidates_until_they_can() {
     );
     world.lifecycle.assert_index_matches_scripts();
 }
+
+#[test]
+fn a_script_that_is_not_awake_is_not_a_candidate_even_when_marked_active() {
+    let mut world = world();
+    let (_, script) = ready_script(&mut world, "Actor");
+    assert_eq!(
+        world.lifecycle.phase_candidates(ScriptMessage::Start),
+        vec![script]
+    );
+    world
+        .lifecycle
+        .edit_script(script, |state| state.awake = false);
+    assert!(
+        world
+            .lifecycle
+            .phase_candidates(ScriptMessage::Start)
+            .is_empty()
+    );
+    world.lifecycle.assert_index_matches_scripts();
+}
+
+#[test]
+fn a_script_pending_destruction_leaves_the_start_candidates_at_once() {
+    let mut world = world();
+    let (object, script) = ready_script(&mut world, "Actor");
+    world.destroy(object, DestroyWhen::EndOfFrame).unwrap();
+    world.lifecycle.assert_index_matches_scripts();
+    assert!(
+        world
+            .lifecycle
+            .phase_candidates(ScriptMessage::Start)
+            .is_empty()
+    );
+    assert!(world.lifecycle.scripts.contains_key(&script));
+    assert_phases_match(&mut world);
+}

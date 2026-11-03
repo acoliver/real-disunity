@@ -14,6 +14,7 @@ pub mod module;
 mod pipeline_key;
 mod program;
 pub mod properties;
+mod range;
 mod readback;
 mod reflect;
 mod resources;

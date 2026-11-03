@@ -17,7 +17,8 @@ pub struct VertexInput {
     pub attributes: Vec<wgpu::VertexAttribute>,
 }
 
-/// Which vertices a draw reads.
+/// Which vertices a draw reads. A range that overflows or reaches past a bound buffer is refused
+/// by name when the draw is prepared; the values inside an index buffer are not checked.
 #[derive(Clone, Copy, Debug)]
 pub enum Geometry {
     Vertices {
@@ -109,6 +110,8 @@ impl ProgramRuntime {
         request: &DrawRequest<'_>,
     ) -> Result<(), ProgramError> {
         self.recording(encoder)?;
+        self.store
+            .check_geometry(request.vertex_inputs, request.geometry)?;
         let pipeline = self.render_pipeline(request)?;
         let groups = self.bind_groups(&request.program.gpu, request.bindings)?;
         let target = self.store.target(request.target)?;

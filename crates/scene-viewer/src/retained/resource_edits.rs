@@ -113,4 +113,4 @@ impl RetainedHost {
 
 #[cfg(test)]
 #[path = "resource_edits_tests.rs"]
-mod tests;
+pub(crate) mod tests;

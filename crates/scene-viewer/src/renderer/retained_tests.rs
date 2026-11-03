@@ -1,3 +1,4 @@
+mod resource_edits;
 mod shadow_direction;
 #[test]
 fn retained_lighting_settings_change_the_next_frame_without_reupload() {

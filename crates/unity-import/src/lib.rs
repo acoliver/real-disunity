@@ -16,6 +16,7 @@ mod player_graphics;
 mod player_hierarchy;
 pub mod player_identity;
 mod player_input;
+pub mod player_layouts;
 mod player_materials;
 mod player_meshes;
 pub mod player_module_resources;

@@ -447,7 +447,7 @@ impl ParameterReport {
     }
 }
 
-fn shader_programs(shader: &Shader) -> Vec<&Program> {
+pub(crate) fn shader_programs(shader: &Shader) -> Vec<&Program> {
     let passes = shader.parsed.sub_shaders.iter().flat_map(|sub| &sub.passes);
     passes
         .flat_map(|pass| {

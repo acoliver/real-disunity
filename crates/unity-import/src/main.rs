@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
     import_scene, input_axes, plan_scene,
+    player_layouts::layout_report,
     player_objects::{
         OpenFile, decode_census, describe_object, describe_shader_programs, shader_chunks,
         shader_modules,
@@ -34,6 +35,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
        unity-import player-shader-programs <serialized file> <path ID> <platform index>
        unity-import player-shader-parameters <player data directory>
+       unity-import player-shader-layouts <player data directory>
        unity-import player-shader-modules <serialized file> <path ID> <platform index> <output directory>";
 
 fn main() -> ExitCode {
@@ -66,6 +68,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         }
         [command, data] if command == "player-shader-parameters" => {
             player_shader_parameters(Path::new(data))
+        }
+        [command, data] if command == "player-shader-layouts" => {
+            player_shader_layouts(Path::new(data))
         }
         [command, file, path_id] if command == "player-object" => {
             player_object(Path::new(file), path_id)
@@ -317,6 +322,17 @@ fn player_shader_parameters(data: &Path) -> Result<(), Box<dyn Error>> {
         .map(|entry| data.join(entry.name))
         .collect();
     print!("{}", parameter_report(&paths)?);
+    Ok(())
+}
+
+/// Prepares every Vulkan variant's stage modules, builds the renderer's layout from the
+/// variant's parameters and prints the counts and the failures by cause.
+fn player_shader_layouts(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", layout_report(&paths)?);
     Ok(())
 }
 

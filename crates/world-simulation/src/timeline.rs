@@ -502,7 +502,8 @@ impl World {
                 return None;
             }
             if !active {
-                state.awake = false;
+                self.lifecycle
+                    .edit_script(work.script, |state| state.awake = false);
                 return None;
             }
             state.entered = EnteredState::Awake;

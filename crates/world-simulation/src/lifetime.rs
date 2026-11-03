@@ -124,21 +124,23 @@ impl World {
         {
             return;
         }
-        if let Some(state) = self.lifecycle.scripts.get_mut(&script) {
+        if let Some(state) = self.lifecycle.scripts.get(&script) {
+            let (active, awake) = (state.active, state.awake);
             self.coroutines.cancel_script(script);
-            if state.active {
+            if active {
                 self.lifecycle.cleanup.push(LifecycleWork {
                     script,
                     message: ScriptMessage::OnDisable,
                 });
             }
-            if state.awake {
+            if awake {
                 self.lifecycle.cleanup.push(LifecycleWork {
                     script,
                     message: ScriptMessage::OnDestroy,
                 });
             }
-            state.active = false;
+            self.lifecycle
+                .edit_script(script, |state| state.active = false);
         }
     }
 

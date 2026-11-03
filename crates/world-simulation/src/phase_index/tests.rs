@@ -183,7 +183,7 @@ impl Walk {
 
     fn step(&mut self) {
         let type_name = format!("T{}", self.next(3));
-        match self.next(8) {
+        match self.next(10) {
             0 => {
                 let object = self.world.create_object(ObjectDesc::default()).unwrap();
                 let script = self.world.add_component(object, desc(&type_name)).unwrap();
@@ -203,6 +203,7 @@ impl Walk {
             3 | 4 => self.toggle(),
             5 => self.remove_script(),
             6 => self.destroy_object(),
+            8 | 9 => self.toggle_object(),
             _ => start_all(&mut self.world),
         }
     }
@@ -225,6 +226,14 @@ impl Walk {
     fn remove_script(&mut self) {
         if let Some(script) = self.script() {
             self.world.remove_component(script).unwrap();
+        }
+    }
+
+    fn toggle_object(&mut self) {
+        if let Some(object) = self.object() {
+            let active = self.next(2) == 0;
+            let mutation = self.world.set_active(object, active).unwrap();
+            self.world.take_lifecycle_work(mutation).unwrap();
         }
     }
 
@@ -268,5 +277,38 @@ fn registering_a_script_again_replaces_its_index_entries() {
     );
     world.lifecycle.assert_index_matches_scripts();
     world.lifecycle.register(script, ScriptState::default());
+    world.lifecycle.assert_index_matches_scripts();
+}
+
+#[test]
+fn scripts_that_cannot_be_ready_are_not_candidates_until_they_can() {
+    let mut world = world();
+    world
+        .set_script_type_messages("Example", "Idle", ScriptMessages::NONE)
+        .unwrap();
+    let object = world
+        .create_object(ObjectDesc {
+            active: false,
+            ..Default::default()
+        })
+        .unwrap();
+    let script = world.add_component(object, desc("Idle")).unwrap();
+    world.set_script_enabled(script, true).unwrap();
+    for message in [ScriptMessage::Start, ScriptMessage::FixedUpdate] {
+        assert!(world.lifecycle.phase_candidates(message).is_empty());
+    }
+    let mutation = world.set_active(object, true).unwrap();
+    world.take_lifecycle_work(mutation).unwrap();
+    for message in [ScriptMessage::Start, ScriptMessage::FixedUpdate] {
+        assert_eq!(world.lifecycle.phase_candidates(message), vec![script]);
+    }
+    let mutation = world.set_active(object, false).unwrap();
+    world.take_lifecycle_work(mutation).unwrap();
+    assert!(
+        world
+            .lifecycle
+            .phase_candidates(ScriptMessage::Start)
+            .is_empty()
+    );
     world.lifecycle.assert_index_matches_scripts();
 }

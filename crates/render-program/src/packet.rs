@@ -5,6 +5,9 @@
 //! attachment formats and sample count, the bind groups and the buffer references. Recording is
 //! then only state setting and a draw call, so it cannot fail halfway through a pass.
 
+use std::sync::Arc;
+
+use crate::budget::Reservation;
 use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
 use crate::pipeline_key::Key;
@@ -100,6 +103,7 @@ impl<'a> DrawRequest<'a> {
     }
 }
 
+#[derive(Debug)]
 enum PreparedGeometry {
     Vertices {
         first: u32,
@@ -114,15 +118,10 @@ enum PreparedGeometry {
     },
 }
 
-/// A draw whose pipeline, bind groups and buffers are ready. Recording it touches no runtime
-/// state, so it can be recorded into any compatible pass, any number of times.
-///
-/// It holds clones of the wgpu objects it draws with, which wgpu keeps alive for as long as a
-/// command recorded with them is unfinished or in flight, and shares of the runtime's
-/// reservations of the resources they belong to. Those bytes stay counted when the resources are
-/// released, until the draw is dropped and the frames that may have recorded it have completed.
-pub struct PreparedProgramDraw {
-    _pins: Pins,
+/// A draw whose pipeline, bind groups and buffers are ready, without the hold on the budget.
+/// Recording it touches no runtime state.
+#[derive(Debug)]
+pub(crate) struct RecordableDraw {
     signature: TargetSignature,
     pipeline: wgpu::RenderPipeline,
     groups: Vec<(u32, wgpu::BindGroup)>,
@@ -130,24 +129,8 @@ pub struct PreparedProgramDraw {
     geometry: PreparedGeometry,
 }
 
-impl std::fmt::Debug for PreparedProgramDraw {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PreparedProgramDraw")
-            .field("signature", &self.signature)
-            .finish_non_exhaustive()
-    }
-}
-
-impl PreparedProgramDraw {
-    /// The attachments of the passes this draw can be recorded into.
-    #[must_use]
-    pub fn signature(&self) -> TargetSignature {
-        self.signature
-    }
-
-    /// Records the draw into `pass`, whose attachments must match [`signature`](Self::signature).
-    /// A pass that does not match is a GPU validation error when the frame is finished.
-    pub fn record(&self, pass: &mut wgpu::RenderPass<'_>) {
+impl RecordableDraw {
+    pub(crate) fn record(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.pipeline);
         for (set, group) in &self.groups {
             pass.set_bind_group(*set, group, &[]);
@@ -171,6 +154,53 @@ impl PreparedProgramDraw {
     }
 }
 
+/// A draw whose pipeline, bind groups and buffers are ready. Recording it touches no runtime
+/// state, so it can be recorded into any compatible pass, any number of times.
+///
+/// It holds clones of the wgpu objects it draws with, which wgpu keeps alive for as long as a
+/// command recorded with them is unfinished or in flight, and shares of the runtime's
+/// reservations of the resources they belong to. Those bytes stay counted when the resources are
+/// released, for as long as the draw is held and then for every frame that [`retain`](Self::retain)ed
+/// the draw, until that frame is cancelled or the GPU has completed it. A frame that records the
+/// draw without retaining it leaves nothing counted for it once the draw is dropped.
+pub struct PreparedProgramDraw {
+    pins: Pins,
+    draw: RecordableDraw,
+}
+
+impl std::fmt::Debug for PreparedProgramDraw {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedProgramDraw")
+            .field("signature", &self.draw.signature)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PreparedProgramDraw {
+    /// The attachments of the passes this draw can be recorded into.
+    #[must_use]
+    pub fn signature(&self) -> TargetSignature {
+        self.draw.signature
+    }
+
+    /// Makes the frame `encoder` records hold the draw's resource reservations until the frame
+    /// is cancelled, dropped or completed on the GPU, however long the draw and the runtime
+    /// live. Call it for every frame the draw is recorded into.
+    ///
+    /// # Errors
+    /// Fails with `ForeignAuthority` when the frame belongs to another submission authority
+    /// than the runtime's and when `encoder` is not a frame being recorded.
+    pub fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ProgramError> {
+        self.pins.retain(encoder)
+    }
+
+    /// Records the draw into `pass`, whose attachments must match [`signature`](Self::signature).
+    /// A pass that does not match is a GPU validation error when the frame is finished.
+    pub fn record(&self, pass: &mut wgpu::RenderPass<'_>) {
+        self.draw.record(pass);
+    }
+}
+
 impl ProgramRuntime {
     /// Prepares `packet` for passes with the attachments of `signature`.
     ///
@@ -182,6 +212,19 @@ impl ProgramRuntime {
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
+        let (draw, shares) = self.prepare_recordable(packet, signature)?;
+        Ok(PreparedProgramDraw {
+            pins: Pins::new(&self.authority, shares),
+            draw,
+        })
+    }
+
+    /// The draw and the reservation shares of the resources it uses, for the caller to pin.
+    pub(crate) fn prepare_recordable(
+        &mut self,
+        packet: &DrawPacket<'_>,
+        signature: TargetSignature,
+    ) -> Result<(RecordableDraw, Vec<Arc<Reservation>>), ProgramError> {
         self.authority.check_device()?;
         self.store
             .check_geometry(packet.vertex_inputs, packet.geometry)?;
@@ -208,18 +251,21 @@ impl ProgramRuntime {
                 base_vertex,
             },
         };
-        Ok(PreparedProgramDraw {
-            _pins: self.pin_resources(packet)?,
+        let draw = RecordableDraw {
             signature,
             pipeline,
             groups,
             vertex_buffers,
             geometry,
-        })
+        };
+        Ok((draw, self.reservation_shares(packet)?))
     }
 
     /// Shares of the reservations of every buffer and texture the packet draws with.
-    fn pin_resources(&self, packet: &DrawPacket<'_>) -> Result<Pins, ProgramError> {
+    fn reservation_shares(
+        &self,
+        packet: &DrawPacket<'_>,
+    ) -> Result<Vec<Arc<Reservation>>, ProgramError> {
         let mut reservations = Vec::new();
         for bound in packet.bindings {
             reservations.push(match bound.resource {
@@ -233,7 +279,7 @@ impl ProgramRuntime {
         if let Geometry::Indexed { buffer, .. } = packet.geometry {
             reservations.push(self.store.buffer_reservation(buffer)?);
         }
-        Ok(self.store.pin(&self.authority, reservations))
+        Ok(reservations)
     }
 
     fn render_pipeline(

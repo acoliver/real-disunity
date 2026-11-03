@@ -4,7 +4,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_gpu::submission::{FrameOwner, Publications, SubmissionAuthority};
 
 use crate::budget::Reservation;
 use crate::error::ProgramError;
@@ -92,31 +92,52 @@ struct Held<T> {
 /// could have used it.
 type Retired = (u64, Box<dyn Any + Send + Sync>);
 
-type RetiredQueue = Arc<Mutex<Vec<Retired>>>;
-
-/// Shares of the reservations of the resources a prepared draw uses. When the draw is dropped
-/// the shares wait out the frames that may have recorded it, as released resources do.
+/// Shares of the reservations of the resources prepared draws use, owned by a [`FrameOwner`].
+///
+/// Each frame that records the draws retains the owner through [`retain`](Self::retain), and the
+/// shares stay held until that frame's outcome: a cancelled or dropped frame releases them at
+/// once and a submitted one when the GPU has completed it. They do not depend on the runtime
+/// that made the draws. Dropping the pins gives up only the draws' own hold, by detaching the
+/// owner: frames that already retained it can still be submitted and keep it until their outcome.
 pub(crate) struct Pins {
-    reservations: Vec<Arc<Reservation>>,
-    retired: RetiredQueue,
-    authority: SubmissionAuthority,
+    owner: Option<FrameOwner<Vec<Arc<Reservation>>>>,
 }
 
 impl Drop for Pins {
     fn drop(&mut self) {
-        if self.reservations.is_empty() {
-            return;
+        if let Some(owner) = self.owner.take() {
+            owner.detach();
         }
-        // Frames submitted so far are covered by the submitted serial. A frame still being
-        // recorded may have recorded the draw and will be the next submission. Replacement
-        // is refused exactly while a frame is being recorded or configured.
-        let recording = self.authority.try_replacement().is_err();
-        let last = self.authority.submitted_serial() + u64::from(recording);
-        let reservations = std::mem::take(&mut self.reservations);
-        self.retired
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push((last, Box::new(reservations)));
+    }
+}
+
+impl std::fmt::Debug for Pins {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pins").finish_non_exhaustive()
+    }
+}
+
+impl Pins {
+    pub(crate) fn new(
+        authority: &SubmissionAuthority,
+        reservations: Vec<Arc<Reservation>>,
+    ) -> Self {
+        Self {
+            owner: Some(FrameOwner::new(reservations, authority)),
+        }
+    }
+
+    /// Makes the frame `encoder` records hold the shares until the frame is cancelled, dropped
+    /// or completed on the GPU.
+    ///
+    /// # Errors
+    /// Fails with `ForeignAuthority` when the frame belongs to another submission authority
+    /// than the draws' and when `encoder` is not a frame being recorded.
+    pub(crate) fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ProgramError> {
+        if let Some(owner) = &self.owner {
+            Publications::retain_lease(encoder, &owner.lease())?;
+        }
+        Ok(())
     }
 }
 
@@ -126,7 +147,7 @@ pub(crate) struct Store {
     buffers: HashMap<u64, Held<BufferEntry>>,
     textures: HashMap<u64, Held<TextureEntry>>,
     targets: HashMap<u64, Held<TargetEntry>>,
-    retired: RetiredQueue,
+    retired: Mutex<Vec<Retired>>,
 }
 
 fn held<T>(entry: T, reservation: Reservation) -> Held<T> {
@@ -205,20 +226,6 @@ impl Store {
             .get(&handle.0)
             .map(|held| held.reservation.clone())
             .ok_or(ProgramError::UnknownHandle { kind: "texture" })
-    }
-
-    /// Holds `reservations` until the frames that may use them have completed after the
-    /// returned pins are dropped.
-    pub(crate) fn pin(
-        &self,
-        authority: &SubmissionAuthority,
-        reservations: Vec<Arc<Reservation>>,
-    ) -> Pins {
-        Pins {
-            reservations,
-            retired: self.retired.clone(),
-            authority: authority.clone(),
-        }
     }
 
     /// Takes the resource out of use for new work. Its reservation stays until the work

@@ -6,7 +6,7 @@ use worldrunner_render_gpu::submission::LeaseError;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{Geometry, ProgramArena, ProgramRuntime};
 
-use crate::arena::{ARENA, Draw, admit, admit_geometry, arena_runtime, draw};
+use crate::arena::{ARENA, Draw, admit, admit_geometry, arena_runtime, draw, prepare};
 use crate::common::Gpu;
 use crate::surface::{Surface, pixel, read};
 
@@ -229,22 +229,109 @@ fn a_draw_dropped_while_its_frame_is_unsubmitted_is_counted_until_that_frame_com
     let draw = draw(&mut runtime);
     let surface = Surface::new(&gpu.device, RGBA8);
 
-    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    let frame = gpu.authority.begin(&gpu.device).unwrap();
     let admitted = admit(&mut runtime, &frame, &arena, &draw).unwrap();
+    frame.finish().cancel();
+    // Only the admission holds the bytes now.
+    release(&mut runtime, &draw);
+    runtime.collect();
+
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    admitted.retain(&frame).unwrap();
     let mut pass = surface.open(&mut frame);
     admitted.record(&mut pass);
     drop(pass);
     drop(admitted);
+    runtime.collect();
+    assert!(
+        matches!(refill(&mut runtime), Err(ProgramError::OverBudget { .. })),
+        "the frame that recorded the draw holds the bytes while its use is pending"
+    );
     let readback = surface.copy_color(&gpu.device, &mut frame);
-    let serial = gpu.authority.submitted_serial() + 1;
     frame.finish().submit().unwrap();
-    assert_eq!(gpu.authority.submitted_serial(), serial);
 
-    release(&mut runtime, &draw);
     let bytes = read(&gpu.device, &readback);
     assert_eq!(pixel(&bytes, 32, 32), [0, 255, 0, 255]);
     runtime.collect();
     refill(&mut runtime).expect("the frame completed, so nothing holds the bytes");
+}
+
+#[test]
+fn a_cancelled_frame_gives_back_the_bytes_of_a_draw_dropped_while_it_recorded() {
+    let gpu = Gpu::new();
+    let (mut runtime, arena) = arena_runtime(&gpu);
+    let draw = draw(&mut runtime);
+    let before = gpu.authority.submitted_serial();
+
+    let frame = gpu.authority.begin(&gpu.device).unwrap();
+    let admitted = admit(&mut runtime, &frame, &arena, &draw).unwrap();
+    drop(admitted);
+    frame.finish().cancel();
+    assert_eq!(
+        gpu.authority.submitted_serial(),
+        before,
+        "nothing was submitted"
+    );
+
+    release(&mut runtime, &draw);
+    runtime.collect();
+    refill(&mut runtime).expect("a cancelled frame used nothing, so nothing holds the bytes");
+}
+
+#[test]
+fn a_draw_dropped_under_configuration_exclusion_gives_back_its_bytes() {
+    let gpu = Gpu::new();
+    let (mut runtime, arena) = arena_runtime(&gpu);
+    let draw = draw(&mut runtime);
+    let frame = gpu.authority.begin(&gpu.device).unwrap();
+    let admitted = admit(&mut runtime, &frame, &arena, &draw).unwrap();
+    frame.finish().cancel();
+    release(&mut runtime, &draw);
+
+    // Configuration exclusion refuses replacement exactly as a recording frame does.
+    let exclusion = gpu.authority.try_configuration().unwrap();
+    drop(admitted);
+    drop(exclusion);
+    runtime.collect();
+    refill(&mut runtime).expect("no frame used the draw, so dropping it freed the bytes");
+}
+
+#[test]
+fn a_prepared_draw_that_outlives_its_runtime_keeps_the_renderers_bytes_until_its_frame_completes() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let draw = draw(&mut runtime);
+    let prepared = prepare(&mut runtime, &draw);
+    release(&mut runtime, &draw);
+    runtime.collect();
+    drop(arena);
+    drop(runtime);
+    assert_eq!(
+        renderer.held(),
+        ARENA,
+        "the prepared draw still holds its buffers"
+    );
+
+    let surface = Surface::new(&gpu.device, RGBA8);
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    prepared.retain(&frame).unwrap();
+    let mut pass = surface.open(&mut frame);
+    prepared.record(&mut pass);
+    drop(pass);
+    drop(prepared);
+    assert_eq!(
+        renderer.held(),
+        ARENA,
+        "the frame that recorded the draw holds the bytes after the draw and the runtime are gone"
+    );
+    let readback = surface.copy_color(&gpu.device, &mut frame);
+    frame.finish().submit().unwrap();
+
+    let bytes = read(&gpu.device, &readback);
+    assert_eq!(pixel(&bytes, 32, 32), [0, 255, 0, 255]);
+    assert_eq!(renderer.held(), 0, "the completed frame freed the bytes");
 }
 
 #[test]

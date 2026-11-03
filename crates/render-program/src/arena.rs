@@ -13,7 +13,8 @@ use worldrunner_render_gpu::submission::{FrameLease, FrameOwner, Publications};
 
 use crate::budget::{Backing, Ledger};
 use crate::error::ProgramError;
-use crate::packet::{DrawPacket, PreparedProgramDraw, TargetSignature};
+use crate::packet::{DrawPacket, RecordableDraw, TargetSignature};
+use crate::resources::Pins;
 use crate::runtime::ProgramRuntime;
 
 /// What the owner keeps alive: a share of the renderer's reservation of the arena. The runtime's
@@ -66,7 +67,9 @@ impl Drop for ProgramArena {
 pub struct AdmittedPrograms {
     signature: TargetSignature,
     lease: FrameLease,
-    draws: Vec<PreparedProgramDraw>,
+    /// The reservations of everything the draws use, which each frame that records them holds.
+    pins: Pins,
+    draws: Vec<RecordableDraw>,
 }
 
 impl AdmittedPrograms {
@@ -85,8 +88,9 @@ impl AdmittedPrograms {
         self.draws.is_empty()
     }
 
-    /// Makes the frame `encoder` records retain the arena until the GPU has completed it.
-    /// Admission does this once; a consumer that records into a later frame does it again.
+    /// Makes the frame `encoder` retain the arena and the reservations of the resources the
+    /// draws use until the frame is cancelled, dropped or completed on the GPU. Admission does
+    /// this once; a consumer that records into a later frame does it again.
     ///
     /// # Errors
     /// Fails with `ForeignAuthority` when the frame belongs to another submission authority
@@ -95,7 +99,7 @@ impl AdmittedPrograms {
     pub fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ProgramError> {
         self.lease.check()?;
         Publications::retain_lease(encoder, &self.lease)?;
-        Ok(())
+        self.pins.retain(encoder)
     }
 
     /// Checks that a pass with `pass` attachments is one the draws were prepared for.
@@ -182,13 +186,17 @@ impl ProgramRuntime {
         if !arena.ledger.same(&self.ledger) {
             return Err(ProgramError::ForeignArena);
         }
-        let draws = packets
-            .iter()
-            .map(|packet| self.prepare_draw(packet, signature))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut draws = Vec::with_capacity(packets.len());
+        let mut shares = Vec::new();
+        for packet in packets {
+            let (draw, held) = self.prepare_recordable(packet, signature)?;
+            draws.push(draw);
+            shares.extend(held);
+        }
         let admitted = AdmittedPrograms {
             signature,
             lease: arena.owner.lease(),
+            pins: Pins::new(&self.authority, shares),
             draws,
         };
         admitted.retain(encoder)?;

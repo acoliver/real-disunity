@@ -5,7 +5,8 @@ use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Con
 use worldrunner_render_gpu::submission::LeaseError;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{
-    AdmittedPrograms, DrawPacket, Geometry, ProgramArena, ProgramRuntime, TargetSignature,
+    AdmittedPrograms, DrawPacket, Geometry, PreparedProgramDraw, ProgramArena, ProgramRuntime,
+    TargetSignature,
 };
 
 use crate::common::Gpu;
@@ -96,6 +97,24 @@ pub fn admit_geometry(
             geometry,
         }],
     )
+}
+
+/// Prepares the draw's one packet without admitting it into a frame.
+pub fn prepare(runtime: &mut ProgramRuntime, draw: &Draw) -> PreparedProgramDraw {
+    let state = state();
+    runtime
+        .prepare_draw(
+            &DrawPacket {
+                program: &draw.patch.program,
+                state: &state,
+                front_face: wgpu::FrontFace::Cw,
+                vertex_inputs: std::slice::from_ref(&draw.input),
+                bindings: &draw.bindings,
+                geometry: Geometry::Vertices { first: 0, count: 6 },
+            },
+            signature(),
+        )
+        .unwrap()
 }
 
 #[test]

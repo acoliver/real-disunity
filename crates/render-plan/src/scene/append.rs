@@ -17,6 +17,14 @@ pub struct SceneAppend {
     pub meshes: Vec<SceneMesh>,
 }
 
+impl SceneAppend {
+    /// Whether there is nothing to add.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.textures.is_empty() && self.materials.is_empty() && self.meshes.is_empty()
+    }
+}
+
 impl RenderScene {
     /// Adds the entries of `append` after the existing ones. Existing objects, terrain,
     /// decals and effects keep their meaning because no handle moves.

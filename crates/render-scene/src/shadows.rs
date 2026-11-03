@@ -292,6 +292,12 @@ impl ShadowedScene {
         &mut self.gpu
     }
 
+    /// The resident scene with the pipelines its material bind groups are built against, for
+    /// appending resources.
+    pub fn scene_and_pipelines_mut(&mut self) -> (&mut SceneGpu, &ScenePipelines) {
+        (&mut self.gpu, &self.pipelines)
+    }
+
     /// Updates fit/bias, recreating only the map if its resolution changes.
     /// A rejected update leaves the current settings and resources intact.
     pub fn set_settings(

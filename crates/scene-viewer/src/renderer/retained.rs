@@ -42,6 +42,9 @@ impl Objects {
                 RetainedUpdate::Camera { .. } => {}
                 RetainedUpdate::Ui(_) => unreachable!("UI updates publish through readiness"),
                 RetainedUpdate::Resources { .. }
+                | RetainedUpdate::AppendResources(_)
+                | RetainedUpdate::ReplaceTexture { .. }
+                | RetainedUpdate::ReplaceMesh { .. }
                 | RetainedUpdate::Terrain(_)
                 | RetainedUpdate::Decal(_) => {
                     return Err(ViewerError::UnsupportedScene(

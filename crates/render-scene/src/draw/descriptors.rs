@@ -2,12 +2,20 @@
 use crate::frame::FrameError;
 use worldrunner_render_plan::{RenderScene, SceneMaterialFeatures};
 
-pub(crate) fn validate(scene: &RenderScene) -> Result<(), FrameError> {
-    for material in scene.resources().materials() {
+/// Checks the capabilities of each material's features before anything is uploaded.
+pub(crate) fn validate_materials(
+    materials: &[worldrunner_render_plan::SceneMaterial],
+) -> Result<(), FrameError> {
+    for material in materials {
         if let Some(features) = material.features() {
             validate_material(features)?;
         }
     }
+    Ok(())
+}
+
+pub(crate) fn validate(scene: &RenderScene) -> Result<(), FrameError> {
+    validate_materials(scene.resources().materials())?;
     if let Some(terrain) = scene.terrain() {
         for surface in terrain.surfaces() {
             let material = &scene.resources().materials()[surface.material().raw() as usize];

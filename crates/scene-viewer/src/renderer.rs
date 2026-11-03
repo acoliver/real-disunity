@@ -13,6 +13,7 @@ mod environment;
 mod execution;
 mod live;
 mod readiness;
+mod resource_edit;
 mod retained;
 mod target;
 pub(crate) mod timing;

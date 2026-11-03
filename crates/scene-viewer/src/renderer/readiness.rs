@@ -134,6 +134,8 @@ impl Streaming {
                 .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
             super::retained::apply_decal(resident.scene_mut(), update)?;
+        } else if let Some(edit) = front.edit.take() {
+            super::resource_edit::publish(context, resident, presentation, edit, &front.update)?;
         } else {
             let effects = self
                 .objects

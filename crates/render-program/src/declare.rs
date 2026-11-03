@@ -50,7 +50,8 @@ pub(crate) fn entry(
     }
 }
 
-/// Unity's `TextureDimension` as a view dimension; `Any`, `None` and unknown have none.
+/// Unity's `TextureDimension` (values as in `csharp/Disunity/Enums/Rendering.cs`) as a view
+/// dimension; `Any`, `None` and unknown have none.
 fn view_dimension(code: i8) -> Result<wgpu::TextureViewDimension, LayoutError> {
     match code {
         2 => Ok(wgpu::TextureViewDimension::D2),

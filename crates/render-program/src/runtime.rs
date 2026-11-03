@@ -15,6 +15,7 @@ use crate::error::ProgramError;
 use crate::module::StageProgram;
 use crate::resources::Store;
 
+pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
 pub use crate::packet::{DrawPacket, PreparedProgramDraw, TargetSignature};
@@ -37,8 +38,8 @@ pub struct ProgramRuntime {
     pub(crate) device: wgpu::Device,
     pub(crate) authority: SubmissionAuthority,
     pub(crate) store: Store,
-    ledger: Ledger,
-    budget: AllocationBudget,
+    pub(crate) ledger: Ledger,
+    pub(crate) budget: AllocationBudget,
     /// The one sampler every sampler binding gets: linear filtering, clamped to the edge.
     pub(crate) sampler: wgpu::Sampler,
     modules: HashMap<blake3::Hash, wgpu::ShaderModule>,

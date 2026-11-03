@@ -1,5 +1,6 @@
 //! Native execution of Unity player shader programs.
 
+mod arena;
 mod bind;
 mod budget;
 pub mod constants;

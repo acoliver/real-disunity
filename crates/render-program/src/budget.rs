@@ -54,6 +54,11 @@ impl Ledger {
         })
     }
 
+    /// Whether both handles are the one ledger.
+    pub(crate) fn same(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+
     pub(crate) fn live_bytes(&self) -> u64 {
         lock(&self.0).bytes
     }

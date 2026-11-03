@@ -51,6 +51,15 @@ pub enum ProgramError {
     WriteRange { offset: u64, len: u64, size: u64 },
     #[error("the allocation takes the runtime to {required} bytes, over its budget of {budget}")]
     OverBudget { required: u64, budget: u64 },
+    #[error("the runtime may hold {budget} bytes and the arena reserves {arena}")]
+    ArenaTooSmall { budget: u64, arena: u64 },
+    #[error("the arena was opened by another runtime")]
+    ForeignArena,
+    #[error("the draws were prepared for {prepared:?} and the pass is {pass:?}")]
+    TargetMismatch {
+        prepared: crate::packet::TargetSignature,
+        pass: crate::packet::TargetSignature,
+    },
     #[error("the allocation is invalid: {0}")]
     InvalidAllocation(&'static str),
     #[error("writing {len} bytes at {offset} is not a multiple of four")]

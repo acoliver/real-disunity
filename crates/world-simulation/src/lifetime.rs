@@ -163,7 +163,6 @@ impl World {
     /// arena removes only the slot's current occupant.
     pub(crate) fn retire_component(&mut self, component: ComponentHandle) {
         self.lifetime.components.remove(&component);
-        self.leave_script_type(component);
         self.lifecycle.remove_script(component);
         self.physics.targets.remove(&component);
         self.note_component_removed(component);

@@ -48,10 +48,10 @@ fn queued_scripts(
 #[test]
 fn a_script_waiting_for_start_with_no_per_frame_messages_starts_in_the_next_phase() {
     let mut world = world();
-    world
-        .set_script_type_messages("Example", "Idle", ScriptMessages::NONE)
-        .unwrap();
     let (_, script) = ready_script(&mut world, "Idle");
+    world
+        .set_script_messages(script, ScriptMessages::NONE)
+        .unwrap();
     assert_eq!(
         queued_scripts(&mut world, ScriptMessage::FixedUpdate),
         vec![(script, ScriptMessage::Start)]
@@ -68,11 +68,11 @@ fn a_script_waiting_for_start_with_no_per_frame_messages_starts_in_the_next_phas
 #[test]
 fn only_scripts_that_define_a_message_are_queued_for_it() {
     let mut world = world();
-    world
-        .set_script_type_messages("Example", "Late", ScriptMessages::LATE_UPDATE)
-        .unwrap();
     let (_, late) = ready_script(&mut world, "Late");
     let (_, every) = ready_script(&mut world, "Every");
+    world
+        .set_script_messages(late, ScriptMessages::LATE_UPDATE)
+        .unwrap();
     start_all(&mut world);
     assert_eq!(
         queued_scripts(&mut world, ScriptMessage::LateUpdate),
@@ -88,28 +88,79 @@ fn only_scripts_that_define_a_message_are_queued_for_it() {
 }
 
 #[test]
-fn reports_before_and_after_registration_move_scripts_between_phases() {
+fn setting_a_scripts_messages_moves_it_between_phases() {
     let mut world = world();
-    world
-        .set_script_type_messages("Example", "Early", ScriptMessages::FIXED_UPDATE)
-        .unwrap();
-    ready_script(&mut world, "Early");
-    ready_script(&mut world, "Late");
+    let (_, early) = ready_script(&mut world, "Actor");
+    let (_, late) = ready_script(&mut world, "Actor");
     start_all(&mut world);
-    assert_phases_match(&mut world);
     world
-        .set_script_type_messages("Example", "Late", ScriptMessages::UPDATE)
+        .set_script_messages(early, ScriptMessages::FIXED_UPDATE)
         .unwrap();
     assert_phases_match(&mut world);
     world
-        .set_script_type_messages("Example", "Early", ScriptMessages::NONE)
+        .set_script_messages(late, ScriptMessages::UPDATE)
         .unwrap();
     assert_phases_match(&mut world);
     world
-        .set_script_type_messages("Example", "Early", ScriptMessages::ALL)
+        .set_script_messages(early, ScriptMessages::NONE)
+        .unwrap();
+    assert_phases_match(&mut world);
+    world
+        .set_script_messages(early, ScriptMessages::ALL)
         .unwrap();
     assert_phases_match(&mut world);
     world.lifecycle.assert_index_matches_scripts();
+}
+
+#[test]
+fn scripts_of_one_type_keep_separate_sets() {
+    let mut world = world();
+    let (_, first) = ready_script(&mut world, "Actor");
+    let (_, second) = ready_script(&mut world, "Actor");
+    start_all(&mut world);
+    world
+        .set_script_messages(first, ScriptMessages::UPDATE)
+        .unwrap();
+    assert_eq!(
+        queued_scripts(&mut world, ScriptMessage::Update),
+        vec![
+            (first, ScriptMessage::Update),
+            (second, ScriptMessage::Update)
+        ]
+    );
+    assert_eq!(
+        queued_scripts(&mut world, ScriptMessage::LateUpdate),
+        vec![(second, ScriptMessage::LateUpdate)]
+    );
+}
+
+#[test]
+fn rolling_back_a_staged_script_leaves_the_index_as_before() {
+    let mut world = world();
+    let (object, kept) = ready_script(&mut world, "Actor");
+    world
+        .set_script_messages(kept, ScriptMessages::UPDATE)
+        .unwrap();
+    start_all(&mut world);
+    let before = queued_scripts(&mut world, ScriptMessage::Update);
+    world.stage_for_test();
+    let staged = world.add_component(object, desc("Actor")).unwrap();
+    world
+        .set_script_messages(staged, ScriptMessages::NONE)
+        .unwrap();
+    world.roll_back_for_test();
+    assert!(
+        world
+            .set_script_messages(staged, ScriptMessages::ALL)
+            .is_err()
+    );
+    assert_eq!(queued_scripts(&mut world, ScriptMessage::Update), before);
+    assert_eq!(
+        world.lifecycle.scripts[&kept].messages,
+        ScriptMessages::UPDATE
+    );
+    world.lifecycle.assert_index_matches_scripts();
+    assert_phases_match(&mut world);
 }
 
 #[test]
@@ -195,9 +246,9 @@ impl Walk {
             1 => {
                 let bits = u32::try_from(self.next(8)).unwrap();
                 let messages = ScriptMessages::from_bits(bits).unwrap();
-                self.world
-                    .set_script_type_messages("Example", &type_name, messages)
-                    .unwrap();
+                if let Some(script) = self.script() {
+                    self.world.set_script_messages(script, messages).unwrap();
+                }
             }
             2 => self.clone_object(),
             3 | 4 => self.toggle(),
@@ -283,9 +334,6 @@ fn registering_a_script_again_replaces_its_index_entries() {
 #[test]
 fn scripts_that_cannot_be_ready_are_not_candidates_until_they_can() {
     let mut world = world();
-    world
-        .set_script_type_messages("Example", "Idle", ScriptMessages::NONE)
-        .unwrap();
     let object = world
         .create_object(ObjectDesc {
             active: false,
@@ -293,6 +341,9 @@ fn scripts_that_cannot_be_ready_are_not_candidates_until_they_can() {
         })
         .unwrap();
     let script = world.add_component(object, desc("Idle")).unwrap();
+    world
+        .set_script_messages(script, ScriptMessages::NONE)
+        .unwrap();
     world.set_script_enabled(script, true).unwrap();
     for message in [ScriptMessage::Start, ScriptMessage::FixedUpdate] {
         assert!(world.lifecycle.phase_candidates(message).is_empty());

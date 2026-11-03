@@ -90,8 +90,6 @@ pub(crate) struct Lifecycle {
     next_sequence: usize,
     pub(crate) unpublished: crate::unpublished::Unpublished,
     pub cleanup: Vec<LifecycleWork>,
-    /// Script types by assembly and name, with the per-frame messages reported for each.
-    pub(crate) types: crate::script_messages::ScriptTypes,
     /// The scripts a phase visits, kept equal to a scan of `scripts` by the methods below. Change
     /// a script's `start`, `awake`, `active`, `messages` or presence only through them.
     index: crate::phase_index::PhaseIndex,
@@ -137,7 +135,7 @@ impl Lifecycle {
             .expect("ready script");
     }
 
-    /// Gives a registered script the per-frame messages its type defines.
+    /// Gives a registered script the per-frame messages it defines.
     pub(crate) fn set_messages(
         &mut self,
         script: ComponentHandle,

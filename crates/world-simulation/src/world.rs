@@ -340,14 +340,8 @@ impl World {
     ) {
         if script {
             self.mark_unsettled(object);
-            let messages = self.enroll_script_type(handle);
-            self.lifecycle.register(
-                handle,
-                crate::lifecycle::ScriptState {
-                    messages,
-                    ..Default::default()
-                },
-            );
+            self.lifecycle
+                .register(handle, crate::lifecycle::ScriptState::default());
         }
         if self.lifetime.objects.contains(&object) {
             self.lifetime.components.insert(handle);

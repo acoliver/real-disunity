@@ -52,16 +52,15 @@ fn messages_of(
 }
 
 #[test]
-fn a_type_without_fixed_update_gets_update_and_late_update_only() {
+fn a_script_without_fixed_update_gets_update_and_late_update_only() {
     let mut world = World::new(WorldSettings::default()).unwrap();
+    let (_, script) = script_of(&mut world, "Example", "Actor");
     world
-        .set_script_type_messages(
-            "Example",
-            "Actor",
+        .set_script_messages(
+            script,
             ScriptMessages::UPDATE.union(ScriptMessages::LATE_UPDATE),
         )
         .unwrap();
-    let (_, script) = script_of(&mut world, "Example", "Actor");
     let seen = frame(&mut world);
     assert_eq!(
         messages_of(&seen, script),
@@ -76,12 +75,12 @@ fn a_type_without_fixed_update_gets_update_and_late_update_only() {
 }
 
 #[test]
-fn a_type_with_no_per_frame_messages_still_starts_once() {
+fn a_script_with_no_per_frame_messages_still_starts_once() {
     let mut world = World::new(WorldSettings::default()).unwrap();
-    world
-        .set_script_type_messages("Example", "Actor", ScriptMessages::NONE)
-        .unwrap();
     let (_, script) = script_of(&mut world, "Example", "Actor");
+    world
+        .set_script_messages(script, ScriptMessages::NONE)
+        .unwrap();
     let first = frame(&mut world);
     assert_eq!(
         messages_of(&first, script),
@@ -95,31 +94,13 @@ fn a_type_with_no_per_frame_messages_still_starts_once() {
 }
 
 #[test]
-fn a_script_added_before_its_type_is_registered_takes_the_set_on_registration() {
+fn a_new_script_gets_all_three_messages_whatever_its_siblings_were_given() {
     let mut world = World::new(WorldSettings::default()).unwrap();
-    let (_, script) = script_of(&mut world, "Example", "Actor");
+    let (_, sibling) = script_of(&mut world, "Example", "Actor");
     world
-        .set_script_type_messages("Example", "Actor", ScriptMessages::FIXED_UPDATE)
+        .set_script_messages(sibling, ScriptMessages::NONE)
         .unwrap();
-    let seen = frame(&mut world);
-    assert_eq!(
-        messages_of(&seen, script),
-        vec![
-            ScriptMessage::Awake,
-            ScriptMessage::OnEnable,
-            ScriptMessage::Start,
-            ScriptMessage::FixedUpdate,
-        ]
-    );
-}
-
-#[test]
-fn an_unregistered_type_gets_all_three_messages() {
-    let mut world = World::new(WorldSettings::default()).unwrap();
     let (_, script) = script_of(&mut world, "Example", "Actor");
-    world
-        .set_script_type_messages("Example", "Other", ScriptMessages::NONE)
-        .unwrap();
     let seen = frame(&mut world);
     assert_eq!(
         messages_of(&seen, script),
@@ -132,79 +113,64 @@ fn an_unregistered_type_gets_all_three_messages() {
             ScriptMessage::LateUpdate,
         ]
     );
+    assert!(!messages_of(&seen, sibling).contains(&ScriptMessage::Update));
 }
 
 #[test]
-fn clones_take_their_types_set() {
+fn a_clone_keeps_its_sources_set() {
     let mut world = World::new(WorldSettings::default()).unwrap();
+    let (template, source) = script_of(&mut world, "Example", "Actor");
     world
-        .set_script_type_messages("Example", "Actor", ScriptMessages::LATE_UPDATE)
-        .unwrap();
-    let (template, _) = script_of(&mut world, "Example", "Actor");
-    let clone = world.instantiate(template, None).unwrap();
-    let mutation = clone.mutation;
-    world.take_lifecycle_work(mutation).unwrap();
-    let seen = frame(&mut world);
-    let kinds: Vec<_> = seen.iter().map(|(_, message)| *message).collect();
-    assert!(kinds.contains(&ScriptMessage::LateUpdate));
-    assert!(!kinds.contains(&ScriptMessage::FixedUpdate));
-    assert!(!kinds.contains(&ScriptMessage::Update));
-}
-
-#[test]
-fn a_clone_made_after_the_type_changed_follows_the_new_set() {
-    let mut world = World::new(WorldSettings::default()).unwrap();
-    let (template, _) = script_of(&mut world, "Example", "Actor");
-    world
-        .set_script_type_messages("Example", "Actor", ScriptMessages::UPDATE)
+        .set_script_messages(source, ScriptMessages::LATE_UPDATE)
         .unwrap();
     let clone = world.instantiate(template, None).unwrap();
     world.take_lifecycle_work(clone.mutation).unwrap();
+    let copy = clone.components[&source];
     let seen = frame(&mut world);
-    let kinds: Vec<_> = seen.iter().map(|(_, message)| *message).collect();
-    assert_eq!(
-        kinds
-            .iter()
-            .filter(|message| **message == ScriptMessage::Update)
-            .count(),
-        2
-    );
-    assert!(!kinds.contains(&ScriptMessage::FixedUpdate));
-    assert!(!kinds.contains(&ScriptMessage::LateUpdate));
+    for script in [source, copy] {
+        let kinds = messages_of(&seen, script);
+        assert!(kinds.contains(&ScriptMessage::LateUpdate), "{script:?}");
+        assert!(!kinds.contains(&ScriptMessage::FixedUpdate), "{script:?}");
+        assert!(!kinds.contains(&ScriptMessage::Update), "{script:?}");
+    }
 }
 
 #[test]
-fn same_named_types_in_different_assemblies_are_separate() {
-    let mut world = World::new(WorldSettings::default()).unwrap();
-    world
-        .set_script_type_messages("First", "Actor", ScriptMessages::FIXED_UPDATE)
-        .unwrap();
-    world
-        .set_script_type_messages("Second", "Actor", ScriptMessages::UPDATE)
-        .unwrap();
-    let (_, first) = script_of(&mut world, "First", "Actor");
-    let (_, second) = script_of(&mut world, "Second", "Actor");
-    let seen = frame(&mut world);
-    assert!(messages_of(&seen, first).contains(&ScriptMessage::FixedUpdate));
-    assert!(!messages_of(&seen, first).contains(&ScriptMessage::Update));
-    assert!(messages_of(&seen, second).contains(&ScriptMessage::Update));
-    assert!(!messages_of(&seen, second).contains(&ScriptMessage::FixedUpdate));
-}
-
-#[test]
-fn registering_a_type_again_replaces_its_set_for_live_scripts() {
+fn setting_a_scripts_set_again_replaces_it() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let (_, script) = script_of(&mut world, "Example", "Actor");
     world
-        .set_script_type_messages("Example", "Actor", ScriptMessages::UPDATE)
+        .set_script_messages(script, ScriptMessages::UPDATE)
         .unwrap();
     world
-        .set_script_type_messages("Example", "Actor", ScriptMessages::LATE_UPDATE)
+        .set_script_messages(script, ScriptMessages::LATE_UPDATE)
         .unwrap();
     let seen = frame(&mut world);
     let kinds = messages_of(&seen, script);
     assert!(kinds.contains(&ScriptMessage::LateUpdate));
     assert!(!kinds.contains(&ScriptMessage::Update));
+}
+
+#[test]
+fn setting_the_set_of_a_removed_script_is_an_error() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let (_, script) = script_of(&mut world, "Example", "Actor");
+    world.remove_component(script).unwrap();
+    assert!(matches!(
+        world.set_script_messages(script, ScriptMessages::NONE),
+        Err(WorldError::StaleComponent(stale)) if stale == script
+    ));
+}
+
+#[test]
+fn setting_the_set_of_a_component_that_is_not_a_script_is_an_error() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let object = world.create_object(ObjectDesc::default()).unwrap();
+    let transform = world.object(object).unwrap().transform;
+    assert!(matches!(
+        world.set_script_messages(transform, ScriptMessages::NONE),
+        Err(WorldError::NotScript)
+    ));
 }
 
 #[test]
@@ -219,25 +185,4 @@ fn messages_reject_unknown_bits_and_round_trip_known_ones() {
     assert!(ScriptMessages::ALL.contains(ScriptMessages::UPDATE));
     assert!(!ScriptMessages::FIXED_UPDATE.contains(ScriptMessages::UPDATE));
     assert!(ScriptMessages::NONE.contains(ScriptMessages::NONE));
-}
-
-#[test]
-fn invalid_type_names_are_rejected() {
-    let mut world = World::new(WorldSettings::default()).unwrap();
-    assert!(
-        world
-            .set_script_type_messages("", "Actor", ScriptMessages::ALL)
-            .is_err()
-    );
-    assert!(
-        world
-            .set_script_type_messages("Example", "", ScriptMessages::ALL)
-            .is_err()
-    );
-    let long = "x".repeat(1025);
-    assert!(
-        world
-            .set_script_type_messages("Example", &long, ScriptMessages::ALL)
-            .is_err()
-    );
 }

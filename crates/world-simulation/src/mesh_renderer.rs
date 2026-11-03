@@ -1,7 +1,8 @@
 //! Renderer components of 3D objects: the settings of a mesh renderer or skinned mesh renderer,
 //! and the mesh a mesh filter names. Meshes are managed instance ids; materials, property blocks
-//! and bones stay in the managed component, which keeps only a material count here. Nothing draws
-//! these yet.
+//! and bones stay in the managed component, which keeps a material count here and, per material
+//! slot, the colour and texture the host draws the slot with. The presentation lists them as
+//! mesh objects; nothing draws them yet.
 use crate::{ComponentError, WorldError};
 
 /// Most materials one renderer holds.
@@ -37,12 +38,30 @@ impl Default for RendererSwitches {
     }
 }
 
+/// What the host draws one material slot of a mesh renderer with: a colour multiplier as the material holds it
+/// and the renderer identity of a texture, 0 for none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DrawnMaterial {
+    pub color: [f32; 4],
+    pub texture: u64,
+}
+
+impl Default for DrawnMaterial {
+    /// A slot with no information draws white and untextured.
+    fn default() -> Self {
+        Self {
+            color: [1.0; 4],
+            texture: 0,
+        }
+    }
+}
+
 /// The settings of a mesh renderer or a skinned mesh renderer.
 ///
 /// The mode fields hold the numeric value of the matching script enum: shadow casting 0 to 3,
 /// motion vectors 0 to 2, light probe usage 0, 1, 2 or 4, reflection probe usage 0 to 3. Sorting
 /// layer 0 is the only layer the engine registers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MeshRenderer {
     pub kind: RendererKind,
     pub switches: RendererSwitches,
@@ -58,6 +77,10 @@ pub struct MeshRenderer {
     pub sorting_order: i32,
     /// How many materials the managed component holds, 0 through [`MAX_RENDERER_MATERIALS`].
     pub material_count: u32,
+    /// What the host draws each material slot with, at most `material_count` of them; a slot
+    /// past the end draws as [`DrawnMaterial::default`]. Only the managed component's material
+    /// update sets them, and lowering `material_count` drops the slots past it.
+    pub drawn: Vec<DrawnMaterial>,
 }
 
 impl Default for MeshRenderer {
@@ -78,6 +101,7 @@ impl Default for MeshRenderer {
             sorting_layer: 0,
             sorting_order: 0,
             material_count: 0,
+            drawn: Vec::new(),
         }
     }
 }
@@ -96,7 +120,13 @@ impl MeshRenderer {
             && self.motion_vector_mode <= 2
             && matches!(self.light_probe_usage, 0 | 1 | 2 | 4)
             && self.reflection_probe_usage <= 3
-            && self.material_count <= MAX_RENDERER_MATERIALS;
+            && self.material_count <= MAX_RENDERER_MATERIALS
+            && self.drawn.len() <= self.material_count as usize
+            && self.drawn.iter().all(|slot| {
+                slot.color
+                    .iter()
+                    .all(|channel| channel.is_finite() && *channel >= 0.0)
+            });
         if valid {
             Ok(())
         } else {
@@ -111,4 +141,7 @@ impl MeshRenderer {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MeshFilter {
     pub mesh: u64,
+    /// The renderer identity the host knows the mesh's contents by, 0 when the host has none. Only
+    /// the managed component's mesh update sets it, and naming another mesh resets it.
+    pub drawn_mesh: u64,
 }

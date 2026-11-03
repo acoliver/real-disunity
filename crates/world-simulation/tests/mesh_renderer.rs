@@ -1,9 +1,9 @@
 //! The mesh renderer and mesh filter components: defaults, validation, one per object, cloning
 //! and destruction.
 use worldrunner_world_simulation::{
-    ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, MAX_RENDERER_MATERIALS,
-    MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind, World, WorldError,
-    WorldSettings,
+    ComponentDesc, ComponentError, ComponentHandle, DestroyWhen, DrawnMaterial,
+    MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, ObjectDesc, ObjectHandle, RendererKind,
+    World, WorldError, WorldSettings,
 };
 
 fn world_with(desc: ComponentDesc) -> (World, ObjectHandle) {
@@ -30,8 +30,8 @@ fn find(world: &World, object: ObjectHandle, filter: bool) -> Option<ComponentHa
 
 fn renderer_of(world: &World, object: ObjectHandle) -> MeshRenderer {
     let handle = find(world, object, false).expect("a mesh renderer on the object");
-    match world.component(handle).unwrap().desc {
-        ComponentDesc::MeshRenderer(renderer) => renderer,
+    match &world.component(handle).unwrap().desc {
+        ComponentDesc::MeshRenderer(renderer) => renderer.clone(),
         _ => unreachable!("find returns mesh renderers"),
     }
 }
@@ -108,21 +108,48 @@ fn a_mesh_identity_is_stored() {
     let (mut world, object) = world_with(ComponentDesc::MeshFilter(MeshFilter::default()));
     let handle = find(&world, object, true).unwrap();
     world
-        .set_component(handle, ComponentDesc::MeshFilter(MeshFilter { mesh: 99 }))
+        .set_component(
+            handle,
+            ComponentDesc::MeshFilter(MeshFilter {
+                mesh: 99,
+                ..Default::default()
+            }),
+        )
         .unwrap();
-    assert_eq!(filter_of(&world, object), MeshFilter { mesh: 99 });
+    assert_eq!(
+        filter_of(&world, object),
+        MeshFilter {
+            mesh: 99,
+            ..Default::default()
+        }
+    );
 }
 
 #[test]
 fn modes_and_counts_out_of_range_are_rejected() {
     let (mut world, object) = world_with(ComponentDesc::MeshRenderer(MeshRenderer::default()));
     let handle = find(&world, object, false).unwrap();
-    let bad: [fn(&mut MeshRenderer); 5] = [
+    let bad: [fn(&mut MeshRenderer); 8] = [
         |r| r.shadow_casting_mode = 4,
         |r| r.motion_vector_mode = 3,
         |r| r.light_probe_usage = 3,
         |r| r.reflection_probe_usage = 4,
         |r| r.material_count = MAX_RENDERER_MATERIALS + 1,
+        |r| r.drawn = vec![DrawnMaterial::default()],
+        |r| {
+            r.material_count = 1;
+            r.drawn = vec![DrawnMaterial {
+                color: [f32::NAN, 1.0, 1.0, 1.0],
+                texture: 0,
+            }];
+        },
+        |r| {
+            r.material_count = 1;
+            r.drawn = vec![DrawnMaterial {
+                color: [1.0, -0.5, 1.0, 1.0],
+                texture: 0,
+            }];
+        },
     ];
     for change in bad {
         let mut renderer = MeshRenderer::default();
@@ -154,7 +181,10 @@ fn an_object_has_one_of_each() {
         .unwrap();
     for desc in [
         ComponentDesc::MeshRenderer(MeshRenderer::of_kind(RendererKind::Skinned)),
-        ComponentDesc::MeshFilter(MeshFilter { mesh: 1 }),
+        ComponentDesc::MeshFilter(MeshFilter {
+            mesh: 1,
+            ..Default::default()
+        }),
     ] {
         assert_eq!(
             world.add_component(object, desc),
@@ -182,11 +212,23 @@ fn the_kind_of_a_renderer_cannot_be_changed() {
 fn a_clone_keeps_the_settings_and_owns_them() {
     let (mut world, object) = world_with(ComponentDesc::MeshRenderer(distinct()));
     world
-        .add_component(object, ComponentDesc::MeshFilter(MeshFilter { mesh: 5 }))
+        .add_component(
+            object,
+            ComponentDesc::MeshFilter(MeshFilter {
+                mesh: 5,
+                ..Default::default()
+            }),
+        )
         .unwrap();
     let clone = world.instantiate(object, None).unwrap().root;
     assert_eq!(renderer_of(&world, clone), distinct());
-    assert_eq!(filter_of(&world, clone), MeshFilter { mesh: 5 });
+    assert_eq!(
+        filter_of(&world, clone),
+        MeshFilter {
+            mesh: 5,
+            ..Default::default()
+        }
+    );
     let handle = find(&world, clone, false).unwrap();
     world
         .set_component(handle, ComponentDesc::MeshRenderer(MeshRenderer::default()))

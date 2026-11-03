@@ -3,7 +3,9 @@ namespace UnityEngine;
 /// <summary>
 /// A mesh asset. It holds the CPU-side vertex data a game builds at run time: positions, normals, tangents,
 /// colors, eight uv channels, and sub-meshes of indices with a topology and a base vertex. Nothing draws a mesh
-/// yet; the data is kept for the renderer, which reads it through <see cref="Snapshot"/>.
+/// yet; the data is kept for the renderer, which reads it through <see cref="Snapshot"/>. A mesh that a
+/// <see cref="MeshFilter"/> holds is also stored for the host under a renderer identity, again whenever the
+/// data changes, just before the frame is drawn.
 /// A channel is either empty or as long as <see cref="vertexCount"/>. Getters return copies, and the
 /// <c>Get...(List)</c> forms clear the list and then fill it. A null array or list sets an empty channel.
 /// <see cref="UploadMeshData"/> with true makes the mesh unreadable for the game; <see cref="bounds"/>,
@@ -49,6 +51,7 @@ public partial class Mesh : Object
     public void UploadMeshData(bool markNoLongerReadable)
     {
         if (markNoLongerReadable) _readable = false;
+        Changed();
     }
 
     /// <summary>The engine's choice: the data stays as it is, because reordering has no effect without a GPU upload.</summary>
@@ -81,6 +84,7 @@ public partial class Mesh : Object
         }
         ResetSubMeshes();
         _bounds = default;
+        Changed();
     }
 
     private void RequireReadable()

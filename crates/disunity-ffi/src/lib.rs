@@ -32,6 +32,7 @@ pub mod input;
 pub mod input_axes;
 pub mod light;
 pub mod mesh_renderer;
+pub mod meshes;
 pub mod object_api;
 mod object_ids;
 pub mod physics;

@@ -126,6 +126,16 @@ pub struct DisunityMeshRenderer {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityDrawnMaterial {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+    pub texture: u64,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunitySortingGroup {
     pub enabled: u32,
@@ -227,6 +237,8 @@ pub struct DisunityPresentation {
     pub present: u32,
     pub quads: u32,
     pub textures: u32,
+    /// How many mesh renderers the frame shows; read them with `disunity_presentation_mesh_object`.
+    pub mesh_objects: u32,
     pub width: u32,
     pub height: u32,
     /// 0 for an orthographic lens, 1 for a perspective lens.
@@ -289,6 +301,14 @@ pub struct DisunityCoverage {
     pub width: u32,
     pub height: u32,
     pub length: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityMeshObject {
+    pub object: u64,
+    pub mesh: u64,
+    pub slot_count: u32,
 }
 
 #[repr(C)]
@@ -556,6 +576,50 @@ pub struct DisunityTextureInfo {
     pub length: u32,
     pub present: u32,
     pub distance_spread: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMeshInfo {
+    pub identity: u64,
+    /// Starts at 1 and rises by one each time the identity is stored again.
+    pub generation: u64,
+    /// Zero when a read names an identity nothing stored.
+    pub present: u32,
+    /// Nonzero when the stored generation is newer than the one the read passed.
+    pub changed: u32,
+    /// Nonzero when the read copied the buffers.
+    pub copied: u32,
+    pub channels: u32,
+    pub vertex_count: u32,
+    pub index_count: u32,
+    pub submesh_count: u32,
+    pub left_out: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityMeshVertex {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub nx: f32,
+    pub ny: f32,
+    pub nz: f32,
+    pub u: f32,
+    pub v: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+    pub a: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMeshSubMesh {
+    pub slot: u32,
+    pub first_index: u32,
+    pub index_count: u32,
 }
 
 #[repr(C)]

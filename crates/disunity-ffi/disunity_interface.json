@@ -488,6 +488,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_mesh_filter_drawn_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_mesh_filter_drawn_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_mesh_filter_read",
       "since": "6.0.0",
       "rets": "DisunityResult"
@@ -495,6 +505,11 @@
     {
       "name": "disunity_mesh_filter_write",
       "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_mesh_read",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -508,8 +523,23 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_mesh_renderer_slots_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_mesh_renderer_slots_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_mesh_renderer_write",
       "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_mesh_store",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -590,6 +620,11 @@
     {
       "name": "disunity_presentation_coverage",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_mesh_object",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

@@ -181,6 +181,20 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  What the host draws one material slot of a renderer with: a colour multiplier as the
+    ///  material holds it and the renderer identity of a texture, 0 for none.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityDrawnMaterial
+    {
+        public float r;
+        public float g;
+        public float b;
+        public float a;
+        public ulong texture;
+    }
+
+    /// <summary>
     ///  A sorting group's settings; booleans are 0 or 1. A write rejects a boolean above 1 and
     ///  changes nothing. Sorting layer 0 is the only layer the engine registers.
     /// </summary>
@@ -293,6 +307,10 @@ namespace Disunity.Native
         public uint present;
         public uint quads;
         public uint textures;
+        /// <summary>
+        ///  How many mesh renderers the frame shows; read them with `disunity_presentation_mesh_object`.
+        /// </summary>
+        public uint mesh_objects;
         public uint width;
         public uint height;
         /// <summary>
@@ -359,6 +377,19 @@ namespace Disunity.Native
         public uint width;
         public uint height;
         public uint length;
+    }
+
+    /// <summary>
+    ///  One mesh renderer of the last prepared frame. `mesh` is the renderer identity of the mesh
+    ///  contents (see `disunity_mesh_read`), `object` the object's identity, and `slot_count` the
+    ///  number of records `disunity_presentation_mesh_object` copies out.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshObject
+    {
+        public ulong @object;
+        public ulong mesh;
+        public uint slot_count;
     }
 
     /// <summary>
@@ -675,73 +706,39 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  Face measurements in pixels at the face's point size.
+    ///  A stored mesh's description, also the in/out record of a read. On a store, `generation`,
+    ///  `present`, `changed` and `copied` are ignored. On a read, `generation` is the generation the
+    ///  caller already holds and the three counts are the capacities of the buffers passed (all zero
+    ///  asks for sizes only); the call fills in everything. `channels` is a mask of
+    ///  [`CHANNEL_NORMALS`], [`CHANNEL_UV0`] and [`CHANNEL_COLORS`]; a channel outside it reads as
+    ///  zero in every vertex. `left_out` counts the sub-meshes that are not triangle lists, which the
+    ///  engine leaves out.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityFaceInfo
+    internal unsafe partial struct DisunityMeshInfo
     {
-        public uint face_index;
-        public uint units_per_em;
-        public float point_size;
-        public float scale;
-        public float line_height;
-        public float ascent_line;
-        public float cap_line;
-        public float mean_line;
-        public float baseline;
-        public float descent_line;
-        public float superscript_offset;
-        public float superscript_size;
-        public float subscript_offset;
-        public float subscript_size;
-        public float underline_offset;
-        public float underline_thickness;
-        public float strikethrough_offset;
-        public float strikethrough_thickness;
-        public float tab_width;
+        public ulong identity;
+        /// <summary>
+        ///  Starts at 1 and rises by one each time the identity is stored again.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Zero when a read names an identity nothing stored.
+        /// </summary>
+        public uint present;
+        /// <summary>
+        ///  Nonzero when the stored generation is newer than the one the read passed.
+        /// </summary>
+        public uint changed;
+        /// <summary>
+        ///  Nonzero when the read copied the buffers.
+        /// </summary>
+        public uint copied;
+        public uint channels;
+        public uint vertex_count;
+        public uint index_count;
+        public uint submesh_count;
+        public uint left_out;
     }
-
-    /// <summary>
-    ///  A glyph's size and placement in pixels at the face's point size.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityGlyphMetrics
-    {
-        public float width;
-        public float height;
-        public float bearing_x;
-        public float bearing_y;
-        public float advance;
-    }
-
-    /// <summary>
-    ///  A change to the advance of `first` when `second` follows it.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityGlyphPair
-    {
-        public uint first;
-        public uint second;
-        public float x_advance;
-    }
-
-    /// <summary>
-    ///  One glyph to draw into an atlas. `mode` is 0 for coverage and 1 for a signed distance field.
-    /// </summary>
-    [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityGlyphRender
-    {
-        public uint glyph;
-        public uint mode;
-        public uint padding;
-        public uint x;
-        public uint y;
-        public uint width;
-        public uint height;
-        public uint atlas_width;
-        public uint atlas_height;
-    }
-
-
 
 }

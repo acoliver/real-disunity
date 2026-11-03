@@ -61,6 +61,7 @@ public partial class Mesh
             }
         }
         _normals = Map(sums, UnitOrZero);
+        Changed();
     }
 
     /// <summary>

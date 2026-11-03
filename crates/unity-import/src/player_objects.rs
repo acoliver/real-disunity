@@ -196,7 +196,7 @@ pub fn shader_platforms(open: &mut OpenFile, path_id: i64) -> Result<Vec<u32>, P
 
 /// Decodes a shader and decompresses one platform's chunks, with the platform's
 /// `ShaderCompilerPlatform`.
-fn load_shader(
+pub(crate) fn load_shader(
     open: &mut OpenFile,
     path_id: i64,
     platform: usize,

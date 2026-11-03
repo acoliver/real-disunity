@@ -14,9 +14,17 @@ const FEATURE: &str = "player programs";
 /// The depth format the scene declares for its opaque pass.
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// What of the frame about to be declared decides whether player programs can join it.
+pub(super) struct Shape<'a> {
+    pub pipelines: &'a crate::renderer::ScenePipelines,
+    /// The frame writes velocity or jitters its projection for temporal reconstruction.
+    pub temporal: bool,
+    /// Screen-space passes add attachments to the scene's pass declarations.
+    pub screen_space: bool,
+}
+
 /// Checks `programs` against the frame about to be declared and has the frame retain their
-/// arena. `frame` is the scene pipelines, whether the frame writes velocity and whether screen
-/// space passes are configured.
+/// arena.
 ///
 /// # Errors
 /// Fails before anything is declared or recorded: by name for temporal reconstruction,
@@ -26,13 +34,17 @@ const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub(super) fn accept(
     programs: Option<AdmittedPrograms>,
     encoder: &wgpu::CommandEncoder,
-    frame: (&crate::renderer::ScenePipelines, bool, bool),
+    frame: Shape<'_>,
 ) -> Result<Option<AdmittedPrograms>, FrameError> {
     let Some(programs) = programs else {
         return Ok(None);
     };
-    let (pipelines, writes_velocity, screen_space) = frame;
-    if writes_velocity {
+    let Shape {
+        pipelines,
+        temporal,
+        screen_space,
+    } = frame;
+    if temporal {
         return Err(FrameError::UnsupportedEffect(
             "player programs with temporal reconstruction",
         ));

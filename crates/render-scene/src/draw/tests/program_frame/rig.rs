@@ -126,7 +126,7 @@ pub(super) struct Fixture {
 }
 
 /// The red engine card: a 2 m card on the ground plane standing at the origin, facing the eye.
-fn engine_scene() -> RenderScene {
+pub(super) fn engine_scene() -> RenderScene {
     build(
         texture(RED_565),
         &material(SceneAlphaMode::Opaque, false),
@@ -136,14 +136,25 @@ fn engine_scene() -> RenderScene {
 }
 
 impl Fixture {
-    pub fn new(settings: RendererConfiguration, samples: u32) -> Self {
+    /// The engine's red card under `settings` and the pipelines `pipelines` builds.
+    pub fn new(
+        settings: RendererConfiguration,
+        pipelines: impl FnOnce(&Device) -> ScenePipelines,
+    ) -> Self {
+        Self::with_scene(engine_scene(), settings, pipelines)
+    }
+
+    pub fn with_scene(
+        scene: RenderScene,
+        settings: RendererConfiguration,
+        pipelines: impl FnOnce(&Device) -> ScenePipelines,
+    ) -> Self {
         let context = context();
         let device = context.device();
         let mut renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 26)).unwrap();
-        let pipelines = ScenePipelines::with_samples(device, COLOR_FORMAT, samples).unwrap();
-        let mut gpu =
-            SceneGpu::upload(device, context.submission(), &engine_scene(), &pipelines).unwrap();
+        let pipelines = pipelines(device);
+        let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
         gpu.post = renderer.configuration().post;
         let reservation = renderer
             .reserve(&context, ProgramRuntime::arena_allocations(ARENA))
@@ -202,9 +213,9 @@ impl Fixture {
         }
     }
 
-    /// The signature of the scene's opaque pass as the engine declares it.
+    /// The signature of a single-sample opaque pass in the scene's color format.
     pub fn signature(&self) -> TargetSignature {
-        TargetSignature::new(&[COLOR_FORMAT], Some(DEPTH_FORMAT), self.pipelines.samples).unwrap()
+        TargetSignature::new(&[self.pipelines.color_format], Some(DEPTH_FORMAT), 1).unwrap()
     }
 
     /// Admits both patches, in the order near then far, into the frame being recorded.
@@ -263,19 +274,35 @@ impl Fixture {
         self.renderer.targets().encode_resolve(encoder);
         let view = self.output.create_view(&TextureViewDescriptor::default());
         self.renderer.encode_output(encoder, &view).unwrap();
+        self.copy_output(encoder)
+    }
+
+    /// Records a copy of the output texture as it is, without drawing anything.
+    pub fn copy_output(&self, encoder: &mut wgpu::CommandEncoder) -> Buffer {
+        self.copy(&self.output, encoder)
+    }
+
+    /// Records a copy of the scene's color target as it is, without drawing anything.
+    pub fn copy_scene(&self, encoder: &mut wgpu::CommandEncoder) -> Buffer {
+        self.copy(self.renderer.targets().texture(), encoder)
+    }
+
+    fn copy(&self, texture: &Texture, encoder: &mut wgpu::CommandEncoder) -> Buffer {
+        // The rows are 256 byte aligned at 64 pixels of any format the fixtures use.
+        let row = TARGET * texture.format().block_copy_size(None).unwrap();
         let readback = self.context.device().create_buffer(&BufferDescriptor {
             label: Some("program frame readback"),
-            size: u64::from(TARGET * TARGET * 4),
+            size: u64::from(row * TARGET),
             usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         encoder.copy_texture_to_buffer(
-            self.output.as_image_copy(),
+            texture.as_image_copy(),
             TexelCopyBufferInfo {
                 buffer: &readback,
                 layout: TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(TARGET * 4),
+                    bytes_per_row: Some(row),
                     rows_per_image: Some(TARGET),
                 },
             },
@@ -297,6 +324,10 @@ impl Fixture {
 pub(super) struct Image(Vec<u8>);
 
 impl Image {
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         let at = (y * TARGET + x) as usize * 4;
         [self.0[at], self.0[at + 1], self.0[at + 2], self.0[at + 3]]
@@ -304,7 +335,7 @@ impl Image {
 }
 
 /// The camera: 3 m south of the card, level with its middle, looking north.
-fn frame() -> FrameUniform {
+pub(super) fn frame() -> FrameUniform {
     let view = SceneView::new(
         CameraPose {
             eye_millimeters: [0, -3_000, 1_000],

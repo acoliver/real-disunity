@@ -134,7 +134,11 @@ pub fn encode_scene(
     let programs = super::programs::accept(
         programs,
         encoder,
-        (pipelines, velocity.is_some(), renderer.ssao.is_some()),
+        super::programs::Shape {
+            pipelines,
+            temporal: velocity.is_some() || renderer.projection_jitter().is_some(),
+            screen_space: renderer.ssao.is_some(),
+        },
     )?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;

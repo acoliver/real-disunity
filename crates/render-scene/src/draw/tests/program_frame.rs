@@ -9,7 +9,9 @@
 use super::*;
 use crate::compositor::RendererConfiguration;
 
+mod admission;
 mod rig;
+mod stock;
 use rig::{BLACK, BLUE, CARD_EDGE, FAR_DEPTH, Fixture, GREEN, NEAR_DEPTH, RED, engine_depth};
 
 const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
@@ -28,7 +30,9 @@ fn player_program_and_scene_gpu_draw_composite_in_one_submitted_frame() {
     // (far).
     assert!((f64::from(TARGET) / 2.0 * CARD_EDGE - 18.47).abs() < 0.01);
 
-    let mut fixture = Fixture::new(settings(), 1);
+    let mut fixture = Fixture::new(settings(), |device| {
+        ScenePipelines::new(device, COLOR_FORMAT)
+    });
     let authority = fixture.context.submission().clone();
     let before = authority.submitted_serial();
 

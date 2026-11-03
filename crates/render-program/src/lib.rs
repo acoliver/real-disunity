@@ -10,6 +10,7 @@ mod draw;
 pub mod error;
 pub mod layout;
 pub mod module;
+mod packet;
 mod pipeline_key;
 mod program;
 pub mod properties;

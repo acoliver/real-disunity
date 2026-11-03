@@ -1,7 +1,7 @@
 //! Draws of a graphics program into a render target.
 
 use crate::error::ProgramError;
-use crate::pipeline_key::Key;
+use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
 use crate::resources::{BoundResource, BufferHandle, TargetEntry, TargetHandle};
 use crate::runtime::ProgramRuntime;
@@ -109,162 +109,47 @@ impl ProgramRuntime {
         request: &DrawRequest<'_>,
     ) -> Result<(), ProgramError> {
         self.recording(encoder)?;
-        let pipeline = self.render_pipeline(request)?;
-        let groups = self.bind_groups(&request.program.gpu, request.bindings)?;
+        let target = self.store.target(request.target)?;
+        let signature = TargetSignature::new(
+            &[target.color.texture.format()],
+            target.depth.as_ref().map(|d| d.texture.format()),
+            target.color.texture.sample_count(),
+        )?;
+        let prepared = self.prepare_draw(&request.packet(), signature)?;
         let target = self.store.target(request.target)?;
         self.guarded(|| {
-            self.record_draw(encoder, (&pipeline, &groups), target, request);
+            let mut pass = open_pass(encoder, target);
+            prepared.record(&mut pass);
         })
-    }
-
-    fn record_draw(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        (pipeline, groups): (&wgpu::RenderPipeline, &[(u32, wgpu::BindGroup)]),
-        target: &TargetEntry,
-        request: &DrawRequest<'_>,
-    ) {
-        let attachment = wgpu::RenderPassColorAttachment {
-            view: &target.color.view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Load,
-                store: wgpu::StoreOp::Store,
-            },
-        };
-        let depth = target
-            .depth
-            .as_ref()
-            .map(|d| wgpu::RenderPassDepthStencilAttachment {
-                view: &d.view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            });
-        let mut pass = encoder.begin_render_pass(&pass_descriptor(&[Some(attachment)], depth));
-        pass.set_pipeline(pipeline);
-        for (set, group) in groups {
-            pass.set_bind_group(*set, group, &[]);
-        }
-        for (slot, input) in (0..).zip(request.vertex_inputs) {
-            if let Ok(entry) = self.store.buffer(input.buffer) {
-                pass.set_vertex_buffer(slot, entry.buffer.slice(..));
-            }
-        }
-        match request.geometry {
-            Geometry::Vertices { first, count } => pass.draw(first..first + count, 0..1),
-            Geometry::Indexed {
-                buffer,
-                format,
-                first,
-                count,
-                base_vertex,
-            } => {
-                if let Ok(entry) = self.store.buffer(buffer) {
-                    pass.set_index_buffer(entry.buffer.slice(..), format);
-                }
-                pass.draw_indexed(first..first + count, base_vertex, 0..1);
-            }
-        }
-    }
-
-    fn render_pipeline(
-        &mut self,
-        request: &DrawRequest<'_>,
-    ) -> Result<wgpu::RenderPipeline, ProgramError> {
-        let target = self.store.target(request.target)?;
-        let formats = (
-            target.color.texture.format(),
-            target.depth.as_ref().map(|d| d.texture.format()),
-        );
-        let key = pipeline_key(request, formats);
-        if let Some(pipeline) = self.render_pipelines.get(&key) {
-            return Ok(pipeline.clone());
-        }
-        let modules = (
-            self.shader_module(&request.program.vertex)?,
-            self.shader_module(&request.program.fragment)?,
-        );
-        let pipeline = self.guarded(|| self.create_render_pipeline(request, &modules, formats))?;
-        self.render_pipelines.insert(key, pipeline.clone());
-        Ok(pipeline)
-    }
-
-    fn create_render_pipeline(
-        &self,
-        request: &DrawRequest<'_>,
-        (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
-        (color_format, depth_format): (wgpu::TextureFormat, Option<wgpu::TextureFormat>),
-    ) -> wgpu::RenderPipeline {
-        let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = request
-            .vertex_inputs
-            .iter()
-            .map(|input| {
-                Some(wgpu::VertexBufferLayout {
-                    array_stride: input.stride,
-                    step_mode: input.step,
-                    attributes: &input.attributes,
-                })
-            })
-            .collect();
-        let state = request.state;
-        let targets = [Some(wgpu::ColorTargetState {
-            format: color_format,
-            blend: state.blend,
-            write_mask: state.color_write,
-        })];
-        self.device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("render-program pipeline"),
-                layout: Some(&request.program.gpu.pipeline),
-                vertex: wgpu::VertexState {
-                    module: vertex,
-                    entry_point: Some(&request.program.vertex.module().entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &layouts,
-                },
-                primitive: wgpu::PrimitiveState {
-                    front_face: request.front_face,
-                    cull_mode: state.cull,
-                    ..wgpu::PrimitiveState::default()
-                },
-                depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
-                    format,
-                    depth_write_enabled: Some(state.depth_write),
-                    depth_compare: Some(state.depth_compare),
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: fragment,
-                    entry_point: Some(&request.program.fragment.module().entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &targets,
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
     }
 }
 
-/// Everything a render pipeline is built from, as a content key.
-fn pipeline_key(
-    request: &DrawRequest<'_>,
-    formats: (wgpu::TextureFormat, Option<wgpu::TextureFormat>),
-) -> blake3::Hash {
-    let mut key = Key::new("render");
-    key.hash(request.program.vertex.content_key());
-    key.hash(request.program.fragment.content_key());
-    key.debug(&request.program.gpu.layout);
-    key.debug(&(request.state, request.front_face, formats));
-    for input in request.vertex_inputs {
-        key.debug(&(input.stride, input.step, &input.attributes));
-    }
-    key.finish()
+/// A pass over the target that keeps what it holds.
+fn open_pass<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    target: &TargetEntry,
+) -> wgpu::RenderPass<'e> {
+    let attachment = wgpu::RenderPassColorAttachment {
+        view: &target.color.view,
+        depth_slice: None,
+        resolve_target: None,
+        ops: wgpu::Operations {
+            load: wgpu::LoadOp::Load,
+            store: wgpu::StoreOp::Store,
+        },
+    };
+    let depth = target
+        .depth
+        .as_ref()
+        .map(|d| wgpu::RenderPassDepthStencilAttachment {
+            view: &d.view,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        });
+    encoder.begin_render_pass(&pass_descriptor(&[Some(attachment)], depth))
 }
 
 fn pass_descriptor<'a>(

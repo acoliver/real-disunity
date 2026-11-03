@@ -61,6 +61,8 @@ pub enum ProgramError {
         found: crate::module::StageKind,
     },
     #[error(transparent)]
+    UnsupportedTarget(#[from] UnsupportedTarget),
+    #[error(transparent)]
     TextureUpload(#[from] UploadError),
     /// The encoder is not one the submission authority handed out for the frame being recorded.
     #[error(transparent)]
@@ -75,6 +77,19 @@ pub enum ProgramError {
     Gpu(String),
     #[error("reading back from the GPU failed: {0}")]
     Readback(String),
+}
+
+/// A pass the runtime does not draw into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum UnsupportedTarget {
+    #[error("the pass has {samples} samples per pixel; program draws are single-sample")]
+    Multisampled { samples: u32 },
+    #[error("the pass has {count} color attachments; program draws write exactly one")]
+    ColorAttachments { count: usize },
+    #[error("{format:?} has a stencil aspect; program draws do not use stencil")]
+    Stencil { format: wgpu::TextureFormat },
+    #[error("{format:?} has no depth aspect")]
+    NotDepth { format: wgpu::TextureFormat },
 }
 
 /// The authority's refusals keep their names here, so a caller sees device loss and a busy

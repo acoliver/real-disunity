@@ -17,6 +17,7 @@ use crate::resources::Store;
 
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
+pub use crate::packet::{DrawPacket, PreparedProgramDraw, TargetSignature};
 pub use crate::program::{ComputeProgram, GraphicsProgram};
 pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
 pub use crate::resources::{BoundResource, BufferHandle, Resource, TargetHandle, TextureHandle};

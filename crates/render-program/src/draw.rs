@@ -17,7 +17,8 @@ pub struct VertexInput {
     pub attributes: Vec<wgpu::VertexAttribute>,
 }
 
-/// Which vertices a draw reads.
+/// Which vertices a draw reads. A range that overflows or reaches past a bound buffer is refused
+/// by name when the draw is prepared; the values inside an index buffer are not checked.
 #[derive(Clone, Copy, Debug)]
 pub enum Geometry {
     Vertices {

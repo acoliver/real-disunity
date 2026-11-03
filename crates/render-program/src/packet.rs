@@ -180,6 +180,8 @@ impl ProgramRuntime {
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
         self.authority.check_device()?;
+        self.store
+            .check_geometry(packet.vertex_inputs, packet.geometry)?;
         let pipeline = self.render_pipeline(packet, signature)?;
         let groups = self.bind_groups(&packet.program.gpu, packet.bindings)?;
         let vertex_buffers = packet

@@ -15,6 +15,7 @@ mod packet;
 mod pipeline_key;
 mod program;
 pub mod properties;
+mod range;
 mod readback;
 mod reflect;
 mod resources;

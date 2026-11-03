@@ -7,7 +7,8 @@ use worldrunner_render_program::constants::pack_constant_buffer;
 use worldrunner_render_program::module::{ModuleBinding, StageKind, StageModule, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::runtime::{
-    BoundResource, DrawRequest, Geometry, GraphicsProgram, ProgramRuntime, TargetImage, VertexInput,
+    BoundResource, BufferHandle, DrawRequest, Geometry, GraphicsProgram, ProgramRuntime,
+    TargetHandle, TargetImage, VertexInput,
 };
 use worldrunner_render_program::state::RenderState;
 use worldrunner_render_program::variant::select_sub_program;
@@ -304,8 +305,39 @@ fn constant_bindings(
     (bindings, missing)
 }
 
-/// Draws the quad with the textured pass into a cleared 2x2 target and reads it back.
-pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
+/// The program, bindings and cleared 2x2 target of a textured quad, before any geometry is
+/// drawn.
+pub struct Setup {
+    pub program: GraphicsProgram,
+    pub bindings: Vec<BoundResource>,
+    pub target: TargetHandle,
+    /// The quad's corners: four vertices of position then uv, 16 bytes each.
+    pub inputs: Vec<VertexInput>,
+    pub missing: Vec<String>,
+}
+
+impl Setup {
+    /// A draw of `geometry` into the target with the scene's state.
+    pub fn request<'a>(
+        &'a self,
+        state: &'a RenderState,
+        inputs: &'a [VertexInput],
+        geometry: Geometry,
+    ) -> DrawRequest<'a> {
+        DrawRequest {
+            program: &self.program,
+            state,
+            front_face: wgpu::FrontFace::Cw,
+            target: self.target,
+            vertex_inputs: inputs,
+            bindings: &self.bindings,
+            geometry,
+        }
+    }
+}
+
+/// Builds the textured pass for `scene` and clears a 2x2 target to `scene.clear`.
+pub fn setup(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Setup {
     let enabled: BTreeSet<u16> = scene.enabled.iter().copied().collect();
     let vertex = stage(
         scene.pass,
@@ -338,33 +370,46 @@ pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
         runtime.clear_target(encoder, target, scene.clear, 1.0)
     })
     .unwrap();
-    let input = quad(runtime);
-    let index_bytes: Vec<u8> = scene.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
-    let index_buffer = runtime.create_buffer("indices", &index_bytes).unwrap();
+    let inputs = vec![quad(runtime)];
+    Setup {
+        program,
+        bindings,
+        target,
+        inputs,
+        missing,
+    }
+}
+
+/// A buffer of 16-bit indices.
+pub fn index_buffer(runtime: &mut ProgramRuntime, indices: &[u16]) -> BufferHandle {
+    let bytes: Vec<u8> = indices.iter().flat_map(|i| i.to_le_bytes()).collect();
+    runtime.create_buffer("indices", &bytes).unwrap()
+}
+
+/// Draws the quad with the textured pass into a cleared 2x2 target and reads it back.
+pub fn render(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Rendered {
+    let prepared = setup(runtime, scene);
+    let buffer = index_buffer(runtime, scene.indices);
     run(runtime, |runtime, encoder| {
         runtime.draw(
             encoder,
-            &DrawRequest {
-                program: &program,
-                state: scene.state,
-                front_face: wgpu::FrontFace::Cw,
-                target,
-                vertex_inputs: &[input],
-                bindings: &bindings,
-                geometry: Geometry::Indexed {
-                    buffer: index_buffer,
+            &prepared.request(
+                scene.state,
+                &prepared.inputs,
+                Geometry::Indexed {
+                    buffer,
                     format: wgpu::IndexFormat::Uint16,
                     first: 0,
                     count: u32::try_from(scene.indices.len()).unwrap(),
                     base_vertex: 0,
                 },
-            },
+            ),
         )
     })
     .unwrap();
     Rendered {
-        image: read_target(runtime, target),
-        missing,
+        image: read_target(runtime, prepared.target),
+        missing: prepared.missing,
     }
 }
 

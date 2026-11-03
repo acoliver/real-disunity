@@ -49,6 +49,20 @@ pub enum ProgramError {
     },
     #[error("writing {len} bytes at {offset} does not fit a buffer of {size}")]
     WriteRange { offset: u64, len: u64, size: u64 },
+    #[error("a draw of {count} starting at {first} runs past the largest 32-bit index")]
+    DrawRangeOverflow { first: u32, count: u32 },
+    #[error("vertex buffer {slot} holds {have} bytes and the draw reads up to byte {needed} of it")]
+    VertexRangePastBuffer { slot: usize, needed: u64, have: u64 },
+    #[error("the index buffer holds {available} indices and the draw reads up to index {end}")]
+    IndexRangePastBuffer { end: u64, available: u64 },
+    #[error(
+        "base vertex {base_vertex} starts every index past the {vertices} vertices vertex buffer {slot} holds"
+    )]
+    BaseVertexPastBuffer {
+        slot: usize,
+        base_vertex: i32,
+        vertices: u64,
+    },
     #[error("the allocation takes the runtime to {required} bytes, over its budget of {budget}")]
     OverBudget { required: u64, budget: u64 },
     #[error("the runtime may hold {budget} bytes and the arena reserves {arena}")]

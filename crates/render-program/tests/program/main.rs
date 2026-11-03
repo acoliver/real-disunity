@@ -14,6 +14,7 @@ mod module;
 mod packet;
 mod pass;
 mod patch;
+mod ranges;
 mod rig;
 mod state;
 mod surface;

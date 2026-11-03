@@ -7,7 +7,8 @@ namespace UnityEngine;
 /// "&lt;name&gt; (Instance)", assigns them as the shared materials and keeps them, so later accesses return the same
 /// copies. Setting a shared material drops the copies. A clone from <c>Instantiate</c> shares its source's copies
 /// (the engine's choice) until it replaces them. A renderer starts with no material. Property blocks are stored
-/// and nothing reads them yet.
+/// and nothing reads them yet. Setting the shared materials also sends the host each slot's colour and texture
+/// identity (see <see cref="SendDrawnMaterials"/>).
 /// </summary>
 public abstract partial class Renderer
 {
@@ -22,6 +23,7 @@ public abstract partial class Renderer
     internal virtual void WriteShared(IReadOnlyList<Material?> materials)
     {
         Update(r => { r.material_count = (uint)materials.Count; return r; });
+        SendDrawnMaterials(materials);
         _shared = [.. materials];
     }
 

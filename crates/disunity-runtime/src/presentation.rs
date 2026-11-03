@@ -48,6 +48,7 @@ impl DisunityHost {
         let prepared =
             unsafe { prepare(world, viewport[0], viewport[1], next_texture, &mut header) };
         self.check(prepared)?;
+        self.last_mesh_objects = header.mesh_objects;
         let state = (header.present == 1)
             .then(|| camera_state(header))
             .transpose()?;

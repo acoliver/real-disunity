@@ -11,6 +11,52 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one identity, or zero when the queue is empty.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_cancelled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_cancelled(ulong world, ulong* output);
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_ready", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_ready(ulong world, ulong identity);
+        [DllImport(__DllName, EntryPoint = "disunity_input_push", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_push(ulong world, ulong num, ulong den, uint kind, uint code, float value);
+        /// <summary>
+        ///  # Safety
+        ///  `keys` and `axis` are writable for one value each.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_read(ulong world, uint phase, uint code, uint* keys, float* axis);
+        /// <summary>
+        ///  # Safety
+        ///  `bytes` spans `length` readable bytes; `config` points to one readable record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_axis_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_axis_register(ulong world, uint id, byte* bytes, uint length, DisunityInputAxis* config);
+        /// <summary>
+        ///  # Safety
+        ///  `bytes` spans `length` readable bytes; `output` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_axis_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_axis_read(ulong world, uint phase, byte* bytes, uint length, uint raw, float* output);
+        /// <summary>
+        ///  # Safety
+        ///  `bytes` spans `length` readable bytes; `output` is writable for one ID.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_input_axis_id", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_input_axis_id(ulong world, byte* bytes, uint length, uint* output);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_physics_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_physics_create(ulong world, ulong @object, uint kind, ulong* output);
+        /// <summary>
+        ///  # Safety
+        ///  `value` points to one readable body record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_body_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_body_write(ulong world, ulong handle, DisunityBody2d* value);
+        /// <summary>
         ///  Sets whether the body is drawn between its poses either side of the last physics step,
         ///  Unity's `RigidbodyInterpolation2D.Interpolate` (1) or `None` (0).
         /// </summary>
@@ -311,6 +357,26 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_texture_read(ulong world, ulong identity, DisunityTextureInfo* @out, byte* bytes, uint capacity);
+        /// <summary>
+        ///  Keeps a mesh's contents for the host and raises its generation.
+        ///
+        ///  # Safety
+        ///  `info` is readable for one record. `vertices`, `indices` and `submeshes` are readable for the
+        ///  counts in the record, or null when that count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_store", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_store(ulong world, ulong identity, DisunityMeshInfo* info, DisunityMeshVertex* vertices, uint* indices, DisunityMeshSubMesh* submeshes);
+        /// <summary>
+        ///  Reports a stored mesh and copies its contents when they are newer than `info.generation` and
+        ///  the capacities in `info` hold them. Capacities of zero everywhere copy nothing and report the
+        ///  sizes. An identity nothing stored reports `present` zero and is not an error.
+        ///
+        ///  # Safety
+        ///  `info` is readable and writable for one record; the buffers are writable for the capacities
+        ///  in it, or null when that capacity is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_read(ulong world, ulong identity, DisunityMeshInfo* info, DisunityMeshVertex* vertices, uint* indices, DisunityMeshSubMesh* submeshes);
         /// <summary>
         ///  Loads face `face_index` of the font file at `point_size` and writes its id.
         ///

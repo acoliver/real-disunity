@@ -23,6 +23,7 @@ fn checked_managed_bindings_fit_the_source_file_limit() {
         include_str!("../../../csharp/Disunity/NativeBindings.g.cs"),
         include_str!("../../../csharp/Disunity/NativeBindings.2.g.cs"),
         include_str!("../../../csharp/Disunity/NativeRecords.g.cs"),
+        include_str!("../../../csharp/Disunity/NativeRecords.2.g.cs"),
     ] {
         assert!(source.lines().count() < 750);
     }

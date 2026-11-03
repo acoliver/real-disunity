@@ -141,6 +141,7 @@ impl crate::ComponentDesc {
 
 pub mod camera;
 pub mod camera_data;
+pub mod mesh_objects;
 pub use camera::{Camera, CameraClear, CameraFlags, Projection};
 pub mod light;
 pub mod lighting;

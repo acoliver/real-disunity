@@ -10,15 +10,44 @@ The crate takes data that the importer has already prepared. It does not read bu
 | --- | --- | --- |
 | Prepared SPIR-V words and entry point | `module::StageModule` | The shader preparation in `unity-import` |
 | Binding table | `module::ResourceBinding` | `unity_serialized::spirv_prep::ResourceBinding`, re-exported: set, Unity binding, prepared binding and, for a split combined sampler, the sampler's binding |
-| Parameters | `unity_serialized::shader_program::ProgramParameters` | The serialized sub program |
-| Keyword variants | `unity_serialized::shader_program::Program` | `variant::select_sub_program` picks the sub program whose keyword set equals the enabled keywords, and `select_player_sub_program` does the same across platform lists |
+| Parameters | `module::StageParameters` | Either `unity_serialized::shader_program::ProgramParameters`, the editor-style sub program's parameters, or `unity_serialized::shader_parameters::VariantParameters`, which a Unity 6 player stores for each variant. `StageProgram::new` takes either. See below |
+| Keyword variants | `unity_serialized::shader_program::Program` | `variant::select_sub_program` picks the sub program whose keyword set equals the enabled keywords, and `select_player_sub_program` does the same across platform lists. `Program::variant_blobs` and `unity_serialized::shader_parameters::platform_parameters` pair a player variant with its `VariantParameters` |
 | Fixed-function state | `unity_serialized::shader_state::ShaderState` | `state::resolve_state` reads each value from its fixed number or from the first property layer that names it |
 | Properties | `properties::PropertySet` | Layers searched in order; the first layer with a name wins |
 
+## Two forms of parameters
+
+An editor-style sub program describes one stage with a name index for every property and a Unity binding for every resource, in no descriptor set. A player variant describes the whole variant: constant buffers with named members (kind, rows, columns, matrix flag, array size, byte offset) and a typed binding list whose descriptor slots carry the binding, the set and the stages that use the resource. Both reduce to the same internal lists, so layouts, constant buffers and targets have one implementation:
+
+- `source::Source` (crate-private) turns either form into the resources a stage declares, its constant buffers and its textures. Layouts (`declare.rs`, `layout.rs`) and targets (`targets.rs`) read only those lists.
+- `buffers::BufferLayout` is a constant buffer's members in one form: a `ParamName` (an index into the pass's names, or the name itself), a `Kind`, rows, columns, matrix flag, array size and byte offset. `constants::pack_layout` packs it. `pack_constant_buffer` (editor-style) and `pack_variant_buffer` (player) convert and call it.
+- The binding table is `unity_serialized::spirv_prep::ResourceBinding`. A player binding names a set and a binding in Unity's module, before the sampler split, and `entry` finds the table entry with that set and Unity binding. Editor-style bindings name no set, so the Unity binding must be unique across sets (`LayoutError::AmbiguousBinding` otherwise).
+- A texture binding declares the image at the entry's prepared binding. When the entry's combined image sampler was split, the split sampler is declared too. A texture's sampler slot and a sampler binding declare a sampler at the entry's split sampler binding, or else at its own prepared binding. This is why a texture that names its own slot as its sampler, a texture with no sampler slot and a combined image sampler that was split all lay out alike.
+
+### Player bindings
+
+| Binding | Declared as | Notes |
+| --- | --- | --- |
+| Texture, dimension 4, 6, 8, 10 | 2D, 3D, cube, 2D array texture | Measured against the SPIR-V of the Old World player. Not multisampled |
+| Texture, dimension 5 or 11 | `LayoutError::MultisampledTexture` | Measured as a multisampled 2D and a multisampled 2D array image (6 and 3 bindings in the Old World player). This renderer has no multisampled textures |
+| Texture, any other dimension | `LayoutError::UnsupportedParameter` | |
+| Constant buffer | Uniform buffer | Its layout is the `ConstantBuffer` of the same name; `LayoutError::UndescribedBuffer` if there is none |
+| Buffer block | Storage buffer, read-only or not as the module says | |
+| Storage image | `LayoutError::UnsupportedParameter` | One instance in the player |
+| Sampler | Filtering or comparison sampler as the module says | The packed state is not decoded |
+
+The stage mask is checked against the module's stage. Bit 0 is the vertex stage and bit 1 the fragment stage:
+
+- A binding that names other stages only is neither bound nor reported unused, and an unsupported binding among them does not fail the stage.
+- A resource the module uses that the parameters bind for other stages only is `LayoutError::StageMismatch`.
+- A slot's visibility is the stages in its mask plus the module's own stage.
+- A binding that names the stage but that the entry point does not use is reported in `ProgramLayout::unused` and gets no slot.
+- A compute stage has no bit in the mask, because none has been seen, so the mask is not consulted for it.
+
 ## What it does
 
-- **Layouts.** `layout::ProgramLayout::build` merges the stages' resources into one pipeline layout and checks them against Unity's parameters. An unsupported parameter, a resource without a parameter, a parameter of another kind than its resource and stages that declare one binding differently are named errors. A parameter the entry point does not use is reported, not bound.
-- **Constants.** `constants::pack_constant_buffer` writes vectors, matrices and arrays at Unity's byte offsets, a register of 16 bytes apart, sizes the buffer for the shader's needs and reports missing properties, which stay zero. A negative size, a parameter outside the buffer, a struct member and a value kind the packer does not write are named errors. `StageProgram::constant_buffer_targets` and `texture_targets` give the prepared set and binding each parameter fills.
+- **Layouts.** `layout::ProgramLayout::build` merges the stages' resources into one pipeline layout and checks them against Unity's parameters, in either form. An unsupported parameter, a parameter outside the binding table, a resource without a parameter, a parameter of another kind than its resource, a binding for other stages and stages that declare one binding differently are named errors. A parameter the entry point does not use is reported, not bound.
+- **Constants.** `constants::pack_layout` (through `pack_constant_buffer` or `pack_variant_buffer`) writes vectors, matrices and arrays at Unity's byte offsets, a register of 16 bytes apart, sizes the buffer for the shader's needs and reports missing properties, which stay zero. A player variant's members are found by name. A member kind other than float and int, a matrix with fewer than four columns, a negative size, a member outside the buffer and a struct are named errors. `StageProgram::constant_buffer_targets` and `texture_targets` give the prepared set and binding each constant buffer and texture fills, for the stage's own bindings.
 - **Variants.** An exact keyword match selects the sub program. A missing combination is a named error.
 - **State.** Cull, `ZTest`, `ZWrite`, color mask and blend for render target 0 resolve from fixed or property-controlled values. A property no layer has keeps the pass's fixed value and is listed in `ResolvedState::defaulted`. Color and alpha blend resolve separately. Unknown values and state this slice does not draw (stencil that is not off, alpha to coverage, depth bias, conservative rasterisation, depth clip off) are named errors. A draw has one color attachment, so the blend state of render targets 1 to 7 is not read, whether or not the pass sets `separate_blend`.
 - **Draws.** `ProgramRuntime::draw` records non-indexed or indexed triangles with a vertex layout the caller gives, into a color target with an optional depth target. `read_target` records a copy of the pixels. Render and compute pipelines and shader modules are cached by content.
@@ -61,10 +90,11 @@ The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare 
 
 - **Unity sampler state.** Every sampler binding gets one fixed sampler: linear filtering, clamped to the edge. The packed sampler state in the serialized parameters is not decoded, so wrap, filter and anisotropy settings are ignored.
 - **Multisampling, stencil and multiple render targets.** Targets are single-sample with one color attachment and an optional depth attachment. Stencil state is a named error.
-- **Player-variant parameter blobs.** `Program::parameter_blob_indices` are not decoded, so parameters come from the sub programs' own `ProgramParameters`.
+- **Multisampled textures, storage images and compute masks.** Dimension codes 5 and 11 are multisampled images, which are named errors because targets and textures are single-sample. A storage image is a named error. A compute stage's bit in the stage mask has not been seen, so compute ignores the mask.
+- **Player member kinds and matrix shapes.** Only float (0) and int (1) member kinds have been measured, so a bool or unsigned member from a player is a named error although an editor-style one is written. Only matrices of four columns are written; other shapes are named errors until their packing is measured.
 - **Frame planning and composition.** The runtime records where it is told to and owns no pass order or attachments. Having `render-plan`, `render-scene` and `render-post` own the order of passes and the attachments a program draws into is the next step; this crate does not do it yet, and no scene or material system calls the runtime. A target here is a standalone color and depth texture pair that the caller creates and releases.
 - **Budget timing of write staging.** The staging buffer of a recorded `write_buffer` is admitted when it is recorded and released when the call returns, not when the GPU finishes the copy.
-- **Calling shader preparation.** `shader_prep` lives in `unity-import`, which is in the Tool layer, so a Graphics-layer runtime cannot call it. Callers supply the prepared words and binding table.
+- **Calling shader preparation.** `unity_serialized::spirv_prep::prepare` is in the Foundation layer, which this crate may depend on, but the runtime does not call it. Callers supply the prepared words and `PreparedModule::bindings`. `unity-import player-shader-layouts` does this for every Vulkan variant of a player.
 
 ## Tests
 

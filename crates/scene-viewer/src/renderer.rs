@@ -436,6 +436,7 @@ impl Resident {
         }
     }
 
+    #[cfg(test)]
     fn new(
         context: &GpuContext,
         scene: &RenderScene,

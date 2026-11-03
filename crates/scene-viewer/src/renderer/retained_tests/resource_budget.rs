@@ -88,7 +88,7 @@ impl Budgeted {
     }
 
     fn publish(&mut self) -> Result<(), crate::ViewerError> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_mins(1);
         while self.host.ready_generation() != self.host.accepted_generation() {
             self.context.device().poll(wgpu::PollType::Poll).unwrap();
             self.streaming.publish(

@@ -147,6 +147,11 @@ impl Instances {
         self.batches.values().map(InstanceBatch::edits).sum()
     }
 
+    /// Rises whenever any batch stages buffer bytes or allocates a buffer, like `edits`.
+    pub fn content_generation(&self) -> u64 {
+        self.batches.values().map(InstanceBatch::content).sum()
+    }
+
     /// Keeps previous-frame transforms for velocity pipelines.
     pub fn tracking_previous(mut self, track: bool) -> Self {
         self.track_previous = track;

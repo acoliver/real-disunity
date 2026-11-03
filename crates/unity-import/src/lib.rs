@@ -20,6 +20,7 @@ pub mod player_layouts;
 mod player_materials;
 mod player_meshes;
 pub mod player_module_resources;
+pub mod player_module_types;
 pub mod player_objects;
 pub mod player_parameters;
 pub mod player_pipeline;

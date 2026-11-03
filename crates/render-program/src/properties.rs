@@ -14,6 +14,9 @@ pub enum PropertyValue {
     Matrix([f32; 16]),
     VectorArray(Vec<[f32; 4]>),
     MatrixArray(Vec<[f32; 16]>),
+    /// An integer vector; one of fewer components uses the leading ones.
+    IntVector([i32; 4]),
+    IntVectorArray(Vec<[i32; 4]>),
 }
 
 /// Named property values, such as a material's or the globals'.

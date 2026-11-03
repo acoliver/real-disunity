@@ -21,5 +21,6 @@ mod resources;
 pub mod runtime;
 mod source;
 pub mod state;
+pub mod structs;
 pub mod targets;
 pub mod variant;

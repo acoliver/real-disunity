@@ -99,14 +99,31 @@ pub struct Member {
     pub offset: i32,
 }
 
+/// A struct, or an array of structs, in a player's constant buffer. An element's members sit at
+/// offsets from the element's own start, and the elements are `size` bytes apart.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StructArray {
+    pub name: ParamName,
+    /// Where the player says the struct starts. Only 0 has been measured; see
+    /// [`BufferLayout::struct_placement`].
+    pub index: i32,
+    /// The element count, 0 or 1 for a struct that is not an array.
+    pub array_size: i32,
+    /// Bytes from one element to the next.
+    pub size: i32,
+    pub members: Vec<Member>,
+}
+
 /// A constant buffer: its declared size and the members to write.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BufferLayout {
     pub name: ParamName,
     pub size: i32,
     pub members: Vec<Member>,
-    /// The names of the buffer's structs, which the packer does not write.
-    pub structs: Vec<ParamName>,
+    /// The structs of a player's buffer.
+    pub structs: Vec<StructArray>,
+    /// The names of an editor-style buffer's structs, whose layout has not been measured.
+    pub editor_structs: Vec<ParamName>,
 }
 
 impl BufferLayout {
@@ -125,7 +142,8 @@ impl BufferLayout {
             name: ParamName::Index(buffer.name_index),
             size: buffer.size,
             members: vectors.chain(matrices).collect(),
-            structs: buffer
+            structs: Vec::new(),
+            editor_structs: buffer
                 .structs
                 .iter()
                 .map(|s| ParamName::Index(s.name_index))
@@ -140,12 +158,19 @@ impl BufferLayout {
             name: ParamName::Named(buffer.name.clone()),
             size: buffer.size,
             members: buffer.members.iter().map(player_member).collect(),
-            structs: buffer
-                .structs
-                .iter()
-                .map(|s| ParamName::Named(s.name.clone()))
-                .collect(),
+            structs: buffer.structs.iter().map(player_struct).collect(),
+            editor_structs: Vec::new(),
         }
+    }
+}
+
+fn player_struct(layout: &player::StructLayout) -> StructArray {
+    StructArray {
+        name: ParamName::Named(layout.name.clone()),
+        index: layout.index,
+        array_size: layout.array_size,
+        size: layout.size,
+        members: layout.members.iter().map(player_member).collect(),
     }
 }
 

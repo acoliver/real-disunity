@@ -3,7 +3,7 @@
 use wgpu::{BindingType, BufferBindingType, SamplerBindingType, ShaderStages};
 use wgpu::{TextureSampleType, TextureViewDimension};
 use worldrunner_render_program::layout::{LayoutError, ProgramLayout};
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageProgram};
+use worldrunner_render_program::module::{ResourceBinding, StageKind, StageProgram};
 
 use crate::common::{parameters, same, sampler, stage, texture};
 use crate::fixtures::textured;
@@ -15,7 +15,7 @@ const SHADER: &str = "
 @group(0) @binding(0) var<uniform> m: vec4<f32>;
 @vertex fn vs_main() -> @builtin(position) vec4<f32> { return m; }";
 
-fn identity_table() -> Vec<ModuleBinding> {
+fn identity_table() -> Vec<ResourceBinding> {
     (0..4).map(|b| same(0, b)).collect()
 }
 
@@ -86,13 +86,13 @@ fn a_split_combined_sampler_binds_the_sampler_the_table_names() {
     // the sampler binding 2 and moved the draw constants from Unity's 2 to 3.
     let table = vec![
         same(0, 0),
-        ModuleBinding {
+        ResourceBinding {
             set: 0,
             unity_binding: 1,
             binding: 1,
             sampler_binding: Some(2),
         },
-        ModuleBinding {
+        ResourceBinding {
             set: 0,
             unity_binding: 2,
             binding: 3,

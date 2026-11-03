@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::constants::pack_constant_buffer;
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageModule, StageProgram};
+use worldrunner_render_program::module::{ResourceBinding, StageKind, StageModule, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::runtime::{
     BoundResource, DrawRequest, Geometry, GraphicsProgram, ProgramRuntime, TargetImage, VertexInput,
@@ -48,7 +48,7 @@ pub struct Pass {
     pub vertex: Program,
     pub fragment: Program,
     pub blobs: Vec<Vec<u32>>,
-    pub table: Vec<ModuleBinding>,
+    pub table: Vec<ResourceBinding>,
 }
 
 fn vector(name_index: i32, offset: i32) -> ValueParam {
@@ -134,13 +134,13 @@ pub fn pass(samplers: Samplers) -> Pass {
             2,
             vec![
                 same(0, 0),
-                ModuleBinding {
+                ResourceBinding {
                     set: 0,
                     unity_binding: 1,
                     binding: 1,
                     sampler_binding: Some(2),
                 },
-                ModuleBinding {
+                ResourceBinding {
                     set: 0,
                     unity_binding: 2,
                     binding: 3,

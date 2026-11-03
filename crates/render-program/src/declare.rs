@@ -3,7 +3,7 @@
 use worldrunner_unity_serialized::shader_program::{Binding, ProgramParameters, TextureParam};
 
 use crate::layout::LayoutError;
-use crate::module::ModuleBinding;
+use crate::module::ResourceBinding;
 
 /// What kind of resource a parameter declares.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,9 +32,9 @@ fn unsupported(kind: impl Into<String>) -> LayoutError {
 
 /// The table entry for a Unity binding, which must be unique across descriptor sets.
 pub(crate) fn entry(
-    table: &[ModuleBinding],
+    table: &[ResourceBinding],
     unity_binding: i32,
-) -> Result<&ModuleBinding, LayoutError> {
+) -> Result<&ResourceBinding, LayoutError> {
     let wanted = u32::try_from(unity_binding).map_err(|_| LayoutError::UnboundResource {
         unity_binding: i64::from(unity_binding),
     })?;
@@ -66,7 +66,7 @@ fn view_dimension(code: i8) -> Result<wgpu::TextureViewDimension, LayoutError> {
 /// Every resource `parameters` declares, with duplicates merged.
 pub(crate) fn declarations(
     parameters: &ProgramParameters,
-    table: &[ModuleBinding],
+    table: &[ResourceBinding],
 ) -> Result<Vec<Declared>, LayoutError> {
     if !parameters.vectors.is_empty() {
         return Err(unsupported("loose vector"));
@@ -117,7 +117,7 @@ fn declared(set: u32, binding: u32, class: Class) -> Declared {
 }
 
 fn simple(
-    table: &[ModuleBinding],
+    table: &[ResourceBinding],
     binding: &Binding,
     what: &str,
     class: Class,
@@ -131,7 +131,7 @@ fn simple(
 
 /// A texture, and the sampler of a combined image sampler that was split.
 fn texture_declarations(
-    table: &[ModuleBinding],
+    table: &[ResourceBinding],
     texture: &TextureParam,
 ) -> Result<Vec<Declared>, LayoutError> {
     let placed = entry(table, texture.index)?;

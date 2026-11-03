@@ -80,7 +80,7 @@ pub fn opaque_state() -> ShaderState {
 
 use naga::back::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageModule, StageProgram};
+use worldrunner_render_program::module::{ResourceBinding, StageKind, StageModule, StageProgram};
 use worldrunner_unity_serialized::shader_program::{
     Binding, ProgramParameters, SamplerParam, TextureParam,
 };
@@ -100,8 +100,8 @@ pub fn spirv(wgsl: &str) -> Vec<u32> {
 }
 
 /// A binding table entry whose prepared binding is Unity's.
-pub fn same(set: u32, binding: u32) -> ModuleBinding {
-    ModuleBinding {
+pub fn same(set: u32, binding: u32) -> ResourceBinding {
+    ResourceBinding {
         set,
         unity_binding: binding,
         binding,
@@ -150,7 +150,7 @@ pub fn parameters(
 pub fn stage(
     wgsl: &str,
     (entry_point, kind): (&str, StageKind),
-    bindings: Vec<ModuleBinding>,
+    bindings: Vec<ResourceBinding>,
     parameters: ProgramParameters,
 ) -> StageProgram {
     let module = StageModule {

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
+pub use worldrunner_unity_serialized::spirv_prep::ResourceBinding;
 
 pub use crate::reflect::Reflected;
 use crate::reflect::reflect;
@@ -35,26 +36,13 @@ impl StageKind {
     }
 }
 
-/// Where one resource of a prepared module is bound: the same data as the importer's
-/// `ResourceBinding`, which this crate cannot depend on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ModuleBinding {
-    pub set: u32,
-    /// The binding in Unity's module, which parameters refer to.
-    pub unity_binding: u32,
-    /// The binding in the prepared module; for a split combined sampler, the image's.
-    pub binding: u32,
-    /// For a split combined sampler, the sampler's binding in the prepared module.
-    pub sampler_binding: Option<u32>,
-}
-
 /// A prepared stage module: SPIR-V that naga reads, and where its resources are bound.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StageModule {
     pub words: Vec<u32>,
     pub entry_point: String,
     pub kind: StageKind,
-    pub bindings: Vec<ModuleBinding>,
+    pub bindings: Vec<ResourceBinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

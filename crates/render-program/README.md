@@ -9,7 +9,7 @@ The crate takes data that the importer has already prepared. It does not read bu
 | Input | Type | Source |
 | --- | --- | --- |
 | Prepared SPIR-V words and entry point | `module::StageModule` | The shader preparation in `unity-import` |
-| Binding table | `module::ModuleBinding` | Mirrors `unity-import`'s `ResourceBinding`: set, Unity binding, prepared binding and, for a split combined sampler, the sampler's binding |
+| Binding table | `module::ResourceBinding` | `unity_serialized::spirv_prep::ResourceBinding`, re-exported: set, Unity binding, prepared binding and, for a split combined sampler, the sampler's binding |
 | Parameters | `unity_serialized::shader_program::ProgramParameters` | The serialized sub program |
 | Keyword variants | `unity_serialized::shader_program::Program` | `variant::select_sub_program` picks the sub program whose keyword set equals the enabled keywords, and `select_player_sub_program` does the same across platform lists |
 | Fixed-function state | `unity_serialized::shader_state::ShaderState` | `state::resolve_state` reads each value from its fixed number or from the first property layer that names it |

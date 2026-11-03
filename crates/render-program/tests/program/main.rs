@@ -11,5 +11,6 @@ mod frames;
 mod layout;
 mod module;
 mod pass;
+mod ranges;
 mod rig;
 mod state;

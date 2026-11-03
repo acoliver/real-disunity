@@ -495,9 +495,6 @@ impl World {
             if !active {
                 self.lifecycle
                     .edit_script(work.script, |state| state.awake = false);
-                if let Ok(component) = self.component(work.script) {
-                    self.mark_unsettled(component.object);
-                }
                 return None;
             }
             state.entered = EnteredState::Awake;

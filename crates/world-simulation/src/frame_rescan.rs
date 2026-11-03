@@ -25,9 +25,8 @@ pub(crate) struct Unsettled {
 
 impl World {
     /// Notes that a mutation changed what a refresh of `object` would do, without refreshing it.
-    /// The next frame start refreshes it. Callers: registering a script, a script's `Awake`
-    /// finding its object inactive, and publishing a construction (for the published objects
-    /// outside it that sit below the published ones).
+    /// The next frame start refreshes it. Callers: registering a script, and publishing a
+    /// construction (for the published objects that sit below the ones it publishes).
     pub(crate) fn mark_unsettled(&mut self, object: ObjectHandle) {
         self.lifecycle.unsettled.objects.insert(object);
     }

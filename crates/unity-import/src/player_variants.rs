@@ -19,7 +19,7 @@ use crate::{
     PlayerError,
     player_objects::{OpenFile, load_shader, shader_platforms},
     player_parameters::shader_programs,
-    player_shaders::VULKAN,
+    player_shaders::VulkanCensus,
 };
 
 /// A stage module of a variant, as SPIR-V words, with the slot of its stage in the program
@@ -146,12 +146,14 @@ fn walk_platform(
 /// Visits every Vulkan variant of the shaders in `paths`.
 ///
 /// # Errors
-/// Fails if a file cannot be read or a shader does not load; a variant that does not decode is
-/// an [`Event::Unreadable`], not an error.
+/// Fails if a file cannot be read, a shader does not load, or the player has shaders and none
+/// with a Vulkan platform; a variant that does not decode is an [`Event::Unreadable`], not an
+/// error.
 pub fn walk_variants(
     paths: &[PathBuf],
     visit: &mut impl FnMut(Event<'_>),
 ) -> Result<(), PlayerError> {
+    let mut census = VulkanCensus::default();
     for path in paths {
         let mut open = OpenFile::open(path)?;
         let shaders: Vec<i64> = open
@@ -163,7 +165,7 @@ pub fn walk_variants(
             .collect();
         for path_id in shaders {
             let platforms = shader_platforms(&mut open, path_id)?;
-            let Some(platform) = platforms.iter().position(|&kind| kind == VULKAN) else {
+            let Some(platform) = census.platform(&platforms) else {
                 continue;
             };
             visit(Event::Shader);
@@ -171,5 +173,5 @@ pub fn walk_variants(
             walk_platform(&shader, kind, &chunks, visit).map_err(|source| open.error(source))?;
         }
     }
-    Ok(())
+    census.finish()
 }

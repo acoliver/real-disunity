@@ -14,7 +14,40 @@ use crate::{
 };
 
 /// Unity's `ShaderCompilerPlatform` for Vulkan.
-pub(crate) const VULKAN: u32 = 18;
+const VULKAN: u32 = 18;
+
+/// Tells the Vulkan platform of each shader of a player, and whether the player has any.
+/// Every walk that collects a player's Vulkan programs passes its shaders through one census, so
+/// that a player whose shaders have none is named, not read as having no programs.
+#[derive(Debug, Default)]
+pub(crate) struct VulkanCensus {
+    shaders: usize,
+    vulkan: usize,
+}
+
+impl VulkanCensus {
+    /// Counts a shader that lists `platforms`, and gives the index of its Vulkan platform, if any.
+    pub(crate) fn platform(&mut self, platforms: &[u32]) -> Option<usize> {
+        self.shaders += 1;
+        let platform = platforms.iter().position(|&kind| kind == VULKAN);
+        self.vulkan += usize::from(platform.is_some());
+        platform
+    }
+
+    /// Ends the walk.
+    ///
+    /// # Errors
+    /// Fails if the player holds shaders and none has a Vulkan platform. A player without shaders
+    /// is not an error.
+    pub(crate) fn finish(self) -> Result<(), PlayerError> {
+        if self.shaders > 0 && self.vulkan == 0 {
+            return Err(PlayerError::NoSpirvPrograms {
+                shaders: self.shaders,
+            });
+        }
+        Ok(())
+    }
+}
 
 /// Counts over a player's distinct Vulkan stage modules.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -77,10 +110,12 @@ fn prepare_and_check(module: &ShaderModule) -> Result<(PreparedModule, NagaModul
 /// variants share is counted once.
 ///
 /// # Errors
-/// Fails if a file cannot be read, or a shader's modules cannot be decoded; a module that
-/// decodes but does not prepare is counted, not an error.
+/// Fails if a file cannot be read, a shader's modules cannot be decoded, or the player has
+/// shaders and none with a Vulkan platform; a module that decodes but does not prepare is
+/// counted, not an error.
 pub fn shader_report(paths: &[PathBuf]) -> Result<ShaderReport, PlayerError> {
     let mut report = ShaderReport::default();
+    let mut census = VulkanCensus::default();
     let mut seen = HashSet::new();
     for path in paths {
         let mut open = OpenFile::open(path)?;
@@ -93,7 +128,7 @@ pub fn shader_report(paths: &[PathBuf]) -> Result<ShaderReport, PlayerError> {
             .collect();
         for path_id in shaders {
             let platforms = shader_platforms(&mut open, path_id)?;
-            let Some(platform) = platforms.iter().position(|&kind| kind == VULKAN) else {
+            let Some(platform) = census.platform(&platforms) else {
                 continue;
             };
             report.shaders += 1;
@@ -109,5 +144,6 @@ pub fn shader_report(paths: &[PathBuf]) -> Result<ShaderReport, PlayerError> {
             }
         }
     }
+    census.finish()?;
     Ok(report)
 }

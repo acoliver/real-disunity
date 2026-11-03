@@ -633,6 +633,34 @@ fn a_changed_mesh_is_sent_with_its_latest_contents_on_the_next_send() {
         [3000, 0, 0]
     );
     assert!(sent.edits.is_empty());
+    for frame in frames(&mut tables, &objects, &shown, 2 * RESOURCE_INTERVAL) {
+        assert!(frame.resources.is_none(), "the change is sent once");
+    }
+}
+
+#[test]
+fn a_changed_texture_is_sent_with_its_latest_texels_on_the_next_send() {
+    let mut tables = SceneTables::new().unwrap();
+    let mut shown = content(&[100]);
+    shown.textures.insert(5, texture(10));
+    let view = with_slot(object(1, 100, at(0., 0., 0.)), slot([1.; 4], 5));
+    let objects = [view];
+    update(&mut tables, &objects, &shown);
+    shown.textures.insert(5, texture(77));
+    let changed = Changes {
+        meshes: BTreeSet::new(),
+        textures: [5].into(),
+    };
+    let wait = tables.update(&objects, &shown, &changed).unwrap();
+    assert!(wait.resources.is_none());
+    let sent = until_sent(&mut tables, &objects, &shown, 1);
+    let (resources, _) = sent.resources.expect("the changed texture is sent");
+    assert_eq!(resources.textures().len(), 2);
+    assert_eq!(resources.textures()[1], texture(77));
+    assert!(sent.edits.is_empty());
+    for frame in frames(&mut tables, &objects, &shown, 2 * RESOURCE_INTERVAL) {
+        assert!(frame.resources.is_none(), "the change is sent once");
+    }
 }
 
 #[test]

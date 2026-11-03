@@ -75,8 +75,8 @@ pub struct SceneTables {
     /// What the viewer shows for each object identity.
     placed: BTreeMap<u64, (ObjectId, SceneObject)>,
     next_id: u64,
-    /// How many textures, materials and meshes the viewer holds. Handles at or past these are in
-    /// the tables only.
+    /// How many materials and meshes the viewer holds. Handles at or past these are in the
+    /// tables only. A new texture always comes with a new material, so no texture count is kept.
     sent: SentCounts,
     /// Meshes and textures the viewer holds whose contents changed since the last send.
     stale: Changes,
@@ -88,7 +88,6 @@ pub struct SceneTables {
 
 #[derive(Clone, Copy, Debug)]
 struct SentCounts {
-    textures: usize,
     materials: usize,
     meshes: usize,
 }
@@ -140,7 +139,6 @@ impl SceneTables {
             placed: BTreeMap::new(),
             next_id: 0,
             sent: SentCounts {
-                textures: 1,
                 materials: 1,
                 meshes: 0,
             },
@@ -217,7 +215,6 @@ impl SceneTables {
     fn unsent_changes(&self) -> bool {
         !self.stale.meshes.is_empty()
             || !self.stale.textures.is_empty()
-            || self.textures.len() > self.sent.textures
             || self.materials.len() > self.sent.materials
             || self.meshes.len() > self.sent.meshes
     }
@@ -234,7 +231,6 @@ impl SceneTables {
         self.take_stale_contents(content);
         let resources = SceneResources::new(self.textures.clone(), self.materials.clone())?;
         self.sent = SentCounts {
-            textures: self.textures.len(),
             materials: self.materials.len(),
             meshes: self.meshes.len(),
         };

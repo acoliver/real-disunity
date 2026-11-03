@@ -15,9 +15,14 @@ mod bc7_tests;
 mod block_texture;
 mod driver;
 mod keys;
+mod navigation;
 mod player;
+mod player_meshes;
 mod player_textures;
 mod prepare;
+mod retained_driver;
+mod scene_tables;
+mod scene_transform;
 mod textures;
 #[cfg(test)]
 mod textures_tests;
@@ -26,7 +31,11 @@ mod unresolved;
 pub use driver::{Capture, PlayDriver};
 pub use keys::key_code;
 pub use player::{PreparedPlayer, prepare_player, run_player};
+pub use player_meshes::{
+    MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,
+};
 pub use prepare::{Prepared, prepare};
+pub use retained_driver::{PlayerWindow, ScheduledKey, play_player_window};
 pub use worldrunner_original_games::Game;
 
 use std::path::PathBuf;

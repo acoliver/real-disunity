@@ -87,6 +87,8 @@ pub struct DisunityPresentation {
     pub present: u32,
     pub quads: u32,
     pub textures: u32,
+    /// How many mesh renderers the frame shows; read them with `disunity_presentation_mesh_object`.
+    pub mesh_objects: u32,
     pub width: u32,
     pub height: u32,
     /// 0 for an orthographic lens, 1 for a perspective lens.
@@ -166,7 +168,10 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
     }
     mutate(world, |s| {
         use worldrunner_world_simulation::{
-            presentation::extraction::{SpriteTextures, append_ui_from, extract_world},
+            presentation::{
+                extraction::{SpriteTextures, append_ui_from, extract_world},
+                mesh_objects::extract_mesh_objects,
+            },
             ui::{append_graphics, contribution::extract_ui, extract_graphics},
         };
 
@@ -176,6 +181,8 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             .map_err(crate::errors::AbiError::from)?;
         let graphics =
             extract_graphics(&s.native, &ui.layout).map_err(crate::errors::AbiError::from)?;
+        let mesh_objects =
+            extract_mesh_objects(&s.native).map_err(crate::errors::AbiError::from)?;
         note_left_out_triangles(s, &graphics);
         // Graphics go in first, so the engine's own text of the same sorting key draws over them.
         append_graphics(&mut plan, graphics)
@@ -189,6 +196,8 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             height,
             quads: u32::try_from(plan.quads.len()).map_err(|_| "quad count overflow")?,
             textures: u32::try_from(plan.textures.len()).map_err(|_| "texture count overflow")?,
+            mesh_objects: u32::try_from(mesh_objects.len())
+                .map_err(|_| "mesh object count overflow")?,
             r: plan.clear[0],
             g: plan.clear[1],
             b: plan.clear[2],
@@ -203,6 +212,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             write_lens(&mut header, state.lens);
         }
         s.presentation = Some(plan);
+        s.mesh_objects = mesh_objects;
         unsafe {
             *output = header;
         }
@@ -356,6 +366,73 @@ pub unsafe extern "C" fn disunity_presentation_coverage(
         }
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), bytes, data.len());
+        }
+        Ok(())
+    })
+}
+
+/// One mesh renderer of the last prepared frame. `mesh` is the renderer identity of the mesh
+/// contents (see `disunity_mesh_read`), `object` the object's identity, and `slot_count` the
+/// number of records `disunity_presentation_mesh_object` copies out.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityMeshObject {
+    pub object: u64,
+    pub mesh: u64,
+    pub slot_count: u32,
+}
+
+/// Copies out mesh object `index` of the last prepared frame: the record, its matrix from mesh
+/// coordinates to the frame's view basis, and its slots when `capacity` is nonzero (a capacity
+/// below `slot_count` is rejected).
+///
+/// # Safety
+/// `output` and `matrix` are writable for one record; `slots` is writable for `capacity` records,
+/// or null when `capacity` is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_presentation_mesh_object(
+    world: u64,
+    index: u32,
+    output: *mut DisunityMeshObject,
+    matrix: *mut DisunityMatrix,
+    slots: *mut crate::mesh_renderer::DisunityDrawnMaterial,
+    capacity: u32,
+) -> DisunityResult {
+    if output.is_null() || matrix.is_null() || (capacity != 0 && slots.is_null()) {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let found = s
+            .mesh_objects
+            .get(index as usize)
+            .ok_or("presentation mesh object index out of range")?;
+        let slot_count =
+            u32::try_from(found.slots.len()).map_err(|_| "mesh object slot count overflow")?;
+        if capacity != 0 && capacity < slot_count {
+            return Err("mesh object slot capacity is too small".into());
+        }
+        unsafe {
+            *output = DisunityMeshObject {
+                object: s.objects.id_of(found.object).unwrap_or(0),
+                mesh: found.mesh,
+                slot_count,
+            };
+            *matrix = DisunityMatrix::from(found.local_to_world);
+            if capacity != 0 {
+                for (position, slot) in found.slots.iter().enumerate() {
+                    let [r, g, b, a] = slot.color;
+                    let texture = slot.texture;
+                    slots
+                        .add(position)
+                        .write(crate::mesh_renderer::DisunityDrawnMaterial {
+                            r,
+                            g,
+                            b,
+                            a,
+                            texture,
+                        });
+                }
+            }
         }
         Ok(())
     })

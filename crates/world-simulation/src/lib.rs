@@ -48,7 +48,7 @@ pub use mesh_instance::{
     MAX_INSTANCE_LODS, MAX_INSTANCE_MATERIALS, MAX_TINT_CHANNEL, MaterialId, MeshId, MeshInstance,
 };
 pub use mesh_renderer::{
-    MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
+    DrawnMaterial, MAX_RENDERER_MATERIALS, MeshFilter, MeshRenderer, RendererKind, RendererSwitches,
 };
 pub use sorting_group::SortingGroup;
 mod clone;

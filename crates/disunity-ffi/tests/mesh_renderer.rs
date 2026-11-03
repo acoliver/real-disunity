@@ -194,3 +194,127 @@ fn null_pointers_unknown_kinds_and_other_components_are_rejected() {
         0
     );
 }
+
+const PLAYER_TEXTURE: u64 = 1 << 40;
+const PLAYER_MESH: u64 = 1 << 41;
+
+fn slot(r: f32, texture: u64) -> DisunityDrawnMaterial {
+    DisunityDrawnMaterial {
+        r,
+        g: 0.5,
+        b: 0.25,
+        a: 1.0,
+        texture,
+    }
+}
+
+fn write_slots(world: u64, renderer: u64, slots: &[DisunityDrawnMaterial]) -> DisunityResult {
+    let pointer = if slots.is_empty() {
+        std::ptr::null()
+    } else {
+        slots.as_ptr()
+    };
+    unsafe { disunity_mesh_renderer_slots_write(world, renderer, pointer, slots.len() as u32) }
+}
+
+fn read_slots(world: u64, renderer: u64, capacity: usize) -> (u32, Vec<DisunityDrawnMaterial>) {
+    let mut slots = vec![DisunityDrawnMaterial::default(); capacity];
+    let mut count = 99;
+    let pointer = if capacity == 0 {
+        std::ptr::null_mut()
+    } else {
+        slots.as_mut_ptr()
+    };
+    let result = unsafe {
+        disunity_mesh_renderer_slots_read(world, renderer, pointer, capacity as u32, &mut count)
+    };
+    assert_eq!(result.code, 0);
+    (count, slots)
+}
+
+fn with_material_count(world: u64, renderer: u64, count: u32) {
+    let mut value = read(world, renderer);
+    value.material_count = count;
+    assert_eq!(write(world, renderer, &value).code, 0);
+}
+
+#[test]
+fn slots_round_trip_and_replace_each_other() {
+    let (world, _, renderer) = renderer_of_kind(0);
+    with_material_count(world, renderer, 3);
+    assert_eq!(read_slots(world, renderer, 0).0, 0);
+    let first = [slot(0.1, PLAYER_TEXTURE), slot(2.0, 0)];
+    assert_eq!(write_slots(world, renderer, &first).code, 0);
+    assert_eq!(read_slots(world, renderer, 2), (2, first.to_vec()));
+    assert_eq!(read_slots(world, renderer, 0).0, 2);
+    assert_eq!(write_slots(world, renderer, &[slot(0.7, 0)]).code, 0);
+    assert_eq!(read_slots(world, renderer, 1), (1, vec![slot(0.7, 0)]));
+}
+
+#[test]
+fn slots_beyond_the_material_count_or_not_drawable_are_rejected_and_change_nothing() {
+    let (world, _, renderer) = renderer_of_kind(0);
+    with_material_count(world, renderer, 1);
+    assert_eq!(write_slots(world, renderer, &[slot(0.5, 0)]).code, 0);
+    let too_many = [slot(0.1, 0), slot(0.2, 0)];
+    let negative = [slot(-0.1, 0)];
+    let not_a_number = [slot(f32::NAN, 0)];
+    let low_texture = [slot(0.1, PLAYER_TEXTURE - 1)];
+    for bad in [&too_many[..], &negative, &not_a_number, &low_texture] {
+        assert_ne!(write_slots(world, renderer, bad).code, 0);
+        assert_eq!(read_slots(world, renderer, 1), (1, vec![slot(0.5, 0)]));
+    }
+    let null = unsafe { disunity_mesh_renderer_slots_write(world, renderer, std::ptr::null(), 1) };
+    assert_ne!(null.code, 0);
+}
+
+#[test]
+fn a_settings_write_keeps_the_slots_and_a_lower_material_count_drops_the_extra_ones() {
+    let (world, _, renderer) = renderer_of_kind(0);
+    with_material_count(world, renderer, 2);
+    write_slots(world, renderer, &[slot(0.1, 0), slot(0.2, 0)]);
+    let mut value = read(world, renderer);
+    value.sorting_order = 4;
+    assert_eq!(write(world, renderer, &value).code, 0);
+    assert_eq!(read_slots(world, renderer, 2).0, 2);
+    with_material_count(world, renderer, 1);
+    assert_eq!(read_slots(world, renderer, 1), (1, vec![slot(0.1, 0)]));
+}
+
+#[test]
+fn the_drawn_mesh_of_a_filter_is_set_apart_and_naming_another_mesh_resets_it() {
+    let (world, object) = world_and_object();
+    let mut filter = 0;
+    assert_eq!(
+        unsafe { disunity_mesh_filter_create(world, object, &mut filter) }.code,
+        0
+    );
+    assert_eq!(disunity_mesh_filter_write(world, filter, 7).code, 0);
+    assert_eq!(
+        disunity_mesh_filter_drawn_write(world, filter, PLAYER_MESH + 1).code,
+        0
+    );
+    assert_eq!(disunity_mesh_filter_write(world, filter, 7).code, 0);
+    assert_eq!(
+        drawn_mesh(world, filter),
+        PLAYER_MESH + 1,
+        "naming the same mesh keeps it"
+    );
+    assert_eq!(disunity_mesh_filter_write(world, filter, 8).code, 0);
+    assert_eq!(drawn_mesh(world, filter), 0);
+    assert_ne!(
+        disunity_mesh_filter_drawn_write(world, filter, PLAYER_MESH - 1).code,
+        0
+    );
+    assert_ne!(
+        disunity_mesh_filter_drawn_write(world, 12345, PLAYER_MESH).code,
+        0
+    );
+}
+
+fn drawn_mesh(world: u64, filter: u64) -> u64 {
+    let mut identity = 99;
+    let result = unsafe { disunity_mesh_filter_drawn_read(world, filter, &mut identity) };
+    assert_eq!(result.code, 0);
+    identity
+}

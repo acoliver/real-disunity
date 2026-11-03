@@ -8,7 +8,9 @@ namespace UnityEngine;
 /// instance id, so a clone from <c>Instantiate</c> names the same mesh. The component also keeps the mesh alive.
 /// <see cref="mesh"/> gives the filter its own copy of the shared mesh on first use, named "&lt;name&gt; Instance",
 /// assigns it as the shared mesh and returns the same copy afterwards. Setting <see cref="mesh"/> assigns the shared
-/// mesh (the engine's choice), so the next read makes a copy of it. Nothing draws the mesh yet.
+/// mesh (the engine's choice), so the next read makes a copy of it. Assigning a mesh also gives it a renderer
+/// identity and stores its contents for the host (see <see cref="Mesh"/>); the presentation lists the renderers
+/// whose filters hold such a mesh. Nothing draws them yet.
 /// </summary>
 public sealed class MeshFilter : NativeComponent
 {
@@ -36,6 +38,7 @@ public sealed class MeshFilter : NativeComponent
             var id = CanvasRenderer.IdOf(value, nameof(value));
             DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_filter_write(DisunityHost.WorldHandle, Handle, id));
             _mesh = value;
+            DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_filter_drawn_write(DisunityHost.WorldHandle, Handle, value?.RendererIdentity ?? 0));
         }
     }
 

@@ -345,6 +345,41 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_filter_write(ulong world, ulong handle, ulong mesh);
         /// <summary>
+        ///  Sets the renderer identity the host knows the filter's mesh contents by; 0 for none. A
+        ///  nonzero identity must be a player mesh identity. Naming another mesh with
+        ///  `disunity_mesh_filter_write` resets it.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_drawn_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_filter_drawn_write(ulong world, ulong handle, ulong identity);
+        /// <summary>
+        ///  Reads the renderer identity the host knows the filter's mesh contents by, 0 for none.
+        ///  # Safety
+        ///  Output is writable for one identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_filter_drawn_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_filter_drawn_read(ulong world, ulong handle, ulong* output);
+        /// <summary>
+        ///  Replaces what the host draws each material slot with. `count` is at most the renderer's
+        ///  `material_count`; slots past it draw white and untextured. Colour channels must be finite and
+        ///  not negative, and a nonzero texture must be a player texture identity. A rejected call changes
+        ///  nothing.
+        ///
+        ///  # Safety
+        ///  `slots` is readable for `count` records, or null when `count` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slots_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_renderer_slots_write(ulong world, ulong handle, DisunityDrawnMaterial* slots, uint count);
+        /// <summary>
+        ///  Reads the slots the host draws with into `slots` (up to `capacity` records) and writes how
+        ///  many the renderer holds to `count`.
+        ///
+        ///  # Safety
+        ///  `slots` is writable for `capacity` records, or null when `capacity` is zero; `count` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_slots_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_renderer_slots_read(ulong world, ulong handle, DisunityDrawnMaterial* slots, uint capacity, uint* count);
+        /// <summary>
         ///  # Safety
         ///  Output is writable for one SortingGroup record.
         /// </summary>
@@ -510,6 +545,17 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_presentation_coverage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_presentation_coverage(ulong world, uint index, DisunityCoverage* output, byte* bytes, uint capacity);
+        /// <summary>
+        ///  Copies out mesh object `index` of the last prepared frame: the record, its matrix from mesh
+        ///  coordinates to the frame's view basis, and its slots when `capacity` is nonzero (a capacity
+        ///  below `slot_count` is rejected).
+        ///
+        ///  # Safety
+        ///  `output` and `matrix` are writable for one record; `slots` is writable for `capacity` records,
+        ///  or null when `capacity` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_mesh_object", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_mesh_object(ulong world, uint index, DisunityMeshObject* output, DisunityMatrix* matrix, DisunityDrawnMaterial* slots, uint capacity);
         [DllImport(__DllName, EntryPoint = "disunity_abi_check", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_abi_check(uint revision);
         /// <summary>
@@ -696,51 +742,5 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
         [DllImport(__DllName, EntryPoint = "disunity_coroutine_stop", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_coroutine_stop(ulong world, ulong routine);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one identity, or zero when the queue is empty.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_cancelled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_cancelled(ulong world, ulong* output);
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_ready", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_ready(ulong world, ulong identity);
-        [DllImport(__DllName, EntryPoint = "disunity_input_push", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_input_push(ulong world, ulong num, ulong den, uint kind, uint code, float value);
-        /// <summary>
-        ///  # Safety
-        ///  `keys` and `axis` are writable for one value each.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_input_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_input_read(ulong world, uint phase, uint code, uint* keys, float* axis);
-        /// <summary>
-        ///  # Safety
-        ///  `bytes` spans `length` readable bytes; `config` points to one readable record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_input_axis_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_input_axis_register(ulong world, uint id, byte* bytes, uint length, DisunityInputAxis* config);
-        /// <summary>
-        ///  # Safety
-        ///  `bytes` spans `length` readable bytes; `output` is writable for one value.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_input_axis_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_input_axis_read(ulong world, uint phase, byte* bytes, uint length, uint raw, float* output);
-        /// <summary>
-        ///  # Safety
-        ///  `bytes` spans `length` readable bytes; `output` is writable for one ID.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_input_axis_id", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_input_axis_id(ulong world, byte* bytes, uint length, uint* output);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one identity.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_physics_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_physics_create(ulong world, ulong @object, uint kind, ulong* output);
-        /// <summary>
-        ///  # Safety
-        ///  `value` points to one readable body record.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_body_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_body_write(ulong world, ulong handle, DisunityBody2d* value);
     }
 }

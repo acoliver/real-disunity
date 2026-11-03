@@ -205,6 +205,17 @@ CheckImport("disunity_canvas_renderer_geometry_write", u64, u64, AbiType("Disuni
 CheckImport("disunity_canvas_renderer_texture_write", u64, u64, u64);
 CheckImport("disunity_canvas_renderer_geometry_read", u64, u64, AbiType("DisunityUiGraphicInfo").MakePointerType(), AbiType("DisunityUiVertex").MakePointerType(), u32);
 CheckImport("disunity_texture_read", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
+var meshInfo = AbiType("DisunityMeshInfo").MakePointerType();
+var meshVertices = AbiType("DisunityMeshVertex").MakePointerType();
+var meshRuns = AbiType("DisunityMeshSubMesh").MakePointerType();
+var drawnSlots = AbiType("DisunityDrawnMaterial").MakePointerType();
+CheckImport("disunity_mesh_store", u64, u64, meshInfo, meshVertices, u32.MakePointerType(), meshRuns);
+CheckImport("disunity_mesh_read", u64, u64, meshInfo, meshVertices, u32.MakePointerType(), meshRuns);
+CheckImport("disunity_mesh_filter_drawn_write", u64, u64, u64);
+CheckImport("disunity_mesh_filter_drawn_read", u64, u64, u64.MakePointerType());
+CheckImport("disunity_mesh_renderer_slots_write", u64, u64, drawnSlots, u32);
+CheckImport("disunity_mesh_renderer_slots_read", u64, u64, drawnSlots, u32, u32.MakePointerType());
+CheckImport("disunity_presentation_mesh_object", u64, u32, AbiType("DisunityMeshObject").MakePointerType(), AbiType("DisunityMatrix").MakePointerType(), drawnSlots, u32);
 CheckImport("disunity_face_load", u64, bytes, u32, u32, f32, u64.MakePointerType());
 CheckImport("disunity_face_unload", u64, u64);
 CheckImport("disunity_face_set_size", u64, u64, f32);
@@ -273,6 +284,7 @@ SpriteTests.Run();
 SpriteAtlasTests.Run();
 PlayerSpriteTests.Run();
 PlayerTextureStoreTests.Run();
+PlayerMeshStoreTests.Run();
 
 EnabledTests.Run();
 PlayerServiceTests.Run();

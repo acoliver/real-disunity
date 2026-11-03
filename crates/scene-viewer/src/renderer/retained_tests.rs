@@ -1,3 +1,4 @@
+mod resource_budget;
 mod resource_edits;
 mod shadow_direction;
 #[test]

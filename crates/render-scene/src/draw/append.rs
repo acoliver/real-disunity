@@ -17,7 +17,7 @@ use worldrunner_render_plan::{
 
 use super::resources::{GroupInputs, material_group, table_index, upload_meshes, upload_textures};
 use super::visibility::MeshSelection;
-use super::{DrawError, SceneGpu, descriptors, prepared};
+use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
 use crate::renderer::ScenePipelines;
 use crate::texture::{OwnedPreparedTexture, prepare_texture};
 use crate::upload::{upload_buffer, upload_texture};
@@ -118,6 +118,26 @@ impl PreparedAppend {
     }
 }
 
+impl PreparedScene {
+    /// The device storage the whole scene keeps resident: every plain texture and mesh, counted
+    /// as an append counts them, and the specular cubes. The presentation budget reserves this
+    /// when the scene is built and again for a full rebuild, so appended resources stay counted.
+    #[must_use]
+    pub fn resident_allocations(&self) -> AllocationSet {
+        let mut set = super::source_environment::resident_allocations(&self.scene);
+        let sources = self.scene.resources().textures();
+        for (source, texture) in sources.iter().zip(&self.textures) {
+            if !matches!(source.payload(), SceneTexture::SpecularCube(_)) {
+                texture_allocation(&mut set, &texture.as_prepared());
+            }
+        }
+        for mesh in &self.meshes {
+            mesh_allocations(&mut set, mesh);
+        }
+        set
+    }
+}
+
 fn texture_features(textures: &[OwnedPreparedTexture]) -> wgpu::Features {
     textures
         .iter()
@@ -129,7 +149,7 @@ fn texture_features(textures: &[OwnedPreparedTexture]) -> wgpu::Features {
 fn texture_allocation(set: &mut AllocationSet, texture: &crate::texture::PreparedTexture<'_>) {
     let mips = u32::try_from(texture.mips().len()).unwrap_or(u32::MAX);
     set.texture(
-        "appended material texture",
+        "scene material texture",
         [texture.width(), texture.height(), 1],
         texture.format(),
         [mips, 1],
@@ -140,9 +160,9 @@ fn texture_allocation(set: &mut AllocationSet, texture: &crate::texture::Prepare
 fn mesh_allocations(set: &mut AllocationSet, mesh: &prepared::PreparedMesh) {
     for lod in &mesh.lods {
         let buffers = [
-            ("appended mesh vertices", Some(&lod.vertices)),
-            ("appended mesh indices", Some(&lod.indices)),
-            ("appended mesh card complement", lod.transition.as_ref()),
+            ("scene mesh vertices", Some(&lod.vertices)),
+            ("scene mesh indices", Some(&lod.indices)),
+            ("scene mesh card complement", lod.transition.as_ref()),
         ];
         for (name, bytes) in buffers {
             if let Some(bytes) = bytes.filter(|bytes| !bytes.is_empty()) {

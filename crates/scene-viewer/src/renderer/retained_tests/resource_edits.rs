@@ -222,7 +222,7 @@ fn an_append_counts_only_its_own_bytes_as_uploaded() {
     );
 }
 
-fn large_texture() -> worldrunner_render_plan::SceneTexture {
+pub(super) fn large_texture() -> worldrunner_render_plan::SceneTexture {
     worldrunner_render_plan::SceneTexture::Texels {
         format: TexelFormat::Rgba8Unorm,
         color_space: TextureColorSpace::Srgb,
@@ -233,7 +233,10 @@ fn large_texture() -> worldrunner_render_plan::SceneTexture {
     }
 }
 
-fn budgeted_presentation(context: &GpuContext, headroom: u64) -> crate::presentation::Presentation {
+pub(super) fn budgeted_presentation(
+    context: &GpuContext,
+    headroom: u64,
+) -> crate::presentation::Presentation {
     let size = Viewport {
         width: 64,
         height: 64,

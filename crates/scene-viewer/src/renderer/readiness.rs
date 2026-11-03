@@ -184,7 +184,7 @@ impl Streaming {
         };
         if let Some(prepared) = scene {
             let source = prepared.scene().clone();
-            let reservation = presentation.prepare_scene(context, &source)?;
+            let reservation = presentation.prepare_scene(context, &prepared)?;
             let mut next = self.prepare_retained_scene(context, prepared, resident.scene_mut())?;
             next.scene_mut()
                 .retain_resource_reservation(reservation.resident);

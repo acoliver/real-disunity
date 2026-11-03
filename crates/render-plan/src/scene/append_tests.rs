@@ -329,3 +329,79 @@ fn replacing_a_mesh_keeps_handles_and_checks_its_material_slots() {
     ));
     assert_eq!(scene.geometry().meshes()[0], mesh_with_slot(0));
 }
+
+fn appended_tables() -> (SceneAppend, RenderScene) {
+    let append = SceneAppend {
+        textures: vec![texture(30)],
+        materials: vec![material_on(1), material_on(2)],
+        meshes: vec![mesh(), mesh_with_slot(2)],
+    };
+    let full = build(
+        vec![texture(10), texture(20), texture(30)],
+        vec![material_on(0), material_on(1), material_on(2)],
+        vec![mesh(), mesh(), mesh_with_slot(2)],
+    );
+    (append, full)
+}
+
+#[test]
+fn a_clone_appended_to_equals_an_independently_built_scene_and_leaves_the_original_alone() {
+    let original = base();
+    let mut clone = original.clone();
+    assert_eq!(clone, original);
+    let (append, full) = appended_tables();
+    clone.append_resources(append).unwrap();
+    assert_eq!(clone, full);
+    assert_eq!(clone.geometry().meshes(), full.geometry().meshes());
+    assert_eq!(clone.resources(), full.resources());
+    assert_eq!(original, base());
+    assert_eq!(original.geometry().meshes().len(), 1);
+    assert_eq!(original.resources().textures().len(), 2);
+    assert_ne!(clone, original);
+}
+
+#[test]
+fn appending_to_the_original_leaves_an_earlier_clone_alone() {
+    let mut original = base();
+    let clone = original.clone();
+    let (append, full) = appended_tables();
+    original.append_resources(append).unwrap();
+    assert_eq!(original, full);
+    assert_eq!(clone, base());
+}
+
+#[test]
+fn a_clone_with_a_replaced_mesh_leaves_the_original_alone() {
+    let original = base();
+    let mut clone = original.clone();
+    clone
+        .replace_mesh(MeshHandle::from_raw(0), mesh_with_slot(0))
+        .unwrap();
+    let expected = build(
+        vec![texture(10), texture(20)],
+        vec![material_on(0)],
+        vec![mesh_with_slot(0)],
+    );
+    assert_eq!(clone, expected);
+    assert_eq!(original, base());
+}
+
+#[test]
+fn clones_of_an_appended_scene_compare_equal_and_diverge_independently() {
+    let mut scene = base();
+    let (append, full) = appended_tables();
+    scene.append_resources(append).unwrap();
+    let mut first = scene.clone();
+    let second = scene.clone();
+    assert_eq!(first, second);
+    first
+        .append_resources(SceneAppend {
+            meshes: vec![mesh()],
+            ..SceneAppend::default()
+        })
+        .unwrap();
+    assert_ne!(first, second);
+    assert_eq!(first.geometry().meshes().len(), 4);
+    assert_eq!(second, full);
+    assert_eq!(scene, full);
+}

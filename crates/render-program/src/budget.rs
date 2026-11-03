@@ -86,12 +86,19 @@ impl Ledger {
 
     /// Makes `backing` the reservation later allocations are made under and returns the id
     /// that closes it again.
-    pub(crate) fn open_arena(&self, backing: Backing) -> u64 {
+    ///
+    /// # Errors
+    /// Fails when allocations made before any arena are still held, since the reservation could
+    /// not cover them and would be given back while they are live.
+    pub(crate) fn open_arena(&self, backing: Backing) -> Result<u64, ProgramError> {
         let mut held = lock(&self.0);
+        if matches!(held.arena, Arena::None) && !held.sets.is_empty() {
+            return Err(ProgramError::ArenaAfterAllocations { live: held.bytes });
+        }
         held.arenas += 1;
         let id = held.arenas;
         held.arena = Arena::Open { id, backing };
-        id
+        Ok(id)
     }
 
     /// Stops admitting allocations under arena `id`, unless a newer arena has replaced it.

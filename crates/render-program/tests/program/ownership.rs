@@ -123,6 +123,59 @@ fn a_reservation_with_nothing_live_is_given_back_when_the_arena_retires() {
 }
 
 #[test]
+fn an_arena_is_refused_by_name_on_a_runtime_that_allocated_before_it_and_the_reservation_goes_back()
+{
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let early = runtime.create_buffer("before the arena", &[0; 16]).unwrap();
+    let reservation = renderer
+        .configuration
+        .reserve::<()>(&renderer.limits, ProgramRuntime::arena_allocations(ARENA))
+        .unwrap();
+    assert_eq!(renderer.held(), ARENA);
+
+    assert_eq!(
+        runtime.open_arena(reservation).unwrap_err(),
+        ProgramError::ArenaAfterAllocations { live: 16 }
+    );
+    assert_eq!(
+        renderer.held(),
+        0,
+        "no arena covers the live buffer, so the refused reservation was not kept for it"
+    );
+    assert_eq!(runtime.live_bytes(), 16, "the refusal left the buffer live");
+
+    assert!(runtime.release_buffer(early).unwrap());
+    runtime.collect();
+    let mut arena = renderer.arena(&runtime);
+    assert_eq!(renderer.held(), ARENA, "an empty runtime takes an arena");
+    arena.retire().unwrap();
+    assert_eq!(renderer.held(), 0);
+}
+
+#[test]
+fn a_second_arena_opens_over_allocations_the_first_covers() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let first = renderer.arena(&runtime);
+    let buffer = runtime.create_buffer("under the first", &[0; 16]).unwrap();
+
+    drop(first);
+    let mut second = renderer.arena(&runtime);
+    assert_eq!(
+        renderer.held(),
+        2 * ARENA,
+        "the first arena's reservation stays for the live buffer"
+    );
+    second.retire().unwrap();
+    assert!(runtime.release_buffer(buffer).unwrap());
+    runtime.collect();
+    assert_eq!(renderer.held(), 0);
+}
+
+#[test]
 fn a_newer_arena_does_not_end_what_an_older_one_admitted() {
     let gpu = Gpu::new();
     let mut renderer = Renderer::new(&gpu);

@@ -131,16 +131,20 @@ impl ProgramRuntime {
     }
 
     /// Opens an arena over the renderer's `reservation`, owned through this runtime's
-    /// submission authority. Allocations made from now on hold a share of the reservation;
-    /// those made earlier are not covered by it.
+    /// submission authority. Every allocation made from now on holds a share of the reservation.
+    /// Open the first arena before the runtime allocates anything: storage allocated earlier
+    /// has no share of it. Allocations made under an earlier arena keep that arena's share.
     ///
     /// # Errors
     /// Fails when the reservation is smaller than the runtime's budget, since the runtime could
-    /// then hold storage nobody reserved.
+    /// then hold storage nobody reserved, and with `ArenaAfterAllocations` when the runtime
+    /// still holds allocations made before any arena, whether live or released but not yet
+    /// collected. The reservation is dropped, so the renderer's bytes are counted no longer.
     pub fn open_arena(
         &self,
         reservation: AllocationReservation,
     ) -> Result<ProgramArena, ProgramError> {
+        self.collect();
         let arena = reservation
             .bytes(&self.device.limits())
             .map_err(ProgramError::InvalidAllocation)?;
@@ -151,7 +155,7 @@ impl ProgramRuntime {
             });
         }
         let backing = Arc::new(reservation);
-        let id = self.ledger.open_arena(backing.clone());
+        let id = self.ledger.open_arena(backing.clone())?;
         Ok(ProgramArena {
             owner: FrameOwner::new(Hold { _backing: backing }, &self.authority),
             ledger: self.ledger.clone(),

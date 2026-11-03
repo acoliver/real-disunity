@@ -67,6 +67,10 @@ pub enum ProgramError {
     OverBudget { required: u64, budget: u64 },
     #[error("the runtime may hold {budget} bytes and the arena reserves {arena}")]
     ArenaTooSmall { budget: u64, arena: u64 },
+    #[error(
+        "the runtime already holds {live} bytes allocated before any arena, which the arena's reservation would not cover"
+    )]
+    ArenaAfterAllocations { live: u64 },
     #[error("the arena was opened by another runtime")]
     ForeignArena,
     #[error("the draws were prepared for {prepared:?} and the pass is {pass:?}")]

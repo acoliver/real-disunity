@@ -220,29 +220,13 @@ impl Walk {
         let Some(construction) = self.construction() else {
             return;
         };
-        if self.chance(4) && self.all_alive(construction) {
+        if self.chance(4) {
             if self.world.discard_construction(construction).is_ok() {
                 self.drop_construction(construction);
             }
         } else if self.world.publish_construction(construction).is_ok() {
             self.drop_construction(construction);
         }
-    }
-
-    /// Discarding retires the construction's objects by handle and cannot tell one that an
-    /// earlier discard already removed from a new object in its slot, so the walk only discards
-    /// constructions whose objects are all still there.
-    fn all_alive(&self, construction: Construction) -> bool {
-        let sequence = construction.mutation().sequence;
-        let objects = self
-            .world
-            .lifecycle
-            .unpublished
-            .get(sequence)
-            .unwrap_or(&[]);
-        objects
-            .iter()
-            .all(|&object| self.world.object_alive(object))
     }
 
     fn destroy_pending(&mut self) {

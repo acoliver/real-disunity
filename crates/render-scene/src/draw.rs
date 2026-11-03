@@ -34,10 +34,14 @@ mod publication;
 mod retained;
 pub use retained::reflections_enabled;
 mod effect_statistics;
+pub(crate) mod geometry_statistics;
 mod statistics;
 pub use effect_statistics::{
     EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ShadowStatistics, SsaoStatistics,
+};
+pub use geometry_statistics::{
+    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
 };
 pub use pass_statistics::PassDrawStatistics;
 mod streaming;

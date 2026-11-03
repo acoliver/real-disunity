@@ -72,6 +72,9 @@ impl SceneGpu {
         keys.extend(geometry_keys);
         keys.extend(self.pass_counters.write_keys());
         keys.push(crate::compositor::publication::key(&self.effect_statistics));
+        keys.push(crate::compositor::publication::key(
+            &self.pass_counters.geometry,
+        ));
         keys.extend(self.sky.as_ref().and_then(crate::sky::Sky::write_key));
         keys.extend(
             self.shadow_selection

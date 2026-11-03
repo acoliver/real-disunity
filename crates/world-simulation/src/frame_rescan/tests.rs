@@ -43,11 +43,24 @@ fn scripted(world: &mut World, parent: Option<ObjectHandle>) -> (ObjectHandle, C
 
 /// Runs one frame and returns the lifecycle messages its scripts received, in order.
 fn frame(world: &mut World) -> Vec<(ComponentHandle, ScriptMessage)> {
+    frame_with(world, |_| ())
+}
+
+/// Runs one frame, calling `inside` once from the first callback, and returns the lifecycle
+/// messages its scripts received, in order.
+fn frame_with(
+    world: &mut World,
+    inside: impl FnOnce(&mut World),
+) -> Vec<(ComponentHandle, ScriptMessage)> {
+    let mut inside = Some(inside);
     let mut work = world.advance(TimeSpan::new(1, 50).unwrap()).unwrap();
     let mut seen = Vec::new();
     loop {
         match work {
             Advance::Callback(callback) => {
+                if let Some(inside) = inside.take() {
+                    inside(world);
+                }
                 if matches!(
                     callback.message,
                     ScriptMessage::Awake | ScriptMessage::OnEnable | ScriptMessage::OnDisable
@@ -220,4 +233,43 @@ fn a_frame_start_refreshes_objects_in_handle_order() {
         .map(|&script| (script, ScriptMessage::OnEnable));
     let expected: Vec<_> = awake.chain(enabled).collect();
     assert_eq!(frame(&mut world), expected);
+}
+
+#[test]
+fn a_script_added_inside_a_frame_wakes_before_the_frame_ends() {
+    let mut world = world();
+    scripted(&mut world, None);
+    frame(&mut world);
+    let mut added = None;
+    let seen = frame_with(&mut world, |world| {
+        added = Some(scripted(world, None).1);
+    });
+    let script = added.unwrap();
+    assert_eq!(
+        seen,
+        vec![
+            (script, ScriptMessage::Awake),
+            (script, ScriptMessage::OnEnable)
+        ]
+    );
+    assert!(frame(&mut world).is_empty());
+}
+
+#[test]
+fn a_construction_published_inside_a_frame_reactivates_its_children_at_the_next_frame() {
+    let mut world = world();
+    let (object, script) = scripted(&mut world, None);
+    frame(&mut world);
+    let seen = frame_with(&mut world, |world| {
+        let construction = world.begin_construction().unwrap();
+        let holder = world
+            .create_object_in(construction, ObjectDesc::default())
+            .unwrap();
+        world
+            .set_parent(object, Some(holder), ParentSpace::KeepLocal)
+            .unwrap();
+        world.publish_construction(construction).unwrap();
+    });
+    assert_eq!(seen, vec![(script, ScriptMessage::OnDisable)]);
+    assert_eq!(frame(&mut world), vec![(script, ScriptMessage::OnEnable)]);
 }

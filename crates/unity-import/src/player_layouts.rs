@@ -10,32 +10,17 @@ use worldrunner_render_program::{
     module::{ModuleError, Reflected, StageKind, StageModule, StageProgram},
 };
 use worldrunner_unity_serialized::{
-    ClassId, SerializedError,
-    shader::Shader,
-    shader_parameters::{
-        BufferMember, ConstantBuffer, ResourceKind, VariantParameters, read_parameters,
-    },
-    shader_program::Program,
-    shader_records::{
-        ProgramEntry, platform_program_types, program_table, read_record, vulkan_stages,
-    },
-    smolv,
+    shader_parameters::{BufferMember, ConstantBuffer, ResourceKind, VariantParameters},
     spirv_prep::{PrepareError, PreparedModule, prepare_stages},
 };
 
 use crate::{
     PlayerError,
-    player_objects::{OpenFile, load_shader, shader_platforms},
-    player_parameters::{Tally, shader_programs},
-    player_shaders::VULKAN,
+    player_parameters::Tally,
+    player_variants::{Event, walk_variants},
 };
 
-/// A stage module of a variant, as SPIR-V words, with the slot of its stage in the program
-/// record.
-pub struct RawStage {
-    pub slot: usize,
-    pub words: Vec<u32>,
-}
+pub use crate::player_variants::RawStage;
 
 /// Counts from building a player's variant layouts.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -389,106 +374,6 @@ impl LayoutReport {
     }
 }
 
-const MISSING: SerializedError = SerializedError::InvalidShaderProgram {
-    offset: 0,
-    reason: "a variant names an entry that does not exist",
-};
-
-/// The stage modules of a program record.
-fn read_stages(record: &[u8]) -> Result<Vec<RawStage>, SerializedError> {
-    let read = read_record(record)?;
-    let outside = || SerializedError::InvalidShaderProgram {
-        offset: 0,
-        reason: "the record's code lies outside it",
-    };
-    let code = record.get(read.code.clone()).ok_or_else(outside)?;
-    let mut stages = Vec::new();
-    for stage in vulkan_stages(code)? {
-        let bytes = code.get(stage.range.clone()).ok_or_else(outside)?;
-        stages.push(RawStage {
-            slot: stage.slot,
-            words: smolv::module_words(stage.encoding, bytes)?,
-        });
-    }
-    Ok(stages)
-}
-
-fn cause(error: &SerializedError) -> String {
-    match error {
-        SerializedError::InvalidShaderProgram { reason, .. } => (*reason).to_owned(),
-        SerializedError::InvalidCount { what, .. } => format!("a {what} count does not fit"),
-        SerializedError::Truncated { .. } => "the data is truncated".to_owned(),
-        SerializedError::InvalidString { .. } => "a name is not UTF-8".to_owned(),
-        _ => "another error".to_owned(),
-    }
-}
-
-/// A Vulkan platform's blob table with the chunks it indexes.
-struct Platform<'a> {
-    chunks: &'a [Vec<u8>],
-    table: Vec<ProgramEntry>,
-}
-
-impl<'a> Platform<'a> {
-    fn entry(&self, index: u32) -> Result<&'a [u8], SerializedError> {
-        usize::try_from(index)
-            .ok()
-            .and_then(|index| self.table.get(index))
-            .and_then(|entry| entry.bytes(self.chunks))
-            .ok_or(MISSING)
-    }
-}
-
-impl LayoutReport {
-    fn add_program(
-        &mut self,
-        program: &Program,
-        platform: &Platform<'_>,
-        types: &std::ops::RangeInclusive<i8>,
-        seen: &mut std::collections::BTreeSet<(u32, u32)>,
-    ) {
-        let Ok(pairs) = program.variant_blobs() else {
-            count(&mut self.unreadable_variants, "parameter lists do not pair");
-            return;
-        };
-        for (variant, entry) in pairs {
-            if !types.contains(&variant.gpu_program_type)
-                || !seen.insert((variant.blob_index, entry))
-            {
-                continue;
-            }
-            let decoded = platform
-                .entry(variant.blob_index)
-                .and_then(read_stages)
-                .and_then(|stages| Ok((stages, read_parameters(platform.entry(entry)?)?)));
-            match decoded {
-                Ok((stages, parameters)) => self.add_variant(&parameters, &stages),
-                Err(error) => count(&mut self.unreadable_variants, cause(&error)),
-            }
-        }
-    }
-
-    fn add_platform(
-        &mut self,
-        shader: &Shader,
-        kind: u32,
-        chunks: &[Vec<u8>],
-    ) -> Result<(), SerializedError> {
-        let lengths: Vec<usize> = chunks.iter().map(Vec::len).collect();
-        let types = platform_program_types(kind).ok_or(MISSING)?;
-        let table = match chunks.first() {
-            Some(first) => program_table(first, &lengths)?,
-            None => Vec::new(),
-        };
-        let platform = Platform { chunks, table };
-        let mut seen = std::collections::BTreeSet::new();
-        for program in shader_programs(shader) {
-            self.add_program(program, &platform, &types, &mut seen);
-        }
-        Ok(())
-    }
-}
-
 fn failures(
     f: &mut fmt::Formatter<'_>,
     title: &str,
@@ -575,26 +460,10 @@ impl fmt::Display for LayoutReport {
 /// or lay out is counted, not an error.
 pub fn layout_report(paths: &[PathBuf]) -> Result<LayoutReport, PlayerError> {
     let mut report = LayoutReport::default();
-    for path in paths {
-        let mut open = OpenFile::open(path)?;
-        let shaders: Vec<i64> = open
-            .file
-            .objects()
-            .iter()
-            .filter(|object| object.class_id == ClassId::SHADER)
-            .map(|object| object.path_id)
-            .collect();
-        for path_id in shaders {
-            let platforms = shader_platforms(&mut open, path_id)?;
-            let Some(platform) = platforms.iter().position(|&kind| kind == VULKAN) else {
-                continue;
-            };
-            report.shaders += 1;
-            let (shader, kind, chunks) = load_shader(&mut open, path_id, platform)?;
-            report
-                .add_platform(&shader, kind, &chunks)
-                .map_err(|source| open.error(source))?;
-        }
-    }
+    walk_variants(paths, &mut |event| match event {
+        Event::Shader => report.shaders += 1,
+        Event::Unreadable(cause) => count(&mut report.unreadable_variants, cause),
+        Event::Variant { parameters, stages } => report.add_variant(parameters, stages),
+    })?;
     Ok(report)
 }

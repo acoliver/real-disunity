@@ -36,6 +36,7 @@ mod player_sorting;
 pub mod player_sprites;
 pub mod player_texture_arrays;
 mod player_values;
+pub mod player_variants;
 pub mod project;
 mod renderers;
 pub mod scene;

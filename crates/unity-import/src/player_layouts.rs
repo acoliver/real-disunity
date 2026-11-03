@@ -20,7 +20,7 @@ use worldrunner_unity_serialized::{
         ProgramEntry, platform_program_types, program_table, read_record, vulkan_stages,
     },
     smolv,
-    spirv_prep::{PrepareError, prepare},
+    spirv_prep::{PrepareError, PreparedModule, prepare_stages},
 };
 
 use crate::{
@@ -47,7 +47,8 @@ pub struct LayoutReport {
     /// Variants that failed before their parameters and modules could be read together.
     pub unreadable_variants: BTreeMap<String, usize>,
     pub stage_modules: usize,
-    /// Stage modules that `spirv_prep::prepare` accepted.
+    /// Stage modules that `spirv_prep::prepare_stages` accepted, which prepares the stages of
+    /// a variant together.
     pub prepared: usize,
     /// Prepared stage modules that naga parsed and validated.
     pub stage_programs: usize,
@@ -58,6 +59,8 @@ pub struct LayoutReport {
     /// Built stages whose constant buffer and texture targets all resolve.
     pub targets: Tally,
     pub stage_failures: BTreeMap<String, usize>,
+    /// Variants whose stages could not be prepared, once for each variant: the stages are
+    /// prepared together, so one failure does not belong to one module.
     pub prepare_failures: BTreeMap<String, usize>,
     pub module_failures: BTreeMap<String, usize>,
     pub layout_failures: BTreeMap<String, usize>,
@@ -196,11 +199,7 @@ impl LayoutReport {
     pub fn add_variant(&mut self, parameters: &VariantParameters, stages: &[RawStage]) {
         self.variants += 1;
         self.add_members(parameters);
-        let programs: Vec<Option<StageProgram>> = stages
-            .iter()
-            .map(|stage| self.stage_program(parameters, stage))
-            .collect();
-        let Some(programs) = programs.into_iter().collect::<Option<Vec<_>>>() else {
+        let Some(programs) = self.stage_programs(parameters, stages) else {
             return;
         };
         for program in &programs {
@@ -226,27 +225,50 @@ impl LayoutReport {
         }
     }
 
-    fn stage_program(
+    /// The programs of a variant's stages, prepared together, or `None` if any stage has none.
+    fn stage_programs(
         &mut self,
         parameters: &VariantParameters,
-        stage: &RawStage,
-    ) -> Option<StageProgram> {
-        self.stage_modules += 1;
-        let Some(kind) = stage_kind(stage.slot) else {
+        stages: &[RawStage],
+    ) -> Option<Vec<StageProgram>> {
+        self.stage_modules += stages.len();
+        let supported: Vec<(StageKind, &RawStage)> = stages
+            .iter()
+            .filter_map(|stage| Some((stage_kind(stage.slot)?, stage)))
+            .collect();
+        for _ in supported.len()..stages.len() {
             count(
                 &mut self.stage_failures,
                 "a stage other than vertex or fragment",
             );
-            return None;
-        };
-        let prepared = match prepare(&stage.words) {
-            Ok(prepared) => prepared,
+        }
+        let words: Vec<&[u32]> = supported
+            .iter()
+            .map(|(_, stage)| stage.words.as_slice())
+            .collect();
+        let prepared = match prepare_stages(&words) {
+            Ok(prepared) => prepared.modules,
             Err(error) => {
                 count(&mut self.prepare_failures, PrepareError::cause(&error));
                 return None;
             }
         };
-        self.prepared += 1;
+        self.prepared += prepared.len();
+        let programs: Vec<Option<StageProgram>> = supported
+            .iter()
+            .zip(prepared)
+            .map(|(&(kind, _), prepared)| self.stage_program(parameters, kind, prepared))
+            .collect();
+        let programs = programs.into_iter().collect::<Option<Vec<_>>>()?;
+        (programs.len() == stages.len()).then_some(programs)
+    }
+
+    fn stage_program(
+        &mut self,
+        parameters: &VariantParameters,
+        kind: StageKind,
+        prepared: PreparedModule,
+    ) -> Option<StageProgram> {
         let Some((model, entry_point)) = entry_point(&prepared.words) else {
             count(&mut self.stage_failures, "not exactly one entry point");
             return None;

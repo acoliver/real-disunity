@@ -12,10 +12,16 @@ fn op(code: u32, operands: &[u32]) -> Vec<u32> {
 }
 
 /// A vertex module whose position is the first member of a uniform block at set 0 binding 0.
+fn vertex_module() -> Vec<u32> {
+    vertex_module_at(0)
+}
+
+/// A vertex module whose position is the first member of a uniform block at set 0 and
+/// `binding`.
 /// IDs: 1 main, 2 position output, 3 block variable, 4 void, 5 function type, 6 float,
 /// 7 vec4, 8 block, 9 block pointer, 10 output pointer, 11 int, 12 zero, 13 member pointer,
 /// 14 label, 15 member access, 16 loaded vector.
-fn vertex_module() -> Vec<u32> {
+fn vertex_module_at(binding: u32) -> Vec<u32> {
     let main_name = 0x6e69_616d;
     [
         vec![0x0723_0203, 0x0001_0000, 0, 17, 0],
@@ -26,7 +32,7 @@ fn vertex_module() -> Vec<u32> {
         op(71, &[8, 2]),
         op(72, &[8, 0, 35, 0]),
         op(71, &[3, 34, 0]),
-        op(71, &[3, 33, 0]),
+        op(71, &[3, 33, binding]),
         op(19, &[4]),
         op(33, &[5, 4]),
         op(22, &[6, 32]),
@@ -339,5 +345,120 @@ fn members_the_packer_refuses_are_counted_by_shape() {
             (&"kind 1 1x3 array: refused".to_owned(), &1),
             (&"kind 2 1x1: refused".to_owned(), &1),
         ]
+    );
+}
+
+/// A fragment module that samples a combined image sampler at set 0 binding 1. IDs: 1 main,
+/// 2 color output, 3 combined sampler, 5 void, 6 function type, 7 float, 8 vec4, 9 vec2,
+/// 10 image, 12 sampled image, 13 and 15 pointers, 16 half, 17 coordinate, 18 label, 21 loaded
+/// combined sampler, 22 color.
+fn combined_fragment_module() -> Vec<u32> {
+    let main_name = 0x6e69_616d;
+    [
+        vec![0x0723_0203, 0x0001_0000, 0, 23, 0],
+        op(17, &[1]),
+        op(14, &[0, 1]),
+        op(15, &[4, 1, main_name, 0, 2]),
+        op(16, &[1, 7]),
+        op(71, &[2, 30, 0]),
+        op(71, &[3, 34, 0]),
+        op(71, &[3, 33, 1]),
+        op(19, &[5]),
+        op(33, &[6, 5]),
+        op(22, &[7, 32]),
+        op(23, &[8, 7, 4]),
+        op(23, &[9, 7, 2]),
+        op(25, &[10, 7, 1, 0, 0, 0, 1, 0]),
+        op(27, &[12, 10]),
+        op(32, &[13, 0, 12]),
+        op(32, &[15, 3, 8]),
+        op(59, &[13, 3, 0]),
+        op(59, &[15, 2, 3]),
+        op(43, &[7, 16, 0x3f00_0000]),
+        op(44, &[9, 17, 16, 16]),
+        op(54, &[5, 1, 0, 6]),
+        op(248, &[18]),
+        op(61, &[12, 21, 3]),
+        op(87, &[8, 22, 21, 17]),
+        op(62, &[2, 22]),
+        op(253, &[]),
+        op(56, &[]),
+    ]
+    .concat()
+}
+
+#[test]
+fn stages_that_split_different_samplers_are_prepared_together_and_lay_out() {
+    // The uniform block is at binding 2 in the vertex stage, which splits nothing. The
+    // fragment stage splits the combined sampler at binding 1, so the sampler takes binding 2
+    // there and the block must move: prepared alone, the two stages would put a sampler and a
+    // uniform buffer at one prepared binding.
+    let block = ResourceBinding {
+        slot: DescriptorSlot {
+            binding: 2,
+            ..slot(VERTEX)
+        },
+        ..block_binding(VERTEX)
+    };
+    let texture = ResourceBinding {
+        name: "Tex".to_owned(),
+        slot: DescriptorSlot {
+            binding: 1,
+            ..slot(FRAGMENT)
+        },
+        kind: ResourceKind::Texture {
+            sampler: None,
+            dimension: 4,
+        },
+    };
+    let parameters = VariantParameters {
+        bindings: vec![block, texture],
+        ..parameters(Vec::new())
+    };
+    let stages = [
+        RawStage {
+            slot: 0,
+            words: vertex_module_at(2),
+        },
+        RawStage {
+            slot: 1,
+            words: combined_fragment_module(),
+        },
+    ];
+    let report = report_of(&parameters, &stages);
+    assert_eq!((report.variants, report.layouts), (1, 1), "{report}");
+    assert_eq!((report.stage_modules, report.prepared), (2, 2));
+    assert!(report.prepare_failures.is_empty() && report.layout_failures.is_empty());
+    assert_eq!(
+        (
+            report.agreeing_numbering.total,
+            report.agreeing_numbering.matched
+        ),
+        (1, 1)
+    );
+    assert_eq!(report.conflicts_despite_agreement, 0);
+}
+
+#[test]
+fn stages_that_declare_one_binding_as_different_resources_fail_preparation_once() {
+    // A vertex uniform block and a fragment combined sampler, both at binding 1.
+    let stages = [
+        RawStage {
+            slot: 0,
+            words: vertex_module_at(1),
+        },
+        RawStage {
+            slot: 1,
+            words: combined_fragment_module(),
+        },
+    ];
+    let report = report_of(&parameters(Vec::new()), &stages);
+    assert_eq!(
+        (report.stage_modules, report.prepared, report.layouts),
+        (2, 0, 0)
+    );
+    assert_eq!(
+        report.prepare_failures.iter().collect::<Vec<_>>(),
+        [(&"binding class".to_owned(), &1)]
     );
 }

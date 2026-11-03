@@ -94,7 +94,7 @@ struct Scope {
 pub(crate) struct Scheduler {
     scopes: Vec<Scope>,
     /// Set at the start of a frame: the next look at new scripts revisits every script.
-    rescan_scripts: bool,
+    pub(crate) rescan_scripts: bool,
     sequence: u64,
     fixed_steps: u32,
     frame_delta: TimeSpan,
@@ -335,7 +335,7 @@ impl World {
     /// Runs the lifecycle of objects whose scripts were registered since the last look, or of
     /// every scripted object at the start of a frame. Only the new registrations are read
     /// otherwise, so a callback's resume does not cost a pass over every script.
-    fn initialize_scripts(&mut self) -> Result<(), WorldError> {
+    pub(crate) fn initialize_scripts(&mut self) -> Result<(), WorldError> {
         let added = std::mem::take(&mut self.lifecycle.added);
         let candidates: Vec<_> = if std::mem::take(&mut self.scheduler.rescan_scripts) {
             self.lifecycle.scripts.keys().copied().collect()

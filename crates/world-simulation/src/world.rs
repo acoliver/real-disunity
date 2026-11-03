@@ -88,6 +88,7 @@ pub struct WorldSnapshot {
 }
 
 /// The sole owner of live object and component state for a simulation session.
+#[cfg_attr(test, derive(Clone))]
 pub struct World {
     pub(crate) assets: crate::assets::Assets,
     pub(crate) assets_limit: u32,

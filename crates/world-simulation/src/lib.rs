@@ -58,6 +58,7 @@ mod clone;
 mod construction;
 mod fields;
 mod follow;
+mod frame_rescan;
 mod hierarchy;
 mod lifecycle;
 mod lifetime;

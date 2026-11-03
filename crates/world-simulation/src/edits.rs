@@ -19,11 +19,13 @@ pub enum ObjectEdit {
 
 /// Undo log for an in-progress transaction. Only what the transaction touches is recorded, so
 /// the cost follows the size of the batch and the bodies the step moves, not the world.
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct Staging {
     undo: Vec<Undo>,
     physics: Option<Physics>,
 }
 
+#[cfg_attr(test, derive(Clone))]
 enum Undo {
     Replaced(ComponentHandle, Box<ComponentDesc>),
     Added(ComponentHandle),

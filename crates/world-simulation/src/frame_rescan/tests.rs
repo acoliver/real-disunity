@@ -191,3 +191,33 @@ fn a_frame_after_a_frame_with_no_changes_refreshes_nothing() {
     );
     assert!(frame(&mut world).is_empty());
 }
+
+#[test]
+fn a_frame_start_with_nothing_to_refresh_queues_no_work() {
+    let mut world = world();
+    let construction = world.begin_construction().unwrap();
+    let object = world
+        .create_object_in(construction, ObjectDesc::default())
+        .unwrap();
+    world.add_component(object, desc("Actor")).unwrap();
+    world.scheduler.frame_start = true;
+    world.initialize_scripts().unwrap();
+    assert!(world.lifecycle.mutations.is_empty());
+    scripted(&mut world, None);
+    frame(&mut world);
+    world.scheduler.frame_start = true;
+    world.initialize_scripts().unwrap();
+    assert!(world.lifecycle.mutations.is_empty());
+}
+
+#[test]
+fn a_frame_start_refreshes_objects_in_handle_order() {
+    let mut world = world();
+    let scripts: Vec<_> = (0..8).map(|_| scripted(&mut world, None).1).collect();
+    let awake = scripts.iter().map(|&script| (script, ScriptMessage::Awake));
+    let enabled = scripts
+        .iter()
+        .map(|&script| (script, ScriptMessage::OnEnable));
+    let expected: Vec<_> = awake.chain(enabled).collect();
+    assert_eq!(frame(&mut world), expected);
+}

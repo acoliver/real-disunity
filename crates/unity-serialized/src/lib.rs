@@ -33,6 +33,7 @@ pub mod render_texture;
 pub mod script_builtin;
 pub mod script_data;
 pub mod shader;
+pub mod shader_parameters;
 pub mod shader_program;
 pub mod shader_records;
 pub mod shader_state;

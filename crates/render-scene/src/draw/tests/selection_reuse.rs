@@ -61,3 +61,31 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
     let (_, moved_away) = rebuilds_after(&gpu, &mut render);
     assert_eq!((moved_away, gpu.view_stats().culled), (1, 1));
 }
+
+#[test]
+fn caster_fits_are_reused_until_a_placement_changes() {
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &scene(true),
+        &pipelines,
+    )
+    .unwrap();
+    let receiver = glam::Mat4::from_scale(glam::Vec3::splat(0.05));
+    let fresh = |gpu: &SceneGpu| {
+        crate::draw::visibility::caster_matrix(&gpu.instances, &gpu.mesh_selection, None, receiver)
+    };
+    let fit = gpu.caster_matrix(receiver);
+    assert_eq!((fit, gpu.caster_matrix(receiver)), (fresh(&gpu), fit));
+    assert_eq!(gpu.caster_fits.computed.get(), 1);
+    let handle = gpu.instance_handles().next().unwrap();
+    let toward = SceneTransform {
+        position_millimeters: [0, 0, 30_000],
+        ..*gpu.instance(handle).unwrap().0.transform()
+    };
+    gpu.set_instance_transform(handle, toward).unwrap();
+    assert_eq!(gpu.caster_matrix(receiver), fresh(&gpu));
+    assert_eq!(gpu.caster_fits.computed.get(), 2);
+}

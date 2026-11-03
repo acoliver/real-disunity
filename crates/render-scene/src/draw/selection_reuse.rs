@@ -1,10 +1,11 @@
-//! Per-view object selections, reused while their inputs are unchanged.
+//! Per-view object selections and shadow caster fits, reused while their inputs are unchanged.
 //!
 //! A selection depends on the placements, the fixed mesh and material tables, the view matrix,
 //! the eye position and whether only casters count. Placements change only through batch edits,
 //! which `Instances::edits` counts, so equal keys select the same ranges. Several passes share
-//! the camera view each frame, and a still view repeats every frame.
-use std::{cell::RefCell, rc::Rc};
+//! the camera view each frame, and a still view repeats every frame. Caster fits depend on the
+//! placements, the terrain bounds (fixed after upload) and the receiver matrix.
+use std::{cell::RefCell, collections::VecDeque, rc::Rc};
 
 use super::visibility::Selection;
 use super::{FrameUniform, SceneGpu};
@@ -27,6 +28,17 @@ pub(super) struct View {
     built: RefCell<Option<(Key, Selection)>>,
     #[cfg(test)]
     pub rebuilds: std::cell::Cell<usize>,
+}
+
+/// Instance edit count and receiver matrix bits.
+type CasterKey = (u64, [u32; 16]);
+
+/// Recent caster fits, at most one per shadow cascade.
+#[derive(Debug, Default)]
+pub(super) struct CasterFits {
+    fits: RefCell<VecDeque<(CasterKey, glam::Mat4)>>,
+    #[cfg(test)]
+    pub computed: std::cell::Cell<usize>,
 }
 
 pub(super) fn view_index(shadow_matrix: Option<(u32, glam::Mat4)>) -> usize {
@@ -59,5 +71,33 @@ impl SceneGpu {
         selection.rebuild(&self.instances, &self.mesh_selection, matrix, key.eye);
         *built = Some((key, selection.clone()));
         selection
+    }
+
+    /// Extends the receiver's depth range over the casters, reusing the fit for an unchanged
+    /// receiver while no placement changed.
+    pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
+        let key = (
+            self.instances.edits(),
+            receiver.to_cols_array().map(f32::to_bits),
+        );
+        let mut fits = self.caster_fits.fits.borrow_mut();
+        if let Some((_, fit)) = fits.iter().find(|(cached, _)| *cached == key) {
+            return *fit;
+        }
+        #[cfg(test)]
+        self.caster_fits
+            .computed
+            .set(self.caster_fits.computed.get() + 1);
+        let fit = super::visibility::caster_matrix(
+            &self.instances,
+            &self.mesh_selection,
+            self.terrain.as_ref().map(|terrain| terrain.bounds),
+            receiver,
+        );
+        if fits.len() == self.views.len() - 1 {
+            fits.pop_front();
+        }
+        fits.push_back((key, fit));
+        fit
     }
 }

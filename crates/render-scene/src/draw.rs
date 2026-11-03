@@ -239,6 +239,7 @@ pub struct SceneGpu {
         )>,
     >,
     views: [selection_reuse::View; 5],
+    caster_fits: selection_reuse::CasterFits,
     terrain: Option<GpuTerrain>,
     dynamic: crate::dynamic::DynamicGpu,
     retained: Retained,
@@ -338,6 +339,7 @@ impl SceneGpu {
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
             views: Default::default(),
+            caster_fits: selection_reuse::CasterFits::default(),
             terrain,
             dynamic: crate::dynamic::DynamicGpu::default(),
             retained: Retained {
@@ -653,15 +655,6 @@ impl SceneGpu {
     /// Owned statistics for one of the four supported shadow view indices.
     pub fn cascade_view_stats(&self, index: usize) -> ViewStats {
         self.views[index + 1].published.borrow().stats.clone()
-    }
-
-    pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
-        visibility::caster_matrix(
-            &self.instances,
-            &self.mesh_selection,
-            self.terrain.as_ref().map(|terrain| terrain.bounds),
-            receiver,
-        )
     }
 
     /// Returns live mesh/material batch counts per pipeline variant.

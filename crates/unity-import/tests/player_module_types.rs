@@ -1,4 +1,4 @@
-use worldrunner_unity_import::player_module_types::{BlockTree, Field, Shape, block_trees};
+use worldrunner_unity_import::player_module_types::{Base, BlockTree, Field, Shape, block_trees};
 
 /// A SPIR-V instruction: the word count and opcode, then the operands.
 fn inst(opcode: u32, operands: &[u32]) -> Vec<u32> {
@@ -75,12 +75,19 @@ fn vec4() -> Shape {
     Shape::Vector {
         count: 4,
         bytes: 4,
+        base: Base::Float,
     }
 }
 
 fn inner() -> Shape {
     Shape::Struct(vec![
-        field(0, Shape::Scalar { bytes: 4 }),
+        field(
+            0,
+            Shape::Scalar {
+                bytes: 4,
+                base: Base::Float,
+            },
+        ),
         field(16, vec4()),
     ])
 }
@@ -153,4 +160,42 @@ fn a_module_cut_off_mid_instruction_lists_what_came_before() {
     let mut words = module(&declarations());
     words.truncate(words.len() - 2);
     assert!(block_trees(&words).is_empty());
+}
+
+#[test]
+fn scalars_and_vectors_report_whether_they_are_float_signed_unsigned_or_boolean() {
+    let instructions = vec![
+        inst(DECORATE, &[7, SET, 0]),
+        inst(DECORATE, &[7, BINDING, 0]),
+        inst(MEMBER_DECORATE, &[5, 0, OFFSET, 0]),
+        inst(MEMBER_DECORATE, &[5, 1, OFFSET, 16]),
+        inst(MEMBER_DECORATE, &[5, 2, OFFSET, 20]),
+        inst(21, &[1, 32, 1]),
+        inst(21, &[2, 32, 0]),
+        inst(20, &[3]),
+        inst(23, &[4, 1, 3]),
+        inst(30, &[5, 4, 2, 3]),
+        inst(32, &[6, UNIFORM, 5]),
+        inst(59, &[6, 7, UNIFORM]),
+    ];
+    let trees = block_trees(&module(&instructions));
+    let shapes: Vec<&Shape> = trees[0].fields.iter().map(|f| &f.shape).collect();
+    assert_eq!(
+        shapes,
+        [
+            &Shape::Vector {
+                count: 3,
+                bytes: 4,
+                base: Base::Signed
+            },
+            &Shape::Scalar {
+                bytes: 4,
+                base: Base::Unsigned
+            },
+            &Shape::Scalar {
+                bytes: 4,
+                base: Base::Bool
+            },
+        ]
+    );
 }

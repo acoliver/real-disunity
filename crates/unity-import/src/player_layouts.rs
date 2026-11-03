@@ -181,8 +181,8 @@ fn numbering_agrees(programs: &[StageProgram]) -> bool {
     (0..programs.len()).all(|left| (left + 1..programs.len()).all(|right| same(left, right)))
 }
 
-fn packs<T, E>(result: Result<T, E>) -> &'static str {
-    if result.is_ok() { "packs" } else { "refused" }
+fn packs(accepted: bool) -> &'static str {
+    if accepted { "packs" } else { "refused" }
 }
 
 /// A buffer with only `member`, at offset 0.
@@ -334,8 +334,11 @@ impl LayoutReport {
             let layouts = parameters.constant_buffers.iter();
             for buffer in layouts.filter(|buffer| buffer.name == binding.name) {
                 if !buffer.structs.is_empty() {
-                    let packs = packs(pack_variant_buffer(buffer, &[], 0));
-                    count(&mut self.member_shapes, format!("buffer with structs: {packs}"));
+                    let packs = packs(pack_variant_buffer(buffer, &[], 0).is_ok());
+                    count(
+                        &mut self.member_shapes,
+                        format!("buffer with structs: {packs}"),
+                    );
                 }
                 for member in &buffer.members {
                     let alone = alone_in_buffer(member);
@@ -361,7 +364,7 @@ impl LayoutReport {
             if member.is_matrix { " matrix" } else { "" },
             if member.array_size > 0 { " array" } else { "" },
         );
-        let packs = packs(pack_variant_buffer(alone, &[], 0));
+        let packs = packs(pack_variant_buffer(alone, &[], 0).is_ok());
         count(&mut self.member_shapes, format!("{prefix}{shape}: {packs}"));
     }
 

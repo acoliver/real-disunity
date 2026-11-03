@@ -6,15 +6,26 @@
 
 use std::collections::BTreeMap;
 
+/// The type a scalar or a vector's components have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Base {
+    Float,
+    Signed,
+    Unsigned,
+    Bool,
+}
+
 /// The shape of a block member.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Shape {
     Scalar {
         bytes: u32,
+        base: Base,
     },
     Vector {
         count: u32,
         bytes: u32,
+        base: Base,
     },
     Matrix {
         columns: u32,
@@ -47,11 +58,9 @@ impl Shape {
     #[must_use]
     pub fn span(&self, matrix_stride: Option<u32>) -> u32 {
         match self {
-            Self::Scalar { bytes } => *bytes,
-            Self::Vector { count, bytes } => count * bytes,
-            Self::Matrix { columns, rows } => {
-                columns * matrix_stride.unwrap_or_else(|| rows * 4)
-            }
+            Self::Scalar { bytes, .. } => *bytes,
+            Self::Vector { count, bytes, .. } => count * bytes,
+            Self::Matrix { columns, rows } => columns * matrix_stride.unwrap_or_else(|| rows * 4),
             Self::Array {
                 element,
                 length,
@@ -96,6 +105,7 @@ const OP_TYPE_RUNTIME_ARRAY: u16 = 29;
 const OP_TYPE_STRUCT: u16 = 30;
 const OP_TYPE_POINTER: u16 = 32;
 const OP_CONSTANT: u16 = 43;
+const OP_SPEC_CONSTANT: u16 = 50;
 const OP_VARIABLE: u16 = 59;
 const OP_DECORATE: u16 = 71;
 const OP_MEMBER_DECORATE: u16 = 72;
@@ -112,7 +122,7 @@ const MAX_DEPTH: usize = 16;
 
 /// A type declaration, before its members and elements are resolved.
 enum Declared {
-    Scalar(u32),
+    Scalar(u32, Base),
     Vector { component: u32, count: u32 },
     Matrix { column: u32, columns: u32 },
     Array { element: u32, length: u32 },
@@ -156,7 +166,7 @@ impl Module {
             (OP_TYPE_POINTER, &[id, _, pointee, ..]) => {
                 self.pointees.insert(id, pointee);
             }
-            (OP_CONSTANT, &[_, id, value, ..]) => {
+            (OP_CONSTANT | OP_SPEC_CONSTANT, &[_, id, value, ..]) => {
                 self.constants.insert(id, value);
             }
             (OP_VARIABLE, &[pointer, id, ..]) => self.variables.push((pointer, id)),
@@ -166,9 +176,19 @@ impl Module {
 
     fn record_type(&mut self, opcode: u16, operands: &[u32]) {
         let declared = match (opcode, operands) {
-            (OP_TYPE_BOOL, &[id]) => (id, Declared::Scalar(4)),
-            (OP_TYPE_INT | OP_TYPE_FLOAT, &[id, width, ..]) => (id, Declared::Scalar(width / 8)),
-            (OP_TYPE_VECTOR, &[id, component, count]) => (id, Declared::Vector { component, count }),
+            (OP_TYPE_BOOL, &[id]) => (id, Declared::Scalar(4, Base::Bool)),
+            (OP_TYPE_FLOAT, &[id, width, ..]) => (id, Declared::Scalar(width / 8, Base::Float)),
+            (OP_TYPE_INT, &[id, width, signed, ..]) => {
+                let base = if signed == 0 {
+                    Base::Unsigned
+                } else {
+                    Base::Signed
+                };
+                (id, Declared::Scalar(width / 8, base))
+            }
+            (OP_TYPE_VECTOR, &[id, component, count]) => {
+                (id, Declared::Vector { component, count })
+            }
             (OP_TYPE_MATRIX, &[id, column, columns]) => (id, Declared::Matrix { column, columns }),
             (OP_TYPE_ARRAY, &[id, element, length]) => (id, Declared::Array { element, length }),
             (OP_TYPE_RUNTIME_ARRAY, &[id, element]) => (id, Declared::RuntimeArray { element }),
@@ -184,14 +204,18 @@ impl Module {
             return None;
         }
         Some(match self.types.get(&id)? {
-            Declared::Scalar(bytes) => Shape::Scalar { bytes: *bytes },
+            Declared::Scalar(bytes, base) => Shape::Scalar {
+                bytes: *bytes,
+                base: *base,
+            },
             Declared::Vector { component, count } => {
-                let Shape::Scalar { bytes } = self.shape(*component, depth + 1)? else {
+                let Shape::Scalar { bytes, base } = self.shape(*component, depth + 1)? else {
                     return None;
                 };
                 Shape::Vector {
                     count: *count,
                     bytes,
+                    base,
                 }
             }
             Declared::Matrix { column, columns } => {

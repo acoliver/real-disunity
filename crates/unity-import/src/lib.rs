@@ -35,6 +35,7 @@ mod player_shader_refs;
 pub mod player_shaders;
 mod player_sorting;
 pub mod player_sprites;
+pub mod player_structs;
 pub mod player_texture_arrays;
 mod player_values;
 pub mod player_variants;

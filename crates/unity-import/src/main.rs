@@ -12,6 +12,7 @@ use worldrunner_unity_import::{
     },
     player_parameters::parameter_report,
     player_scene::{SceneNode, read_scene_hierarchy},
+    player_structs::struct_report,
     read_player,
     shader_prep::Backend,
 };
@@ -36,6 +37,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-shader-programs <serialized file> <path ID> <platform index>
        unity-import player-shader-parameters <player data directory>
        unity-import player-shader-layouts <player data directory>
+       unity-import player-shader-structs <player data directory>
        unity-import player-shader-modules <serialized file> <path ID> <platform index> <output directory>";
 
 fn main() -> ExitCode {
@@ -63,15 +65,6 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         [command, data, layouts] if command == "player-scripts" => {
             player_scripts(Path::new(data), Path::new(layouts))
         }
-        [command, data] if command == "player-shader-report" => {
-            player_shader_report(Path::new(data))
-        }
-        [command, data] if command == "player-shader-parameters" => {
-            player_shader_parameters(Path::new(data))
-        }
-        [command, data] if command == "player-shader-layouts" => {
-            player_shader_layouts(Path::new(data))
-        }
         [command, file, path_id] if command == "player-object" => {
             player_object(Path::new(file), path_id)
         }
@@ -88,6 +81,25 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
             read_scene_hierarchy(Path::new(data), scene)
                 .map(|roots| roots.iter().for_each(|root| print_node(root, 0)))
                 .map_err(Into::into)
+        }
+        _ => return run_shader_reports(args),
+    })
+}
+
+/// The commands that count what a player's Vulkan shaders hold, or `None` for any other command.
+fn run_shader_reports(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
+    Some(match args {
+        [command, data] if command == "player-shader-report" => {
+            player_shader_report(Path::new(data))
+        }
+        [command, data] if command == "player-shader-parameters" => {
+            player_shader_parameters(Path::new(data))
+        }
+        [command, data] if command == "player-shader-layouts" => {
+            player_shader_layouts(Path::new(data))
+        }
+        [command, data] if command == "player-shader-structs" => {
+            player_shader_structs(Path::new(data))
         }
         _ => return None,
     })
@@ -333,6 +345,16 @@ fn player_shader_layouts(data: &Path) -> Result<(), Box<dyn Error>> {
         .map(|entry| data.join(entry.name))
         .collect();
     print!("{}", layout_report(&paths)?);
+    Ok(())
+}
+
+/// Checks the structs of the bound constant buffers against the SPIR-V blocks and prints counts.
+fn player_shader_structs(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", struct_report(&paths)?);
     Ok(())
 }
 

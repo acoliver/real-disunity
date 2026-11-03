@@ -15,7 +15,6 @@ mod stock;
 use rig::{BLACK, BLUE, CARD_EDGE, FAR_DEPTH, Fixture, GREEN, NEAR_DEPTH, RED, engine_depth};
 
 const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
-const RED_565: u16 = 0xF800;
 
 fn settings() -> RendererConfiguration {
     RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT)

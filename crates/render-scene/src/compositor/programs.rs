@@ -5,6 +5,9 @@
 //! slice covers a pass with one single-sample color attachment and `Depth32Float`. Passes that
 //! add attachments or samples are refused by name until their behavior has its own tests.
 
+use super::FrameRenderer;
+use crate::draw::SceneGpu;
+use crate::renderer::ScenePipelines;
 use worldrunner_render_post::FrameError;
 use worldrunner_render_program::error::{ProgramError, UnsupportedTarget};
 use worldrunner_render_program::runtime::{AdmittedPrograms, TargetSignature};
@@ -14,17 +17,12 @@ const FEATURE: &str = "player programs";
 /// The depth format the scene declares for its opaque pass.
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-/// What of the frame about to be declared decides whether player programs can join it.
-pub(super) struct Shape<'a> {
-    pub pipelines: &'a crate::renderer::ScenePipelines,
-    /// The frame writes velocity or jitters its projection for temporal reconstruction.
-    pub temporal: bool,
-    /// Screen-space passes add attachments to the scene's pass declarations.
-    pub screen_space: bool,
-}
-
-/// Checks `programs` against the frame about to be declared and has the frame retain their
-/// arena.
+/// Takes the draws admitted to `gpu`, checks them against the frame about to be declared and
+/// has the frame retain their arena. `frame` is the scene pipelines and whether the frame writes
+/// velocity.
+///
+/// The draws are taken whether or not they are accepted, so a refused frame leaves none behind
+/// for the next one.
 ///
 /// # Errors
 /// Fails before anything is declared or recorded: by name for temporal reconstruction,
@@ -32,24 +30,22 @@ pub(super) struct Shape<'a> {
 /// into; with the signatures when the draws were prepared for other attachments; and when the
 /// arena belongs to another authority or has retired.
 pub(super) fn accept(
-    programs: Option<AdmittedPrograms>,
+    gpu: &mut SceneGpu,
     encoder: &wgpu::CommandEncoder,
-    frame: Shape<'_>,
+    renderer: &FrameRenderer,
+    frame: (&ScenePipelines, bool),
 ) -> Result<Option<AdmittedPrograms>, FrameError> {
-    let Some(programs) = programs else {
+    let Some(programs) = gpu.take_programs() else {
         return Ok(None);
     };
-    let Shape {
-        pipelines,
-        temporal,
-        screen_space,
-    } = frame;
-    if temporal {
+    let (pipelines, writes_velocity) = frame;
+    if writes_velocity || renderer.projection_jitter().is_some() {
         return Err(FrameError::UnsupportedEffect(
             "player programs with temporal reconstruction",
         ));
     }
-    if screen_space {
+    // Screen-space passes add attachments to the scene's pass declarations.
+    if renderer.ssao.is_some() {
         return Err(FrameError::UnsupportedEffect(
             "player programs with screen-space passes",
         ));

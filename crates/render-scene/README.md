@@ -56,7 +56,7 @@ Encoding checks the draws before it declares anything:
 - A scene with temporal reconstruction (velocity or a jittered projection), screen-space passes or multisampling fails with `FrameError::UnsupportedEffect` and the name `player programs with temporal reconstruction`, `... with screen-space passes` or `... with multisampling`.
 - Draws prepared for other attachments than the scene's color format and `Depth32Float` fail with `FrameError::FeaturePreparation` for `player programs`, carrying `ProgramError::TargetMismatch`.
 - An arena that retired, was dropped or belongs to another submission authority than the frame fails the same way with `LeaseError::Expired` or `LeaseError::ForeignAuthority`.
-- Every refusal comes before the encoder records anything for the frame. Draws that no frame took are replaced by the next admission, and a frame that encodes takes them whether or not it succeeds.
+- Every refusal comes before the encoder records anything for the frame. The checks take the admitted draws, so a frame they refuse leaves none behind for the next frame, and a later admission replaces draws that no frame has taken.
 
 A frame with no admitted draws is unchanged: `without_admitted_programs_the_frame_is_byte_identical_to_the_stock_scene_draw` compares its output bytes with a direct draw of the scene. A cancelled frame submits nothing, publishes no counters and leaves the target as it was.
 

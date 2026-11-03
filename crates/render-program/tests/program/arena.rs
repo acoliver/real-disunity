@@ -125,7 +125,7 @@ fn a_cancelled_frame_releases_the_arena_without_submitting() {
     let (mut runtime, mut arena) = arena_runtime(&gpu);
     let draw = draw(&mut runtime);
     let before = gpu.authority.submitted_serial();
-    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    let frame = gpu.authority.begin(&gpu.device).unwrap();
     let admitted = admit(&mut runtime, &frame, &arena, &draw).unwrap();
     admitted.retain(&frame).expect("retaining again is allowed");
     frame.finish().cancel();

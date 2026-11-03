@@ -104,7 +104,7 @@ fn a_scene_with_screen_space_passes_refuses_programs_by_name() {
     settings.hdr = Some((1.0, ToneMap::Reinhard));
     settings.ssao = Some(super::super::ssao::settings(1_000_000));
     let fixture = Fixture::with_scene(
-        super::super::ssao::source(1_000_000, true, 255),
+        &super::super::ssao::source(1_000_000, true, 255),
         settings,
         |device| ScenePipelines::with_ssao(device, HDR, 1).unwrap(),
     );

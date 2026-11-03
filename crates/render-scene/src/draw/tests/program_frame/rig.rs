@@ -141,11 +141,11 @@ impl Fixture {
         settings: RendererConfiguration,
         pipelines: impl FnOnce(&Device) -> ScenePipelines,
     ) -> Self {
-        Self::with_scene(engine_scene(), settings, pipelines)
+        Self::with_scene(&engine_scene(), settings, pipelines)
     }
 
     pub fn with_scene(
-        scene: RenderScene,
+        scene: &RenderScene,
         settings: RendererConfiguration,
         pipelines: impl FnOnce(&Device) -> ScenePipelines,
     ) -> Self {
@@ -154,7 +154,7 @@ impl Fixture {
         let mut renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 26)).unwrap();
         let pipelines = pipelines(device);
-        let mut gpu = SceneGpu::upload(device, context.submission(), &scene, &pipelines).unwrap();
+        let mut gpu = SceneGpu::upload(device, context.submission(), scene, &pipelines).unwrap();
         gpu.post = renderer.configuration().post;
         let reservation = renderer
             .reserve(&context, ProgramRuntime::arena_allocations(ARENA))

@@ -121,7 +121,6 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
-    let programs = gpu.take_programs();
     renderer.validate_taa_depth(attachments.1)?;
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
@@ -131,15 +130,8 @@ pub fn encode_scene(
     renderer.bind_water_inputs(&gpu.water_inputs, gpu.pass_counters.water.clone());
     renderer.validate_ssr(gpu.ssr.as_ref())?;
     renderer.validate_post(gpu.post)?;
-    let programs = super::programs::accept(
-        programs,
-        encoder,
-        super::programs::Shape {
-            pipelines,
-            temporal: velocity.is_some() || renderer.projection_jitter().is_some(),
-            screen_space: renderer.ssao.is_some(),
-        },
-    )?;
+    let programs =
+        super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;

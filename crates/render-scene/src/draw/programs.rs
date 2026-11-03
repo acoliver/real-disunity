@@ -15,7 +15,7 @@ impl SceneGpu {
         self.programs = Some(programs);
     }
 
-    /// The admitted draws no frame has taken yet; a frame takes them whether or not it encodes.
+    /// The admitted draws no frame has taken yet.
     pub(crate) fn take_programs(&mut self) -> Option<AdmittedPrograms> {
         self.programs.take()
     }

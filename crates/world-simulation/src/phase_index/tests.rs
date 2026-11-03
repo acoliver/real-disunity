@@ -252,3 +252,21 @@ fn a_long_mixed_history_queues_what_the_full_scan_queues() {
         }
     }
 }
+
+#[test]
+fn registering_a_script_again_replaces_its_index_entries() {
+    use crate::lifecycle::{ScriptState, StartState};
+    let mut world = world();
+    let (_, script) = ready_script(&mut world, "Actor");
+    world.lifecycle.register(
+        script,
+        ScriptState {
+            start: StartState::Started,
+            messages: ScriptMessages::UPDATE,
+            ..Default::default()
+        },
+    );
+    world.lifecycle.assert_index_matches_scripts();
+    world.lifecycle.register(script, ScriptState::default());
+    world.lifecycle.assert_index_matches_scripts();
+}

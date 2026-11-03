@@ -49,6 +49,12 @@ pub fn extract_world(
     let selected = selected_camera(world, world.published_components())?;
     let culling = selected.map(|(_, camera)| camera);
     for component in world.published_components() {
+        if !matches!(
+            component.desc,
+            ComponentDesc::Sprite(_) | ComponentDesc::Tilemap(_) | ComponentDesc::Camera(_)
+        ) {
+            continue;
+        }
         if !world.active_in_hierarchy(component.object)? {
             continue;
         }

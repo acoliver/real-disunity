@@ -165,8 +165,16 @@ fn a_material_on_a_missing_texture_fails_and_leaves_the_scene_unchanged() {
             meshes: vec![mesh()],
         })
         .unwrap_err();
+    let SceneValidationError::AppendedEntry {
+        table: "material",
+        index: 1,
+        source,
+    } = error
+    else {
+        panic!("expected the appended material to be named");
+    };
     assert!(matches!(
-        error,
+        *source,
         SceneValidationError::HandleOutOfRange {
             resource: "texture",
             handle: 3,
@@ -188,15 +196,21 @@ fn an_invalid_new_texture_fails_and_leaves_the_scene_unchanged() {
         mips: 1,
         bytes: vec![0; 3].into(),
     };
-    assert!(
-        scene
-            .append_resources(SceneAppend {
-                textures: vec![broken],
-                materials: Vec::new(),
-                meshes: Vec::new(),
-            })
-            .is_err()
-    );
+    let error = scene
+        .append_resources(SceneAppend {
+            textures: vec![broken],
+            materials: Vec::new(),
+            meshes: Vec::new(),
+        })
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        SceneValidationError::AppendedEntry {
+            table: "texture",
+            index: 2,
+            ..
+        }
+    ));
     assert_eq!(scene, base());
 }
 
@@ -217,8 +231,16 @@ fn a_new_mesh_slot_may_name_old_or_new_materials_but_not_missing_ones() {
             meshes: vec![mesh_with_slot(2)],
         })
         .unwrap_err();
+    let SceneValidationError::AppendedEntry {
+        table: "mesh",
+        index: 3,
+        source,
+    } = error
+    else {
+        panic!("expected the appended mesh to be named");
+    };
     assert!(matches!(
-        error,
+        *source,
         SceneValidationError::HandleOutOfRange {
             resource: "material",
             handle: 2,

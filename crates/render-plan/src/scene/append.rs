@@ -34,8 +34,13 @@ impl RenderScene {
             materials,
             meshes,
         } = append;
-        for mesh in &meshes {
-            mesh.validate()?;
+        let named = |offset: usize, source| SceneValidationError::AppendedEntry {
+            table: "mesh",
+            index: self.geometry.meshes.len() + offset,
+            source: Box::new(source),
+        };
+        for (offset, mesh) in meshes.iter().enumerate() {
+            mesh.validate().map_err(|error| named(offset, error))?;
         }
         let meshes_before = self.geometry.meshes.len();
         if u32::try_from(meshes_before + meshes.len()).is_err() {
@@ -45,8 +50,8 @@ impl RenderScene {
             self.resources.materials().len() + materials.len(),
             "materials",
         )?;
-        for mesh in &meshes {
-            mesh_materials(mesh, limit)?;
+        for (offset, mesh) in meshes.iter().enumerate() {
+            mesh_materials(mesh, limit).map_err(|error| named(offset, error))?;
         }
         self.resources.append(textures, materials)?;
         if !meshes.is_empty() {

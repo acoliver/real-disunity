@@ -227,7 +227,7 @@ fn bad_declarations_and_values_are_named_errors() {
         pack_constant_buffer(&half, &names(), &[], 0).unwrap_err(),
         ConstantError::UnsupportedValue {
             name: "_Half".to_owned(),
-            kind: HALF
+            kind: i32::from(HALF)
         }
     );
     let wide = buffer(vec![param(0, 0, 1, FLOAT, 5)], vec![], 16);

@@ -325,3 +325,49 @@ fn an_append_inside_the_budget_is_admitted() {
         .unwrap();
     assert_eq!(fixture.resident.scene_mut().resource_base().textures, 2);
 }
+
+fn windowless_host() -> (RetainedHost, Renderer) {
+    let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
+    let renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    (host, renderer)
+}
+
+#[test]
+fn the_edit_after_a_resource_edit_publishes_in_the_same_frame() {
+    let (mut host, mut renderer) = windowless_host();
+    host.apply(RetainedUpdate::AppendResources(append()))
+        .unwrap();
+    host.apply(RetainedUpdate::Add {
+        id: ObjectId(1),
+        object: object(1, 1),
+    })
+    .unwrap();
+    host.apply(RetainedUpdate::Add {
+        id: ObjectId(2),
+        object: object(2, 1),
+    })
+    .unwrap();
+    renderer.publish_retained(&mut host).unwrap();
+    assert_eq!(
+        host.ready_generation(),
+        2,
+        "the append and the object after it"
+    );
+    assert_eq!(host.accepted_generation(), 3);
+    renderer.publish_retained(&mut host).unwrap();
+    assert_eq!(host.ready_generation(), 3);
+}
+
+#[test]
+fn object_edits_alone_still_publish_one_generation_per_frame() {
+    let (mut host, mut renderer) = windowless_host();
+    for id in 1..=2 {
+        host.apply(RetainedUpdate::Add {
+            id: ObjectId(id),
+            object: object(0, 0),
+        })
+        .unwrap();
+    }
+    renderer.publish_retained(&mut host).unwrap();
+    assert_eq!(host.ready_generation(), 1);
+}

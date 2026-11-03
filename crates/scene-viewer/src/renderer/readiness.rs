@@ -66,13 +66,26 @@ impl Renderer {
 }
 
 impl Renderer {
+    /// Publishes the front generation. A resource edit changes nothing a frame can show until
+    /// the edits after it arrive, so the generation behind one publishes in the same frame.
     pub(crate) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
-        self.streaming.publish(
-            &self.context,
-            &mut self.resident,
-            &mut self.presentation,
-            host,
-        )
+        loop {
+            let edit = host
+                .readiness
+                .queue
+                .front()
+                .is_some_and(|front| front.edit.is_some());
+            let published = host.readiness.published;
+            self.streaming.publish(
+                &self.context,
+                &mut self.resident,
+                &mut self.presentation,
+                host,
+            )?;
+            if !edit || host.readiness.published == published {
+                return Ok(());
+            }
+        }
     }
 }
 

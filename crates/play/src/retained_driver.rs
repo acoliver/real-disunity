@@ -90,7 +90,7 @@ fn scene_error(what: &str, error: &SceneValidationError) -> PlayError {
 
 /// The viewer's settings before the first mesh object: a view over the origin the window shows
 /// until the game's own camera replaces it.
-fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
+pub(crate) fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
     ViewerOptions {
         activity_reason: worldrunner_scene_viewer::ActivityReason::default(),
         presentation_budget: PresentationBudget::default().into(),
@@ -337,18 +337,12 @@ impl PlayerRetainedDriver {
     }
 }
 
-/// Sends the resource tables, when a frame changed them, and then the object edits.
+/// Sends the frame's new and changed resources, and then its object edits.
 fn apply(viewer: &mut RetainedHost, update: FrameUpdate) -> Result<(), PlayError> {
-    let rejected = |error| PlayError::Invalid(format!("the viewer rejects the frame: {error}"));
-    if let Some((resources, meshes)) = update.resources {
-        viewer
-            .apply(RetainedUpdate::Resources { resources, meshes })
-            .map_err(rejected)?;
-    }
-    if !update.edits.is_empty() {
-        viewer
-            .apply(RetainedUpdate::Objects(update.edits))
-            .map_err(rejected)?;
+    for update in update.into_updates() {
+        viewer.apply(update).map_err(|error| {
+            PlayError::Invalid(format!("the viewer rejects the frame: {error}"))
+        })?;
     }
     Ok(())
 }

@@ -47,6 +47,21 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
 
+## Player program draws
+
+`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `compositor::encode_scene` and `FrameEncoding::encode_scene` take them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
+
+Encoding checks the draws before it declares anything:
+
+- A scene with temporal reconstruction (velocity or a jittered projection), screen-space passes or multisampling fails with `FrameError::UnsupportedEffect` and the name `player programs with temporal reconstruction`, `... with screen-space passes` or `... with multisampling`.
+- Draws prepared for other attachments than the scene's color format and `Depth32Float` fail with `FrameError::FeaturePreparation` for `player programs`, carrying `ProgramError::TargetMismatch`.
+- An arena that retired, was dropped or belongs to another submission authority than the frame fails the same way with `LeaseError::Expired` or `LeaseError::ForeignAuthority`.
+- Every refusal comes before the encoder records anything for the frame. Draws that no frame took are replaced by the next admission, and a frame that encodes takes them whether or not it succeeds.
+
+A frame with no admitted draws is unchanged: `without_admitted_programs_the_frame_is_byte_identical_to_the_stock_scene_draw` compares its output bytes with a direct draw of the scene. A cancelled frame submits nothing, publishes no counters and leaves the target as it was.
+
+The tests are in `src/draw/tests/program_frame*`. `player_program_and_scene_gpu_draw_composite_in_one_submitted_frame` draws a red unlit engine card and two patches of a synthetic SPIR-V program in one frame, with explicit `ProgramParameters`, and checks engine-only, player-only and overlapping pixels, an unchanged `submitted_serial` while recording and a serial rise of exactly one. The patches' clip depths lie on either side of the card's depth, which is derived from the projection, so the expected pixels do not depend on the shaders. Run them with `cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1`.
+
 ## Material sampling
 
 Resident mesh and impostor materials share one sampler across all channels.

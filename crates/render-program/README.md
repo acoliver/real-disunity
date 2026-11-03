@@ -47,6 +47,33 @@ Several runtimes and other renderer crates can record into the same frame; `test
 - **Release.** `release_buffer`, `release_texture` and `release_target` fail with `ProgramError::Busy` while a frame is being recorded. They keep the bytes in the budget until the work submitted so far has completed, as `render-gpu`'s `Configuration::replace` does for retired generations; the next allocation, or `collect`, frees them. A pending readback holds its staging bytes until it is resolved or dropped.
 - **Errors from the authority.** `SubmitError` values keep their names: `ProgramError::DeviceLost`, `Busy`, `Lease` and `Transaction`. Every creation and recording call checks for device loss first.
 
+## Joining a renderer frame
+
+A draw can also be recorded into a render pass that another crate opened. `worldrunner-render-scene` uses this to draw player programs inside its stock opaque pass, after its own opaque geometry. Both share the pass's color target, depth buffer and the frame's one submission. This crate prepares the draws and owns their lifetime. `render-scene` owns the pass.
+
+```rust
+// Once: the renderer reserves the arena, so its total counts the bytes.
+let reservation = renderer.reserve(&context, ProgramRuntime::arena_allocations(ARENA))?;
+let mut runtime = ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(ARENA));
+let mut arena = runtime.open_arena(reservation)?;
+
+// Each frame: admit the draws, hand them to the scene, encode, submit once.
+let mut frame = authority.begin(&device)?;
+let admitted = runtime.admit_draws(&frame, &arena, signature, &packets)?;
+scene_gpu.admit_programs(admitted);
+renderer.encoding().encode_scene(&device, &mut frame, (&mut scene_gpu, &pipelines), attachments, uniform)?;
+frame.finish().submit()?;
+```
+
+- **Preparation and recording.** `prepare_draw` takes a `DrawPacket`, which is a `DrawRequest` without its target, and a `TargetSignature`. It builds the pipeline for the signature's formats and sample count, the bind groups and the buffer references, and returns a `PreparedProgramDraw`. `PreparedProgramDraw::record` only sets state and draws, so it cannot fail inside a pass. `draw` is `prepare_draw` followed by `record` into a pass over the target.
+- **Target signature.** A `TargetSignature` is one color format, an optional depth format and a sample count. `TargetSignature::new` refuses what the runtime does not draw into, by name: more than one sample (`UnsupportedTarget::Multisampled`), other than one color attachment (`ColorAttachments`), a depth format with a stencil aspect (`Stencil`) and a depth attachment without depth (`NotDepth`). The pipeline cache key includes the signature.
+- **Arena.** `ProgramRuntime::arena_allocations(bytes)` is the storage the renderer reserves through its configuration, so the renderer's budget refuses an arena that does not fit. `open_arena` refuses a reservation smaller than the runtime's budget (`ArenaTooSmall`), so everything the runtime admits lies within storage the renderer counted once. A `ProgramArena` belongs to the runtime that opened it (`ForeignArena`).
+- **Admission.** `admit_draws` takes the frame's encoder, the arena, the signature and the packets. It prepares every packet and then makes the frame retain the arena through `Publications::retain_lease`, which checks the frame's authority (`LeaseError::ForeignAuthority`) and that the arena is still live (`LeaseError::Expired`). It returns an `AdmittedPrograms`, the only way to obtain one, or nothing at all.
+- **Lifetime.** The frame keeps the arena's `FrameOwner` leased until the GPU has completed the submission. `ProgramArena::retire` fails with `Busy` while an unsubmitted or in-flight frame holds it and with `Expired` afterwards. Cancelling or dropping the prepared frame releases the lease and submits nothing. The prepared draws hold clones of the wgpu objects they use, which wgpu keeps alive while a recorded command needs them. The runtime refuses `release_buffer` while a frame is being recorded and keeps released bytes in its budget until the submissions made so far have completed, so a buffer an admitted draw uses stays counted until the GPU is done with it.
+- **Checks at the consumer.** `AdmittedPrograms::check_target` compares the draws' signature with the pass's (`TargetMismatch`), and `retain` repeats the lease check for the frame that finally encodes them.
+
+The only consumer so far is `render-scene`'s opaque pass, see [its README](../render-scene/README.md#player-program-draws). The first slice covers one single-sample color attachment with `Depth32Float` and nothing else.
+
 ## Measured conventions
 
 The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare bytes. They pin what a Unity Vulkan module needs:
@@ -60,9 +87,9 @@ The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare 
 ## Not done
 
 - **Unity sampler state.** Every sampler binding gets one fixed sampler: linear filtering, clamped to the edge. The packed sampler state in the serialized parameters is not decoded, so wrap, filter and anisotropy settings are ignored.
-- **Multisampling, stencil and multiple render targets.** Targets are single-sample with one color attachment and an optional depth attachment. Stencil state is a named error.
+- **Multisampling, stencil and multiple render targets.** Targets are single-sample with one color attachment and an optional depth attachment. Stencil state and a stencil depth format are named errors, and so are multisampled and multiple-attachment signatures.
 - **Player-variant parameter blobs.** `Program::parameter_blob_indices` are not decoded, so parameters come from the sub programs' own `ProgramParameters`.
-- **Frame planning and composition.** The runtime records where it is told to and owns no pass order or attachments. Having `render-plan`, `render-scene` and `render-post` own the order of passes and the attachments a program draws into is the next step; this crate does not do it yet, and no scene or material system calls the runtime. A target here is a standalone color and depth texture pair that the caller creates and releases.
+- **Frame planning and composition beyond one pass.** The runtime still owns no pass order and no attachments. `render-scene` takes admitted draws into its stock opaque pass for one single-sample color attachment and `Depth32Float`. It refuses scenes with temporal reconstruction, screen-space passes or multisampling by name. Camera render textures, sampling a draw's target in a later pass, compute between passes, transparent ordering, the depth-fitted capture continuation and `render-plan` descriptions of program work are not done. The standalone target that `create_render_target` makes remains the caller's to create and release.
 - **Budget timing of write staging.** The staging buffer of a recorded `write_buffer` is admitted when it is recorded and released when the call returns, not when the GPU finishes the copy.
 - **Calling shader preparation.** `shader_prep` lives in `unity-import`, which is in the Tool layer, so a Graphics-layer runtime cannot call it. Callers supply the prepared words and binding table.
 
@@ -71,5 +98,7 @@ The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare 
 ```sh
 cargo test -p worldrunner-render-program -- --test-threads=1
 ```
+
+`tests/program/packet.rs` covers preparation and recording into a caller's pass, and `arena.rs` covers admission, authority, lifetime and budget refusals. The frame tests in `render-scene` run with `cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1`.
 
 The draw and dispatch tests need a Vulkan adapter and use the one wgpu selects. They obtain the device through `render-gpu` (`headless_instance`, `request_device`), build a `SubmissionAuthority` and submit every frame through it. The first test to create a runtime prints the adapter's name to stderr; run with `--nocapture` to see it. Set `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json` to run them on lavapipe.

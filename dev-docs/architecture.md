@@ -27,7 +27,7 @@ The layer of each crate is declared in `crates/xtask/src/layers.rs`, and `cargo 
 | Foundation | `core-types` (identifiers, units, hashes), `asset-id`, `catalog`, `package` (content-addressed packages), `texture`, `mesh`, `material`, `import-schema`, `camera` (CPU camera math), `script` (sandboxed Lua 5.4), `unity-serialized` (Unity's binary serialized file format), `world-simulation`, `disunity-ffi` |
 | World | `world-schema` (world documents), `world-model` (semantic world documents), `world-runtime` (capability negotiation over documents), `world-generation` (deterministic seed-based generation), `save` |
 | Bridge | `render-plan` |
-| Graphics | `render-gpu`, `render-lighting`, `render-shadow`, `render-post`, `render-scene` |
+| Graphics | `render-gpu`, `render-lighting`, `render-shadow`, `render-post`, `render-program` (Unity player shader programs; `render-scene` draws them), `render-scene` |
 | Host | `scene-viewer` |
 | Managed | `disunity-runtime` |
 | Tool | `unity-import`, `content-tool`, `original-games` (public game sources fetched read-only at pinned revisions), `play` (runs a game's scene or built player in a window), `xtask` |

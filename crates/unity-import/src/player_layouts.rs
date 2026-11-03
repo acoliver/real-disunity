@@ -10,7 +10,9 @@ use worldrunner_render_program::{
     module::{ModuleError, Reflected, StageKind, StageModule, StageProgram},
 };
 use worldrunner_unity_serialized::{
-    shader_parameters::{BufferMember, ConstantBuffer, ResourceKind, VariantParameters},
+    shader_parameters::{
+        BufferMember, ConstantBuffer, ResourceKind, StructLayout, VariantParameters,
+    },
     spirv_prep::{PrepareError, PreparedModule, prepare_stages},
 };
 
@@ -179,6 +181,44 @@ fn numbering_agrees(programs: &[StageProgram]) -> bool {
     (0..programs.len()).all(|left| (left + 1..programs.len()).all(|right| same(left, right)))
 }
 
+fn packs<T, E>(result: Result<T, E>) -> &'static str {
+    if result.is_ok() { "packs" } else { "refused" }
+}
+
+/// A buffer with only `member`, at offset 0.
+fn alone_in_buffer(member: &BufferMember) -> ConstantBuffer {
+    ConstantBuffer {
+        name: String::new(),
+        size: 1 << 16,
+        members: vec![BufferMember {
+            name: String::new(),
+            offset: 0,
+            ..member.clone()
+        }],
+        structs: Vec::new(),
+    }
+}
+
+/// A buffer with a single struct that holds only `member`, at offset 0.
+fn alone_in_struct(member: &BufferMember) -> ConstantBuffer {
+    ConstantBuffer {
+        name: String::new(),
+        size: 1 << 16,
+        members: Vec::new(),
+        structs: vec![StructLayout {
+            name: String::new(),
+            index: 0,
+            array_size: 0,
+            size: 1 << 12,
+            members: vec![BufferMember {
+                name: String::new(),
+                offset: 0,
+                ..member.clone()
+            }],
+        }],
+    }
+}
+
 impl LayoutReport {
     /// Prepares `stages`, builds their programs from `parameters` and lays the variant out.
     pub fn add_variant(&mut self, parameters: &VariantParameters, stages: &[RawStage]) {
@@ -283,7 +323,8 @@ impl LayoutReport {
     }
 
     /// Counts the members of the constant buffers the variant binds by shape, and whether the
-    /// packer accepts a member of that shape.
+    /// packer accepts a member of that shape. A buffer with structs counts as one, and the
+    /// members of its structs by shape as well.
     fn add_members(&mut self, parameters: &VariantParameters) {
         let bound = parameters
             .bindings
@@ -293,35 +334,35 @@ impl LayoutReport {
             let layouts = parameters.constant_buffers.iter();
             for buffer in layouts.filter(|buffer| buffer.name == binding.name) {
                 if !buffer.structs.is_empty() {
-                    count(&mut self.member_shapes, "buffer with structs: refused");
+                    let packs = packs(pack_variant_buffer(buffer, &[], 0));
+                    count(&mut self.member_shapes, format!("buffer with structs: {packs}"));
                 }
                 for member in &buffer.members {
-                    let alone = ConstantBuffer {
-                        name: String::new(),
-                        size: 1 << 16,
-                        members: vec![BufferMember {
-                            name: String::new(),
-                            offset: 0,
-                            ..member.clone()
-                        }],
-                        structs: Vec::new(),
-                    };
-                    let shape = format!(
-                        "kind {} {}x{}{}{}",
-                        member.kind,
-                        member.rows,
-                        member.columns,
-                        if member.is_matrix { " matrix" } else { "" },
-                        if member.array_size > 0 { " array" } else { "" },
-                    );
-                    let packs = match pack_variant_buffer(&alone, &[], 0) {
-                        Ok(_) => "packs",
-                        Err(_) => "refused",
-                    };
-                    count(&mut self.member_shapes, format!("{shape}: {packs}"));
+                    let alone = alone_in_buffer(member);
+                    self.add_member("", member, &alone);
+                }
+                for layout in &buffer.structs {
+                    for member in &layout.members {
+                        let alone = alone_in_struct(member);
+                        self.add_member("struct member ", member, &alone);
+                    }
                 }
             }
         }
+    }
+
+    /// Counts `member` by its shape, and whether `alone`, a buffer holding only it, packs.
+    fn add_member(&mut self, prefix: &str, member: &BufferMember, alone: &ConstantBuffer) {
+        let shape = format!(
+            "kind {} {}x{}{}{}",
+            member.kind,
+            member.rows,
+            member.columns,
+            if member.is_matrix { " matrix" } else { "" },
+            if member.array_size > 0 { " array" } else { "" },
+        );
+        let packs = packs(pack_variant_buffer(alone, &[], 0));
+        count(&mut self.member_shapes, format!("{prefix}{shape}: {packs}"));
     }
 
     /// Counts each texture binding the stage uses by its dimension code and the module's image.

@@ -1,6 +1,7 @@
 use worldrunner_unity_import::player_layouts::{LayoutReport, RawStage};
 use worldrunner_unity_serialized::shader_parameters::{
-    BufferMember, ConstantBuffer, DescriptorSlot, ResourceBinding, ResourceKind, VariantParameters,
+    BufferMember, ConstantBuffer, DescriptorSlot, ResourceBinding, ResourceKind, StructLayout,
+    VariantParameters,
 };
 
 const VERTEX: u8 = DescriptorSlot::VERTEX;
@@ -344,6 +345,53 @@ fn members_the_packer_refuses_are_counted_by_shape() {
             (&"kind 0 4x4 matrix: packs".to_owned(), &1),
             (&"kind 1 1x3 array: refused".to_owned(), &1),
             (&"kind 2 1x1: refused".to_owned(), &1),
+        ]
+    );
+}
+
+#[test]
+fn a_buffer_with_an_array_of_structs_is_counted_as_packing_with_its_members_by_shape() {
+    let mut parameters = parameters(vec![block_binding(VERTEX)]);
+    let member = |kind, columns, offset| BufferMember {
+        name: "m".to_owned(),
+        kind,
+        rows: 1,
+        columns,
+        is_matrix: false,
+        array_size: 0,
+        offset,
+    };
+    // The player's buffers are as large as their struct array: 2 elements of 32 bytes.
+    parameters.constant_buffers[0].size = 64;
+    parameters.constant_buffers[0].members.clear();
+    parameters.constant_buffers[0].structs = vec![StructLayout {
+        name: "S".to_owned(),
+        index: 0,
+        array_size: 2,
+        size: 32,
+        members: vec![member(0, 4, 0), member(1, 4, 16)],
+    }];
+    let report = report_of(&parameters, &[vertex_stage()]);
+    assert_eq!(
+        report.member_shapes.iter().collect::<Vec<_>>(),
+        [
+            (&"buffer with structs: packs".to_owned(), &1),
+            (&"struct member kind 0 1x4: packs".to_owned(), &1),
+            (&"struct member kind 1 1x4: packs".to_owned(), &1),
+        ]
+    );
+    // A member the packer refuses refuses the buffer, and is counted as refused by its shape.
+    parameters.constant_buffers[0].structs[0]
+        .members
+        .push(member(2, 1, 0));
+    let report = report_of(&parameters, &[vertex_stage()]);
+    assert_eq!(
+        report.member_shapes.iter().collect::<Vec<_>>(),
+        [
+            (&"buffer with structs: refused".to_owned(), &1),
+            (&"struct member kind 0 1x4: packs".to_owned(), &1),
+            (&"struct member kind 1 1x4: packs".to_owned(), &1),
+            (&"struct member kind 2 1x1: refused".to_owned(), &1),
         ]
     );
 }

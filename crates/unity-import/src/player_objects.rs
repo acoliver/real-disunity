@@ -171,6 +171,13 @@ pub fn shader_chunks(
     Ok((kind, chunks))
 }
 
+/// A decoded shader with the decompressed chunks of its Vulkan platform.
+#[derive(Debug)]
+pub struct VulkanShader {
+    pub shader: Shader,
+    pub chunks: Vec<Vec<u8>>,
+}
+
 /// Decodes a shader and decompresses the chunks of its Vulkan platform, or returns `None` when
 /// the shader has no Vulkan platform.
 ///
@@ -180,7 +187,7 @@ pub fn shader_chunks(
 pub fn vulkan_shader(
     open: &mut OpenFile,
     path_id: i64,
-) -> Result<Option<(Shader, Vec<Vec<u8>>)>, PlayerError> {
+) -> Result<Option<VulkanShader>, PlayerError> {
     let (shader, bytes) = decode_shader(open, path_id)?;
     let Some(platform) = shader
         .compiled
@@ -194,7 +201,7 @@ pub fn vulkan_shader(
         .compiled
         .platform_chunks(&bytes, platform)
         .map_err(|source| open.error(source))?;
-    Ok(Some((shader, chunks)))
+    Ok(Some(VulkanShader { shader, chunks }))
 }
 
 /// Decodes a shader, returning it with its object bytes.

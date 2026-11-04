@@ -13,7 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use worldrunner_render_program::shader::{ProgramShader, ResolveError};
 use worldrunner_unity_import::{
     PlayerError,
-    player_objects::{OpenFile, vulkan_shader},
+    player_objects::{OpenFile, VulkanShader, vulkan_shader},
     player_shader_refs::shader_render_queue,
 };
 use worldrunner_unity_serialized::shader::Shader;
@@ -135,7 +135,7 @@ impl ShaderLoader {
     fn decode(&self, source: &ShaderSource) -> Result<Loaded, ShaderLoadError> {
         let path = self.path_of(&source.file)?;
         let mut open = OpenFile::open(&path)?;
-        let (shader, chunks) =
+        let VulkanShader { shader, chunks } =
             vulkan_shader(&mut open, source.path_id)?.ok_or(ShaderLoadError::NoVulkanPlatform)?;
         let queue = shader_render_queue(&shader).map_err(ShaderLoadError::Queue)?;
         Ok(Loaded {

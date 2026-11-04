@@ -34,8 +34,27 @@ pub enum LayoutError {
     UnboundResource { unity_binding: i64 },
     #[error("binding {unity_binding} is in several descriptor sets of the binding table")]
     AmbiguousBinding { unity_binding: u32 },
+    #[error("parameter binding {binding} in set {set} is not in the module's binding table")]
+    UnboundSlot { set: u32, binding: u32 },
     #[error("constant buffer name {name_index} has a binding but no buffer record")]
     UndescribedConstantBuffer { name_index: i32 },
+    #[error("constant buffer {name:?} has a binding but no layout of that name")]
+    UndescribedBuffer { name: String },
+    #[error(
+        "texture dimension code {code} is a multisampled texture in the player checked, which \
+         this renderer does not bind"
+    )]
+    MultisampledTexture { code: i32 },
+    #[error(
+        "the {stage:?} module uses set {set} binding {binding}, which the parameters bind for \
+         stages {stages:#b} only"
+    )]
+    StageMismatch {
+        set: u32,
+        binding: u32,
+        stage: StageKind,
+        stages: u8,
+    },
     #[error("the module uses {name} at set {set} binding {binding}, which no parameter declares")]
     UndeclaredResource {
         set: u32,
@@ -76,7 +95,11 @@ impl ProgramLayout {
         let mut merged: BTreeMap<(u32, u32), Slot> = BTreeMap::new();
         let mut unused = Vec::new();
         for stage in stages {
-            let declared = declarations(stage.parameters(), &stage.module().bindings)?;
+            let declared = declarations(
+                stage.parameters(),
+                &stage.module().bindings,
+                stage.module().kind,
+            )?;
             for resource in stage.resources() {
                 let slot = stage_slot(stage.module().kind, &declared, resource)?;
                 merge(&mut merged, slot)?;
@@ -113,14 +136,28 @@ fn stage_slot(
     declared: &[Declared],
     resource: &Reflected,
 ) -> Result<Slot, LayoutError> {
-    let found = declared
+    let at_slot: Vec<&Declared> = declared
         .iter()
-        .find(|d| d.set == resource.set && d.binding == resource.binding)
+        .filter(|d| d.set == resource.set && d.binding == resource.binding)
+        .collect();
+    let found = at_slot
+        .iter()
+        .find(|d| d.applies(kind))
+        .or(at_slot.first())
+        .copied()
         .ok_or_else(|| LayoutError::UndeclaredResource {
             set: resource.set,
             binding: resource.binding,
             name: resource.name.clone(),
         })?;
+    if !found.applies(kind) {
+        return Err(LayoutError::StageMismatch {
+            set: resource.set,
+            binding: resource.binding,
+            stage: kind,
+            stages: found.stages.unwrap_or_default(),
+        });
+    }
     if !found.class.matches(&resource.ty) {
         return Err(LayoutError::Mismatch {
             set: resource.set,
@@ -132,7 +169,7 @@ fn stage_slot(
     Ok(Slot {
         set: resource.set,
         binding: resource.binding,
-        visibility: kind.visibility(),
+        visibility: kind.visibility() | found.visibility(),
         ty: resource.ty,
         min_size: resource.min_size,
     })
@@ -160,10 +197,11 @@ fn unused_parameters(stage: &StageProgram, declared: &[Declared]) -> Vec<UnusedP
     declared
         .iter()
         .filter(|d| {
-            !stage
-                .resources()
-                .iter()
-                .any(|r| r.set == d.set && r.binding == d.binding)
+            d.applies(stage.module().kind)
+                && !stage
+                    .resources()
+                    .iter()
+                    .any(|r| r.set == d.set && r.binding == d.binding)
         })
         .map(|d| UnusedParameter {
             stage: stage.module().kind,
@@ -181,6 +219,7 @@ impl Class {
             Self::Sampler => "a sampler",
             Self::StructuredBuffer => "a structured buffer",
             Self::UnorderedAccess => "a UAV",
+            Self::StorageBuffer => "a buffer block",
         }
     }
 
@@ -195,7 +234,7 @@ impl Class {
             )
             | (Self::Sampler, B::Sampler(_))
             | (
-                Self::UnorderedAccess,
+                Self::UnorderedAccess | Self::StorageBuffer,
                 B::Buffer {
                     ty: Buf::Storage { .. },
                     ..

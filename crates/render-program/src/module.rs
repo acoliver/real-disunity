@@ -4,7 +4,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
+use worldrunner_unity_serialized::shader_parameters::{DescriptorSlot, VariantParameters};
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
+pub use worldrunner_unity_serialized::spirv_prep::ResourceBinding;
 
 pub use crate::reflect::Reflected;
 use crate::reflect::reflect;
@@ -26,6 +28,17 @@ impl StageKind {
         }
     }
 
+    /// The bit that names this stage in a player variant's descriptor slots. Only the vertex and
+    /// fragment bits have been measured, so a compute stage has none.
+    #[must_use]
+    pub fn stage_bit(self) -> Option<u8> {
+        match self {
+            Self::Vertex => Some(DescriptorSlot::VERTEX),
+            Self::Fragment => Some(DescriptorSlot::FRAGMENT),
+            Self::Compute => None,
+        }
+    }
+
     pub(crate) fn visibility(self) -> wgpu::ShaderStages {
         match self {
             Self::Vertex => wgpu::ShaderStages::VERTEX,
@@ -35,17 +48,26 @@ impl StageKind {
     }
 }
 
-/// Where one resource of a prepared module is bound: the same data as the importer's
-/// `ResourceBinding`, which this crate cannot depend on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ModuleBinding {
-    pub set: u32,
-    /// The binding in Unity's module, which parameters refer to.
-    pub unity_binding: u32,
-    /// The binding in the prepared module; for a split combined sampler, the image's.
-    pub binding: u32,
-    /// For a split combined sampler, the sampler's binding in the prepared module.
-    pub sampler_binding: Option<u32>,
+/// What describes the resources a stage binds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StageParameters {
+    /// A sub program's parameters, which an editor-style serialized shader stores per stage.
+    Program(ProgramParameters),
+    /// A Unity 6 player variant's parameters, which describe every stage of the variant and
+    /// name the stages that use each binding.
+    Variant(VariantParameters),
+}
+
+impl From<ProgramParameters> for StageParameters {
+    fn from(parameters: ProgramParameters) -> Self {
+        Self::Program(parameters)
+    }
+}
+
+impl From<VariantParameters> for StageParameters {
+    fn from(parameters: VariantParameters) -> Self {
+        Self::Variant(parameters)
+    }
 }
 
 /// A prepared stage module: SPIR-V that naga reads, and where its resources are bound.
@@ -54,7 +76,7 @@ pub struct StageModule {
     pub words: Vec<u32>,
     pub entry_point: String,
     pub kind: StageKind,
-    pub bindings: Vec<ModuleBinding>,
+    pub bindings: Vec<ResourceBinding>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -83,7 +105,7 @@ pub(crate) struct Parsed {
 #[derive(Clone)]
 pub struct StageProgram {
     module: StageModule,
-    parameters: ProgramParameters,
+    parameters: StageParameters,
     parsed: Arc<Parsed>,
     key: blake3::Hash,
 }
@@ -104,7 +126,10 @@ impl StageProgram {
     /// # Errors
     /// Fails with naga's parse or validation error, a missing entry point, or a resource that
     /// cannot be bound.
-    pub fn new(module: StageModule, parameters: ProgramParameters) -> Result<Self, ModuleError> {
+    pub fn new(
+        module: StageModule,
+        parameters: impl Into<StageParameters>,
+    ) -> Result<Self, ModuleError> {
         let words = &module.words;
         let parsed = catch_unwind(AssertUnwindSafe(|| parse(words, &module)))
             .map_err(|payload| ModuleError::Panicked(panic_text(payload.as_ref())))??;
@@ -116,7 +141,7 @@ impl StageProgram {
         hasher.update(format!("{:?}", module.kind).as_bytes());
         Ok(Self {
             module,
-            parameters,
+            parameters: parameters.into(),
             parsed: Arc::new(parsed),
             key: hasher.finalize(),
         })
@@ -128,7 +153,7 @@ impl StageProgram {
     }
 
     #[must_use]
-    pub fn parameters(&self) -> &ProgramParameters {
+    pub fn parameters(&self) -> &StageParameters {
         &self.parameters
     }
 

@@ -5,7 +5,7 @@ use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::runtime::TargetImage;
 use worldrunner_render_program::state::resolve_state;
 
-use crate::common::{named, opaque_state};
+use crate::common::{FORMS, Form, named, opaque_state};
 use crate::rig::{MULTIPLY, QUAD, Samplers, Scene, TEXELS, TINT_VALUE, pass, properties, render};
 
 /// Unity's `BlendMode` numbers for `SrcAlpha` and `OneMinusSrcAlpha`, and `CullMode` for off.
@@ -20,7 +20,7 @@ const BACKDROP: [f64; 4] = [0.2, 0.4, 0.6, 1.0];
 
 /// The same pass with a cull and a blend that read the material, as a Unity shader with
 /// `Cull [_Cull]` and `Blend [_SrcBlend] [_DstBlend]` has.
-fn draw(controls: [(&str, f32); 3], indices: &[u16]) -> TargetImage {
+fn draw(form: Form, controls: [(&str, f32); 3], indices: &[u16]) -> TargetImage {
     let (mut material, globals) = properties();
     for (name, value) in controls {
         material.set(name, PropertyValue::Float(value));
@@ -34,7 +34,7 @@ fn draw(controls: [(&str, f32); 3], indices: &[u16]) -> TargetImage {
     render(
         &mut runtime,
         &Scene {
-            pass: &pass(Samplers::Separate),
+            pass: &pass(Samplers::Separate, form),
             enabled: &[MULTIPLY],
             material: &material,
             globals: &globals,
@@ -87,41 +87,47 @@ fn backdrop() -> [f64; 4] {
 
 #[test]
 fn blend_one_zero_replaces_the_backdrop_with_the_shaded_color() {
-    let image = draw(
-        [("_Cull", CULL_BACK), ("_SrcBlend", 1.0), ("_DstBlend", 0.0)],
-        &QUAD,
-    );
-    assert_pixels(&image, shaded, 0.0, "opaque");
+    for form in FORMS {
+        let image = draw(
+            form,
+            [("_Cull", CULL_BACK), ("_SrcBlend", 1.0), ("_DstBlend", 0.0)],
+            &QUAD,
+        );
+        assert_pixels(&image, shaded, 0.0, &format!("opaque {form:?}"));
+    }
 }
 
 #[test]
 fn src_alpha_blending_mixes_the_shaded_color_into_the_backdrop_by_its_alpha() {
-    let image = draw(
-        [
-            ("_Cull", CULL_BACK),
-            ("_SrcBlend", SRC_ALPHA),
-            ("_DstBlend", ONE_MINUS_SRC_ALPHA),
-        ],
-        &QUAD,
-    );
-    assert_pixels(
-        &image,
-        |x, y| {
-            let src = shaded(x, y);
-            let alpha = src[3] / 255.0;
-            let back = backdrop();
-            // The alpha factors stay One and Zero, so the alpha channel is the source alpha.
-            std::array::from_fn(|c| {
-                if c == 3 {
-                    src[3]
-                } else {
-                    src[c] * alpha + back[c] * (1.0 - alpha)
-                }
-            })
-        },
-        BLEND_EXTRA_STEPS,
-        "alpha blend",
-    );
+    for form in FORMS {
+        let image = draw(
+            form,
+            [
+                ("_Cull", CULL_BACK),
+                ("_SrcBlend", SRC_ALPHA),
+                ("_DstBlend", ONE_MINUS_SRC_ALPHA),
+            ],
+            &QUAD,
+        );
+        assert_pixels(
+            &image,
+            |x, y| {
+                let src = shaded(x, y);
+                let alpha = src[3] / 255.0;
+                let back = backdrop();
+                // The alpha factors stay One and Zero, so the alpha channel is the source alpha.
+                std::array::from_fn(|c| {
+                    if c == 3 {
+                        src[3]
+                    } else {
+                        src[c] * alpha + back[c] * (1.0 - alpha)
+                    }
+                })
+            },
+            BLEND_EXTRA_STEPS,
+            &format!("alpha blend {form:?}"),
+        );
+    }
 }
 
 /// Both triangles of the quad, wound counterclockwise as displayed.
@@ -130,14 +136,23 @@ const BACK_FACING: [u16; 6] = [0, 2, 1, 0, 3, 2];
 #[test]
 fn a_back_facing_quad_vanishes_with_cull_back_and_appears_with_cull_off() {
     let blend_off = [("_SrcBlend", 1.0), ("_DstBlend", 0.0)];
-    let culled = draw(
-        [("_Cull", CULL_BACK), blend_off[0], blend_off[1]],
-        &BACK_FACING,
-    );
-    assert_pixels(&culled, |_, _| backdrop(), 0.0, "cull back");
-    let drawn = draw(
-        [("_Cull", CULL_OFF), blend_off[0], blend_off[1]],
-        &BACK_FACING,
-    );
-    assert_pixels(&drawn, shaded, 0.0, "cull off");
+    for form in FORMS {
+        let culled = draw(
+            form,
+            [("_Cull", CULL_BACK), blend_off[0], blend_off[1]],
+            &BACK_FACING,
+        );
+        assert_pixels(
+            &culled,
+            |_, _| backdrop(),
+            0.0,
+            &format!("cull back {form:?}"),
+        );
+        let drawn = draw(
+            form,
+            [("_Cull", CULL_OFF), blend_off[0], blend_off[1]],
+            &BACK_FACING,
+        );
+        assert_pixels(&drawn, shaded, 0.0, &format!("cull off {form:?}"));
+    }
 }

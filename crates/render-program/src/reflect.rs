@@ -19,6 +19,21 @@ pub struct Reflected {
     pub min_size: u64,
 }
 
+impl Reflected {
+    /// The view dimension and multisampling of the resource, if it is a texture.
+    #[must_use]
+    pub fn texture(&self) -> Option<(wgpu::TextureViewDimension, bool)> {
+        match self.ty {
+            wgpu::BindingType::Texture {
+                view_dimension,
+                multisampled,
+                ..
+            } => Some((view_dimension, multisampled)),
+            _ => None,
+        }
+    }
+}
+
 /// Every resource of `module` that entry point `entry` uses.
 pub(crate) fn reflect(
     module: &Module,

@@ -4231,10 +4231,10 @@ dependencies = [
  "png",
  "serde",
  "serde_json",
- "spirv-webgpu-transform",
  "tempfile",
  "thiserror 2.0.21",
  "worldrunner-original-games",
+ "worldrunner-render-program",
  "worldrunner-unity-serialized",
 ]
 
@@ -4242,6 +4242,7 @@ dependencies = [
 name = "worldrunner-unity-serialized"
 version = "0.1.0"
 dependencies = [
+ "spirv-webgpu-transform",
  "thiserror 2.0.21",
 ]
 

@@ -2,15 +2,17 @@
 //! resources, admitted draws that can still be recorded, and the frames that retain the arena.
 
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
-use worldrunner_render_gpu::submission::LeaseError;
+use worldrunner_render_gpu::submission::{LeaseError, PreparedFrame};
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{Geometry, ProgramArena, ProgramRuntime};
+use worldrunner_render_program::runtime::{DrawRequest, Geometry, ProgramArena, ProgramRuntime};
 
 use crate::arena::{ARENA, Draw, admit, admit_geometry, arena_runtime, draw, prepare};
 use crate::common::Gpu;
+use crate::patch::state;
 use crate::surface::{Surface, pixel, read};
 
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// The renderer's configuration, which counts the arenas it reserved while they are held.
 struct Renderer {
@@ -390,4 +392,95 @@ fn admission_refuses_ranges_past_the_bound_buffers_by_name_and_admits_nothing() 
     arena
         .retire()
         .expect("a refused admission did not retain the arena");
+}
+
+/// Records the patch as an immediate draw into a new target and returns the finished frame.
+fn record_immediate(gpu: &Gpu, runtime: &mut ProgramRuntime, draw: &Draw) -> PreparedFrame {
+    let target = runtime
+        .create_render_target("target", [1, 1], RGBA8, Some(DEPTH))
+        .unwrap();
+    let state = state();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    runtime
+        .draw(
+            &mut frame,
+            &DrawRequest {
+                program: &draw.patch.program,
+                state: &state,
+                front_face: wgpu::FrontFace::Cw,
+                target,
+                vertex_inputs: std::slice::from_ref(&draw.input),
+                bindings: &draw.bindings,
+                geometry: Geometry::Vertices { first: 0, count: 6 },
+            },
+        )
+        .unwrap();
+    frame.finish()
+}
+
+#[test]
+fn the_buffers_of_an_immediate_draw_cannot_be_released_while_its_frame_is_unsubmitted() {
+    let gpu = Gpu::new();
+    let (mut runtime, _arena) = arena_runtime(&gpu);
+    let draw = draw(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw);
+    assert_eq!(
+        runtime.release_buffer(draw.input.buffer).unwrap_err(),
+        ProgramError::Busy,
+        "an unsubmitted frame may use the buffer, so its serial is not known yet"
+    );
+
+    let before = gpu.authority.submitted_serial();
+    frame.submit().unwrap();
+    assert_eq!(gpu.authority.submitted_serial(), before + 1);
+    assert!(
+        runtime.release_buffer(draw.input.buffer).unwrap(),
+        "the buffer is released once the frame has been submitted"
+    );
+}
+
+#[test]
+fn an_immediate_draws_bytes_stay_counted_through_its_frame_after_the_runtime_is_gone() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let draw = draw(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw);
+    drop(arena);
+    drop(runtime);
+    assert_eq!(
+        renderer.held(),
+        ARENA,
+        "the frame that recorded the draw holds the bytes while its use is pending"
+    );
+
+    frame.submit().unwrap();
+    assert_eq!(renderer.held(), ARENA, "submitted, not yet completed");
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    assert_eq!(renderer.held(), 0, "the completed frame freed the bytes");
+}
+
+#[test]
+fn a_cancelled_frame_gives_back_the_bytes_of_an_immediate_draw() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let draw = draw(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw);
+    let before = gpu.authority.submitted_serial();
+    drop(arena);
+    drop(runtime);
+    assert_eq!(renderer.held(), ARENA);
+
+    frame.cancel();
+    assert_eq!(
+        gpu.authority.submitted_serial(),
+        before,
+        "nothing was submitted"
+    );
+    assert_eq!(renderer.held(), 0, "a cancelled frame used nothing");
 }

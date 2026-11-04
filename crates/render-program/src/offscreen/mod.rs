@@ -110,7 +110,10 @@ impl OffscreenState {
     /// color of a render texture, or its depth when it has no color.
     #[must_use]
     pub fn texture_handle(&self, id: TextureId) -> Option<TextureHandle> {
-        self.textures.get(id).ok().map(textures::TextureInfo::primary)
+        self.textures
+            .get(id)
+            .ok()
+            .map(textures::TextureInfo::primary)
     }
 
     /// Resolves and packs one frame into the typed operations that run it, in call order.

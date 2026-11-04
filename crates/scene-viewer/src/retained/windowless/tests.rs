@@ -4,9 +4,12 @@ mod convention;
 mod environment;
 mod errors;
 mod lifecycle;
+mod overlay;
 pub(crate) mod pages;
+mod picking;
 mod terrain;
 mod timing;
+mod work;
 #[test]
 fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
     let mut driver = Driver::default();

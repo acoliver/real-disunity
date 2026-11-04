@@ -34,7 +34,7 @@
 //! it with that level's vertices lets LOD selection change policy without
 //! rewriting retained instance transforms.
 
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Vec3};
 use thiserror::Error;
 use worldrunner_render_plan::{BillboardPolicy, SceneMeshLod, SceneTransform, SceneVertex};
 
@@ -200,21 +200,7 @@ pub fn pack_indices(lod: &SceneMeshLod) -> Vec<u8> {
 /// that is mirrored in a manner nobody can localise.
 #[must_use]
 pub fn model_matrix(transform: &SceneTransform) -> Mat4 {
-    let rotation = Quat::from_xyzw(
-        micro_to_unit(transform.rotation.x),
-        micro_to_unit(transform.rotation.y),
-        micro_to_unit(transform.rotation.z),
-        micro_to_unit(transform.rotation.w),
-    )
-    // The domain admits rotations up to a proven quantisation tolerance rather
-    // than exactly unit ones, so this renormalises what validation permitted.
-    .normalize();
-    let scale = scale_to_unit(transform.scale_millionths);
-    Mat4::from_scale_rotation_translation(
-        Vec3::splat(scale),
-        rotation,
-        millimeters_to_meters(transform.position_millimeters),
-    )
+    worldrunner_render_plan::picking::model_matrix(transform)
 }
 
 /// Packs a model matrix and neutral tint into instance bytes.
@@ -408,15 +394,6 @@ pub(crate) fn millimeter_to_meter(value: i64) -> f32 {
     reason = "micro-unit ratios are far below the magnitude where f64 loses integers"
 )]
 fn micro_to_unit(value: i64) -> f32 {
-    narrow(value as f64 / MICRO_SCALE)
-}
-
-/// Converts millionths of scale to a multiplier.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "authored scales are far below the magnitude where f64 loses integers"
-)]
-fn scale_to_unit(value: u64) -> f32 {
     narrow(value as f64 / MICRO_SCALE)
 }
 

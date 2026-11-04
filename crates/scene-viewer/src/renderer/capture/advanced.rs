@@ -44,6 +44,7 @@ impl Active {
         Ok(true)
     }
     pub(super) fn finish(self, host: &mut RetainedHost) {
+        host.present_captured_pick(self.view.resolved_view());
         host.captures.complete_recipe(
             self.id,
             self.frame,

@@ -488,6 +488,13 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityGlyphRender>("atlas_width").ToInt32() != 28) throw new InvalidOperationException("DisunityGlyphRender.atlas_width offset");
         if (Marshal.OffsetOf<DisunityGlyphRender>("atlas_height").ToInt32() != 32) throw new InvalidOperationException("DisunityGlyphRender.atlas_height offset");
         if (Marshal.SizeOf<DisunityGlyphRender>() != 36 || typeof(DisunityGlyphRender).GetFields().Length != 9) throw new InvalidOperationException("DisunityGlyphRender layout");
+        if (Marshal.OffsetOf<DisunityUiDraw>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityUiDraw.kind offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("hierarchy_order").ToInt32() != 8) throw new InvalidOperationException("DisunityUiDraw.hierarchy_order offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("clip_x").ToInt32() != 16) throw new InvalidOperationException("DisunityUiDraw.clip_x offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("clip_y").ToInt32() != 20) throw new InvalidOperationException("DisunityUiDraw.clip_y offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("clip_width").ToInt32() != 24) throw new InvalidOperationException("DisunityUiDraw.clip_width offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("clip_height").ToInt32() != 28) throw new InvalidOperationException("DisunityUiDraw.clip_height offset");
+        if (Marshal.SizeOf<DisunityUiDraw>() != 32 || typeof(DisunityUiDraw).GetFields().Length != 6) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
 /// The native ABI revision this assembly was built against.

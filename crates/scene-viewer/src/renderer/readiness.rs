@@ -66,7 +66,7 @@ impl Renderer {
 }
 
 impl Renderer {
-    pub(super) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
+    pub(crate) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
         self.streaming.publish(
             &self.context,
             &mut self.resident,
@@ -127,6 +127,11 @@ impl Streaming {
             );
             let old_resident = std::mem::replace(resident, next_resident);
             self.retired.push_back((serial, old_resident));
+        } else if let crate::RetainedUpdate::Ui(overlay) = &front.update {
+            resident
+                .scene_mut()
+                .set_ui_overlay(context.device(), context.submission(), overlay)
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
             super::retained::apply_decal(resident.scene_mut(), update)?;
         } else {
@@ -137,7 +142,7 @@ impl Streaming {
                 super::retained::configure_effects(context, resident, presentation, &effects)?;
             }
         }
-        host.readiness.publish_front();
+        host.publish_pick_front();
         Ok(())
     }
     fn advance_preparation(

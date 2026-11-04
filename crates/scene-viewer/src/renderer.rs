@@ -247,6 +247,7 @@ impl Renderer {
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
         if let Some(host) = host {
+            host.present_pick(view.resolved_view());
             self.streaming.captures.submitted(
                 host,
                 retained_capture,

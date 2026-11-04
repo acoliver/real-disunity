@@ -448,5 +448,25 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_script_type_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_script_type_messages(ulong world, byte* assembly, byte* type_name, uint messages);
+        /// <summary>
+        ///  # Safety
+        ///  Both outputs must be writable for one count.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_ui_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_ui_count(ulong world, uint* draws, uint* textures);
+        /// <summary>
+        ///  Geometry is in lower-left viewport pixels, not the live 2D frame's world-space quads.
+        ///  Layer/order are in `quad`; hierarchy and scissor bounds are in `output`.
+        ///  # Safety
+        ///  Each output must be writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_ui_draw", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_ui_draw(ulong world, uint index, DisunityUiDraw* output, DisunityQuad* quad);
+        /// <summary>
+        ///  # Safety
+        ///  Metadata is writable; bytes is writable for capacity, or null when capacity is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_ui_coverage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_ui_coverage(ulong world, uint index, DisunityCoverage* output, byte* bytes, uint capacity);
     }
 }

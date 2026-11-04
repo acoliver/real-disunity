@@ -6,6 +6,8 @@ mod lifecycle_tests;
 pub(crate) mod pointer_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod work_tests;
 
 use crate::{
     RetainedDriver, RetainedEvent, RetainedHost, RetainedInput, RetainedTick, ViewerError,
@@ -84,6 +86,16 @@ impl<'a> Session<'a> {
 }
 
 impl Content for Session<'_> {
+    fn set_work_waker(&mut self, waker: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.host.work.set_waker(waker);
+    }
+    fn work_ready(&mut self) -> Result<(), ViewerError> {
+        if !self.host.exit && self.host.work.take_ready() {
+            self.notify(&RetainedEvent::WorkReady)
+                .map_err(ViewerError::Driver)?;
+        }
+        Ok(())
+    }
     fn poll(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {
         let pending = renderer.collect_retained(&mut self.host)?;
         self.notifications()?;
@@ -95,6 +107,7 @@ impl Content for Session<'_> {
         }
         self.closed = true;
         self.host.exit = true;
+        self.host.work.shutdown();
         self.host.captures.cancel();
         let mut failure = self.failure.take();
         while let Some(event) = self.host.captures.take_event() {

@@ -34,6 +34,7 @@ use worldrunner_render_plan::{
 mod alpha_coverage;
 mod alpha_factor;
 mod anisotropy;
+mod compaction;
 mod curved_wind;
 mod decal_mip_bias;
 pub(crate) mod decals;

@@ -8,6 +8,7 @@ use worldrunner_render_scene::draw::PreparedScene;
 
 pub(crate) struct Preparation {
     pub generation: u64,
+    pub pick_scene: Option<std::sync::Arc<RenderScene>>,
     pub update: RetainedUpdate,
     pub scene: Option<mpsc::Receiver<Result<PreparedScene, ViewerError>>>,
     pub ids: Vec<ObjectId>,
@@ -196,8 +197,8 @@ impl RetainedHost {
             !rebuild || !self.objects_stale,
             "a rebuild prepares the materialized scene, so its objects must be current"
         );
-        let scene = rebuild.then(|| {
-            let scene = self.scene().clone();
+        let pick_scene = rebuild.then(|| std::sync::Arc::new(self.scene().clone()));
+        let scene = pick_scene.clone().map(|scene| {
             let (send, receive) = mpsc::sync_channel(1);
             // GPU objects remain on the event thread. CPU content preparation
             // runs here; publication never joins or waits for this worker.
@@ -216,6 +217,7 @@ impl RetainedHost {
         });
         self.readiness.queue.push_back(Preparation {
             generation: self.readiness.accepted,
+            pick_scene,
             capture_features: super::capture::features(self.scene().effects()),
             capture_ao_format: super::capture::ao_format(self.scene().effects()),
             pages_enabled: self

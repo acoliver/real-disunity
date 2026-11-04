@@ -19,6 +19,7 @@ mod navigation;
 mod player;
 mod player_meshes;
 mod player_textures;
+mod player_ui;
 mod prepare;
 mod retained_driver;
 mod scene_tables;

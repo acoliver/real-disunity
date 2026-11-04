@@ -73,9 +73,13 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
     session.input(RetainedInput::SurfaceRecreated);
     assert_eq!(session.host.size(), [640, 480]);
     let events = events.borrow();
-    assert_eq!(events.len(), 6);
+    assert_eq!(events.len(), 7);
     assert_eq!(
         events[1],
+        RetainedEvent::Input(RetainedInput::PointerCancelled)
+    );
+    assert_eq!(
+        events[2],
         RetainedEvent::Input(RetainedInput::Key {
             key: "w".into(),
             logical: crate::LogicalKey::Character("w".into()),
@@ -85,11 +89,11 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
         })
     );
     assert_eq!(
-        events[2],
+        events[3],
         RetainedEvent::Input(RetainedInput::Focused(false))
     );
     assert_eq!(
-        events[5],
+        events[6],
         RetainedEvent::Input(RetainedInput::SurfaceRecreated)
     );
 }

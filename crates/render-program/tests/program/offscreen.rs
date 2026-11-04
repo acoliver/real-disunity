@@ -4,6 +4,7 @@
 mod blit;
 mod camera;
 mod copy;
+mod formats;
 mod layers;
 mod lifetime;
 mod resolve;

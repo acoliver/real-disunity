@@ -3,6 +3,7 @@ use super::{Arc, AtomicBool, Mutex, Ordering, Rc};
 type Waker = Arc<dyn Fn() + Send + Sync>;
 pub(super) trait Service {
     fn shutdown(&self);
+    fn has_ready(&self) -> bool;
 }
 #[derive(Default)]
 pub(super) struct Wake {
@@ -37,6 +38,11 @@ impl WorkServices {
     }
     pub(in crate::retained) fn take_ready(&self) -> bool {
         self.wake.pending.swap(false, Ordering::AcqRel)
+            && self
+                .services
+                .iter()
+                .filter_map(std::rc::Weak::upgrade)
+                .any(|service| service.has_ready())
     }
     pub(in crate::retained) fn shutdown(&mut self) {
         self.closed = true;

@@ -102,7 +102,12 @@ fn assert_ui_pixels(image: &Capture) {
         .filter(|p| *p == [0, 255, 0, 255])
         .count();
     assert_eq!(green, 64, "the child draws only inside its clip bounds");
-    let scene = rgba(image, 4, 4);
+    for y in 4..8 {
+        for x in 4..60 {
+            assert_eq!(rgba(image, x, y), [255, 255, 0, 255], "back canvas {x},{y}");
+        }
+    }
+    let scene = rgba(image, 2, 2);
     assert!(
         scene[0] > 0 && scene[1..] == [0, 0, 255],
         "scene mesh draws behind UI: {scene:?}"

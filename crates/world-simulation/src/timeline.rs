@@ -387,6 +387,11 @@ impl World {
         let scripts: Vec<_> = self.lifecycle.scripts.keys().copied().collect();
         let mut tasks = Vec::new();
         for script in scripts {
+            let state = &self.lifecycle.scripts[&script];
+            let starting = state.start == crate::lifecycle::StartState::Pending;
+            if !starting && (message == ScriptMessage::Start || !state.messages.wants(message)) {
+                continue;
+            }
             if !self.eligible(script) {
                 continue;
             }
@@ -401,7 +406,7 @@ impl World {
                     message: ScriptMessage::Start,
                 }));
             }
-            if message != ScriptMessage::Start {
+            if message != ScriptMessage::Start && state.messages.wants(message) {
                 tasks.push(Task::Work(LifecycleWork { script, message }));
             }
         }

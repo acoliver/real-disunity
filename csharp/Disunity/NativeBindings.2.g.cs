@@ -439,5 +439,14 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_face_pairs", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_face_pairs(ulong world, ulong face, uint* glyphs, uint glyph_count, DisunityGlyphPair* records, uint* count);
+        /// <summary>
+        ///  Records the per-frame messages (bit 0 `FixedUpdate`, bit 1 `Update`, bit 2 `LateUpdate`) that
+        ///  the script type `type_name` in `assembly` defines. Scripts of the type, present or added
+        ///  later, then receive only those messages. Types never reported receive all three.
+        ///  # Safety
+        ///  `assembly` and `type_name` are NUL-terminated strings, or null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_script_type_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_script_type_messages(ulong world, byte* assembly, byte* type_name, uint messages);
     }
 }

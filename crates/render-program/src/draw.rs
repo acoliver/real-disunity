@@ -1,7 +1,7 @@
 //! Draws of a graphics program into a render target.
 
 use crate::error::ProgramError;
-use crate::packet::TargetSignature;
+use crate::packet::{DrawPacket, MaterialParts, TargetSignature};
 use crate::program::GraphicsProgram;
 use crate::resources::{BoundResource, BufferHandle, TargetEntry, TargetHandle};
 use crate::runtime::ProgramRuntime;
@@ -113,16 +113,28 @@ impl ProgramRuntime {
         encoder: &mut wgpu::CommandEncoder,
         request: &DrawRequest<'_>,
     ) -> Result<(), ProgramError> {
+        self.record_into_target(encoder, request.target, &request.packet(), None)
+    }
+
+    /// Prepares `packet` for `target`'s attachments, makes the frame retain what it uses and
+    /// records it into a pass over the target. `parts` are what a material draw adds.
+    pub(crate) fn record_into_target(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: TargetHandle,
+        packet: &DrawPacket<'_>,
+        parts: Option<&MaterialParts<'_>>,
+    ) -> Result<(), ProgramError> {
         self.recording(encoder)?;
-        let target = self.store.target(request.target)?;
+        let entry = self.store.target(target)?;
         let signature = TargetSignature::new(
-            &[target.color.texture.format()],
-            target.depth.as_ref().map(|d| d.texture.format()),
-            target.color.texture.sample_count(),
+            &[entry.color.texture.format()],
+            entry.depth.as_ref().map(|d| d.texture.format()),
+            entry.color.texture.sample_count(),
         )?;
-        let prepared = self.prepare_pinned(&request.packet(), signature, Some(request.target))?;
+        let prepared = self.prepare_pinned(packet, signature, (Some(target), parts))?;
         prepared.retain(encoder)?;
-        let target = self.store.target(request.target)?;
+        let target = self.store.target(target)?;
         self.guarded(|| {
             let mut pass = open_pass(encoder, target);
             prepared.record(&mut pass);

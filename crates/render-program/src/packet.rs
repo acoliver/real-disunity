@@ -5,8 +5,10 @@
 //! attachment formats and sample count, the bind groups and the buffer references. Recording is
 //! then only state setting and a draw call, so it cannot fail halfway through a pass.
 
+use std::ops::Range;
 use std::sync::Arc;
 
+use crate::bind::Snapshot;
 use crate::budget::Reservation;
 use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
@@ -100,6 +102,13 @@ impl<'a> DrawRequest<'a> {
     }
 }
 
+/// What a material draw adds to a plain packet: the constants its properties packed and the
+/// instances it draws.
+pub(crate) struct MaterialParts<'a> {
+    pub(crate) snapshots: &'a [Snapshot],
+    pub(crate) instances: Range<u32>,
+}
+
 #[derive(Debug)]
 enum PreparedGeometry {
     Vertices {
@@ -124,6 +133,7 @@ pub(crate) struct RecordableDraw {
     groups: Vec<(u32, wgpu::BindGroup)>,
     vertex_buffers: Vec<wgpu::Buffer>,
     geometry: PreparedGeometry,
+    instances: Range<u32>,
 }
 
 impl RecordableDraw {
@@ -136,7 +146,9 @@ impl RecordableDraw {
             pass.set_vertex_buffer(slot, buffer.slice(..));
         }
         match &self.geometry {
-            PreparedGeometry::Vertices { first, count } => pass.draw(*first..*first + *count, 0..1),
+            PreparedGeometry::Vertices { first, count } => {
+                pass.draw(*first..*first + *count, self.instances.clone());
+            }
             PreparedGeometry::Indexed {
                 buffer,
                 format,
@@ -145,7 +157,11 @@ impl RecordableDraw {
                 base_vertex,
             } => {
                 pass.set_index_buffer(buffer.slice(..), *format);
-                pass.draw_indexed(*first..*first + *count, *base_vertex, 0..1);
+                pass.draw_indexed(
+                    *first..*first + *count,
+                    *base_vertex,
+                    self.instances.clone(),
+                );
             }
         }
     }
@@ -209,7 +225,7 @@ impl ProgramRuntime {
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
-        self.prepare_pinned(packet, signature, None)
+        self.prepare_pinned(packet, signature, (None, None))
     }
 
     /// The prepared draw, whose pins also cover `target` when the draw is recorded into it.
@@ -217,9 +233,9 @@ impl ProgramRuntime {
         &mut self,
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
-        target: Option<TargetHandle>,
+        (target, parts): (Option<TargetHandle>, Option<&MaterialParts<'_>>),
     ) -> Result<PreparedProgramDraw, ProgramError> {
-        let (draw, mut shares) = self.prepare_recordable(packet, signature)?;
+        let (draw, mut shares) = self.prepare_recordable(packet, signature, parts)?;
         if let Some(target) = target {
             shares.push(self.store.target_reservation(target)?);
         }
@@ -230,17 +246,25 @@ impl ProgramRuntime {
     }
 
     /// The draw and the reservation shares of the resources it uses, for the caller to pin.
+    /// `parts` are what a material draw adds: its constant snapshots and instance range.
     pub(crate) fn prepare_recordable(
         &mut self,
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
+        parts: Option<&MaterialParts<'_>>,
     ) -> Result<(RecordableDraw, Vec<Arc<Reservation>>), ProgramError> {
         self.authority.check_device()?;
         let color = packet.state.check_drawable()?;
-        self.store
-            .check_geometry(packet.vertex_inputs, packet.geometry)?;
+        let (snapshots, instances) = parts.map_or((&[][..], 0..1), |parts| {
+            (parts.snapshots, parts.instances.clone())
+        });
+        self.store.check_instanced_geometry(
+            packet.vertex_inputs,
+            packet.geometry,
+            instance_end(&instances),
+        )?;
         let pipeline = self.render_pipeline(packet, signature, color)?;
-        let groups = self.bind_groups(&packet.program.gpu, packet.bindings)?;
+        let groups = self.bind_groups_with(&packet.program.gpu, packet.bindings, snapshots)?;
         let vertex_buffers = packet
             .vertex_inputs
             .iter()
@@ -268,8 +292,15 @@ impl ProgramRuntime {
             groups,
             vertex_buffers,
             geometry,
+            instances,
         };
-        Ok((draw, self.reservation_shares(packet)?))
+        let mut shares = self.reservation_shares(packet)?;
+        shares.extend(
+            snapshots
+                .iter()
+                .map(|snapshot| snapshot.reservation.clone()),
+        );
+        Ok((draw, shares))
     }
 
     /// Shares of the reservations of every buffer and texture the packet draws with.
@@ -385,6 +416,15 @@ impl ProgramRuntime {
                 multiview_mask: None,
                 cache: None,
             })
+    }
+}
+
+/// The instance strides an instance-rate vertex buffer must hold for `instances`.
+pub(crate) fn instance_end(instances: &Range<u32>) -> u32 {
+    if instances.is_empty() {
+        0
+    } else {
+        instances.end
     }
 }
 

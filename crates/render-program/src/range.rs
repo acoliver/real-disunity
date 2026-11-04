@@ -24,10 +24,22 @@ impl Store {
         inputs: &[VertexInput],
         geometry: Geometry,
     ) -> Result<(), ProgramError> {
+        self.check_instanced_geometry(inputs, geometry, 1)
+    }
+
+    /// Like [`check_geometry`](Self::check_geometry) for a draw that reads instances up to but
+    /// not including `instance_end`: an instance-rate buffer must hold that many strides.
+    pub(crate) fn check_instanced_geometry(
+        &self,
+        inputs: &[VertexInput],
+        geometry: Geometry,
+        instance_end: u32,
+    ) -> Result<(), ProgramError> {
+        let instances = u64::from(instance_end);
         match geometry {
             Geometry::Vertices { first, count } => {
                 let end = range_end(first, count)?;
-                self.check_vertex_buffers(inputs, u64::from(end))
+                self.check_vertex_buffers(inputs, (u64::from(end), instances))
             }
             Geometry::Indexed {
                 buffer,
@@ -44,24 +56,24 @@ impl Store {
                         available,
                     });
                 }
-                self.check_vertex_buffers(inputs, 0)?;
+                self.check_vertex_buffers(inputs, (0, instances))?;
                 self.check_base_vertex(inputs, count, base_vertex)
             }
         }
     }
 
     /// Every vertex-rate buffer must hold `vertices` vertices and every instance-rate buffer
-    /// one instance.
+    /// `instances` instances.
     fn check_vertex_buffers(
         &self,
         inputs: &[VertexInput],
-        vertices: u64,
+        (vertices, instances): (u64, u64),
     ) -> Result<(), ProgramError> {
         for (slot, input) in inputs.iter().enumerate() {
             let have = self.buffer(input.buffer)?.len;
             let strides = match input.step {
                 wgpu::VertexStepMode::Vertex => vertices,
-                wgpu::VertexStepMode::Instance => 1,
+                wgpu::VertexStepMode::Instance => instances,
             };
             let needed = bytes_read(input, strides);
             if needed > have {

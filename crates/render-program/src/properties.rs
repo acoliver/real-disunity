@@ -46,6 +46,13 @@ impl PropertySet {
     pub fn get(&self, name: &str) -> Option<&PropertyValue> {
         self.values.get(name)
     }
+
+    /// The values in name order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &PropertyValue)> {
+        self.values
+            .iter()
+            .map(|(name, value)| (name.as_str(), value))
+    }
 }
 
 impl Default for PropertySet {

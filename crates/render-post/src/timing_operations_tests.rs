@@ -21,32 +21,16 @@ impl StageFactory for Factory {
 
 const BYTES: [u8; 16] = [7; 16];
 
-/// Encodes an upload and a readback with the chain's timer, submits the frame and returns the
-/// staged bytes and the frame's timings.
-fn run(timed: bool) -> (Vec<u8>, Vec<crate::FrameTiming>, TimingSupport) {
-    let (device, queue) = device();
-    let chain = PostChain::new(
-        &device,
-        FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1),
-        Resources::default(),
-        Factory,
-    )
-    .unwrap();
-    let support = if timed {
-        chain
-            .configure_timing(&device, &queue, TimingMode::Optional)
-            .unwrap()
-    } else {
-        TimingSupport::Disabled
-    };
+/// A compiled upload of [`BYTES`] into a buffer and a readback of it into a staging buffer.
+fn operations(device: &wgpu::Device) -> (ResourceRegistry, [TypedOperation; 2], wgpu::Buffer) {
     let mut registry = ResourceRegistry::default();
     let source = buffer(
-        &device,
+        device,
         16,
         wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
     );
     let staging = buffer(
-        &device,
+        device,
         16,
         wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
     );
@@ -73,6 +57,28 @@ fn run(timed: bool) -> (Vec<u8>, Vec<crate::FrameTiming>, TimingSupport) {
             },
         ),
     ];
+    (registry, operations, staging)
+}
+
+/// Encodes an upload and a readback with the chain's timer, submits the frame and returns the
+/// staged bytes and the frame's timings.
+fn run(timed: bool) -> (Vec<u8>, Vec<crate::FrameTiming>, TimingSupport) {
+    let (device, queue) = device();
+    let chain = PostChain::new(
+        &device,
+        FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1),
+        Resources::default(),
+        Factory,
+    )
+    .unwrap();
+    let support = if timed {
+        chain
+            .configure_timing(&device, &queue, TimingMode::Optional)
+            .unwrap()
+    } else {
+        TimingSupport::Disabled
+    };
+    let (registry, operations, staging) = operations(&device);
     let compiled = registry.compile_operations(&device, &operations).unwrap();
     let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
     let mut encoder = authority.begin(&device).unwrap();

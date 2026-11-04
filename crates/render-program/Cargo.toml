@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 worldrunner-render-gpu = { path = "../render-gpu" }
+worldrunner-render-post = { path = "../render-post" }
 worldrunner-unity-serialized = { path = "../unity-serialized" }
 # naga is the front end wgpu runs; parsing the SPIR-V here names a failure before wgpu sees it.
 naga = { version = "30.0.0", features = ["spv-in"] }
@@ -17,7 +18,12 @@ wgpu = { workspace = true, features = ["naga-ir"] }
 blake3.workspace = true
 thiserror.workspace = true
 
+[features]
+# Synthetic player shaders built from WGSL, for tests of this crate and of its consumers.
+test-support = ["naga/wgsl-in", "naga/spv-out"]
+
 [dev-dependencies]
+worldrunner-render-program = { path = ".", features = ["test-support"] }
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 naga = { version = "30.0.0", features = ["spv-in", "spv-out", "wgsl-in"] }
 pollster.workspace = true

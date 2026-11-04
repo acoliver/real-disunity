@@ -209,27 +209,34 @@ impl TypedOperation {
                 pipeline,
                 bindings,
                 workgroups,
-            } => {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some(self.id.stage.name),
-                    timestamp_writes: stamp.map(crate::timing::Stamp::compute),
-                });
-                pass.set_pipeline(pipeline);
-                for (index, binding) in bindings.iter().enumerate() {
-                    pass.set_bind_group(
-                        u32::try_from(index).expect("validated bind group count"),
-                        binding.group(),
-                        binding.dynamic_offsets(),
-                    );
-                }
-                pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
-            }
+            } => self.encode_compute(encoder, stamp, (pipeline, bindings), *workgroups),
             _ => {
                 timestamp_boundary(encoder, stamp, true);
                 self.encode_transfer(encoder, staging);
                 timestamp_boundary(encoder, stamp, false);
             }
         }
+    }
+    fn encode_compute(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        stamp: Option<&crate::timing::Stamp>,
+        (pipeline, bindings): (&wgpu::ComputePipeline, &[CheckedBindings]),
+        workgroups: [u32; 3],
+    ) {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some(self.id.stage.name),
+            timestamp_writes: stamp.map(crate::timing::Stamp::compute),
+        });
+        pass.set_pipeline(pipeline);
+        for (index, binding) in bindings.iter().enumerate() {
+            pass.set_bind_group(
+                u32::try_from(index).expect("validated bind group count"),
+                binding.group(),
+                binding.dynamic_offsets(),
+            );
+        }
+        pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
     }
     fn encode_transfer(&self, encoder: &mut wgpu::CommandEncoder, staging: Option<&wgpu::Buffer>) {
         match &self.work {

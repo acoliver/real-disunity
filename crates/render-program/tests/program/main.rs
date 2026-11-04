@@ -11,6 +11,7 @@ mod fixtures;
 mod frames;
 mod layout;
 mod module;
+mod offscreen;
 mod ownership;
 mod packet;
 mod pass;

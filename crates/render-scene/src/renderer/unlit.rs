@@ -26,15 +26,7 @@ pub(super) fn build(
         offset: 0,
         shader_location: 9,
     }];
-    let alpha_buffers = [
-        buffers[0].clone(),
-        buffers[1].clone(),
-        Some(VertexBufferLayout {
-            array_stride: 16,
-            step_mode: VertexStepMode::Instance,
-            attributes: &tint_attributes,
-        }),
-    ];
+    let alpha_buffers = alpha_buffers(buffers, &tint_attributes);
     build_variant(
         device,
         layout,
@@ -58,4 +50,19 @@ pub(super) fn build(
             vertex_entry: "vs_unlit",
         },
     )
+}
+
+pub(super) fn alpha_buffers<'a>(
+    buffers: &[Option<VertexBufferLayout<'a>>; 2],
+    tint_attributes: &'a [wgpu::VertexAttribute],
+) -> [Option<VertexBufferLayout<'a>>; 3] {
+    [
+        buffers[0].clone(),
+        buffers[1].clone(),
+        Some(VertexBufferLayout {
+            array_stride: 16,
+            step_mode: VertexStepMode::Instance,
+            attributes: tint_attributes,
+        }),
+    ]
 }

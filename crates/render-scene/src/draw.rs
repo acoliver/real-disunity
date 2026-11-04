@@ -29,6 +29,7 @@ pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
 mod lod_material;
+pub(crate) mod overlay;
 mod pages;
 pub(crate) mod pass_statistics;
 mod publication;
@@ -242,6 +243,7 @@ pub struct SceneGpu {
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
     terrain: Option<GpuTerrain>,
+    pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
     retained: Retained,
 }
@@ -294,7 +296,6 @@ impl SceneGpu {
     ) -> Result<Self, DrawError> {
         let scene = &prepared.scene;
         let queue = authority.queue();
-        validate_profile(scene, pipelines)?;
         prepared.validate_device(device, pipelines)?;
         let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
@@ -342,6 +343,7 @@ impl SceneGpu {
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
             terrain,
+            overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
             retained: Retained {
                 contact_heights,

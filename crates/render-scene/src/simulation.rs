@@ -1,4 +1,7 @@
 //! Native world contributions use the resident scene's existing unlit quad pipeline.
+mod overlay;
+pub use overlay::UiOverlay;
+
 use crate::{
     SceneView,
     dynamic::{DynamicError, DynamicQuad},

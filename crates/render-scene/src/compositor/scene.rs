@@ -112,13 +112,13 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    renderer.prepare_scene_inputs(device, gpu);
     renderer.validate_taa_depth(attachments.1)?;
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
-    renderer.bind_water_inputs(&gpu.water_inputs, gpu.pass_counters.water.clone());
     renderer.validate_ssr(gpu.ssr.as_ref())?;
     renderer.validate_post(gpu.post)?;
     let frame = renderer.prepare_uniform(frame)?;

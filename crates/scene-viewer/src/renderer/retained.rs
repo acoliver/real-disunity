@@ -40,6 +40,7 @@ impl Objects {
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
                 RetainedUpdate::Camera { .. } => {}
+                RetainedUpdate::Ui(_) => unreachable!("UI updates publish through readiness"),
                 RetainedUpdate::Resources { .. }
                 | RetainedUpdate::Terrain(_)
                 | RetainedUpdate::Decal(_) => {

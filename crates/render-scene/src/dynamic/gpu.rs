@@ -15,7 +15,7 @@ use crate::upload::{FRAME_GROUP, MATERIAL_GROUP, upload_buffer, upload_texture};
 
 #[derive(Clone, Copy)]
 pub(crate) struct DynamicBindings<'a> {
-    pub pipelines: &'a ScenePipelines,
+    pub layout: &'a BindGroupLayout,
     pub placeholder: &'a Texture,
     pub sampler: &'a Sampler,
 }
@@ -108,7 +108,7 @@ impl DynamicGpu {
             .collect();
         let mut draws = Vec::with_capacity(ordered.len());
         let material_bindings = QuadBindings {
-            layout: bindings.pipelines.material_layout(),
+            layout: bindings.layout,
             placeholder: &placeholder,
             views: &views,
             samplers: &self.samplers,
@@ -145,11 +145,23 @@ impl DynamicGpu {
         frame_group: &BindGroup,
         pipelines: &ScenePipelines,
     ) {
+        self.draw_with_pipeline(pass, Some(frame_group), pipelines.unlit_alpha());
+    }
+
+    pub(crate) fn draw_with_pipeline(
+        &self,
+        pass: &mut RenderPass<'_>,
+        frame_group: Option<&BindGroup>,
+        pipeline: &wgpu::RenderPipeline,
+    ) -> crate::draw::DrawCount {
+        let mut count = crate::draw::DrawCount::default();
         if self.draws.is_empty() {
-            return;
+            return count;
         }
-        pass.set_pipeline(pipelines.unlit_alpha());
-        pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
+        pass.set_pipeline(pipeline);
+        if let Some(frame_group) = frame_group {
+            pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
+        }
         pass.set_index_buffer(
             self.indices
                 .as_ref()
@@ -163,7 +175,9 @@ impl DynamicGpu {
             pass.set_vertex_buffer(1, draw.instance.slice(..));
             pass.set_vertex_buffer(2, draw.tint.slice(..));
             pass.draw_indexed(0..6, 0, 0..draw.instance_count);
+            count.draw(u64::from(draw.instance_count));
         }
+        count
     }
 }
 

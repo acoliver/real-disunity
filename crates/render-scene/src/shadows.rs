@@ -495,7 +495,7 @@ impl ShadowedScene {
         let ((scheduler, fitting), (color, depth)) = (input, attachments);
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
-        scheduler.bind_water_inputs(&self.gpu.water_inputs, self.gpu.pass_counters.water.clone());
+        scheduler.prepare_scene_inputs(context.device(), &self.gpu);
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;

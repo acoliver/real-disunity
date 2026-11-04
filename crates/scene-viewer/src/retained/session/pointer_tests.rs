@@ -124,6 +124,7 @@ fn focus_loss_releases_physical_keys_then_buttons_in_stable_order() {
     assert_eq!(
         released,
         vec![
+            RetainedInput::PointerCancelled,
             RetainedInput::Key {
                 key: "same".into(),
                 logical: crate::LogicalKey::Character("same".into()),

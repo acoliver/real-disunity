@@ -1,6 +1,6 @@
 # Native UI layout and text
 
-Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation` and `worldrunner-render-plan`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, extraction and `UiRenderPlan` from `worldrunner::ui::plan::ui`, and `SceneTexture` from `worldrunner::ui::plan`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
+Enable `worldrunner`'s `ui` feature for CPU-only UI and render planning, or enable `ui` directly on `worldrunner-world-simulation` and `worldrunner-render-plan`. The feature does not require a GPU or managed runtime. With default features disabled, import components and fonts from `worldrunner::ui`, and extraction and `UiRenderPlan` from `worldrunner::ui::plan::ui`. `worldrunner_world_simulation::ui::contribution` owns the contribution types and extraction function; `render_plan::ui` re-exports them. Text contributions carry `worldrunner_world_simulation::presentation::CoverageTexture`. `World` owns Canvas, RectTransform and Text component state. `FontBook` owns font resources supplied as byte vectors, without filesystem access or an implicit default font.
 
 ## Layout contract
 
@@ -14,6 +14,51 @@ Both screen modes ignore the serialized root transform for layout, including zer
 
 Constant scaling sets pixels per logical unit. Viewport matching uses the geometric interpolation of width and height ratios against a positive reference resolution. Recompute layout after viewport changes; there is no persistent layout cache to invalidate.
 
+## Native pointer routing and controls
+
+`InputAction::Pointer` carries physical host-pixel positions measured from the top left,
+button edges, unit-preserving wheel observations and explicit cancellation. `InputView::pointer`
+projects held/down/up buttons, position, separate line/pixel wheel sums and ordered events for
+each fixed or dynamic frame. Edges, sums and events clear on that phase's next projection.
+Nonfinite positions/deltas are rejected atomically by `World::push_input`. Focus loss projects
+cancellation, clears held buttons and invalidates the position. Input while unfocused is ignored.
+
+`RetainedInput::simulation_action` converts the existing window observations into this contract.
+Queue the result with the host event timestamp, then route the dynamic view's ordered pointer
+events once per frame. Alternatively route each host event directly; do not use both routes.
+Host coordinates and viewport extents are already physical pixels on scaled displays. Do not
+apply the OS scale a second time. The retained host emits `PointerCancelled` before synthetic
+key/button releases on focus loss. Key bindings remain caller policy.
+
+Keep one `UiRouter` for the interaction session and register controls by existing `ObjectHandle`
+in `controls`. `UiControl::button` produces `UiAction::Activated`; `UiControl::choice` produces
+`ChoiceSelected { group, index }` and updates `selected(group)`. No game callback is invoked.
+Pass `pointer` a freshly resolved `World::ui_layout` for the current physical viewport. The router
+converts top-left host positions to lower-left layout pixels once and tests the screen-space
+affine rectangle, including rotation, shear and Canvas scale. World-space ray picking is outside
+this contract. Registered controls supply hit surfaces; an unregistered rectangle or ordinary
+CanvasGroup does not consume input. Groups modify descendant interaction without adding a surface.
+
+`RectLayout::draw_order()` provides Canvas layer/order followed by `hierarchy_order`, a preorder
+with siblings in `World::children` order. The router uses this tuple; rendering consumers must
+use the same tuple to align visible overlap with hit testing. The last matching surface wins. The router applies enabled CanvasGroup interaction flags
+from child to parent, stopping at `ignore_parent_groups`. A disabled control or a non-interactable
+group cannot activate, but still consumes hits when blocking raycasts. Inactive objects and
+disabled canvases have no resolved targets. Group alpha does not control interaction.
+
+A primary press captures an eligible hit. Release activates once only if the same control is
+still eligible and is hit; release outside remains consumed without activation. Cancellation
+clears capture, pointer position, keyboard focus and held navigation keys. Read `UiResponse::consumed`
+for every routed event and withhold consumed events from board/camera/scene interaction.
+
+Register a Canvas or group object's rectangle in `modals` for modal behavior. The highest sorted
+visible modal root consumes all pointer input, even outside its rectangle, and restricts pointer
+and keyboard targets to its subtree. Removing or hiding it removes the restriction. Map host
+keys to `UiKey::{Tab, Shift, Enter, Space}` and call `key` with press and repeat observations.
+Tab/shift-Tab cycles enabled interactable controls in target order; Enter/Space activates on the
+first key-down. Held/repeated key-downs never activate twice. Focus is revalidated at each key
+event. Nested-modal focus restoration and visual focus styling are separate UI work.
+
 ## Text contract
 
 Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.
@@ -22,7 +67,14 @@ The supported character set is printable ASCII, LF and CR. CR is ignored; LF sta
 
 Glyph output provides baseline origins and outward-rounded raster bounds separately. Local text coordinates start at the rectangle's bottom-left. `VerticalOverflow::Truncate` drops lines whose extent passes the rectangle's height; `VerticalOverflow::Overflow` keeps them. Glyphs are never clipped, so a kept line draws whole even outside the rectangle. With `rich_text` set, as by default, text containing `<` is rejected with `UnsupportedRichText`, because markup is not rendered. Rasterizer winding coverage is saturated to 1 before rounding to U8 and packed deterministically into a shelf atlas with a fixed configured row width. Atlas rows start at the top. Font storage, character count, atlas dimensions and atlas pixels are bounded. Render extraction applies character and pixel budgets across the complete frame as well as per text run.
 
-`render_plan::ui::extract_ui` returns typed glyph quads and existing `SceneTexture::Texels` descriptors using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text contributions are ordered by sorting layer, order and object identity. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
+`render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text contributions are ordered by sorting layer, order and object identity. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
+
+Retained 3D hosts accept overlay text through `render_scene::simulation::UiOverlay`
+and `scene_viewer::RetainedUpdate::Ui`. `SceneGpu` owns its dynamic quad resources;
+the compositor blends them over the display output after all scene post-processing.
+UI replacements advance retained generations without rebuilding scene resources.
+World/camera canvases, graphic rectangles and additional text clipping are outside
+this retained overlay contract. See the [host API](../../crates/scene-viewer/README.md#retained-screen-space-text).
 
 ## Font dependencies and fixtures
 

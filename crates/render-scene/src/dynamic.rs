@@ -24,7 +24,7 @@
 
 mod gpu;
 mod sampling;
-mod validation;
+pub(crate) mod validation;
 pub(crate) use gpu::{DynamicBindings, DynamicGpu};
 
 /// One unlit alpha-blended quad in canonical Z-up scene space.

@@ -1,6 +1,26 @@
 #![cfg(feature = "ui")]
 
 #[test]
+fn ui_contribution_types_are_owned_by_world_simulation() {
+    use std::any::TypeId;
+    use worldrunner_render_plan::ui as plan;
+    use worldrunner_world_simulation::ui::contribution as native;
+
+    assert_eq!(
+        TypeId::of::<plan::UiGlyphQuad>(),
+        TypeId::of::<native::UiGlyphQuad>()
+    );
+    assert_eq!(
+        TypeId::of::<plan::UiTextContribution>(),
+        TypeId::of::<native::UiTextContribution>()
+    );
+    assert_eq!(
+        TypeId::of::<plan::UiRenderPlan>(),
+        TypeId::of::<native::UiRenderPlan>()
+    );
+}
+
+#[test]
 fn missing_canvas_fails_and_frame_glyph_budget_is_shared() {
     use worldrunner_world_simulation::ParentSpace;
     use worldrunner_world_simulation::ui::{TextRun, UiError};
@@ -63,8 +83,7 @@ fn missing_canvas_fails_and_frame_glyph_budget_is_shared() {
 mod test_font;
 
 #[test]
-fn glyph_contributions_reuse_scene_texture_and_preserve_alpha_and_order() {
-    use worldrunner_render_plan::{SceneTexture, TexelFormat};
+fn glyph_contributions_use_coverage_texture_and_preserve_alpha_and_order() {
     use worldrunner_world_simulation::ui::{TextRun, UiError};
     let mut world = World::new(WorldSettings::default()).unwrap();
     let root = world.create_object(ObjectDesc::default()).unwrap();
@@ -96,10 +115,12 @@ fn glyph_contributions_reuse_scene_texture_and_preserve_alpha_and_order() {
     );
     assert_eq!(output.quads.len(), 1);
     let texture = output.texture.as_ref().unwrap();
-    texture.validate().unwrap();
-    assert!(
-        matches!(texture, SceneTexture::Texels { format: TexelFormat::R8Unorm, bytes, .. } if bytes.contains(&255))
+    assert!(texture.width > 0 && texture.height > 0);
+    assert_eq!(
+        u64::try_from(texture.bytes.len()).unwrap(),
+        u64::from(texture.width) * u64::from(texture.height)
     );
+    assert!(texture.bytes.contains(&255));
     assert_eq!(plan, extract_ui(&world, &fonts, [800, 600]).unwrap());
     let empty = FontBook::new(UiLimits::default()).unwrap();
     assert_eq!(

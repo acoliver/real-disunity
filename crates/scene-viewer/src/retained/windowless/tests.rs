@@ -4,6 +4,7 @@ mod convention;
 mod environment;
 mod errors;
 mod lifecycle;
+mod overlay;
 pub(crate) mod pages;
 mod terrain;
 mod timing;

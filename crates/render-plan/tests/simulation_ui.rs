@@ -1,9 +1,9 @@
 #![cfg(feature = "ui")]
 use glam::{UVec2, Vec3};
+use worldrunner_render_plan::SceneTexture;
 use worldrunner_render_plan::simulation::{SpriteTextures, append_ui, extract_world};
 use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
-use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
-use worldrunner_world_simulation::presentation::Camera;
+use worldrunner_world_simulation::presentation::{Camera, CoverageTexture};
 use worldrunner_world_simulation::ui::UiLayout;
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
@@ -38,12 +38,9 @@ fn glyphs(object: worldrunner_world_simulation::ObjectHandle, viewport: [u32; 2]
             sorting_layer: 3,
             sorting_order: 5,
             color: [0.5, 1., 1., 0.25],
-            texture: Some(SceneTexture::Texels {
-                format: TexelFormat::R8Unorm,
-                color_space: TextureColorSpace::Linear,
+            texture: Some(CoverageTexture {
                 width: 2,
                 height: 1,
-                mips: 1,
                 bytes: vec![0, 128].into_boxed_slice(),
             }),
             quads: vec![UiGlyphQuad {

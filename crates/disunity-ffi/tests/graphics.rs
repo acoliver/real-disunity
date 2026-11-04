@@ -48,7 +48,10 @@ fn render_texture(world: u64, mip_count: u32) -> u64 {
         depth_bits: 24,
         mip_count,
         srgb: 1,
+        filter: 1,
+        aniso_level: 1,
         generation: 0,
+        ..Default::default()
     };
     let mut id = 0;
     unsafe {
@@ -519,6 +522,28 @@ fn a_render_texture_round_trips_and_a_write_raises_its_generation() {
 }
 
 #[test]
+fn a_render_texture_sampler_round_trips_and_a_change_raises_the_generation() {
+    let world = new_world();
+    let id = render_texture(world, 1);
+    let mut desc = DisunityRenderTexture::default();
+    unsafe { assert_eq!(disunity_render_texture_read(world, id, &mut desc).code, 0) };
+    assert_eq!((desc.wrap_u, desc.wrap_v, desc.wrap_w), (0, 0, 0));
+    assert_eq!((desc.filter, desc.aniso_level, desc.generation), (1, 1, 1));
+    desc.wrap_u = 1;
+    desc.wrap_v = 2;
+    desc.wrap_w = 3;
+    desc.filter = 2;
+    desc.aniso_level = 16;
+    desc.mip_bias = -1.5;
+    unsafe { assert_eq!(disunity_render_texture_write(world, id, &desc).code, 0) };
+    let mut read = DisunityRenderTexture::default();
+    unsafe { assert_eq!(disunity_render_texture_read(world, id, &mut read).code, 0) };
+    assert_eq!((read.wrap_u, read.wrap_v, read.wrap_w), (1, 2, 3));
+    assert_eq!((read.filter, read.aniso_level, read.generation), (2, 16, 2));
+    assert_eq!(read.mip_bias.to_bits(), (-1.5f32).to_bits());
+}
+
+#[test]
 fn a_render_texture_description_is_validated() {
     let world = new_world();
     let mut id = 0;
@@ -529,7 +554,10 @@ fn a_render_texture_description_is_validated() {
         depth_bits: 0,
         mip_count: 1,
         srgb: 0,
+        filter: 1,
+        aniso_level: 1,
         generation: 0,
+        ..Default::default()
     };
     let bad = [
         DisunityRenderTexture { width: 0, ..base },
@@ -540,6 +568,18 @@ fn a_render_texture_description_is_validated() {
         DisunityRenderTexture { srgb: 2, ..base },
         DisunityRenderTexture {
             mip_count: 99,
+            ..base
+        },
+        DisunityRenderTexture { wrap_u: 4, ..base },
+        DisunityRenderTexture { wrap_v: 4, ..base },
+        DisunityRenderTexture { wrap_w: 4, ..base },
+        DisunityRenderTexture { filter: 3, ..base },
+        DisunityRenderTexture {
+            aniso_level: 17,
+            ..base
+        },
+        DisunityRenderTexture {
+            mip_bias: f32::NAN,
             ..base
         },
     ];

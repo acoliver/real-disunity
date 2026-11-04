@@ -530,8 +530,14 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityRenderTexture>("depth_bits").ToInt32() != 12) throw new InvalidOperationException("DisunityRenderTexture.depth_bits offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("mip_count").ToInt32() != 16) throw new InvalidOperationException("DisunityRenderTexture.mip_count offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("srgb").ToInt32() != 20) throw new InvalidOperationException("DisunityRenderTexture.srgb offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 24) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
-        if (Marshal.SizeOf<DisunityRenderTexture>() != 32 || typeof(DisunityRenderTexture).GetFields().Length != 7) throw new InvalidOperationException("DisunityRenderTexture layout");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_u").ToInt32() != 24) throw new InvalidOperationException("DisunityRenderTexture.wrap_u offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_v").ToInt32() != 28) throw new InvalidOperationException("DisunityRenderTexture.wrap_v offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_w").ToInt32() != 32) throw new InvalidOperationException("DisunityRenderTexture.wrap_w offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("filter").ToInt32() != 36) throw new InvalidOperationException("DisunityRenderTexture.filter offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("aniso_level").ToInt32() != 40) throw new InvalidOperationException("DisunityRenderTexture.aniso_level offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("mip_bias").ToInt32() != 44) throw new InvalidOperationException("DisunityRenderTexture.mip_bias offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 48) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
+        if (Marshal.SizeOf<DisunityRenderTexture>() != 56 || typeof(DisunityRenderTexture).GetFields().Length != 13) throw new InvalidOperationException("DisunityRenderTexture layout");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityOffscreenWork.kind offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("camera").ToInt32() != 8) throw new InvalidOperationException("DisunityOffscreenWork.camera offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("target").ToInt32() != 16) throw new InvalidOperationException("DisunityOffscreenWork.target offset");

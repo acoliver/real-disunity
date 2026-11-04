@@ -741,7 +741,7 @@ pub struct DisunityMaterialInfo {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityRenderTexture {
     pub width: u32,
     pub height: u32,
@@ -749,6 +749,12 @@ pub struct DisunityRenderTexture {
     pub depth_bits: u32,
     pub mip_count: u32,
     pub srgb: u32,
+    pub wrap_u: u32,
+    pub wrap_v: u32,
+    pub wrap_w: u32,
+    pub filter: u32,
+    pub aniso_level: u32,
+    pub mip_bias: f32,
     pub generation: u64,
 }
 

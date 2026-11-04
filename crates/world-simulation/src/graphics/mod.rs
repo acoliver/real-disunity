@@ -22,7 +22,7 @@ pub use properties::{
     MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, PropertyValue, ShaderProperties, TextureRef,
     TextureSlot,
 };
-pub use render_texture::WorldRenderTexture;
+pub use render_texture::{WorldRenderTexture, WorldSampler};
 
 use slab::Slab;
 

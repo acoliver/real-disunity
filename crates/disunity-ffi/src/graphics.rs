@@ -11,7 +11,7 @@ use worldrunner_world_simulation::{
     MAX_RENDERER_MATERIALS,
     graphics::{
         MaterialEdit, MaterialId, RenderTextureId, ShaderId, ShaderSource, WorldRenderTexture,
-        WorldShader,
+        WorldSampler, WorldShader,
     },
 };
 
@@ -217,9 +217,10 @@ pub unsafe extern "C" fn disunity_material_read(
 }
 
 /// A render texture's description; booleans are 0 or 1. `format` is the engine's
-/// `GraphicsFormat` value. `generation` is ignored on input and starts at 1.
+/// `GraphicsFormat` value. `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
+/// with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityRenderTexture {
     pub width: u32,
     pub height: u32,
@@ -227,6 +228,12 @@ pub struct DisunityRenderTexture {
     pub depth_bits: u32,
     pub mip_count: u32,
     pub srgb: u32,
+    pub wrap_u: u32,
+    pub wrap_v: u32,
+    pub wrap_w: u32,
+    pub filter: u32,
+    pub aniso_level: u32,
+    pub mip_bias: f32,
     pub generation: u64,
 }
 
@@ -242,6 +249,14 @@ impl DisunityRenderTexture {
             depth_bits: self.depth_bits,
             mip_count: self.mip_count,
             srgb: self.srgb == 1,
+            sampler: WorldSampler {
+                wrap_u: self.wrap_u,
+                wrap_v: self.wrap_v,
+                wrap_w: self.wrap_w,
+                filter: self.filter,
+                aniso_level: self.aniso_level,
+                mip_bias: self.mip_bias,
+            },
             generation: 0,
         })
     }
@@ -312,6 +327,12 @@ pub unsafe extern "C" fn disunity_render_texture_read(
                 depth_bits: held.depth_bits,
                 mip_count: held.mip_count,
                 srgb: u32::from(held.srgb),
+                wrap_u: held.sampler.wrap_u,
+                wrap_v: held.sampler.wrap_v,
+                wrap_w: held.sampler.wrap_w,
+                filter: held.sampler.filter,
+                aniso_level: held.sampler.aniso_level,
+                mip_bias: held.sampler.mip_bias,
                 generation: held.generation,
             };
         }

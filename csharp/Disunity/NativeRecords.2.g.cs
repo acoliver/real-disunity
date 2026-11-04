@@ -224,7 +224,8 @@ namespace Disunity.Native
 
     /// <summary>
     ///  A render texture's description; booleans are 0 or 1. `format` is the engine's
-    ///  `GraphicsFormat` value. `generation` is ignored on input and starts at 1.
+    ///  `GraphicsFormat` value. `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
+    ///  with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityRenderTexture
@@ -235,6 +236,12 @@ namespace Disunity.Native
         public uint depth_bits;
         public uint mip_count;
         public uint srgb;
+        public uint wrap_u;
+        public uint wrap_v;
+        public uint wrap_w;
+        public uint filter;
+        public uint aniso_level;
+        public float mip_bias;
         public ulong generation;
     }
 

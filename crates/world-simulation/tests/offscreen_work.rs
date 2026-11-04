@@ -1,7 +1,7 @@
 //! The offscreen work a frame records: validation, call order and draining.
 use worldrunner_world_simulation::graphics::{
     GraphicsError, MaterialId, OffscreenWork, RenderTextureId, TextureRef, WorldRenderTexture,
-    WorldShader,
+    WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
@@ -20,6 +20,7 @@ fn texture(mip_count: u32) -> WorldRenderTexture {
         depth_bits: 0,
         mip_count,
         srgb: false,
+        sampler: WorldSampler::default(),
         generation: 0,
     }
 }

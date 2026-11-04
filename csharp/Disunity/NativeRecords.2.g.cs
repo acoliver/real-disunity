@@ -111,4 +111,18 @@ namespace Disunity.Native
         public uint atlas_height;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityUiDraw
+    {
+        /// <summary>
+        ///  0: image/solid graphic; 1: text sampling prepared R8 coverage.
+        /// </summary>
+        public uint kind;
+        public ulong hierarchy_order;
+        public uint clip_x;
+        public uint clip_y;
+        public uint clip_width;
+        public uint clip_height;
+    }
+
 }

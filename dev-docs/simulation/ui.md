@@ -157,7 +157,12 @@ Bounds round inward to whole-pixel scissors, which intersect the current render
 extent. This bounds rotated graphics even when CPU quad clipping keeps them whole.
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D path is unchanged.
-Built-player retained-driver UI export remains unconnected. See the
+Built-player retained drivers use the same compositor. The loaded ABI image retains
+`UiPresentation` draws from `extract_ui` alongside its prepared scene frame, before
+UI is converted to the live 2D path's world-space quads. Typed copy-out preserves
+pixel coordinates, coverage, image identities, hierarchy order and clip bounds.
+The driver refreshes image textures alongside mesh textures and replaces its UI
+only when the draws, image generations or physical viewport change. See the
 [host API](../../crates/scene-viewer/README.md#retained-screen-space-ui).
 
 ## Font dependencies and fixtures

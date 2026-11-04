@@ -36,7 +36,17 @@ cargo run -p worldrunner-play -- --player /path/to/Game_Data --scene level0 --fr
 
 It writes the script layouts of the player's game assemblies with `csharp/Disunity.Layouts`, plans the scene file with `unity-import`'s `plan_player_scene`, and boots the same `Disunity.Play` bridge. The bridge resolves the player's assemblies in its load context, runs the player's startup hooks in Unity's phase order around the scene, loads the scene's plan and the host advances `--frames` frames (one by default) of `--fixed-dt` milliseconds (1/60 s by default). `--scene` names the scene file, `level0` by default. Each `--arg VALUE` (repeatable; each value is one argument, in order) is part of the player's command line: `Environment.GetCommandLineArgs()` returns the player's executable path first, then the `--arg` values, for example `--arg game.zip --arg -headless` for a game that loads the save named on its command line. The executable path is the engine's choice: the data directory's parent joined with the data directory's name without its `_Data` suffix, plus `.exe` for a Windows player. The run logs it as `command line: ...`. Each step prints a `[player]` line, along with what the plan or the loader leaves out, so the last line before an error is the step that failed, and the error names the hook, component or frame. Builds go to `target/play/player`. A player that imports a native library it does not ship for this platform, such as Old World's Wwise `AkSoundEngine`, loads its own `Plugins` file when there is one and otherwise the engine's substitute from the engine library's directory (the silent Wwise library, which `--player` builds there). See "Player native plugins" in `docs/unity-projects.md`.
 
+`play_player_window` draws built-player mesh objects and screen-space overlay UI
+through the retained scene renderer. Text coverage and image quads retain native
+hierarchy order and pixel clip bounds. UI replacements track draw changes, image
+texture generations and viewport size; unchanged frames reuse the overlay.
+Ordinary 2D scene quads and world-space UI remain outside this retained path.
+
 ## Tests
+
+The library's synthetic retained-player UI test runs the managed host and captures
+windowless frames. It requires .NET 8 and a GPU adapter and checks image bytes,
+text, clipping and unchanged-frame UI update counts without opening a window.
 
 `tests/play_window.rs` plays all three games in a 480x270 window and checks the captured pixels. It needs an X display; run it as the lavapipe CI job does:
 

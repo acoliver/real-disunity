@@ -1,4 +1,8 @@
 //! Brings the textures a player's managed code stored into the scene textures a frame draws with.
+#[cfg(test)]
+#[path = "player_ui_tests.rs"]
+mod ui_tests;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_disunity_runtime::DisunityHost;
@@ -26,6 +30,10 @@ pub struct PlayerTextures {
 }
 
 impl PlayerTextures {
+    pub(crate) fn generation(&self, identity: u64) -> u64 {
+        self.generations.get(&identity).copied().unwrap_or(0)
+    }
+
     /// The textures converted new or again since the last call.
     pub fn take_changed(&mut self) -> BTreeSet<u64> {
         std::mem::take(&mut self.changed)

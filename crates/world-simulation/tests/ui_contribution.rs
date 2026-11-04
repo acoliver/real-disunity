@@ -81,9 +81,9 @@ fn text_clip_uses_scaled_root_canvas_space_through_nested_canvases() {
     world
         .set_parent(text, Some(nested), ParentSpace::KeepLocal)
         .unwrap();
-    world
-        .add_component(text, ComponentDesc::Text(TextRun::new(font)))
-        .unwrap();
+    let mut run = TextRun::new(font);
+    run.text = "A".into();
+    world.add_component(text, ComponentDesc::Text(run)).unwrap();
     world
         .add_component(
             text,
@@ -99,4 +99,26 @@ fn text_clip_uses_scaled_root_canvas_space_through_nested_canvases() {
         plan.texts[0].hierarchy_order,
         plan.layout.rect(text).unwrap().draw_order().2
     );
+    assert_screen_snapshot(&plan);
+}
+
+fn assert_screen_snapshot(plan: &worldrunner_world_simulation::ui::contribution::UiRenderPlan) {
+    use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiPresentation};
+    let snapshot = UiPresentation::from_plan(plan);
+    let text = &plan.texts[0];
+    let rect = plan.layout.rect(text.object).unwrap();
+    assert!(!snapshot.draws.is_empty());
+    for (draw, glyph) in snapshot.draws.iter().zip(&text.quads) {
+        assert_eq!(draw.kind, UiDrawKind::Text);
+        assert_eq!(
+            (draw.sorting_layer, draw.sorting_order, draw.hierarchy_order),
+            rect.draw_order()
+        );
+        assert_eq!(draw.clip_rect, [16, 16, 16, 16]);
+        assert_eq!(draw.corners, glyph.corners);
+        assert_eq!(
+            snapshot.coverage.get(&draw.texture.unwrap()),
+            text.texture.as_ref()
+        );
+    }
 }

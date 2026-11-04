@@ -243,25 +243,15 @@ pub unsafe extern "C" fn disunity_mesh_channels_read(
         request.index_count,
         request.range_count,
     ];
-    let nulls = [
-        channels.is_null(),
-        data.is_null(),
-        indices.is_null(),
-        ranges.is_null(),
-    ];
-    if capacities
-        .iter()
-        .zip(nulls)
-        .any(|(capacity, null)| *capacity != 0 && null)
-    {
-        return DisunityResult::invalid_argument();
-    }
     let targets = Targets {
         channels,
         data,
         indices,
         ranges,
     };
+    if !targets.hold(capacities) {
+        return DisunityResult::invalid_argument();
+    }
     mutate(world, |s| {
         let held = s
             .meshes
@@ -288,14 +278,38 @@ pub unsafe extern "C" fn disunity_mesh_channels_read(
                 ..held.info
             };
             if copy {
-                copy_records(&held.channels, targets.channels);
-                copy_records(&held.data, targets.data);
-                copy_records(&held.indices, targets.indices);
-                copy_records(&held.ranges, targets.ranges);
+                targets.copy_from(held);
             }
         }
         Ok(())
     })
+}
+
+impl Targets {
+    /// Whether every buffer with a nonzero capacity was passed.
+    fn hold(&self, capacities: [u32; 4]) -> bool {
+        let nulls = [
+            self.channels.is_null(),
+            self.data.is_null(),
+            self.indices.is_null(),
+            self.ranges.is_null(),
+        ];
+        capacities
+            .iter()
+            .zip(nulls)
+            .all(|(capacity, null)| *capacity == 0 || !null)
+    }
+
+    /// # Safety
+    /// Each buffer is writable for the stored counts of `held`, or null when that count is zero.
+    unsafe fn copy_from(&self, held: &StoredChannels) {
+        unsafe {
+            copy_records(&held.channels, self.channels);
+            copy_records(&held.data, self.data);
+            copy_records(&held.indices, self.indices);
+            copy_records(&held.ranges, self.ranges);
+        }
+    }
 }
 
 fn fits(held: &StoredChannels, [channels, floats, indices, ranges]: [u32; 4]) -> bool {

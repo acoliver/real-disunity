@@ -1,5 +1,6 @@
 mod bias;
 mod cascades;
+mod compaction;
 mod culling;
 mod fixture;
 mod geometry;

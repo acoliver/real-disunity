@@ -56,6 +56,43 @@ flight.retire();
 The legacy profile retains exposed sRGB output. The HDR profile writes unexposed `Rgba16Float` radiance and applies exposure and tone mapping once in post before the final output transfer. Selecting HDR therefore changes colour behavior explicitly. It supports 1x or 4x forward samples; the optional screen-space metadata prepass is single-sample. Ordinary cross-feature transparent sorting and temporal AA remain unsupported and return typed errors.
 
 ## External features
+## Retained host CPU work
+
+`RetainedHost::work_queue::<R>(workers, capacity)` creates a caller-sized worker
+pool for application CPU work. Both bounds must be positive. Host and queue
+handles stay on the event thread; only job inputs and results cross threads.
+The queue accepts `FnOnce(&CancelToken) -> R + Send + 'static` jobs and returns a typed
+`WorkTicket<R>` or `WorkSubmitError::{Full, Closed}`. Submission never waits for
+space or job execution. At most `capacity` jobs wait for the fixed workers, and
+at most `workers + capacity` uncancelled tickets exist, including completed
+results. Drain results to release that admission budget. These workers use only
+standard-library synchronization and are separate from renderer preparation.
+
+Workers wake the desktop event loop through its proxy. The driver receives
+`RetainedEvent::WorkReady` on the event thread, including while occluded,
+suspended or zero-sized, and drains its queues with `try_recv`. Notifications
+can cover several completions or a result cancelled before delivery. Store
+application changes in the driver and apply scene edits in the next `update`.
+The public types are also available through `worldrunner::scene::viewer` with
+the facade's `scene-viewer` feature. Windowless callers can poll their queues
+directly without starting a window or GPU.
+
+Cancellation is cooperative: jobs must poll `CancelToken::is_cancelled` and
+finish promptly, including during their own waits. `cancel` invalidates a
+queue-scoped generation and removes completed work; running results for that
+generation are discarded. Cancelled queued jobs occupy their bounded channel
+slots until a worker dequeues and skips them. `replace` cancels first and then
+submits; if submission fails, the old generation stays cancelled. Old or foreign tickets
+cannot cancel a newer job. Panics unwind at the job boundary and produce
+`WorkFailure::Panicked` for that ticket; the worker continues serving jobs.
+Aborting panics cannot be caught.
+
+Queue drop, host drop and session shutdown cancel outstanding jobs, discard
+queued jobs and results, and join workers. Session shutdown finishes this before
+notifying the driver of `RetainedEvent::Shutdown`. A queue retained by the driver
+then returns `Closed` from submission and no further results. A job that ignores
+cancellation delays shutdown; the host does not forcibly terminate threads.
+
 
 Consumers needing texture generations, subresource access declarations, MRT or a different authored pass order can use the [shared resource and raster contracts](resource-contracts.md). Stock geometry uses the same raster executor and retains its existing outputs and timing identities.
 

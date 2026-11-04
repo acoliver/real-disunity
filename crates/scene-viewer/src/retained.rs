@@ -5,6 +5,11 @@ use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObjec
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 mod startup;
+mod work;
+pub use work::{
+    CancelToken, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
+    WorkTicket,
+};
 mod timing;
 pub use timing::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
@@ -133,6 +138,8 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
+    WorkReady,
     /// Final notification, after every outstanding capture has been cancelled.
     Shutdown,
     Input(RetainedInput),
@@ -175,6 +182,7 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    work: work::WorkServices,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,

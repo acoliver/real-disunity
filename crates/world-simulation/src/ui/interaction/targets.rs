@@ -80,7 +80,12 @@ fn flags(path: &[ObjectHandle], groups: &BTreeMap<ObjectHandle, CanvasGroup>) ->
     (interactable, blocks)
 }
 /// Invert the screen-space affine basis, preserving rotated and sheared hit regions.
-fn contains(rect: &RectLayout, point: Vec2) -> bool {
+pub(crate) fn contains(rect: &RectLayout, point: Vec2) -> bool {
+    if rect.clip_bounds.is_some_and(|[min, max]| {
+        point.x < min.x || point.y < min.y || point.x >= max.x || point.y >= max.y
+    }) {
+        return false;
+    }
     let Some([origin, right, _, up]) = rect.screen_corners else {
         return false;
     };

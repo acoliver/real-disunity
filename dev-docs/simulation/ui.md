@@ -57,7 +57,77 @@ and keyboard targets to its subtree. Removing or hiding it removes the restricti
 keys to `UiKey::{Tab, Shift, Enter, Space}` and call `key` with press and repeat observations.
 Tab/shift-Tab cycles enabled interactable controls in target order; Enter/Space activates on the
 first key-down. Held/repeated key-downs never activate twice. Focus is revalidated at each key
-event. Nested-modal focus restoration and visual focus styling are separate UI work.
+event. The router records each modal's opener when it first observes that modal. When the
+modal is removed or hidden, the next routed event restores the opener if it remains eligible.
+Nested closures restore each enclosing opener in turn. Cancellation clears this history.
+
+## Menu groups, scrolling and selection
+
+`UiLayoutRules` holds native layout registrations keyed by existing object handles. Supply it
+to `World::ui_layout_with(viewport, rules)`. `UiRouter::layout` stores the same rules for an
+interactive menu. These rules affect the existing rectangle resolution pass; they do not mutate
+authored `RectTransform` components. `ui_extent` without rules continues to describe authored
+rectangles. Remove registrations when destroying their objects; missing registered rectangles
+return `MissingLayout`.
+
+`UiLayoutGroup::Stack` lays out active direct rectangle children in hierarchy order, left to
+right or top to bottom. Padding is `[left, right, top, bottom]`, and spacing separates adjacent
+children only. Cross-axis alignment is start, center, end or stretch. Center alignment rounds
+half-pixel spare space toward the start. Group positions and intrinsic child extents are whole
+logical pixels; odd extents keep their fractional pivot translation so their edges stay whole.
+Canvas scale and authored ancestor transforms still apply normally.
+
+A child's default intrinsic extent is its nonnegative, rounded authored `size_delta`, independent
+of its anchor span. `UiSize::Fixed` supplies an explicit extent. `UiSize::Content` measures a
+nested group's children, spacing and padding recursively; a content-sized leaf without a group
+returns `MissingLayout`. Text shaping is not an implicit sizing input. A caller can measure text
+with its `FontBook` and supply the resulting fixed extent. `UiLayoutGroup::Grid` supplies cell
+extent and two-axis spacing and fills a specified number of columns or rows before wrapping.
+A zero column/row count returns `InvalidRect`. Groups accept at most 65535 active children.
+
+Register `UiScrollView::new(content)` against a viewport rectangle in `rules.scrolls`. Content
+must be a direct rectangle child. Its extent can be fixed or measured from a group. Its top-left
+starts at the viewport's top-left; increasing the offset reveals content farther right/down.
+`scroll_to(layout, viewport, offset)` rounds and clamps offsets to the nonnegative content extent
+minus viewport extent. Resolution also bounds the effective offset, including after resize.
+Call `scroll_to` with the new layout to normalize stored offsets after changing extents.
+
+Scroll viewports require positive, axis-aligned screen-space overlay rectangles. Rotated,
+sheared, mirrored, collapsed, camera-space or world-space viewports return `InvalidRect`;
+ordinary non-scroll controls retain affine hit testing. Nested
+viewport clips intersect and apply only to their content subtrees. Both text and graphics carry
+the resulting clip into `UiRenderPlan`, intersected with any renderer clip. Pointer hit testing
+uses the same bounds. Clipped controls remain keyboard targets so navigation can reveal them.
+Wheel input over a viewport scrolls the highest ordered viewport under the pointer, including
+empty viewport space. Pixel deltas convert to logical units using the viewport's screen scale;
+line deltas use `UiScrollView::line_step` (20 logical pixels by default). Positive wheel deltas
+move toward the start. A viewport consumes wheel input even at its boundary.
+
+Register each list row with `UiControl::list_item(list, index)`. The list identity and unique
+row indices are caller data. Pointer release, Enter/Space and Up/Down/Home/End all use the same
+selection path, emit `UiAction::Selected { list, index }` and update `selected(list)`. Arrow
+navigation follows ascending indices, skips disabled rows and stops at the ends. Navigation
+accepts repeats; activation does not. Tab retains the ordinary control traversal. Keyboard
+focus changes reveal the target through its enclosing scroll viewports, innermost first.
+
+Register caller-authored `UiStyle` tints in `router.styles`, then call `style_plan(world, plan)`
+once on a freshly extracted plan. It multiplies graphic vertex colours and text colour using
+this priority: disabled, pressed, focused, hovered, selected, normal. Focus takes precedence over
+hover so pointer position cannot conceal keyboard focus. The engine supplies no default colour
+scheme; default tints are white. Sliders and toggles are not implemented by this native API.
+
+Resolve and extract again after routing events that can change an offset:
+
+```rust,ignore
+let layout = world.ui_layout_with(viewport, &router.layout)?;
+let response = router.key(&world, &layout, UiKey::Down, true, false)?;
+let layout = world.ui_layout_with(viewport, &router.layout)?;
+let mut plan = contribution::extract_ui_layout(&world, &fonts, layout)?;
+router.style_plan(&world, &mut plan)?;
+```
+
+The scrolled-list windowless overlay test checks exact RGBA bytes inside the viewport and
+unchanged scene pixels outside it. A real-window resize check remains pending.
 
 ## Text contract
 

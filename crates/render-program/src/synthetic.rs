@@ -2,6 +2,8 @@
 //! Vulkan platform, built from WGSL. The stage modules are written the way a player stores them,
 //! one module per stage with one entry point.
 
+pub mod shaders;
+
 use naga::back::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use worldrunner_unity_serialized::shader::{

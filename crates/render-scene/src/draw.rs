@@ -239,7 +239,7 @@ pub struct SceneGpu {
     shadow_selection: [std::rc::Rc<RefCell<Selection>>; 4],
     terrain: Option<GpuTerrain>,
     dynamic: crate::dynamic::DynamicGpu,
-    programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    player: programs::PlayerWork,
     retained: Retained,
 }
 
@@ -339,7 +339,7 @@ impl SceneGpu {
             shadow_selection: std::array::from_fn(|_| std::rc::Rc::default()),
             terrain,
             dynamic: crate::dynamic::DynamicGpu::default(),
-            programs: None,
+            player: programs::PlayerWork::default(),
             retained: Retained {
                 contact_heights,
                 textures,

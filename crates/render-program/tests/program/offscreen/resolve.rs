@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use worldrunner_render_program::shader::{PassSelector, ProgramShader, ResolveError};
 
-use super::shaders::{POSITION_AND_UV, two_passes};
+use worldrunner_render_program::synthetic::shaders::{POSITION_AND_UV, two_passes};
 
 fn shader() -> ProgramShader {
     let synthetic = two_passes();

@@ -35,6 +35,8 @@ worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"]
 # `spv-out` turns the WGSL of a synthetic player program into the SPIR-V a player ships.
 naga = { version = "30.0.0", features = ["wgsl-in", "spv-out"] }
 worldrunner-unity-serialized = { path = "../unity-serialized" }
+# Synthetic player shaders for the offscreen frame test.
+worldrunner-render-program = { path = "../render-program", features = ["test-support"] }
 
 [lints]
 workspace = true

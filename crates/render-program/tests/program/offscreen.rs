@@ -9,4 +9,3 @@ mod lifetime;
 mod resolve;
 mod rig;
 mod sampler;
-mod shaders;

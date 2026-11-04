@@ -10,7 +10,7 @@ use worldrunner_render_program::shader::ProgramShader;
 use super::rig::{
     BLIT_QUAD, BLUE, CYAN, RED, Rig, blit_quad, image, layer, pixel, source, texture,
 };
-use super::shaders::blit_passes;
+use worldrunner_render_program::synthetic::shaders::blit_passes;
 
 const SHADER: ShaderId = ShaderId(2);
 const SOURCE: TextureId = TextureId(5);

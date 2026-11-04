@@ -4,15 +4,14 @@ use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Con
 use worldrunner_render_program::ids::{MeshId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::offscreen::frame::{
-    ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, RenderTextureSpec,
-    SourceTexture, SubMesh,
+    OffscreenFrame, RenderTextureSpec, SourceTexture,
 };
 use worldrunner_render_program::offscreen::{OffscreenError, OffscreenState};
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
 
-use super::shaders::{POSITION, UV};
 use crate::common::Gpu;
+pub use worldrunner_render_program::synthetic::shaders::{blit_quad, quad};
 
 pub const RGBA8: u32 = 8;
 pub const BUDGET: u64 = 64 << 20;
@@ -117,83 +116,6 @@ pub fn layer(values: &[(&str, [f32; 4])]) -> PropertyLayer {
         layer.values.set(name, vector(*value));
     }
     layer
-}
-
-fn floats(values: &[f32]) -> Vec<u8> {
-    values
-        .iter()
-        .flat_map(|value| value.to_le_bytes())
-        .collect()
-}
-
-/// A quad over clip space with its texture coordinates, as two triangles of an indexed mesh at
-/// depth `z`. Row 0 of the image is clip y of -1, so the texture coordinate is the image's own.
-pub fn quad(z: f32) -> Mesh {
-    let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
-    let positions: Vec<f32> = corners.iter().flat_map(|&(x, y)| [x, y, z]).collect();
-    let uvs: Vec<f32> = corners
-        .iter()
-        .flat_map(|&(x, y)| [f32::midpoint(x, 1.0), f32::midpoint(y, 1.0)])
-        .collect();
-    Mesh {
-        vertex_count: 4,
-        channels: vec![
-            MeshChannel {
-                source: POSITION,
-                format: ChannelFormat::Float32x3,
-                bytes: floats(&positions),
-            },
-            MeshChannel {
-                source: UV,
-                format: ChannelFormat::Float32x2,
-                bytes: floats(&uvs),
-            },
-        ],
-        indices: MeshIndices::U16(vec![0, 1, 2, 2, 1, 3]),
-        sub_meshes: vec![SubMesh {
-            first: 0,
-            count: 6,
-            base_vertex: 0,
-        }],
-    }
-}
-
-/// The same quad as six vertices with no indices, which is what a blit draws.
-pub fn blit_quad() -> Mesh {
-    let corners = [
-        (-1.0, -1.0),
-        (1.0, -1.0),
-        (-1.0, 1.0),
-        (-1.0, 1.0),
-        (1.0, -1.0),
-        (1.0, 1.0),
-    ];
-    let positions: Vec<f32> = corners.iter().flat_map(|&(x, y)| [x, y, 0.0]).collect();
-    let uvs: Vec<f32> = corners
-        .iter()
-        .flat_map(|&(x, y)| [f32::midpoint(x, 1.0), f32::midpoint(y, 1.0)])
-        .collect();
-    Mesh {
-        vertex_count: 6,
-        channels: vec![
-            MeshChannel {
-                source: POSITION,
-                format: ChannelFormat::Float32x3,
-                bytes: floats(&positions),
-            },
-            MeshChannel {
-                source: UV,
-                format: ChannelFormat::Float32x2,
-                bytes: floats(&uvs),
-            },
-        ],
-        indices: MeshIndices::None,
-        sub_meshes: vec![SubMesh {
-            first: 0,
-            count: 6,
-            base_vertex: 0,
-        }],
-    }
 }
 
 pub const QUAD: MeshId = MeshId(1);

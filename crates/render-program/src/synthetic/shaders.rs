@@ -1,10 +1,11 @@
-//! Tiny player-shaped shaders: WGSL stand-ins with the records, parameters and vertex input
-//! tables a Unity player stores for them.
+//! Tiny player-shaped shaders for tests: WGSL stand-ins with the records, parameters and vertex
+//! input tables a Unity player stores for them, and the meshes they draw.
 
-use worldrunner_render_program::synthetic::{
+use super::{
     FRAGMENT, PassSpec, SyntheticShader, VERTEX, VariantSpec, binding, constant_buffer, fixed,
     shader, slot, vector_member,
 };
+use crate::offscreen::frame::{ChannelFormat, Mesh, MeshChannel, MeshIndices, SubMesh};
 use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
 
 /// A vertex stage that places its position by the draw constants `_Place` (scale x, scale y,
@@ -77,6 +78,21 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
     let texel = textureSample(main_tex, main_sampler, in.uv);
     let unused = material.tint * 0.0 + material.texel * 0.0;
     return unused + vec4<f32>(1.0 - texel.rgb, 1.0);
+}";
+
+/// A scene patch that reads element 2 of a texture array at its own texture coordinate.
+pub const ARRAY_PATCH: &str = "
+@group(0) @binding(0) var layers: texture_2d_array<f32>;
+@group(0) @binding(1) var layers_sampler: sampler;
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
+    var out: VOut;
+    out.position = vec4<f32>(position, 1.0);
+    out.uv = uv;
+    return out;
+}
+@fragment fn fs_layer(in: VOut) -> @location(0) vec4<f32> {
+    return textureSample(layers, layers_sampler, in.uv, 2);
 }";
 
 /// Position (source channel 0) feeds input 0 and the first texture coordinate (source channel
@@ -153,6 +169,24 @@ pub fn blit_parameters(main: &str) -> VariantParameters {
     }
 }
 
+/// The patch's texture array, which a scene draw binds, with its sampler.
+pub fn array_patch_parameters() -> VariantParameters {
+    VariantParameters {
+        constant_buffers: Vec::new(),
+        bindings: vec![
+            binding(
+                "_Layers",
+                slot(0, 0, FRAGMENT),
+                ResourceKind::Texture {
+                    sampler: Some(slot(0, 1, FRAGMENT)),
+                    dimension: 10,
+                },
+            ),
+            binding("", slot(0, 1, FRAGMENT), ResourceKind::Sampler { state: 0 }),
+        ],
+    }
+}
+
 pub fn variant(
     keywords: &[&'static str],
     wgsl: &str,
@@ -222,6 +256,22 @@ pub fn camera_passes() -> SyntheticShader {
     ))
 }
 
+/// One pass that draws the array patch.
+pub fn array_patch() -> SyntheticShader {
+    no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: Vec::new(),
+            variants: vec![variant(
+                &[],
+                ARRAY_PATCH,
+                "fs_layer",
+                array_patch_parameters(),
+            )],
+        }],
+    ))
+}
+
 /// Blit passes: 0 multiplies the source by the tint, 1 shows the texel size, 2 inverts. The
 /// source is the texture property `main`.
 pub fn blit_passes(main: &str) -> SyntheticShader {
@@ -232,4 +282,81 @@ pub fn blit_passes(main: &str) -> SyntheticShader {
             variants: vec![variant(&[], BLIT, fragment, blit_parameters(main))],
         }),
     ))
+}
+
+fn floats(values: &[f32]) -> Vec<u8> {
+    values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect()
+}
+
+/// A quad over clip space with its texture coordinates, as two triangles of an indexed mesh at
+/// depth `z`. Row 0 of the image is clip y of -1, so the texture coordinate is the image's own.
+pub fn quad(z: f32) -> Mesh {
+    let corners = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
+    let positions: Vec<f32> = corners.iter().flat_map(|&(x, y)| [x, y, z]).collect();
+    let uvs: Vec<f32> = corners
+        .iter()
+        .flat_map(|&(x, y)| [f32::midpoint(x, 1.0), f32::midpoint(y, 1.0)])
+        .collect();
+    Mesh {
+        vertex_count: 4,
+        channels: vec![
+            MeshChannel {
+                source: POSITION,
+                format: ChannelFormat::Float32x3,
+                bytes: floats(&positions),
+            },
+            MeshChannel {
+                source: UV,
+                format: ChannelFormat::Float32x2,
+                bytes: floats(&uvs),
+            },
+        ],
+        indices: MeshIndices::U16(vec![0, 1, 2, 2, 1, 3]),
+        sub_meshes: vec![SubMesh {
+            first: 0,
+            count: 6,
+            base_vertex: 0,
+        }],
+    }
+}
+
+/// The same quad as six vertices with no indices, which is what a blit draws.
+pub fn blit_quad() -> Mesh {
+    let corners = [
+        (-1.0, -1.0),
+        (1.0, -1.0),
+        (-1.0, 1.0),
+        (-1.0, 1.0),
+        (1.0, -1.0),
+        (1.0, 1.0),
+    ];
+    let positions: Vec<f32> = corners.iter().flat_map(|&(x, y)| [x, y, 0.0]).collect();
+    let uvs: Vec<f32> = corners
+        .iter()
+        .flat_map(|&(x, y)| [f32::midpoint(x, 1.0), f32::midpoint(y, 1.0)])
+        .collect();
+    Mesh {
+        vertex_count: 6,
+        channels: vec![
+            MeshChannel {
+                source: POSITION,
+                format: ChannelFormat::Float32x3,
+                bytes: floats(&positions),
+            },
+            MeshChannel {
+                source: UV,
+                format: ChannelFormat::Float32x2,
+                bytes: floats(&uvs),
+            },
+        ],
+        indices: MeshIndices::None,
+        sub_meshes: vec![SubMesh {
+            first: 0,
+            count: 6,
+            base_vertex: 0,
+        }],
+    }
 }

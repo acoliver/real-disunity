@@ -11,7 +11,7 @@ use worldrunner_render_program::offscreen::frame::{
 use worldrunner_render_program::shader::{PassSelector, ProgramShader};
 
 use super::rig::{BLUE, CLEAR, QUAD, RED, Rig, layer, pixel, quad, texture};
-use super::shaders::camera_passes;
+use worldrunner_render_program::synthetic::shaders::camera_passes;
 
 const SHADER: ShaderId = ShaderId(1);
 const TARGET: TextureId = TextureId(10);
@@ -257,8 +257,9 @@ fn a_mesh_without_a_channel_the_shader_reads_is_a_named_error() {
     let mut rig = Rig::new();
     let mut frame = halves(&mut rig, 1 << LEFT);
     let mut bare = quad(0.5);
-    bare.channels
-        .retain(|channel| channel.source == super::shaders::POSITION);
+    bare.channels.retain(|channel| {
+        channel.source == worldrunner_render_program::synthetic::shaders::POSITION
+    });
     rig.state
         .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &bare)
         .unwrap();

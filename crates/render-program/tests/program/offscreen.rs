@@ -4,6 +4,9 @@
 mod blit;
 mod camera;
 mod copy;
+mod layers;
+mod lifetime;
 mod resolve;
 mod rig;
+mod sampler;
 mod shaders;

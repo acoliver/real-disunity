@@ -58,6 +58,10 @@ pub fn camera(mask: u32) -> Camera {
 
 /// An 8x8 target, a red renderer over its left half on layer 1 and a blue one over its right half
 /// on layer 2.
+pub fn fixture(rig: &mut Rig, mask: u32) -> OffscreenFrame {
+    halves(rig, mask)
+}
+
 fn halves(rig: &mut Rig, mask: u32) -> OffscreenFrame {
     let synthetic = camera_passes();
     rig.state.add_shader(

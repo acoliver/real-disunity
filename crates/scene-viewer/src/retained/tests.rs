@@ -217,6 +217,7 @@ fn focus_loss_emits_releases_in_stable_order_and_clears_held_keys() {
     assert_eq!(
         events,
         vec![
+            RetainedInput::PointerCancelled,
             RetainedInput::Key {
                 key: "a".into(),
                 logical: crate::LogicalKey::Character("a".into()),

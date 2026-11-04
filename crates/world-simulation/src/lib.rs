@@ -23,7 +23,10 @@ mod ratio;
 mod timeline;
 pub use clock::Clock;
 pub use coroutines::{CoroutineId, WaitCondition};
-pub use input::{AxisBinding, AxisId, InputAction, InputEvent, InputPhase, InputView, KeyCode};
+pub use input::{
+    AxisBinding, AxisId, InputAction, InputEvent, InputPhase, InputView, KeyCode, PointerButton,
+    PointerEvent, PointerState, PointerWheel,
+};
 pub use ratio::{TimeError, TimeSpan};
 pub use timeline::{
     Advance, CallbackOutcome, CallbackTicket, CallbackWork, FrameSummary, ScriptFailure,

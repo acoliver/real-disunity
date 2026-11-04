@@ -1,5 +1,7 @@
 use crate::{TimeSpan, World, WorldError};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+mod pointer;
+pub use pointer::{PointerButton, PointerEvent, PointerState, PointerWheel};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KeyCode(pub u16);
@@ -16,6 +18,7 @@ pub enum InputAction {
     Key(KeyCode, bool),
     Axis(AxisId, f32),
     Focus(bool),
+    Pointer(PointerEvent),
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InputEvent {
@@ -35,6 +38,7 @@ pub struct InputView {
     pub axes: BTreeMap<AxisId, f32>,
     pub focused: bool,
     pub cutoff: TimeSpan,
+    pub pointer: PointerState,
     cursor: u64,
     device_axes: BTreeMap<AxisId, f32>,
     pub(crate) smoothed: BTreeMap<AxisId, f32>,
@@ -48,6 +52,7 @@ impl Default for InputView {
             axes: BTreeMap::new(),
             focused: true,
             cutoff: TimeSpan::ZERO,
+            pointer: PointerState::default(),
             cursor: 0,
             device_axes: BTreeMap::new(),
             smoothed: BTreeMap::new(),
@@ -58,6 +63,7 @@ impl InputView {
     fn project(&mut self, events: &VecDeque<(u64, InputEvent)>, cutoff: TimeSpan) {
         self.down.clear();
         self.up.clear();
+        self.pointer.begin();
         for &(id, event) in events {
             if id <= self.cursor {
                 continue;
@@ -72,7 +78,11 @@ impl InputView {
                         self.up.extend(std::mem::take(&mut self.held));
                         self.device_axes.clear();
                         self.smoothed.clear();
+                        self.pointer.accept(PointerEvent::Cancel);
                     }
+                }
+                InputAction::Pointer(event) if self.focused || event == PointerEvent::Cancel => {
+                    self.pointer.accept(event);
                 }
                 InputAction::Key(key, pressed) if self.focused => {
                     if pressed {
@@ -86,7 +96,7 @@ impl InputView {
                 InputAction::Axis(axis, value) if self.focused => {
                     self.device_axes.insert(axis, value);
                 }
-                InputAction::Key(_, _) | InputAction::Axis(_, _) => {}
+                InputAction::Pointer(_) | InputAction::Key(_, _) | InputAction::Axis(_, _) => {}
             }
             self.cursor = id;
         }
@@ -187,6 +197,11 @@ impl World {
             }
             if let InputAction::Axis(_, value) = event.action
                 && (!value.is_finite() || !(-1.0..=1.0).contains(&value))
+            {
+                return Err(WorldError::InvalidInput);
+            }
+            if let InputAction::Pointer(pointer) = event.action
+                && !pointer.valid()
             {
                 return Err(WorldError::InvalidInput);
             }

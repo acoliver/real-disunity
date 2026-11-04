@@ -118,6 +118,8 @@ pub enum RetainedInput {
     },
     /// Position in physical window pixels.
     PointerMoved([f64; 2]),
+    /// Cancels active gestures before focus-loss releases are delivered.
+    PointerCancelled,
     Button {
         button: MouseButton,
         pressed: bool,
@@ -382,8 +384,8 @@ impl RetainedHost {
         Ok(())
     }
 
-    /// Returns transitions to deliver in order. Focus loss first releases keys in
-    /// physical-key order, then buttons in button order, before the focus event.
+    /// Returns transitions to deliver in order. Focus loss first cancels gestures, then
+    /// releases keys in physical-key order and buttons in button order before the focus event.
     /// Repeated focus loss never repeats a release.
     pub fn input(&mut self, input: RetainedInput) -> Vec<RetainedInput> {
         if let RetainedInput::Resized(size) = &input {

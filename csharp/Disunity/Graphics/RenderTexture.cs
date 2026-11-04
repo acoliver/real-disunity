@@ -201,7 +201,15 @@ public partial class RenderTexture : Texture
         width = (uint)width, height = (uint)height, format = (uint)(int)_desc.graphicsFormat,
         depth_bits = (uint)Math.Max(depth, 0),
         mip_count = (uint)Math.Clamp(mipmapCount, 1, 15), srgb = sRGB ? 1u : 0u,
+        wrap_u = Sampler.wrap_u, wrap_v = Sampler.wrap_v, wrap_w = Sampler.wrap_w, filter = Sampler.filter,
+        aniso_level = Sampler.aniso_level, mip_bias = Sampler.mip_bias,
     };
+
+    /// <summary>Sends the description again, with the new sampler, once the world holds a render texture for this one.</summary>
+    internal override void SamplerChanged()
+    {
+        if (_world.IsCurrent) WorldGraphics.WriteRenderTexture(_world, Describe());
+    }
 
     public void Release()
     {

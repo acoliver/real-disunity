@@ -22,25 +22,19 @@ pub struct PropertyLayer {
     pub textures: BTreeMap<String, TextureInput>,
 }
 
-/// The four layers a draw reads, from highest to lowest: the caller's per-draw values, the
-/// renderer's property block, the material and the globals. The first layer that has a name
-/// wins. The crate names no built-in value of Unity: the caller supplies them in a layer.
+/// The layers a draw reads, highest first. A draw reads the caller's per-draw values, the
+/// renderer's property block, the material and the globals, in that order, and a caller may put
+/// more layers of its own among them. The first layer that has a name wins. The crate names no
+/// built-in value of Unity: the caller supplies them in a layer.
 #[derive(Clone, Copy, Debug)]
 pub struct Layers<'a> {
-    highest_first: [&'a PropertyLayer; 4],
+    highest_first: &'a [&'a PropertyLayer],
 }
 
 impl<'a> Layers<'a> {
     #[must_use]
-    pub fn new(
-        per_draw: &'a PropertyLayer,
-        block: &'a PropertyLayer,
-        material: &'a PropertyLayer,
-        globals: &'a PropertyLayer,
-    ) -> Self {
-        Self {
-            highest_first: [per_draw, block, material, globals],
-        }
+    pub fn new(highest_first: &'a [&'a PropertyLayer]) -> Self {
+        Self { highest_first }
     }
 
     /// The value sets in the order [`crate::constants::pack_layout`] reads them.

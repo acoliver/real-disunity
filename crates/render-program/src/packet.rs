@@ -291,78 +291,104 @@ impl ProgramRuntime {
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
         }
-        let modules = (
-            self.shader_module(&packet.program.vertex)?,
-            self.shader_module(&packet.program.fragment)?,
-        );
+        let modules = self.program_modules(packet.program)?;
         let pipeline = self.guarded(|| self.create_render_pipeline(packet, &modules, signature))?;
         self.render_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }
 
+    /// The compiled vertex and fragment modules of a program.
+    pub(crate) fn program_modules(
+        &mut self,
+        program: &GraphicsProgram,
+    ) -> Result<(wgpu::ShaderModule, wgpu::ShaderModule), ProgramError> {
+        Ok((
+            self.shader_module(&program.vertex)?,
+            self.shader_module(&program.fragment)?,
+        ))
+    }
+
     fn create_render_pipeline(
         &self,
         packet: &DrawPacket<'_>,
-        (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
+        modules: &(wgpu::ShaderModule, wgpu::ShaderModule),
         signature: TargetSignature,
     ) -> wgpu::RenderPipeline {
-        let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = packet
-            .vertex_inputs
-            .iter()
-            .map(|input| {
-                Some(wgpu::VertexBufferLayout {
-                    array_stride: input.stride,
-                    step_mode: input.step,
-                    attributes: &input.attributes,
-                })
-            })
-            .collect();
-        let state = packet.state;
-        let targets = [Some(wgpu::ColorTargetState {
-            format: signature.color,
-            blend: state.blend,
-            write_mask: state.color_write,
-        })];
-        self.device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("render-program pipeline"),
-                layout: Some(&packet.program.gpu.pipeline),
-                vertex: wgpu::VertexState {
-                    module: vertex,
-                    entry_point: Some(&packet.program.vertex.module().entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &layouts,
-                },
-                primitive: wgpu::PrimitiveState {
-                    front_face: packet.front_face,
-                    cull_mode: state.cull,
-                    ..wgpu::PrimitiveState::default()
-                },
-                depth_stencil: signature.depth.map(|format| wgpu::DepthStencilState {
-                    format,
-                    depth_write_enabled: Some(state.depth_write),
-                    depth_compare: Some(state.depth_compare),
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState {
-                    count: signature.samples,
-                    ..wgpu::MultisampleState::default()
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: fragment,
-                    entry_point: Some(&packet.program.fragment.module().entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &targets,
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
+        with_pipeline_descriptor(
+            packet,
+            modules,
+            signature,
+            &packet.program.gpu.pipeline,
+            |descriptor| self.device.create_render_pipeline(descriptor),
+        )
     }
 }
 
+/// Builds the descriptor of the pipeline `packet` draws with against `layout` and hands it to
+/// `create`. The checked operations create their pipelines from the same descriptor, with a
+/// layout made of their own bind groups.
+pub(crate) fn with_pipeline_descriptor<T>(
+    packet: &DrawPacket<'_>,
+    (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
+    signature: TargetSignature,
+    layout: &wgpu::PipelineLayout,
+    create: impl FnOnce(&wgpu::RenderPipelineDescriptor<'_>) -> T,
+) -> T {
+    let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = packet
+        .vertex_inputs
+        .iter()
+        .map(|input| {
+            Some(wgpu::VertexBufferLayout {
+                array_stride: input.stride,
+                step_mode: input.step,
+                attributes: &input.attributes,
+            })
+        })
+        .collect();
+    let state = packet.state;
+    let targets = [Some(wgpu::ColorTargetState {
+        format: signature.color,
+        blend: state.blend,
+        write_mask: state.color_write,
+    })];
+    create(&wgpu::RenderPipelineDescriptor {
+        label: Some("render-program pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: vertex,
+            entry_point: Some(&packet.program.vertex.module().entry_point),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &layouts,
+        },
+        primitive: wgpu::PrimitiveState {
+            front_face: packet.front_face,
+            cull_mode: state.cull,
+            ..wgpu::PrimitiveState::default()
+        },
+        depth_stencil: signature.depth.map(|format| wgpu::DepthStencilState {
+            format,
+            depth_write_enabled: Some(state.depth_write),
+            depth_compare: Some(state.depth_compare),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState {
+            count: signature.samples,
+            ..wgpu::MultisampleState::default()
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: fragment,
+            entry_point: Some(&packet.program.fragment.module().entry_point),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &targets,
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 /// Everything a render pipeline is built from, as a content key.
-fn pipeline_key(packet: &DrawPacket<'_>, signature: TargetSignature) -> blake3::Hash {
+pub(crate) fn pipeline_key(packet: &DrawPacket<'_>, signature: TargetSignature) -> blake3::Hash {
     let mut key = Key::new("render");
     key.hash(packet.program.vertex.content_key());
     key.hash(packet.program.fragment.content_key());

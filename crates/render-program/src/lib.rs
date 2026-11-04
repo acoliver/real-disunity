@@ -14,6 +14,7 @@ pub mod ids;
 pub mod layers;
 pub mod layout;
 pub mod module;
+pub mod offscreen;
 mod packet;
 mod pipeline_key;
 mod program;

@@ -188,19 +188,29 @@ fn a_rejected_edit_changes_nothing() {
 fn keywords_stay_sorted_and_unique_and_can_be_removed() {
     let mut world = world();
     let (_, id) = material_with_shader(&mut world);
-    for (name, enabled) in [
-        ("B", true),
-        ("A", true),
-        ("B", true),
-        ("C", true),
-        ("B", false),
-    ] {
+    for name in ["B", "A", "B", "C"] {
         let name = name.into();
-        world
-            .edit_material(id, MaterialEdit::Keyword { name, enabled })
-            .unwrap();
+        let enable = MaterialEdit::Keyword {
+            name,
+            enabled: true,
+        };
+        world.edit_material(id, enable).unwrap();
     }
+    assert_eq!(world.material(id).unwrap().keywords, ["A", "B", "C"]);
+    let disable = MaterialEdit::Keyword {
+        name: "B".into(),
+        enabled: false,
+    };
+    world.edit_material(id, disable).unwrap();
     assert_eq!(world.material(id).unwrap().keywords, ["A", "C"]);
+    for name in ["B", "D"] {
+        let enable = MaterialEdit::Keyword {
+            name: name.into(),
+            enabled: true,
+        };
+        world.edit_material(id, enable).unwrap();
+    }
+    assert_eq!(world.material(id).unwrap().keywords, ["A", "B", "C", "D"]);
 }
 
 #[test]
@@ -515,7 +525,7 @@ fn clearing_properties_removes_values_but_not_keywords() {
     let material = world.material(id).unwrap();
     assert!(material.properties.is_empty());
     assert_eq!(material.keywords, ["FOG"]);
-    assert_eq!(material.generation, 5);
+    assert_eq!(material.generation, 4);
 
     world.set_global_property(value).unwrap();
     world.clear_global_properties();

@@ -38,6 +38,8 @@ pub enum ProgramError {
     UnsupportedSampler { set: u32, binding: u32 },
     #[error("the program uses bind group {set}, above the device's limit of {limit}")]
     TooManyGroups { set: u32, limit: u32 },
+    #[error("the state asks for {what}, which this renderer does not draw")]
+    UnsupportedState { what: &'static str },
     #[error("the target has no depth attachment but a depth clear or test was requested")]
     NoDepth,
     #[error("the pixel data is {given} bytes and the {size:?} {format:?} texture needs {needed}")]

@@ -104,6 +104,7 @@ pub struct World {
     pub(crate) journal: crate::journal::Journal,
     pub(crate) spatial: Option<crate::spatial::SpatialIndex>,
     pub(crate) staging: Option<crate::edits::Staging>,
+    pub(crate) graphics: crate::graphics::GraphicsState,
 }
 
 impl World {
@@ -124,6 +125,7 @@ impl World {
             journal: crate::journal::Journal::default(),
             spatial: None,
             staging: None,
+            graphics: crate::graphics::GraphicsState::new(),
         })
     }
 

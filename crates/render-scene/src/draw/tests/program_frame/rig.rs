@@ -6,7 +6,7 @@ use super::super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef};
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageProgram};
+use worldrunner_render_program::module::{ResourceBinding, StageKind, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::runtime::{
     AdmittedPrograms, BoundResource, DrawPacket, Geometry, GraphicsProgram, ProgramArena,
@@ -97,7 +97,7 @@ fn stage(entry: &str, kind: StageKind, parameters: ProgramParameters) -> StagePr
         words: spirv(),
         entry_point: entry.to_owned(),
         kind,
-        bindings: vec![ModuleBinding {
+        bindings: vec![ResourceBinding {
             set: 0,
             unity_binding: 0,
             binding: 0,
@@ -409,8 +409,8 @@ fn patch(
     properties.set("_PatchColor", PropertyValue::Vector(color));
     let names = [("_PatchColor".to_owned(), COLOR_NAME)];
     let target = fragment.constant_buffer_targets().unwrap().remove(0);
-    let packed = worldrunner_render_program::constants::pack_constant_buffer(
-        target.buffer,
+    let packed = worldrunner_render_program::constants::pack_layout(
+        &target.buffer,
         &names,
         &[&properties],
         16,

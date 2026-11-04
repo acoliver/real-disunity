@@ -1,0 +1,143 @@
+//! Typed pixel-space UI belonging to the existing prepared presentation.
+#[cfg(test)]
+#[path = "presentation_ui_tests.rs"]
+mod tests;
+
+use crate::{
+    DisunityResult,
+    callbacks::mutate,
+    presentation::{DisunityCoverage, DisunityQuad},
+};
+use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind};
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityUiDraw {
+    /// 0: image/solid graphic; 1: text sampling prepared R8 coverage.
+    pub kind: u32,
+    pub hierarchy_order: u64,
+    pub clip_x: u32,
+    pub clip_y: u32,
+    pub clip_width: u32,
+    pub clip_height: u32,
+}
+
+/// # Safety
+/// Both outputs must be writable for one count.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_presentation_ui_count(
+    world: u64,
+    draws: *mut u32,
+    textures: *mut u32,
+) -> DisunityResult {
+    if draws.is_null() || textures.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let ui = s
+            .ui_presentation
+            .as_ref()
+            .ok_or("presentation is not prepared")?;
+        let count = u32::try_from(ui.draws.len()).map_err(|_| "UI draw count overflow")?;
+        let coverage = u32::try_from(ui.coverage.len()).map_err(|_| "UI texture count overflow")?;
+        unsafe {
+            *draws = count;
+            *textures = coverage;
+        }
+        Ok(())
+    })
+}
+
+/// Geometry is in lower-left viewport pixels, not the live 2D frame's world-space quads.
+/// Layer/order are in `quad`; hierarchy and scissor bounds are in `output`.
+/// # Safety
+/// Each output must be writable for one record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_presentation_ui_draw(
+    world: u64,
+    index: u32,
+    output: *mut DisunityUiDraw,
+    quad: *mut DisunityQuad,
+) -> DisunityResult {
+    if output.is_null() || quad.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let draw = s
+            .ui_presentation
+            .as_ref()
+            .and_then(|ui| ui.draws.get(index as usize))
+            .ok_or("presentation UI draw index out of range")?;
+        let [clip_x, clip_y, clip_width, clip_height] = draw.clip_rect;
+        unsafe {
+            *output = DisunityUiDraw {
+                kind: match draw.kind {
+                    UiDrawKind::Graphic => 0,
+                    UiDrawKind::Text => 1,
+                },
+                hierarchy_order: draw.hierarchy_order as u64,
+                clip_x,
+                clip_y,
+                clip_width,
+                clip_height,
+            };
+            *quad = encode(draw);
+        }
+        Ok(())
+    })
+}
+
+/// # Safety
+/// Metadata is writable; bytes is writable for capacity, or null when capacity is zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_presentation_ui_coverage(
+    world: u64,
+    index: u32,
+    output: *mut DisunityCoverage,
+    bytes: *mut u8,
+    capacity: u32,
+) -> DisunityResult {
+    if output.is_null() || (capacity != 0 && bytes.is_null()) {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let (identity, texture) = s
+            .ui_presentation
+            .as_ref()
+            .and_then(|ui| ui.coverage.iter().nth(index as usize))
+            .ok_or("presentation UI texture index out of range")?;
+        unsafe { crate::presentation::copy_coverage(*identity, texture, output, bytes, capacity) }
+    })
+}
+
+fn encode(draw: &UiDraw) -> DisunityQuad {
+    let c = draw.corners;
+    DisunityQuad {
+        texture: draw.texture.unwrap_or(0),
+        textured: u32::from(draw.texture.is_some()),
+        overlay: 1,
+        sorting_layer: draw.sorting_layer,
+        sorting_order: draw.sorting_order,
+        p0_x: c[0][0],
+        p0_y: c[0][1],
+        p0_z: c[0][2],
+        p1_x: c[1][0],
+        p1_y: c[1][1],
+        p1_z: c[1][2],
+        p2_x: c[2][0],
+        p2_y: c[2][1],
+        p2_z: c[2][2],
+        p3_x: c[3][0],
+        p3_y: c[3][1],
+        p3_z: c[3][2],
+        u0: draw.uv_rect[0],
+        v0: draw.uv_rect[1],
+        u1: draw.uv_rect[2],
+        v1: draw.uv_rect[3],
+        r: draw.color[0],
+        g: draw.color[1],
+        b: draw.color[2],
+        a: draw.color[3],
+        ..Default::default()
+    }
+}

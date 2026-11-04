@@ -42,7 +42,7 @@ struct Held {
 }
 
 /// The allocations that are live now: resources the runtime owns, released resources the GPU
-/// may still be using, and readbacks that have not been resolved.
+/// may still be using, and the staging of readbacks and writes that their frames still hold.
 #[derive(Clone, Default)]
 pub(crate) struct Ledger(Arc<Mutex<Held>>);
 

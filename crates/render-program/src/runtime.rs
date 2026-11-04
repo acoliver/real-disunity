@@ -91,8 +91,8 @@ impl ProgramRuntime {
     }
 
     /// Descriptor bytes held now: live resources, released resources that submitted work may
-    /// still use until [`collect`](Self::collect) sees that work complete, and unresolved
-    /// readbacks.
+    /// still use until [`collect`](Self::collect) sees that work complete, and the staging of
+    /// readbacks and writes until their frames are cancelled, dropped or completed.
     #[must_use]
     pub fn live_bytes(&self) -> u64 {
         self.ledger.live_bytes()

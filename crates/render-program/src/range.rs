@@ -11,7 +11,8 @@ use crate::resources::Store;
 
 impl Store {
     /// Checks `geometry` against the vertex buffers of `inputs` and, for an indexed draw, its
-    /// index buffer. A draw has one instance, so an instance-rate buffer must hold one stride.
+    /// index buffer. The draw reads instances up to but not including `instance_end`, so an
+    /// instance-rate buffer must hold that many strides; a draw of one instance passes 1.
     ///
     /// The index values themselves are not read: they live in GPU memory. The base vertex is
     /// checked only against the vertices the buffers hold, which refuses a draw whose every
@@ -19,16 +20,6 @@ impl Store {
     ///
     /// # Errors
     /// Fails on an unknown handle, a range whose end overflows, and a range past a buffer.
-    pub(crate) fn check_geometry(
-        &self,
-        inputs: &[VertexInput],
-        geometry: Geometry,
-    ) -> Result<(), ProgramError> {
-        self.check_instanced_geometry(inputs, geometry, 1)
-    }
-
-    /// Like [`check_geometry`](Self::check_geometry) for a draw that reads instances up to but
-    /// not including `instance_end`: an instance-rate buffer must hold that many strides.
     pub(crate) fn check_instanced_geometry(
         &self,
         inputs: &[VertexInput],

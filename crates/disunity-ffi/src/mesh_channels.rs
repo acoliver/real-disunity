@@ -54,8 +54,10 @@ pub struct DisunityMeshChannel {
     pub offset: u32,
 }
 
-/// A run of indices that forms one sub-mesh, drawn with the given topology. `base_vertex` is the
-/// offset the managed mesh adds to the sub-mesh's indices; the stored indices already include it.
+/// A run of indices that forms one sub-mesh, drawn with the given topology: 0 triangles, 1 quads,
+/// 2 lines, 3 line strip, 4 points. Range `i` is sub-mesh `i` (its material slot), so an empty
+/// sub-mesh is a range with `count` zero. `base_vertex` is the offset the managed mesh adds to the
+/// sub-mesh's indices; the stored indices already include it.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMeshRange {

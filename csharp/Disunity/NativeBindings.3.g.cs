@@ -11,6 +11,21 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Removes a render texture. Whatever names it goes stale.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_destroy(ulong world, ulong texture);
+        /// <summary>
+        ///  Sets the world material of each slot of a renderer; an id of 0 leaves a slot without one.
+        ///  `count` is at most the renderer's `material_count`, and slots past it have none. Every
+        ///  nonzero id must name a live material. A rejected call changes nothing.
+        ///
+        ///  # Safety
+        ///  `materials` is readable for `count` ids, or null when `count` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_materials_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_renderer_materials_write(ulong world, ulong handle, ulong* materials, uint count);
+        /// <summary>
         ///  Reads the world material ids of a renderer's slots into `materials` (up to `capacity` ids,
         ///  0 for a slot without one) and writes how many slots are set to `count`.
         ///

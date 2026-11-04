@@ -782,3 +782,88 @@ fn read_bindings(world: u64, token: u32) -> Vec<Entry> {
         })
         .collect()
 }
+
+#[test]
+fn bindings_without_floats_are_read_with_no_place_for_floats() {
+    let world = new_world();
+    let id = shader(world);
+    let out = buffer(world, 1, 4);
+    let (name, length) = text("_Output");
+    unsafe {
+        assert_eq!(
+            disunity_compute_buffer_bind(world, id, 0, name, length, out).code,
+            0
+        )
+    };
+    assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
+    let token = take(world)[0].bindings;
+    let mut info = DisunityComputeBindingsInfo::default();
+    unsafe {
+        let probe = disunity_compute_bindings_read(
+            world,
+            token,
+            &mut info,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert_eq!(probe.code, 0);
+    }
+    assert_eq!((info.entry_count, info.float_count), (1, 0));
+    let mut entries = vec![DisunityComputeBinding::default(); 1];
+    let mut bytes = vec![0_u8; info.text_length as usize];
+    unsafe {
+        let read = disunity_compute_bindings_read(
+            world,
+            token,
+            &mut info,
+            entries.as_mut_ptr(),
+            std::ptr::null_mut(),
+            bytes.as_mut_ptr(),
+        );
+        assert_eq!(read.code, 0);
+        assert_eq!(&bytes[..7], b"_Output");
+        let no_text = disunity_compute_bindings_read(
+            world,
+            token,
+            &mut info,
+            entries.as_mut_ptr(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert_ne!(no_text.code, 0);
+    }
+}
+
+#[test]
+fn bindings_with_floats_need_a_place_for_them() {
+    let world = new_world();
+    let id = shader(world);
+    let (name, length) = text("_Scale");
+    unsafe {
+        assert_eq!(
+            disunity_compute_float_write(world, id, -1, name, length, 2.0).code,
+            0
+        )
+    };
+    assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
+    let token = take(world)[0].bindings;
+    let mut info = DisunityComputeBindingsInfo {
+        entry_count: 4,
+        float_count: 4,
+        text_length: 64,
+    };
+    let mut entries = vec![DisunityComputeBinding::default(); 4];
+    let mut bytes = vec![0_u8; 64];
+    let result = unsafe {
+        disunity_compute_bindings_read(
+            world,
+            token,
+            &mut info,
+            entries.as_mut_ptr(),
+            std::ptr::null_mut(),
+            bytes.as_mut_ptr(),
+        )
+    };
+    assert_ne!(result.code, 0);
+}

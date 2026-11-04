@@ -611,13 +611,14 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_compute_dispatch", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_compute_dispatch(ulong world, ulong shader, uint kernel, uint groups_x, uint groups_y, uint groups_z);
         /// <summary>
-        ///  Reads the values of a dispatch record by its token. With null arrays only `info` is filled
-        ///  in, to size them; otherwise the capacities in `info` must hold what the bindings have, and
-        ///  the arrays are filled.
+        ///  Reads the values of a dispatch record by its token. With null `entries` only `info` is filled
+        ///  in, to size the arrays; otherwise the capacities in `info` must hold what the bindings have,
+        ///  and the arrays are filled. `floats` and `text` may be null when the bindings have none of
+        ///  them.
         ///
         ///  # Safety
         ///  `info` is readable and writable for one record; `entries`, `floats` and `text` are writable
-        ///  for the capacities `info` states, or all null.
+        ///  for the capacities `info` states, or null as described.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_compute_bindings_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_compute_bindings_read(ulong world, uint token, DisunityComputeBindingsInfo* info, DisunityComputeBinding* entries, float* floats, byte* text);
@@ -632,6 +633,19 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_gpu_flush_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_gpu_flush_register(ulong world, delegate* unmanaged[Cdecl]<ulong, ulong, byte*, uint, uint*, DisunityResult> callback, ulong user);
+        /// <summary>
+        ///  Registers the callback that every world created from now on starts with, replacing the default
+        ///  registered before; a null callback removes the default. Worlds that exist already keep what
+        ///  they have. A host that cannot register on a world before managed code runs in it, because the
+        ///  managed side creates the world, registers the default first.
+        ///
+        ///  # Safety
+        ///  A non-null `callback` is a function with the signature of [`DisunityGpuFlushCallback`] that
+        ///  may be called from any thread that flushes a world, and `user` is whatever it needs. Both stay
+        ///  valid until the default is replaced or removed and every world that started with it is gone.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_gpu_flush_register_default", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_gpu_flush_register_default(delegate* unmanaged[Cdecl]<ulong, ulong, byte*, uint, uint*, DisunityResult> callback, ulong user);
         /// <summary>
         ///  Runs the registered callback, if any, so that all pending offscreen work has executed when
         ///  this returns. Without a callback nothing happens and the compute buffers keep the contents
@@ -730,20 +744,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_render_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_render_texture_read(ulong world, ulong texture, DisunityRenderTexture* output);
-        /// <summary>
-        ///  Removes a render texture. Whatever names it goes stale.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_render_texture_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_render_texture_destroy(ulong world, ulong texture);
-        /// <summary>
-        ///  Sets the world material of each slot of a renderer; an id of 0 leaves a slot without one.
-        ///  `count` is at most the renderer's `material_count`, and slots past it have none. Every
-        ///  nonzero id must name a live material. A rejected call changes nothing.
-        ///
-        ///  # Safety
-        ///  `materials` is readable for `count` ids, or null when `count` is zero.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_materials_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_mesh_renderer_materials_write(ulong world, ulong handle, ulong* materials, uint count);
     }
 }

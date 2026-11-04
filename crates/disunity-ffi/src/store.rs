@@ -48,11 +48,14 @@ struct Entry {
 pub(crate) struct Store {
     worlds: Vec<Option<Entry>>,
     next_handle: u64,
+    /// The GPU flush callback a world made from now on starts with.
+    pub(crate) default_gpu_flush: Option<crate::gpu_flush::GpuFlushHook>,
 }
 
 static STORE: Mutex<Store> = Mutex::new(Store {
     worlds: Vec::new(),
     next_handle: 1,
+    default_gpu_flush: None,
 });
 
 pub(crate) fn lock_store() -> std::sync::MutexGuard<'static, Store> {
@@ -139,7 +142,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             objects: crate::object_ids::ObjectIds::default(),
             pending_commands: Vec::new(),
             dispatch_bindings: Vec::new(),
-            gpu_flush: None,
+            gpu_flush: store.default_gpu_flush,
             flushing: false,
             last_error: None,
         },
@@ -230,6 +233,7 @@ mod tests {
         let mut store = Store {
             worlds: Vec::new(),
             next_handle: u64::MAX,
+            default_gpu_flush: None,
         };
         assert!(create_world(&mut store).is_err());
         assert!(store.worlds.is_empty());

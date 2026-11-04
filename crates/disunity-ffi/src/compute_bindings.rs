@@ -129,13 +129,14 @@ impl Flat {
     }
 }
 
-/// Reads the values of a dispatch record by its token. With null arrays only `info` is filled
-/// in, to size them; otherwise the capacities in `info` must hold what the bindings have, and
-/// the arrays are filled.
+/// Reads the values of a dispatch record by its token. With null `entries` only `info` is filled
+/// in, to size the arrays; otherwise the capacities in `info` must hold what the bindings have,
+/// and the arrays are filled. `floats` and `text` may be null when the bindings have none of
+/// them.
 ///
 /// # Safety
 /// `info` is readable and writable for one record; `entries`, `floats` and `text` are writable
-/// for the capacities `info` states, or all null.
+/// for the capacities `info` states, or null as described.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn disunity_compute_bindings_read(
     world: u64,
@@ -145,8 +146,7 @@ pub unsafe extern "C" fn disunity_compute_bindings_read(
     floats: *mut f32,
     text: *mut u8,
 ) -> DisunityResult {
-    let sized = [entries.is_null(), floats.is_null(), text.is_null()];
-    if info.is_null() || sized.iter().any(|&null| null != sized[0]) {
+    if info.is_null() {
         return DisunityResult::invalid_argument();
     }
     let capacity = unsafe { *info };
@@ -173,10 +173,19 @@ pub unsafe extern "C" fn disunity_compute_bindings_read(
             {
                 return Err("the binding capacities are too small".into());
             }
+            if (floats.is_null() && held.float_count > 0)
+                || (text.is_null() && held.text_length > 0)
+            {
+                return Err("the bindings hold floats or text, which need a place to go".into());
+            }
             unsafe {
                 std::ptr::copy_nonoverlapping(flat.entries.as_ptr(), entries, flat.entries.len());
-                std::ptr::copy_nonoverlapping(flat.floats.as_ptr(), floats, flat.floats.len());
-                std::ptr::copy_nonoverlapping(flat.text.as_ptr(), text, flat.text.len());
+                if !floats.is_null() {
+                    std::ptr::copy_nonoverlapping(flat.floats.as_ptr(), floats, flat.floats.len());
+                }
+                if !text.is_null() {
+                    std::ptr::copy_nonoverlapping(flat.text.as_ptr(), text, flat.text.len());
+                }
             }
         }
         unsafe { *info = held };

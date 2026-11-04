@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libloading::Library;
+mod gpu_flush;
+mod gpu_reads;
+mod gpu_work;
 mod managed_entrypoints;
 pub mod signal_stack;
 
@@ -19,6 +22,9 @@ use managed_entrypoints::ManagedBridge;
 
 #[path = "native.g.rs"]
 pub mod native;
+pub use gpu_flush::{GpuFlush, GpuFlushHandler};
+pub use gpu_reads::{GpuComputeBuffer, GpuComputeShader, GpuKernel, GpuScope, GpuShader};
+pub use gpu_work::{GpuBinding, GpuDispatch, GpuTexture, GpuValue, GpuWork};
 pub use native::DisunityErrorReason;
 pub use native::DisunityObjectState;
 use native::{DisunityAdvance, DisunityResult};
@@ -145,6 +151,8 @@ pub struct DisunityHost {
     world: Option<u64>,
     /// How many mesh renderers the last prepared frame showed.
     last_mesh_objects: u32,
+    /// The GPU flush handler the engine image holds a pointer to, or null.
+    gpu_flush: *mut gpu_flush::FlushContext,
     /// GCHandle pinned for the in-flight run; freed on unload. Kept
     /// engine-side so a leak is observable here, not only in managed memory.
     live_token: Option<isize>,
@@ -191,6 +199,7 @@ impl DisunityHost {
             bridge,
             world: None,
             last_mesh_objects: 0,
+            gpu_flush: std::ptr::null_mut(),
             live_token: None,
             _claim: claim,
             _thread_affinity: std::marker::PhantomData,
@@ -343,6 +352,9 @@ impl DisunityHost {
     /// Ends the slice: unloads the managed world and frees the run's token.
     pub fn unload_slice(&mut self) -> Result<(), HostError> {
         let token = self.live_token.ok_or(HostError::NoWorld)?;
+        if let Some(world) = self.world {
+            self.detach_gpu_flush(world);
+        }
         let code = unsafe { (self.bridge.unload)() };
         unsafe { (self.bridge.token_free)(token) };
         self.world = None;
@@ -378,6 +390,7 @@ impl Drop for DisunityHost {
         if self.live_token.is_some() {
             let _ = self.unload_slice();
         }
+        self.free_gpu_flush();
     }
 }
 

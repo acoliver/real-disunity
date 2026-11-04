@@ -312,7 +312,7 @@ impl World {
         kind: u32,
     ) -> Result<ComputeBufferId, WorldError> {
         let bytes = byte_len(count, stride);
-        let stride_fits = (4..=MAX_STRIDE).contains(&stride) && stride % 4 == 0;
+        let stride_fits = (4..=MAX_STRIDE).contains(&stride) && stride.is_multiple_of(4);
         let total = self.graphics.compute_bytes.checked_add(bytes);
         let fits = count > 0
             && stride_fits

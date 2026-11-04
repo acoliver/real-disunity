@@ -397,7 +397,7 @@ fn recording_a_dispatch_directly_checks_the_shader_and_kernel() {
         shader: id,
         kernel,
         groups: [1, 1, 1],
-        bindings: Default::default(),
+        bindings: worldrunner_world_simulation::graphics::ComputeBindings::default(),
     };
     world.record_offscreen(record(1)).unwrap();
     assert_eq!(

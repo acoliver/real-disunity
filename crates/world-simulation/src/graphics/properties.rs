@@ -196,6 +196,7 @@ impl ShaderProperties {
     }
 
     /// The values of both sets; where both hold a name of one kind, `over` wins.
+    #[must_use]
     pub fn merged_with(&self, over: &Self) -> Self {
         Self {
             floats: merge_sorted(&self.floats, &over.floats),

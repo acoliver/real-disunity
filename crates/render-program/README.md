@@ -179,7 +179,7 @@ Each has its own test in `crates/render-post`; see the [render-post README](../r
 
 `ProgramShader` is the decoded `unity_serialized::shader::Shader` and the decompressed chunks of its Vulkan platform. `ProgramShader::resolve(selector, keywords)` walks the first sub-shader's passes, picks the pass, picks the variant, decodes its record and parameters, prepares its stages together with `spirv_prep::prepare_stages` and builds a `GraphicsProgram`. The walk is the one `unity-import`'s `player_variants` does (this crate does not depend on `unity-import`).
 
-- **Pass selector.** `PassSelector::Index(n)` is the n-th pass of the sub-shader, for `Graphics.Blit`. `PassSelector::Tag { key, values }` is the first pass whose tag `key` equals the first of `values` that any pass has, for camera draws. The crate names no tag key and no value; the caller gives both. No match is `ResolveError::NoPass`, never another pass.
+- **Pass selector.** `PassSelector::Index(n)` is the n-th pass of the sub-shader, for `Graphics.Blit`. `PassSelector::Tag { key, values }` is the first pass whose tag `key` equals the first of `values` that any pass has, for camera draws. Keys are compared without regard to ASCII case and values exactly; the pass's own tags are searched after the render state's. The crate names no tag key and no value; the caller gives both. No match is `ResolveError::NoPass`, never another pass.
 - **Keywords.** The material's keywords and the enabled global keywords are mapped to the shader's keyword indices by name. `variant::select_variant` then matches them exactly, as `select_player_sub_program` does, but only among the variants of the Vulkan platform. A keyword the shader does not list cannot change a variant and is ignored. No match is `ResolveError::NoVariant`.
 - **Cache.** A prepared variant is cached by the content of its record (the SPIR-V, the entry points and the parameters), so two shaders or passes with the same variant share one program. Render pipelines are cached by program, state, target signature, vertex layout and bind group layouts.
 
@@ -205,6 +205,24 @@ A blit with a material binds its source under the main texture property name `Of
 
 `CopyTexture` checks the source and destination before the executor does: the mip and the element exist, the sizes at those mips are equal and the formats are equal up to sRGB. Anything else is `OffscreenError::CopyMismatch` (size or format) or `OffscreenError::NoSuchSubresource`.
 
+### Vertex source channels in the Old World player
+
+`unity-import player-shader-channels <player data directory>` counts, through the engine's decoders, how many variants read each source channel of their vertex input table (`BindChannels`: pairs of a source channel and a shader input). Over the 171 shaders with a Vulkan platform and their 10,773 variants (none unreadable):
+
+| Source channel | Variants that read it | Of 10,773 |
+| --- | --- | --- |
+| 0 | 10,002 | 92.9% |
+| 1 | 7,801 | 72.4% |
+| 4 | 8,593 | 79.8% |
+| 3 | 4,010 | 37.2% |
+| 2 | 3,368 | 31.3% |
+| 5 | 159 | 1.5% |
+| 6, 7, 9, 10, 11 | 2 each | |
+| 8 | 7 | |
+| 12, 13 | 1 each | |
+
+Channels 0 to 4 matter: 0, 1 and 4 are read by most variants, 2 and 3 by a third. Channel 5 is read by 159 variants and every channel from 6 on by at most 7. The shader inputs fed are 13 to 24; inputs 13 to 17 take 10,002, 8,647, 7,913, 4,037 and 3,328 variants and the rest at most 13. Tables hold 0 to 6 pairs (771 variants none, 3,876 three, 3,315 five) and 2 variants hold 12. No variant reads a source channel or feeds an input twice, and in all 10,773 the source mask is exactly the bits of the pairs' source channels, so the mask adds nothing a caller needs. The numbers are the codes the table stores; this crate maps them to mesh channels only through `MeshChannel::source`, so a host adapter decides what each code is. `tests/program/offscreen/camera.rs` draws with codes 0 and 4 and refuses a missing channel by name; the other codes take the same path.
+
 ## Measured conventions
 
 The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare bytes. They pin what a Unity Vulkan module needs:
@@ -217,13 +235,20 @@ The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare 
 
 ## Not done
 
-- **Unity sampler state.** Every sampler binding gets one fixed sampler: linear filtering, clamped to the edge. The packed sampler state in the serialized parameters is not decoded, so wrap, filter and anisotropy settings are ignored.
+- **Unity sampler state.** A texture input carries wrap U, wrap V and a filter mode, and the crate keeps one sampler per state. The packed sampler state in the serialized parameters is still not decoded, so a texture with no state gets the fixed sampler (linear filtering, clamped to the edge), and anisotropy, mip bias and a separate wrap W are not carried. A host adapter maps a texture's wrap and filter settings onto `SamplerState`.
 - **Multisampling, stencil and multiple render targets.** Targets are single-sample with one color attachment and an optional depth attachment. Stencil state and a stencil depth format are named errors, and so are multisampled and multiple-attachment signatures.
 - **Multisampled textures, storage images and compute masks.** Dimension codes 5 and 11 are multisampled images, which are named errors because targets and textures are single-sample. A storage image is a named error. A compute stage's bit in the stage mask has not been seen, so compute ignores the mask.
 - **Player struct shapes beyond the measured one.** A struct that starts anywhere but byte 0, a buffer with a struct and members, a buffer with several structs, and editor-style structs are `ConstantError::UnsupportedStruct`, because the player has none: all 5,605 buffers with structs are one struct array at byte 0 and nothing else. Whether `index` is a byte offset, a position or an ordinal is therefore open. Structs inside structs and arrays inside structs are not seen (the SPIR-V struct types hold none) and are refused as unsupported values. Which property the engine fills the struct members from (the per-draw instance data) is not decided here: a caller supplies them under the members' own names.
 - **Player member kinds and matrix shapes.** Only float (0) and int (1) member kinds and matrices of four columns are written. Every one of the 201,382 members of the Old World player's bound buffers is one of those (float scalars, vectors and 4x4 matrices, with or without an array, and int scalars), and so are the 10,931 members of its structs, which add int4. So a bool, unsigned, narrower matrix or int vector at the top level is a named error that the player checked never reaches.
 - **Prepared numbering across stages.** The stages of a variant must come from `spirv_prep::prepare_stages`, which gives every stage one binding table. Modules prepared one at a time by `prepare` number the same Unity binding differently when they split different samplers, and `ProgramLayout::build` then reports `LayoutError::Conflict`: in the Old World player that was 1,350 of 10,768 two-stage variants, and with the stages prepared together none of them is, and all 10,768 share one numbering. `prepare_stages` fails with `PrepareError::BindingClass` when stages declare one Unity binding as different classes of resource; no variant in that player does. The table lists every binding any stage declares, so a stage's table can hold entries its module does not declare: a parameter that names such a binding for the stage is reported in `ProgramLayout::unused`, not as `LayoutError::UnboundSlot`.
-- **Frame planning and composition beyond one pass.** The runtime still owns no pass order and no attachments. `render-scene` takes admitted draws into its stock opaque pass for one single-sample color attachment and `Depth32Float`. It refuses scenes with temporal reconstruction, screen-space passes or multisampling by name. Camera render textures, sampling a draw's target in a later pass, compute between passes, transparent ordering, the depth-fitted capture continuation and `render-plan` descriptions of program work are not done. The standalone target that `create_render_target` makes remains the caller's to create and release.
+- **Frame planning and composition.** The runtime owns no pass order and no scene attachments. `render-scene` takes admitted draws into its stock opaque pass for one single-sample color attachment and `Depth32Float`, and encodes admitted offscreen operations before its own operations. It refuses scenes with temporal reconstruction, screen-space passes or multisampling for draws by name, and refuses offscreen operations on its resident and shadowed paths. Compute between passes, transparent ordering, the depth-fitted capture continuation and `render-plan` descriptions of program work are not done. The standalone target that `create_render_target` makes remains the caller's to create and release.
+- **Offscreen work.**
+  - Camera renders are drawn in render queue order without front-to-back or back-to-front sorting, and a draw's culling is the pass's. Mirrored transforms do not flip the winding. Stencil, multisampled, cube and 3D render textures are not covered. A camera or a blit draws into mip 0 of element 0; other mips and elements are reached by `CopyTexture`, which the array test does.
+  - The GraphicsFormat table has the formats the tests draw into (4, 5, 8, 48 and the depth sizes 16, 24 and 32); any other code is `OffscreenError::UnsupportedFormat`. Neither the unity-import report nor the tests say which other formats Old World uses.
+  - A blit without a material only copies. A scaling blit without a material is `BlitNeedsMaterial`.
+  - `later_reads` names the ranges a scene draw samples; the host must name them, because a scene draw that samples a render texture is not an operation.
+  - The host adapter that maps the world export onto `OffscreenFrame`, builds the `ProgramShader` of each shader and supplies Unity's per-draw and per-camera built-ins as property layers is not in this slice.
+  - Property blocks, per-instance arrays and instancing of a renderer's many sub-meshes are built one draw each; draws are not batched.
 - **Budget timing of write staging.** The staging buffer of a recorded `write_buffer` is admitted when it is recorded and released when the call returns, not when the GPU finishes the copy.
 - **Calling shader preparation.** `unity_serialized::spirv_prep::prepare_stages` is in the Foundation layer, which this crate may depend on, but the runtime does not call it. Callers supply the prepared words and `PreparedModule::bindings` of each stage, prepared together with the variant's other stages. `unity-import player-shader-layouts` does this for every Vulkan variant of a player.
 
@@ -240,3 +265,19 @@ The draw and dispatch tests need a Vulkan adapter and use the one wgpu selects. 
 `tests/program/player_structs.rs` packs struct arrays at the byte level from hand-built player descriptions, including every named error. `tests/program/player_struct_block.rs` builds a uniform block of an array of structs with naga from WGSL, predicts its layout by hand, reads the `Offset` and `ArrayStride` decorations naga wrote back from the SPIR-V, compares the packed bytes with them and runs a compute kernel on the GPU that reads each element.
 
 The draw, dispatch and layout tests run once with editor-style parameters and once with a player variant's, from equivalent hand-built descriptions, and must agree. The draw and dispatch tests need a Vulkan adapter and use the one wgpu selects. They obtain the device through `render-gpu` (`headless_instance`, `request_device`), build a `SubmissionAuthority` and submit every frame through it. The first test to create a runtime prints the adapter's name to stderr; run with `--nocapture` to see it. Set `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json` to run them on lavapipe.
+
+### Offscreen tests
+
+`tests/program/offscreen/` uses tiny player-shaped shaders built with naga from WGSL (`src/synthetic.rs`, behind the `test-support` feature, which `render-scene` also enables for its own tests). Each has Unity-shaped `VariantParameters` and a vertex input table; the camera shader has two passes tagged with LightMode values and two keyword variants. Predicted pixels come from the placements, clear colors, tints and inversions, never from the output:
+
+- `resolve.rs`: pass by index and by tag list, exact keyword match, no fallback, missing pass and missing variant named, variants cached by content.
+- `camera.rs`: two renderers filtered by layer over a clear color, render queue order, depth, a camera that does not clear, missing vertex channel and missing texture named, missing property listed.
+- `layers.rs` and `sampler.rs`: the four layers in priority order and the camera below the renderer; repeat, clamp and mirror against the fixed sampler at predicted texels; a texture input's state over the texture's.
+- `blit.rs` and `copy.rs`: a material pass by index, the texel size vector, the main texture name, a plain copy, element and mip copies, and the named errors for sizes, formats, subresources, unsupported formats and depths.
+- `lifetime.rs`: contents kept between frames, re-creation on a new generation or size with the old storage released, the budget, and a cancelled frame that moves no counter and leaves the arena free.
+- `render-scene`'s `draw/tests/program_frame/offscreen.rs`: a camera into a render texture, a blit with a material pass, a copy into an array element and a scene draw sampling that element, with a readback after each stage, one submission and the passes at the head of the frame's timing. Its device requests timestamp queries and the test fails if there are none.
+
+```sh
+cargo test -p worldrunner-render-program --test program -- offscreen --test-threads=1
+cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1
+```

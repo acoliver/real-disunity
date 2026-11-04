@@ -29,7 +29,7 @@ pub(super) fn validate_texture(
     Ok(())
 }
 
-pub(super) fn validate_quad(
+pub(crate) fn validate_quad(
     quad: &DynamicQuad,
     index: usize,
     texture_count: usize,

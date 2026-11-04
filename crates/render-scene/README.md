@@ -467,8 +467,8 @@ LOD transition complement, with instance counts summed across those draws.
 These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
 
 `passes` counts CPU-encoded calls and instances for main terrain, transparent
-water, background sky (including discs), and each of four directional shadow
-cascades. Counts are recorded alongside the draw commands and published only on
+water, background sky (including discs), native screen-space text (`passes.ui`),
+and each of four directional shadow cascades. Counts are recorded alongside the draw commands and published only on
 submission. A skipped cascade reports zero draws, even when its cached map is
 reused. Metadata, water masks and separate celestial mesh passes are excluded.
 Submitted `SceneStatistics::effects` records directional-shadow installation,

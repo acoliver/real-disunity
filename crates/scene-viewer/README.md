@@ -66,6 +66,25 @@ water, transparency, sky and post-processing are outside this sum. Compare again
 `LinearHdr` only where those operations are absent, with unit exposure and one
 forward sample. Unlit surfaces publish albedo as ambient and zero other radiance.
 
+## Retained screen-space text
+
+Convert an existing `render_plan::ui::UiRenderPlan` with
+`render_scene::simulation::UiOverlay::new`, then submit
+`RetainedUpdate::Ui(Arc::new(overlay))`. This replaces the complete overlay in one
+ordered generation, without preparing or uploading unrelated scene resources.
+An empty text list clears it. Resource, terrain and settings replacements preserve
+the accepted overlay. Capture observations include its submitted draw counts in
+`scene.passes.ui`.
+
+Glyph positions are physical pixels from the lower-left corner. The shared
+compositor draws them over the final output after tone mapping and post filters,
+with straight-alpha blending and no scene depth, lighting or camera transform.
+Canvas layer/order keys sort ascending, with stable input ties. Re-extract layout
+when the viewport changes; existing glyphs keep their pixel coordinates on resize.
+Only screen-space overlay text is accepted. Camera/world canvases remain on the
+scene path. Graphic rectangles and additional clipping are not part of this API.
+Linear HDR and opaque-term capture products exclude the display-space overlay.
+
 ## Retained shadow light
 
 Submit `RetainedUpdate::Settings` with effects updated through

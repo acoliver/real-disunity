@@ -24,6 +24,13 @@ Glyph output provides baseline origins and outward-rounded raster bounds separat
 
 `render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text contributions are ordered by sorting layer, order and object identity. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
 
+Retained 3D hosts accept overlay text through `render_scene::simulation::UiOverlay`
+and `scene_viewer::RetainedUpdate::Ui`. `SceneGpu` owns its dynamic quad resources;
+the compositor blends them over the display output after all scene post-processing.
+UI replacements advance retained generations without rebuilding scene resources.
+World/camera canvases, graphic rectangles and additional text clipping are outside
+this retained overlay contract. See the [host API](../../crates/scene-viewer/README.md#retained-screen-space-text).
+
 ## Font dependencies and fixtures
 
 The optional rasterizer is `ab_glyph` 0.2.32, licensed Apache-2.0. Its font stack uses Apache-2.0 `ab_glyph_rasterizer` and `owned_ttf_parser`, and MIT OR Apache-2.0 `ttf-parser`. Tests generate a small SFNT font from synthetic triangle outlines and fixed metrics in Rust. No external font data or distribution notices are bundled.

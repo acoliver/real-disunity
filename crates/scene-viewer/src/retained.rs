@@ -54,6 +54,8 @@ pub struct ObjectId(pub u64);
 /// Ordered edits reference the latest accepted mesh and material tables.
 #[derive(Clone, Debug)]
 pub enum RetainedUpdate {
+    /// Replaces screen-space text without rebuilding scene resources. Empty plans clear it.
+    Ui(std::sync::Arc<worldrunner_render_scene::simulation::UiOverlay>),
     Decal(DecalUpdate),
     Add {
         id: ObjectId,
@@ -252,6 +254,10 @@ impl RetainedHost {
             crate::validate(&scene, &self.options)?;
             self.scene = Some(scene);
             self.enqueue(update, true);
+            return Ok(());
+        }
+        if matches!(&update, RetainedUpdate::Ui(_)) {
+            self.enqueue(update, false);
             return Ok(());
         }
         self.apply_scene_update(update)

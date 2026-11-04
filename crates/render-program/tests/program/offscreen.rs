@@ -4,6 +4,7 @@
 mod blit;
 mod camera;
 mod copy;
+mod depth_only;
 mod formats;
 mod layers;
 mod lifetime;

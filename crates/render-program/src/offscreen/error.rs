@@ -25,6 +25,15 @@ pub enum OffscreenError {
     Layout(#[from] LayoutError),
     #[error("GraphicsFormat {code} is not one this renderer draws into or samples")]
     UnsupportedFormat { code: u32 },
+    #[error("render texture {0:?} has no color attachment, so it cannot be drawn over by a blit")]
+    NoColorAttachment(TextureId),
+    #[error(
+        "{format:?} of texture {texture:?} cannot be copied into a buffer, so it cannot be read back"
+    )]
+    UnreadableFormat {
+        texture: TextureId,
+        format: wgpu::TextureFormat,
+    },
     #[error("{bits} depth bits is not 0, 16, 24 or 32")]
     UnsupportedDepth { bits: u8 },
     #[error("render texture {id:?} says sRGB is {srgb} but its format is {linear} sRGB")]

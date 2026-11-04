@@ -61,7 +61,7 @@ fn a_blit_writes_the_red_channel_of_its_result_into_an_r16_float_render_texture(
     }
 }
 
-fn blit_setup(rig: &mut Rig, size: [u32; 2]) {
+pub fn blit_setup(rig: &mut Rig, size: [u32; 2]) {
     let synthetic = blit_passes("_MainTex");
     rig.state.add_shader(
         BLIT_SHADER,
@@ -77,7 +77,7 @@ fn blit_setup(rig: &mut Rig, size: [u32; 2]) {
 }
 
 /// A blit of source 5 through pass 0, the source times `red`, into a render texture of `format`.
-fn blit_frame(red: f32, format: u32, size: [u32; 2]) -> OffscreenFrame {
+pub fn blit_frame(red: f32, format: u32, size: [u32; 2]) -> OffscreenFrame {
     let mut target = super::rig::texture(11, size);
     target.graphics_format = format;
     OffscreenFrame {

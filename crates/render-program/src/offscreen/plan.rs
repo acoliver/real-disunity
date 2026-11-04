@@ -320,12 +320,15 @@ impl Services<'_> {
             self.shares
                 .push(self.runtime.store.texture_reservation(handle)?);
         }
-        let color = self.runtime.gpu_texture(info.color)?;
+        let color = info
+            .color
+            .map(|handle| self.runtime.gpu_texture(handle))
+            .transpose()?;
         let depth = info
             .depth
             .map(|handle| self.runtime.gpu_texture(handle))
             .transpose()?;
-        let imported = self.tracker.import(id, &color, depth.as_ref())?;
+        let imported = self.tracker.import(id, color.as_ref(), depth.as_ref())?;
         Ok((imported, info.sampler))
     }
 
@@ -379,7 +382,13 @@ impl Services<'_> {
     /// The target signature of a pass over a texture's color and depth.
     pub(super) fn signature(&self, id: TextureId) -> Result<TargetSignature, OffscreenError> {
         let info = self.textures.get(id)?;
-        Ok(TargetSignature::new(&[info.format], info.depth_format, 1)?)
+        let Some(depth) = info.depth_format else {
+            return Ok(TargetSignature::new(&[info.format], None, 1)?);
+        };
+        if info.color.is_none() {
+            return Ok(TargetSignature::depth_only(depth)?);
+        }
+        Ok(TargetSignature::new(&[info.format], Some(depth), 1)?)
     }
 }
 

@@ -279,13 +279,44 @@ pub struct Program {
     /// [`PlayerSubProgram::gpu_program_type`] says which platform's blob entries its
     /// [`PlayerSubProgram::blob_index`] refers to.
     pub player_sub_programs: Vec<Vec<PlayerSubProgram>>,
-    /// Lists of blob entries holding variant parameters, which are not read yet.
+    /// Lists of blob entries holding variant parameters, paired position by position with
+    /// [`Self::player_sub_programs`]; [`Self::variant_blobs`] does the pairing and
+    /// [`crate::shader_parameters::read_parameters`] reads an entry.
     pub parameter_blob_indices: Vec<Vec<u32>>,
     pub common_parameters: ProgramParameters,
     pub keyword_state_mask: Vec<u16>,
 }
 
 impl Program {
+    /// Pairs each variant with the blob entry holding its parameters. The entry indexes the
+    /// blob table of the platform the variant's [`PlayerSubProgram::gpu_program_type`] names.
+    ///
+    /// # Errors
+    /// Fails when the parameter lists do not have the shape of the variant lists, which every
+    /// program in the Unity 6000.3.15f1 player checked does.
+    pub fn variant_blobs(&self) -> Result<Vec<(&PlayerSubProgram, u32)>, SerializedError> {
+        let mismatch = |reason| SerializedError::InvalidShaderProgram { offset: 0, reason };
+        if self.player_sub_programs.len() != self.parameter_blob_indices.len() {
+            return Err(mismatch(
+                "the parameter lists do not match the variant lists",
+            ));
+        }
+        let mut pairs = Vec::new();
+        for (variants, blobs) in self
+            .player_sub_programs
+            .iter()
+            .zip(&self.parameter_blob_indices)
+        {
+            if variants.len() != blobs.len() {
+                return Err(mismatch(
+                    "a parameter list is not as long as its variant list",
+                ));
+            }
+            pairs.extend(variants.iter().zip(blobs.iter().copied()));
+        }
+        Ok(pairs)
+    }
+
     pub(crate) fn read(r: &mut ObjectReader<'_>) -> Result<Self, SerializedError> {
         Ok(Self {
             sub_programs: r.array("sub-program", SUB_PROGRAM_LEN, SubProgram::read)?,

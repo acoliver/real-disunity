@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Unity's `ShaderCompilerPlatform` for Vulkan.
-const VULKAN: u32 = 18;
+pub(crate) const VULKAN: u32 = 18;
 
 /// Counts over a player's distinct Vulkan stage modules.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

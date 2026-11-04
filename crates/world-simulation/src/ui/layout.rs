@@ -144,7 +144,7 @@ impl World {
     }
 
     /// The object and its ancestors, root first.
-    fn ancestry(&self, object: ObjectHandle) -> Result<Vec<ObjectHandle>, WorldError> {
+    pub(super) fn ancestry(&self, object: ObjectHandle) -> Result<Vec<ObjectHandle>, WorldError> {
         let mut chain = Vec::new();
         let mut current = Some(object);
         while let Some(node) = current {

@@ -24,7 +24,7 @@ impl<'a> Targets<'a> {
                 && world.object_alive(rect.object)
                 && world.active_in_hierarchy(rect.object)?
             {
-                let path = ancestry(world, rect.object)?;
+                let path = world.ancestry(rect.object)?;
                 sorted.push((rect.draw_order(), path, rect));
             }
         }
@@ -67,16 +67,6 @@ impl<'a> Targets<'a> {
             .find(|r| self.blocking.contains(&r.object) && contains(r, point))
             .map(|r| r.object)
     }
-}
-fn ancestry(world: &World, object: ObjectHandle) -> Result<Vec<ObjectHandle>, WorldError> {
-    let mut path = Vec::new();
-    let mut node = Some(object);
-    while let Some(object) = node {
-        path.push(object);
-        node = world.parent(object)?;
-    }
-    path.reverse();
-    Ok(path)
 }
 fn flags(path: &[ObjectHandle], groups: &BTreeMap<ObjectHandle, CanvasGroup>) -> (bool, bool) {
     let (mut interactable, mut blocks) = (true, true);

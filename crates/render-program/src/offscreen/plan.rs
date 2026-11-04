@@ -20,7 +20,7 @@ use crate::layout::Slot;
 use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
-use crate::sampler::{SamplerCache, SamplerState};
+use crate::sampler::{Filter, SamplerCache, SamplerState, Wrap};
 use crate::shader::{PassSelector, ProgramShader, Variant};
 use crate::state::{RenderState, resolve_state};
 use crate::targets::{ConstantBufferTarget, TextureTarget};
@@ -261,6 +261,13 @@ impl Services<'_> {
         let (imported, own) = self.import(input.texture)?;
         let version = self.tracker.uniform_version(input.texture, imported)?;
         let view = self.tracker.whole_view(imported, view_dimension, version)?;
+        let features = self.runtime.device().features();
+        let (sample_type, state) = read_unfilterable(
+            sample_type,
+            imported.format,
+            features,
+            input.sampler.or(own),
+        );
         plan.texture_uses
             .push(ResourceUse::read(view.clone(), UseKind::Sampled));
         plan.textures.push((
@@ -274,7 +281,7 @@ impl Services<'_> {
                 kind: TextureBindingKind::Sampled(sample_type),
             },
         ));
-        Ok(input.sampler.or(own))
+        Ok(state)
     }
 
     fn bind_sampler(
@@ -374,6 +381,35 @@ impl Services<'_> {
         let info = self.textures.get(id)?;
         Ok(TargetSignature::new(&[info.format], info.depth_format, 1)?)
     }
+}
+
+/// How a texture the device cannot filter is read by a pass written for a filtered one.
+///
+/// A pass declares its textures as filterable floats. A format the device cannot filter (32-bit
+/// floats without `FLOAT32_FILTERABLE`, and depth) is bound as a non-filterable float instead and
+/// its sampler reads the nearest texel, since a filtering sampler cannot read it. The wrap modes
+/// are kept; a texture with no sampler state gets the fixed sampler's clamp to the edge.
+fn read_unfilterable(
+    declared: wgpu::TextureSampleType,
+    format: wgpu::TextureFormat,
+    features: wgpu::Features,
+    state: Option<SamplerState>,
+) -> (wgpu::TextureSampleType, Option<SamplerState>) {
+    use wgpu::TextureSampleType as Type;
+    let filterable = Type::Float { filterable: true };
+    let actual = format.sample_type(Some(wgpu::TextureAspect::All), Some(features));
+    if declared != filterable || actual.is_none() || actual == Some(filterable) {
+        return (declared, state);
+    }
+    let point = SamplerState {
+        filter: Filter::Point,
+        ..state.unwrap_or(SamplerState {
+            wrap_u: Wrap::Clamp,
+            wrap_v: Wrap::Clamp,
+            filter: Filter::Point,
+        })
+    };
+    (Type::Float { filterable: false }, Some(point))
 }
 
 /// The prepared sampler binding each prepared texture binding is read with: the binding the

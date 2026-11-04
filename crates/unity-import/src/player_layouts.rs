@@ -505,7 +505,7 @@ impl fmt::Display for LayoutReport {
 pub fn layout_report(paths: &[PathBuf]) -> Result<LayoutReport, PlayerError> {
     let mut report = LayoutReport::default();
     walk_variants(paths, &mut |event| match event {
-        Event::Shader => report.shaders += 1,
+        Event::Shader(_) => report.shaders += 1,
         Event::Unreadable(cause) => count(&mut report.unreadable_variants, cause),
         Event::Variant {
             parameters, stages, ..

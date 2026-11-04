@@ -32,7 +32,7 @@ pub struct RawStage {
 /// What the walk finds.
 pub enum Event<'a> {
     /// A shader with a Vulkan platform, before its variants.
-    Shader,
+    Shader(&'a Shader),
     /// A variant that failed before its parameters and modules could be read together, by cause.
     Unreadable(String),
     /// A variant whose record and parameters both decode, each pair once for its shader.
@@ -174,8 +174,8 @@ pub fn walk_variants(
             let Some(platform) = census.platform(&platforms) else {
                 continue;
             };
-            visit(Event::Shader);
             let (shader, kind, chunks) = load_shader(&mut open, path_id, platform)?;
+            visit(Event::Shader(&shader));
             walk_platform(&shader, kind, &chunks, visit).map_err(|source| open.error(source))?;
         }
     }

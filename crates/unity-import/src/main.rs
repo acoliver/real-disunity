@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
     import_scene, input_axes, plan_scene,
+    player_builtins::builtin_report,
     player_channels::channel_report,
     player_layouts::layout_report,
     player_objects::{
@@ -40,6 +41,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-shader-layouts <player data directory>
        unity-import player-shader-structs <player data directory>
        unity-import player-shader-channels <player data directory>
+       unity-import player-shader-builtins <player data directory> [percent [matrices]]
        unity-import player-shader-modules <serialized file> <path ID> <platform index> <output directory>";
 
 fn main() -> ExitCode {
@@ -105,6 +107,23 @@ fn run_shader_reports(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         }
         [command, data] if command == "player-shader-channels" => {
             player_shader_channels(Path::new(data))
+        }
+        [command, data] if command == "player-shader-builtins" => {
+            player_shader_builtins(Path::new(data), 50, false)
+        }
+        [command, data, percent] if command == "player-shader-builtins" => {
+            percent.parse().map_or_else(
+                |error| Err(Box::from(format!("percent: {error}"))),
+                |percent| player_shader_builtins(Path::new(data), percent, false),
+            )
+        }
+        [command, data, percent, filter]
+            if command == "player-shader-builtins" && filter == "matrices" =>
+        {
+            percent.parse().map_or_else(
+                |error| Err(Box::from(format!("percent: {error}"))),
+                |percent| player_shader_builtins(Path::new(data), percent, true),
+            )
         }
         _ => return None,
     })
@@ -360,6 +379,20 @@ fn player_shader_channels(data: &Path) -> Result<(), Box<dyn Error>> {
         .map(|entry| data.join(entry.name))
         .collect();
     print!("{}", channel_report(&paths)?);
+    Ok(())
+}
+
+/// Lists the constant buffer members that no shader declares and that most variants hold.
+fn player_shader_builtins(
+    data: &Path,
+    percent: usize,
+    matrices: bool,
+) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", builtin_report(&paths)?.display(percent, matrices));
     Ok(())
 }
 

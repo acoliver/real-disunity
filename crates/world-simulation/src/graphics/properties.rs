@@ -8,18 +8,22 @@ pub const MAX_NAME_BYTES: usize = 256;
 pub const MAX_PROPERTIES_PER_KIND: usize = 1024;
 
 /// What a texture property names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TextureRef {
     /// A texture the host reads by the identity it knows the texture by.
     Asset(u64),
     /// A render texture of the world.
     Render(RenderTextureId),
+    /// The texture the global shader state holds under this property name when a compute
+    /// dispatch runs. Only compute bindings take one; materials, property blocks and the global
+    /// state itself refuse it.
+    Global(String),
     /// No texture.
     None,
 }
 
 /// A texture property: the texture and the scale and offset the material applies to it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TextureSlot {
     pub texture: TextureRef,
     pub scale: [f32; 2],
@@ -60,7 +64,11 @@ pub struct ShaderProperties {
 }
 
 /// Replaces the value of `name` in a list sorted by name, or inserts it in place.
-fn upsert<T>(list: &mut Vec<(String, T)>, name: String, value: T) -> Result<(), GraphicsError> {
+pub(super) fn upsert<T>(
+    list: &mut Vec<(String, T)>,
+    name: String,
+    value: T,
+) -> Result<(), GraphicsError> {
     match list.binary_search_by(|(held, _)| held.as_str().cmp(&name)) {
         Ok(index) => list[index].1 = value,
         Err(index) => {
@@ -73,11 +81,35 @@ fn upsert<T>(list: &mut Vec<(String, T)>, name: String, value: T) -> Result<(), 
     Ok(())
 }
 
-fn find<T: Copy>(list: &[(String, T)], name: &str) -> Option<T> {
+fn find<T: Clone>(list: &[(String, T)], name: &str) -> Option<T> {
     let index = list
         .binary_search_by(|(held, _)| held.as_str().cmp(name))
         .ok()?;
-    Some(list[index].1)
+    Some(list[index].1.clone())
+}
+
+/// The union of two lists sorted by name; where both hold a name, `over` wins. The result is not
+/// held to the per-kind limit, which bounds what a caller stores, not what a snapshot merges.
+fn merge_sorted<T: Clone>(base: &[(String, T)], over: &[(String, T)]) -> Vec<(String, T)> {
+    let mut merged = Vec::with_capacity(base.len() + over.len());
+    let (mut left, mut right) = (base.iter().peekable(), over.iter().peekable());
+    loop {
+        let next = match (left.peek(), right.peek()) {
+            (Some((a, _)), Some((b, _))) => a.cmp(b),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => break,
+        };
+        match next {
+            std::cmp::Ordering::Less => merged.extend(left.next().cloned()),
+            std::cmp::Ordering::Greater => merged.extend(right.next().cloned()),
+            std::cmp::Ordering::Equal => {
+                left.next();
+                merged.extend(right.next().cloned());
+            }
+        }
+    }
+    merged
 }
 
 /// Checks a property, keyword or pass name.
@@ -118,8 +150,10 @@ impl PropertyValue {
             Self::Vector(_, value) => finite(value),
             Self::Matrix(_, value) => finite(value),
             Self::Texture(_, slot) => {
-                if slot.texture == TextureRef::Asset(0) {
-                    return Err(GraphicsError::InvalidTexture);
+                match &slot.texture {
+                    TextureRef::Asset(0) => return Err(GraphicsError::InvalidTexture),
+                    TextureRef::Global(name) => check_name(name)?,
+                    _ => {}
                 }
                 finite(&slot.scale)?;
                 finite(&slot.offset)
@@ -159,6 +193,17 @@ impl ShaderProperties {
 
     pub fn texture(&self, name: &str) -> Option<TextureSlot> {
         find(&self.textures, name)
+    }
+
+    /// The values of both sets; where both hold a name of one kind, `over` wins.
+    pub fn merged_with(&self, over: &Self) -> Self {
+        Self {
+            floats: merge_sorted(&self.floats, &over.floats),
+            ints: merge_sorted(&self.ints, &over.ints),
+            vectors: merge_sorted(&self.vectors, &over.vectors),
+            matrices: merge_sorted(&self.matrices, &over.matrices),
+            textures: merge_sorted(&self.textures, &over.textures),
+        }
     }
 
     /// Whether no value of any kind is stored.

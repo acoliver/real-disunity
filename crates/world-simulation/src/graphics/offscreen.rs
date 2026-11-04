@@ -1,5 +1,7 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
-use super::{GraphicsError, MaterialId, RenderTextureId, TextureRef};
+use super::{
+    ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, RenderTextureId, TextureRef,
+};
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
 /// Most records one frame holds.
@@ -31,12 +33,22 @@ pub enum OffscreenWork {
         target_element: u32,
         target_mip: u32,
     },
+    /// A dispatch of one kernel of a compute shader over `groups` thread groups. `bindings` is
+    /// the snapshot of the values the kernel ran with when the script called it; a script's
+    /// later edits leave it alone.
+    Dispatch {
+        shader: ComputeShaderId,
+        kernel: u32,
+        groups: [u32; 3],
+        bindings: ComputeBindings,
+    },
 }
 
 impl World {
     /// Appends offscreen work to the frame's list. Everything the record names must be alive:
     /// the camera a live camera component, the render textures and the material live resources,
-    /// and a mip level must exist in the render texture it addresses.
+    /// and a mip level must exist in the render texture it addresses. A dispatch names a live
+    /// compute shader, one of its kernels and 1 to 65535 thread groups along each axis.
     pub fn record_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
         self.check_offscreen(&work)?;
         if self.graphics.offscreen.len() >= MAX_OFFSCREEN_WORK {
@@ -58,12 +70,12 @@ impl World {
     }
 
     fn check_offscreen(&self, work: &OffscreenWork) -> Result<(), WorldError> {
-        match *work {
+        match work {
             OffscreenWork::CameraRender { camera, target } => {
-                if !matches!(self.component(camera)?.desc, ComponentDesc::Camera(_)) {
+                if !matches!(self.component(*camera)?.desc, ComponentDesc::Camera(_)) {
                     return Err(GraphicsError::NotCamera.into());
                 }
-                self.render_texture(target).map(drop)
+                self.render_texture(*target).map(drop)
             }
             OffscreenWork::Blit {
                 source,
@@ -72,11 +84,11 @@ impl World {
                 pass,
             } => {
                 self.check_texture(source)?;
-                self.render_texture(target)?;
+                self.render_texture(*target)?;
                 if let Some(material) = material {
-                    self.material(material)?;
+                    self.material(*material)?;
                 }
-                if pass < -1 {
+                if *pass < -1 {
                     return Err(GraphicsError::InvalidOffscreen.into());
                 }
                 Ok(())
@@ -89,12 +101,18 @@ impl World {
                 ..
             } => {
                 self.check_texture(source)?;
-                self.check_mip(target, target_mip)?;
+                self.check_mip(*target, *target_mip)?;
                 match source {
-                    TextureRef::Render(id) => self.check_mip(id, source_mip),
-                    TextureRef::Asset(_) | TextureRef::None => Ok(()),
+                    TextureRef::Render(id) => self.check_mip(*id, *source_mip),
+                    TextureRef::Asset(_) | TextureRef::None | TextureRef::Global(_) => Ok(()),
                 }
             }
+            OffscreenWork::Dispatch {
+                shader,
+                kernel,
+                groups,
+                ..
+            } => self.check_dispatch(*shader, *kernel, *groups),
         }
     }
 

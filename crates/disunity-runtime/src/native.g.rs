@@ -732,6 +732,92 @@ pub struct DisunityGlyphRender {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeShaderDesc {
+    pub path_id: i64,
+    pub name_length: u32,
+    pub file_length: u32,
+    pub kernel_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeKernel {
+    pub name_offset: u32,
+    pub name_length: u32,
+    pub size_x: u32,
+    pub size_y: u32,
+    pub size_z: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeShaderInfo {
+    pub path_id: i64,
+    pub name_length: u32,
+    pub file_length: u32,
+    pub kernel_count: u32,
+    pub text_length: u32,
+    pub generation: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeBufferDesc {
+    pub count: u32,
+    pub stride: u32,
+    pub kind: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeBufferInfo {
+    pub count: u32,
+    pub stride: u32,
+    pub kind: u32,
+    pub generation: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeGlobalTexture {
+    pub name_length: u32,
+    pub global_length: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeBinding {
+    pub kind: u32,
+    pub name_offset: u32,
+    pub name_length: u32,
+    pub float_offset: u32,
+    pub int_value: i32,
+    pub texture_kind: u32,
+    pub global_offset: u32,
+    pub global_length: u32,
+    pub resource: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityComputeBindingsInfo {
+    pub entry_count: u32,
+    pub float_count: u32,
+    pub text_length: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityShaderInfo {
+    pub path_id: i64,
+    pub name_length: u32,
+    pub file_length: u32,
+    pub has_source: u32,
+    pub text_capacity: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMaterialInfo {
     pub shader: u64,
     pub render_queue: i32,
@@ -772,6 +858,12 @@ pub struct DisunityOffscreenWork {
     pub source_mip: u32,
     pub target_element: u32,
     pub target_mip: u32,
+    pub shader: u64,
+    pub kernel: u32,
+    pub groups_x: u32,
+    pub groups_y: u32,
+    pub groups_z: u32,
+    pub bindings: u32,
 }
 
 #[repr(C)]

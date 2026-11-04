@@ -756,3 +756,69 @@ fn offscreen_work_is_validated_before_it_is_recorded() {
     };
     assert_eq!(count, 0);
 }
+
+#[test]
+fn a_shader_reads_back_its_name_and_source() {
+    let world = new_world();
+    let id = shader(world, "Terrain/Splat");
+    let mut info = DisunityShaderInfo::default();
+    unsafe {
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+    }
+    assert_eq!(
+        (info.name_length, info.file_length, info.has_source),
+        (13, 0, 0)
+    );
+    let (file, length) = text("sharedassets3.assets");
+    unsafe {
+        assert_eq!(
+            disunity_shader_source_write(world, id, file, length, -9).code,
+            0
+        );
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+    }
+    assert_eq!(
+        (
+            info.name_length,
+            info.file_length,
+            info.has_source,
+            info.path_id
+        ),
+        (13, 20, 1, -9)
+    );
+    assert_eq!(info.text_capacity, 33);
+    let mut bytes = [0_u8; 33];
+    unsafe {
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, bytes.as_mut_ptr()).code,
+            0
+        );
+    }
+    assert_eq!(
+        std::str::from_utf8(&bytes).unwrap(),
+        "Terrain/Splatsharedassets3.assets"
+    );
+    info.text_capacity = 32;
+    let mut short = [0_u8; 32];
+    unsafe {
+        assert_ne!(
+            disunity_shader_read(world, id, &mut info, short.as_mut_ptr()).code,
+            0
+        );
+        assert_ne!(
+            disunity_shader_read(world, id + 1, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+        assert_ne!(
+            disunity_shader_read(world, id, std::ptr::null_mut(), std::ptr::null_mut()).code,
+            0
+        );
+    }
+    assert_eq!(short, [0; 32]);
+}

@@ -31,6 +31,12 @@ pub(crate) struct Session {
     pub dispatch: crate::scheduling::Dispatch,
     pub objects: crate::object_ids::ObjectIds,
     pub pending_commands: Vec<DisunityCommand>,
+    /// The values the dispatches of the last offscreen take ran with; a record's token is an
+    /// index into this list, plus one.
+    pub dispatch_bindings: Vec<worldrunner_world_simulation::graphics::ComputeBindings>,
+    /// The host's GPU flush callback and whether it is running.
+    pub gpu_flush: Option<crate::gpu_flush::GpuFlushHook>,
+    pub flushing: bool,
     pub last_error: Option<String>,
 }
 
@@ -132,6 +138,9 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             dispatch: Default::default(),
             objects: crate::object_ids::ObjectIds::default(),
             pending_commands: Vec::new(),
+            dispatch_bindings: Vec::new(),
+            gpu_flush: None,
+            flushing: false,
             last_error: None,
         },
     });

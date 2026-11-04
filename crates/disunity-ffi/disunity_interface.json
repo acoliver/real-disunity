@@ -1,6 +1,6 @@
 {
   "abi_version": 7,
-  "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, a native CanvasRenderer component with its own record and material calls, and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components with their own record and calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does. Adds, within revision 7, native shaders, materials, shader properties and keywords, render textures, world materials and property blocks on mesh renderers, recorded offscreen work, every mesh channel and sub-mesh topology for the host, and a sampler for each stored texture and render texture.",
+  "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, a native CanvasRenderer component with its own record and material calls, and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components with their own record and calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does. Adds, within revision 7, native shaders, materials, shader properties and keywords, render textures, world materials and property blocks on mesh renderers, recorded offscreen work, every mesh channel and sub-mesh topology for the host, and a sampler for each stored texture and render texture, compute shaders, compute buffers, kernel bindings, recorded dispatches and a synchronous GPU flush the host registers a callback for, compute shaders, compute buffers, kernel bindings, recorded dispatches and a synchronous GPU flush the host registers a callback for.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -343,6 +343,96 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_compute_bindings_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_buffer_bind",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_buffer_create",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_buffer_destroy",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_buffer_info",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_buffer_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_buffer_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_dispatch",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_float_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_int_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_kernel_size_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_matrix_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_shader_create",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_shader_destroy",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_shader_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_texture_global_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_texture_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_compute_vector_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_face_glyph_index",
       "since": "7.0.0",
       "rets": "DisunityResult"
@@ -480,6 +570,16 @@
     {
       "name": "disunity_light_write",
       "since": "6.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gpu_flush",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_gpu_flush_register",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {
@@ -664,6 +764,11 @@
     },
     {
       "name": "disunity_shader_property_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_read",
       "since": "7.0.0",
       "rets": "DisunityResult"
     },

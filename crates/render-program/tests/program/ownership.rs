@@ -524,3 +524,119 @@ fn the_target_of_an_immediate_draw_stays_counted_through_its_frame_after_the_run
         .unwrap();
     assert_eq!(renderer.held(), 0, "the completed frame freed both");
 }
+
+/// A call recorded into a finished, unsubmitted frame, and what it used.
+struct Recorded {
+    frame: PreparedFrame,
+    /// Descriptor bytes the runtime held just before the call.
+    before: u64,
+    /// Releases a resource the call used.
+    release: Box<dyn Fn(&mut ProgramRuntime) -> Result<bool, ProgramError>>,
+}
+
+/// Creates what one recording entry point uses in `runtime` and records the call into a frame.
+/// A readback it makes is dropped unresolved.
+type Record = fn(&Gpu, &mut ProgramRuntime) -> Recorded;
+
+fn record_clear(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let target = new_target(runtime);
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    runtime
+        .clear_target(&mut frame, target, [1.0; 4], 1.0)
+        .unwrap();
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_target(target)),
+    }
+}
+
+fn completes(gpu: &Gpu) {
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+}
+
+fn resources_are_busy_until_the_frame_is_submitted(record: Record) {
+    let gpu = Gpu::new();
+    let (mut runtime, _arena) = arena_runtime(&gpu);
+    let recorded = record(&gpu, &mut runtime);
+    assert_eq!(
+        (recorded.release)(&mut runtime).unwrap_err(),
+        ProgramError::Busy,
+        "an unsubmitted frame may use the resource, so its serial is not known yet"
+    );
+    let before = gpu.authority.submitted_serial();
+    recorded.frame.submit().unwrap();
+    assert_eq!(gpu.authority.submitted_serial(), before + 1);
+    assert!(
+        (recorded.release)(&mut runtime).unwrap(),
+        "released once the frame has been submitted"
+    );
+}
+
+fn bytes_stay_counted_through_the_frame_after_the_runtime_is_gone(record: Record) {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let recorded = record(&gpu, &mut runtime);
+    drop(arena);
+    drop(runtime);
+    assert_eq!(
+        renderer.held(),
+        ARENA,
+        "the frame that recorded the call holds the bytes while its use is pending"
+    );
+
+    recorded.frame.submit().unwrap();
+    assert_eq!(renderer.held(), ARENA, "submitted, not yet completed");
+    completes(&gpu);
+    assert_eq!(renderer.held(), 0, "the completed frame freed the bytes");
+}
+
+fn a_cancelled_frame_gives_the_bytes_back(record: Record) {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let recorded = record(&gpu, &mut runtime);
+    let before = gpu.authority.submitted_serial();
+    drop(arena);
+    drop(runtime);
+    assert_eq!(renderer.held(), ARENA);
+
+    recorded.frame.cancel();
+    assert_eq!(
+        gpu.authority.submitted_serial(),
+        before,
+        "nothing was submitted"
+    );
+    assert_eq!(renderer.held(), 0, "a cancelled frame used nothing");
+}
+
+macro_rules! entry_point {
+    ($module:ident, $record:path) => {
+        mod $module {
+            use super::*;
+
+            #[test]
+            fn its_resources_cannot_be_released_while_its_frame_is_unsubmitted() {
+                resources_are_busy_until_the_frame_is_submitted($record);
+            }
+
+            #[test]
+            fn its_bytes_stay_counted_through_its_frame_after_the_runtime_is_gone() {
+                bytes_stay_counted_through_the_frame_after_the_runtime_is_gone($record);
+            }
+
+            #[test]
+            fn a_cancelled_frame_gives_back_its_bytes() {
+                a_cancelled_frame_gives_the_bytes_back($record);
+            }
+        }
+    };
+}
+
+entry_point!(clear_target, record_clear);

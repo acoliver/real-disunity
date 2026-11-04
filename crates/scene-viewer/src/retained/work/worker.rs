@@ -30,6 +30,10 @@ pub(super) struct Control<R: Send + 'static> {
     pub workers: RefCell<Vec<JoinHandle<()>>>,
 }
 impl<R: Send + 'static> Service for Control<R> {
+    fn has_ready(&self) -> bool {
+        !self.shared.state.lock().unwrap().ready.is_empty()
+    }
+
     fn shutdown(&self) {
         let mut workers = self.workers.borrow_mut();
         let mut state = self.shared.state.lock().unwrap();

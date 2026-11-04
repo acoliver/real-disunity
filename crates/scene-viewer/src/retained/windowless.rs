@@ -2,8 +2,8 @@ use super::{RetainedDriver, RetainedHost, Session};
 use crate::{ViewerError, app::Content, renderer::Renderer};
 
 /// Request-driven retained execution without a window or event loop.
-/// No work is scheduled between calls. Call `frame` again if admission is busy,
-/// and `poll` to deliver asynchronous capture completions without advancing time.
+/// No frames are scheduled between calls. Call `frame` again if admission is busy,
+/// and `poll` to deliver CPU work and capture completions without advancing time.
 pub struct WindowlessRetained<'a> {
     session: Session<'a>,
     renderer: Renderer,
@@ -68,9 +68,7 @@ impl WindowlessRetained<'_> {
     /// Requests one update/submission through the same session as desktop mode.
     /// Returns false if no ordinary frame is submitted, including capture-only subframes.
     pub fn frame(&mut self) -> Result<bool, ViewerError> {
-        self.ensure_open()?;
-        if self.session.host.exit {
-            self.shutdown()?;
+        if !self.begin()? {
             return Ok(false);
         }
         if self.renderer.viewport.is_none() {
@@ -86,9 +84,7 @@ impl WindowlessRetained<'_> {
     }
     /// Completes existing work and delivers notifications, without requesting a frame.
     pub fn poll(&mut self) -> Result<bool, ViewerError> {
-        self.ensure_open()?;
-        if self.session.host.exit {
-            self.shutdown()?;
+        if !self.begin()? {
             return Ok(false);
         }
         let result = self
@@ -102,6 +98,17 @@ impl WindowlessRetained<'_> {
         }
         Ok(pending)
     }
+    fn begin(&mut self) -> Result<bool, ViewerError> {
+        self.ensure_open()?;
+        let result = self.session.work_ready();
+        self.finish(result)?;
+        if self.session.host.exit {
+            self.shutdown()?;
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     fn finish<T>(&mut self, result: Result<T, ViewerError>) -> Result<T, ViewerError> {
         match result {
             Ok(value) => Ok(value),

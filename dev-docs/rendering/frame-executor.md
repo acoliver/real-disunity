@@ -84,12 +84,18 @@ standard-library synchronization and are separate from renderer preparation.
 
 Workers wake the desktop event loop through its proxy. The driver receives
 `RetainedEvent::WorkReady` on the event thread, including while occluded,
-suspended or zero-sized, and drains its queues with `try_recv`. Notifications
-can cover several completions or a result cancelled before delivery. Store
-application changes in the driver and apply scene edits in the next `update`.
+suspended or zero-sized, and drains its queues with `try_recv`. Windowless
+retained sessions use the same dispatch on the calling thread at the next
+`frame` or `poll`, before updates, presentation or capture notifications.
+`poll` delivers completed CPU work without requesting a frame, including at
+zero size. No notification is delivered between windowless calls. A notification
+can cover several completions; cancelled or replaced results are discarded,
+and no event is sent if no queue has a ready result. Exit requests and shutdown
+suppress further work notifications. Store application changes in the driver
+and apply scene edits in the next `update`.
 The public types are also available through `worldrunner::scene::viewer` with
-the facade's `scene-viewer` feature. Windowless callers can poll their queues
-directly without starting a window or GPU.
+the facade's `scene-viewer` feature. CPU queues can also be polled directly
+without starting a window or GPU.
 
 Cancellation is cooperative: jobs must poll `CancelToken::is_cancelled` and
 finish promptly, including during their own waits. `cancel` invalidates a

@@ -132,6 +132,79 @@ frame.finish().submit()?;
 
 The only consumer so far is `render-scene`'s opaque pass, see [its README](../render-scene/README.md#player-program-draws). The first slice covers one single-sample color attachment with `Depth32Float` and nothing else.
 
+## Offscreen work through the checked operations
+
+Unity player offscreen work is a camera rendering into a render texture, `Graphics.Blit` with a material pass and `Graphics.CopyTexture`. This crate turns a frame's records of it into `worldrunner_render_post::contracts::TypedOperation`s that run the player's own programs. It has no recorder of its own: the operations go to the one executor, which checks hazards, budgets, cancellation and timing, and the frame's timing and statistics list them. A second scheduler writing into the encoder before `encode_scene` is excluded by the one-renderer rule.
+
+### Path of a frame
+
+```text
+host adapter       maps the world export to an OffscreenFrame (this crate does not read world-simulation)
+OffscreenState::build(runtime, arena, frame)       the one entry point: resolution, packing, versions
+   -> OffscreenOperations { operations, later_reads, .. }    typed operations in call order, before the scene
+OffscreenOperations::admit(encoder)                ResourceRegistry::compile_operations_with_reads
+   -> AdmittedOffscreen
+SceneGpu::admit_offscreen(admitted)                next to admit_programs
+FrameEncoding::encode_scene(..)                    encodes the operations with the frame's pass timer, then the stock scene
+frame.finish().submit()                            the frame's one submission
+```
+
+`render-scene`'s `encode_scene` already calls `FrameRenderer::encode_frame` after it has encoded other preparation work into the same encoder (terrain geometry, sky, terrain pages). The offscreen operations are encoded in the same place, before the stock operations. The pass timer lives in the post chain (`TimingState`), so the contract gets one entry point that encodes a compiled list with the frame's timer (`TimingState::encode_checked`). The passes then appear in `FrameTiming::passes` as `PassId::Operation`.
+
+### Mapping to the contract
+
+| Record | Operation | Resource uses |
+| --- | --- | --- |
+| All uniform data of the frame | One `TypedWork::Upload` into a budgeted constants buffer, first in the list | Writes the buffer range; every draw reads its slice as `BufferUseKind::Uniform` |
+| `CameraRender` | `TypedWork::Draws { pass, draws }`, one `CheckedDraw` per sub-mesh | The pass clears or loads the render texture and its depth as the camera says (`AttachmentLoad`, `StoreOp::Store`); textures the materials sample are `ResourceUse::read(.., Sampled)` in `pass.uses`; vertex and index buffers are `BufferUse::read(.., Vertex/Index)` |
+| `Blit` with a material | `TypedWork::Fullscreen` with the material's pass | The target is an attachment loaded with its prior contents, the source is read as `Sampled` |
+| `Blit` without a material | `TypedWork::CopyTexture` when the sizes and formats agree | Copy read and write |
+| `CopyTexture` | `TypedWork::CopyTexture` with element and mip in the `TextureRange` of each view | Copy read of the source range, copy write of the destination range |
+| Scene draws that sample a result | Not an operation: declared with `ResourceRegistry::compile_operations_with_reads` | Sampled reads of the ranges the host names in `OffscreenFrame::later_reads` |
+
+Versions are per frame. Every render texture, array and source texture is imported with initial version 0 (a new wgpu texture is zero-filled, so version 0 is truthful), and each write takes the next version of its mip and layer. Each frame builds a new `ResourceRegistry`, so the registry never accumulates retired textures. A runtime-owned texture is imported with `import_leased` and the arena's lease, so a retired arena fails the compile and the encode by name, and the encode retains the lease on the frame.
+
+### Contract extensions in render-post
+
+| Extension | Why Old World needs it |
+| --- | --- |
+| `CheckedDraw::rebind` | A draw is a pipeline, bind groups and geometry. `CheckedDraw::with_geometry` creates the pipeline every time. Splat cameras draw hundreds of sub-meshes with a few programs, so the pipeline is created once per program and state and the other draws rebind it, with the layouts and vertex ABI checked against it |
+| `TypedWork::Fullscreen` vertex streams | The player's blit vertex stages read position and texture coordinates from vertex buffers. `Fullscreen` drew three vertices with no vertex buffer, which a pipeline whose vertex stage has inputs cannot use |
+| `ResourceRegistry::compile_operations_with_reads` | A scene draw that samples a render texture is recorded by the stock pass, which is not an operation. The host declares its reads, and the same version rules that check operations check them: a read before any write, a read of a stale version and a read of a range a later operation writes are errors |
+| `TimingState::encode_checked` | The frame's pass timer is inside the post chain. A host outside render-post had no way to give `CompiledOperations::encode` the frame's timer |
+
+Each has its own test in `crates/render-post`; see the [render-post README](../render-post/README.md).
+
+### Resolution
+
+`ProgramShader` is the decoded `unity_serialized::shader::Shader` and the decompressed chunks of its Vulkan platform. `ProgramShader::resolve(selector, keywords)` walks the first sub-shader's passes, picks the pass, picks the variant, decodes its record and parameters, prepares its stages together with `spirv_prep::prepare_stages` and builds a `GraphicsProgram`. The walk is the one `unity-import`'s `player_variants` does (this crate does not depend on `unity-import`).
+
+- **Pass selector.** `PassSelector::Index(n)` is the n-th pass of the sub-shader, for `Graphics.Blit`. `PassSelector::Tag { key, values }` is the first pass whose tag `key` equals the first of `values` that any pass has, for camera draws. The crate names no tag key and no value; the caller gives both. No match is `ResolveError::NoPass`, never another pass.
+- **Keywords.** The material's keywords and the enabled global keywords are mapped to the shader's keyword indices by name. `variant::select_variant` then matches them exactly, as `select_player_sub_program` does, but only among the variants of the Vulkan platform. A keyword the shader does not list cannot change a variant and is ignored. No match is `ResolveError::NoVariant`.
+- **Cache.** A prepared variant is cached by the content of its record (the SPIR-V, the entry points and the parameters), so two shaders or passes with the same variant share one program. Render pipelines are cached by program, state, target signature, vertex layout and bind group layouts.
+
+### Property layers and samplers
+
+A `PropertyLayer` holds numeric values and texture inputs by name. A draw reads four layers, highest first: the caller's per-draw values, the renderer's property block, the material and the globals. For a camera draw the camera's values (view and projection, which the caller names however its shaders do) sit in the per-draw layer, below the renderer's own per-draw values. This crate names no Unity built-in. A constant buffer member or texture no layer has keeps the packer's behaviour (zero) and is listed in `OffscreenOperations::missing`; a texture no layer has is `OffscreenError::MissingTexture`.
+
+A `TextureInput` may carry a `SamplerState` (wrap U, wrap V and a filter mode). `SamplerCache` creates one `CheckedSampler` per state. The state of a texture input overrides the state of the texture, and a texture with neither keeps the fixed sampler the crate always used, so existing tests do not change. A split combined sampler takes the state of the texture it was split from.
+
+### Render textures
+
+A `RenderTexture` has a caller id, a size, a `GraphicsFormat` code, depth bits, a mip count, an sRGB flag and a generation. `OffscreenState` creates it through the runtime, so it counts against the runtime's budget and the renderer's arena, and creates it again when the generation or any of the other fields change. The old texture is released when the runtime is not recording, and a release that finds a frame being recorded is retried at the next build. The `GraphicsFormat` codes are the engine's own managed `GraphicsFormat` values; only the formats the tests draw into are in the table, and any other is `OffscreenError::UnsupportedFormat`. Depth is 16 bits (`Depth16Unorm`), 24 (`Depth24Plus`) or 32 (`Depth32Float`); any other count is a named error and stencil is not drawn.
+
+### Camera draws
+
+Renderers are selected by the camera's culling mask against the renderer's layer and drawn in the order of their material's render queue; equal queues keep input order. There is no front-to-back sorting. One `CheckedDraw` is built per sub-mesh from the resolved program, the packed constants and the bindings. Vertex buffers follow the variant's vertex input table: each (source channel, target) pair takes the mesh channel `source` and feeds shader location `target`. A source channel the mesh lacks is `OffscreenError::MissingChannel`. Culling is the pass's, with clockwise front faces as the other draws here; mirrored transforms are not detected.
+
+### Blits
+
+A blit with a material binds its source under the main texture property name `OffscreenFrame::main_texture` (default `_MainTex`, the name the public blit API uses) and, when a constant buffer member of that name plus `_TexelSize` exists, a vector of the texel width, height, width and height of the source's mip 0 (`1/w, 1/h, w, h`). The vertex stage reads a quad of two triangles in clip space. A blit without a material is a texture copy when the size and format agree, else `OffscreenError::BlitNeedsMaterial`.
+
+### Copies
+
+`CopyTexture` checks the source and destination before the executor does: the mip and the element exist, the sizes at those mips are equal and the formats are equal up to sRGB. Anything else is `OffscreenError::CopyMismatch` (size or format) or `OffscreenError::NoSuchSubresource`.
+
 ## Measured conventions
 
 The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare bytes. They pin what a Unity Vulkan module needs:

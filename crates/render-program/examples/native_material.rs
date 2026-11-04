@@ -20,10 +20,13 @@ use worldrunner_render_program::binding::{
 use worldrunner_render_program::constants::{
     BoundConstantLayout, ConstantLayout, Member, ScalarKind,
 };
+use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::module::{StageDeclarations, StageKind};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::registry::{ProgramDesc, StageDesc};
-use worldrunner_render_program::runtime::{Geometry, MaterialDraw, ProgramRuntime, VertexInput};
+use worldrunner_render_program::runtime::{
+    Geometry, MaterialDraw, MaterialHandle, ProgramRuntime, VertexInput,
+};
 use worldrunner_render_program::state::RenderState;
 
 const SHADER: &str = "
@@ -63,16 +66,27 @@ fn fragment_declarations() -> StageDeclarations {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let instance = headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))?;
-    let (device, queue, _) =
-        pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))?;
-    let authority = SubmissionAuthority::new(queue);
-    let mut runtime =
-        ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(1 << 24));
+/// One counter-clockwise triangle that covers all of clip space.
+fn triangle(runtime: &mut ProgramRuntime) -> Result<VertexInput, ProgramError> {
+    let corners: [[f32; 3]; 3] = [[-1.0, -1.0, 0.5], [3.0, -1.0, 0.5], [-1.0, 3.0, 0.5]];
+    let bytes: Vec<u8> = corners
+        .iter()
+        .flatten()
+        .flat_map(|v| v.to_le_bytes())
+        .collect();
+    Ok(VertexInput {
+        buffer: runtime.create_buffer("triangle", &bytes)?,
+        stride: 12,
+        step: wgpu::VertexStepMode::Vertex,
+        attributes: wgpu::vertex_attr_array![0 => Float32x3].to_vec(),
+    })
+}
 
+/// Registers the shader and makes a material of it with the colour `color`.
+fn tint_material(
+    runtime: &mut ProgramRuntime,
+    color: [f32; 4],
+) -> Result<MaterialHandle, ProgramError> {
     let program = runtime.register_program(ProgramDesc::single(
         "tint",
         RenderState::opaque_depth(),
@@ -87,22 +101,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut initial = PropertySet::new();
     initial.set("color", PropertyValue::Vector([1.0, 1.0, 1.0, 1.0]));
     let material = runtime.create_material(program, initial)?;
-    let color = [0.25, 0.5, 0.75, 1.0];
     runtime.set_property(material, "color", PropertyValue::Vector(color))?;
+    Ok(material)
+}
 
-    // One counter-clockwise triangle that covers all of clip space.
-    let corners: [[f32; 3]; 3] = [[-1.0, -1.0, 0.5], [3.0, -1.0, 0.5], [-1.0, 3.0, 0.5]];
-    let bytes: Vec<u8> = corners
-        .iter()
-        .flatten()
-        .flat_map(|v| v.to_le_bytes())
-        .collect();
-    let vertices = VertexInput {
-        buffer: runtime.create_buffer("triangle", &bytes)?,
-        stride: 12,
-        step: wgpu::VertexStepMode::Vertex,
-        attributes: wgpu::vertex_attr_array![0 => Float32x3].to_vec(),
-    };
+fn main() -> Result<(), Box<dyn Error>> {
+    let instance = headless_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))?;
+    let (device, queue, _) =
+        pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))?;
+    let authority = SubmissionAuthority::new(queue);
+    let mut runtime =
+        ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(1 << 24));
+
+    let color = [0.25, 0.5, 0.75, 1.0];
+    let material = tint_material(&mut runtime, color)?;
+    let vertices = triangle(&mut runtime)?;
     let target = runtime.create_render_target(
         "offscreen",
         [4, 4],

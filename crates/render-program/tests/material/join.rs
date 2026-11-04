@@ -3,6 +3,7 @@
 
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::submission::LeaseError;
+use worldrunner_render_gpu::tolerance_test_support::assert_code_within;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime, TargetSignature};
 
@@ -186,9 +187,13 @@ fn admitted_material_draws_record_into_the_callers_pass_and_hold_the_arena_until
     assert_eq!(gpu.authority.submitted_serial(), before + 1);
 
     let bytes = read(&gpu.device, &readback);
-    let want = COLOR.map(|value| (value * 255.0).round() as u8);
-    for (got, want) in center(&bytes).into_iter().zip(want) {
-        assert!(got.abs_diff(want) <= 1, "got {got}, want {want}");
+    for (channel, (got, value)) in center(&bytes).into_iter().zip(COLOR).enumerate() {
+        assert_code_within(
+            got,
+            f64::from(value * 255.0),
+            0.0,
+            &format!("channel {channel}"),
+        );
     }
     arena
         .retire()

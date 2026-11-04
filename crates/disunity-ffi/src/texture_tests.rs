@@ -181,3 +181,126 @@ fn a_texture_stored_without_a_spread_reads_back_with_none() {
     assert_eq!(read(world, FIRST, 0).1.distance_spread, 0);
     assert_eq!(read(world, FIRST + 1, 0).1.distance_spread, 0);
 }
+
+fn sampler_of(world: u64, identity: u64, known: u64) -> (DisunityResult, DisunitySampler) {
+    let mut out = DisunitySampler {
+        generation: known,
+        ..Default::default()
+    };
+    let result = unsafe { disunity_texture_sampler_read(world, identity, &mut out) };
+    (result, out)
+}
+
+fn write_sampler(world: u64, identity: u64, sampler: DisunitySampler) -> DisunityResult {
+    unsafe { disunity_texture_sampler_write(world, identity, &sampler) }
+}
+
+fn clamped() -> DisunitySampler {
+    DisunitySampler {
+        wrap_u: 1,
+        wrap_v: 2,
+        wrap_w: 3,
+        filter: 2,
+        aniso_level: 8,
+        mip_bias: -0.5,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_stored_texture_has_the_engine_default_sampler() {
+    let world = new_world();
+    store(world, FIRST, &[0; 8]);
+    let (result, out) = sampler_of(world, FIRST, 0);
+    assert_eq!(result.code, 0);
+    assert_eq!((out.present, out.changed, out.generation), (1, 1, 1));
+    assert_eq!((out.wrap_u, out.wrap_v, out.wrap_w), (0, 0, 0));
+    assert_eq!((out.filter, out.aniso_level), (1, 1));
+    assert_eq!(out.mip_bias.to_bits(), 0.0f32.to_bits());
+}
+
+#[test]
+fn a_written_sampler_reads_back_and_raises_the_generation() {
+    let world = new_world();
+    store(world, FIRST, &[0; 8]);
+    assert_eq!(write_sampler(world, FIRST, clamped()).code, 0);
+    let (_, out) = sampler_of(world, FIRST, 1);
+    assert_eq!((out.present, out.changed, out.generation), (1, 1, 2));
+    assert_eq!((out.wrap_u, out.wrap_v, out.wrap_w), (1, 2, 3));
+    assert_eq!((out.filter, out.aniso_level), (2, 8));
+    assert_eq!(out.mip_bias.to_bits(), (-0.5f32).to_bits());
+}
+
+#[test]
+fn writing_the_values_already_held_keeps_the_generation() {
+    let world = new_world();
+    store(world, FIRST, &[0; 8]);
+    write_sampler(world, FIRST, clamped());
+    write_sampler(world, FIRST, clamped());
+    let (_, out) = sampler_of(world, FIRST, 2);
+    assert_eq!((out.generation, out.changed), (2, 0));
+}
+
+#[test]
+fn the_sampler_survives_storing_the_texture_again() {
+    let world = new_world();
+    store(world, FIRST, &[0; 8]);
+    write_sampler(world, FIRST, clamped());
+    store(world, FIRST, &[1; 8]);
+    let (_, out) = sampler_of(world, FIRST, 0);
+    assert_eq!((out.wrap_w, out.filter, out.generation), (3, 2, 2));
+}
+
+#[test]
+fn a_sampler_of_an_identity_nothing_stored_reads_as_not_present_and_cannot_be_written() {
+    let world = new_world();
+    let (result, out) = sampler_of(world, FIRST + 5, 0);
+    assert_eq!((result.code, out.present), (0, 0));
+    assert_ne!(write_sampler(world, FIRST + 5, clamped()).code, 0);
+    assert_eq!(sampler_of(world, FIRST + 5, 0).1.present, 0);
+}
+
+#[test]
+fn a_sampler_outside_the_engine_values_is_rejected_and_changes_nothing() {
+    let world = new_world();
+    store(world, FIRST, &[0; 8]);
+    let bad = [
+        DisunitySampler {
+            wrap_u: 4,
+            ..clamped()
+        },
+        DisunitySampler {
+            wrap_v: 4,
+            ..clamped()
+        },
+        DisunitySampler {
+            wrap_w: 4,
+            ..clamped()
+        },
+        DisunitySampler {
+            filter: 3,
+            ..clamped()
+        },
+        DisunitySampler {
+            aniso_level: 17,
+            ..clamped()
+        },
+        DisunitySampler {
+            mip_bias: f32::NAN,
+            ..clamped()
+        },
+        DisunitySampler {
+            mip_bias: f32::INFINITY,
+            ..clamped()
+        },
+    ];
+    for sampler in bad {
+        assert_ne!(write_sampler(world, FIRST, sampler).code, 0, "{sampler:?}");
+    }
+    let (_, out) = sampler_of(world, FIRST, 0);
+    assert_eq!((out.generation, out.wrap_u, out.filter), (1, 0, 1));
+    let null = unsafe { disunity_texture_sampler_write(world, FIRST, std::ptr::null()) };
+    assert_ne!(null.code, 0);
+    let unread = unsafe { disunity_texture_sampler_read(world, FIRST, std::ptr::null_mut()) };
+    assert_ne!(unread.code, 0);
+}

@@ -12,6 +12,42 @@ namespace Disunity.Native
 {
 
     /// <summary>
+    ///  A stored mesh's description, also the in/out record of a read. On a store, `generation`,
+    ///  `present`, `changed` and `copied` are ignored. On a read, `generation` is the generation the
+    ///  caller already holds and the three counts are the capacities of the buffers passed (all zero
+    ///  asks for sizes only); the call fills in everything. `channels` is a mask of
+    ///  [`CHANNEL_NORMALS`], [`CHANNEL_UV0`] and [`CHANNEL_COLORS`]; a channel outside it reads as
+    ///  zero in every vertex. `left_out` counts the sub-meshes that are not triangle lists, which the
+    ///  engine leaves out.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshInfo
+    {
+        public ulong identity;
+        /// <summary>
+        ///  Starts at 1 and rises by one each time the identity is stored again.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Zero when a read names an identity nothing stored.
+        /// </summary>
+        public uint present;
+        /// <summary>
+        ///  Nonzero when the stored generation is newer than the one the read passed.
+        /// </summary>
+        public uint changed;
+        /// <summary>
+        ///  Nonzero when the read copied the buffers.
+        /// </summary>
+        public uint copied;
+        public uint channels;
+        public uint vertex_count;
+        public uint index_count;
+        public uint submesh_count;
+        public uint left_out;
+    }
+
+    /// <summary>
     ///  One vertex: position, normal, first texture coordinate and colour (linear RGBA).
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]

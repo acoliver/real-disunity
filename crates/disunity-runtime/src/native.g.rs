@@ -579,6 +579,21 @@ pub struct DisunityTextureInfo {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunitySampler {
+    /// Starts at 1 when the texture is first stored and rises each time a write changes a value.
+    pub generation: u64,
+    pub wrap_u: u32,
+    pub wrap_v: u32,
+    pub wrap_w: u32,
+    pub filter: u32,
+    pub aniso_level: u32,
+    pub present: u32,
+    pub changed: u32,
+    pub mip_bias: f32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMeshInfo {
     pub identity: u64,

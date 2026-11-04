@@ -358,6 +358,23 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_texture_read(ulong world, ulong identity, DisunityTextureInfo* @out, byte* bytes, uint capacity);
         /// <summary>
+        ///  Sets the sampler of a stored texture, raising its generation when a value changes.
+        ///
+        ///  # Safety
+        ///  `sampler` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_sampler_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_sampler_write(ulong world, ulong identity, DisunitySampler* sampler);
+        /// <summary>
+        ///  Reports the sampler of a stored texture. An identity nothing stored reports `present` zero
+        ///  and is not an error.
+        ///
+        ///  # Safety
+        ///  `out` is readable and writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_sampler_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_sampler_read(ulong world, ulong identity, DisunitySampler* @out);
+        /// <summary>
         ///  Keeps a mesh's contents for the host and raises its generation.
         ///
         ///  # Safety

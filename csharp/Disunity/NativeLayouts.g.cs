@@ -420,6 +420,16 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityTextureInfo>("present").ToInt32() != 40) throw new InvalidOperationException("DisunityTextureInfo.present offset");
         if (Marshal.OffsetOf<DisunityTextureInfo>("distance_spread").ToInt32() != 44) throw new InvalidOperationException("DisunityTextureInfo.distance_spread offset");
         if (Marshal.SizeOf<DisunityTextureInfo>() != 48 || typeof(DisunityTextureInfo).GetFields().Length != 10) throw new InvalidOperationException("DisunityTextureInfo layout");
+        if (Marshal.OffsetOf<DisunitySampler>("generation").ToInt32() != 0) throw new InvalidOperationException("DisunitySampler.generation offset");
+        if (Marshal.OffsetOf<DisunitySampler>("wrap_u").ToInt32() != 8) throw new InvalidOperationException("DisunitySampler.wrap_u offset");
+        if (Marshal.OffsetOf<DisunitySampler>("wrap_v").ToInt32() != 12) throw new InvalidOperationException("DisunitySampler.wrap_v offset");
+        if (Marshal.OffsetOf<DisunitySampler>("wrap_w").ToInt32() != 16) throw new InvalidOperationException("DisunitySampler.wrap_w offset");
+        if (Marshal.OffsetOf<DisunitySampler>("filter").ToInt32() != 20) throw new InvalidOperationException("DisunitySampler.filter offset");
+        if (Marshal.OffsetOf<DisunitySampler>("aniso_level").ToInt32() != 24) throw new InvalidOperationException("DisunitySampler.aniso_level offset");
+        if (Marshal.OffsetOf<DisunitySampler>("present").ToInt32() != 28) throw new InvalidOperationException("DisunitySampler.present offset");
+        if (Marshal.OffsetOf<DisunitySampler>("changed").ToInt32() != 32) throw new InvalidOperationException("DisunitySampler.changed offset");
+        if (Marshal.OffsetOf<DisunitySampler>("mip_bias").ToInt32() != 36) throw new InvalidOperationException("DisunitySampler.mip_bias offset");
+        if (Marshal.SizeOf<DisunitySampler>() != 40 || typeof(DisunitySampler).GetFields().Length != 9) throw new InvalidOperationException("DisunitySampler layout");
         if (Marshal.OffsetOf<DisunityMeshInfo>("identity").ToInt32() != 0) throw new InvalidOperationException("DisunityMeshInfo.identity offset");
         if (Marshal.OffsetOf<DisunityMeshInfo>("generation").ToInt32() != 8) throw new InvalidOperationException("DisunityMeshInfo.generation offset");
         if (Marshal.OffsetOf<DisunityMeshInfo>("present").ToInt32() != 16) throw new InvalidOperationException("DisunityMeshInfo.present offset");

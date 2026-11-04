@@ -44,10 +44,11 @@ pub unsafe extern "C" fn disunity_world_export_sprites(
             worldrunner_world_simulation::presentation::lighting::GlobalLighting::from_world(
                 &s.native,
             )?;
-        for component in s.native.snapshot().components {
-            let ComponentDesc::Sprite(mut renderer) = component.desc else {
+        for component in s.native.published_components() {
+            let ComponentDesc::Sprite(renderer) = &component.desc else {
                 continue;
             };
+            let mut renderer = renderer.clone();
             if !s
                 .native
                 .active_in_hierarchy(component.object)

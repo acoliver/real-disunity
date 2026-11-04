@@ -54,19 +54,11 @@ impl PreparedFeature for SceneFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
-            if context.slot == PassSlot::ReflectionMaterial {
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.reflection.as_ref().expect("reflection metadata"),
-                    &screen.group,
-                ));
-                return;
-            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
                 self.publications.record(self.gpu.draw_prepass(
                     pass,
-                    &screen.pipelines,
+                    screen.prepass_pipelines(),
                     &screen.group,
                 ));
                 return;
@@ -134,9 +126,6 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if renderer.ssao.is_some() {
         crate::ssao::passes::geometry_declaration(&mut declaration);
-        if renderer.ssr.is_some() {
-            crate::ssr::geometry_declaration(&mut declaration);
-        }
     }
     let mut views = vec![
         color.with_resource(color_id)?,

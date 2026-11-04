@@ -1,4 +1,4 @@
-fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec4<f32> {
+fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> METADATA_TYPE {
     var input = original;
     input.world_position = scene_relief_position(original);
     var albedo = scene_albedo(scene_atlas_sample(albedo_texture, input), input.tint);
@@ -32,17 +32,8 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
     if masked && !scene_alpha_covered(albedo.a, input) { discard; }
     return METADATA_OUTPUT;
 }
-@fragment fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneSurfaceOutput {
-    return SceneSurfaceOutput(reflection_metadata(input, front, false),scene_relief_depth(input));
-}
-@fragment fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneSurfaceOutput {
-    return SceneSurfaceOutput(reflection_metadata(input, front, true),scene_relief_depth(input));
-}
-
 fn scene_metadata_direction(direction: vec3<f32>) -> vec3<f32> {
     if material.contact_surface.z > 0.0 { return direction; }
     return normalize(direction);
 }
 
-@fragment fn fs_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> { return reflection_metadata(input,front,false); }
-@fragment fn fs_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> { return reflection_metadata(input,front,true); }

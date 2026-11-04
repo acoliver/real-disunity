@@ -29,7 +29,8 @@ impl FrameRenderer {
         gpu.prepare_depth_prefix_pages(device, encoder, frame, source.size)?;
         let mut passes = Vec::new();
         let mut views = Vec::new();
-        crate::ssao::passes::prepass(source, &mut passes, &mut views)?;
+        let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
+        crate::ssao::passes::prepass(source, material, &mut passes, &mut views)?;
         let screen_declaration = source.passes.schedule_metadata(&mut passes, &mut views)?;
         let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
         prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
@@ -43,6 +44,7 @@ impl FrameRenderer {
         };
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: source,
+            material,
             frame: *frame,
         };
         self.chain.encode_geometry_prefix(

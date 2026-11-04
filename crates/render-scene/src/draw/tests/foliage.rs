@@ -296,13 +296,11 @@ pub(super) fn geometry_sources() -> [String; 4] {
         .replace("fn fs_masked(", "fn unused_masked(");
     let prepass = format!(
         "{base}\n{}",
-        include_str!("../../scene_metadata/geometry.wgsl")
-            .replace("METADATA_OUTPUT", "vec4<f32>(normal, 1.0)")
+        crate::scene_metadata::single_fragment("vec4<f32>(normal, 1.0)")
     );
     let metadata = format!(
         "{base}\n{}",
-        include_str!("../../scene_metadata/geometry.wgsl")
-            .replace("METADATA_OUTPUT", "vec4<f32>(normal, roughness)")
+        crate::scene_metadata::single_fragment("vec4<f32>(normal, roughness)")
     );
     let shadow = format!(
         "{forward}\n{}",

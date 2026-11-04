@@ -126,6 +126,39 @@ cargo run -p worldrunner --features scene --example frame-feature
 
 Declare every pass and sampled resource before preparation. Build pipelines through `BuildContext`; use `PrepareContext::resource` for checked snapshot views. Stage uploads during `prepare` and publish resident state only in `commit`. `PrepareContext::completed_in_prefix` identifies slots already encoded by a validated geometry prefix belonging to this same frame, including a capture continuation. Features can preserve execution observations for those slots without inheriting a previous submitted frame. The executor opens passes and owns attachments. Features receive no queue and cannot submit or change attachments. Snapshot consumers require the HDR profile. External features must provide matching metadata passes to participate as SSR receivers.
 
+## Retained host timers
+
+`RetainedHost` and `RetainedEventHost` expose `timer_now`, `timer_at(deadline)`,
+`timer_every(interval)` and `cancel_timer(&handle)`. Deadlines use the host's
+monotonic `Instant` clock. Scheduling returns a host-scoped `TimerHandle` or
+`TimerError`. Each host accepts at most `MAX_HOST_TIMERS` (256) live timers;
+excess admission returns `Full { limit }`. Zero repeating intervals and clock
+overflow return `ZeroInterval` and `DeadlineOverflow`. Shutdown closes admission
+with `Closed`. Foreign and obsolete handles cannot cancel a live timer.
+
+The shared session host-service dispatch snapshots due timers, delivers any
+`WorkReady` first, then delivers `RetainedEvent::Timer { handle }` in deadline
+order, breaking ties by creation order. It rechecks cancellation before each
+delivery. Timers scheduled by a callback wait until the next dispatch, even if
+already due. One-shots release capacity before their callback. Repeating timers
+deliver at most once per dispatch and rearm from the dispatch's clock sample,
+discarding missed intervals after a stall. Cancellation inside a repeating
+callback removes its next expiry. Exit and shutdown suppress all timer delivery.
+
+Desktop scheduling combines the earliest timer deadline with the existing
+presentation and completion-poll deadlines through `ControlFlow::WaitUntil`.
+Timers require no worker threads and still wake during occlusion, suspension
+and zero-size presentation pauses. Driver callbacks run on the event thread.
+
+Windowless initialization freezes the session clock before GPU initialization.
+`WindowlessRetained::advance_time(elapsed)` advances it explicitly without
+callbacks or rendering; the next `frame` or `poll` runs the same host-service
+dispatch before updates and capture notifications. Repeated polling does not
+advance time. Update ticks use this clock too; shader/capture time remains
+independently selected by `RenderClock`. Timers created before initialization
+retain their deadlines, and time before the freeze counts toward expiry. The
+public timer types also pass through `worldrunner::scene::viewer`.
+
 ## Temporal state
 
 `FrameRenderer` owns the previous-frame camera used for temporal antialiasing, beside the

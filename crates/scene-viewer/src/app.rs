@@ -35,7 +35,10 @@ pub(super) trait Content {
     }
     fn window_ready(&mut self, _window: Arc<Window>) {}
     fn set_work_waker(&mut self, _waker: Arc<dyn Fn() + Send + Sync>) {}
-    fn work_ready(&mut self) -> Result<(), ViewerError> {
+    fn next_wakeup(&self) -> Option<Instant> {
+        None
+    }
+    fn host_ready(&mut self) -> Result<(), ViewerError> {
         Ok(())
     }
     fn device_event(&mut self, _event: &DeviceEvent) {}
@@ -165,7 +168,7 @@ impl<'a> App<'a> {
 
 impl ApplicationHandler for App<'_> {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, (): ()) {
-        if let Err(error) = self.content.work_ready() {
+        if let Err(error) = self.content.host_ready() {
             self.fail(event_loop, error);
             return;
         }
@@ -288,7 +291,7 @@ impl ApplicationHandler for App<'_> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if let Err(error) = self.content.work_ready() {
+        if let Err(error) = self.content.host_ready() {
             self.fail(event_loop, error);
             return;
         }
@@ -297,6 +300,10 @@ impl ApplicationHandler for App<'_> {
             return;
         }
         let Some(renderer) = &mut self.renderer else {
+            event_loop.set_control_flow(cadence::with_wakeup(
+                winit::event_loop::ControlFlow::Wait,
+                self.content.next_wakeup(),
+            ));
             return;
         };
         let pending = match renderer.poll().and_then(|()| self.content.poll(renderer)) {
@@ -327,6 +334,6 @@ impl ApplicationHandler for App<'_> {
                 .request_redraw();
             self.next_frame = cadence::next_frame(now, self.content.cadence());
         }
-        event_loop.set_control_flow(flow);
+        event_loop.set_control_flow(cadence::with_wakeup(flow, self.content.next_wakeup()));
     }
 }

@@ -14,8 +14,8 @@ unity = ["dep:worldrunner-unity-serialized"]
 [dependencies]
 worldrunner-render-gpu = { path = "../render-gpu" }
 worldrunner-unity-serialized = { path = "../unity-serialized", optional = true }
-# naga is the front end wgpu runs; parsing the SPIR-V here names a failure before wgpu sees it.
-naga = { version = "30.0.0", features = ["spv-in"] }
+# naga is the front end wgpu runs; parsing a stage here names a failure before wgpu sees it.
+naga = { version = "30.0.0", features = ["spv-in", "wgsl-in"] }
 # `naga-ir` accepts the parsed module as a shader source.
 wgpu = { workspace = true, features = ["naga-ir"] }
 blake3.workspace = true

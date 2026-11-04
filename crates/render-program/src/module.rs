@@ -42,12 +42,16 @@ pub enum StageSource {
     /// SPIR-V words that naga reads. The vertex position output is flipped in Y, which turns
     /// the SPIR-V clip space (Y down) into the one wgpu draws with.
     SpirV(Arc<[u32]>),
+    /// WGSL text, parsed with wgpu's own clip convention: the position output is used as
+    /// written.
+    Wgsl(Arc<str>),
 }
 
 impl StageSource {
     fn tag(&self) -> &'static str {
         match self {
             Self::SpirV(_) => "spirv",
+            Self::Wgsl(_) => "wgsl",
         }
     }
 
@@ -57,6 +61,9 @@ impl StageSource {
                 for word in words.iter() {
                     hasher.update(&word.to_le_bytes());
                 }
+            }
+            Self::Wgsl(text) => {
+                hasher.update(text.as_bytes());
             }
         }
     }
@@ -190,6 +197,8 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
 fn parse(stage: &StageModule) -> Result<Parsed, ModuleError> {
     let module = match &stage.source {
         StageSource::SpirV(words) => parse_spirv(words)?,
+        StageSource::Wgsl(text) => naga::front::wgsl::parse_str(text)
+            .map_err(|error| ModuleError::Parse(error.emit_to_string(text)))?,
     };
     let info: ModuleInfo = Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(&module)

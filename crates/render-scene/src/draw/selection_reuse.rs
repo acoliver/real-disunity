@@ -14,7 +14,7 @@ use super::{FrameUniform, SceneGpu};
 pub(super) const CAMERA: usize = 0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Key {
+pub(super) struct Key {
     edits: u64,
     matrix: [u32; 16],
     eye: [i64; 3],
@@ -26,6 +26,7 @@ struct Key {
 pub(super) struct View {
     pub published: Rc<RefCell<Selection>>,
     built: RefCell<Option<(Key, Selection)>>,
+    pub compaction: super::compaction::Compaction,
     #[cfg(test)]
     pub rebuilds: std::cell::Cell<usize>,
 }
@@ -46,19 +47,34 @@ pub(super) fn view_index(shadow_matrix: Option<(u32, glam::Mat4)>) -> usize {
 }
 
 impl SceneGpu {
+    fn view_matrix(shadow_matrix: Option<(u32, glam::Mat4)>, frame: &FrameUniform) -> glam::Mat4 {
+        shadow_matrix.map_or(frame.selection_view_projection(), |(_, matrix)| matrix)
+    }
+
+    /// Identifies the inputs of the selection `select_objects` returns for the same arguments.
+    pub(super) fn selection_key(
+        &self,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+        frame: &FrameUniform,
+    ) -> Key {
+        Key {
+            edits: self.instances.edits(),
+            matrix: Self::view_matrix(shadow_matrix, frame)
+                .to_cols_array()
+                .map(f32::to_bits),
+            eye: frame.camera_position_millimeters,
+            casters_only: shadow_matrix.is_some(),
+        }
+    }
+
     /// Selects the camera view, or a cascade when `shadow_matrix` is given.
     pub(super) fn select_objects(
         &self,
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Selection {
-        let matrix = shadow_matrix.map_or(frame.selection_view_projection(), |(_, matrix)| matrix);
-        let key = Key {
-            edits: self.instances.edits(),
-            matrix: matrix.to_cols_array().map(f32::to_bits),
-            eye: frame.camera_position_millimeters,
-            casters_only: shadow_matrix.is_some(),
-        };
+        let matrix = Self::view_matrix(shadow_matrix, frame);
+        let key = self.selection_key(shadow_matrix, frame);
         let view = &self.views[view_index(shadow_matrix)];
         let mut built = view.built.borrow_mut();
         if let Some((_, selection)) = built.as_ref().filter(|(built, _)| *built == key) {

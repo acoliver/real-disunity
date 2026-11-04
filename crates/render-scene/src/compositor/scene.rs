@@ -37,6 +37,7 @@ impl PreparedFeature for SceneFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.gpu.prepare_view_compaction(context, None, &self.frame);
     }
     fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
         self.publications.publish(context, self.gpu);

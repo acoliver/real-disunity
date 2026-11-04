@@ -27,6 +27,10 @@ pub(crate) struct InstanceBatch {
     pub bounds: std::cell::RefCell<SlotBounds>,
     /// Counts placement edits, so a cached view selection can tell that it is stale.
     edits: u64,
+    /// Rises whenever a frame stages bytes into this batch's buffers or allocates them, so a
+    /// copy of the buffer contents can tell that it is stale. Previous-transform bytes are
+    /// rewritten a frame after an edit without `edits` changing.
+    content: u64,
 }
 
 impl InstanceBatch {
@@ -89,6 +93,10 @@ impl InstanceBatch {
 
     pub fn edits(&self) -> u64 {
         self.edits
+    }
+
+    pub fn content(&self) -> u64 {
+        self.content
     }
 
     /// Scans all allocated slots, excluding removed slots from selection and
@@ -225,6 +233,7 @@ pub(crate) fn flush_prepared(
     if ranges.is_empty() && previous.uploads.is_empty() {
         return ranges;
     }
+    batch.content += 1;
     // Previous transforms are staged first: the encoder runs copies in staging order and the
     // previous buffer is a separate resource, so it can never observe this frame's bytes.
     if let Some(buffer) = batch.previous.as_ref().filter(|_| track_previous) {
@@ -351,4 +360,5 @@ fn grow(
         batch.previous = Some(create("retained previous instances"));
     }
     batch.buffer_valid.set(false);
+    batch.content += 1;
 }

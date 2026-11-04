@@ -109,6 +109,9 @@ public static class NativeBridge
     private static void AddTexture()
     {
         var texture = new Texture2D(2, 1, TextureFormat.RGBA32, false, true);
+        texture.wrapModeU = TextureWrapMode.Clamp;
+        texture.filterMode = FilterMode.Trilinear;
+        texture.anisoLevel = 4;
         texture.SetPixel(0, 0, new Color32(9, 8, 7, 6));
         texture.SetPixel(1, 0, new Color32(5, 4, 3, 2));
         Sprite.Create(texture, new Rect(0, 0, 2, 1), new Vector2(0.5f, 0.5f));
@@ -123,7 +126,8 @@ public static class NativeBridge
         FontEngine.TryAddGlyphToTexture(1, 4, GlyphPackingMode.BestShortSideFit, free,
             new List<GlyphRect>(), GlyphRenderMode.SDFAA, atlas, out _);
     }
-    /// <summary>A scripted quad of two sub-meshes, one material and a position, so the host can read the mesh and where it is drawn.</summary>
+    /// <summary>A scripted quad of two triangle sub-meshes and a line sub-mesh, with tangents and second texture coordinates, one
+    /// material and a position, so the host can read the mesh, its channels and where it is drawn.</summary>
     private static void AddMesh()
     {
         var shown = DisunityHost.CreateGameObject();
@@ -132,10 +136,13 @@ public static class NativeBridge
         {
             vertices = [new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(1, 1, 0), new Vector3(0, 1, 0)],
             uv = [new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1)],
-            subMeshCount = 2,
+            tangents = [new Vector4(1, 0, 0, 1), new Vector4(1, 0, 0, 1), new Vector4(1, 0, 0, 1), new Vector4(1, 0, 0, 1)],
+            uv2 = [new Vector2(0, 0), new Vector2(0.5f, 0), new Vector2(0.5f, 0.5f), new Vector2(0, 0.5f)],
+            subMeshCount = 3,
         };
         mesh.SetTriangles(new[] { 0, 2, 1 }, 0);
         mesh.SetTriangles(new[] { 0, 3, 2 }, 1);
+        mesh.SetIndices(new[] { 0, 1, 1, 2 }, MeshTopology.Lines, 2);
         shown.AddComponent<MeshFilter>().sharedMesh = mesh;
         var material = new Material(DisunityHost.RegisterShader("Fixture/Plain"));
         material.SetColor("_Color", new Color(0.25f, 0.5f, 0.75f, 1f));

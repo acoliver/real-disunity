@@ -445,9 +445,11 @@ mod tests {
 mod sprites;
 
 mod input;
+mod mesh_channels;
 mod meshes;
 mod presentation;
 mod textures;
 
+pub use mesh_channels::{MeshChannel, MeshChannels, MeshRange};
 pub use meshes::{MeshObjectView, MeshRun, MeshSlot, PlayerMesh};
-pub use textures::PlayerTexture;
+pub use textures::{PlayerTexture, TextureSampler};

@@ -303,10 +303,29 @@ fn assert_player_textures(host: &mut DisunityHost, root: &Path) {
             bytes: vec![9, 8, 7, 6, 5, 4, 3, 2],
         }
     );
+    assert_player_sampler(host, identity);
     assert_eq!(host.player_texture(identity, 1).unwrap(), None);
     assert_eq!(host.player_texture(identity, 0).unwrap().unwrap(), texture);
     assert_eq!(host.player_texture(FIRST + 1000, 0).unwrap(), None);
     host.unload_slice().unwrap();
+}
+
+fn assert_player_sampler(host: &DisunityHost, identity: u64) {
+    use worldrunner_disunity_runtime::TextureSampler;
+    let sampler = host.texture_sampler(identity).unwrap().expect("sampler");
+    assert_eq!(
+        sampler,
+        TextureSampler {
+            generation: 2,
+            wrap_u: 1,
+            wrap_v: 0,
+            wrap_w: 0,
+            filter: 2,
+            aniso_level: 4,
+            mip_bias: 0.0,
+        }
+    );
+    assert_eq!(host.texture_sampler(identity + 1000).unwrap(), None);
 }
 
 fn assert_player_meshes(host: &mut DisunityHost, root: &Path) {
@@ -328,6 +347,7 @@ fn assert_player_meshes(host: &mut DisunityHost, root: &Path) {
     assert_eq!(object.slots[1].color, [1.; 4], "an empty slot draws white");
     assert_eq!(object.slots[0].texture, 0);
     assert_player_mesh(host, object.mesh);
+    assert_player_mesh_channels(host, object.mesh);
     assert_eq!(host.player_mesh(object.mesh, 1).unwrap(), None);
     assert_eq!(host.player_mesh(FIRST + 1000, 0).unwrap(), None);
     host.unload_slice().unwrap();
@@ -348,7 +368,38 @@ fn assert_player_mesh(host: &mut DisunityHost, identity: u64) {
         .map(|r| (r.slot, r.first_index, r.index_count))
         .collect();
     assert_eq!(runs, vec![(0, 0, 3), (1, 3, 3)]);
-    assert_eq!(mesh.left_out, 0);
+    assert_eq!(
+        mesh.left_out, 1,
+        "the line sub-mesh is left out of the fixed mesh"
+    );
+}
+
+fn assert_player_mesh_channels(host: &DisunityHost, identity: u64) {
+    use worldrunner_disunity_runtime::MeshRange;
+    let mesh = host.mesh_channels(identity).unwrap().expect("the channels");
+    assert_eq!((mesh.generation, mesh.vertex_count), (1, 4));
+    let shape: Vec<_> = mesh
+        .channels
+        .iter()
+        .map(|c| (c.number, c.dimension, c.data.len()))
+        .collect();
+    assert_eq!(shape, vec![(0, 3, 12), (2, 4, 16), (4, 2, 8), (5, 2, 8)]);
+    assert_eq!(&mesh.channels[0].data[6..9], &[1., 1., 0.]);
+    assert_eq!(&mesh.channels[3].data[2..4], &[0.5, 0.]);
+    assert_eq!(mesh.indices, vec![0, 2, 1, 0, 3, 2, 0, 1, 1, 2]);
+    let range = |start, count, topology| MeshRange {
+        start,
+        count,
+        base_vertex: 0,
+        topology,
+    };
+    assert_eq!(
+        mesh.ranges,
+        vec![range(0, 3, 0), range(3, 3, 0), range(6, 4, 2)]
+    );
+    assert_eq!(host.mesh_channels_since(identity, 1).unwrap(), None);
+    assert_eq!(host.mesh_channels_since(identity, 0).unwrap(), Some(mesh));
+    assert_eq!(host.mesh_channels(identity + 1000).unwrap(), None);
 }
 
 fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {

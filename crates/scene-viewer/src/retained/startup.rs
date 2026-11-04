@@ -45,6 +45,7 @@ impl RetainedHost {
             None => 0,
         };
         let mut host = Self {
+            work: super::work::WorkServices::default(),
             statistics: None,
             gpu_timing: if options.gpu_timing {
                 super::GpuTiming::Pending

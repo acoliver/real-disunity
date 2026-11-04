@@ -359,7 +359,7 @@ impl RetainedDriver for PlayerRetainedDriver {
             }
             RetainedEvent::Presented { frame } => self.presented = frame + 1,
             RetainedEvent::Capture { id, outcome, .. } => self.delivered(*id, outcome),
-            RetainedEvent::Shutdown => {}
+            RetainedEvent::Shutdown | RetainedEvent::WorkReady => {}
         }
         if self.finished() {
             viewer.request_exit();

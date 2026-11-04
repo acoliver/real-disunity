@@ -8,6 +8,39 @@ fn queue<R: Send + 'static>(workers: usize, capacity: usize) -> (RetainedHost, W
     let queue = host.work_queue(workers, capacity).unwrap();
     (host, queue)
 }
+#[test]
+fn cancelled_ready_results_do_not_report_work_ready() {
+    let (host, queue) = queue(1, 1);
+    let ready = wake(&host);
+    let ticket = queue.submit(|_| 1).unwrap();
+    ready.recv_timeout(WAIT).unwrap();
+    assert!(queue.cancel(&ticket));
+    assert!(!host.work.take_ready());
+    assert!(queue.try_recv().is_none());
+}
+
+#[test]
+fn replaced_ready_results_notify_only_after_replacement_completes() {
+    let (host, queue) = queue(1, 1);
+    let ready = wake(&host);
+    let old = queue.submit(|_| 1).unwrap();
+    ready.recv_timeout(WAIT).unwrap();
+    let (release, wait) = mpsc::channel();
+    let replacement = queue
+        .replace(&old, move |_| {
+            wait.recv_timeout(WAIT).unwrap();
+            2
+        })
+        .unwrap();
+    assert!(!host.work.take_ready());
+    release.send(()).unwrap();
+    ready.recv_timeout(WAIT).unwrap();
+    assert!(host.work.take_ready());
+    let completion = queue.try_recv().unwrap();
+    assert_eq!(completion.ticket, replacement);
+    assert_eq!(completion.result, Ok(2));
+    assert!(!host.work.take_ready());
+}
 
 fn wake(host: &RetainedHost) -> mpsc::Receiver<()> {
     let (send, receive) = mpsc::channel();

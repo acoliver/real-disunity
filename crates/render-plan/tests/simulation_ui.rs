@@ -44,9 +44,10 @@ fn glyphs(object: worldrunner_world_simulation::ObjectHandle, viewport: [u32; 2]
             texture: Some(CoverageTexture {
                 width: 2,
                 height: 1,
-                bytes: vec![0, 128].into_boxed_slice(),
+                bytes: vec![0, 128].into(),
             }),
             quads: vec![UiGlyphQuad {
+                color: [1., 0.5, 0.25, 0.5],
                 corners: [[0., 0., 0.], [20., 0., 0.], [20., 10., 0.], [0., 10., 0.]],
                 uv: [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],
             }],
@@ -69,7 +70,7 @@ fn glyph_coverage_tint_and_overlay_pixels_survive_shared_quad_conversion() {
     assert!((corner.x - 20.).abs() < 1e-4 && (corner.y - 30.).abs() < 1e-4);
     assert_eq!(
         plan.quads[0].color.map(f32::to_bits),
-        [0.5, 1., 1., 0.25].map(f32::to_bits)
+        [0.5, 0.5, 0.25, 0.125].map(f32::to_bits)
     );
 }
 #[test]

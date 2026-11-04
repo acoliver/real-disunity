@@ -30,6 +30,9 @@ pub struct Target {
 pub struct Dependency {
     pub name: String,
     pub path: Option<PathBuf>,
+    /// The name the manifest gives the dependency when it differs from the package's.
+    #[serde(default)]
+    pub rename: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

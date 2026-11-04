@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::{layers, metadata};
 
+mod boundary;
 mod config;
 mod coverage;
 mod environment;
@@ -17,9 +18,10 @@ pub fn check(root: &Path) -> Result<(), String> {
     layers::check(&data)?;
     layers::check_facade(root)?;
     check_sources(root, &data)?;
+    boundary::check(&data)?;
     crate::csharp::check(&data)?;
     println!(
-        "policy: explicit layers, transitive CPU/no-default facade graphs, registered types, literal ownership, consumer index, CPU environment lookups, and C# consumer coverage checked"
+        "policy: explicit layers, transitive CPU/no-default facade graphs, the render-program adapter boundary, registered types, literal ownership, consumer index, CPU environment lookups, and C# consumer coverage checked"
     );
     Ok(())
 }

@@ -4,5 +4,5 @@
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
 pub use worldrunner_world_simulation::ui::contribution::{
-    UiGlyphQuad, UiRenderPlan, UiTextContribution, extract_ui,
+    UiGlyphQuad, UiGraphicContribution, UiRenderPlan, UiTextContribution, extract_ui,
 };

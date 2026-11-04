@@ -67,14 +67,28 @@ The supported character set is printable ASCII, LF and CR. CR is ignored; LF sta
 
 Glyph output provides baseline origins and outward-rounded raster bounds separately. Local text coordinates start at the rectangle's bottom-left. `VerticalOverflow::Truncate` drops lines whose extent passes the rectangle's height; `VerticalOverflow::Overflow` keeps them. Glyphs are never clipped, so a kept line draws whole even outside the rectangle. With `rich_text` set, as by default, text containing `<` is rejected with `UnsupportedRichText`, because markup is not rendered. Rasterizer winding coverage is saturated to 1 before rounding to U8 and packed deterministically into a shelf atlas with a fixed configured row width. Atlas rows start at the top. Font storage, character count, atlas dimensions and atlas pixels are bounded. Render extraction applies character and pixel budgets across the complete frame as well as per text run.
 
-`render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text contributions are ordered by sorting layer, order and object identity. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
+`render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
 
-Retained 3D hosts accept overlay text through `render_scene::simulation::UiOverlay`
-and `scene_viewer::RetainedUpdate::Ui`. `SceneGpu` owns its dynamic quad resources;
-the compositor blends them over the display output after all scene post-processing.
+Retained 3D hosts accept overlay text and screen-space graphics through
+`render_scene::simulation::UiOverlay` and `scene_viewer::RetainedUpdate::Ui`.
+`UiRenderPlan::graphics` wraps the existing `extract_graphics` output with its
+hierarchy key and clip bounds. Solid and translucent quads need no texture;
+`UiOverlay::with_textures` resolves image texture identities from an explicitly
+supplied `SceneTexture` map. Unresolved identities return an error.
+
+`SceneGpu` owns the dynamic resources. The existing compositor blends text and
+graphics together over the display output after all scene post-processing, in
+ascending `RectLayout::draw_order()` with graphics before text on the same object.
 UI replacements advance retained generations without rebuilding scene resources.
-World/camera canvases, graphic rectangles and additional text clipping are outside
-this retained overlay contract. See the [host API](../../crates/scene-viewer/README.md#retained-screen-space-text).
+Each contribution carries lower-left pixel clip bounds intersected with its
+canvas viewport and any explicit `CanvasRenderer::clip_rect`. The latter is
+measured in root-canvas coordinates and also applies to text on that object.
+Bounds round inward to whole-pixel scissors, which intersect the current render
+extent. This bounds rotated graphics even when CPU quad clipping keeps them whole.
+Soft clipping and stencil/pop-material masks remain future work. Camera/world
+text and world-space graphics use the scene path. The live 2D path is unchanged.
+Built-player retained-driver UI export remains unconnected. See the
+[host API](../../crates/scene-viewer/README.md#retained-screen-space-ui).
 
 ## Font dependencies and fixtures
 

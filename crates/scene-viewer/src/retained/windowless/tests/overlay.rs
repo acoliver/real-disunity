@@ -1,3 +1,4 @@
+mod graphics;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
     let width = image.viewport.width;
     let height = image.viewport.height;
@@ -62,9 +63,12 @@ fn plan(color: [f32; 4]) -> UiRenderPlan {
     let object = world.create_object(ObjectDesc::default()).unwrap();
     UiRenderPlan {
         layout: world.ui_layout([64, 64].into()).unwrap(),
+        graphics: vec![],
         texts: vec![UiTextContribution {
             object,
             canvas: object,
+            hierarchy_order: 0,
+            clip_rect: [0, 0, 64, 64],
             overlay: true,
             sorting_layer: 0,
             sorting_order: 0,

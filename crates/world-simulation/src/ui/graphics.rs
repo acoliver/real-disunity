@@ -123,7 +123,9 @@ fn graphic(
 
 /// The topmost canvas above (or at) each canvas object: the canvas whose space clip rectangles
 /// are measured in.
-fn root_canvases(world: &World) -> Result<BTreeMap<ObjectHandle, ObjectHandle>, WorldError> {
+pub(super) fn root_canvases(
+    world: &World,
+) -> Result<BTreeMap<ObjectHandle, ObjectHandle>, WorldError> {
     let canvases: Vec<ObjectHandle> = world
         .published_components()
         .filter(|c| matches!(c.desc, ComponentDesc::Canvas(_)))

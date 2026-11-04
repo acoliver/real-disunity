@@ -219,9 +219,12 @@ fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
             viewport: size.into(),
             rects: vec![],
         },
+        graphics: vec![],
         texts: vec![UiTextContribution {
             object,
             canvas: object,
+            hierarchy_order: 0,
+            clip_rect: [0, 0, size[0], size[1]],
             overlay: true,
             sorting_layer: 0,
             sorting_order: 0,

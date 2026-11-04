@@ -11,7 +11,7 @@ pub(crate) struct OverlayGpu {
     pub layout: wgpu::BindGroupLayout,
 }
 impl SceneGpu {
-    /// Replaces only native screen-space glyph resources. Rejected uploads preserve residency.
+    /// Replaces only native screen-space UI resources. Rejected uploads preserve residency.
     pub fn set_ui_overlay(
         &mut self,
         device: &wgpu::Device,

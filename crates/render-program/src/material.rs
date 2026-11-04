@@ -8,7 +8,7 @@ use crate::bind::Snapshot;
 use crate::draw::{Geometry, VertexInput};
 use crate::error::ProgramError;
 use crate::packet::MaterialParts;
-use crate::properties::PropertySet;
+use crate::properties::{PropertySet, PropertyValue};
 use crate::registry::{ProgramHandle, Registered};
 use crate::runtime::ProgramRuntime;
 use crate::state::RenderState;
@@ -131,6 +131,26 @@ impl ProgramRuntime {
             .variants
             .select(&features, UnknownFeatures::Fail)?;
         entry.features = features;
+        Ok(())
+    }
+}
+
+impl ProgramRuntime {
+    /// Sets the property `name` on the material. Packets prepared before the call keep the
+    /// values they were prepared with; the next preparation sees the new one.
+    ///
+    /// # Errors
+    /// Fails on a handle that is not a live material.
+    pub fn set_property(
+        &mut self,
+        material: MaterialHandle,
+        name: &str,
+        value: PropertyValue,
+    ) -> Result<(), ProgramError> {
+        self.registry
+            .material_mut(material)?
+            .properties
+            .set(name, value);
         Ok(())
     }
 }

@@ -202,11 +202,7 @@ impl Rig {
     }
 
     pub fn read(&mut self) -> Result<TargetImage, ProgramError> {
-        let target = self.target;
-        let (pending, index) = submit(&mut self.runtime, |runtime, frame| {
-            runtime.read_target(frame, target)
-        })?;
-        pending.resolve(index)
+        read_target(&mut self.runtime, self.target)
     }
 
     /// A draw of the rig's material over `area` of clip space at depth `z`.
@@ -214,6 +210,14 @@ impl Rig {
         let vertices = rectangle(&mut self.runtime, area, z);
         draw_of(self.material, vertices, 6)
     }
+}
+
+pub fn read_target(
+    runtime: &mut ProgramRuntime,
+    target: TargetHandle,
+) -> Result<TargetImage, ProgramError> {
+    let (pending, index) = submit(runtime, |runtime, frame| runtime.read_target(frame, target))?;
+    pending.resolve(index)
 }
 
 pub fn draw_of(material: MaterialHandle, vertices: VertexInput, count: u32) -> MaterialDraw {

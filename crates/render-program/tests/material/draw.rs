@@ -77,7 +77,10 @@ fn instanced_rig(gpu: &Gpu) -> (Rig, MaterialDraw) {
             fragment_stage("fs"),
         ))
         .unwrap();
-    rig.material = rig.runtime.create_material(program, colored(COLOR)).unwrap();
+    rig.material = rig
+        .runtime
+        .create_material(program, colored(COLOR))
+        .unwrap();
     let column = rectangle(&mut rig.runtime, [-1.0, -1.0, -0.5, 1.0], 0.5);
     let shifts: Vec<u8> = [0.0_f32, 0.5, 1.0, 1.5]
         .iter()

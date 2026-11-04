@@ -9,7 +9,7 @@ const MAX_MIPS: u32 = 15;
 
 /// A render texture's description. `format` is the engine's `GraphicsFormat` value. Every edit
 /// raises `generation`; the description a caller passes in only chooses the other fields.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorldRenderTexture {
     pub width: u32,
     pub height: u32,

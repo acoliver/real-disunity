@@ -15,6 +15,7 @@ pub mod animator_controller;
 pub mod camera;
 mod class;
 pub mod classes;
+pub mod compute_shader;
 mod cursor;
 mod error;
 mod file;

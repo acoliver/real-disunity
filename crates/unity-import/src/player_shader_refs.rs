@@ -14,6 +14,7 @@ use worldrunner_unity_serialized::{ClassId, object::PPtr, shader::Shader};
 
 use crate::{
     plan::PlanAsset,
+    player_compute::{decode_compute_shader, unplanned_reference as unplanned_compute_reference},
     player_files::PlayerFiles,
     player_materials::{
         decode_material, plan_material, unplanned_reference as unplanned_material_reference,
@@ -126,7 +127,7 @@ pub(crate) fn decode_shader(
 
 /// A serialized file's name as the plan states it: relative to the data directory when it is
 /// inside it, with `/` separators.
-fn file_name(data_dir: &Path, file: &Path) -> String {
+pub(crate) fn file_name(data_dir: &Path, file: &Path) -> String {
     let relative = file.strip_prefix(data_dir).unwrap_or(file);
     relative
         .components()
@@ -196,6 +197,11 @@ impl SceneSource {
                 .map_err(|cause| unplanned_reference(pptr, &cause))?;
             return Ok(decl.into_asset());
         }
+        if class == ClassId::COMPUTE_SHADER {
+            let decl = decode_compute_shader(&mut self.files, key)
+                .map_err(|cause| unplanned_compute_reference(pptr, &cause))?;
+            return Ok(decl.into_asset());
+        }
         let material = decode_material(&mut self.files, key)
             .map_err(|cause| unplanned_material_reference(pptr, &cause))?;
         let mut found = Vec::new();
@@ -238,7 +244,11 @@ impl PlanSource for SceneSource {
             }
         }
         let class = class
-            .filter(|&class| class == ClassId::SHADER || class == ClassId::MATERIAL)
+            .filter(|&class| {
+                class == ClassId::SHADER
+                    || class == ClassId::MATERIAL
+                    || class == ClassId::COMPUTE_SHADER
+            })
             .ok_or_else(|| not_held(pptr))?;
         if let Some((_, index)) = self.planned.iter().find(|(known, _)| *known == key) {
             return Ok(*index);

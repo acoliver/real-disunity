@@ -247,3 +247,23 @@ impl PlanSource for SceneSource {
         Ok(self.push_asset(key, asset))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_in_a_subdirectory_is_named_with_forward_slashes() {
+        let name = file_name(
+            Path::new("data"),
+            &Path::new("data").join("Sub").join("a.assets"),
+        );
+        assert_eq!(name, "Sub/a.assets");
+    }
+
+    #[test]
+    fn a_file_outside_the_data_directory_keeps_its_own_path() {
+        let name = file_name(Path::new("data"), Path::new("other.assets"));
+        assert_eq!(name, "other.assets");
+    }
+}

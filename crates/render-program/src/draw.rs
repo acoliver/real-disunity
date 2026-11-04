@@ -40,8 +40,6 @@ pub enum Geometry {
 pub struct DrawRequest<'a> {
     pub program: &'a GraphicsProgram,
     pub state: &'a RenderState,
-    /// The winding that counts as a front face, in framebuffer space.
-    pub front_face: wgpu::FrontFace,
     pub target: TargetHandle,
     pub vertex_inputs: &'a [VertexInput],
     pub bindings: &'a [BoundResource],

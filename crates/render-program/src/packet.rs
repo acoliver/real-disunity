@@ -14,7 +14,7 @@ use crate::pipeline_key::Key;
 use crate::program::GraphicsProgram;
 use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
-use crate::state::RenderState;
+use crate::state::{ColorState, DepthState, RenderState};
 
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
@@ -83,8 +83,6 @@ impl TargetSignature {
 pub struct DrawPacket<'a> {
     pub program: &'a GraphicsProgram,
     pub state: &'a RenderState,
-    /// The winding that counts as a front face, in framebuffer space.
-    pub front_face: wgpu::FrontFace,
     pub vertex_inputs: &'a [VertexInput],
     pub bindings: &'a [BoundResource],
     pub geometry: Geometry,
@@ -95,7 +93,6 @@ impl<'a> DrawRequest<'a> {
         DrawPacket {
             program: self.program,
             state: self.state,
-            front_face: self.front_face,
             vertex_inputs: self.vertex_inputs,
             bindings: self.bindings,
             geometry: self.geometry,
@@ -239,9 +236,10 @@ impl ProgramRuntime {
         signature: TargetSignature,
     ) -> Result<(RecordableDraw, Vec<Arc<Reservation>>), ProgramError> {
         self.authority.check_device()?;
+        let color = packet.state.check_drawable()?;
         self.store
             .check_geometry(packet.vertex_inputs, packet.geometry)?;
-        let pipeline = self.render_pipeline(packet, signature)?;
+        let pipeline = self.render_pipeline(packet, signature, color)?;
         let groups = self.bind_groups(&packet.program.gpu, packet.bindings)?;
         let vertex_buffers = packet
             .vertex_inputs
@@ -307,6 +305,7 @@ impl ProgramRuntime {
         &mut self,
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
+        color: ColorState,
     ) -> Result<wgpu::RenderPipeline, ProgramError> {
         let key = pipeline_key(packet, signature);
         if let Some(pipeline) = self.render_pipelines.get(&key) {
@@ -316,7 +315,8 @@ impl ProgramRuntime {
             self.shader_module(&packet.program.vertex)?,
             self.shader_module(&packet.program.fragment)?,
         );
-        let pipeline = self.guarded(|| self.create_render_pipeline(packet, &modules, signature))?;
+        let pipeline =
+            self.guarded(|| self.create_render_pipeline(packet, &modules, signature, color))?;
         self.render_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }
@@ -326,6 +326,7 @@ impl ProgramRuntime {
         packet: &DrawPacket<'_>,
         (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
         signature: TargetSignature,
+        color: ColorState,
     ) -> wgpu::RenderPipeline {
         let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = packet
             .vertex_inputs
@@ -341,9 +342,14 @@ impl ProgramRuntime {
         let state = packet.state;
         let targets = [Some(wgpu::ColorTargetState {
             format: signature.color,
-            blend: state.blend,
-            write_mask: state.color_write,
+            blend: color.blend,
+            write_mask: color.write_mask,
         })];
+        let depth = state.depth.unwrap_or(DepthState {
+            test: wgpu::CompareFunction::Always,
+            write: false,
+            bias: wgpu::DepthBiasState::default(),
+        });
         self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("render-program pipeline"),
@@ -355,16 +361,16 @@ impl ProgramRuntime {
                     buffers: &layouts,
                 },
                 primitive: wgpu::PrimitiveState {
-                    front_face: packet.front_face,
-                    cull_mode: state.cull,
+                    front_face: state.raster.front_face,
+                    cull_mode: state.raster.cull,
                     ..wgpu::PrimitiveState::default()
                 },
                 depth_stencil: signature.depth.map(|format| wgpu::DepthStencilState {
                     format,
-                    depth_write_enabled: Some(state.depth_write),
-                    depth_compare: Some(state.depth_compare),
+                    depth_write_enabled: Some(depth.write),
+                    depth_compare: Some(depth.test),
                     stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+                    bias: depth.bias,
                 }),
                 multisample: wgpu::MultisampleState {
                     count: signature.samples,
@@ -388,7 +394,7 @@ fn pipeline_key(packet: &DrawPacket<'_>, signature: TargetSignature) -> blake3::
     key.hash(packet.program.vertex.content_key());
     key.hash(packet.program.fragment.content_key());
     key.debug(&packet.program.gpu.layout);
-    key.debug(&(packet.state, packet.front_face, signature));
+    key.debug(&(packet.state, signature));
     for input in packet.vertex_inputs {
         key.debug(&(input.stride, input.step, &input.attributes));
     }

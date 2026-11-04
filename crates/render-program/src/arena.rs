@@ -130,7 +130,7 @@ impl ProgramRuntime {
     #[must_use]
     pub fn arena_allocations(bytes: u64) -> AllocationSet {
         let mut set = AllocationSet::default();
-        set.buffer("player program arena", bytes, 1);
+        set.buffer("program arena", bytes, 1);
         set
     }
 

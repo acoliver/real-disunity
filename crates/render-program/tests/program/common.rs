@@ -80,7 +80,9 @@ pub fn opaque_state() -> ShaderState {
 
 use naga::back::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageModule, StageProgram};
+use worldrunner_render_program::unity::module::{
+    ModuleBinding, StageKind, StageModule, StageProgram,
+};
 use worldrunner_unity_serialized::shader_program::{
     Binding, ProgramParameters, SamplerParam, TextureParam,
 };
@@ -166,7 +168,7 @@ use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{ProgramRuntime, TargetHandle, TargetImage};
+use worldrunner_render_program::unity::runtime::{ProgramRuntime, TargetHandle, TargetImage};
 
 /// A budget the tests that are not about budgets never reach.
 pub const AMPLE: AllocationBudget = AllocationBudget(1 << 30);

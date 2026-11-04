@@ -1,8 +1,8 @@
-//! Bind group layouts from the parameters Unity declares and the resources a module uses.
+//! Bind group layouts from the resources stages declare and the modules' own resources.
 
 use std::collections::BTreeMap;
 
-use crate::declare::{Class, Declared, declarations};
+use crate::binding::{BindingAddress, ResourceBinding, ResourceLayout};
 use crate::module::{StageKind, StageProgram};
 use crate::reflect::Reflected;
 
@@ -18,9 +18,9 @@ pub struct Slot {
     pub min_size: u64,
 }
 
-/// A parameter a stage declares but whose entry point does not use. It gets no slot.
+/// A binding a stage declares for itself but whose entry point does not use. It gets no slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct UnusedParameter {
+pub struct UnusedDeclaration {
     pub stage: StageKind,
     pub set: u32,
     pub binding: u32,
@@ -28,15 +28,12 @@ pub struct UnusedParameter {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LayoutError {
-    #[error("{kind} parameters are not bound by this renderer")]
-    UnsupportedParameter { kind: String },
-    #[error("parameter binding {unity_binding} is not in the module's binding table")]
-    UnboundResource { unity_binding: i64 },
-    #[error("binding {unity_binding} is in several descriptor sets of the binding table")]
-    AmbiguousBinding { unity_binding: u32 },
-    #[error("constant buffer name {name_index} has a binding but no buffer record")]
-    UndescribedConstantBuffer { name_index: i32 },
-    #[error("the module uses {name} at set {set} binding {binding}, which no parameter declares")]
+    /// A frontend could not turn its own declarations into a layout; the reason names why.
+    #[error("{reason}")]
+    Declaration { reason: String },
+    #[error("set {set} binding {binding} is declared twice")]
+    DuplicateDeclaration { set: u32, binding: u32 },
+    #[error("the module uses {name} at set {set} binding {binding}, which nothing declares")]
     UndeclaredResource {
         set: u32,
         binding: u32,
@@ -46,8 +43,17 @@ pub enum LayoutError {
     Mismatch {
         set: u32,
         binding: u32,
-        declared: &'static str,
+        declared: String,
         found: String,
+    },
+    #[error(
+        "set {set} binding {binding} is visible to {declared:?} but a {needed:?} stage uses it"
+    )]
+    Visibility {
+        set: u32,
+        binding: u32,
+        declared: wgpu::ShaderStages,
+        needed: wgpu::ShaderStages,
     },
     #[error("set {set} binding {binding} is {first} in one stage and {second} in another")]
     Conflict {
@@ -62,26 +68,28 @@ pub enum LayoutError {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProgramLayout {
     slots: Vec<Slot>,
-    unused: Vec<UnusedParameter>,
+    unused: Vec<UnusedDeclaration>,
 }
 
 impl ProgramLayout {
     /// Merges the stages' bindings. A binding two stages share keeps one slot visible to both.
+    /// A slot's size is the larger of what the shader needs and what its declaration asks for.
     ///
     /// # Errors
-    /// Fails on a parameter kind that is not bound, a parameter outside the binding table, a
-    /// resource without a parameter or of another kind than its parameter, or stages that
-    /// declare one binding differently.
+    /// Fails on a binding declared twice, a resource the module uses that nothing declares or
+    /// that is declared as another kind or not visible to its stage, and stages that declare
+    /// one binding differently.
     pub fn build(stages: &[&StageProgram]) -> Result<Self, LayoutError> {
         let mut merged: BTreeMap<(u32, u32), Slot> = BTreeMap::new();
         let mut unused = Vec::new();
         for stage in stages {
-            let declared = declarations(stage.parameters(), &stage.module().bindings)?;
-            for resource in stage.resources() {
-                let slot = stage_slot(stage.module().kind, &declared, resource)?;
+            let declared = &stage.declarations().resources;
+            check_unique(declared)?;
+            for resource in stage.reflected() {
+                let slot = stage_slot(stage.module().kind, declared, resource)?;
                 merge(&mut merged, slot)?;
             }
-            unused.extend(unused_parameters(stage, &declared));
+            unused.extend(unused_declarations(stage));
         }
         Ok(Self {
             slots: merged.into_values().collect(),
@@ -103,38 +111,64 @@ impl ProgramLayout {
     }
 
     #[must_use]
-    pub fn unused(&self) -> &[UnusedParameter] {
+    pub fn unused(&self) -> &[UnusedDeclaration] {
         &self.unused
     }
 }
 
+fn check_unique(declared: &ResourceLayout) -> Result<(), LayoutError> {
+    for (index, binding) in declared.bindings.iter().enumerate() {
+        if declared.bindings[..index]
+            .iter()
+            .any(|b| b.at == binding.at)
+        {
+            return Err(LayoutError::DuplicateDeclaration {
+                set: binding.at.set,
+                binding: binding.at.binding,
+            });
+        }
+    }
+    Ok(())
+}
+
 fn stage_slot(
-    kind: StageKind,
-    declared: &[Declared],
+    stage: StageKind,
+    declared: &ResourceLayout,
     resource: &Reflected,
 ) -> Result<Slot, LayoutError> {
+    let at = BindingAddress {
+        set: resource.set,
+        binding: resource.binding,
+    };
     let found = declared
-        .iter()
-        .find(|d| d.set == resource.set && d.binding == resource.binding)
+        .find(at)
         .ok_or_else(|| LayoutError::UndeclaredResource {
-            set: resource.set,
-            binding: resource.binding,
+            set: at.set,
+            binding: at.binding,
             name: resource.name.clone(),
         })?;
-    if !found.class.matches(&resource.ty) {
+    if !found.kind.matches(&resource.ty) {
         return Err(LayoutError::Mismatch {
-            set: resource.set,
-            binding: resource.binding,
-            declared: found.class.name(),
+            set: at.set,
+            binding: at.binding,
+            declared: format!("{:?}", found.kind),
             found: format!("{:?}", resource.ty),
         });
     }
+    if !found.visibility.contains(stage.visibility()) {
+        return Err(LayoutError::Visibility {
+            set: at.set,
+            binding: at.binding,
+            declared: found.visibility,
+            needed: stage.visibility(),
+        });
+    }
     Ok(Slot {
-        set: resource.set,
-        binding: resource.binding,
-        visibility: kind.visibility(),
+        set: at.set,
+        binding: at.binding,
+        visibility: found.visibility,
         ty: resource.ty,
-        min_size: resource.min_size,
+        min_size: resource.min_size.max(found.kind.min_size()),
     })
 }
 
@@ -156,70 +190,26 @@ fn merge(merged: &mut BTreeMap<(u32, u32), Slot>, slot: Slot) -> Result<(), Layo
     Ok(())
 }
 
-fn unused_parameters(stage: &StageProgram, declared: &[Declared]) -> Vec<UnusedParameter> {
-    declared
+fn unused_declarations(stage: &StageProgram) -> Vec<UnusedDeclaration> {
+    let kind = stage.module().kind;
+    stage
+        .declarations()
+        .resources
+        .bindings
         .iter()
-        .filter(|d| {
-            !stage
-                .resources()
-                .iter()
-                .any(|r| r.set == d.set && r.binding == d.binding)
-        })
-        .map(|d| UnusedParameter {
-            stage: stage.module().kind,
-            set: d.set,
-            binding: d.binding,
+        .filter(|declared| declared.visibility.intersects(kind.visibility()))
+        .filter(|declared| !used_by(stage, declared))
+        .map(|declared| UnusedDeclaration {
+            stage: kind,
+            set: declared.at.set,
+            binding: declared.at.binding,
         })
         .collect()
 }
 
-impl Class {
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::ConstantBuffer => "a constant buffer",
-            Self::Texture { .. } => "a texture",
-            Self::Sampler => "a sampler",
-            Self::StructuredBuffer => "a structured buffer",
-            Self::UnorderedAccess => "a UAV",
-        }
-    }
-
-    fn matches(self, ty: &wgpu::BindingType) -> bool {
-        use wgpu::{BindingType as B, BufferBindingType as Buf};
-        match (self, ty) {
-            (
-                Self::ConstantBuffer,
-                B::Buffer {
-                    ty: Buf::Uniform, ..
-                },
-            )
-            | (Self::Sampler, B::Sampler(_))
-            | (
-                Self::UnorderedAccess,
-                B::Buffer {
-                    ty: Buf::Storage { .. },
-                    ..
-                },
-            )
-            | (
-                Self::StructuredBuffer,
-                B::Buffer {
-                    ty: Buf::Storage { read_only: true },
-                    ..
-                },
-            ) => true,
-            (
-                Self::Texture {
-                    dimension,
-                    multisampled,
-                },
-                B::Texture {
-                    view_dimension,
-                    multisampled: found_multisampled,
-                    ..
-                },
-            ) => dimension == *view_dimension && multisampled == *found_multisampled,
-            _ => false,
-        }
-    }
+fn used_by(stage: &StageProgram, declared: &ResourceBinding) -> bool {
+    stage
+        .reflected()
+        .iter()
+        .any(|r| r.set == declared.at.set && r.binding == declared.at.binding)
 }

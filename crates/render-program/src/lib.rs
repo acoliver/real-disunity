@@ -1,17 +1,20 @@
-//! Native execution of Unity player shader programs.
+//! A format-neutral runtime for shader programs: stage modules, resource and constant layouts,
+//! render state, pipeline caching, bind groups, draws and dispatches, recorded into frames of a
+//! caller's submission authority.
+//!
+//! Everything at the root of this crate is described in engine terms. The `unity` module,
+//! behind the default-off `unity` feature, converts Unity's serialized programs into those
+//! descriptions and no other module names a Unity type.
 
 mod arena;
 mod bind;
 pub mod binding;
 mod budget;
-pub mod constant_layout;
 pub mod constants;
 mod create;
-mod declare;
 mod dispatch;
 mod draw;
 pub mod error;
-pub mod feature;
 pub mod layout;
 pub mod module;
 mod packet;
@@ -21,9 +24,10 @@ pub mod properties;
 mod range;
 mod readback;
 mod reflect;
-pub mod render_state;
 mod resources;
 pub mod runtime;
 pub mod state;
 pub mod targets;
+#[cfg(feature = "unity")]
+pub mod unity;
 pub mod variant;

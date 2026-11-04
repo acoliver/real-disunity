@@ -5,11 +5,13 @@ use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Con
 use worldrunner_render_gpu::submission::{LeaseError, PreparedFrame};
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{
-    DrawRequest, Geometry, ProgramArena, ProgramRuntime, TargetHandle,
+    BoundResource, DispatchRequest, DrawRequest, Geometry, ProgramArena, ProgramRuntime,
+    TargetHandle,
 };
 
 use crate::arena::{ARENA, Draw, admit, admit_geometry, arena_runtime, draw, prepare};
 use crate::common::Gpu;
+use crate::compute::kernel_program;
 use crate::patch::state;
 use crate::surface::{Surface, pixel, read};
 
@@ -552,6 +554,34 @@ fn record_clear(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
     }
 }
 
+fn record_dispatch(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let program = kernel_program(runtime);
+    let uniform = runtime.create_buffer("params", &[0; 16]).unwrap();
+    let source = runtime.create_buffer("source", &[0; 48]).unwrap();
+    let result = runtime.create_buffer("result", &[0; 48]).unwrap();
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    runtime
+        .dispatch(
+            &mut frame,
+            &DispatchRequest {
+                program: &program,
+                bindings: &[
+                    BoundResource::buffer(0, 3, uniform),
+                    BoundResource::buffer(0, 5, source),
+                    BoundResource::buffer(0, 7, result),
+                ],
+                groups: [3, 1, 1],
+            },
+        )
+        .unwrap();
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_buffer(result)),
+    }
+}
+
 fn completes(gpu: &Gpu) {
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
@@ -640,3 +670,4 @@ macro_rules! entry_point {
 }
 
 entry_point!(clear_target, record_clear);
+entry_point!(dispatch, record_dispatch);

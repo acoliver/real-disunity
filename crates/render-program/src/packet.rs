@@ -279,13 +279,7 @@ impl ProgramRuntime {
         &self,
         packet: &DrawPacket<'_>,
     ) -> Result<Vec<Arc<Reservation>>, ProgramError> {
-        let mut reservations = Vec::new();
-        for bound in packet.bindings {
-            reservations.push(match bound.resource {
-                Resource::Buffer(buffer) => self.store.buffer_reservation(buffer)?,
-                Resource::Texture(texture) => self.store.texture_reservation(texture)?,
-            });
-        }
+        let mut reservations = self.binding_shares(packet.bindings)?;
         for input in packet.vertex_inputs {
             reservations.push(self.store.buffer_reservation(input.buffer)?);
         }
@@ -293,6 +287,20 @@ impl ProgramRuntime {
             reservations.push(self.store.buffer_reservation(buffer)?);
         }
         Ok(reservations)
+    }
+
+    /// Shares of the reservations of every buffer and texture bound.
+    pub(crate) fn binding_shares(
+        &self,
+        bindings: &[BoundResource],
+    ) -> Result<Vec<Arc<Reservation>>, ProgramError> {
+        bindings
+            .iter()
+            .map(|bound| match bound.resource {
+                Resource::Buffer(buffer) => self.store.buffer_reservation(buffer),
+                Resource::Texture(texture) => self.store.texture_reservation(texture),
+            })
+            .collect()
     }
 
     fn render_pipeline(

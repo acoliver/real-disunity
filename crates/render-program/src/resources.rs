@@ -228,6 +228,17 @@ impl Store {
             .ok_or(ProgramError::UnknownHandle { kind: "texture" })
     }
 
+    /// The reservation of the target, to keep its bytes counted.
+    pub(crate) fn target_reservation(
+        &self,
+        handle: TargetHandle,
+    ) -> Result<Arc<Reservation>, ProgramError> {
+        self.targets
+            .get(&handle.0)
+            .map(|held| held.reservation.clone())
+            .ok_or(ProgramError::UnknownHandle { kind: "target" })
+    }
+
     /// Takes the resource out of use for new work. Its reservation stays until the work
     /// submitted through `last_submission` has completed.
     pub(crate) fn remove_buffer(&mut self, handle: BufferHandle, last_submission: u64) -> bool {

@@ -99,9 +99,9 @@ impl ProgramRuntime {
 
     /// Records the geometry's draw with the program, state and bindings into `encoder`; the
     /// caller submits the frame. The frame retains the reservations of the buffers and textures
-    /// the draw uses, as `PreparedProgramDraw::retain` does, so their bytes stay
-    /// counted until the frame is cancelled, dropped or completed on the GPU, even when the
-    /// runtime is dropped first.
+    /// the draw uses and of the target it draws into, as `PreparedProgramDraw::retain` does, so
+    /// their bytes stay counted until the frame is cancelled, dropped or completed on the GPU,
+    /// even when the runtime is dropped first.
     ///
     /// # Errors
     /// Fails on an unknown handle, a binding that does not fit the program, an encoder that is
@@ -119,7 +119,7 @@ impl ProgramRuntime {
             target.depth.as_ref().map(|d| d.texture.format()),
             target.color.texture.sample_count(),
         )?;
-        let prepared = self.prepare_draw(&request.packet(), signature)?;
+        let prepared = self.prepare_pinned(&request.packet(), signature, Some(request.target))?;
         prepared.retain(encoder)?;
         let target = self.store.target(request.target)?;
         self.guarded(|| {

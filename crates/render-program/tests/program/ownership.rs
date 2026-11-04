@@ -4,7 +4,9 @@
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::submission::{LeaseError, PreparedFrame};
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{DrawRequest, Geometry, ProgramArena, ProgramRuntime};
+use worldrunner_render_program::runtime::{
+    DrawRequest, Geometry, ProgramArena, ProgramRuntime, TargetHandle,
+};
 
 use crate::arena::{ARENA, Draw, admit, admit_geometry, arena_runtime, draw, prepare};
 use crate::common::Gpu;
@@ -394,11 +396,19 @@ fn admission_refuses_ranges_past_the_bound_buffers_by_name_and_admits_nothing() 
         .expect("a refused admission did not retain the arena");
 }
 
-/// Records the patch as an immediate draw into a new target and returns the finished frame.
-fn record_immediate(gpu: &Gpu, runtime: &mut ProgramRuntime, draw: &Draw) -> PreparedFrame {
-    let target = runtime
+fn new_target(runtime: &mut ProgramRuntime) -> TargetHandle {
+    runtime
         .create_render_target("target", [1, 1], RGBA8, Some(DEPTH))
-        .unwrap();
+        .unwrap()
+}
+
+/// Records the patch as an immediate draw into `target` and returns the finished frame.
+fn record_immediate(
+    gpu: &Gpu,
+    runtime: &mut ProgramRuntime,
+    draw: &Draw,
+    target: TargetHandle,
+) -> PreparedFrame {
     let state = state();
     let mut frame = gpu.authority.begin(&gpu.device).unwrap();
     runtime
@@ -423,7 +433,8 @@ fn the_buffers_of_an_immediate_draw_cannot_be_released_while_its_frame_is_unsubm
     let gpu = Gpu::new();
     let (mut runtime, _arena) = arena_runtime(&gpu);
     let draw = draw(&mut runtime);
-    let frame = record_immediate(&gpu, &mut runtime, &draw);
+    let target = new_target(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
     assert_eq!(
         runtime.release_buffer(draw.input.buffer).unwrap_err(),
         ProgramError::Busy,
@@ -446,7 +457,8 @@ fn an_immediate_draws_bytes_stay_counted_through_its_frame_after_the_runtime_is_
     let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
     let arena = renderer.arena(&runtime);
     let draw = draw(&mut runtime);
-    let frame = record_immediate(&gpu, &mut runtime, &draw);
+    let target = new_target(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
     drop(arena);
     drop(runtime);
     assert_eq!(
@@ -470,7 +482,8 @@ fn a_cancelled_frame_gives_back_the_bytes_of_an_immediate_draw() {
     let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
     let arena = renderer.arena(&runtime);
     let draw = draw(&mut runtime);
-    let frame = record_immediate(&gpu, &mut runtime, &draw);
+    let target = new_target(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
     let before = gpu.authority.submitted_serial();
     drop(arena);
     drop(runtime);
@@ -483,4 +496,31 @@ fn a_cancelled_frame_gives_back_the_bytes_of_an_immediate_draw() {
         "nothing was submitted"
     );
     assert_eq!(renderer.held(), 0, "a cancelled frame used nothing");
+}
+
+#[test]
+fn the_target_of_an_immediate_draw_stays_counted_through_its_frame_after_the_runtime_is_gone() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let first = renderer.arena(&runtime);
+    let target = new_target(&mut runtime);
+    drop(first);
+    // The target's bytes are reserved by the first arena and the draw's buffers by the second.
+    let second = renderer.arena(&runtime);
+    let draw = draw(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
+    drop(second);
+    drop(runtime);
+    assert_eq!(
+        renderer.held(),
+        2 * ARENA,
+        "the frame that drew into the target holds the first arena's reservation as well"
+    );
+
+    frame.submit().unwrap();
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    assert_eq!(renderer.held(), 0, "the completed frame freed both");
 }

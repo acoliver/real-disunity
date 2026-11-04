@@ -12,7 +12,7 @@ use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
 use crate::pipeline_key::Key;
 use crate::program::GraphicsProgram;
-use crate::resources::{BoundResource, Pins, Resource};
+use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
 use crate::state::RenderState;
 
@@ -212,7 +212,20 @@ impl ProgramRuntime {
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
-        let (draw, shares) = self.prepare_recordable(packet, signature)?;
+        self.prepare_pinned(packet, signature, None)
+    }
+
+    /// The prepared draw, whose pins also cover `target` when the draw is recorded into it.
+    pub(crate) fn prepare_pinned(
+        &mut self,
+        packet: &DrawPacket<'_>,
+        signature: TargetSignature,
+        target: Option<TargetHandle>,
+    ) -> Result<PreparedProgramDraw, ProgramError> {
+        let (draw, mut shares) = self.prepare_recordable(packet, signature)?;
+        if let Some(target) = target {
+            shares.push(self.store.target_reservation(target)?);
+        }
         Ok(PreparedProgramDraw {
             pins: Pins::new(&self.authority, shares),
             draw,

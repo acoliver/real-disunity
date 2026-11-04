@@ -31,9 +31,12 @@ fn glyphs(object: worldrunner_world_simulation::ObjectHandle, viewport: [u32; 2]
             viewport: UVec2::from_array(viewport),
             rects: vec![],
         },
+        graphics: vec![],
         texts: vec![UiTextContribution {
             object,
             canvas: object,
+            hierarchy_order: 0,
+            clip_rect: [0, 0, viewport[0], viewport[1]],
             overlay: true,
             sorting_layer: 3,
             sorting_order: 5,

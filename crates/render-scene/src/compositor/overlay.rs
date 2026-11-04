@@ -53,6 +53,7 @@ impl OverlayStage {
                 &mut pass,
                 None,
                 &self.pipeline.as_ref().expect("prepared overlay pipeline").2,
+                Some(self.pipeline.as_ref().expect("prepared overlay pipeline").0),
             );
         }
         if let Some(counter) = &self.counter {

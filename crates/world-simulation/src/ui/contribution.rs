@@ -3,6 +3,8 @@
 //! vertices are pixels, other vertices use the native world basis. Rendering
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
+mod clip;
+
 use crate::presentation::CoverageTexture as SceneTexture;
 use crate::presentation::extraction::{camera_admits, selected_camera};
 use crate::ui::group::{effective_alpha, groups_by_object};
@@ -25,16 +27,29 @@ pub struct UiTextContribution {
     pub overlay: bool,
     pub sorting_layer: i32,
     pub sorting_order: i32,
+    /// The rectangle hierarchy key from `RectLayout::draw_order()`.
+    pub hierarchy_order: usize,
+    /// Lower-left pixel clip bounds: x, y, width, height.
+    pub clip_rect: [u32; 4],
     pub color: [f32; 4],
     pub texture: Option<SceneTexture>,
     pub quads: Vec<UiGlyphQuad>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct UiGraphicContribution {
+    pub graphic: crate::ui::UiGraphic,
+    pub hierarchy_order: usize,
+    /// Lower-left pixel clip bounds: x, y, width, height.
+    pub clip_rect: [u32; 4],
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct UiRenderPlan {
     pub layout: UiLayout,
-    /// Stable order by Canvas sort keys, then object identity.
+    /// Ascending `RectLayout::draw_order()`, shared with pointer hit testing.
     pub texts: Vec<UiTextContribution>,
+    pub graphics: Vec<UiGraphicContribution>,
 }
 
 pub fn extract_ui(
@@ -43,6 +58,7 @@ pub fn extract_ui(
     viewport: [u32; 2],
 ) -> Result<UiRenderPlan, WorldError> {
     let layout = world.ui_layout(viewport.into())?;
+    let roots = super::graphics::root_canvases(world)?;
     let mut texts = Vec::new();
     let mut budget = FrameBudget::default();
     let groups = groups_by_object(world.published_components());
@@ -78,11 +94,17 @@ pub fn extract_ui(
         let mut color = run.color;
         color[3] *= effective_alpha(world, &groups, component.object)?;
         let mut text = contribution(rect, text, overlay, color);
+        text.clip_rect = clip::screen_clip(world, &layout, rect, &roots);
         snap_to_pixels(&mut text, rect, canvas);
         texts.push(text);
     }
-    texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.object));
-    Ok(UiRenderPlan { layout, texts })
+    texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.hierarchy_order));
+    let graphics = graphics(world, &layout, &roots)?;
+    Ok(UiRenderPlan {
+        layout,
+        texts,
+        graphics,
+    })
 }
 
 fn contribution(
@@ -91,6 +113,7 @@ fn contribution(
     overlay: bool,
     color: [f32; 4],
 ) -> UiTextContribution {
+    let (sorting_layer, sorting_order, hierarchy_order) = rect.draw_order();
     let atlas_size = text.atlas.size.as_vec2();
     let mut quads = Vec::new();
     for glyph in text.glyphs {
@@ -125,8 +148,10 @@ fn contribution(
         object: rect.object,
         canvas: rect.canvas,
         overlay,
-        sorting_layer: rect.sorting_layer,
-        sorting_order: rect.sorting_order,
+        sorting_layer,
+        sorting_order,
+        hierarchy_order,
+        clip_rect: [0; 4],
         color,
         texture,
         quads,
@@ -197,4 +222,32 @@ impl FrameBudget {
         }
         Ok(())
     }
+}
+
+fn graphics(
+    world: &World,
+    layout: &UiLayout,
+    roots: &std::collections::BTreeMap<ObjectHandle, ObjectHandle>,
+) -> Result<Vec<UiGraphicContribution>, WorldError> {
+    let mut graphics = crate::ui::extract_graphics(world, layout)?
+        .into_iter()
+        .map(|graphic| {
+            let rect = layout
+                .rect(graphic.object)
+                .expect("extracted graphic rectangle");
+            Ok(UiGraphicContribution {
+                hierarchy_order: rect.draw_order().2,
+                clip_rect: clip::screen_clip(world, layout, rect, roots),
+                graphic,
+            })
+        })
+        .collect::<Result<Vec<_>, WorldError>>()?;
+    graphics.sort_by_key(|c| {
+        (
+            c.graphic.sorting_layer,
+            c.graphic.sorting_order,
+            c.hierarchy_order,
+        )
+    });
+    Ok(graphics)
 }

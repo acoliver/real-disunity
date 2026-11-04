@@ -594,6 +594,18 @@ fn record_read_buffer(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
     }
 }
 
+fn record_read_target(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let target = new_target(runtime);
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    drop(runtime.read_target(&mut frame, target).unwrap());
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_target(target)),
+    }
+}
+
 fn completes(gpu: &Gpu) {
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
@@ -711,6 +723,7 @@ macro_rules! entry_point {
 entry_point!(clear_target, record_clear);
 entry_point!(dispatch, record_dispatch);
 entry_point!(read_buffer, record_read_buffer);
+entry_point!(read_target, record_read_target);
 
 macro_rules! staging {
     ($module:ident, $record:path) => {
@@ -724,4 +737,8 @@ macro_rules! staging {
 staging!(
     a_dropped_buffer_readback_keeps_its_staging_counted_through_its_frame,
     record_read_buffer
+);
+staging!(
+    a_dropped_target_readback_keeps_its_staging_counted_through_its_frame,
+    record_read_target
 );

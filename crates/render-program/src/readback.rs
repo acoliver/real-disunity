@@ -177,7 +177,8 @@ impl ProgramRuntime {
     }
 
     /// Records a copy of a render target's color texture into `encoder`. Submit the frame,
-    /// then resolve the result with the submission index.
+    /// then resolve the result with the submission index. The frame retains the reservations of
+    /// the target and of the staging buffer, as `read_buffer` does.
     ///
     /// # Errors
     /// Fails on an unknown handle, a format that cannot be copied, an encoder that is not the
@@ -199,6 +200,13 @@ impl ProgramRuntime {
         let mut allocations = AllocationSet::default();
         allocations.readback("render-program readback", [width, height], texel, 1);
         let staged = self.staging(u64::from(padded_row) * u64::from(height), allocations)?;
+        self.hold_for_frame(
+            encoder,
+            vec![
+                self.store.target_reservation(handle)?,
+                staged.reservation.clone(),
+            ],
+        )?;
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
             wgpu::TexelCopyBufferInfo {

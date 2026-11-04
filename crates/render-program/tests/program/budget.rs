@@ -127,7 +127,8 @@ fn releasing_while_a_frame_is_being_recorded_is_busy() {
 }
 
 #[test]
-fn a_pending_readback_holds_its_staging_bytes_until_it_is_resolved_or_dropped() {
+fn a_pending_readback_holds_its_staging_bytes_until_it_is_resolved_or_dropped_and_its_frame_completed()
+ {
     let gpu = Gpu::new();
     let mut runtime = gpu.runtime_with(AllocationBudget(TARGET_BYTES + TARGET_READBACK_BYTES));
     let handle = target(&mut runtime, false).unwrap();
@@ -154,6 +155,10 @@ fn a_pending_readback_holds_its_staging_bytes_until_it_is_resolved_or_dropped() 
     })
     .unwrap();
     drop(dropped);
+    // The frame that recorded the copy holds the staging until the GPU has completed it.
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
     assert_eq!(runtime.live_bytes(), TARGET_BYTES);
 }
 

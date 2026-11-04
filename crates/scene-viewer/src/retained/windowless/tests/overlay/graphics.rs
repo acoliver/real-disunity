@@ -1,5 +1,6 @@
 mod clipping;
 mod ordering;
+mod scrolled;
 use super::*;
 use worldrunner_world_simulation::ui::{
     Canvas, CanvasRenderer, FontBook, RectTransform, UiGeometry, UiLimits, UiVertex,

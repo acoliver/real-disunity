@@ -57,7 +57,15 @@ pub fn extract_ui(
     fonts: &FontBook,
     viewport: [u32; 2],
 ) -> Result<UiRenderPlan, WorldError> {
-    let layout = world.ui_layout(viewport.into())?;
+    extract_ui_layout(world, fonts, world.ui_layout(viewport.into())?)
+}
+
+/// Extract a freshly resolved layout, including caller-owned menu rules and scroll clips.
+pub fn extract_ui_layout(
+    world: &World,
+    fonts: &FontBook,
+    layout: UiLayout,
+) -> Result<UiRenderPlan, WorldError> {
     let roots = super::graphics::root_canvases(world)?;
     let mut texts = Vec::new();
     let mut budget = FrameBudget::default();

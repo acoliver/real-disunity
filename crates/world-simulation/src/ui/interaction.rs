@@ -1,14 +1,19 @@
 //! Typed native controls attached to existing world object identities.
-use super::{UiLayout, group::groups_by_object};
+use super::{UiLayout, UiLayoutRules, group::groups_by_object};
 use crate::{ObjectHandle, PointerButton, PointerEvent, World, WorldError};
 use std::collections::{BTreeMap, BTreeSet};
+mod keyboard;
+mod style;
 mod targets;
+pub use style::UiStyle;
 use targets::Targets;
+pub(super) use targets::contains;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiControlKind {
     Button,
     Choice { group: ObjectHandle, index: usize },
+    ListItem { list: ObjectHandle, index: usize },
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UiControl {
@@ -28,11 +33,18 @@ impl UiControl {
             kind: UiControlKind::Choice { group, index },
         }
     }
+    pub fn list_item(list: ObjectHandle, index: usize) -> Self {
+        Self {
+            enabled: true,
+            kind: UiControlKind::ListItem { list, index },
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiAction {
     Activated { object: ObjectHandle },
     ChoiceSelected { group: ObjectHandle, index: usize },
+    Selected { list: ObjectHandle, index: usize },
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UiResponse {
@@ -46,6 +58,10 @@ pub enum UiKey {
     Shift,
     Enter,
     Space,
+    Up,
+    Down,
+    Home,
+    End,
 }
 
 /// A caller-owned interaction session over one world's object handles. Controls and modal roots
@@ -55,12 +71,15 @@ pub struct UiRouter {
     pub controls: BTreeMap<ObjectHandle, UiControl>,
     /// The highest sorted visible modal root restricts all interaction to its subtree.
     pub modals: BTreeSet<ObjectHandle>,
+    pub layout: UiLayoutRules,
+    pub styles: BTreeMap<ObjectHandle, UiStyle>,
     position: Option<[f64; 2]>,
     capture: Option<ObjectHandle>,
     primary_held: bool,
     focus: Option<ObjectHandle>,
     keys: BTreeSet<UiKey>,
     choices: BTreeMap<ObjectHandle, usize>,
+    modal_focus: Vec<(ObjectHandle, Option<ObjectHandle>)>,
 }
 impl UiRouter {
     pub fn focused(&self) -> Option<ObjectHandle> {
@@ -70,8 +89,8 @@ impl UiRouter {
         self.choices.get(&group).copied()
     }
 
-    /// Route ordered observations against a freshly resolved layout of `world`. Host positions
-    /// stay in physical pixels; the top-left to lower-left conversion occurs in hit testing.
+    /// Route observations against a freshly resolved layout. Host positions stay in physical
+    /// pixels; the top-left to lower-left conversion occurs in hit testing.
     pub fn pointer(
         &mut self,
         world: &World,
@@ -86,6 +105,8 @@ impl UiRouter {
         }
         let groups = groups_by_object(world.published_components());
         let targets = Targets::new(world, layout, self, &groups)?;
+        self.modal_changed(targets.modal);
+        self.focus = self.focus.filter(|o| targets.interactable(*o));
         let hit = self.position.and_then(|position| targets.hit(position));
         let mut response = UiResponse {
             consumed: self.capture.is_some() || hit.is_some() || targets.modal.is_some(),
@@ -93,92 +114,65 @@ impl UiRouter {
         };
         match event {
             PointerEvent::Cancel => self.cancel(),
-            PointerEvent::Button {
-                button: PointerButton::Left,
-                pressed: true,
-            } => {
-                if !self.primary_held {
-                    self.capture = hit.filter(|object| targets.interactable(*object));
-                    self.focus = self.capture;
+            PointerEvent::Wheel(wheel) => {
+                if let Some(position) = self.position {
+                    response.consumed |=
+                        self.layout
+                            .wheel(world, layout, position, wheel, targets.modal)?;
                 }
-                self.primary_held = true;
             }
             PointerEvent::Button {
                 button: PointerButton::Left,
-                pressed: false,
+                pressed,
             } => {
-                let capture = self.capture.take();
-                self.primary_held = false;
-                if let Some(object) =
-                    capture.filter(|o| Some(*o) == hit && targets.interactable(*o))
-                {
-                    response.actions.push(self.activate(object));
-                }
+                self.primary_button(&targets, hit, pressed, &mut response);
             }
             _ => {}
         }
         Ok(response)
     }
-
-    /// Key identities are mapped by the caller from its input bindings. Activation occurs on the
-    /// first key-down only. Send Cancel on focus loss before synthetic key releases.
-    pub fn key(
+    fn primary_button(
         &mut self,
-        world: &World,
-        layout: &UiLayout,
-        key: UiKey,
+        targets: &Targets<'_>,
+        hit: Option<ObjectHandle>,
         pressed: bool,
-        repeat: bool,
-    ) -> Result<UiResponse, WorldError> {
-        let groups = groups_by_object(world.published_components());
-        let targets = Targets::new(world, layout, self, &groups)?;
-        let order: Vec<_> = targets
-            .rects
-            .iter()
-            .map(|r| r.object)
-            .filter(|o| targets.interactable(*o))
-            .collect();
-        self.focus = self.focus.filter(|o| order.contains(o));
-        let mut response = UiResponse {
-            consumed: self.focus.is_some() || targets.modal.is_some(),
-            actions: Vec::new(),
-        };
-        if !pressed {
-            self.keys.remove(&key);
-            return Ok(response);
-        }
-        if repeat || !self.keys.insert(key) {
-            return Ok(response);
-        }
-        match key {
-            UiKey::Tab if !order.is_empty() => {
-                let reverse = self.keys.contains(&UiKey::Shift);
-                let current = self.focus.and_then(|o| order.iter().position(|v| *v == o));
-                let next = match (current, reverse) {
-                    (Some(i), true) => (i + order.len() - 1) % order.len(),
-                    (Some(i), false) => (i + 1) % order.len(),
-                    (None, true) => order.len() - 1,
-                    (None, false) => 0,
-                };
-                self.focus = Some(order[next]);
-                response.consumed = true;
+        response: &mut UiResponse,
+    ) {
+        if pressed {
+            if !self.primary_held {
+                self.capture = hit.filter(|object| targets.interactable(*object));
+                self.focus = self.capture;
             }
-            UiKey::Enter | UiKey::Space => {
-                if let Some(object) = self.focus {
-                    response.actions.push(self.activate(object));
-                }
+            self.primary_held = true;
+        } else {
+            let capture = self.capture.take();
+            self.primary_held = false;
+            if let Some(object) = capture.filter(|o| Some(*o) == hit && targets.interactable(*o)) {
+                response.actions.push(self.activate(object));
             }
-            _ => {}
         }
-        Ok(response)
     }
-
+    fn modal_changed(&mut self, modal: Option<ObjectHandle>) {
+        if self.modal_focus.last().map(|(object, _)| *object) == modal {
+            return;
+        }
+        if modal.is_none() || self.modal_focus.iter().any(|(o, _)| Some(*o) == modal) {
+            while self.modal_focus.last().map(|(object, _)| *object) != modal {
+                self.focus = self.modal_focus.pop().expect("tracked modal").1;
+            }
+        } else if let Some(object) = modal {
+            self.modal_focus.push((object, self.focus));
+            self.focus = None;
+        }
+        self.capture = None;
+    }
     fn cancel(&mut self) {
         self.capture = None;
         self.primary_held = false;
         self.position = None;
         self.focus = None;
         self.keys.clear();
+        self.modal_focus.clear();
     }
     fn activate(&mut self, object: ObjectHandle) -> UiAction {
         match self.controls[&object].kind {
@@ -186,6 +180,10 @@ impl UiRouter {
             UiControlKind::Choice { group, index } => {
                 self.choices.insert(group, index);
                 UiAction::ChoiceSelected { group, index }
+            }
+            UiControlKind::ListItem { list, index } => {
+                self.choices.insert(list, index);
+                UiAction::Selected { list, index }
             }
         }
     }

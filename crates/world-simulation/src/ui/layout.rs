@@ -1,4 +1,4 @@
-use super::{Canvas, CanvasMode, RectTransform, UiError};
+use super::{Canvas, CanvasMode, RectTransform, UiError, UiLayoutRules};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use glam::{Mat4, UVec2, Vec2, Vec3};
 use std::collections::BTreeMap;
@@ -21,6 +21,8 @@ pub struct RectLayout {
     pub sorting_order: i32,
     /// Hierarchy preorder among resolved rectangles, with siblings in `World::children` order.
     pub hierarchy_order: usize,
+    /// Inherited scroll viewport bounds in lower-left physical pixels.
+    pub clip_bounds: Option<[Vec2; 2]>,
 }
 
 impl RectLayout {
@@ -102,7 +104,15 @@ struct Resolved {
 impl World {
     /// Resolves completed live state without mutating serialized local transforms.
     pub fn ui_layout(&self, viewport: UVec2) -> Result<UiLayout, WorldError> {
-        let (rects, canvases, resolved) = self.resolve_ui(viewport)?;
+        self.ui_layout_with(viewport, &UiLayoutRules::default())
+    }
+    /// Resolve native menu rules in the same rectangle pass as authored transforms.
+    pub fn ui_layout_with(
+        &self,
+        viewport: UVec2,
+        rules: &UiLayoutRules,
+    ) -> Result<UiLayout, WorldError> {
+        let (rects, canvases, resolved) = self.resolve_ui(viewport, rules)?;
         let mut rects = self.ui_rects(&rects, &canvases, &resolved, viewport)?;
         let mut paths = rects
             .iter()
@@ -113,7 +123,9 @@ impl World {
         for (order, (_, index)) in paths.into_iter().enumerate() {
             rects[index].hierarchy_order = order;
         }
-        Ok(UiLayout { viewport, rects })
+        let mut layout = UiLayout { viewport, rects };
+        rules.clip(self, &mut layout)?;
+        Ok(layout)
     }
 
     /// The size and pivot of an object's rectangle, as a script reads them. Every rectangle has
@@ -202,7 +214,7 @@ impl World {
         Ok(())
     }
 
-    fn resolve_ui(&self, viewport: UVec2) -> Result<UiParts, WorldError> {
+    fn resolve_ui(&self, viewport: UVec2, rules: &UiLayoutRules) -> Result<UiParts, WorldError> {
         check_viewport(viewport)?;
         let mut rects = BTreeMap::new();
         let mut canvases = BTreeMap::new();
@@ -225,8 +237,9 @@ impl World {
         if canvases.keys().any(|o| !rects.contains_key(o)) {
             return Err(UiError::MissingLayout.into());
         }
+        rules.prepare(self, &mut rects)?;
         let mut resolved = BTreeMap::new();
-        for &object in rects.keys() {
+        for object in rects.keys().copied().collect::<Vec<_>>() {
             let mut chain = Vec::new();
             let mut current = Some(object);
             while let Some(node) = current {
@@ -239,6 +252,7 @@ impl World {
             for node in chain.into_iter().rev() {
                 let parent = self.parent(node)?.and_then(|p| resolved.get(&p).copied());
                 let value = self.resolve_ui_node(node, parent, &rects, &canvases, viewport)?;
+                rules.arrange(self, node, value.size, &mut rects)?;
                 resolved.insert(node, value);
             }
         }
@@ -302,6 +316,7 @@ impl World {
                 sorting_layer: settings.sorting_layer,
                 sorting_order: settings.sorting_order,
                 hierarchy_order: 0,
+                clip_bounds: None,
             });
         }
         Ok(output)

@@ -70,7 +70,7 @@ internal static class PlayerMeshChannelTests
         var mesh = Triangle();
         mesh.normals = [Vector3.back, Vector3.back, Vector3.back];
         mesh.tangents = [new Vector4(1, 0, 0, 1), new Vector4(0, 1, 0, -1), new Vector4(0, 0, 1, 1)];
-        mesh.colors = [Color.red, Color.green, Color.blue];
+        mesh.colors = [new Color(1, 0, 0, 0.25f), new Color(0, 1, 0, 0.5f), new Color(0, 0, 1, 0.75f)];
         mesh.uv = [new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 1)];
         mesh.uv2 = [new Vector2(0.25f, 0.5f), new Vector2(0.75f, 0.125f), new Vector2(1, 1)];
         mesh.SetUVs(2, new[] { new Vector3(1, 2, 3), new Vector3(4, 5, 6), new Vector3(7, 8, 9) });
@@ -81,7 +81,7 @@ internal static class PlayerMeshChannelTests
             "positions and normals have three floats, tangents and colours four");
         Expect.That(stored.Dimension(Uv0) == 2 && stored.Dimension(Uv1) == 2 && stored.Dimension(Uv2) == 3, "a texture coordinate keeps the dimension it was set with");
         Expect.Sequence(new float[] { 1, 0, 0, 1, 0, 1, 0, -1, 0, 0, 1, 1 }, stored.Values(Tangent), "tangents keep their w");
-        Expect.Sequence(new float[] { 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1 }, stored.Values(Colour), "colours are stored as RGBA floats");
+        Expect.Sequence(new[] { 1f, 0, 0, 0.25f, 0, 1, 0, 0.5f, 0, 0, 1, 0.75f }, stored.Values(Colour), "colours are stored as RGBA floats");
         Expect.Sequence(new[] { 0.25f, 0.5f, 0.75f, 0.125f, 1f, 1f }, stored.Values(Uv1), "the second texture coordinates are stored");
         Expect.Sequence(new float[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, stored.Values(Uv2), "a three-dimensional texture coordinate keeps all three floats");
         Expect.Sequence(new float[] { 0, 0, 0, 1, 0, 0, 0, 1, 0 }, stored.Values(Position), "positions are stored in order");
@@ -128,6 +128,11 @@ internal static class PlayerMeshChannelTests
         var stored = Read(identity);
         Expect.That(stored.Has(Uv1), "the changed mesh sends its new channel");
         Expect.That(stored.Info.generation == FixedGeneration(identity) && stored.Info.generation == 2, "the channels carry the generation of the fixed mesh they were stored with");
+        mesh.tangents = [new Vector4(0, 0, 1, 1), new Vector4(0, 0, 1, 1), new Vector4(0, 0, 1, -1)];
+        DisunityHost.StoreChangedMeshes();
+        var tangents = Read(identity);
+        Expect.That(tangents.Has(Tangent) && tangents.Info.generation == 3, "a tangent change alone stores the mesh again");
+        Expect.Sequence(new float[] { 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, -1 }, tangents.Values(Tangent), "the new tangents are stored");
         Console.WriteLine("PASS: the channels are stored again with the fixed mesh and agree with its generation");
     }
 }

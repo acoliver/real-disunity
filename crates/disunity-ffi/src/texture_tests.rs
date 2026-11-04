@@ -304,3 +304,31 @@ fn a_sampler_outside_the_engine_values_is_rejected_and_changes_nothing() {
     let unread = unsafe { disunity_texture_sampler_read(world, FIRST, std::ptr::null_mut()) };
     assert_ne!(unread.code, 0);
 }
+
+#[test]
+fn a_sampler_at_the_ends_of_each_engine_range_is_accepted() {
+    let world = new_world();
+    store(world, FIRST, &[0; 8]);
+    let top = DisunitySampler {
+        wrap_u: 3,
+        wrap_v: 3,
+        wrap_w: 3,
+        filter: 2,
+        aniso_level: 16,
+        mip_bias: 8.0,
+        ..Default::default()
+    };
+    let bottom = DisunitySampler {
+        aniso_level: 0,
+        mip_bias: -8.0,
+        ..Default::default()
+    };
+    for sampler in [top, bottom] {
+        assert_eq!(write_sampler(world, FIRST, sampler).code, 0, "{sampler:?}");
+        let (_, out) = sampler_of(world, FIRST, 0);
+        assert_eq!(
+            (out.wrap_u, out.filter, out.aniso_level),
+            (sampler.wrap_u, sampler.filter, sampler.aniso_level)
+        );
+    }
+}

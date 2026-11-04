@@ -69,6 +69,14 @@ internal static class PlayerSamplerTests
         var generation = rest.generation;
         texture.filterMode = FilterMode.Point;
         Expect.That(Read(identity).generation == generation, "setting a value it already holds changes nothing");
+        texture.mipMapBias = float.NaN;
+        texture.anisoLevel = 100;
+        texture.filterMode = (FilterMode)7;
+        var clamped = Read(identity);
+        Expect.That(clamped.mip_bias == 0 && clamped.aniso_level == 16 && clamped.filter == 2, "values the host cannot hold are clamped, and a bias that is not a number is 0");
+        texture.filterMode = FilterMode.Point;
+        texture.anisoLevel = 16;
+        texture.mipMapBias = 1.5f;
         texture.Apply();
         var applied = Read(identity);
         Expect.That(applied.wrap_u == 2 && applied.filter == 0, "storing the texture again keeps its sampler");

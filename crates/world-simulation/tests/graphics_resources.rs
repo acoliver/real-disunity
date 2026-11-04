@@ -504,6 +504,36 @@ fn a_render_texture_sampler_outside_the_engine_values_is_rejected() {
 }
 
 #[test]
+fn a_render_texture_sampler_at_the_ends_of_each_engine_range_is_accepted() {
+    let mut world = world();
+    for sampler in [
+        WorldSampler {
+            wrap_u: 3,
+            wrap_v: 3,
+            wrap_w: 3,
+            filter: 2,
+            aniso_level: 16,
+            mip_bias: 8.0,
+        },
+        WorldSampler {
+            wrap_u: 0,
+            wrap_v: 0,
+            wrap_w: 0,
+            filter: 0,
+            aniso_level: 0,
+            mip_bias: -8.0,
+        },
+    ] {
+        let texture = WorldRenderTexture {
+            sampler,
+            ..target()
+        };
+        let id = world.create_render_texture(texture).unwrap();
+        assert_eq!(world.render_texture(id).unwrap().sampler, sampler);
+    }
+}
+
+#[test]
 fn a_render_texture_description_is_validated() {
     let mut world = world();
     let bad = [

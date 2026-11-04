@@ -37,7 +37,8 @@
 //! * Wrap and filter modes of a stored texture (the stored texture does not say them); every
 //!   texture is read with the fixed sampler.
 //! * A material's disabled passes.
-//! * Built-in values whose meaning the repository's evidence does not give; see [`builtins`].
+//! * Built-in values whose meaning the repository's evidence does not give; [`builtins`] lists
+//!   them with the number of the player's variants that hold each.
 
 mod adapter;
 mod assets;

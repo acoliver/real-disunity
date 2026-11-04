@@ -21,19 +21,51 @@
 //!
 //! Each holds what its words say: the matrix from the object to the world, its inverse, the
 //! world to camera matrix, the world to clip matrix and the camera's position in the world.
-//! A name whose meaning the words do not say is left out, and so is each value whose
-//! convention nothing in the repository measures; see the crate documentation for the list.
 //!
 //! # Values
 //!
 //! * `unity_ObjectToWorld` is the renderer's local-to-world matrix, column by column, as the
-//!   world stores it. The layer copies sixteen floats in that order, and the world stores
-//!   matrices a script sets for a material the same way, so a built-in matrix and a property
-//!   matrix of one shader have one memory order.
+//!   world stores it. A matrix a script sets on a material reaches a constant buffer in the
+//!   same order (`render-program` copies the sixteen floats as four rows of 16 bytes), and every
+//!   4x4 member of the player's tables has the same shape, so a built-in is written the way a
+//!   script's matrix is. Which order a shader reads is not measured here; it is inferred from
+//!   there being one way to write a matrix.
 //! * `unity_WorldToObject` is its inverse, left out when the matrix has none.
-//! * `unity_MatrixV` is [`world_to_camera`].
-//! * `unity_MatrixVP` is [`clip_from_gl`] times the OpenGL projection times the view.
-//! * `_WorldSpaceCameraPos` is the translation of the inverse of the view.
+//! * `unity_MatrixV` is [`world_to_camera`](super::camera::world_to_camera).
+//! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
+//!   projection times the view. The projection is the engine layer's; the clip space is the one
+//!   `render-program`'s conventions tests measured. Whether the player expects a reversed depth
+//!   range is not known, so depth is not reversed.
+//! * `_WorldSpaceCameraPos` is the translation of the inverse of the view, with 0 in the fourth
+//!   component for a member of three floats to ignore.
+//!
+//! # Left missing
+//!
+//! `render-program` lists a member no layer supplies in `OffscreenOperations::missing` and
+//! leaves it zero. These are left to it, with the count of the player's 10,773 Vulkan variants
+//! that hold each (a variant holds a name once per buffer):
+//!
+//! * `_ProjectionParams` (3,522), `_ScreenParams` (2,389), `_ZBufferParams` (616),
+//!   `unity_OrthoParams` (2,766), `_Time` (2,688) and `unity_WorldTransformParams` (2,011): the
+//!   names do not say what their four floats hold, and nothing in the repository defines them.
+//! * `glstate_matrix_projection` (109), `unity_MatrixInvV` (5), `unity_MatrixInvVP` (4),
+//!   `unity_CameraProjection` (4), `unity_CameraInvProjection` (2), `unity_WorldToCamera` (4)
+//!   and `unity_CameraToWorld` (2): the words name the matrix, and each is too rare to be
+//!   evidence that the engine sets it in the way the common ones are set. The projection ones
+//!   would also need a choice between the engine layer's projection and the one adjusted for the
+//!   graphics API, which nothing here measures.
+//! * Lighting and shadows (`_MainLightPosition` 3,340, `_MainLightColor` 2,604, the
+//!   `LightShadows` buffer, `unity_SHAr` and the other spherical harmonics 1,040,
+//!   `unity_SpecCube0_HDR` 1,552, `unity_LightData` 1,472): they depend on lights and probes
+//!   that no offscreen record carries.
+//! * Instancing (`unity_ObjectToWorldArray` and `unity_WorldToObjectArray` in 2,062 variants,
+//!   `unity_BaseInstanceID` 2,122, and the DOTS tables): which instance index a draw reads is
+//!   not decided, and each draw here is one sub-mesh.
+//! * `<texture>_ST` (7,265 of the 38,160 texture bindings have a four-float member of that
+//!   name) and `<texture>_TexelSize` (1,980): the world carries a texture slot's scale and
+//!   offset, and the member that holds them has the texture's name plus `_ST`, but the order of
+//!   its four floats is in nothing the repository defines. `render-program` supplies
+//!   `_TexelSize` for a blit's source only.
 
 use glam::{Mat4, Vec4};
 use worldrunner_render_program::layers::PropertyLayer;

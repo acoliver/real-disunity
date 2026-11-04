@@ -2,11 +2,11 @@
 //! textures.
 //!
 //! Vertex channels are numbered as the shaders' vertex input tables number them. The numbers 0
-//! to 4 are the order of the mesh format's channels, the one `unity-serialized` documents:
-//! position, normal, tangent, color, then the first texture coordinates; render-program's own
-//! tests draw with 0 for position and 4 for texture coordinates, and the counts in its README
-//! (0, 1 and 4 read by most variants, 3 by a third) agree. A stored mesh holds no tangents, so
-//! a shader that reads channel 2 gets `MissingChannel`.
+//! to 4 follow the channel order of `unity-import`'s mesh planner: position, normal, tangent,
+//! color, then the first texture coordinates. render-program's own tests draw with 0 for
+//! position and 4 for texture coordinates, and the counts in its README (0, 1 and 4 read by
+//! most variants, 3 by a third) fit that order. A stored mesh holds no tangents, so a shader
+//! that reads channel 2 gets `MissingChannel`.
 
 use worldrunner_disunity_runtime::{DisunityHost, MeshRun, PlayerMesh, PlayerTexture};
 use worldrunner_render_program::ids::TextureId;

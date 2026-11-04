@@ -139,7 +139,7 @@ Unity player offscreen work is a camera rendering into a render texture, `Graphi
 ### Path of a frame
 
 ```text
-host adapter       maps the world export to an OffscreenFrame (this crate does not read world-simulation)
+host adapter       maps the world export to an OffscreenFrame (`play`'s `offscreen` module; this crate does not read world-simulation)
 OffscreenState::build(runtime, arena, frame)       the one entry point: resolution, packing, versions
    -> OffscreenOperations { operations, later_reads, .. }    typed operations in call order, before the scene
 OffscreenOperations::admit(encoder)                ResourceRegistry::compile_operations_with_reads
@@ -247,7 +247,7 @@ The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare 
   - The GraphicsFormat table has the formats the tests draw into (4, 5, 8, 48 and the depth sizes 16, 24 and 32); any other code is `OffscreenError::UnsupportedFormat`. Neither the unity-import report nor the tests say which other formats Old World uses.
   - A blit without a material only copies. A scaling blit without a material is `BlitNeedsMaterial`.
   - `later_reads` names the ranges a scene draw samples; the host must name them, because a scene draw that samples a render texture is not an operation.
-  - The host adapter that maps the world export onto `OffscreenFrame`, builds the `ProgramShader` of each shader and supplies Unity's per-draw and per-camera built-ins as property layers is not in this slice.
+  - The host adapter that maps the world export onto `OffscreenFrame`, builds the `ProgramShader` of each shader and supplies the built-in per-draw and per-camera values is the `offscreen` module of `play`, see [its README](../play/README.md#offscreen-work-from-a-player). The built-ins it leaves missing show up in `OffscreenOperations::missing`.
   - Property blocks, per-instance arrays and instancing of a renderer's many sub-meshes are built one draw each; draws are not batched.
 - **Budget timing of write staging.** The staging buffer of a recorded `write_buffer` is admitted when it is recorded and released when the call returns, not when the GPU finishes the copy.
 - **Calling shader preparation.** `unity_serialized::spirv_prep::prepare_stages` is in the Foundation layer, which this crate may depend on, but the runtime does not call it. Callers supply the prepared words and `PreparedModule::bindings` of each stage, prepared together with the variant's other stages. `unity-import player-shader-layouts` does this for every Vulkan variant of a player.

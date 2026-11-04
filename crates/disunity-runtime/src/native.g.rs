@@ -681,7 +681,7 @@ pub struct DisunityGlyphRender {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
+    /// Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,

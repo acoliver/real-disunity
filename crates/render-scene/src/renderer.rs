@@ -549,7 +549,7 @@ pub fn depth_texture(device: &Device, viewport: Viewport) -> Texture {
         sample_count: 1,
         dimension: TextureDimension::D2,
         format: DEPTH_FORMAT,
-        usage: TextureUsages::RENDER_ATTACHMENT,
+        usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     })
 }

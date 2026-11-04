@@ -225,6 +225,8 @@ impl ShadowedScene {
         input: &RenderInput<'_>,
         key: worldrunner_render_gpu::submission::capture::WriteKey,
     ) -> Result<CaptureWrites, ShadowError> {
+        self.scheduler
+            .prepare_scene_inputs(input.context.device(), &self.gpu);
         let scene_keys = self.gpu.capture_write_keys(input.context.device())?;
         let mut suffix = scene_keys.clone();
         suffix.push(crate::compositor::publication::key(&self.refresh));

@@ -1,5 +1,6 @@
 //! Complete stock configuration replacement, including effect bindings and history.
 mod encoding;
+mod snapshots;
 use super::{FrameOutput, FrameRenderer};
 use crate::device::GpuContext;
 pub use encoding::FrameEncoding;
@@ -23,6 +24,8 @@ pub struct RendererConfiguration {
     pub ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
     pub water: Vec<worldrunner_render_plan::SceneWaterBody>,
+    /// Reserve the existing frame-depth snapshots for depth-tested UI.
+    pub ui_depth: bool,
     pub frame_slots: usize,
     pub timing: TimingMode,
     /// Host-owned persistent storage, staging, readbacks and CPU accumulation.
@@ -44,6 +47,7 @@ impl RendererConfiguration {
             ssao: None,
             ssr: None,
             water: Vec::new(),
+            ui_depth: false,
             frame_slots: 3,
             timing: TimingMode::Disabled,
             additional: AllocationSet::default(),
@@ -55,51 +59,7 @@ impl RendererConfiguration {
             self.frame, self.post,
         ));
         screen_allocations(self, &mut set);
-        if !self.water.is_empty() || self.ssr.is_some_and(|ssr| ssr.enabled) {
-            let [w, h] = self.frame.size;
-            set.texture(
-                "snapshot color",
-                [w, h, 1],
-                wgpu::TextureFormat::Rgba16Float,
-                [1, 1],
-                3,
-            );
-            set.texture(
-                "snapshot depths",
-                [w, h, 1],
-                wgpu::TextureFormat::R32Float,
-                [1, 1],
-                6,
-            );
-            set.buffer("snapshot uniforms", 304, 3);
-            set.buffer("snapshot staging", 192, 3);
-            if !self.water.is_empty() {
-                set.texture(
-                    "water receivers",
-                    [w, h, 1],
-                    wgpu::TextureFormat::Rgba16Float,
-                    [1, self.frame.samples],
-                    9,
-                );
-                set.texture(
-                    "empty water environment",
-                    [1, 1, 6],
-                    wgpu::TextureFormat::Rgba16Float,
-                    [1, 1],
-                    1,
-                );
-                set.texture(
-                    "empty water BRDF",
-                    [1, 1, 1],
-                    wgpu::TextureFormat::Rgba16Float,
-                    [1, 1],
-                    1,
-                );
-            }
-            for water in &self.water {
-                crate::water::allocations(water, &mut set);
-            }
-        }
+        snapshots::allocations(self, &mut set);
         if self.timing != TimingMode::Disabled {
             set.extend(worldrunner_render_post::allocation::timing_allocations());
         }
@@ -684,7 +644,7 @@ fn build(
     renderer.install_reflections(device, settings.frame.size)?;
     install_jitter(&mut renderer, settings)?;
     renderer.install_water_bodies(device, settings.water.clone())?;
-    if renderer.ssr.is_some() && renderer.snapshots.is_none() {
+    if (settings.ui_depth || renderer.ssr.is_some()) && renderer.snapshots.is_none() {
         renderer.snapshots = Some(std::array::from_fn(|_| {
             crate::water::snapshots::Snapshots::new(device, settings.frame)
         }));

@@ -266,22 +266,54 @@ copies this topology and all three UV pairs through the generated UI records.
 The live 2D sprite path represents triangles as degenerate quads; arbitrary
 per-vertex UV mapping is carried by the retained UI presentation path.
 
-### Depth policy remainder
+### Scene-depth testing
 
 `AlwaysVisible` draws over the display output after tone mapping. `DepthTested`
-currently returns `UiError::UnsupportedAnnotationDepth`. The overlay render pass
-has no depth attachment, uses the output resolution at one sample, and its shader
-has no scene-depth binding. Attaching scene depth directly would also conflict
-with scene MSAA and render/output resolution differences.
+requires world anchors at both line/arrow endpoints, or at the circle/label anchor.
+Screen-only and mixed screen/world depth-tested primitives return
+`UiError::UnsupportedAnnotationDepth`. Frustum clipping is identical for both
+policies. Ordinary screen UI and `AlwaysVisible` draws have no depth binding,
+texture read or depth snapshot request.
 
-A follow-up can extend this same overlay stage with a sampled, single-sample
-non-reversed scene-depth product. It must carry projected anchor depth and the
-matching presented view/generation, map output pixels into scene-depth pixels,
-resolve MSAA depth with the scene's existing nearest-depth convention, and reject
-fragments whose anchor depth exceeds scene depth under a documented bias. Lines
-between world anchors need interpolated depth; a world-anchored label or circle
-uses its anchor depth. Screen-only depth-tested annotations must return an error.
-The existing frame executor must declare that depth read and retain its resource
-through composition. No second annotation pass or renderer is required. Tests
-must compare both policies behind an occluder under MSAA, resolution scaling,
-camera motion and resize. A real-window annotation check remains pending.
+Depth-tested annotations use the existing overlay stage in the same retained
+frame. Extraction preserves non-reversed 0..1 projected depth in `UiDraw::corners`
+Z and marks `depth_test`. Raster depth interpolates across line shafts and
+arrowheads in screen space; circles and labels retain their anchor depth. The
+compositor reconstructs view-space metres with that frame's inverse projection
+and compares against the existing single-sample `post-water depth` product. This
+product reads the scene's actual depth attachment, including depth-writing water,
+after transparent geometry. Transparent surfaces without depth writes do not
+occlude annotations.
+
+The snapshot uses the minimum source depth across MSAA samples, then reconstructs
+positive view-space metres into `R32Float`. Depth-tested UI requests this existing
+resolve once when water/reflections have not already requested it, including on
+the LDR path. It never introduces a second resolve or annotation renderer. The
+executor declares the source-depth read and retains the per-slot snapshot through
+output composition. Output pixel centres map to scene-depth pixels by normalized
+coordinates and nearest loads, including when scene and output extents differ.
+This conservative resolve can occlude a complete output pixel when only one scene
+sample is covered at a silhouette.
+
+An annotation fragment remains visible when its view depth is at most scene depth
+plus **0.001 metres**. This one-millimetre bias avoids surface flicker caused by
+projection roundoff. It intentionally admits fragments less than one millimetre
+behind a surface; it cannot recover precision already lost in a distant 32-bit
+raster-depth value. Windowless Metal tests check exact annotation and occluder
+RGBA bytes, coplanar visibility, the bias boundary, and both depth policies in
+LDR, single-sample HDR and four-sample HDR.
+
+For a budgeted low-level host, set `RendererConfiguration::ui_depth` when a UI
+contribution needs depth. `UiOverlay::needs_depth()` reports that demand. The
+retained viewer updates this reservation through its existing frame configuration
+path before replacing UI; scene meshes and textures are unchanged. With no depth
+consumer, no depth snapshot is allocated or resolved. Statistics publish all
+issued annotation draws in `SceneStatistics::passes.ui` and the depth-tested
+subset in `passes.ui_depth_tested`; fully clipped draws are excluded. Capture
+observations use the same submitted counters. Rejected or abandoned output does
+not publish new counts.
+
+As with other world-anchored annotations, re-extract against the presented view
+after camera or viewport changes. Extraction and composition must describe the
+same view; the host does not reproject stale pixel geometry. A real-window
+annotation check remains pending.

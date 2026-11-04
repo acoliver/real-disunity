@@ -115,7 +115,7 @@ namespace Disunity.Native
     internal unsafe partial struct DisunityUiDraw
     {
         /// <summary>
-        ///  0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
+        ///  Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
         /// </summary>
         public uint kind;
         public ulong hierarchy_order;

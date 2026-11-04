@@ -128,10 +128,7 @@ impl Streaming {
             let old_resident = std::mem::replace(resident, next_resident);
             self.retired.push_back((serial, old_resident));
         } else if let crate::RetainedUpdate::Ui(overlay) = &front.update {
-            resident
-                .scene_mut()
-                .set_ui_overlay(context.device(), context.submission(), overlay)
-                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
+            super::retained::apply_ui(context, resident, presentation, overlay)?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
             super::retained::apply_decal(resident.scene_mut(), update)?;
         } else {

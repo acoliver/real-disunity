@@ -1,3 +1,4 @@
+mod annotation_depth;
 mod annotations;
 mod graphics;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {

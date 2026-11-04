@@ -13,7 +13,7 @@ use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind};
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
+    /// Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,
@@ -82,14 +82,14 @@ pub unsafe extern "C" fn disunity_presentation_ui_draw(
         ] = draw.triangle_uv.unwrap_or([[0.; 2]; 3]);
         unsafe {
             *output = DisunityUiDraw {
-                kind: if draw.triangle_uv.is_some() {
+                kind: (if draw.triangle_uv.is_some() {
                     2
                 } else {
                     match draw.kind {
                         UiDrawKind::Graphic => 0,
                         UiDrawKind::Text => 1,
                     }
-                },
+                }) | (u32::from(draw.depth_test) << 2),
                 hierarchy_order: draw.hierarchy_order as u64,
                 clip_x,
                 clip_y,

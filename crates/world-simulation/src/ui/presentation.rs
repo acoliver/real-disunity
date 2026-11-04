@@ -12,6 +12,8 @@ pub enum UiDrawKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiDraw {
     pub kind: UiDrawKind,
+    /// Compare corners' non-reversed 0..1 raster depth with the retained scene.
+    pub depth_test: bool,
     /// Some for triangle lists: first three corners and per-vertex, top-row-origin UVs.
     pub triangle_uv: Option<[[f32; 2]; 3]>,
     /// Lower-left viewport pixels, in bottom-left, bottom-right, top-right, top-left order.
@@ -91,6 +93,7 @@ impl UiPresentation {
                 let [a, b, c] = *triangle;
                 result.draws.push(UiDraw {
                     kind: UiDrawKind::Graphic,
+                    depth_test: false,
                     triangle_uv: Some(triangle.map(|v| [v.uv[0], 1. - v.uv[1]])),
                     corners: [a.position, b.position, c.position, c.position],
                     uv_rect: [0.; 4],
@@ -105,6 +108,7 @@ impl UiPresentation {
             for quad in &graphic.quads {
                 result.draws.push(UiDraw {
                     kind: UiDrawKind::Graphic,
+                    depth_test: false,
                     triangle_uv: None,
                     corners: quad.corners,
                     uv_rect: quad.uv_rect,
@@ -131,6 +135,7 @@ impl UiPresentation {
                 let uv = glyph.uv;
                 self.draws.push(UiDraw {
                     kind: UiDrawKind::Text,
+                    depth_test: false,
                     triangle_uv: None,
                     corners: glyph.corners,
                     uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],

@@ -2,10 +2,16 @@ use super::*;
 
 #[test]
 fn triangle_copy_out_keeps_uvs_topology_clip_and_draw_order() {
+    for depth_test in [false, true] {
+        triangle_copy_out(depth_test);
+    }
+}
+fn triangle_copy_out(depth_test: bool) {
     use worldrunner_world_simulation::ui::presentation::UiPresentation;
     let world = crate::store::create_world(&mut crate::lock_store()).unwrap();
     let draw = UiDraw {
         kind: UiDrawKind::Graphic,
+        depth_test,
         triangle_uv: Some([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]),
         corners: [
             [10., 10., 0.],
@@ -34,7 +40,7 @@ fn triangle_copy_out_keeps_uvs_topology_clip_and_draw_order() {
         unsafe { disunity_presentation_ui_draw(world, 0, &mut meta, &mut quad) }.code,
         0
     );
-    assert_eq!(meta.kind, 2);
+    assert_eq!(meta.kind, 2 | (u32::from(depth_test) << 2));
     assert_eq!(
         [meta.triangle_u0.to_bits(), meta.triangle_v2.to_bits()],
         [0.1f32.to_bits(), 0.6f32.to_bits()]

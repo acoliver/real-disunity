@@ -71,14 +71,14 @@ pub fn encode_resident(
         pipelines,
         publications: crate::draw::DrawPublications::default(),
     };
-    renderer.encode(
+    renderer.encode_frame(
         device,
         encoder,
-        &passes,
-        &views,
+        (&passes, &views),
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut feature,
         }],
+        (scene.resident_frame(), None),
     )
 }

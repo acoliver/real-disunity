@@ -8,6 +8,7 @@ mod overlay;
 pub(crate) mod pages;
 mod picking;
 mod terrain;
+mod timers;
 mod timing;
 mod work;
 #[test]

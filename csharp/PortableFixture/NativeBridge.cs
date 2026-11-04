@@ -55,7 +55,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1"))
+            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1" or "portable-compute-v1"))
             {
                 return -2;
             }
@@ -74,6 +74,7 @@ public static class NativeBridge
             if (kind == "portable-texture-v1") AddTexture();
             if (kind == "portable-atlas-v1") AddAtlas();
             if (kind == "portable-mesh-v1") AddMesh();
+            if (kind == "portable-compute-v1") AddCompute();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
             DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
@@ -147,6 +148,23 @@ public static class NativeBridge
         var material = new Material(DisunityHost.RegisterShader("Fixture/Plain"));
         material.SetColor("_Color", new Color(0.25f, 0.5f, 0.75f, 1f));
         shown.AddComponent<MeshRenderer>().sharedMaterials = [material, null];
+    }
+    /// <summary>Two dispatches of a compute shader into one buffer, a kernel size the plan does not state, and a read-back of the buffer:
+    /// the reads flush, so a host that executes the work shows in the position of an object, where (x, y) are what the host wrote for
+    /// the two dispatches and z is the size it stated for the second kernel (100 x + 10 y + z).</summary>
+    private static void AddCompute()
+    {
+        var shader = DisunityHost.RegisterComputeShader("Fixture/Fill", "fixture.assets", 7, [("Fill", [8u, 8u, 1u]), ("Late", null)]);
+        var buffer = new ComputeBuffer(2, 4);
+        shader.SetBuffer(0, "_Output", buffer);
+        shader.SetBuffer(1, "_Output", buffer);
+        shader.SetInt("_Width", 64);
+        shader.Dispatch(0, 3, 2, 1);
+        shader.Dispatch(1, 5, 1, 1);
+        shader.GetKernelThreadGroupSizes(1, out var x, out var y, out var z);
+        var result = new int[2];
+        buffer.GetData(result);
+        DisunityHost.CreateGameObject().transform.position = new Vector3(result[0], result[1], x * 100 + y * 10 + z);
     }
     private static void AddPerspectiveCamera(bool partialRect)
     {

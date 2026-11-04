@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use worldrunner_disunity_runtime::{DisunityHost, HostError, ManagedHostConfig};
+use worldrunner_disunity_runtime::{
+    DisunityHost, GpuFlush, GpuValue, GpuWork, HostError, ManagedHostConfig,
+};
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -169,6 +171,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_player_textures(&mut host, &root);
     assert_player_meshes(&mut host, &root);
     assert_player_distance_field_atlas(&mut host, &root);
+    assert_gpu_flush(&mut host, &root);
     host.run_slice(&fixture).unwrap();
     assert_cross_language_writes(&mut host);
     drop(host);
@@ -419,4 +422,102 @@ fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {
         "the glyph was drawn"
     );
     host.unload_slice().unwrap();
+}
+
+/// What the fake executor saw in one flush: the dispatches it ran, as kernel, groups and the names
+/// of the values bound.
+type Seen = Vec<(u32, [u32; 3], Vec<String>)>;
+
+/// A fake executor: for each dispatch it states a group size for a kernel that has none, and
+/// writes `kernel * 100 + groups` into the first buffer bound at the kernel's own slot.
+fn fake_executor(
+    log: std::rc::Rc<std::cell::RefCell<Vec<Seen>>>,
+) -> impl FnMut(&mut GpuFlush<'_>) -> Result<(), String> + 'static {
+    move |flush| {
+        let work = flush.take_offscreen().map_err(|error| error.to_string())?;
+        let mut seen = Seen::new();
+        for item in work {
+            let GpuWork::Dispatch(dispatch) = item else {
+                continue;
+            };
+            let shader = flush
+                .compute_shader(dispatch.shader)
+                .map_err(|error| error.to_string())?;
+            let kernel = &shader.kernels[dispatch.kernel as usize];
+            if kernel.thread_group_size.is_none() {
+                flush
+                    .set_kernel_thread_group_size(dispatch.shader, dispatch.kernel, [4, 2, 1])
+                    .map_err(|error| error.to_string())?;
+            }
+            let names = dispatch.bindings.iter().map(|b| b.name.clone()).collect();
+            seen.push((dispatch.kernel, dispatch.groups, names));
+            let Some(GpuValue::Buffer(buffer)) = dispatch
+                .bindings
+                .iter()
+                .find_map(|b| matches!(b.value, GpuValue::Buffer(_)).then(|| b.value.clone()))
+            else {
+                return Err("a dispatch without a buffer".into());
+            };
+            let [x, y, z] = dispatch.groups;
+            let value = dispatch.kernel * 100 + x * y * z;
+            flush
+                .write_compute_buffer(buffer, u64::from(dispatch.kernel) * 4, &value.to_le_bytes())
+                .map_err(|error| error.to_string())?;
+        }
+        log.borrow_mut().push(seen);
+        Ok(())
+    }
+}
+
+fn assert_gpu_flush(host: &mut DisunityHost, root: &Path) {
+    let fixture = root.join("csharp/PortableFixture/compute.fixture");
+    let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    host.set_gpu_flush(Box::new(fake_executor(log.clone())))
+        .unwrap();
+    host.run_slice(&fixture).unwrap();
+    let positions: Vec<_> = host
+        .export_objects()
+        .unwrap()
+        .iter()
+        .map(|state| host.managed_position(state.object).unwrap())
+        .collect();
+    assert!(
+        positions.contains(&[6., 105., 421.]),
+        "the managed GetData saw what the executor wrote (kernel 0: 6, kernel 1: 105) and the size it stated (4 2 1): {positions:?}"
+    );
+    let flushes = log.borrow().clone();
+    assert_eq!(
+        flushes.len(),
+        2,
+        "one flush for the group size and one for the read"
+    );
+    let names = vec!["_Width".to_owned(), "_Output".to_owned()];
+    assert_eq!(
+        flushes[0],
+        vec![(0, [3, 2, 1], names.clone()), (1, [5, 1, 1], names)],
+        "the first flush ran both dispatches in call order, each with the values it had"
+    );
+    assert!(
+        flushes[1].is_empty(),
+        "work already taken is not taken again"
+    );
+    host.unload_slice().unwrap();
+    assert_gpu_flush_failure(host, &fixture);
+    host.set_gpu_flush(Box::new(|_| Ok(()))).unwrap();
+    let unstated = host.run_slice(&fixture).unwrap_err();
+    assert!(
+        matches!(&unstated, HostError::SliceRun { message, .. } if message.contains("ComputeShader.GetKernelThreadGroupSizes")),
+        "an executor that states no group size leaves the managed call to throw: {unstated:?}"
+    );
+}
+
+fn assert_gpu_flush_failure(host: &mut DisunityHost, fixture: &Path) {
+    host.set_gpu_flush(Box::new(|_| Err("the device is lost".into())))
+        .unwrap();
+    let failed = host.run_slice(fixture).unwrap_err();
+    assert!(
+        matches!(&failed, HostError::SliceRun { message, .. } if message.contains("GPU flush") && message.contains("the device is lost")),
+        "a failing flush fails the managed call and names the flush: {failed:?}"
+    );
+    assert_eq!(host.store_statistics().0, 0);
 }

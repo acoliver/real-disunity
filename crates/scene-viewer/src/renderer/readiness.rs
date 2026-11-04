@@ -140,7 +140,22 @@ impl Streaming {
             );
             let old_resident = std::mem::replace(resident, next_resident);
             self.retired.push_back((serial, old_resident));
-        } else if let crate::RetainedUpdate::Ui(overlay) = &front.update {
+        } else {
+            self.apply_in_place(context, resident, presentation, front)?;
+        }
+        host.publish_pick_front();
+        Ok(())
+    }
+
+    /// Applies an update that edits the resident scene in place rather than replacing it.
+    fn apply_in_place(
+        &mut self,
+        context: &super::GpuContext,
+        resident: &mut Resident,
+        presentation: &mut Presentation,
+        front: &mut crate::retained::readiness::Preparation,
+    ) -> Result<(), ViewerError> {
+        if let crate::RetainedUpdate::Ui(overlay) = &front.update {
             resident
                 .scene_mut()
                 .set_ui_overlay(context.device(), context.submission(), overlay)
@@ -157,7 +172,6 @@ impl Streaming {
                 super::retained::configure_effects(context, resident, presentation, &effects)?;
             }
         }
-        host.publish_pick_front();
         Ok(())
     }
     fn advance_preparation(

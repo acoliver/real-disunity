@@ -43,6 +43,7 @@ mod adapter;
 mod assets;
 mod builtins;
 mod camera;
+mod census;
 mod frame;
 mod ids;
 mod properties;
@@ -59,6 +60,7 @@ pub use builtins::{
     draw_layer,
 };
 pub use camera::{clip_from_gl, projection, world_to_camera};
+pub use census::{ShaderCensus, shader_census};
 pub use frame::{
     Adapted, Available, BLIT_MESH, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
 };

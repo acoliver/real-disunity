@@ -16,6 +16,7 @@ const WINDOW_SIZE: [u32; 2] = [1920, 1080];
 
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
+       play shader-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...";
 
@@ -212,7 +213,31 @@ fn play(arguments: Arguments) -> Result<(), String> {
     )
 }
 
+/// `play shader-census <player data directory>`: loads every shader of the player through the
+/// offscreen adapter's loader and prints counts.
+fn shader_census(directory: &str) -> ExitCode {
+    match worldrunner_play::offscreen::shader_census(std::path::Path::new(directory)) {
+        Ok(census) => {
+            println!(
+                "{} shader objects, {} loaded with {} passes, failed by error: {:?}",
+                census.shaders, census.loaded, census.passes, census.failed
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [command, directory] = args.as_slice()
+        && command == "shader-census"
+    {
+        return shader_census(directory);
+    }
     match parse(std::env::args().skip(1)).and_then(play) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

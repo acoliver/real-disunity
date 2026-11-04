@@ -166,3 +166,25 @@ fn a_path_that_leaves_the_data_directory_is_refused_before_it_is_opened() {
         );
     }
 }
+
+#[test]
+fn the_census_counts_shaders_programs_passes_and_failures_by_name() {
+    use super::super::census::shader_census;
+    let directory = tempfile::tempdir().unwrap();
+    write(
+        directory.path(),
+        "level0",
+        &[(1, &[VULKAN], 2, None), (2, &[OTHER], 1, None)],
+    );
+    write(
+        directory.path(),
+        "sharedassets0.assets",
+        &[(5, &[VULKAN], 3, None)],
+    );
+    // A file that is not a serialized file of the player is not read.
+    std::fs::write(directory.path().join("boot.config"), b"not serialized").unwrap();
+    let census = shader_census(directory.path()).unwrap();
+    assert_eq!((census.shaders, census.loaded, census.passes), (3, 2, 5));
+    assert_eq!(census.failed.get("NoVulkanPlatform"), Some(&1));
+    assert_eq!(census.failed.len(), 1);
+}

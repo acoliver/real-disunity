@@ -11,6 +11,7 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
         8 => wgpu::TextureFormat::Rgba8Unorm,
         45 => wgpu::TextureFormat::R16Float,
         48 => wgpu::TextureFormat::Rgba16Float,
+        52 => wgpu::TextureFormat::Rgba32Float,
         _ => return Err(OffscreenError::UnsupportedFormat { code }),
     })
 }
@@ -38,6 +39,7 @@ mod tests {
             (8, wgpu::TextureFormat::Rgba8Unorm),
             (45, wgpu::TextureFormat::R16Float),
             (48, wgpu::TextureFormat::Rgba16Float),
+            (52, wgpu::TextureFormat::Rgba32Float),
         ] {
             assert_eq!(color_format(code).unwrap(), format);
         }
@@ -46,7 +48,7 @@ mod tests {
     #[test]
     fn other_formats_are_named_errors_with_their_code() {
         // Rgb8 has no wgpu format; 93 is a depth format, which is not a color format.
-        for code in [0, 7, 52, 93, 101, 4000] {
+        for code in [0, 7, 49, 93, 101, 4000] {
             assert!(matches!(
                 color_format(code),
                 Err(OffscreenError::UnsupportedFormat { code: found }) if found == code

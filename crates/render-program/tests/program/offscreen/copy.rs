@@ -127,13 +127,13 @@ fn a_copy_to_an_element_or_mip_the_target_lacks_is_a_named_error() {
 }
 
 #[test]
-fn a_format_that_has_no_test_is_a_named_error_with_its_code() {
+fn a_format_outside_the_table_is_a_named_error_with_its_code() {
     let mut rig = rig_with_sources();
     let mut frame = array([4, 4], 1, 1);
-    frame.render_textures[0].graphics_format = 52;
+    frame.render_textures[0].graphics_format = 49;
     let error = rig.build(&frame).err().unwrap();
     assert!(
-        matches!(error, OffscreenError::UnsupportedFormat { code: 52 }),
+        matches!(error, OffscreenError::UnsupportedFormat { code: 49 }),
         "{error}"
     );
 }

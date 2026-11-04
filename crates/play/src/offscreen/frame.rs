@@ -1,0 +1,475 @@
+//! Maps a snapshot of the world's graphics state onto render-program's [`OffscreenFrame`].
+//!
+//! The records keep the world's call order. A record that names something that no longer exists,
+//! or that the host cannot supply, is left out and counted by the reason. A blit with every pass
+//! becomes one record for each pass of its material's shader, in pass order.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId};
+use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::offscreen::frame::{
+    Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
+};
+use worldrunner_render_program::shader::PassSelector;
+use worldrunner_world_simulation::ComponentHandle;
+use worldrunner_world_simulation::graphics::{
+    MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId, ShaderId as WorldShaderId,
+    TextureRef,
+};
+use worldrunner_world_simulation::presentation::CameraClear;
+
+use super::builtins::{camera_layer, draw_layer};
+use super::ids;
+use super::properties::{Textures, layer};
+use super::snapshot::{CameraView, GraphicsSnapshot, RendererView};
+
+/// The tag key whose value names a pass's purpose.
+const PASS_TAG: &str = "LightMode";
+
+/// The mesh a blit draws.
+pub const BLIT_MESH: MeshId = MeshId(u64::MAX);
+
+/// What the caller chooses.
+#[derive(Clone, Debug, Default)]
+pub struct Settings {
+    /// The passes a camera draws: the first of these `LightMode` values that any pass of a
+    /// shader has selects the pass.
+    pub light_modes: Vec<String>,
+}
+
+/// What the shader of a material offers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShaderInfo {
+    /// The passes of its first sub-shader.
+    pub passes: usize,
+    /// The queue a material that names none takes.
+    pub queue: i32,
+}
+
+/// What the host can supply for the snapshot: the shaders it loaded, and the identities of the
+/// meshes and stored textures it uploaded.
+#[derive(Clone, Debug, Default)]
+pub struct Available {
+    pub shaders: BTreeMap<WorldShaderId, ShaderInfo>,
+    pub meshes: BTreeSet<u64>,
+    pub textures: BTreeSet<u64>,
+}
+
+/// Why a record was left out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Skip {
+    StaleCamera,
+    StaleTarget,
+    StaleSource,
+    StaleMaterial,
+    ShaderUnavailable,
+    SourceUnavailable,
+    NoBlitSource,
+    PartialViewport,
+}
+
+/// Why a renderer was left out of the frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RendererSkip {
+    MeshUnavailable,
+    NoMaterial,
+    EmptySlot,
+}
+
+/// What the mapping did.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Report {
+    /// The records the world listed.
+    pub records: usize,
+    /// The records of the frame, after a blit of every pass became one for each pass.
+    pub built: usize,
+    pub skipped: BTreeMap<Skip, usize>,
+    pub renderers_skipped: BTreeMap<RendererSkip, usize>,
+    /// The `GraphicsFormat` codes of the render textures the frame uses.
+    pub formats: BTreeSet<u32>,
+    /// What could not be loaded, uploaded or built, by the kind of thing and the name of the
+    /// error, such as `shader:NoVulkanPlatform`.
+    pub failures: BTreeMap<String, usize>,
+}
+
+#[derive(Debug)]
+pub struct Adapted {
+    pub frame: OffscreenFrame,
+    pub report: Report,
+}
+
+/// A render texture's side as a float. Sides above 65535 saturate, and none reaches them.
+fn texels(side: u32) -> f32 {
+    f32::from(u16::try_from(side).unwrap_or(u16::MAX))
+}
+
+/// The textures a record reads or writes.
+fn textures_of(record: &Record) -> Vec<worldrunner_render_program::ids::TextureId> {
+    match *record {
+        Record::CameraRender { target, .. } => vec![target],
+        Record::Blit { source, target, .. } | Record::CopyTexture { source, target, .. } => {
+            vec![source, target]
+        }
+    }
+}
+
+/// Maps `snapshot`.
+#[must_use]
+pub fn adapt(snapshot: &GraphicsSnapshot, available: &Available, settings: &Settings) -> Adapted {
+    let mut mapper = Mapper::new(snapshot, available, settings);
+    mapper.records();
+    mapper.renderers();
+    mapper.finish()
+}
+
+struct Mapper<'a> {
+    snapshot: &'a GraphicsSnapshot,
+    available: &'a Available,
+    settings: &'a Settings,
+    textures: Textures<'a>,
+    frame: OffscreenFrame,
+    report: Report,
+    cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
+    queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
+}
+
+impl<'a> Mapper<'a> {
+    fn new(
+        snapshot: &'a GraphicsSnapshot,
+        available: &'a Available,
+        settings: &'a Settings,
+    ) -> Self {
+        let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
+        let mut frame = OffscreenFrame::default();
+        if let Some(global) = &snapshot.global {
+            frame.globals = layer(&global.properties, &mut textures);
+            frame.global_keywords.clone_from(&global.keywords);
+        }
+        Self {
+            snapshot,
+            available,
+            settings,
+            textures,
+            frame,
+            report: Report {
+                records: snapshot.work.len(),
+                ..Report::default()
+            },
+            cameras: BTreeMap::new(),
+            queued: BTreeMap::new(),
+        }
+    }
+
+    fn records(&mut self) {
+        for work in &self.snapshot.work {
+            match self.record(work) {
+                Ok(records) => {
+                    self.report.built += records.len();
+                    self.frame.records.extend(records);
+                }
+                Err(skip) => *self.report.skipped.entry(skip).or_default() += 1,
+            }
+        }
+    }
+
+    fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
+        match *work {
+            OffscreenWork::CameraRender { camera, target } => self
+                .camera_render(camera, target)
+                .map(|record| vec![record]),
+            OffscreenWork::Blit {
+                source,
+                target,
+                material,
+                pass,
+            } => self.blit(source, target, material, pass),
+            OffscreenWork::CopyTexture {
+                source,
+                source_element,
+                source_mip,
+                target,
+                target_element,
+                target_mip,
+            } => {
+                let (source, target) = (self.source(source)?, self.target(target)?);
+                Ok(vec![Record::CopyTexture {
+                    source,
+                    source_element,
+                    source_mip,
+                    target,
+                    target_element,
+                    target_mip,
+                }])
+            }
+        }
+    }
+
+    /// The name of a render texture a record writes.
+    fn target(
+        &mut self,
+        target: RenderTextureId,
+    ) -> Result<worldrunner_render_program::ids::TextureId, Skip> {
+        if !self.snapshot.render_textures.contains_key(&target) {
+            return Err(Skip::StaleTarget);
+        }
+        Ok(ids::render_texture(target))
+    }
+
+    /// The name of a texture a record reads.
+    fn source(
+        &mut self,
+        source: TextureRef,
+    ) -> Result<worldrunner_render_program::ids::TextureId, Skip> {
+        match source {
+            TextureRef::None => Err(Skip::NoBlitSource),
+            TextureRef::Render(id) => {
+                if !self.snapshot.render_textures.contains_key(&id) {
+                    return Err(Skip::StaleSource);
+                }
+                Ok(ids::render_texture(id))
+            }
+            TextureRef::Asset(identity) => {
+                if !self.available.textures.contains(&identity) {
+                    return Err(Skip::SourceUnavailable);
+                }
+                ids::stored_texture(identity).ok_or(Skip::SourceUnavailable)
+            }
+        }
+    }
+
+    fn camera_render(
+        &mut self,
+        handle: ComponentHandle,
+        target: RenderTextureId,
+    ) -> Result<Record, Skip> {
+        let view = self
+            .snapshot
+            .cameras
+            .get(&handle)
+            .ok_or(Skip::StaleCamera)?;
+        let size = self
+            .snapshot
+            .render_textures
+            .get(&target)
+            .map(|texture| [texture.width, texture.height])
+            .ok_or(Skip::StaleTarget)?;
+        if view.settings.viewport != [0.0, 0.0, 1.0, 1.0] {
+            return Err(Skip::PartialViewport);
+        }
+        let target = self.target(target)?;
+        let id = match self.cameras.get(&(handle, size)) {
+            Some(id) => *id,
+            None => {
+                let id = CameraId(self.cameras.len() as u64);
+                self.frame.cameras.insert(id, self.camera(view, size));
+                self.cameras.insert((handle, size), id);
+                id
+            }
+        };
+        Ok(Record::CameraRender { camera: id, target })
+    }
+
+    /// What the camera clears, from its clear flags, and what it draws.
+    fn camera(&self, view: &CameraView, size: [u32; 2]) -> Camera {
+        let (clear_color, clear_depth) = match view.settings.clear {
+            CameraClear::Skybox | CameraClear::SolidColor => (Some(view.settings.background), true),
+            CameraClear::DepthOnly => (None, true),
+            CameraClear::Nothing => (None, false),
+        };
+        Camera {
+            culling_mask: view.settings.culling_mask,
+            clear_color,
+            clear_depth,
+            pass: PassSelector::Tag {
+                key: PASS_TAG.to_owned(),
+                values: self.settings.light_modes.clone(),
+            },
+            values: camera_layer(view, texels(size[0]) / texels(size[1])),
+            // Unity winds front faces clockwise as seen with up up. The image is the other way up
+            // (see `camera::clip_from_gl`), which reverses a winding.
+            front_face: wgpu::FrontFace::Ccw,
+        }
+    }
+
+    fn blit(
+        &mut self,
+        source: TextureRef,
+        target: RenderTextureId,
+        material: Option<WorldMaterialId>,
+        pass: i32,
+    ) -> Result<Vec<Record>, Skip> {
+        let source = self.source(source)?;
+        let target = self.target(target)?;
+        let Some(material) = material else {
+            self.frame.blit_mesh.get_or_insert(BLIT_MESH);
+            return Ok(vec![Record::Blit {
+                source,
+                target,
+                material: None,
+                pass: 0,
+            }]);
+        };
+        let (id, passes) = self.blit_material(material)?;
+        self.frame.blit_mesh = Some(BLIT_MESH);
+        let passes = match usize::try_from(pass) {
+            Ok(pass) => pass..pass + 1,
+            Err(_) => 0..passes,
+        };
+        Ok(passes
+            .map(|pass| Record::Blit {
+                source,
+                target,
+                material: Some(id),
+                pass,
+            })
+            .collect())
+    }
+
+    /// A blit's material, and how many passes its shader has.
+    fn blit_material(&mut self, id: WorldMaterialId) -> Result<(MaterialId, usize), Skip> {
+        let material = self
+            .snapshot
+            .materials
+            .get(&id)
+            .ok_or(Skip::StaleMaterial)?;
+        let info = self
+            .available
+            .shaders
+            .get(&material.shader)
+            .ok_or(Skip::ShaderUnavailable)?;
+        Ok((self.material(id, None)?, info.passes))
+    }
+
+    /// The frame's material for a world material, with `queue` in place of its own when the
+    /// renderer has one.
+    fn material(&mut self, id: WorldMaterialId, queue: Option<i32>) -> Result<MaterialId, Skip> {
+        let material = self
+            .snapshot
+            .materials
+            .get(&id)
+            .ok_or(Skip::StaleMaterial)?;
+        let info = self
+            .available
+            .shaders
+            .get(&material.shader)
+            .ok_or(Skip::ShaderUnavailable)?;
+        let own = if material.render_queue < 0 {
+            info.queue
+        } else {
+            material.render_queue
+        };
+        let (named, queue) = match queue {
+            Some(queue) => {
+                let next = u32::try_from(self.queued.len()).unwrap_or(u32::MAX);
+                let named = *self
+                    .queued
+                    .entry((id, queue))
+                    .or_insert_with(|| ids::queued_material(next));
+                (named, queue)
+            }
+            None => (ids::material(id), own),
+        };
+        if !self.frame.materials.contains_key(&named) {
+            let properties = layer(&material.properties, &mut self.textures);
+            self.frame.materials.insert(
+                named,
+                Material {
+                    shader: Some(ids::shader(material.shader)),
+                    keywords: material.keywords.clone(),
+                    properties,
+                    render_queue: queue,
+                },
+            );
+        }
+        Ok(named)
+    }
+
+    /// The renderers some camera of the frame can see.
+    fn renderers(&mut self) {
+        let mask = self
+            .frame
+            .cameras
+            .values()
+            .fold(0_u32, |mask, camera| mask | camera.culling_mask);
+        for (index, view) in self.snapshot.renderers.iter().enumerate() {
+            if mask
+                .checked_shr(view.layer)
+                .is_none_or(|bits| bits & 1 == 0)
+            {
+                continue;
+            }
+            match self.renderer(view) {
+                Ok(renderer) => {
+                    self.frame
+                        .renderers
+                        .insert(RendererId(index as u64), renderer);
+                }
+                Err(skip) => *self.report.renderers_skipped.entry(skip).or_default() += 1,
+            }
+        }
+    }
+
+    fn renderer(&mut self, view: &RendererView) -> Result<Renderer, RendererSkip> {
+        if !self.available.meshes.contains(&view.mesh) {
+            return Err(RendererSkip::MeshUnavailable);
+        }
+        // A slot with no material draws nothing, but the frame's slots are positional: a gap
+        // before a drawn slot cannot be said, so that renderer is left out. Slots after the last
+        // drawn one are simply not listed.
+        let mut slots = Vec::new();
+        let mut gap = false;
+        for slot in &view.materials {
+            match slot.and_then(|id| self.material(id, view.render_queue).ok()) {
+                Some(_) if gap => return Err(RendererSkip::EmptySlot),
+                Some(named) => slots.push(named),
+                None => gap = true,
+            }
+        }
+        if slots.is_empty() {
+            return Err(RendererSkip::NoMaterial);
+        }
+        let block = view
+            .property_block
+            .as_ref()
+            .map_or_else(PropertyLayer::default, |block| {
+                layer(block, &mut self.textures)
+            });
+        Ok(Renderer {
+            mesh: ids::mesh(view.mesh),
+            materials: slots,
+            layer: view.layer,
+            block,
+            per_draw: draw_layer(&view.local_to_world),
+        })
+    }
+
+    fn finish(mut self) -> Adapted {
+        let mut used = self.textures.used().clone();
+        used.extend(
+            self.frame
+                .records
+                .iter()
+                .flat_map(textures_of)
+                .filter_map(ids::render_texture_of),
+        );
+        for id in used {
+            let texture = &self.snapshot.render_textures[&id];
+            self.report.formats.insert(texture.format);
+            self.frame.render_textures.push(RenderTextureSpec {
+                id: ids::render_texture(id),
+                size: [texture.width, texture.height],
+                layers: 1,
+                graphics_format: texture.format,
+                depth_bits: u8::try_from(texture.depth_bits).unwrap_or(u8::MAX),
+                mips: texture.mip_count,
+                srgb: texture.srgb,
+                generation: texture.generation,
+            });
+        }
+        Adapted {
+            frame: self.frame,
+            report: self.report,
+        }
+    }
+}

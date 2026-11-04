@@ -8,19 +8,27 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+glam.workspace = true
 png.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+wgpu.workspace = true
 worldrunner-camera = { path = "../camera" }
 worldrunner-disunity-runtime = { path = "../disunity-runtime" }
 worldrunner-original-games = { path = "../original-games" }
 worldrunner-render-plan = { path = "../render-plan", features = ["simulation"] }
+worldrunner-render-program = { path = "../render-program" }
 worldrunner-render-scene = { path = "../render-scene" }
 worldrunner-scene-viewer = { path = "../scene-viewer" }
 worldrunner-unity-import = { path = "../unity-import" }
+worldrunner-unity-serialized = { path = "../unity-serialized" }
+worldrunner-world-simulation = { path = "../world-simulation" }
 
 [dev-dependencies]
-glam.workspace = true
+pollster.workspace = true
+tempfile.workspace = true
+worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
+worldrunner-render-program = { path = "../render-program", features = ["test-support"] }
 
 [[bin]]
 name = "play"

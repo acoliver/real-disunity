@@ -16,6 +16,7 @@ mod block_texture;
 mod driver;
 mod keys;
 mod navigation;
+pub mod offscreen;
 mod player;
 mod player_meshes;
 mod player_textures;

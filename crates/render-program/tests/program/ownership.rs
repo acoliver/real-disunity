@@ -582,6 +582,18 @@ fn record_dispatch(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
     }
 }
 
+fn record_read_buffer(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let buffer = runtime.create_buffer("data", &[0; 16]).unwrap();
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    drop(runtime.read_buffer(&mut frame, buffer).unwrap());
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_buffer(buffer)),
+    }
+}
+
 fn completes(gpu: &Gpu) {
     gpu.device
         .poll(wgpu::PollType::wait_indefinitely())
@@ -646,6 +658,33 @@ fn a_cancelled_frame_gives_the_bytes_back(record: Record) {
     assert_eq!(renderer.held(), 0, "a cancelled frame used nothing");
 }
 
+/// Staging made by the call is counted by the runtime while its frame is pending, although the
+/// caller dropped the readback.
+fn staging_stays_counted_until_the_frame_completes(record: Record) {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let recorded = record(&gpu, &mut runtime);
+    assert!(
+        runtime.live_bytes() > recorded.before,
+        "the unsubmitted frame holds the staging: {} bytes before the call, {} after",
+        recorded.before,
+        runtime.live_bytes()
+    );
+    recorded.frame.submit().unwrap();
+    assert!(runtime.live_bytes() > recorded.before, "submitted");
+    completes(&gpu);
+    runtime.collect();
+    assert_eq!(runtime.live_bytes(), recorded.before, "completed");
+
+    let again = record(&gpu, &mut runtime);
+    again.frame.cancel();
+    assert_eq!(
+        runtime.live_bytes(),
+        again.before,
+        "a cancelled frame used no staging"
+    );
+}
+
 macro_rules! entry_point {
     ($module:ident, $record:path) => {
         mod $module {
@@ -671,3 +710,18 @@ macro_rules! entry_point {
 
 entry_point!(clear_target, record_clear);
 entry_point!(dispatch, record_dispatch);
+entry_point!(read_buffer, record_read_buffer);
+
+macro_rules! staging {
+    ($module:ident, $record:path) => {
+        #[test]
+        fn $module() {
+            staging_stays_counted_until_the_frame_completes($record);
+        }
+    };
+}
+
+staging!(
+    a_dropped_buffer_readback_keeps_its_staging_counted_through_its_frame,
+    record_read_buffer
+);

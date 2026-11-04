@@ -507,7 +507,9 @@ pub fn layout_report(paths: &[PathBuf]) -> Result<LayoutReport, PlayerError> {
     walk_variants(paths, &mut |event| match event {
         Event::Shader => report.shaders += 1,
         Event::Unreadable(cause) => count(&mut report.unreadable_variants, cause),
-        Event::Variant { parameters, stages } => report.add_variant(parameters, stages),
+        Event::Variant {
+            parameters, stages, ..
+        } => report.add_variant(parameters, stages),
     })?;
     Ok(report)
 }

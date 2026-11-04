@@ -638,7 +638,10 @@ fn material_names(paths: &[PathBuf]) -> Result<Vec<String>, PlayerError> {
 pub fn struct_report(paths: &[PathBuf]) -> Result<StructReport, PlayerError> {
     let mut report = StructReport::default();
     walk_variants(paths, &mut |event| {
-        if let Event::Variant { parameters, stages } = event {
+        if let Event::Variant {
+            parameters, stages, ..
+        } = event
+        {
             report.add_variant(parameters, stages);
         }
     })?;

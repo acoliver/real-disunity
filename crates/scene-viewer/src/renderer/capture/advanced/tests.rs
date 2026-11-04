@@ -26,7 +26,7 @@ fn depth_fitted_recipe_then_ordinary_frame_and_plain_capture_keep_frame_identity
         renderer.drain().unwrap();
         renderer.collect_retained(&mut host).unwrap();
     }
-    assert_recipe_observation(&mut host, id, source.unwrap());
+    assert_recipe_observation(&mut host, id, &source.unwrap());
     assert!(renderer.render_retained(&mut host).unwrap());
     assert_eq!(renderer.streaming.captures.next_frame(), 3);
     renderer.drain().unwrap();
@@ -475,7 +475,7 @@ fn accumulated_capture_freezes_left_handed_camera_across_queued_edit_and_resize(
 fn assert_recipe_observation(
     host: &mut RetainedHost,
     id: u64,
-    source: worldrunner_render_scene::draw::SceneStatistics,
+    source: &worldrunner_render_scene::draw::SceneStatistics,
 ) {
     let Some(RetainedEvent::Capture {
         id: actual,
@@ -491,5 +491,39 @@ fn assert_recipe_observation(
         panic!("recipe completion");
     };
     assert_eq!(actual, id);
-    assert_eq!(observation.scene, source);
+    assert_eq!(&observation.scene, source);
+}
+
+#[test]
+fn geometry_recipe_observations_match_first_source_sample() {
+    let base = crate::renderer::retained_tests::terrain_source();
+    let terrain = base.terrain().unwrap().clone().with_streaming_policy(Some(
+        worldrunner_render_plan::TerrainStreamingPolicy::new(1, 9, 4, 1000).unwrap(),
+    ));
+    let scene = base
+        .with_terrain(Some(std::sync::Arc::new(terrain)))
+        .unwrap();
+    let mut host = RetainedHost::new(
+        scene,
+        crate::ViewerOptions {
+            size: [64, 64],
+            ..crate::tests::options()
+        },
+    )
+    .unwrap();
+    let mut renderer = pollster::block_on(Renderer::windowless(&mut host)).unwrap();
+    let id = host
+        .request_capture_recipe(0, recipe(1, 2, CaptureJitter::Halton23))
+        .unwrap();
+    assert!(!renderer.render_retained(&mut host).unwrap());
+    let first = renderer.resident.scene_mut().statistics();
+    assert!(matches!(
+        first.terrain_geometry,
+        Some(crate::TerrainGeometryStatistics::Streaming(_))
+    ));
+    renderer.drain().unwrap();
+    assert!(!renderer.render_retained(&mut host).unwrap());
+    renderer.drain().unwrap();
+    renderer.collect_retained(&mut host).unwrap();
+    assert_recipe_observation(&mut host, id, &first);
 }

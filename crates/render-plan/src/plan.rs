@@ -1,5 +1,8 @@
 //! Immutable owned render world plans minted from verified normal publications.
 
+#[cfg(test)]
+mod tests;
+
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -9,19 +12,27 @@ use worldrunner_world_model::{
 };
 use worldrunner_world_runtime::{
     ContentAddress, ContributionKind, HandlerDescriptor, PreparedContribution,
-    PreparedSemanticWorld, RuntimePlanner, VerifiedNormalPublication,
+    PreparedSemanticWorld, RuntimePlanner, VerifiedNormalPublication, VerifiedPublication,
 };
 
 use crate::adapter::{RenderPayload, RenderPayloadAdapter};
 use crate::contract::RenderWorldContract;
-use crate::discovery::DiscoveredRenderContract;
+use crate::discovery::{DiscoveredRenderContract, RENDER_CONTRACT_CAPABILITY_URI};
 use crate::document::ContractDocument;
 use crate::error::RenderPlanError;
-use crate::implementation_registry::ActivatedRenderWorldContract;
+use crate::implementation_registry::{
+    ActivatedRenderPayloadContract, ActivatedRenderWorldContract, RenderRouteKind,
+};
 use crate::limits::RenderWorldLimits;
 use crate::plan_closure::validate_authored_plan_closure;
 use crate::plan_scene::compose_scene;
 use crate::scene::RenderScene;
+
+mod adaptation;
+use adaptation::{
+    AdapterUse, adapt_contributions, adapt_root, enforce_contribution_limits, parse_digest,
+    verify_adapter_use,
+};
 
 /// One adapted contribution retained by a [`RenderWorldPlan`].
 ///
@@ -34,6 +45,7 @@ pub struct RenderContribution {
     claimant: String,
     payload_contract_uri: String,
     handler: HandlerDescriptor,
+    route_key: String,
     payload: RenderPayload,
 }
 
@@ -44,6 +56,7 @@ impl RenderContribution {
         claimant: String,
         payload_contract_uri: String,
         handler: HandlerDescriptor,
+        route_key: String,
         payload: RenderPayload,
     ) -> Self {
         Self {
@@ -51,6 +64,7 @@ impl RenderContribution {
             claimant,
             payload_contract_uri,
             handler,
+            route_key,
             payload,
         }
     }
@@ -79,6 +93,12 @@ impl RenderContribution {
         &self.handler
     }
 
+    /// Returns the exact component schema or capability URI that routed this payload.
+    #[must_use]
+    pub fn route_key(&self) -> &str {
+        &self.route_key
+    }
+
     /// Returns the fully owned adapted CPU payload.
     #[must_use]
     pub fn payload(&self) -> &RenderPayload {
@@ -88,6 +108,111 @@ impl RenderContribution {
 
 #[derive(Debug)]
 pub struct RenderWorldPlan {
+    prepared: PreparedRenderWorldPayloads,
+    scene: RenderScene,
+}
+
+impl RenderWorldPlan {
+    /// Returns the exact validated authored contract.
+    #[must_use]
+    pub const fn authored_contract(&self) -> &ContractDocument {
+        self.prepared.authored_contract()
+    }
+
+    /// Returns the exact discovery binding, or None for a low-level build.
+    #[must_use]
+    pub fn governed_contract_binding_id(&self) -> Option<&str> {
+        self.prepared.governed_contract_binding_id()
+    }
+
+    /// Returns the governed discovery content address.
+    #[must_use]
+    pub const fn governed_contract_address(&self) -> Option<ContentAddress> {
+        self.prepared.governed_contract_address()
+    }
+
+    /// Returns the exact negotiated schema.
+    #[must_use]
+    pub fn schema(&self) -> &SchemaDescriptor {
+        self.prepared.schema()
+    }
+
+    /// Returns the verified source identity.
+    #[must_use]
+    pub fn source(&self) -> &SourceIdentity {
+        self.prepared.source()
+    }
+
+    /// Returns the verified generated-state digest.
+    #[must_use]
+    pub fn generated_state_digest(&self) -> GeneratedStateDigest {
+        self.prepared.generated_state_digest()
+    }
+
+    /// Returns the independently verified corpus digest.
+    #[must_use]
+    pub fn corpus_manifest_digest(&self) -> ContentDigest {
+        self.prepared.corpus_manifest_digest()
+    }
+
+    /// Returns the verified scope-policy digest.
+    #[must_use]
+    pub fn scope_policy_digest(&self) -> ContentDigest {
+        self.prepared.scope_policy_digest()
+    }
+
+    /// Returns the handler that proved document closure.
+    #[must_use]
+    pub fn document_handler(&self) -> &HandlerDescriptor {
+        self.prepared.document_handler()
+    }
+
+    /// Returns the exact adapted root payload contract.
+    #[must_use]
+    pub fn root_payload_contract_uri(&self) -> &str {
+        self.prepared.root_payload_contract_uri()
+    }
+
+    /// Returns the wholly owned adapted root payload.
+    #[must_use]
+    pub fn root_payload(&self) -> &RenderPayload {
+        self.prepared.root_payload()
+    }
+
+    /// Returns adapted contributions sorted by kind, contract and claimant.
+    #[must_use]
+    pub fn contributions(&self) -> &[RenderContribution] {
+        self.prepared.contributions()
+    }
+
+    /// Returns the deterministic negotiated handler revisions.
+    #[must_use]
+    pub fn handler_revisions(&self) -> &BTreeMap<String, u64> {
+        self.prepared.handler_revisions()
+    }
+
+    /// Returns the mandatory validated scene composed through the bound factories.
+    #[must_use]
+    pub const fn scene(&self) -> &RenderScene {
+        &self.scene
+    }
+}
+
+impl std::ops::Deref for RenderWorldPlan {
+    type Target = PreparedRenderWorldPayloads;
+    fn deref(&self) -> &Self::Target {
+        &self.prepared
+    }
+}
+
+/// Owned payload preparation after exact authored closure and adaptation.
+///
+/// No scene factory has run. The result retains publication identities and an
+/// activation identity, without retaining handlers, adapters or providers, so
+/// composition cannot substitute another executable binding.
+#[derive(Debug)]
+pub struct PreparedRenderWorldPayloads {
+    activation_identity: Arc<()>,
     authored_contract: ContractDocument,
     governed_contract_binding_id: Option<String>,
     governed_contract_address: Option<ContentAddress>,
@@ -101,11 +226,10 @@ pub struct RenderWorldPlan {
     root_payload: RenderPayload,
     contributions: Box<[RenderContribution]>,
     handler_revisions: BTreeMap<String, u64>,
-    scene: RenderScene,
 }
 
-impl RenderWorldPlan {
-    /// Returns the exact validated authored contract retained by this plan.
+impl PreparedRenderWorldPayloads {
+    /// Returns the exact validated authored contract retained by this preparation.
     #[must_use]
     pub const fn authored_contract(&self) -> &ContractDocument {
         &self.authored_contract
@@ -185,20 +309,28 @@ impl RenderWorldPlan {
         &self.handler_revisions
     }
 
-    /// Returns the mandatory composed renderer-domain scene of this plan.
+    /// Returns payloads for one exact declared route, in deterministic plan order.
+    /// A declared idle route returns an empty iterator.
     ///
-    /// The scene is wholly owned CPU state composed once through the
-    /// activation-bound scene factories; no public API can replace or
-    /// recompose it after the plan is minted.
-    #[must_use]
-    pub const fn scene(&self) -> &RenderScene {
-        &self.scene
+    /// # Errors
+    /// Returns a named route mismatch when the route was never declared.
+    pub fn payloads_for_route<'a>(
+        &'a self,
+        kind: ContributionKind,
+        route_key: &'a str,
+    ) -> Result<impl Iterator<Item = &'a RenderContribution>, RenderPlanError> {
+        payloads_for_route(
+            &self.authored_contract,
+            &self.contributions,
+            kind,
+            route_key,
+        )
     }
 }
 
 /// Mints one owned render world plan from an independently verified normal publication.
 ///
-/// This is the only way to obtain a [`RenderWorldPlan`]. The publication's
+/// The publication's
 /// world document is prepared through [`RuntimePlanner::prepare`] against the
 /// contract's internal runtime registry with the publication itself as the
 /// resource provider and the caller's runtime limits; the prepared root,
@@ -217,39 +349,134 @@ pub fn build_render_world_plan(
     activated: &ActivatedRenderWorldContract,
     limits: &RenderWorldLimits,
 ) -> Result<RenderWorldPlan, RenderPlanError> {
-    build_render_world_plan_inner(normal, activated, limits, None)
+    build_render_world_plan_inner(normal.publication(), activated, limits, None)
 }
 
 /// Mints one render plan whose authored document is bound to governed discovery.
 ///
 /// # Errors
 ///
-/// Returns [`RenderPlanError::GovernedContractSubstitution`] if activation used
-/// any document other than the exact decoded content-addressed authority.
+/// Returns [`RenderPlanError::GovernedContractSubstitution`] if discovery does
+/// not match the publication's unique bare render-contract binding and content
+/// address, or activation used a different authored document.
 pub fn build_discovered_render_world_plan(
     normal: &VerifiedNormalPublication,
     discovered: &DiscoveredRenderContract,
     activated: &ActivatedRenderWorldContract,
     limits: &RenderWorldLimits,
 ) -> Result<RenderWorldPlan, RenderPlanError> {
-    if discovered.document() != activated.authored_contract() {
-        return Err(RenderPlanError::GovernedContractSubstitution);
-    }
+    validate_discovered_binding(normal, discovered, activated.authored_contract())?;
     build_render_world_plan_inner(
-        normal,
+        normal.publication(),
         activated,
         limits,
         Some((discovered.binding_id(), discovered.address())),
     )
 }
 
-fn build_render_world_plan_inner(
+/// Prepares owned CPU payloads without invoking any scene factory.
+///
+/// # Errors
+/// Returns the same closure, runtime, limit and adaptation failures as a full build.
+pub fn prepare_render_world_payloads(
     normal: &VerifiedNormalPublication,
+    activated: &ActivatedRenderPayloadContract,
+    limits: &RenderWorldLimits,
+) -> Result<PreparedRenderWorldPayloads, RenderPlanError> {
+    prepare_render_world_payloads_inner(normal.publication(), activated, limits, None)
+}
+
+/// Prepares payloads while retaining the exact governed discovery binding.
+///
+/// # Errors
+/// Returns [`RenderPlanError::GovernedContractSubstitution`] if discovery does
+/// not match the publication's unique bare render-contract binding and content
+/// address or the activated authored document; otherwise returns preparation failures.
+pub fn prepare_discovered_render_world_payloads(
+    normal: &VerifiedNormalPublication,
+    discovered: &DiscoveredRenderContract,
+    activated: &ActivatedRenderPayloadContract,
+    limits: &RenderWorldLimits,
+) -> Result<PreparedRenderWorldPayloads, RenderPlanError> {
+    validate_discovered_binding(normal, discovered, activated.authored_contract())?;
+    prepare_render_world_payloads_inner(
+        normal.publication(),
+        activated,
+        limits,
+        Some((discovered.binding_id(), discovered.address())),
+    )
+}
+
+/// Composes a prepared result through the same activation's mandatory scene factories.
+///
+/// # Errors
+/// Returns a named executable-contract mismatch for a different activation,
+/// or the existing factory, composition and scene validation errors.
+pub fn compose_render_world_plan(
+    prepared: PreparedRenderWorldPayloads,
+    activated: &ActivatedRenderWorldContract,
+) -> Result<RenderWorldPlan, RenderPlanError> {
+    if !Arc::ptr_eq(
+        &prepared.activation_identity,
+        activated.activation_identity(),
+    ) {
+        return Err(RenderPlanError::AuthoredRouteMismatch {
+            route_kind: RenderRouteKind::Document,
+            route_key: prepared
+                .authored_contract
+                .routes()
+                .document()
+                .schema_uri()
+                .to_owned(),
+            field: "prepared executable contract",
+        });
+    }
+    let scene = compose_scene(activated, &prepared.root_payload, &prepared.contributions)?;
+    Ok(RenderWorldPlan { prepared, scene })
+}
+
+fn validate_discovered_binding(
+    normal: &VerifiedNormalPublication,
+    discovered: &DiscoveredRenderContract,
+    authored: &ContractDocument,
+) -> Result<(), RenderPlanError> {
+    let mut matches = normal
+        .publication()
+        .world()
+        .bindings()
+        .iter()
+        .filter(|binding| binding.capability_uri == RENDER_CONTRACT_CAPABILITY_URI);
+    let Some(binding) = matches.next() else {
+        return Err(RenderPlanError::GovernedContractSubstitution);
+    };
+    if matches.next().is_some()
+        || binding.element_uri.is_some()
+        || binding.binding_id != discovered.binding_id()
+        || ContentAddress::from(binding) != discovered.address()
+        || discovered.document() != authored
+    {
+        return Err(RenderPlanError::GovernedContractSubstitution);
+    }
+    Ok(())
+}
+
+fn build_render_world_plan_inner(
+    publication: &VerifiedPublication,
     activated: &ActivatedRenderWorldContract,
     limits: &RenderWorldLimits,
     governed_contract: Option<(&str, ContentAddress)>,
 ) -> Result<RenderWorldPlan, RenderPlanError> {
-    let publication = normal.publication();
+    let prepared =
+        prepare_render_world_payloads_inner(publication, activated, limits, governed_contract)?;
+    compose_render_world_plan(prepared, activated)
+}
+
+fn prepare_render_world_payloads_inner(
+    publication: &VerifiedPublication,
+    activated: &ActivatedRenderPayloadContract,
+    limits: &RenderWorldLimits,
+    governed_contract: Option<(&str, ContentAddress)>,
+) -> Result<PreparedRenderWorldPayloads, RenderPlanError> {
     let authored_contract = activated.authored_contract();
     let contract = activated.executable_contract();
     validate_authored_plan_closure(publication.world(), authored_contract, contract)?;
@@ -272,13 +499,8 @@ fn build_render_world_plan_inner(
         "scope_policy_digest",
         &publication.receipt().scope_policy_digest,
     )?;
-    let scene = compose_scene(
-        publication.world(),
-        activated,
-        &root_payload,
-        &contributions,
-    )?;
-    Ok(RenderWorldPlan {
+    Ok(PreparedRenderWorldPayloads {
+        activation_identity: Arc::clone(activated.activation_identity()),
         authored_contract: authored_contract.clone(),
         governed_contract_binding_id: governed_contract
             .map(|(binding_id, _)| binding_id.to_owned()),
@@ -293,313 +515,42 @@ fn build_render_world_plan_inner(
         root_payload,
         contributions: contributions.into_boxed_slice(),
         handler_revisions: prepared.handler_revisions().clone(),
-        scene,
     })
 }
 
-/// Records which payload contracts each adapter kind actually consumed.
-#[derive(Default)]
-struct AdapterUse {
-    component: BTreeSet<String>,
-    resource: BTreeSet<String>,
-}
-
-impl AdapterUse {
-    fn record(&mut self, kind: ContributionKind, payload_contract_uri: &str) {
-        match kind {
-            ContributionKind::Component => {
-                self.component.insert(payload_contract_uri.to_owned());
-            }
-            ContributionKind::Resource => {
-                self.resource.insert(payload_contract_uri.to_owned());
-            }
-        }
-    }
-
-    fn contains(&self, kind: ContributionKind, payload_contract_uri: &str) -> bool {
-        match kind {
-            ContributionKind::Component => self.component.contains(payload_contract_uri),
-            ContributionKind::Resource => self.resource.contains(payload_contract_uri),
-        }
-    }
-}
-
-/// One contribution whose route closure passed, paired with its exact adapter.
-struct ResolvedContribution<'a> {
-    contribution: &'a PreparedContribution,
-    adapter: &'a Arc<dyn RenderPayloadAdapter>,
-}
-
-fn enforce_contribution_limits(
-    prepared: &PreparedSemanticWorld,
-    limits: &RenderWorldLimits,
-) -> Result<(), RenderPlanError> {
-    let observed = prepared.component_contributions().len();
-    if observed > limits.max_prepared_components() {
-        return Err(RenderPlanError::ComponentContributionLimitExceeded {
-            max: limits.max_prepared_components(),
-            observed,
-        });
-    }
-    let observed = prepared.resource_contributions().len();
-    if observed > limits.max_prepared_resources() {
-        return Err(RenderPlanError::ResourceContributionLimitExceeded {
-            max: limits.max_prepared_resources(),
-            observed,
-        });
-    }
-    Ok(())
-}
-
-fn adapt_contributions(
-    world: &SemanticWorldDocument,
-    contract: &RenderWorldContract,
-    prepared: &PreparedSemanticWorld,
-    used: &mut AdapterUse,
-) -> Result<Vec<RenderContribution>, RenderPlanError> {
-    let mut resources = resolve_then_adapt(
-        ContributionKind::Resource,
-        prepared.resource_contributions(),
-        world,
-        contract,
-        used,
-    )?;
-    let mut components = resolve_then_adapt(
-        ContributionKind::Component,
-        prepared.component_contributions(),
-        world,
-        contract,
-        used,
-    )?;
-    components.append(&mut resources);
-    // Ordering is an explicit plan invariant, not an accident of preparation.
-    components.sort_by(contribution_order);
-    Ok(components)
-}
-
-fn resolve_then_adapt(
+/// Resolves a declared route independently of payload contract sharing.
+pub(crate) fn payloads_for_route<'a>(
+    authored: &ContractDocument,
+    contributions: &'a [RenderContribution],
     kind: ContributionKind,
-    contributions: &[PreparedContribution],
-    world: &SemanticWorldDocument,
-    contract: &RenderWorldContract,
-    used: &mut AdapterUse,
-) -> Result<Vec<RenderContribution>, RenderPlanError> {
-    let resolved = verify_route_closure(kind, contributions, world, contract, used)?;
-    let mut adapted = Vec::with_capacity(resolved.len());
-    for entry in resolved {
-        let payload = entry
-            .adapter
-            .adapt(&entry.contribution.payload)
-            .map_err(|source| RenderPlanError::AdapterRejected {
-                kind,
-                payload_contract_uri: entry.contribution.payload_contract_uri.clone(),
-                claimant: entry.contribution.claimant.clone(),
-                source,
-            })?;
-        adapted.push(RenderContribution::new(
-            kind,
-            entry.contribution.claimant.clone(),
-            entry.contribution.payload_contract_uri.clone(),
-            entry.contribution.handler.clone(),
-            payload,
-        ));
-    }
-    Ok(adapted)
-}
-
-fn verify_route_closure<'a>(
-    kind: ContributionKind,
-    contributions: &'a [PreparedContribution],
-    world: &SemanticWorldDocument,
-    contract: &'a RenderWorldContract,
-    used: &mut AdapterUse,
-) -> Result<Vec<ResolvedContribution<'a>>, RenderPlanError> {
-    let mut resolved = Vec::with_capacity(contributions.len());
-    for contribution in contributions {
-        let route_key = claimant_route_key(kind, &contribution.claimant, world)?;
-        verify_producing_handler(kind, &route_key, contribution, contract)?;
-        used.record(kind, &contribution.payload_contract_uri);
-        let adapter = resolve_adapter(kind, contribution, contract)?;
-        resolved.push(ResolvedContribution {
-            contribution,
-            adapter,
-        });
-    }
-    Ok(resolved)
-}
-
-pub(crate) fn claimant_route_key(
-    kind: ContributionKind,
-    claimant: &str,
-    world: &SemanticWorldDocument,
-) -> Result<String, RenderPlanError> {
-    let components = world.components();
-    let bindings = world.bindings();
-    let route_key = match kind {
-        ContributionKind::Component => components
-            .binary_search_by(|component| component.component_id.as_str().cmp(claimant))
-            .ok()
-            .map(|index| components[index].schema_uri.clone()),
-        ContributionKind::Resource => bindings
-            .binary_search_by(|binding| binding.binding_id.as_str().cmp(claimant))
-            .ok()
-            .map(|index| bindings[index].capability_uri.clone()),
+    route_key: &'a str,
+) -> Result<impl Iterator<Item = &'a RenderContribution>, RenderPlanError> {
+    let (declared, route_kind) = match kind {
+        ContributionKind::Component => (
+            authored
+                .routes()
+                .components()
+                .iter()
+                .any(|route| route.schema_uri() == route_key),
+            RenderRouteKind::Component,
+        ),
+        ContributionKind::Resource => (
+            authored
+                .routes()
+                .capabilities()
+                .iter()
+                .any(|route| route.capability_uri() == route_key),
+            RenderRouteKind::Capability,
+        ),
     };
-    route_key.ok_or_else(|| RenderPlanError::UnknownClaimant {
-        kind,
-        claimant: claimant.to_owned(),
-    })
-}
-
-fn verify_producing_handler(
-    kind: ContributionKind,
-    route_key: &str,
-    contribution: &PreparedContribution,
-    contract: &RenderWorldContract,
-) -> Result<(), RenderPlanError> {
-    let (registered, expected_uri) = match kind {
-        ContributionKind::Component => {
-            let route = contract.component_route(route_key).ok_or_else(|| {
-                RenderPlanError::MissingRoute {
-                    kind,
-                    route_key: route_key.to_owned(),
-                    claimant: contribution.claimant.clone(),
-                }
-            })?;
-            (route.handler().descriptor(), route.payload_contract_uri())
-        }
-        ContributionKind::Resource => {
-            let route = contract.capability_route(route_key).ok_or_else(|| {
-                RenderPlanError::MissingRoute {
-                    kind,
-                    route_key: route_key.to_owned(),
-                    claimant: contribution.claimant.clone(),
-                }
-            })?;
-            (route.handler().descriptor(), route.payload_contract_uri())
-        }
-    };
-    if &contribution.handler != registered {
-        return Err(RenderPlanError::WrongProducingHandler {
-            kind,
+    if !declared {
+        return Err(RenderPlanError::AuthoredRouteMismatch {
+            route_kind,
             route_key: route_key.to_owned(),
-            claimant: contribution.claimant.clone(),
-            expected: registered.clone(),
-            observed: contribution.handler.clone(),
+            field: "prepared payload route",
         });
     }
-    if contribution.payload_contract_uri != expected_uri {
-        return Err(RenderPlanError::WrongContributionContract {
-            kind,
-            route_key: route_key.to_owned(),
-            claimant: contribution.claimant.clone(),
-            handler: Box::new(contribution.handler.clone()),
-            expected: expected_uri.to_owned(),
-            observed: contribution.payload_contract_uri.clone(),
-        });
-    }
-    Ok(())
-}
-
-fn resolve_adapter<'a>(
-    kind: ContributionKind,
-    contribution: &PreparedContribution,
-    contract: &'a RenderWorldContract,
-) -> Result<&'a Arc<dyn RenderPayloadAdapter>, RenderPlanError> {
-    let adapter = match kind {
-        ContributionKind::Component => {
-            contract.component_adapter(&contribution.payload_contract_uri)
-        }
-        ContributionKind::Resource => contract.resource_adapter(&contribution.payload_contract_uri),
-    };
-    adapter.ok_or_else(|| RenderPlanError::MissingAdapter {
-        kind,
-        payload_contract_uri: contribution.payload_contract_uri.clone(),
-        claimant: contribution.claimant.clone(),
-    })
-}
-
-fn verify_adapter_use(
-    contract: &RenderWorldContract,
-    used: &AdapterUse,
-) -> Result<(), RenderPlanError> {
-    for payload_contract_uri in contract.component_adapter_uris() {
-        require_adapter_used(
-            ContributionKind::Component,
-            payload_contract_uri,
-            contract,
-            used,
-        )?;
-    }
-    for payload_contract_uri in contract.resource_adapter_uris() {
-        require_adapter_used(
-            ContributionKind::Resource,
-            payload_contract_uri,
-            contract,
-            used,
-        )?;
-    }
-    Ok(())
-}
-
-fn require_adapter_used(
-    kind: ContributionKind,
-    payload_contract_uri: &str,
-    contract: &RenderWorldContract,
-    used: &AdapterUse,
-) -> Result<(), RenderPlanError> {
-    if used.contains(kind, payload_contract_uri) {
-        return Ok(());
-    }
-    if contract.is_route_scoped(kind, payload_contract_uri) {
-        // A route-scoped adapter is declared for its route, not claimed
-        // consumed: a world without matching instances leaves it honestly
-        // idle, which is distinct from adapters nothing declared at all.
-        return Ok(());
-    }
-    Err(RenderPlanError::UnusedAdapter {
-        kind,
-        payload_contract_uri: payload_contract_uri.to_owned(),
-    })
-}
-
-fn adapt_root(
-    contract: &RenderWorldContract,
-    prepared: &PreparedSemanticWorld,
-) -> Result<RenderPayload, RenderPlanError> {
-    if prepared.root_handler() != contract.document_handler_descriptor() {
-        return Err(RenderPlanError::RootHandlerMismatch {
-            expected: contract.document_handler_descriptor().clone(),
-            observed: prepared.root_handler().clone(),
-        });
-    }
-    contract
-        .root_adapter()
-        .adapt(prepared.root_payload())
-        .map_err(|source| RenderPlanError::RootAdapterRejected {
-            payload_contract_uri: contract.root_payload_contract_uri().to_owned(),
-            source,
-        })
-}
-
-fn parse_digest(field: &'static str, hex: &str) -> Result<ContentDigest, RenderPlanError> {
-    ContentDigest::from_hex(hex)
-        .map_err(|source| RenderPlanError::MalformedDigest { field, source })
-}
-
-fn contribution_order(left: &RenderContribution, right: &RenderContribution) -> Ordering {
-    kind_rank(left.kind())
-        .cmp(&kind_rank(right.kind()))
-        .then_with(|| {
-            left.payload_contract_uri()
-                .cmp(right.payload_contract_uri())
-        })
-        .then_with(|| left.claimant().cmp(right.claimant()))
-}
-
-fn kind_rank(kind: ContributionKind) -> u8 {
-    match kind {
-        ContributionKind::Component => 0,
-        ContributionKind::Resource => 1,
-    }
+    Ok(contributions
+        .iter()
+        .filter(move |entry| entry.kind() == kind && entry.route_key() == route_key))
 }

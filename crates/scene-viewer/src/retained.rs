@@ -13,7 +13,8 @@ mod statistics;
 pub use statistics::{
     DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainPageStatistics,
+    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
+    TerrainPageStatistics, TerrainStreamingStatistics,
 };
 mod decals;
 pub use decals::DecalUpdate;
@@ -379,6 +380,12 @@ impl RetainedHost {
     /// physical-key order, then buttons in button order, before the focus event.
     /// Repeated focus loss never repeats a release.
     pub fn input(&mut self, input: RetainedInput) -> Vec<RetainedInput> {
+        if let RetainedInput::Resized(size) = &input {
+            if self.input_state.surface_extent == Some(*size) {
+                return Vec::new();
+            }
+            self.input_state.surface_extent = Some(*size);
+        }
         let mut events = self.input_state.accept(&input);
         match &input {
             RetainedInput::Resized(size) => self.size = *size,

@@ -25,6 +25,8 @@ pub(crate) struct InstanceBatch {
     pub previous: Option<wgpu::Buffer>,
     /// View-independent world bounds per slot, filled during selection.
     pub bounds: std::cell::RefCell<SlotBounds>,
+    /// Counts placement edits, so a cached view selection can tell that it is stale.
+    edits: u64,
 }
 
 impl InstanceBatch {
@@ -41,6 +43,7 @@ impl InstanceBatch {
             position
         });
         self.placements[position] = Some((object, visible));
+        self.edits += 1;
         self.bounds.get_mut().invalidate(position);
         self.fresh.borrow_mut().insert(position);
         self.pack(position);
@@ -53,6 +56,7 @@ impl InstanceBatch {
 
     pub fn remove(&mut self, position: usize) {
         self.placements[position] = None;
+        self.edits += 1;
         self.bounds.get_mut().invalidate(position);
         self.free.insert(position);
         self.dirty.remove(&position);
@@ -66,6 +70,7 @@ impl InstanceBatch {
 
     pub fn set_object(&mut self, position: usize, object: SceneObject) {
         self.placements[position].as_mut().expect("live instance").0 = object;
+        self.edits += 1;
         self.bounds.get_mut().invalidate(position);
         self.pack(position);
     }
@@ -79,6 +84,11 @@ impl InstanceBatch {
 
     pub fn set_visible(&mut self, position: usize, visible: bool) {
         self.placements[position].as_mut().expect("live instance").1 = visible;
+        self.edits += 1;
+    }
+
+    pub fn edits(&self) -> u64 {
+        self.edits
     }
 
     /// Scans all allocated slots, excluding removed slots from selection and
@@ -128,11 +138,34 @@ impl InstanceBatch {
         self.free.len() != self.placements.len()
     }
 
+    /// Forgets dirty slots whose bytes the last published frame already holds. Staged bytes are
+    /// published at submit and preparations never overlap, so `uploaded` is exact when a frame
+    /// prepares, and a forgotten slot becomes pending again only through `pack`, which marks it
+    /// dirty. Without this the set keeps every slot ever written, and each draw pass rescans it.
+    fn prune_published(&mut self) {
+        let Self {
+            dirty,
+            uploaded,
+            bytes,
+            ..
+        } = self;
+        let uploaded = uploaded.borrow();
+        dirty.retain(|position| {
+            let range = position * STRIDE..(position + 1) * STRIDE;
+            uploaded.get(range.clone()) != Some(&bytes[range])
+        });
+    }
+
     pub fn pending_ranges(&self) -> Vec<Range<u32>> {
         ranges(self.dirty.iter().copied().filter(|position| {
             let range = position * STRIDE..(position + 1) * STRIDE;
             self.uploaded.borrow().get(range.clone()) != Some(&self.bytes[range])
         }))
+    }
+
+    #[cfg(test)]
+    pub fn dirty_count(&self) -> usize {
+        self.dirty.len()
     }
 
     #[cfg(test)]
@@ -171,6 +204,7 @@ pub(crate) fn flush_prepared(
     context: &mut worldrunner_render_post::PrepareContext<'_>,
     track_previous: bool,
 ) -> Vec<Range<u32>> {
+    batch.prune_published();
     let writes = batch.pending_ranges();
     let mut ranges = writes.clone();
     if batch.bytes.is_empty() {

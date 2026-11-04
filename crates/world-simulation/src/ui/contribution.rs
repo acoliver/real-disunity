@@ -43,12 +43,11 @@ pub fn extract_ui(
     viewport: [u32; 2],
 ) -> Result<UiRenderPlan, WorldError> {
     let layout = world.ui_layout(viewport.into())?;
-    let snapshot = world.snapshot();
     let mut texts = Vec::new();
     let mut budget = FrameBudget::default();
-    let groups = groups_by_object(&snapshot.components);
-    let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
-    for component in &snapshot.components {
+    let groups = groups_by_object(world.published_components());
+    let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
+    for component in world.published_components() {
         let ComponentDesc::Text(run) = &component.desc else {
             continue;
         };
@@ -56,12 +55,11 @@ pub fn extract_ui(
             continue;
         }
         let Some(rect) = layout.rect(component.object) else {
-            validate_hidden_text(world, component.object, &snapshot.components)?;
+            validate_hidden_text(world, component.object)?;
             continue;
         };
-        let canvas = snapshot
-            .components
-            .iter()
+        let canvas = world
+            .published_components()
             .find_map(|c| match c.desc {
                 ComponentDesc::Canvas(canvas) if c.object == rect.canvas => Some(canvas),
                 _ => None,
@@ -155,23 +153,19 @@ fn snap_to_pixels(text: &mut UiTextContribution, rect: &RectLayout, canvas: Canv
     }
 }
 
-fn validate_hidden_text(
-    world: &World,
-    object: ObjectHandle,
-    components: &[crate::ComponentSnapshot],
-) -> Result<(), WorldError> {
+fn validate_hidden_text(world: &World, object: ObjectHandle) -> Result<(), WorldError> {
     if !world.active_in_hierarchy(object)? {
         return Ok(());
     }
-    if !components
-        .iter()
+    if !world
+        .published_components()
         .any(|c| c.object == object && matches!(c.desc, ComponentDesc::RectTransform(_)))
     {
         return Err(UiError::MissingLayout.into());
     }
     let mut current = Some(object);
     while let Some(node) = current {
-        if components.iter().any(|c| {
+        if world.published_components().any(|c| {
             c.object == node && matches!(c.desc, ComponentDesc::Canvas(canvas) if !canvas.enabled)
         }) {
             return Ok(());

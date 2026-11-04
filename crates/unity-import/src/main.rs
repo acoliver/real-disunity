@@ -9,6 +9,7 @@ use worldrunner_unity_import::{
         OpenFile, decode_census, describe_object, describe_shader_programs, shader_chunks,
         shader_modules,
     },
+    player_parameters::parameter_report,
     player_scene::{SceneNode, read_scene_hierarchy},
     read_player,
     shader_prep::Backend,
@@ -32,6 +33,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-object <serialized file> <path ID>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
        unity-import player-shader-programs <serialized file> <path ID> <platform index>
+       unity-import player-shader-parameters <player data directory>
        unity-import player-shader-modules <serialized file> <path ID> <platform index> <output directory>";
 
 fn main() -> ExitCode {
@@ -61,6 +63,9 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         }
         [command, data] if command == "player-shader-report" => {
             player_shader_report(Path::new(data))
+        }
+        [command, data] if command == "player-shader-parameters" => {
+            player_shader_parameters(Path::new(data))
         }
         [command, file, path_id] if command == "player-object" => {
             player_object(Path::new(file), path_id)
@@ -301,6 +306,17 @@ fn player_shader_report(data: &Path) -> Result<(), Box<dyn Error>> {
     for (cause, count) in &report.failures {
         println!("{count} {cause}: {}", report.examples[cause]);
     }
+    Ok(())
+}
+
+/// Decodes every Vulkan variant's parameters and program record tail of a player, checks them
+/// against the variants' stage modules and prints the counts.
+fn player_shader_parameters(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", parameter_report(&paths)?);
     Ok(())
 }
 

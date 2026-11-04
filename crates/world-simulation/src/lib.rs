@@ -58,6 +58,7 @@ mod follow;
 mod hierarchy;
 mod lifecycle;
 mod lifetime;
+mod script_messages;
 mod transform;
 mod unpublished;
 mod world;
@@ -67,6 +68,7 @@ pub use fields::FieldValue;
 pub use hierarchy::ParentSpace;
 pub use lifecycle::{LifecycleWork, MutationId, ScriptMessage};
 pub use lifetime::DestroyWhen;
+pub use script_messages::ScriptMessages;
 
 pub use components::{ComponentDesc, LocalTransform};
 pub use handles::{ComponentHandle, ObjectHandle};

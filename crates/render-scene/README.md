@@ -601,3 +601,14 @@ clamping, tile corners, adjacent tile edges and perspective interpolation. A 0.6
 triangle in a 10 m tile differs from fragment sampling by 0.002811 at its centroid.
 
 AO receiver reconstruction is shared by mesh and terrain lighting. The optional depth-aware gather packs source metre depth beside final AO without adding a sampled texture binding. See [receiver contracts](../../dev-docs/rendering/ambient-occlusion.md#full-resolution-receivers).
+
+`SceneStatistics::terrain_geometry` publishes main-camera geometry replacement
+observations on the owning composition submission. Absence means no terrain draw;
+`Static` identifies a nonstreaming mesh. `Streaming` carries the selector's desired
+leaves, including its split and hysteretic merge decisions, alongside admitted
+coverage, unresolved replacements, residency and completion. Budget-blocked merges
+remain unresolved until admitted, even when resident fine leaves already exceed
+the selected detail. Fine leaves retained by hysteresis are selected and complete. Its bounded drawn-leaf
+fingerprint includes every sorted sample window. See the
+[host statistics contract](../scene-viewer/README.md#retained-frame-statistics)
+for counting units and identity encoding. Raw and cancelled draws do not publish.

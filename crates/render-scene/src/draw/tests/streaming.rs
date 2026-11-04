@@ -1,3 +1,4 @@
+mod observations;
 mod replacement;
 use super::*;
 use crate::offscreen::OffscreenTarget;

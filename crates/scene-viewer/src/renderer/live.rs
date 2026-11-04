@@ -43,8 +43,8 @@ impl Renderer {
         window: Arc<Window>,
         source: SceneSource<'_>,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, |adapter| {
-            super::startup::resolve(source, adapter)
+        Self::surface(display, window, |adapter, surface_extent| {
+            super::startup::resolve(source, adapter, surface_extent)
         })
         .await
     }

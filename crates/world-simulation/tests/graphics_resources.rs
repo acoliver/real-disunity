@@ -532,3 +532,25 @@ fn clearing_properties_removes_values_but_not_keywords() {
     assert!(world.global_shader_state().properties.is_empty());
     assert_eq!(world.global_shader_state().generation, 2);
 }
+
+#[test]
+fn a_material_holds_at_most_256_keywords() {
+    let mut world = world();
+    let (_, id) = material_with_shader(&mut world);
+    let enable = |name: String| MaterialEdit::Keyword {
+        name,
+        enabled: true,
+    };
+    for number in 0..256 {
+        world
+            .edit_material(id, enable(format!("K{number}")))
+            .unwrap();
+    }
+    let error = world.edit_material(id, enable("ONE_MORE".into()));
+    assert_eq!(
+        error,
+        Err(WorldError::Graphics(GraphicsError::TooManyKeywords))
+    );
+    world.edit_material(id, enable("K0".into())).unwrap();
+    assert_eq!(world.material(id).unwrap().keywords.len(), 256);
+}

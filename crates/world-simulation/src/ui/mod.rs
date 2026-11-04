@@ -3,6 +3,7 @@
 //! never rewriting the authored transform. Text supports printable ASCII and LF/CR
 //! only, with character wrapping and font kerning, without shaping or substitution.
 
+pub mod annotations;
 mod atlas;
 mod clip;
 mod faces;

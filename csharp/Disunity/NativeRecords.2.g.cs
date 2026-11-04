@@ -115,7 +115,7 @@ namespace Disunity.Native
     internal unsafe partial struct DisunityUiDraw
     {
         /// <summary>
-        ///  0: image/solid graphic; 1: text sampling prepared R8 coverage.
+        ///  0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
         /// </summary>
         public uint kind;
         public ulong hierarchy_order;
@@ -123,6 +123,12 @@ namespace Disunity.Native
         public uint clip_y;
         public uint clip_width;
         public uint clip_height;
+        public float triangle_u0;
+        public float triangle_v0;
+        public float triangle_u1;
+        public float triangle_v1;
+        public float triangle_u2;
+        public float triangle_v2;
     }
 
 }

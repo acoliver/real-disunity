@@ -44,13 +44,18 @@ impl DisunityHost {
 
 fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<UiDraw, HostError> {
     let kind = match meta.kind {
-        0 => UiDrawKind::Graphic,
+        0 | 2 => UiDrawKind::Graphic,
         1 => UiDrawKind::Text,
         kind => return Err(HostError::Managed(format!("unknown UI draw kind {kind}"))),
     };
     let quad = decode_quad(quad);
     Ok(UiDraw {
         kind,
+        triangle_uv: (meta.kind == 2).then_some([
+            [meta.triangle_u0, meta.triangle_v0],
+            [meta.triangle_u1, meta.triangle_v1],
+            [meta.triangle_u2, meta.triangle_v2],
+        ]),
         corners: quad.corners,
         uv_rect: quad.uv_rect,
         color: quad.color,
@@ -61,4 +66,35 @@ fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<Ui
             .map_err(|_| HostError::Managed("UI hierarchy order overflow".into()))?,
         clip_rect: [meta.clip_x, meta.clip_y, meta.clip_width, meta.clip_height],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn triangle_copy_out_preserves_uvs_and_three_corner_topology() {
+        let meta = native::DisunityUiDraw {
+            kind: 2,
+            triangle_u0: 0.1,
+            triangle_v0: 0.2,
+            triangle_u1: 0.3,
+            triangle_v1: 0.4,
+            triangle_u2: 0.5,
+            triangle_v2: 0.6,
+            ..native::DisunityUiDraw::default()
+        };
+        let quad = native::DisunityQuad {
+            p0_x: 10.,
+            p1_x: 20.,
+            p2_y: 30.,
+            ..native::DisunityQuad::default()
+        };
+        let draw = decode(meta, quad).unwrap();
+        assert_eq!(draw.kind, UiDrawKind::Graphic);
+        assert_eq!(draw.triangle_uv, Some([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]));
+        assert_eq!(
+            draw.corners[..3],
+            [[10., 0., 0.], [20., 0., 0.], [0., 30., 0.]]
+        );
+    }
 }

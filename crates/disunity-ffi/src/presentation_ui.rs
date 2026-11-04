@@ -13,13 +13,19 @@ use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind};
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: image/solid graphic; 1: text sampling prepared R8 coverage.
+    /// 0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,
     pub clip_y: u32,
     pub clip_width: u32,
     pub clip_height: u32,
+    pub triangle_u0: f32,
+    pub triangle_v0: f32,
+    pub triangle_u1: f32,
+    pub triangle_v1: f32,
+    pub triangle_u2: f32,
+    pub triangle_v2: f32,
 }
 
 /// # Safety
@@ -69,17 +75,32 @@ pub unsafe extern "C" fn disunity_presentation_ui_draw(
             .and_then(|ui| ui.draws.get(index as usize))
             .ok_or("presentation UI draw index out of range")?;
         let [clip_x, clip_y, clip_width, clip_height] = draw.clip_rect;
+        let [
+            [triangle_u0, triangle_v0],
+            [triangle_u1, triangle_v1],
+            [triangle_u2, triangle_v2],
+        ] = draw.triangle_uv.unwrap_or([[0.; 2]; 3]);
         unsafe {
             *output = DisunityUiDraw {
-                kind: match draw.kind {
-                    UiDrawKind::Graphic => 0,
-                    UiDrawKind::Text => 1,
+                kind: if draw.triangle_uv.is_some() {
+                    2
+                } else {
+                    match draw.kind {
+                        UiDrawKind::Graphic => 0,
+                        UiDrawKind::Text => 1,
+                    }
                 },
                 hierarchy_order: draw.hierarchy_order as u64,
                 clip_x,
                 clip_y,
                 clip_width,
                 clip_height,
+                triangle_u0,
+                triangle_v0,
+                triangle_u1,
+                triangle_v1,
+                triangle_u2,
+                triangle_v2,
             };
             *quad = encode(draw);
         }

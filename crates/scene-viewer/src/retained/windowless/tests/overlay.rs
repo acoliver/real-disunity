@@ -1,3 +1,4 @@
+mod annotations;
 mod graphics;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
     let width = image.viewport.width;

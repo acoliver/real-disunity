@@ -32,6 +32,9 @@ impl UiRouter {
         let hover = self.position.and_then(|p| targets.hit(p));
         for graphic in &mut plan.graphics {
             if let Some(tint) = self.tint(graphic.graphic.object, hover, &targets) {
+                for vertex in graphic.graphic.triangles.iter_mut().flatten() {
+                    vertex.color = std::array::from_fn(|i| vertex.color[i] * tint[i]);
+                }
                 for quad in &mut graphic.graphic.quads {
                     quad.color = std::array::from_fn(|i| quad.color[i] * tint[i]);
                 }

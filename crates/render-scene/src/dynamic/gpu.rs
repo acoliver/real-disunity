@@ -34,6 +34,7 @@ struct QuadDraw {
     instance: Buffer,
     tint: Buffer,
     instance_count: u32,
+    index_count: u32,
     material: BindGroup,
     clip_rect: Option<[u32; 4]>,
 }
@@ -122,13 +123,7 @@ impl DynamicGpu {
             samplers: &self.samplers,
             sampler: bindings.sampler,
         };
-        for group in ordered.chunk_by(|a, b| {
-            a.clip_rect == b.clip_rect
-                && a.texture == b.texture
-                && a.corners == b.corners
-                && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
-                && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
-        }) {
+        for group in ordered.chunk_by(|a, b| compatible(a, b)) {
             draws.push(QuadDraw::upload(device, queue, &material_bindings, group));
         }
         if self.indices.is_none() && !draws.is_empty() {
@@ -187,7 +182,7 @@ impl DynamicGpu {
             pass.set_vertex_buffer(0, draw.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.instance.slice(..));
             pass.set_vertex_buffer(2, draw.tint.slice(..));
-            pass.draw_indexed(0..6, 0, 0..draw.instance_count);
+            pass.draw_indexed(0..draw.index_count, 0, 0..draw.instance_count);
             count.draw(u64::from(draw.instance_count));
         }
         count
@@ -242,6 +237,7 @@ impl QuadDraw {
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
             material,
             clip_rect: quad.clip_rect,
+            index_count: if quad.triangle_uv.is_some() { 3 } else { 6 },
         }
     }
 }
@@ -259,6 +255,10 @@ fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
     .into_iter()
     .enumerate()
     {
+        if quad.triangle_uv.is_some() && index == 3 {
+            break;
+        }
+        let [u, v] = quad.triangle_uv.map_or([u, v], |uv| uv[index]);
         let position = quad.corners.map_or(Vec3::new(x, 0., z), |corners| {
             Vec3::from_array(corners[index])
         });
@@ -308,4 +308,13 @@ fn set_scissor(pass: &mut RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]
     }
     pass.set_scissor_rect(x, size[1] - y - height, width, height);
     true
+}
+
+fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
+    a.clip_rect == b.clip_rect
+        && a.texture == b.texture
+        && a.corners == b.corners
+        && a.triangle_uv == b.triangle_uv
+        && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
+        && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
 }

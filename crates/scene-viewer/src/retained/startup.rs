@@ -48,6 +48,7 @@ impl RetainedHost {
             picking: super::picking::Picking::default(),
             work: super::work::WorkServices::default(),
             timers: super::timers::Timers::default(),
+            audio: super::AudioService::default(),
             statistics: None,
             gpu_timing: if options.gpu_timing {
                 super::GpuTiming::Pending

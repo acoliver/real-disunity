@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 atomic-write-file = "0.3.0"
+cpal = { version = "0.15.3", default-features = false }
 blake3 = "1.8.5"
 csv = "1.4.0"
 glam = { version = "0.33.2", features = ["serde"] }

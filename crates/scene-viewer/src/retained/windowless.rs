@@ -45,6 +45,7 @@ fn initialize(
 ) -> Result<(Session<'_>, Renderer), ViewerError> {
     host.picking.windowless = true;
     host.timers.freeze();
+    host.audio.null_device();
     let renderer = pollster::block_on(Renderer::windowless(&mut host));
     let mut session = Session::new(host, driver);
     match renderer {
@@ -74,7 +75,9 @@ impl WindowlessRetained<'_> {
             .host
             .timers
             .advance(elapsed)
-            .map_err(|error| ViewerError::Driver(error.to_string()))
+            .map_err(|error| ViewerError::Driver(error.to_string()))?;
+        self.session.host.audio.advance(elapsed);
+        Ok(())
     }
 
     /// Requests one update/submission through the same session as desktop mode.

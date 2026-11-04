@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 worldrunner-camera = { path = "../camera" }
+cpal.workspace = true
 worldrunner-render-post = { path = "../render-post" }
 worldrunner-render-gpu = { path = "../render-gpu" }
 glam.workspace = true

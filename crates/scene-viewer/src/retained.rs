@@ -4,7 +4,12 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod audio;
 mod startup;
+pub use audio::{
+    AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
+    AudioUnavailable, ClipHandle, VoiceHandle,
+};
 mod timers;
 pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
 mod work;
@@ -144,6 +149,12 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    AudioFinished {
+        voice: VoiceHandle,
+    },
+    AudioStatusChanged {
+        status: AudioStatus,
+    },
     /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
     WorkReady,
     /// A host timer expired, including during presentation pauses.
@@ -195,6 +206,7 @@ pub struct RetainedHost {
     picking: picking::Picking,
     work: work::WorkServices,
     timers: timers::Timers,
+    audio: AudioService,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,

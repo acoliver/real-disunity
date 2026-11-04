@@ -10,6 +10,7 @@
 //! ```
 
 mod assets;
+pub mod audio;
 mod camera_layers;
 mod clock;
 mod coroutines;

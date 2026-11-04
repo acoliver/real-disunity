@@ -105,6 +105,39 @@ fn near(actual: &[f32], expected: &[f32]) {
         assert!((a - e).abs() < 1e-4, "{actual:?} is not {expected:?}");
     }
 }
+#[test]
+fn detached_graphics_keep_layout_draw_order_texture_identity_and_clipping() {
+    use worldrunner_world_simulation::ui::{
+        FontBook, UiLimits, contribution::extract_ui, presentation::UiPresentation,
+    };
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let child = element(&mut world, canvas);
+    let parent = element(&mut world, canvas);
+    world
+        .set_parent(child, Some(parent), ParentSpace::KeepLocal)
+        .unwrap();
+    draw(&mut world, parent, renderer(unit_quad()));
+    draw(
+        &mut world,
+        child,
+        CanvasRenderer {
+            clip_rect: Some([-8., -8., 16., 16.]),
+            ..renderer(unit_quad())
+        },
+    );
+    let fonts = FontBook::new(UiLimits::default()).unwrap();
+    let plan = extract_ui(&world, &fonts, VIEWPORT).unwrap();
+    let snapshot = UiPresentation::from_plan(&plan);
+    assert_eq!(snapshot.draws.len(), 2);
+    for (draw, object) in snapshot.draws.iter().zip([parent, child]) {
+        assert_eq!(
+            (draw.sorting_layer, draw.sorting_order, draw.hierarchy_order),
+            plan.layout.rect(object).unwrap().draw_order()
+        );
+        assert_eq!(draw.texture, Some(1 << 40));
+    }
+    assert_eq!(snapshot.draws[1].clip_rect, [392, 292, 16, 16]);
+}
 
 #[test]
 fn a_quad_on_an_overlay_canvas_has_pixel_corners_texture_rectangle_and_colour() {

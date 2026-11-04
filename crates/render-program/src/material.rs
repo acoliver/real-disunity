@@ -12,7 +12,7 @@ use crate::properties::PropertySet;
 use crate::registry::{ProgramHandle, Registered};
 use crate::runtime::ProgramRuntime;
 use crate::state::RenderState;
-use crate::variant::FeatureSet;
+use crate::variant::{FeatureId, FeatureSet, UnknownFeatures};
 
 /// A material. A handle belongs to the runtime that made it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -108,5 +108,29 @@ impl ProgramRuntime {
             properties,
             features: FeatureSet::new(),
         }))
+    }
+}
+
+impl ProgramRuntime {
+    /// Enables exactly the features named, replacing the material's features. The names must
+    /// select a variant of the program. A refused call leaves the material as it was.
+    ///
+    /// # Errors
+    /// Fails on a handle that is not a live material and, naming the feature, on one the
+    /// program's variants do not use. Fails with a no-match error when no variant has exactly
+    /// the features that are enabled.
+    pub fn set_features(
+        &mut self,
+        material: MaterialHandle,
+        names: &[&str],
+    ) -> Result<(), ProgramError> {
+        let features: FeatureSet = names.iter().map(|name| FeatureId::new(*name)).collect();
+        let entry = self.registry.material_mut(material)?;
+        entry
+            .program
+            .variants
+            .select(&features, UnknownFeatures::Fail)?;
+        entry.features = features;
+        Ok(())
     }
 }

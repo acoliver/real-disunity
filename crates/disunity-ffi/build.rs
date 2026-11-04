@@ -37,6 +37,7 @@ const ABI_SOURCES: &[&str] = &[
     "src/tilemap.rs",
     "src/textures.rs",
     "src/meshes.rs",
+    "src/mesh_channels.rs",
     "src/faces.rs",
     "src/graphics.rs",
     "src/graphics_offscreen.rs",

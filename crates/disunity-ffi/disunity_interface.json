@@ -513,6 +513,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_mesh_channels_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_mesh_channels_store",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_mesh_filter_create",
       "since": "6.0.0",
       "rets": "DisunityResult"

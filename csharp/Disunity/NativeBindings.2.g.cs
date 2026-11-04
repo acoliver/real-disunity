@@ -378,6 +378,27 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_read(ulong world, ulong identity, DisunityMeshInfo* info, DisunityMeshVertex* vertices, uint* indices, DisunityMeshSubMesh* submeshes);
         /// <summary>
+        ///  Keeps a mesh's channels, every sub-mesh and all its indices beside the fixed mesh stored under
+        ///  the same identity. Storing the fixed mesh again drops the channels, so store them after it.
+        ///
+        ///  # Safety
+        ///  `info` is readable for one record. `channels`, `data`, `indices` and `ranges` are readable for
+        ///  the counts in the record, or null when that count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_channels_store", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_channels_store(ulong world, DisunityMeshChannelsInfo* info, DisunityMeshChannel* channels, float* data, uint* indices, DisunityMeshRange* ranges);
+        /// <summary>
+        ///  Reports a mesh's stored channels and copies them when they are newer than `info.generation`
+        ///  and the capacities in `info` hold them. Capacities of zero everywhere copy nothing and report
+        ///  the sizes. An identity with no stored channels reports `present` zero and is not an error.
+        ///
+        ///  # Safety
+        ///  `info` is readable and writable for one record; the buffers are writable for the capacities
+        ///  in it, or null when that capacity is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_channels_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_channels_read(ulong world, DisunityMeshChannelsInfo* info, DisunityMeshChannel* channels, float* data, uint* indices, DisunityMeshRange* ranges);
+        /// <summary>
         ///  Loads face `face_index` of the font file at `point_size` and writes its id.
         ///
         ///  # Safety

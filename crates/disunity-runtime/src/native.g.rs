@@ -623,6 +623,43 @@ pub struct DisunityMeshSubMesh {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMeshChannelsInfo {
+    pub identity: u64,
+    /// The generation of the fixed mesh the channels were stored for, or one more than the held
+    /// channels' when they are stored again without the fixed mesh changing.
+    pub generation: u64,
+    /// Zero when a read names an identity with no stored channels.
+    pub present: u32,
+    /// Nonzero when the stored generation is newer than the one the read passed.
+    pub changed: u32,
+    /// Nonzero when the read copied the buffers.
+    pub copied: u32,
+    pub vertex_count: u32,
+    pub channel_count: u32,
+    pub float_count: u32,
+    pub index_count: u32,
+    pub range_count: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMeshChannel {
+    pub number: u32,
+    pub dimension: u32,
+    pub offset: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMeshRange {
+    pub start: u32,
+    pub count: u32,
+    pub base_vertex: u32,
+    pub topology: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityFaceInfo {
     pub face_index: u32,

@@ -44,6 +44,68 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  A stored mesh's channels, also the in/out record of a read. On a store, `identity` names the
+    ///  mesh, `vertex_count` must equal the fixed mesh's, the four counts are those of the buffers
+    ///  passed, and `generation`, `present`, `changed` and `copied` are ignored. On a read,
+    ///  `identity` names the mesh, `generation` is the generation the caller already holds and the
+    ///  four counts are the capacities of the buffers passed (all zero asks for sizes only); the call
+    ///  fills in everything.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshChannelsInfo
+    {
+        public ulong identity;
+        /// <summary>
+        ///  The generation of the fixed mesh the channels were stored for, or one more than the held
+        ///  channels' when they are stored again without the fixed mesh changing.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Zero when a read names an identity with no stored channels.
+        /// </summary>
+        public uint present;
+        /// <summary>
+        ///  Nonzero when the stored generation is newer than the one the read passed.
+        /// </summary>
+        public uint changed;
+        /// <summary>
+        ///  Nonzero when the read copied the buffers.
+        /// </summary>
+        public uint copied;
+        public uint vertex_count;
+        public uint channel_count;
+        public uint float_count;
+        public uint index_count;
+        public uint range_count;
+    }
+
+    /// <summary>
+    ///  One channel: its number, its float count per vertex (1 to 4) and the offset in floats of its
+    ///  first value in the shared float buffer. Vertex `v` holds `dimension` floats from
+    ///  `offset + v * dimension`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshChannel
+    {
+        public uint number;
+        public uint dimension;
+        public uint offset;
+    }
+
+    /// <summary>
+    ///  A run of indices that forms one sub-mesh, drawn with the given topology. `base_vertex` is the
+    ///  offset the managed mesh adds to the sub-mesh's indices; the stored indices already include it.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshRange
+    {
+        public uint start;
+        public uint count;
+        public uint base_vertex;
+        public uint topology;
+    }
+
+    /// <summary>
     ///  Face measurements in pixels at the face's point size.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]

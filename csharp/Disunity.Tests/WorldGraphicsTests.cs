@@ -287,13 +287,14 @@ internal static unsafe class WorldGraphicsTests
         var source = new Texture2D(4, 4);
         var a = new RenderTexture(8, 8, 0, GraphicsFormat.R8G8B8A8_UNorm, 3);
         var b = new RenderTexture(8, 8, 0);
+        var c = new RenderTexture(8, 8, 0, GraphicsFormat.R8G8B8A8_UNorm, 3);
         var material = new Material(DisunityHost.DeclareShader("Test/World/Blit", 2000, 3, 1, _ => { }));
         Graphics.Blit(source, a);
         Graphics.Blit(a, b, material, 2);
         RenderTexture.active = b;
         Graphics.Blit(null!, material);
         Graphics.CopyTexture(b, 0, 0, a, 0, 2);
-        Graphics.CopyTexture(a, b);
+        Graphics.CopyTexture(a, c);
         var work = Take();
 
         Expect.That(work[0].kind == 1 && work[0].source_kind == 1 && work[0].source == source.RendererIdentity && work[0].target == a.WorldId
@@ -304,8 +305,13 @@ internal static unsafe class WorldGraphicsTests
             && work[2].material == material.WorldLink.Id, "Blit(null, Material) draws into the active render texture");
         Expect.That(work[3].kind == 2 && work[3].source == b.WorldId && work[3].target == a.WorldId && work[3].source_mip == 0 && work[3].target_mip == 2,
             "CopyTexture with elements and mips");
-        Expect.That(work.Length == 4 + 1, "a whole copy records one copy per shared mip level: " + work.Length);
-        Expect.That(work[4].kind == 2 && work[4].source == a.WorldId && work[4].target == b.WorldId && work[4].source_mip == 0, "whole copy, mip 0");
+        Expect.That(work.Length == 4 + 3, "a whole copy records one copy per shared mip level: " + work.Length);
+        for (uint mip = 0; mip < 3; mip++)
+        {
+            var copy = work[4 + (int)mip];
+            Expect.That(copy.kind == 2 && copy.source == a.WorldId && copy.target == c.WorldId && copy.source_mip == mip && copy.target_mip == mip,
+                $"whole copy, mip {mip}");
+        }
         RenderTexture.active = null;
     }
 

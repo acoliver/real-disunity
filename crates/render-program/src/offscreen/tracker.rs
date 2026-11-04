@@ -19,10 +19,12 @@ use crate::ids::TextureId;
 
 use super::error::OffscreenError;
 
-/// The allocations of a texture in the registry.
+/// The allocations of a texture in the registry. A depth-only render texture has no color; its
+/// `primary` allocation, the one copies, readbacks and samples use, is its depth.
 #[derive(Clone, Copy)]
 pub(super) struct Imported {
-    pub(super) color: AllocationKey,
+    pub(super) primary: AllocationKey,
+    pub(super) color: Option<AllocationKey>,
     pub(super) depth: Option<AllocationKey>,
     pub(super) layers: u32,
     pub(super) mips: u32,
@@ -59,7 +61,7 @@ impl Tracker {
     pub(super) fn import(
         &mut self,
         id: TextureId,
-        color: &wgpu::Texture,
+        color: Option<&wgpu::Texture>,
         depth: Option<&wgpu::Texture>,
     ) -> Result<Imported, ContractError> {
         if let Some(imported) = self.textures.get(&id) {
@@ -69,13 +71,19 @@ impl Tracker {
             self.registry
                 .import_leased(texture, &self.lease, Semantic::Unspecified, Some(0))
         };
+        let color_key = color.map(&mut import).transpose()?;
+        let depth_key = depth.map(&mut import).transpose()?;
+        let (Some(primary), Some(texture)) = (color_key.or(depth_key), color.or(depth)) else {
+            return Err(ContractError::Pipeline);
+        };
         let imported = Imported {
-            color: import(color)?,
-            depth: depth.map(&mut import).transpose()?,
-            layers: color.depth_or_array_layers(),
-            mips: color.mip_level_count(),
-            size: [color.width(), color.height()],
-            format: color.format(),
+            primary,
+            color: color_key,
+            depth: depth_key,
+            layers: texture.depth_or_array_layers(),
+            mips: texture.mip_level_count(),
+            size: [texture.width(), texture.height()],
+            format: texture.format(),
         };
         self.textures.insert(id, imported);
         Ok(imported)
@@ -131,7 +139,7 @@ impl Tracker {
             aspect: wgpu::TextureAspect::All,
         };
         self.registry
-            .view_dimension(imported.color, range, version, dimension)
+            .view_dimension(imported.primary, range, version, dimension)
     }
 
     pub(super) fn cell(&self, key: AllocationKey, mip: u32, layer: u32) -> u32 {
@@ -145,7 +153,7 @@ impl Tracker {
         imported: Imported,
     ) -> Result<u32, OffscreenError> {
         let mut versions = (0..imported.mips).flat_map(|mip| {
-            (0..imported.layers).map(move |layer| self.cell(imported.color, mip, layer))
+            (0..imported.layers).map(move |layer| self.cell(imported.primary, mip, layer))
         });
         let first = versions.next().unwrap_or(0);
         if versions.all(|version| version == first) {

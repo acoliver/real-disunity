@@ -19,10 +19,11 @@ use crate::state::RenderState;
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
 /// A signature exists only for what the runtime draws into: one single-sample color attachment
-/// and, optionally, a depth attachment without stencil.
+/// and, optionally, a depth attachment without stencil. Offscreen depth-only targets are the one
+/// signature with a depth attachment and no color.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TargetSignature {
-    color: wgpu::TextureFormat,
+    color: Option<wgpu::TextureFormat>,
     depth: Option<wgpu::TextureFormat>,
     samples: u32,
 }
@@ -47,6 +48,19 @@ impl TargetSignature {
             }
             .into());
         };
+        Self::checked(Some(color), depth, samples)
+    }
+
+    /// The signature of a single-sample pass with a depth attachment and no color attachment.
+    pub(crate) fn depth_only(depth: wgpu::TextureFormat) -> Result<Self, ProgramError> {
+        Self::checked(None, Some(depth), 1)
+    }
+
+    fn checked(
+        color: Option<wgpu::TextureFormat>,
+        depth: Option<wgpu::TextureFormat>,
+        samples: u32,
+    ) -> Result<Self, ProgramError> {
         if let Some(format) = depth {
             if !format.has_depth_aspect() {
                 return Err(UnsupportedTarget::NotDepth { format }.into());
@@ -62,8 +76,9 @@ impl TargetSignature {
         })
     }
 
+    /// The color attachment's format, or `None` for a depth-only pass.
     #[must_use]
-    pub fn color(&self) -> wgpu::TextureFormat {
+    pub fn color(&self) -> Option<wgpu::TextureFormat> {
         self.color
     }
 
@@ -346,11 +361,16 @@ pub(crate) fn with_pipeline_descriptor<T>(
         })
         .collect();
     let state = packet.state;
-    let targets = [Some(wgpu::ColorTargetState {
-        format: signature.color,
-        blend: state.blend,
-        write_mask: state.color_write,
-    })];
+    let targets: Vec<_> = signature
+        .color
+        .map(|format| wgpu::ColorTargetState {
+            format,
+            blend: state.blend,
+            write_mask: state.color_write,
+        })
+        .into_iter()
+        .map(Some)
+        .collect();
     create(&wgpu::RenderPipelineDescriptor {
         label: Some("render-program pipeline"),
         layout: Some(layout),

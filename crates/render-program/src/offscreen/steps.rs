@@ -240,24 +240,29 @@ fn camera_pass(
             push_use(&mut uses, usage.clone());
         }
     }
-    let (before, after) = svc.tracker.write(imported.color, 0, 0);
-    let view = svc
-        .tracker
-        .cell_view(imported.color, (0, 0), wgpu::TextureAspect::All, after)?;
-    let color = ColorAttachment {
-        view,
-        before: camera.clear_color.is_none().then_some(before),
-        load: camera.clear_color.map_or(AttachmentLoad::Load, |c| {
-            AttachmentLoad::ClearColor(wgpu::Color {
-                r: c[0],
-                g: c[1],
-                b: c[2],
-                a: c[3],
+    let color = imported
+        .color
+        .map(|key| {
+            let (before, after) = svc.tracker.write(key, 0, 0);
+            let view = svc
+                .tracker
+                .cell_view(key, (0, 0), wgpu::TextureAspect::All, after)?;
+            Ok::<_, OffscreenError>(ColorAttachment {
+                view,
+                before: camera.clear_color.is_none().then_some(before),
+                load: camera.clear_color.map_or(AttachmentLoad::Load, |c| {
+                    AttachmentLoad::ClearColor(wgpu::Color {
+                        r: c[0],
+                        g: c[1],
+                        b: c[2],
+                        a: c[3],
+                    })
+                }),
+                store: wgpu::StoreOp::Store,
+                resolve: None,
             })
-        }),
-        store: wgpu::StoreOp::Store,
-        resolve: None,
-    };
+        })
+        .transpose()?;
     let depth = imported
         .depth
         .map(|key| {
@@ -280,7 +285,7 @@ fn camera_pass(
         .transpose()?;
     Ok(RasterPass {
         id,
-        colors: vec![Some(color)],
+        colors: color.into_iter().map(Some).collect(),
         depth,
         uses,
         bindings: Vec::new(),
@@ -341,10 +346,13 @@ fn blit_step(
     let vertices = svc.plan_vertices(mesh, &plan.entry.variant)?;
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
-    let (before, after) = svc.tracker.write(imported.color, 0, 0);
+    let color = imported
+        .color
+        .ok_or(OffscreenError::NoColorAttachment(target))?;
+    let (before, after) = svc.tracker.write(color, 0, 0);
     let view = svc
         .tracker
-        .cell_view(imported.color, (0, 0), wgpu::TextureAspect::All, after)?;
+        .cell_view(color, (0, 0), wgpu::TextureAspect::All, after)?;
     let colors = vec![Some(ColorAttachment {
         view,
         before: Some(before),
@@ -480,19 +488,19 @@ fn copy_cells(
     let (target_imported, _) = svc.import(target)?;
     let read = svc
         .tracker
-        .cell(source_imported.color, source_mip, source_element);
+        .cell(source_imported.primary, source_mip, source_element);
     let (_, written) = svc
         .tracker
-        .write(target_imported.color, target_mip, target_element);
+        .write(target_imported.primary, target_mip, target_element);
     let aspect = wgpu::TextureAspect::All;
     let source_view = svc.tracker.cell_view(
-        source_imported.color,
+        source_imported.primary,
         (source_mip, source_element),
         aspect,
         read,
     )?;
     let target_view = svc.tracker.cell_view(
-        target_imported.color,
+        target_imported.primary,
         (target_mip, target_element),
         aspect,
         written,

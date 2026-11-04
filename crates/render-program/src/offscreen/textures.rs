@@ -10,16 +10,17 @@ use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerState;
 
 use super::error::OffscreenError;
-use super::format::{color_format, depth_format};
+use super::format::{color_format, depth_format, render_color_format};
 use super::frame::{RenderTextureSpec, SourceTexture};
 
 /// A texture of the state and what its color and depth storage is.
 pub(super) struct TextureInfo {
-    pub(super) color: TextureHandle,
+    pub(super) color: Option<TextureHandle>,
     pub(super) depth: Option<TextureHandle>,
     pub(super) size: [u32; 2],
     pub(super) layers: u32,
     pub(super) mips: u32,
+    /// The color format, or the depth format of a depth-only render texture.
     pub(super) format: wgpu::TextureFormat,
     pub(super) depth_format: Option<wgpu::TextureFormat>,
     pub(super) sampler: Option<SamplerState>,
@@ -29,7 +30,14 @@ pub(super) struct TextureInfo {
 
 impl TextureInfo {
     pub(super) fn handles(&self) -> impl Iterator<Item = TextureHandle> {
-        std::iter::once(self.color).chain(self.depth)
+        self.color.into_iter().chain(self.depth)
+    }
+
+    /// The storage copies, readbacks and samples use: the color, or the depth when there is none.
+    pub(super) fn primary(&self) -> TextureHandle {
+        self.color
+            .or(self.depth)
+            .expect("a texture has color or depth storage")
     }
 }
 
@@ -58,7 +66,7 @@ impl TextureTable {
         let color =
             runtime.create_texture_2d("offscreen source", source.size, format, &source.bytes)?;
         let info = TextureInfo {
-            color,
+            color: Some(color),
             depth: None,
             size: source.size,
             layers: 1,
@@ -111,7 +119,13 @@ fn create_render_texture(
     if spec.size.contains(&0) || spec.layers == 0 || spec.mips == 0 {
         return Err(OffscreenError::EmptyTexture { id: spec.id });
     }
-    let format = color_format(spec.graphics_format)?;
+    let color_format = render_color_format(spec.graphics_format)?;
+    let depth_format = depth_format(spec.depth_bits)?;
+    let Some(format) = color_format.or(depth_format) else {
+        return Err(OffscreenError::UnsupportedFormat {
+            code: spec.graphics_format,
+        });
+    };
     if format.is_srgb() != spec.srgb {
         return Err(OffscreenError::SrgbMismatch {
             id: spec.id,
@@ -119,34 +133,38 @@ fn create_render_texture(
             linear: format.is_srgb(),
         });
     }
-    let depth_format = depth_format(spec.depth_bits)?;
-    let color = runtime.create_empty_texture(
-        "offscreen render texture",
-        TextureShape {
-            size: spec.size,
-            layers: spec.layers,
-            mips: spec.mips,
-            format,
-        },
-    )?;
+    let shape = |format| TextureShape {
+        size: spec.size,
+        layers: spec.layers,
+        mips: spec.mips,
+        format,
+    };
+    let color = color_format
+        .map(|format| runtime.create_empty_texture("offscreen render texture", shape(format)))
+        .transpose()?;
+    // A depth buffer under a color texture is one layer and one mip, which the camera draws into.
+    // Without color the depth is the texture and has the spec's layers and mips.
     let depth = depth_format
         .map(|format| {
-            runtime.create_empty_texture(
-                "offscreen render texture depth",
+            let shape = if color.is_some() {
                 TextureShape {
-                    size: spec.size,
                     layers: 1,
                     mips: 1,
-                    format,
-                },
-            )
+                    ..shape(format)
+                }
+            } else {
+                shape(format)
+            };
+            runtime.create_empty_texture("offscreen render texture depth", shape)
         })
         .transpose();
     let depth = match depth {
         Ok(depth) => depth,
         Err(error) => {
             // The color storage is not used by anything yet, so it is released at once.
-            let _ = runtime.release_texture(color);
+            if let Some(color) = color {
+                let _ = runtime.release_texture(color);
+            }
             return Err(error.into());
         }
     };

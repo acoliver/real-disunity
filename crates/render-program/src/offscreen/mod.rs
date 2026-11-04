@@ -106,10 +106,11 @@ impl OffscreenState {
         self.meshes.set(runtime, id, mesh)
     }
 
-    /// The runtime texture behind an id, for a draw that samples it after the offscreen work.
+    /// The runtime texture behind an id, for a draw that samples it after the offscreen work: the
+    /// color of a render texture, or its depth when it has no color.
     #[must_use]
     pub fn texture_handle(&self, id: TextureId) -> Option<TextureHandle> {
-        self.textures.get(id).ok().map(|info| info.color)
+        self.textures.get(id).ok().map(|info| info.primary())
     }
 
     /// Resolves and packs one frame into the typed operations that run it, in call order.
@@ -265,9 +266,9 @@ fn later_reads(
                     element: layer,
                 });
             }
-            let version = services.tracker.cell(imported.color, mip, layer);
+            let version = services.tracker.cell(imported.primary, mip, layer);
             let view = services.tracker.cell_view(
-                imported.color,
+                imported.primary,
                 (mip, layer),
                 wgpu::TextureAspect::All,
                 version,

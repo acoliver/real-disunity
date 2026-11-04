@@ -16,6 +16,17 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
     })
 }
 
+/// The color format of a render texture: `None` for GraphicsFormat 0, a target with only depth,
+/// else the format of the table.
+pub(crate) fn render_color_format(
+    code: u32,
+) -> Result<Option<wgpu::TextureFormat>, OffscreenError> {
+    if code == 0 {
+        return Ok(None);
+    }
+    color_format(code).map(Some)
+}
+
 /// The depth format of `bits` depth bits, or `None` for none.
 pub(crate) fn depth_format(bits: u8) -> Result<Option<wgpu::TextureFormat>, OffscreenError> {
     Ok(match bits {
@@ -43,6 +54,23 @@ mod tests {
         ] {
             assert_eq!(color_format(code).unwrap(), format);
         }
+    }
+
+    #[test]
+    fn a_render_texture_may_have_no_color_format_and_every_other_code_is_the_sampled_table() {
+        assert_eq!(render_color_format(0).unwrap(), None);
+        assert_eq!(
+            render_color_format(45).unwrap(),
+            Some(wgpu::TextureFormat::R16Float)
+        );
+        assert_eq!(
+            render_color_format(52).unwrap(),
+            Some(wgpu::TextureFormat::Rgba32Float)
+        );
+        assert!(matches!(
+            render_color_format(93),
+            Err(OffscreenError::UnsupportedFormat { code: 93 })
+        ));
     }
 
     #[test]

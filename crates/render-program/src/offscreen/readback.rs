@@ -81,7 +81,14 @@ impl OffscreenOperations {
             });
         }
         let size = imported.size.map(|side| (side >> mip).max(1));
-        let texel = imported.format.block_copy_size(None).unwrap_or(4);
+        let texel =
+            imported
+                .format
+                .block_copy_size(None)
+                .ok_or(OffscreenError::UnreadableFormat {
+                    texture,
+                    format: imported.format,
+                })?;
         let bytes_per_row = (size[0] * texel).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("offscreen readback"),
@@ -93,9 +100,9 @@ impl OffscreenOperations {
             .tracker
             .import_buffer(&buffer, ResourceLifetime::FrameLocal, None)?;
         let destination = self.tracker.buffer_view(key, 0..buffer.size(), 1)?;
-        let version = self.tracker.cell(imported.color, mip, layer);
+        let version = self.tracker.cell(imported.primary, mip, layer);
         let source = self.tracker.cell_view(
-            imported.color,
+            imported.primary,
             (mip, layer),
             wgpu::TextureAspect::All,
             version,

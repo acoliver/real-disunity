@@ -1,4 +1,5 @@
 using Disunity.Hosting;
+using Disunity.Native;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
@@ -6,7 +7,9 @@ namespace UnityEngine;
 
 /// <summary>
 /// A texture a camera or command buffer draws into. The engine keeps its description and whether it is
-/// created, and has no GPU surface, so nothing draws into it and it has no pixels. A texture that is created
+/// created, and holds no pixels in managed memory. The world has a render texture for it once something needs one (<see cref="Create"/>,
+/// a camera target, a blit or a material property) and its description follows <see cref="Create"/>; the world's
+/// render texture lives until the texture is destroyed, so <see cref="Release"/> and <see cref="Create"/> keep its id. A texture that is created
 /// rejects changes to its size, format and other allocation settings with <see cref="InvalidOperationException"/>
 /// until Release; the engine reports a late change instead of ignoring it. The same holds for ReleaseTemporary of a texture GetTemporary did not hand out or already got
 /// back (<see cref="ArgumentException"/>), and for reading <see cref="format"/> when the graphics format has no
@@ -18,6 +21,7 @@ public partial class RenderTexture : Texture
     private static RenderTexture? _active;
 
     private RenderTextureDescriptor _desc;
+    private WorldGraphics.Link _world;
     private bool _created;
     private bool? _isPowerOfTwo;
 
@@ -171,8 +175,33 @@ public partial class RenderTexture : Texture
     {
         if (_desc.width <= 0 || _desc.height <= 0) return false;
         _created = true;
+        if (!DisunityHost.IsLoaded) return true;
+        if (_world.IsCurrent) WorldGraphics.WriteRenderTexture(_world, Describe());
+        else _ = WorldLink;
         return true;
     }
+
+    /// <summary>The texture's render texture in the loaded world, made on first use from the description at that time.</summary>
+    internal WorldGraphics.Link WorldLink
+    {
+        get
+        {
+            if (_world.IsCurrent) return _world;
+            _world = WorldGraphics.CreateRenderTexture(Describe());
+            return _world;
+        }
+    }
+
+    /// <summary>The id of <see cref="WorldLink"/>.</summary>
+    internal ulong WorldId => WorldLink.Id;
+
+    /// <summary>The world's description: the depth bits are the texture's (0, 16, 24 or 32) and the mip count is that of the chain, at most 15.</summary>
+    private DisunityRenderTexture Describe() => new()
+    {
+        width = (uint)width, height = (uint)height, format = (uint)(int)_desc.graphicsFormat,
+        depth_bits = (uint)Math.Max(depth, 0),
+        mip_count = (uint)Math.Clamp(mipmapCount, 1, 15), srgb = sRGB ? 1u : 0u,
+    };
 
     public void Release()
     {
@@ -182,7 +211,13 @@ public partial class RenderTexture : Texture
 
     public bool IsCreated() => _created;
 
-    internal override void OnAssetDestroyed() => Release();
+    internal override void OnAssetDestroyed()
+    {
+        Release();
+        if (!_world.IsCurrent) return;
+        WorldGraphics.DestroyRenderTexture(_world);
+        _world = default;
+    }
 
     public void DiscardContents() { }
 

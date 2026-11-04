@@ -320,7 +320,7 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
         ..Default::default()
     };
     host.captures
-        .complete(id, 7, std::time::Duration::ZERO, image, scene);
+        .complete(id, 7, std::time::Duration::ZERO, image, &scene);
     host.readiness.published = 1;
     let RetainedEvent::Capture {
         outcome: RetainedCaptureOutcome::Completed {

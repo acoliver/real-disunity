@@ -1,6 +1,6 @@
 {
   "abi_version": 7,
-  "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, a native CanvasRenderer component with its own record and material calls, and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components with their own record and calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does.",
+  "description": "Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, a native CanvasRenderer component with its own record and material calls, and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components with their own record and calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does. Adds, within revision 7, native shaders, materials, shader properties and keywords, render textures, world materials and property blocks on mesh renderers, and recorded offscreen work.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -483,6 +483,36 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_material_create",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_material_destroy",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_material_pass_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_material_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_material_render_queue_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_material_shader_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_mesh_filter_create",
       "since": "6.0.0",
       "rets": "DisunityResult"
@@ -518,6 +548,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_mesh_renderer_materials_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_mesh_renderer_materials_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_mesh_renderer_read",
       "since": "6.0.0",
       "rets": "DisunityResult"
@@ -539,6 +579,96 @@
     },
     {
       "name": "disunity_mesh_store",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_record",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_take",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_render_texture_create",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_render_texture_destroy",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_render_texture_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_render_texture_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_create",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_destroy",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_float_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_int_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_keyword_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_keyword_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_matrix_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_properties_clear",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_property_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_source_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_texture_write",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_vector_write",
       "since": "7.0.0",
       "rets": "DisunityResult"
     },
@@ -680,6 +810,11 @@
     {
       "name": "disunity_script_set_enabled",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_script_type_messages",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

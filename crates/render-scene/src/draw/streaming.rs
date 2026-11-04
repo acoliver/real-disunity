@@ -1,3 +1,4 @@
+mod observations;
 mod replacement;
 use super::{GpuLod, SceneGpu};
 use crate::terrain::streaming::{TerrainChunk, select_with_retired};
@@ -24,6 +25,7 @@ struct Prepared {
     matrix: glam::Mat4,
     viewport: [u32; 2],
     residents: Residents,
+    observation: crate::terrain::streaming::TerrainSelectionObservation,
     #[cfg(test)]
     uploads: usize,
 }
@@ -78,6 +80,7 @@ impl Streaming {
         completed: u64,
     ) -> Result<(), FrameError> {
         if self.frozen.get() {
+            self.prepare_frozen(context, frame, viewport);
             return Ok(());
         }
         assert!(
@@ -126,6 +129,7 @@ impl Streaming {
             matrix: frame.selection_view_projection(),
             viewport,
             residents: residents.clone(),
+            observation: selection.observation,
             #[cfg(test)]
             uploads,
         });

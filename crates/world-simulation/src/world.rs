@@ -104,6 +104,7 @@ pub struct World {
     pub(crate) journal: crate::journal::Journal,
     pub(crate) spatial: Option<crate::spatial::SpatialIndex>,
     pub(crate) staging: Option<crate::edits::Staging>,
+    pub(crate) graphics: crate::graphics::GraphicsState,
 }
 
 impl World {
@@ -124,6 +125,7 @@ impl World {
             journal: crate::journal::Journal::default(),
             spatial: None,
             staging: None,
+            graphics: crate::graphics::GraphicsState::new(),
         })
     }
 
@@ -335,8 +337,14 @@ impl World {
         script: bool,
     ) {
         if script {
-            self.lifecycle
-                .register(handle, crate::lifecycle::ScriptState::default());
+            let messages = self.enroll_script_type(handle);
+            self.lifecycle.register(
+                handle,
+                crate::lifecycle::ScriptState {
+                    messages,
+                    ..Default::default()
+                },
+            );
         }
         if self.lifetime.objects.contains(&object) {
             self.lifetime.components.insert(handle);
@@ -415,17 +423,29 @@ impl World {
     pub fn snapshot(&self) -> WorldSnapshot {
         WorldSnapshot {
             objects: self
-                .objects
-                .iter(self.identity)
-                .filter(|(id, _)| !self.is_unpublished(ObjectHandle(*id)))
-                .map(|(id, _)| self.object(ObjectHandle(id)).expect("live arena entry"))
+                .published_objects()
+                .map(|handle| self.object(handle).expect("live arena entry"))
                 .collect(),
-            components: self
-                .components
-                .iter(self.identity)
-                .filter(|(_, value)| !self.is_unpublished(value.object))
-                .map(|(_, value)| value.clone())
-                .collect(),
+            components: self.published_components().cloned().collect(),
         }
+    }
+
+    /// The handles of the live, published objects in the order `snapshot` lists them, without
+    /// copying anything.
+    pub fn published_objects(&self) -> impl Iterator<Item = ObjectHandle> + '_ {
+        self.objects
+            .iter(self.identity)
+            .map(|(id, _)| ObjectHandle(id))
+            .filter(|&handle| !self.is_unpublished(handle))
+    }
+
+    /// The live components of published objects in the order `snapshot` lists them, lent from
+    /// the world instead of copied. A frame reads every component several times; this keeps
+    /// that from copying the whole world each time.
+    pub fn published_components(&self) -> impl Iterator<Item = &ComponentSnapshot> + '_ {
+        self.components
+            .iter(self.identity)
+            .map(|(_, value)| value)
+            .filter(|value| !self.is_unpublished(value.object))
     }
 }

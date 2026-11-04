@@ -1,6 +1,7 @@
 //! A camera component's settings and the rules for what a frame can present of them.
 use super::{invalid, lighting};
 use crate::WorldError;
+use crate::graphics::RenderTextureId;
 
 /// What a camera draws before its content, with Unity's `CameraClearFlags` values.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -112,8 +113,8 @@ pub struct Camera {
     pub depth_texture_mode: u32,
     pub flags: CameraFlags,
     pub target_display: u32,
-    /// Instance id of the managed `RenderTexture` the camera draws into; zero draws to the screen.
-    pub target_texture: u64,
+    /// The render texture the camera draws into; `None` draws to the screen.
+    pub target_texture: Option<RenderTextureId>,
     /// Replaces the projection derived from the lens settings, as column-major floats.
     pub projection_matrix: Option<[f32; 16]>,
     /// Replaces the view derived from the object's transform, as column-major floats.
@@ -138,7 +139,7 @@ impl Default for Camera {
             depth_texture_mode: 0,
             flags: CameraFlags::DEFAULT,
             target_display: 0,
-            target_texture: 0,
+            target_texture: None,
             projection_matrix: None,
             world_to_camera: None,
             camera_type: CAMERA_TYPE_GAME,
@@ -193,7 +194,7 @@ impl Camera {
         if self.world_to_camera.is_some() {
             return Err(lighting::unsupported("worldToCameraMatrix"));
         }
-        if self.target_texture != 0 {
+        if self.target_texture.is_some() {
             return Err(lighting::unsupported("targetTexture"));
         }
         if self.target_display != 0 {
@@ -216,7 +217,7 @@ impl Camera {
     /// Whether the camera draws to the screen: a camera with a target texture or another display
     /// does not, so it cannot be the camera a frame presents.
     pub fn draws_to_screen(self) -> bool {
-        self.target_texture == 0 && self.target_display == 0
+        self.target_texture.is_none() && self.target_display == 0
     }
 
     /// Whether the camera clears to a colour, so it can be the base a frame starts from.

@@ -49,7 +49,7 @@ impl Active {
             self.frame,
             self.time,
             self.accumulation.finish(),
-            self.scene.expect("submitted sample"),
+            &self.scene.expect("submitted sample"),
         );
     }
 }

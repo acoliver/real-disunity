@@ -2,8 +2,9 @@
 //! shaders and materials a scene references (see [`crate::player_materials`]).
 //!
 //! A shader plans as its declared name, render queue and the counts of sub-shaders and of
-//! passes in the first sub-shader. Its programs are not planned: the engine builds the shader
-//! object by name, and drawing with it is later work. A shader that does not decode, or
+//! passes in the first sub-shader, and the serialized file and path id of the shader object. Its
+//! programs are not planned: a host that draws with them reads them from that object. A shader
+//! that does not decode, or
 //! declares a queue the engine cannot read, plans as an error entry and a reference to it
 //! binds `null`.
 
@@ -29,6 +30,10 @@ pub(crate) struct ShaderDecl {
     pub(crate) render_queue: i32,
     pub(crate) pass_count: usize,
     pub(crate) subshader_count: usize,
+    /// The serialized file the shader object lives in, relative to the player's data directory
+    /// with `/` separators, and the object's path id there.
+    pub(crate) file: String,
+    pub(crate) path_id: i64,
 }
 
 impl ShaderDecl {
@@ -38,6 +43,8 @@ impl ShaderDecl {
             render_queue: self.render_queue,
             pass_count: self.pass_count,
             subshader_count: self.subshader_count,
+            file: self.file,
+            path_id: self.path_id,
         }
     }
 }
@@ -112,7 +119,20 @@ pub(crate) fn decode_shader(
         render_queue: first.map_or(Ok(GEOMETRY_QUEUE), |sub| render_queue(&sub.tags))?,
         pass_count: first.map_or(0, |sub| sub.passes.len()),
         subshader_count: shader.parsed.sub_shaders.len(),
+        file: file_name(&files.data_dir, file),
+        path_id: *path_id,
     })
+}
+
+/// A serialized file's name as the plan states it: relative to the data directory when it is
+/// inside it, with `/` separators.
+fn file_name(data_dir: &Path, file: &Path) -> String {
+    let relative = file.strip_prefix(data_dir).unwrap_or(file);
+    relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Why a reference to a shader that did not plan is left out.
@@ -225,5 +245,25 @@ impl PlanSource for SceneSource {
         }
         let asset = self.plan_asset(&key, class, pptr)?;
         Ok(self.push_asset(key, asset))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_in_a_subdirectory_is_named_with_forward_slashes() {
+        let name = file_name(
+            Path::new("data"),
+            &Path::new("data").join("Sub").join("a.assets"),
+        );
+        assert_eq!(name, "Sub/a.assets");
+    }
+
+    #[test]
+    fn a_file_outside_the_data_directory_keeps_its_own_path() {
+        let name = file_name(Path::new("data"), Path::new("other.assets"));
+        assert_eq!(name, "other.assets");
     }
 }

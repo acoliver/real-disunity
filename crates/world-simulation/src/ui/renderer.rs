@@ -75,7 +75,7 @@ pub fn inherited_alpha(world: &World, renderer: ComponentHandle) -> Result<f32, 
         return Err(WorldError::from(UiError::InvalidCanvasRenderer));
     };
     let object = component.object;
-    let groups = groups_by_object(&world.snapshot().components);
+    let groups = groups_by_object(world.published_components());
     Ok(desc.alpha * effective_alpha(world, &groups, object)?)
 }
 

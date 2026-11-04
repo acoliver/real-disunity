@@ -10,7 +10,9 @@
 mod activity;
 pub use activity::ActivityReason;
 mod adapter;
-pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent};
+pub use adapter::{
+    AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent, InitialContext,
+};
 mod app;
 pub mod cpu_profile;
 mod live;
@@ -310,7 +312,8 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
 pub use retained::{
     DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainPageStatistics,
+    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
+    TerrainPageStatistics, TerrainStreamingStatistics,
 };
 pub use retained::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,

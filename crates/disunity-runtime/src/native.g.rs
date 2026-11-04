@@ -678,6 +678,73 @@ pub struct DisunityGlyphRender {
     pub atlas_height: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityMaterialInfo {
+    pub shader: u64,
+    pub render_queue: i32,
+    pub keyword_count: u32,
+    pub disabled_pass_count: u32,
+    pub generation: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityRenderTexture {
+    pub width: u32,
+    pub height: u32,
+    pub format: u32,
+    pub depth_bits: u32,
+    pub mip_count: u32,
+    pub srgb: u32,
+    pub generation: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityOffscreenWork {
+    pub kind: u32,
+    pub camera: u64,
+    pub target: u64,
+    pub source_kind: u32,
+    pub source: u64,
+    pub material: u64,
+    pub pass: i32,
+    pub source_element: u32,
+    pub source_mip: u32,
+    pub target_element: u32,
+    pub target_mip: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityTextureSlot {
+    pub kind: u32,
+    pub texture: u64,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityPropertyRead {
+    pub present: u32,
+    pub float_value: f32,
+    pub int_value: i32,
+    pub vector_x: f32,
+    pub vector_y: f32,
+    pub vector_z: f32,
+    pub vector_w: f32,
+    pub texture_kind: u32,
+    pub texture: u64,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
+}
+
 /// The ABI revision these records belong to.
 pub const DISUNITY_ABI_VERSION: u32 = 7;
 

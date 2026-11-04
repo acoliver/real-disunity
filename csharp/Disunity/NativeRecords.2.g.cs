@@ -111,4 +111,96 @@ namespace Disunity.Native
         public uint atlas_height;
     }
 
+    /// <summary>
+    ///  What a material holds besides its properties. `generation` rises with every edit.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMaterialInfo
+    {
+        public ulong shader;
+        public int render_queue;
+        public uint keyword_count;
+        public uint disabled_pass_count;
+        public ulong generation;
+    }
+
+    /// <summary>
+    ///  A render texture's description; booleans are 0 or 1. `format` is the engine's
+    ///  `GraphicsFormat` value. `generation` is ignored on input and starts at 1.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityRenderTexture
+    {
+        public uint width;
+        public uint height;
+        public uint format;
+        public uint depth_bits;
+        public uint mip_count;
+        public uint srgb;
+        public ulong generation;
+    }
+
+    /// <summary>
+    ///  One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
+    ///  component, `target` the render texture), 1 for a blit and 2 for a texture copy. A blit and a
+    ///  copy read `source_kind` and `source` as a texture property does (0 none, 1 asset, 2 render
+    ///  texture); a blit draws with `material` (0 for none) and `pass` (-1 for every pass); a copy
+    ///  addresses `source_element`, `source_mip`, `target_element` and `target_mip`. Fields a kind
+    ///  does not use are ignored.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityOffscreenWork
+    {
+        public uint kind;
+        public ulong camera;
+        public ulong target;
+        public uint source_kind;
+        public ulong source;
+        public ulong material;
+        public int pass;
+        public uint source_element;
+        public uint source_mip;
+        public uint target_element;
+        public uint target_mip;
+    }
+
+    /// <summary>
+    ///  A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
+    ///  by the identity the host knows it by (a player texture identity) and 2 for a world render
+    ///  texture by its id.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTextureSlot
+    {
+        public uint kind;
+        public ulong texture;
+        public float scale_x;
+        public float scale_y;
+        public float offset_x;
+        public float offset_y;
+    }
+
+    /// <summary>
+    ///  The values a property name holds, one per kind. `present` has bit 0 set for a float, bit 1
+    ///  for an integer, bit 2 for a vector, bit 3 for a matrix and bit 4 for a texture; the fields of
+    ///  a kind that is not present are zero.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityPropertyRead
+    {
+        public uint present;
+        public float float_value;
+        public int int_value;
+        public float vector_x;
+        public float vector_y;
+        public float vector_z;
+        public float vector_w;
+        public uint texture_kind;
+        public ulong texture;
+        public float scale_x;
+        public float scale_y;
+        public float offset_x;
+        public float offset_y;
+    }
+
 }

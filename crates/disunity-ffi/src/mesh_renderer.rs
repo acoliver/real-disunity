@@ -98,19 +98,46 @@ impl DisunityMeshRenderer {
                 .into_iter()
                 .take(self.material_count as usize)
                 .collect(),
+            slot_materials: current
+                .slot_materials
+                .into_iter()
+                .take(self.material_count as usize)
+                .collect(),
+            property_block: current.property_block,
+            render_queue: current.render_queue,
         })
     }
 }
 
-fn renderer(
+pub(crate) fn renderer(
     session: &crate::store::Session,
     handle: u64,
 ) -> Result<(ComponentHandle, MeshRenderer), AbiError> {
     let id = component(session, handle)?;
+    Ok((id, renderer_at(session, id)?))
+}
+
+/// The renderer a native component handle names.
+pub(crate) fn renderer_at(
+    session: &crate::store::Session,
+    id: ComponentHandle,
+) -> Result<MeshRenderer, AbiError> {
     match &session.native.component(id)?.desc {
-        ComponentDesc::MeshRenderer(renderer) => Ok((id, renderer.clone())),
+        ComponentDesc::MeshRenderer(renderer) => Ok(renderer.clone()),
         _ => Err("component is not a MeshRenderer or SkinnedMeshRenderer".into()),
     }
+}
+
+/// Stores a changed renderer, validating it as a whole.
+pub(crate) fn set_renderer(
+    session: &mut crate::store::Session,
+    id: ComponentHandle,
+    renderer: MeshRenderer,
+) -> Result<(), AbiError> {
+    session
+        .native
+        .set_component(id, ComponentDesc::MeshRenderer(renderer))?;
+    Ok(())
 }
 
 fn filter(

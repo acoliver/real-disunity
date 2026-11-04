@@ -8,7 +8,7 @@ use crate::presentation::extraction::{
 use crate::ui::clip::{CanvasClip, Clipped};
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::ui::{CanvasRenderer, RectLayout, UiLayout};
-use crate::{ComponentDesc, ObjectHandle, ObjectSnapshot, World, WorldError};
+use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -40,15 +40,14 @@ pub struct UiGraphic {
 /// has a rectangle in `layout` (so it is active under an enabled canvas), it is not culled, it
 /// has a mesh, and the alpha it inherits is above zero.
 pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphic>, WorldError> {
-    let snapshot = world.snapshot();
-    let groups = groups_by_object(&snapshot.components);
-    let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
+    let groups = groups_by_object(world.published_components());
+    let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
     let rects: BTreeMap<ObjectHandle, &RectLayout> =
         layout.rects.iter().map(|r| (r.object, r)).collect();
-    let order = hierarchy_order(world, &snapshot.objects)?;
-    let roots = root_canvases(world, &snapshot.components)?;
+    let order = hierarchy_order(world)?;
+    let roots = root_canvases(world)?;
     let mut found = Vec::new();
-    for component in &snapshot.components {
+    for component in world.published_components() {
         let ComponentDesc::CanvasRenderer(renderer) = &component.desc else {
             continue;
         };
@@ -124,12 +123,9 @@ fn graphic(
 
 /// The topmost canvas above (or at) each canvas object: the canvas whose space clip rectangles
 /// are measured in.
-fn root_canvases(
-    world: &World,
-    components: &[crate::ComponentSnapshot],
-) -> Result<BTreeMap<ObjectHandle, ObjectHandle>, WorldError> {
-    let canvases: Vec<ObjectHandle> = components
-        .iter()
+fn root_canvases(world: &World) -> Result<BTreeMap<ObjectHandle, ObjectHandle>, WorldError> {
+    let canvases: Vec<ObjectHandle> = world
+        .published_components()
         .filter(|c| matches!(c.desc, ComponentDesc::Canvas(_)))
         .map(|c| c.object)
         .collect();
@@ -149,16 +145,13 @@ fn root_canvases(
 }
 
 /// Each object's place in a depth-first walk of the hierarchy.
-fn hierarchy_order(
-    world: &World,
-    objects: &[ObjectSnapshot],
-) -> Result<BTreeMap<ObjectHandle, usize>, WorldError> {
+fn hierarchy_order(world: &World) -> Result<BTreeMap<ObjectHandle, usize>, WorldError> {
     let mut order = BTreeMap::new();
-    for object in objects {
-        if world.parent(object.handle)?.is_some() {
+    for object in world.published_objects() {
+        if world.parent(object)?.is_some() {
             continue;
         }
-        for node in world.subtree(object.handle)? {
+        for node in world.subtree(object)? {
             order.insert(node, order.len());
         }
     }

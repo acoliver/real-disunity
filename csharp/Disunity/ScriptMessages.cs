@@ -8,6 +8,28 @@ namespace Disunity.Hosting;
 internal static class ScriptMessages
 {
     private static readonly Dictionary<(Type, string, Type?), MethodInfo?> Methods = new();
+    private static readonly Dictionary<Type, uint> Defined = new();
+    private const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+
+    /// <summary>The per-frame messages the type defines, as native bits: 1 FixedUpdate, 2 Update, 4 LateUpdate.
+    /// A method found on the type or a base type below MonoBehaviour counts, as the lookup in
+    /// <see cref="Invoke(UnityEngine.Object, string, object?)"/> finds it.</summary>
+    internal static uint PerFrameMessages(Type type)
+    {
+        if (Defined.TryGetValue(type, out var bits)) return bits;
+        string[] names = ["FixedUpdate", "Update", "LateUpdate"];
+        for (var bit = 0; bit < names.Length; bit++)
+        {
+            for (var t = type; t != null && t != typeof(MonoBehaviour); t = t.BaseType)
+                if (t.GetMethod(names[bit], Declared, null, Type.EmptyTypes, null) != null) { bits |= 1u << bit; break; }
+        }
+        Defined.Add(type, bits);
+        return bits;
+    }
+
+    /// <summary>Whether a message lookup for the type has run, which shows a native callback reached it.</summary>
+    internal static bool HasLooked(Type type, string name) => Methods.Keys.Any(key => key.Item1 == type && key.Item2 == name);
+
     internal static void Invoke(MonoBehaviour script, uint message)
     {
         string[] names = ["Awake", "OnEnable", "Start", "FixedUpdate", "Update", "LateUpdate", "OnDisable", "OnDestroy"];
@@ -25,7 +47,7 @@ internal static class ScriptMessages
         if (!Methods.TryGetValue(key, out var method))
         {
             for (var type = key.Item1; type != null && method == null; type = type.BaseType)
-                method = type.GetMethod(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly,
+                method = type.GetMethod(name, Declared,
                     null, parameter == null ? Type.EmptyTypes : [parameter], null);
             if (method != null && (method.ContainsGenericParameters || method.IsAbstract ||
                 (method.ReturnType != typeof(void) && !(name == "Start" && typeof(IEnumerator).IsAssignableFrom(method.ReturnType)))))

@@ -27,8 +27,8 @@ namespace Disunity.Native
     ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. `orthographic` is 1 for an orthographic lens and 0
     ///  for a perspective one with `field_of_view` degrees; both sizes are kept. `culling_mask` is one
     ///  bit per layer, the viewport is a normalized rectangle, `depth_texture_mode` and `camera_type`
-    ///  use Unity's flag values, and `target_texture` is a managed RenderTexture's instance id (0 for
-    ///  the screen). Custom matrices have their own calls. Boolean settings are 0 or 1.
+    ///  use Unity's flag values, and `target_texture` is the id of a world render texture (0 for the
+    ///  screen; see `disunity_render_texture_create`). The id is stored as given and may be stale. Custom matrices have their own calls. Boolean settings are 0 or 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityCamera

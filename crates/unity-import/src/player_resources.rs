@@ -141,13 +141,16 @@ pub enum ResourceAsset {
         sprites: Vec<AssetRef>,
     },
     /// A shader, by the name its source declares, with the render queue of its first
-    /// sub-shader and the numbers of sub-shaders and of passes in the first one. Programs are
-    /// not planned.
+    /// sub-shader and the numbers of sub-shaders and of passes in the first one. The programs
+    /// are not planned; `file` and `path_id` name the serialized shader object they are read
+    /// from, `file` relative to the data directory.
     Shader {
         name: String,
         render_queue: i32,
         pass_count: usize,
         subshader_count: usize,
+        file: String,
+        path_id: i64,
     },
     /// A shader the planner could not decode, with the reason loading it reports.
     UnplannedShader { error: String },
@@ -539,6 +542,8 @@ impl ResourcePlanner {
                 render_queue: decl.render_queue,
                 pass_count: decl.pass_count,
                 subshader_count: decl.subshader_count,
+                file: decl.file,
+                path_id: decl.path_id,
             },
             Err(error) => {
                 let (file, path_id) = key;

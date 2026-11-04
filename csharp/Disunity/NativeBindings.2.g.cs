@@ -439,5 +439,211 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_face_pairs", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_face_pairs(ulong world, ulong face, uint* glyphs, uint glyph_count, DisunityGlyphPair* records, uint* count);
+        /// <summary>
+        ///  Registers a shader by name and writes its id. A shader starts without a source.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_create(ulong world, byte* name, uint length, ulong* output);
+        /// <summary>
+        ///  Sets where a shader's programs are: the serialized file the shader object lives in and its
+        ///  path id there. A zero `length` removes the source.
+        ///
+        ///  # Safety
+        ///  `file` spans `length` readable bytes when `length` is not zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_source_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_source_write(ulong world, ulong shader, byte* file, uint length, long path_id);
+        /// <summary>
+        ///  Removes a shader. Materials that name it keep the stale id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_destroy(ulong world, ulong shader);
+        /// <summary>
+        ///  Creates a material of a live shader and writes its id.
+        ///
+        ///  # Safety
+        ///  `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_create(ulong world, ulong shader, ulong* output);
+        /// <summary>
+        ///  Removes a material. Renderer slots that name it read as having none.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_destroy(ulong world, ulong material);
+        /// <summary>
+        ///  Points a material at another live shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
+        /// <summary>
+        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
+        /// <summary>
+        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_read(ulong world, ulong material, DisunityMaterialInfo* output);
+        /// <summary>
+        ///  Creates a render texture and writes its id.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_create(ulong world, DisunityRenderTexture* desc, ulong* output);
+        /// <summary>
+        ///  Replaces a render texture's description and raises its generation.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_write(ulong world, ulong texture, DisunityRenderTexture* desc);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_read(ulong world, ulong texture, DisunityRenderTexture* output);
+        /// <summary>
+        ///  Removes a render texture. Whatever names it goes stale.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_destroy(ulong world, ulong texture);
+        /// <summary>
+        ///  Sets the world material of each slot of a renderer; an id of 0 leaves a slot without one.
+        ///  `count` is at most the renderer's `material_count`, and slots past it have none. Every
+        ///  nonzero id must name a live material. A rejected call changes nothing.
+        ///
+        ///  # Safety
+        ///  `materials` is readable for `count` ids, or null when `count` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_materials_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_renderer_materials_write(ulong world, ulong handle, ulong* materials, uint count);
+        /// <summary>
+        ///  Reads the world material ids of a renderer's slots into `materials` (up to `capacity` ids,
+        ///  0 for a slot without one) and writes how many slots are set to `count`.
+        ///
+        ///  # Safety
+        ///  `materials` is writable for `capacity` ids, or null when `capacity` is zero; `count` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_materials_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_renderer_materials_read(ulong world, ulong handle, ulong* materials, uint capacity, uint* count);
+        /// <summary>
+        ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
+        ///
+        ///  # Safety
+        ///  `work` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_record", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_record(ulong world, DisunityOffscreenWork* work);
+        /// <summary>
+        ///  Drains the frame's offscreen work into `records` (up to `capacity` of them, in call order)
+        ///  and writes how many there were to `count`. A zero `capacity` drains nothing and only reports
+        ///  the count; a capacity below the count is rejected and drains nothing.
+        ///
+        ///  # Safety
+        ///  `records` is writable for `capacity` records, or null when `capacity` is zero; `count` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_take", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_take(ulong world, DisunityOffscreenWork* records, uint capacity, uint* count);
+        /// <summary>
+        ///  Sets a float property, replacing the value of the same name.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_float_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_float_write(ulong world, uint scope, ulong target, byte* name, uint length, float value);
+        /// <summary>
+        ///  Sets an integer property.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_int_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_int_write(ulong world, uint scope, ulong target, byte* name, uint length, int value);
+        /// <summary>
+        ///  Sets a vector or colour property from 4 floats.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for 4 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_vector_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_vector_write(ulong world, uint scope, ulong target, byte* name, uint length, float* values);
+        /// <summary>
+        ///  Sets a matrix property from 16 floats in column-major order.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_matrix_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_matrix_write(ulong world, uint scope, ulong target, byte* name, uint length, float* values);
+        /// <summary>
+        ///  Sets a texture property with its scale and offset.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `slot` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_texture_write(ulong world, uint scope, ulong target, byte* name, uint length, DisunityTextureSlot* slot);
+        /// <summary>
+        ///  Removes every property value from a material, the global state or a renderer's property
+        ///  block. Keywords stay.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_properties_clear", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_properties_clear(ulong world, uint scope, ulong target);
+        /// <summary>
+        ///  Enables (`enabled` 1) or disables (0) a keyword on a material or in the global state. A
+        ///  property block has no keywords.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_keyword_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_keyword_write(ulong world, uint scope, ulong target, byte* name, uint length, uint enabled);
+        /// <summary>
+        ///  Writes 1 to `enabled` when the keyword is enabled on the material or in the global state.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `enabled` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_keyword_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_keyword_read(ulong world, uint scope, ulong target, byte* name, uint length, uint* enabled);
+        /// <summary>
+        ///  Reads every kind of value a property name holds in a material, the global state or a
+        ///  renderer's property block.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_property_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_property_read(ulong world, uint scope, ulong target, byte* name, uint length, DisunityPropertyRead* output);
+        /// <summary>
+        ///  Records the per-frame messages (bit 0 `FixedUpdate`, bit 1 `Update`, bit 2 `LateUpdate`) that
+        ///  the script type `type_name` in `assembly` defines. Scripts of the type, present or added
+        ///  later, then receive only those messages. Types never reported receive all three.
+        ///  # Safety
+        ///  `assembly` and `type_name` are NUL-terminated strings, or null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_script_type_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_script_type_messages(ulong world, byte* assembly, byte* type_name, uint messages);
     }
 }

@@ -6,6 +6,7 @@ mod errors;
 mod lifecycle;
 mod overlay;
 pub(crate) mod pages;
+mod picking;
 mod terrain;
 mod timing;
 #[test]

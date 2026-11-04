@@ -56,6 +56,20 @@ flight.retire();
 The legacy profile retains exposed sRGB output. The HDR profile writes unexposed `Rgba16Float` radiance and applies exposure and tone mapping once in post before the final output transfer. Selecting HDR therefore changes colour behavior explicitly. It supports 1x or 4x forward samples; the optional screen-space metadata prepass is single-sample. Ordinary cross-feature transparent sorting and temporal AA remain unsupported and return typed errors.
 
 ## External features
+## Retained frame-coherent picking
+
+`RetainedHost::pick` and `RetainedEventHost::pick` query the last presented
+camera, viewport and object/resource generation. Publication to renderer residency
+can happen before a frame is submitted, so it must not advance the displayed
+`Arc` snapshot. Successful ordinary presentation submissions freeze it before
+`Presented`; accepted edits and asynchronous preparation cannot mutate it.
+Windowless accumulated captures freeze their unjittered source view at completion.
+Desktop capture-only work does not replace the displayed snapshot. Results carry
+the displayed generation and use top-left physical pixels through
+`ResolvedView::screen_ray`. This CPU geometry query does not imply GPU completion
+or pixel-exact shader coverage. The [host contract](../../crates/scene-viewer/README.md#picking-the-presented-scene)
+documents coverage, filtering, lifetimes and resource sharing.
+
 ## Retained host CPU work
 
 `RetainedHost::work_queue::<R>(workers, capacity)` creates a caller-sized worker

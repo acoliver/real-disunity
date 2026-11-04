@@ -43,6 +43,7 @@ fn initialize(
     mut host: RetainedHost,
     driver: &mut dyn RetainedDriver,
 ) -> Result<(Session<'_>, Renderer), ViewerError> {
+    host.picking.windowless = true;
     let renderer = pollster::block_on(Renderer::windowless(&mut host));
     let mut session = Session::new(host, driver);
     match renderer {

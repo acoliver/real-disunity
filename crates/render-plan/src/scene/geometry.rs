@@ -85,9 +85,14 @@ pub struct SceneMeshLod {
     vertices: Box<[SceneVertex]>,
     indices: Box<[u32]>,
     billboard: Option<BillboardPolicy>,
+    bounds_millimeters: ([i64; 3], [i64; 3]),
 }
 
 impl SceneMeshLod {
+    pub(crate) const fn bounds_millimeters(&self) -> ([i64; 3], [i64; 3]) {
+        self.bounds_millimeters
+    }
+
     /// Overrides the placement material with a complete triangle partition.
     pub fn with_material_slots(
         mut self,
@@ -152,6 +157,7 @@ impl SceneMeshLod {
             material_slots: None,
             vertex_occlusion_micro: None,
             card: None,
+            bounds_millimeters: vertex_bounds(&vertices),
             level_index,
             vertices: vertices.into_boxed_slice(),
             indices: indices.into_boxed_slice(),
@@ -214,6 +220,18 @@ impl SceneMeshLod {
         }
         Ok(())
     }
+}
+
+fn vertex_bounds(vertices: &[SceneVertex]) -> ([i64; 3], [i64; 3]) {
+    let mut minimum = [i64::MAX; 3];
+    let mut maximum = [i64::MIN; 3];
+    for vertex in vertices {
+        for axis in 0..3 {
+            minimum[axis] = minimum[axis].min(vertex.position_millimeters[axis]);
+            maximum[axis] = maximum[axis].max(vertex.position_millimeters[axis]);
+        }
+    }
+    (minimum, maximum)
 }
 
 /// One owned mesh as a contiguous zero-based chain of LOD levels.

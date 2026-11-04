@@ -1,8 +1,8 @@
 use wgpu::util::DeviceExt;
 
 use super::{
-    BufferUse, BufferView, CheckedBindings, ContractError, RasterId, RasterPass, ResourceRegistry,
-    ResourceUse, TextureCopy,
+    BufferUse, BufferView, CheckedBindings, ContractError, FullscreenVertices, RasterId,
+    RasterPass, ResourceRegistry, ResourceUse, TextureCopy,
 };
 
 /// Work is executed in list order. No operation owns a queue or exposes an encoder.
@@ -22,6 +22,8 @@ pub enum TypedWork {
     Fullscreen {
         pass: RasterPass,
         pipeline: wgpu::RenderPipeline,
+        /// Vertex streams the pipeline reads. None draws three vertices with no streams.
+        vertices: Option<FullscreenVertices>,
     },
     Compute {
         pipeline: wgpu::ComputePipeline,
@@ -192,9 +194,16 @@ impl TypedOperation {
                 pass.encode(encoder, stamp, |_| {});
             }
             TypedWork::Raster(pass) => pass.encode(encoder, stamp, |render| draw(self.id, render)),
-            TypedWork::Fullscreen { pass, pipeline } => pass.encode(encoder, stamp, |render| {
+            TypedWork::Fullscreen {
+                pass,
+                pipeline,
+                vertices,
+            } => pass.encode(encoder, stamp, |render| {
                 render.set_pipeline(pipeline);
-                render.draw(0..3, 0..1);
+                match vertices {
+                    Some(vertices) => vertices.encode(render),
+                    None => render.draw(0..3, 0..1),
+                }
             }),
             TypedWork::Compute {
                 pipeline,

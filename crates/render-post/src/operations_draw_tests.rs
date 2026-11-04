@@ -127,7 +127,14 @@ fn consumer(
         uses: vec![ResourceUse::read(source, UseKind::Sampled)],
         bindings: vec![bindings],
     };
-    TypedOperation::new(pass.id, TypedWork::Fullscreen { pass, pipeline })
+    TypedOperation::new(
+        pass.id,
+        TypedWork::Fullscreen {
+            pass,
+            pipeline,
+            vertices: None,
+        },
+    )
 }
 #[test]
 fn compute_to_fullscreen_requires_declared_producer_and_preserves_bytes() {

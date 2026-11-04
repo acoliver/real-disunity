@@ -189,6 +189,16 @@ impl std::fmt::Debug for TimingState {
     }
 }
 impl TimingState {
+    /// Encodes a compiled list with the frame's pass timer.
+    pub fn encode_checked(
+        &self,
+        compiled: &crate::contracts::CompiledOperations,
+        registry: &crate::contracts::ResourceRegistry,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), crate::contracts::ContractError> {
+        let mut timer = self.0.borrow_mut();
+        compiled.encode_checked(registry, encoder, timer.as_mut())
+    }
     /// Attach a provider compute pass to the active frame, if timing is enabled.
     pub fn begin_compute_pass<'a>(
         &self,

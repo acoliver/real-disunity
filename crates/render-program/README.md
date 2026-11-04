@@ -1,28 +1,53 @@
-# Running Unity player shader programs
+# Format-neutral shader program runtime
 
-`worldrunner-render-program` draws and dispatches the shader programs that Unity ships in a player build, with wgpu. It sits in the Graphics layer. This slice proves that one pass, a vertex and fragment program or a compute kernel, can be selected, laid out, fed its constants, textures and state, and executed on a real adapter with predicted results.
+`worldrunner-render-program` builds layouts and pipelines for shader programs, binds their resources and records draws and dispatches with wgpu. It sits in the Graphics layer. Its root modules describe programs in engine terms and name no shader file format. A default-off `unity` module converts Unity player programs into those descriptions, and the runtime executes the result.
 
-## Inputs
+## Neutral model
 
-The crate takes data that the importer has already prepared. It does not read bundles or translate shaders.
+A caller states each stage's code, the resources and constants the stage declares, and the fixed-function state of a draw. Nothing below mentions a source format.
 
-| Input | Type | Source |
+| Concept | Types | What they say |
 | --- | --- | --- |
-| Prepared SPIR-V words and entry point | `module::StageModule` | The shader preparation in `unity-import` |
-| Binding table | `module::ModuleBinding` | Mirrors `unity-import`'s `ResourceBinding`: set, Unity binding, prepared binding and, for a split combined sampler, the sampler's binding |
-| Parameters | `unity_serialized::shader_program::ProgramParameters` | The serialized sub program |
-| Keyword variants | `unity_serialized::shader_program::Program` | `variant::select_sub_program` picks the sub program whose keyword set equals the enabled keywords, and `select_player_sub_program` does the same across platform lists |
-| Fixed-function state | `unity_serialized::shader_state::ShaderState` | `state::resolve_state` reads each value from its fixed number or from the first property layer that names it |
-| Properties | `properties::PropertySet` | Layers searched in order; the first layer with a name wins |
+| Stage module | `module::StageModule`, `StageSource::{SpirV, Wgsl}`, `StageKind` | Code, entry point and stage. SPIR-V keeps naga's Y flip, which turns its clip space into the one wgpu draws with. WGSL is used as written. |
+| Declarations | `module::StageDeclarations` | The `ResourceLayout` and the `BoundConstantLayout`s of one stage. |
+| Resource layout | `binding::{BindingAddress, ResourceBinding, ResourceKind, BindingSource, PropertyId}` | Set, binding, visibility and kind: uniform or storage buffer (with access and a minimum size), texture (dimension, sample type, multisampled) and sampler (filtering, non-filtering or comparison). |
+| Constant layout | `constants::{ConstantLayout, Member, ScalarKind, ArrayLayout, MatrixLayout}`, `pack_constants` | Named members with kind, rows, columns, array count and stride, byte offset and matrix line stride and order. |
+| Render state | `state::{RenderState, RasterState, DepthState, ColorState, StencilState}` | Cull, front face, depth test, write and bias, one entry per colour target (blend and write mask) and stencil. |
+| Variants | `variant::{FeatureId, FeatureSet, Variants, select_variant, UnknownFeatures}` | A program per exact feature set. |
+| Property values | `properties::{PropertySet, PropertyValue}`, `runtime::{Resource, BoundResource, BufferHandle, TextureHandle, TargetHandle}` | Floats, integers, unsigned integers, booleans, vectors, matrices, arrays and resource handles, looked up by name in layers where the first layer with a name wins. |
 
-## What it does
+Execution consumes only these values. `layout::ProgramLayout::build` checks each stage's declarations against the resources its entry point uses, `constants::pack_constants` fills a buffer, `ProgramRuntime::graphics_program` and `compute_program` build the wgpu layouts, and `draw`, `prepare_draw`, `admit_draws` and `dispatch` record the work.
 
-- **Layouts.** `layout::ProgramLayout::build` merges the stages' resources into one pipeline layout and checks them against Unity's parameters. An unsupported parameter, a resource without a parameter, a parameter of another kind than its resource and stages that declare one binding differently are named errors. A parameter the entry point does not use is reported, not bound.
-- **Constants.** `constants::pack_constant_buffer` writes vectors, matrices and arrays at Unity's byte offsets, a register of 16 bytes apart, sizes the buffer for the shader's needs and reports missing properties, which stay zero. A negative size, a parameter outside the buffer, a struct member and a value kind the packer does not write are named errors. `StageProgram::constant_buffer_targets` and `texture_targets` give the prepared set and binding each parameter fills.
-- **Variants.** An exact keyword match selects the sub program. A missing combination is a named error.
-- **State.** Cull, `ZTest`, `ZWrite`, color mask and blend for render target 0 resolve from fixed or property-controlled values. A property no layer has keeps the pass's fixed value and is listed in `ResolvedState::defaulted`. Color and alpha blend resolve separately. Unknown values and state this slice does not draw (stencil that is not off, alpha to coverage, depth bias, conservative rasterisation, depth clip off) are named errors. A draw has one color attachment, so the blend state of render targets 1 to 7 is not read, whether or not the pass sets `separate_blend`.
-- **Draws.** `ProgramRuntime::draw` records non-indexed or indexed triangles with a vertex layout the caller gives, into a color target with an optional depth target. `read_target` records a copy of the pixels. Render and compute pipelines and shader modules are cached by content.
-- **Compute.** `ProgramRuntime::dispatch` records a kernel with Unity-style bindings; `read_buffer` records a copy of a storage buffer.
+- **Layouts.** A resource the entry point uses must be declared at its address, as the kind the shader has and visible to the stage that uses it. A binding declared twice, a declaration of another kind, a declaration the stage cannot see and stages that declare one binding differently are named `LayoutError`s. A declaration the entry point does not use is listed in `ProgramLayout::unused` and gets no slot. A slot is as large as the larger of the shader's need and the declared minimum size, and its visibility is the declared one.
+- **Constants.** Offsets, array strides and matrix line strides come from the layout, so no packing rule of a shader language is built in. A vector writes its leading columns. `PropertyValue::Matrix` holds element `(row, column)` at index `column * 4 + row`, and the layout's storage order places the logical values. An unsigned member takes `Uint` or a non-negative `Int`, and a boolean member takes `Bool` or an `Int` of 0 or 1. A member that is missing from the layers stays zero and is listed in `PackedConstants::missing`. A member outside the buffer, a value of another kind, an array longer than its member and a member shape the packer does not write are named `ConstantError`s.
+- **Variants.** `Variants` matches the enabled features, restricted to the ones its programs differ by, against an exact set. `UnknownFeatures::Fail` names an enabled feature that no program differs by, and `Ignore` leaves it out.
+- **State.** One colour target is drawn. Stencil, depth bias, alpha to coverage, several colour targets and an unwritten colour target are representable and refused by name (`ProgramError::UnsupportedState`) when a draw is prepared. A state without depth tests nothing and writes no depth.
+- **Draws.** `ProgramRuntime::draw` records non-indexed or indexed triangles with a vertex layout the caller gives, into a colour target with an optional depth target. `read_target` records a copy of the pixels. Render and compute pipelines and shader modules are cached by content, and the pipeline key includes the stage sources, the layout, the whole state and the target signature.
+- **Compute.** `ProgramRuntime::dispatch` records a kernel; `read_buffer` records a copy of a storage buffer.
+- **Samplers.** Every sampler binding gets one fixed sampler: linear filtering, clamped to the edge. A comparison sampler is a named `UnsupportedSampler` error at layout creation.
+
+`tests/native.rs` drives this interface with WGSL stages and no Unity record, and runs without the `unity` feature.
+
+## The Unity adapter
+
+`render_program::unity` exists with the `unity` feature, which is off by default and enables the `worldrunner-unity-serialized` dependency. It is the only code in the crate that names that crate. The neutral types mean the same thing with the feature on or off. Everything the adapter converts is data the importer has already prepared. The crate does not read bundles or translate shaders.
+
+| Unity input | Adapter module | Converted to |
+| --- | --- | --- |
+| Prepared SPIR-V words, entry point and binding table (`ModuleBinding`) | `unity::module::{StageModule, StageProgram}` | A neutral `StageModule` and, when a layout is built, `StageDeclarations` with each parameter placed at its prepared set and binding. A split combined sampler becomes a texture and a sampler binding. |
+| `ProgramParameters` | `unity::layout::ProgramLayout` | Resource declarations, each completed from the module's own binding when Unity's class matches it. A class that does not match is Unity's `Mismatch`. Loose vectors and matrices, buffer and constant buffer arrays and unknown texture dimensions are named `UnsupportedParameter` errors. |
+| `ConstantBuffer` and the pass's name table | `unity::constants::pack_constant_buffer` | A `ConstantLayout` with 16-byte registers for vectors, array elements and matrix lines, packed by `pack_constants`. A matrix of dimension `n` writes `n` registers from the property's floats in the order given. |
+| `Program`, `SubProgram`, `PlayerSubProgram` and keyword indices | `unity::variant` | `select_sub_program` and `select_player_sub_program` choose by exact keyword set through the neutral `select_variant`. A keyword the stage does not declare is ignored. |
+| `ShaderState` and property layers | `unity::state::resolve_state` | A resolved target-zero state, which `RenderState::neutral(front_face)` turns into a neutral `RenderState`. State this slice does not draw is a named `StateError`. |
+| `DrawRequest`, `DrawPacket`, `DispatchRequest` with Unity's types | `unity::runtime::ProgramRuntime` | A wrapper that dereferences to the neutral runtime and converts stages, programs and states before calling it. Resources, frames, readbacks, arenas and retention are the neutral runtime's own. |
+
+Unity's clip-space and matrix conventions, its target-zero blend behaviour and its policy on unknown keywords are measured compatibility behaviour and stay as they were. The existing suites route through the adapter by import path only.
+
+## The boundary check
+
+`cargo xtask policy` includes a check of this crate's source, in `crates/xtask/src/policy/boundary.rs`. Outside `src/unity/`, no path, import, re-export, `extern crate`, attribute or macro input may name `worldrunner_unity_serialized`, however it is renamed or grouped. No module may name the `unity` module, so a root module can neither expose an adapter type nor re-export the adapter, and `lib.rs` declares the module once behind `#[cfg(feature = "unity")]`. The manifest may not rename the dependency. `crates/xtask/src/policy/boundary/tests.rs` holds the negative fixtures for each form.
+
+`cargo check -p worldrunner-render-program --no-default-features` builds the neutral runtime, and `cargo tree -p worldrunner-render-program --no-default-features -e normal,build` lists no `worldrunner-unity-serialized`.
 
 ## Driving it through the submission authority
 
@@ -76,28 +101,35 @@ The only consumer so far is `render-scene`'s opaque pass, see [its README](../re
 
 ## Measured conventions
 
-The tests in `tests/program/conventions.rs` draw into an 8x8 target and compare bytes. They pin what a Unity Vulkan module needs:
+The tests in `tests/program/conventions.rs` draw into an 8x8 target through the adapter and compare bytes. They pin what a Unity Vulkan module needs, which holds for any SPIR-V stage:
 
 - The module's position output is used unflipped. Positive clip Y lands in the bottom rows of the image.
 - The depth range that survives clipping is 0 to w, as in Vulkan; the nearer of two triangles wins under `LessEqual`, and z of -0.5 or 1.5 is clipped.
-- `wgpu::FrontFace::Cw` marks a triangle that is clockwise in the image, with row 0 at the top, as a front face. Cull Back drops the others and Cull Front drops the front faces. The draw request carries the winding, so a caller states it.
+- `wgpu::FrontFace::Cw` marks a triangle that is clockwise in the image, with row 0 at the top, as a front face. Cull Back drops the others and Cull Front drops the front faces. The winding is `RasterState::front_face` in the neutral state and a field of the adapter's draw request, so a caller states it.
 
 `tests/program/pass.rs` and `drawn_state.rs` draw a textured pass with a tint from a constant buffer, the multiply and add keyword variants, a split combined sampler, blend off against `SrcAlpha`/`OneMinusSrcAlpha`, and cull Back against Off for a back-facing quad. Pixels are predicted in closed form from the texels, tint and offset, independent of the shader, and compared with the 8-bit bound from `worldrunner_render_gpu::tolerance_test_support` (0.625 steps). The alpha-blend test adds 0.5 step because lavapipe's fixed-point blend measured 0.8 steps from the prediction; the Radeon stayed within the shared bound.
 
 ## Not done
 
+- **Registry and materials.** There is no program registry, material type, keyword setter or engine-supplied value provider. A caller builds stages, programs and bindings itself. The native example and its documentation under `docs/` belong to the next slice.
+- **Engine semantics.** `BindingSource` names a property or nothing. Object, camera and light matrices, time and shadow or environment resources are not yet bound by semantic.
+- **Struct arrays and specialization.** A constant layout holds scalar, vector and matrix members. Struct arrays and WGSL override constants are not represented.
 - **Unity sampler state.** Every sampler binding gets one fixed sampler: linear filtering, clamped to the edge. The packed sampler state in the serialized parameters is not decoded, so wrap, filter and anisotropy settings are ignored.
-- **Multisampling, stencil and multiple render targets.** Targets are single-sample with one color attachment and an optional depth attachment. Stencil state and a stencil depth format are named errors, and so are multisampled and multiple-attachment signatures.
-- **Player-variant parameter blobs.** `Program::parameter_blob_indices` are not decoded, so parameters come from the sub programs' own `ProgramParameters`.
-- **Frame planning and composition beyond one pass.** The runtime still owns no pass order and no attachments. `render-scene` takes admitted draws into its stock opaque pass for one single-sample color attachment and `Depth32Float`. It refuses scenes with temporal reconstruction, screen-space passes or multisampling by name. Camera render textures, sampling a draw's target in a later pass, compute between passes, transparent ordering, the depth-fitted capture continuation and `render-plan` descriptions of program work are not done. The standalone target that `create_render_target` makes remains the caller's to create and release.
-- **Calling shader preparation.** `shader_prep` lives in `unity-import`, which is in the Tool layer, so a Graphics-layer runtime cannot call it. Callers supply the prepared words and binding table.
+- **Multisampling, stencil and multiple render targets.** Targets are single-sample with one colour attachment and an optional depth attachment. Stencil state and a stencil depth format are named errors, and so are multisampled and multiple-attachment signatures.
+- **Player-variant parameter blobs.** `Program::parameter_blob_indices` are not decoded, so the adapter takes parameters from the sub programs' own `ProgramParameters`.
+- **Frame planning and composition beyond one pass.** The runtime still owns no pass order and no attachments. `render-scene` takes admitted draws into its stock opaque pass for one single-sample colour attachment and `Depth32Float`. It refuses scenes with temporal reconstruction, screen-space passes or multisampling by name. Camera render textures, sampling a draw's target in a later pass, compute between passes, transparent ordering, the depth-fitted capture continuation and `render-plan` descriptions of program work are not done. The standalone target that `create_render_target` makes remains the caller's to create and release.
+- **Shader preparation.** `shader_prep` lives in `unity-import`, which is in the Tool layer, so a Graphics-layer runtime cannot call it. Callers supply the prepared words and binding table.
 
 ## Tests
 
+The suites that build Unity records (`program` and `variant`) run only with the `unity` feature:
+
 ```sh
-cargo test -p worldrunner-render-program -- --test-threads=1
+cargo test -p worldrunner-render-program --features unity -- --test-threads=1
 ```
 
-`tests/program/packet.rs` covers preparation and recording into a caller's pass, and `arena.rs` covers admission, authority, lifetime and budget refusals. The frame tests in `render-scene` run with `cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1`.
+Without the feature, `cargo test -p worldrunner-render-program` runs the unit tests and `tests/native.rs`. `cargo xtask test` enables every feature.
+
+`tests/program/packet.rs` covers preparation and recording into a caller's pass, and `arena.rs` covers admission, authority, lifetime and budget refusals. The frame tests in `render-scene` enable the feature as a dev-dependency and run with `cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1`.
 
 The draw and dispatch tests need a Vulkan adapter and use the one wgpu selects. They obtain the device through `render-gpu` (`headless_instance`, `request_device`), build a `SubmissionAuthority` and submit every frame through it. The first test to create a runtime prints the adapter's name to stderr; run with `--nocapture` to see it. Set `VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json` to run them on lavapipe.

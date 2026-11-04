@@ -26,7 +26,7 @@ fn no_textures() -> (BTreeMap<RenderTextureId, WorldRenderTexture>, BTreeSet<u64
 
 #[test]
 fn each_kind_of_value_keeps_its_name_and_its_numbers() {
-    let matrix: [f32; 16] = std::array::from_fn(|index| index as f32);
+    let matrix: [f32; 16] = std::array::from_fn(|index| f32::from(u8::try_from(index).unwrap()));
     let found = properties(vec![
         WorldValue::Float("_Cutoff".into(), 0.5),
         WorldValue::Int("_Mode".into(), 3),

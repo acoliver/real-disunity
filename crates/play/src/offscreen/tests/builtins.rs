@@ -10,6 +10,11 @@ use super::super::builtins::{
 use super::super::snapshot::CameraView;
 use super::support::{IDENTITY, assert_close, matrix, product, transform};
 
+/// The bit patterns of a matrix, so that a copy is compared exactly.
+fn bits(matrix: &[f32; 16]) -> [u32; 16] {
+    matrix.map(f32::to_bits)
+}
+
 #[test]
 fn the_object_to_world_matrix_is_the_renderers_and_its_inverse_undoes_it() {
     let local_to_world = Mat4::from_scale_rotation_translation(
@@ -19,7 +24,10 @@ fn the_object_to_world_matrix_is_the_renderers_and_its_inverse_undoes_it() {
     )
     .to_cols_array();
     let layer = draw_layer(&local_to_world);
-    assert_eq!(matrix(&layer, OBJECT_TO_WORLD), local_to_world);
+    assert_eq!(
+        bits(&matrix(&layer, OBJECT_TO_WORLD)),
+        bits(&local_to_world)
+    );
     let inverse = matrix(&layer, WORLD_TO_OBJECT);
     assert_close(&product(&inverse, &local_to_world), &IDENTITY);
     assert_close(&product(&local_to_world, &inverse), &IDENTITY);
@@ -33,7 +41,7 @@ fn the_object_to_world_matrix_is_the_renderers_and_its_inverse_undoes_it() {
 fn a_matrix_with_no_inverse_has_no_world_to_object_value() {
     let flat = Mat4::from_scale(Vec3::new(1.0, 0.0, 1.0)).to_cols_array();
     let layer = draw_layer(&flat);
-    assert_eq!(matrix(&layer, OBJECT_TO_WORLD), flat);
+    assert_eq!(bits(&matrix(&layer, OBJECT_TO_WORLD)), bits(&flat));
     assert!(layer.values.get(WORLD_TO_OBJECT).is_none());
 }
 

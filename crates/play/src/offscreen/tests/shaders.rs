@@ -17,7 +17,10 @@ mod shader_bytes;
 const VULKAN: u32 = 18;
 const OTHER: u32 = 14;
 
-fn write(directory: &Path, file: &str, shaders: &[(i64, &[u32], usize, Option<(&str, &str)>)]) {
+/// A shader object to write: its path id, platforms, passes and queue tag.
+type Spec<'a> = (i64, &'a [u32], usize, Option<(&'a str, &'a str)>);
+
+fn write(directory: &Path, file: &str, shaders: &[Spec<'_>]) {
     let contents = FileContents {
         version: 22,
         big_endian: false,

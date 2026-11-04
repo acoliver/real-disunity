@@ -109,7 +109,7 @@ impl Rig {
             pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
         let authority = SubmissionAuthority::new(queue);
         let budget = AllocationBudget(64 << 20);
-        let mut runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
+        let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
         let limits = device.limits();
         let mut renderer = Configuration::new(
             &authority,

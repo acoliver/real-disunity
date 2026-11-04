@@ -55,9 +55,9 @@ pub fn shader_census(data_directory: &Path) -> Result<ShaderCensus, PlayerError>
                 path_id,
             };
             match loader.load(&source) {
-                Ok(loaded) => {
+                Ok(program) => {
                     census.loaded += 1;
-                    census.passes += loaded.passes;
+                    census.passes += program.passes;
                 }
                 Err(error) => *census.failed.entry(error.name()).or_default() += 1,
             }

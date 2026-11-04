@@ -104,6 +104,14 @@ fn texels(side: u32) -> f32 {
     f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 
+/// Whether a camera's normalized rectangle is the whole target.
+fn fills_target(viewport: [f32; 4]) -> bool {
+    viewport
+        .iter()
+        .zip([0.0, 0.0, 1.0, 1.0])
+        .all(|(found, whole)| (found - whole).abs() <= f32::EPSILON)
+}
+
 /// The textures a record reads or writes.
 pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::ids::TextureId> {
     match *record {
@@ -254,18 +262,17 @@ impl<'a> Mapper<'a> {
             .get(&target)
             .map(|texture| [texture.width, texture.height])
             .ok_or(Skip::StaleTarget)?;
-        if view.settings.viewport != [0.0, 0.0, 1.0, 1.0] {
+        if !fills_target(view.settings.viewport) {
             return Err(Skip::PartialViewport);
         }
         let target = self.target(target)?;
-        let id = match self.cameras.get(&(handle, size)) {
-            Some(id) => *id,
-            None => {
-                let id = CameraId(self.cameras.len() as u64);
-                self.frame.cameras.insert(id, self.camera(view, size));
-                self.cameras.insert((handle, size), id);
-                id
-            }
+        let id = if let Some(id) = self.cameras.get(&(handle, size)) {
+            *id
+        } else {
+            let id = CameraId(self.cameras.len() as u64);
+            self.frame.cameras.insert(id, self.camera(view, size));
+            self.cameras.insert((handle, size), id);
+            id
         };
         Ok(Record::CameraRender { camera: id, target })
     }

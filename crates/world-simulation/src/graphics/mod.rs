@@ -62,6 +62,16 @@ pub enum GraphicsError {
     NotCamera,
 }
 
+impl GraphicsError {
+    /// Whether the error is an id that names nothing, as opposed to a rejected value.
+    pub fn is_stale(self) -> bool {
+        matches!(
+            self,
+            Self::StaleShader | Self::StaleMaterial | Self::StaleRenderTexture
+        )
+    }
+}
+
 macro_rules! graphics_id {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*

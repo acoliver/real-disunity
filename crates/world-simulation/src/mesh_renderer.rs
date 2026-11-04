@@ -3,6 +3,7 @@
 //! and bones stay in the managed component, which keeps a material count here and, per material
 //! slot, the colour and texture the host draws the slot with. The presentation lists them as
 //! mesh objects; nothing draws them yet.
+use crate::graphics::{MaterialId, ShaderProperties};
 use crate::{ComponentError, WorldError};
 
 /// Most materials one renderer holds.
@@ -81,6 +82,16 @@ pub struct MeshRenderer {
     /// past the end draws as [`DrawnMaterial::default`]. Only the managed component's material
     /// update sets them, and lowering `material_count` drops the slots past it.
     pub drawn: Vec<DrawnMaterial>,
+    /// The world material each slot draws with, at most `material_count` of them; a slot past the
+    /// end or set to `None` has none, and draws as `drawn` says. A material destroyed later
+    /// leaves its id here and extraction reports the slot as having none.
+    pub slot_materials: Vec<Option<MaterialId>>,
+    /// Shader values that override the slots' materials for this renderer, as a property block
+    /// does. They apply to every slot.
+    pub property_block: Option<ShaderProperties>,
+    /// A render queue that replaces the materials' queues for this renderer. No Unity member
+    /// sets it; a host that sorts renderers by queue may.
+    pub render_queue: Option<i32>,
 }
 
 impl Default for MeshRenderer {
@@ -102,6 +113,9 @@ impl Default for MeshRenderer {
             sorting_order: 0,
             material_count: 0,
             drawn: Vec::new(),
+            slot_materials: Vec::new(),
+            property_block: None,
+            render_queue: None,
         }
     }
 }
@@ -122,6 +136,7 @@ impl MeshRenderer {
             && self.reflection_probe_usage <= 3
             && self.material_count <= MAX_RENDERER_MATERIALS
             && self.drawn.len() <= self.material_count as usize
+            && self.slot_materials.len() <= self.material_count as usize
             && self.drawn.iter().all(|slot| {
                 slot.color
                     .iter()

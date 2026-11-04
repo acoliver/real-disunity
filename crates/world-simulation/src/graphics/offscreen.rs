@@ -46,6 +46,11 @@ impl World {
         Ok(())
     }
 
+    /// The frame's offscreen work so far, in call order.
+    pub fn offscreen_work(&self) -> &[OffscreenWork] {
+        &self.graphics.offscreen
+    }
+
     /// Drains the frame's offscreen work, in call order. A frame that starts with work nobody
     /// took drops it, so a host that never draws offscreen does not accumulate records.
     pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {

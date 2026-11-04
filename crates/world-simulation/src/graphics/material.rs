@@ -37,6 +37,8 @@ pub enum MaterialEdit {
         enabled: bool,
     },
     Property(PropertyValue),
+    /// Removes every property value; keywords and passes stay.
+    ClearProperties,
 }
 
 /// The shader state every draw sees next to its material: global keywords and properties.
@@ -118,6 +120,7 @@ impl World {
                 switch_name(&mut material.disabled_passes, &name, !enabled)?;
             }
             MaterialEdit::Property(value) => material.properties.set(value)?,
+            MaterialEdit::ClearProperties => material.properties = ShaderProperties::default(),
         }
         material.generation += 1;
         Ok(())
@@ -132,13 +135,15 @@ impl World {
             MaterialEdit::Property(value) => self.check_property(value)?,
             MaterialEdit::RenderQueue(_)
             | MaterialEdit::Keyword { .. }
-            | MaterialEdit::Pass { .. } => {}
+            | MaterialEdit::Pass { .. }
+            | MaterialEdit::ClearProperties => {}
         }
         Ok(edit)
     }
 
-    /// Checks a property value and that a render texture it names is alive.
-    pub(crate) fn check_property(&self, value: &PropertyValue) -> Result<(), WorldError> {
+    /// Checks a property value and that a render texture it names is alive, which a caller that
+    /// stores the value itself, as a renderer's property block does, needs before it does.
+    pub fn check_property(&self, value: &PropertyValue) -> Result<(), WorldError> {
         value.validate()?;
         if let PropertyValue::Texture(_, TextureSlot { texture, .. }) = value {
             self.check_texture(*texture)?;
@@ -186,6 +191,12 @@ impl World {
         self.graphics.global.properties.set(value)?;
         self.graphics.global.generation += 1;
         Ok(())
+    }
+
+    /// Removes every global property value; the keywords stay.
+    pub fn clear_global_properties(&mut self) {
+        self.graphics.global.properties = ShaderProperties::default();
+        self.graphics.global.generation += 1;
     }
 
     /// Enables or disables a global keyword.

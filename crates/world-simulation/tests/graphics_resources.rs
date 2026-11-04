@@ -495,3 +495,30 @@ fn listing_resources_reports_each_live_one_with_its_id() {
         [texture]
     );
 }
+
+#[test]
+fn clearing_properties_removes_values_but_not_keywords() {
+    let mut world = world();
+    let (_, id) = material_with_shader(&mut world);
+    let value = PropertyValue::Float("_Cutoff".into(), 0.5);
+    world
+        .edit_material(id, MaterialEdit::Property(value.clone()))
+        .unwrap();
+    let keyword = MaterialEdit::Keyword {
+        name: "FOG".into(),
+        enabled: true,
+    };
+    world.edit_material(id, keyword).unwrap();
+    world
+        .edit_material(id, MaterialEdit::ClearProperties)
+        .unwrap();
+    let material = world.material(id).unwrap();
+    assert!(material.properties.is_empty());
+    assert_eq!(material.keywords, ["FOG"]);
+    assert_eq!(material.generation, 5);
+
+    world.set_global_property(value).unwrap();
+    world.clear_global_properties();
+    assert!(world.global_shader_state().properties.is_empty());
+    assert_eq!(world.global_shader_state().generation, 2);
+}

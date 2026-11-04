@@ -4,13 +4,24 @@ using UnityEngine.Rendering;
 namespace UnityEngine;
 
 /// <summary>
-/// The global shader properties. They are stored and read back; nothing applies them to a draw yet. A global
+/// The global shader properties. They are stored and read back, and every float, integer, vector, matrix and texture is
+/// sent to the world's global shader state too (arrays and buffers are not); the host draws with that. A global
 /// that was never set reads as zero, a matrix as identity and a texture as null. As in Unity they can only be
 /// used from the main thread.
 /// </summary>
 public sealed partial class Shader
 {
-    private static readonly PropertyStore GlobalStore = new();
+    private static readonly PropertyStore GlobalStore = NewGlobalStore();
+
+    private static PropertyStore NewGlobalStore()
+    {
+        var store = new PropertyStore();
+        store.Changed = (id, kind) =>
+        {
+            if (DisunityHost.IsLoaded) WorldGraphics.SendProperty(WorldGraphics.ScopeGlobal, WorldGraphics.GlobalTarget, store, id, kind);
+        };
+        return store;
+    }
 
     internal static PropertyStore Globals
     {

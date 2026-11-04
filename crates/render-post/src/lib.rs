@@ -212,6 +212,8 @@ use worldrunner_render_plan::post::{UpscaleMode, UpscaleSettings};
 mod frame;
 #[cfg(test)]
 mod frame_tests;
+#[cfg(test)]
+mod prepare_context_tests;
 pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
     DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature, FramePlan,

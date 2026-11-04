@@ -565,4 +565,6 @@ mod screen_space;
 
 mod billboard_motion_tests;
 
+mod compaction_tests;
+
 mod instance_motion_tests;

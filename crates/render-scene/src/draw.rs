@@ -22,6 +22,7 @@ use crate::upload::{
 };
 
 mod celestial;
+mod compaction;
 mod contact;
 pub(crate) mod decals;
 pub use decals::validate_decal_materials;
@@ -625,10 +626,8 @@ impl SceneGpu {
             .clone();
         let selection = self.select_objects(shadow_matrix, &frame);
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
-        let mut count = DrawCount::default();
-        for range in &selection.ranges {
-            count.add(self.record_lod_range(pass, pipelines, range));
-        }
+        let count =
+            self.record_selection(pass, pipelines, (shadow_matrix, &frame), &selection.ranges);
         if let Some((index, _)) = shadow_matrix {
             self.pass_counters.shadows[index as usize].record(count);
         }

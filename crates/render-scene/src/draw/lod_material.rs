@@ -7,7 +7,6 @@ impl SceneGpu {
         pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
         range: &SelectedRange,
     ) -> super::DrawCount {
-        let (_, mesh, _) = range.key;
         let batch = &self.instances.batches[&range.key];
         pass.set_vertex_buffer(
             1,
@@ -21,6 +20,17 @@ impl SceneGpu {
         if let Some(previous) = &batch.previous {
             pass.set_vertex_buffer(2, previous.slice(..));
         }
+        self.record_lod_draws(pass, pipelines, range)
+    }
+
+    /// Draws the instances `range.slots` of the buffer already bound as vertex buffer 1.
+    pub(super) fn record_lod_draws(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
+        range: &SelectedRange,
+    ) -> super::DrawCount {
+        let (_, mesh, _) = range.key;
         let lod = &self.meshes[mesh].lods[range.lod];
         pass.set_vertex_buffer(0, lod.vertices.slice(..));
         let mut count = self.record_lod_slots(pass, pipelines, range, lod, range.lod);

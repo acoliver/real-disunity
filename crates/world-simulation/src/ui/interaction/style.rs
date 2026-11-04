@@ -55,7 +55,8 @@ impl UiRouter {
         let selected = match control.kind {
             UiControlKind::Choice { group, index } => self.selected(group) == Some(index),
             UiControlKind::ListItem { list, index } => self.selected(list) == Some(index),
-            UiControlKind::Button => false,
+            UiControlKind::Toggle { on } => on,
+            UiControlKind::Button | UiControlKind::Slider(_) => false,
         };
         Some(if !targets.interactable(object) {
             style.disabled

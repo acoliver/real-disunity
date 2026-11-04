@@ -1,26 +1,43 @@
 //! Typed native controls attached to existing world object identities.
-use super::{UiLayout, UiLayoutRules, group::groups_by_object};
-use crate::{ObjectHandle, PointerButton, PointerEvent, World, WorldError};
+use super::{UiLayoutRules, group::groups_by_object};
+use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
 mod keyboard;
+mod pointer;
+mod slider;
 mod style;
 mod targets;
+pub use slider::UiSlider;
 pub use style::UiStyle;
 use targets::Targets;
 pub(super) use targets::contains;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UiControlKind {
     Button,
+    Slider(UiSlider),
+    Toggle { on: bool },
     Choice { group: ObjectHandle, index: usize },
     ListItem { list: ObjectHandle, index: usize },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UiControl {
     pub enabled: bool,
     pub kind: UiControlKind,
 }
 impl UiControl {
+    pub fn slider(slider: UiSlider) -> Self {
+        Self {
+            enabled: true,
+            kind: UiControlKind::Slider(slider),
+        }
+    }
+    pub fn toggle(on: bool) -> Self {
+        Self {
+            enabled: true,
+            kind: UiControlKind::Toggle { on },
+        }
+    }
     pub fn button() -> Self {
         Self {
             enabled: true,
@@ -40,13 +57,15 @@ impl UiControl {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UiAction {
+    ValueChanged { control: ObjectHandle, value: f64 },
+    Toggled { control: ObjectHandle, on: bool },
     Activated { object: ObjectHandle },
     ChoiceSelected { group: ObjectHandle, index: usize },
     Selected { list: ObjectHandle, index: usize },
 }
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct UiResponse {
     /// Route the event to UI only when true, not also to scene interaction.
     pub consumed: bool,
@@ -58,6 +77,8 @@ pub enum UiKey {
     Shift,
     Enter,
     Space,
+    Left,
+    Right,
     Up,
     Down,
     Home,
@@ -89,69 +110,6 @@ impl UiRouter {
         self.choices.get(&group).copied()
     }
 
-    /// Route observations against a freshly resolved layout. Host positions stay in physical
-    /// pixels; the top-left to lower-left conversion occurs in hit testing.
-    pub fn pointer(
-        &mut self,
-        world: &World,
-        layout: &UiLayout,
-        event: PointerEvent,
-    ) -> Result<UiResponse, WorldError> {
-        if !event.valid() {
-            return Err(WorldError::InvalidInput);
-        }
-        if let PointerEvent::Moved(position) = event {
-            self.position = Some(position);
-        }
-        let groups = groups_by_object(world.published_components());
-        let targets = Targets::new(world, layout, self, &groups)?;
-        self.modal_changed(targets.modal);
-        self.focus = self.focus.filter(|o| targets.interactable(*o));
-        let hit = self.position.and_then(|position| targets.hit(position));
-        let mut response = UiResponse {
-            consumed: self.capture.is_some() || hit.is_some() || targets.modal.is_some(),
-            actions: Vec::new(),
-        };
-        match event {
-            PointerEvent::Cancel => self.cancel(),
-            PointerEvent::Wheel(wheel) => {
-                if let Some(position) = self.position {
-                    response.consumed |=
-                        self.layout
-                            .wheel(world, layout, position, wheel, targets.modal)?;
-                }
-            }
-            PointerEvent::Button {
-                button: PointerButton::Left,
-                pressed,
-            } => {
-                self.primary_button(&targets, hit, pressed, &mut response);
-            }
-            _ => {}
-        }
-        Ok(response)
-    }
-    fn primary_button(
-        &mut self,
-        targets: &Targets<'_>,
-        hit: Option<ObjectHandle>,
-        pressed: bool,
-        response: &mut UiResponse,
-    ) {
-        if pressed {
-            if !self.primary_held {
-                self.capture = hit.filter(|object| targets.interactable(*object));
-                self.focus = self.capture;
-            }
-            self.primary_held = true;
-        } else {
-            let capture = self.capture.take();
-            self.primary_held = false;
-            if let Some(object) = capture.filter(|o| Some(*o) == hit && targets.interactable(*o)) {
-                response.actions.push(self.activate(object));
-            }
-        }
-    }
     fn modal_changed(&mut self, modal: Option<ObjectHandle>) {
         if self.modal_focus.last().map(|(object, _)| *object) == modal {
             return;
@@ -174,8 +132,21 @@ impl UiRouter {
         self.keys.clear();
         self.modal_focus.clear();
     }
-    fn activate(&mut self, object: ObjectHandle) -> UiAction {
-        match self.controls[&object].kind {
+    fn activate(&mut self, object: ObjectHandle) -> Option<UiAction> {
+        let kind = &mut self
+            .controls
+            .get_mut(&object)
+            .expect("registered control")
+            .kind;
+        let action = match *kind {
+            UiControlKind::Slider(_) => return None,
+            UiControlKind::Toggle { on } => {
+                *kind = UiControlKind::Toggle { on: !on };
+                UiAction::Toggled {
+                    control: object,
+                    on: !on,
+                }
+            }
             UiControlKind::Button => UiAction::Activated { object },
             UiControlKind::Choice { group, index } => {
                 self.choices.insert(group, index);
@@ -185,6 +156,7 @@ impl UiRouter {
                 self.choices.insert(list, index);
                 UiAction::Selected { list, index }
             }
-        }
+        };
+        Some(action)
     }
 }

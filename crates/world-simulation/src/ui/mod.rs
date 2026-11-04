@@ -18,7 +18,7 @@ mod layout_groups;
 pub mod presentation;
 mod scroll;
 pub use interaction::UiStyle;
-pub use interaction::{UiAction, UiControl, UiControlKind, UiKey, UiResponse, UiRouter};
+pub use interaction::{UiAction, UiControl, UiControlKind, UiKey, UiResponse, UiRouter, UiSlider};
 pub use layout_groups::{UiAlign, UiAxis, UiGridFlow, UiLayoutGroup, UiLayoutRules, UiSize};
 pub use scroll::UiScrollView;
 mod renderer;

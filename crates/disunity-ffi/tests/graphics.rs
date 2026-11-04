@@ -584,6 +584,21 @@ fn work(kind: u32) -> DisunityOffscreenWork {
     }
 }
 
+/// The fields a record carries are the fields it was recorded with.
+fn assert_same_work(given: &DisunityOffscreenWork, read: &DisunityOffscreenWork) {
+    assert_eq!(given.kind, read.kind);
+    assert_eq!((given.camera, given.target), (read.camera, read.target));
+    assert_eq!(
+        (given.source_kind, given.source),
+        (read.source_kind, read.source)
+    );
+    assert_eq!((given.material, given.pass), (read.material, read.pass));
+    assert_eq!(
+        (given.source_mip, given.target_mip),
+        (read.source_mip, read.target_mip)
+    );
+}
+
 #[test]
 fn offscreen_work_is_recorded_in_order_and_taken_once() {
     let world = new_world();
@@ -635,17 +650,7 @@ fn offscreen_work_is_recorded_in_order_and_taken_once() {
     }
     assert_eq!(count, 3);
     for (given, read) in records.iter().zip(&taken) {
-        assert_eq!(given.kind, read.kind);
-        assert_eq!((given.camera, given.target), (read.camera, read.target));
-        assert_eq!(
-            (given.source_kind, given.source),
-            (read.source_kind, read.source)
-        );
-        assert_eq!((given.material, given.pass), (read.material, read.pass));
-        assert_eq!(
-            (given.source_mip, given.target_mip),
-            (read.source_mip, read.target_mip)
-        );
+        assert_same_work(given, read);
     }
     unsafe {
         assert_eq!(

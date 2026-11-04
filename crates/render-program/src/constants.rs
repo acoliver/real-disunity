@@ -268,13 +268,13 @@ impl Packer<'_> {
 
     fn integer(&mut self, found: &Found<'_>) -> Result<(), ConstantError> {
         let bytes = match (found.member.kind, &found.value) {
-            (ScalarKind::I32, PropertyValue::Int(v)) => v.to_le_bytes(),
             (ScalarKind::U32, PropertyValue::Uint(v)) => v.to_le_bytes(),
             (ScalarKind::U32, PropertyValue::Int(v)) => u32::try_from(*v)
                 .map_err(|_| found.wrong_kind())?
                 .to_le_bytes(),
             (ScalarKind::Bool32, PropertyValue::Bool(v)) => u32::from(*v).to_le_bytes(),
-            (ScalarKind::Bool32, PropertyValue::Int(v @ (0 | 1))) => v.to_le_bytes(),
+            (ScalarKind::I32, PropertyValue::Int(v))
+            | (ScalarKind::Bool32, PropertyValue::Int(v @ (0 | 1))) => v.to_le_bytes(),
             _ => return Err(found.wrong_kind()),
         };
         self.store(u64::from(found.member.offset), &bytes);
@@ -393,7 +393,7 @@ mod tests {
         let near = with(&[("a", PropertyValue::Float(1.0))]);
         let far = with(&[("a", PropertyValue::Float(2.0))]);
         let packed = pack_constants(&layout, &[&near, &far], 0).unwrap();
-        assert_eq!(floats(&packed.bytes)[0], 1.0);
+        assert_eq!(floats(&packed.bytes)[0].to_bits(), 1.0_f32.to_bits());
         assert_eq!(packed.missing, ["b".to_owned()]);
     }
 
@@ -415,9 +415,18 @@ mod tests {
         let weights = PropertyValue::VectorArray(vec![[1.0, 2.0, 9.0, 9.0], [3.0, 4.0, 9.0, 9.0]]);
         let packed = pack_constants(&layout, &[&with(&[("weights", weights)])], 0).unwrap();
         let at = |byte: usize| floats(&packed.bytes)[byte / 4];
-        assert_eq!([at(4), at(8)], [1.0, 2.0]);
-        assert_eq!([at(28), at(32)], [3.0, 4.0]);
-        assert_eq!([at(12), at(52)], [0.0, 0.0]);
+        assert_eq!(
+            [at(4), at(8)].map(f32::to_bits),
+            [1.0, 2.0].map(f32::to_bits)
+        );
+        assert_eq!(
+            [at(28), at(32)].map(f32::to_bits),
+            [3.0, 4.0].map(f32::to_bits)
+        );
+        assert_eq!(
+            [at(12), at(52)].map(f32::to_bits),
+            [0.0, 0.0].map(f32::to_bits)
+        );
     }
 
     #[test]
@@ -470,7 +479,7 @@ mod tests {
         let all = floats(&packed.bytes);
         assert_eq!(all[0..3], [0.0, 4.0, 8.0]);
         assert_eq!(all[4..7], [1.0, 5.0, 9.0]);
-        assert_eq!(all[3], 0.0);
+        assert_eq!(all[3].to_bits(), 0.0_f32.to_bits());
     }
 
     #[test]

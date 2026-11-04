@@ -110,6 +110,7 @@ pub(crate) fn allocation_failure(error: crate::store::AllocationError) -> Disuni
             | WorldError::WrongMutation
             | WorldError::Ui(_)
             | WorldError::Physics(_)
+            | WorldError::Graphics(_)
             | WorldError::InvalidTime(_)
             | WorldError::InputOrder
             | WorldError::InputCapacity

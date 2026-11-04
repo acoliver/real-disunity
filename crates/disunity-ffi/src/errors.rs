@@ -23,6 +23,10 @@ impl AbiError {
                 }
                 W::SingularParent => crate::abi::DisunityErrorReason::SingularParent,
                 W::Physics(_) => crate::abi::DisunityErrorReason::Physics,
+                W::Graphics(error) if error.is_stale() => {
+                    crate::abi::DisunityErrorReason::StaleHandle
+                }
+                W::Graphics(_) => crate::abi::DisunityErrorReason::InvalidArgument,
                 W::StaleObject(_) | W::StaleComponent(_) | W::WrongWorld => {
                     crate::abi::DisunityErrorReason::StaleHandle
                 }

@@ -38,6 +38,9 @@ const ABI_SOURCES: &[&str] = &[
     "src/textures.rs",
     "src/meshes.rs",
     "src/faces.rs",
+    "src/graphics.rs",
+    "src/graphics_offscreen.rs",
+    "src/graphics_properties.rs",
     "src/script_messages.rs",
 ];
 

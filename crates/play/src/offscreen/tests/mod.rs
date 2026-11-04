@@ -4,6 +4,7 @@ mod assets;
 mod builtins;
 mod camera;
 mod frame;
+mod gpu;
 mod properties;
 mod shaders;
 mod snapshot;

@@ -9,7 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use worldrunner_render_program::offscreen::frame::{
-    ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, SubMesh,
+    ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, Record, RenderTextureSpec,
+    SubMesh,
 };
 use worldrunner_render_program::offscreen::{OffscreenError, OffscreenOperations, OffscreenState};
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
@@ -18,14 +19,16 @@ use worldrunner_world_simulation::graphics::{
 };
 
 use super::assets::{Assets, mesh_of, texture_of};
-use super::frame::{Adapted, Available, BLIT_MESH, Settings, ShaderInfo, adapt};
+use super::frame::{
+    Adapted, Available, BLIT_MESH, Report, Settings, ShaderInfo, adapt, textures_of,
+};
 use super::ids;
-use super::shaders::ShaderLoader;
+use super::shaders::{ShaderLoader, ShaderSupply};
 use super::snapshot::GraphicsSnapshot;
 
 /// What the adapter keeps between frames.
 pub struct OffscreenAdapter {
-    loader: ShaderLoader,
+    supply: Box<dyn ShaderSupply>,
     settings: Settings,
     shaders: BTreeMap<WorldShaderId, (ShaderSource, ShaderInfo)>,
     meshes: BTreeMap<u64, Stored>,
@@ -44,8 +47,14 @@ impl OffscreenAdapter {
     /// An adapter that loads shaders from the player's `data_directory`.
     #[must_use]
     pub fn new(data_directory: impl Into<PathBuf>, settings: Settings) -> Self {
+        Self::with_supply(ShaderLoader::new(data_directory), settings)
+    }
+
+    /// An adapter that gets its shaders from `supply`.
+    #[must_use]
+    pub fn with_supply(supply: impl ShaderSupply + 'static, settings: Settings) -> Self {
         Self {
-            loader: ShaderLoader::new(data_directory),
+            supply: Box::new(supply),
             settings,
             shaders: BTreeMap::new(),
             meshes: BTreeMap::new(),
@@ -99,7 +108,7 @@ impl OffscreenAdapter {
                 available.shaders.insert(*id, *info);
                 continue;
             }
-            match self.loader.load(source) {
+            match self.supply.load(source) {
                 Ok(loaded) => {
                     let info = ShaderInfo {
                         passes: loaded.passes,
@@ -244,7 +253,7 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
 
 /// The mesh a blit draws: a quad over clip space as two triangles with no indices, whose texture
 /// coordinates are the image's own (row 0 is clip y of -1).
-fn blit_mesh() -> Mesh {
+pub(super) fn blit_mesh() -> Mesh {
     let corners: [(f32, f32); 6] = [
         (-1.0, -1.0),
         (1.0, -1.0),
@@ -294,15 +303,14 @@ fn variant_name(error: &dyn std::fmt::Debug) -> String {
         .to_owned()
 }
 
-/// Builds the frame's operations. When the frame as a whole is refused, each record is built
-/// alone and the ones that are refused are left out and counted in the report by the name of
-/// their error; the rest are built together.
-///
-/// A record that builds alone can still fail with the records before it, and then the frame's
-/// error is returned.
+/// Builds the frame's operations. When the frame as a whole is refused, the parts the state
+/// refuses are left out and counted in the report by the name of their error: first each render
+/// texture (with the records that name it), then each record on its own. What is left is built
+/// together.
 ///
 /// # Errors
-/// Fails with the error of the frame that is left once the records refused alone are removed.
+/// Fails with the error of the frame that is left, which holds only parts that build alone, when
+/// they still do not build together.
 pub fn build(
     state: &mut OffscreenState,
     runtime: &mut ProgramRuntime,
@@ -312,22 +320,94 @@ pub fn build(
     if let Ok(operations) = state.build(runtime, arena, &adapted.frame) {
         return Ok(operations);
     }
+    drop_unusable_textures(state, runtime, arena, adapted);
+    drop_unusable_records(state, runtime, arena, adapted);
+    state.build(runtime, arena, &adapted.frame)
+}
+
+fn refused(report: &mut Report, error: &OffscreenError, what: &str) {
+    let name = format!("{what}:{}", variant_name(error));
+    *report.failures.entry(name).or_default() += 1;
+}
+
+/// The frame with `records` only, and `textures` as its render textures.
+fn part(
+    frame: &OffscreenFrame,
+    textures: &[RenderTextureSpec],
+    records: Vec<Record>,
+) -> OffscreenFrame {
+    OffscreenFrame {
+        render_textures: textures.to_vec(),
+        records,
+        later_reads: Vec::new(),
+        ..frame.clone()
+    }
+}
+
+/// Removes the render textures that do not build on their own and the records that name them.
+fn drop_unusable_textures(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &mut Adapted,
+) {
+    let mut unusable = BTreeSet::new();
+    for spec in &adapted.frame.render_textures {
+        let alone = part(&adapted.frame, std::slice::from_ref(spec), Vec::new());
+        if let Err(error) = state.build(runtime, arena, &alone) {
+            refused(&mut adapted.report, &error, "rendertexture");
+            unusable.insert(spec.id);
+        }
+    }
+    if unusable.is_empty() {
+        return;
+    }
+    adapted
+        .frame
+        .render_textures
+        .retain(|spec| !unusable.contains(&spec.id));
+    let before = adapted.frame.records.len();
+    adapted
+        .frame
+        .records
+        .retain(|record| !textures_of(record).iter().any(|id| unusable.contains(id)));
+    let dropped = before - adapted.frame.records.len();
+    adapted.report.built = adapted.report.built.saturating_sub(dropped);
+    if dropped > 0 {
+        *adapted
+            .report
+            .failures
+            .entry("record:UnusableRenderTexture".to_owned())
+            .or_default() += dropped;
+    }
+    adapted
+        .frame
+        .later_reads
+        .retain(|read| !unusable.contains(&read.texture));
+}
+
+/// Removes the records that do not build on their own.
+fn drop_unusable_records(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &mut Adapted,
+) {
     let records = std::mem::take(&mut adapted.frame.records);
     let mut kept = Vec::new();
     for record in records {
-        let alone = OffscreenFrame {
-            records: vec![record.clone()],
-            ..adapted.frame.clone()
-        };
+        let alone = part(
+            &adapted.frame,
+            &adapted.frame.render_textures,
+            vec![record.clone()],
+        );
         match state.build(runtime, arena, &alone) {
             Ok(_) => kept.push(record),
             Err(error) => {
-                let name = format!("build:{}", variant_name(&error));
-                *adapted.report.failures.entry(name).or_default() += 1;
+                refused(&mut adapted.report, &error, "record");
                 adapted.report.built = adapted.report.built.saturating_sub(1);
             }
         }
     }
     adapted.frame.records = kept;
-    state.build(runtime, arena, &adapted.frame)
 }

@@ -67,6 +67,21 @@ struct Loaded {
     queue: i32,
 }
 
+/// Where the adapter gets the program of a world shader from.
+pub trait ShaderSupply {
+    /// The program of `source`.
+    ///
+    /// # Errors
+    /// Fails by name when the program cannot be supplied.
+    fn load(&mut self, source: &ShaderSource) -> Result<LoadedShader, ShaderLoadError>;
+}
+
+impl ShaderSupply for ShaderLoader {
+    fn load(&mut self, source: &ShaderSource) -> Result<LoadedShader, ShaderLoadError> {
+        Self::load(self, source)
+    }
+}
+
 /// Loads shaders from one player's data directory and keeps what it decoded.
 pub struct ShaderLoader {
     data_directory: PathBuf,

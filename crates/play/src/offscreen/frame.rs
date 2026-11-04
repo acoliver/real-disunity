@@ -105,7 +105,7 @@ fn texels(side: u32) -> f32 {
 }
 
 /// The textures a record reads or writes.
-fn textures_of(record: &Record) -> Vec<worldrunner_render_program::ids::TextureId> {
+pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::ids::TextureId> {
     match *record {
         Record::CameraRender { target, .. } => vec![target],
         Record::Blit { source, target, .. } | Record::CopyTexture { source, target, .. } => {

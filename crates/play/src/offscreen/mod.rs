@@ -62,5 +62,5 @@ pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use frame::{
     Adapted, Available, BLIT_MESH, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
 };
-pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader};
+pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
 pub use snapshot::{CameraView, GraphicsSnapshot, RendererView};

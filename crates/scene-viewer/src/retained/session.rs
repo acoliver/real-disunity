@@ -7,6 +7,8 @@ pub(crate) mod pointer_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod text_tests;
+#[cfg(test)]
 mod work_tests;
 
 use crate::{
@@ -44,12 +46,20 @@ impl<'a> Session<'a> {
         }
     }
 
-    fn input(&mut self, input: RetainedInput) {
+    pub(super) fn input(&mut self, input: RetainedInput) {
         for input in self.host.input(input) {
             if let Err(error) = self.notify(&RetainedEvent::Input(input)) {
                 self.failure = Some(error);
                 break;
             }
+        }
+    }
+
+    fn committed_key_text(&mut self, text: Option<&str>, pressed: bool) {
+        if !self.host.input_state.text.composing
+            && let Some(input) = super::input::text::keyboard_text(text, pressed)
+        {
+            self.input(input);
         }
     }
 
@@ -135,7 +145,14 @@ impl Content for Session<'_> {
         self.host.options.cadence
     }
     fn window_ready(&mut self, window: std::sync::Arc<winit::window::Window>) {
+        let size = window.inner_size();
+        let scale_factor = window.scale_factor();
         self.host.input_state.window = Some(window);
+        self.host.apply_text_input_area();
+        self.input(RetainedInput::DisplayChanged {
+            scale_factor,
+            physical_size: [size.width, size.height],
+        });
     }
     fn device_event(&mut self, event: &DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
@@ -155,8 +172,27 @@ impl Content for Session<'_> {
         self.input(RetainedInput::Resized(size));
     }
     fn event(&mut self, event: &WindowEvent, _viewport: Option<Viewport>) {
+        if let WindowEvent::ScaleFactorChanged { scale_factor, .. } = event {
+            let size = self
+                .host
+                .input_state
+                .window
+                .as_ref()
+                .expect("native scale event requires window")
+                .inner_size();
+            self.input(RetainedInput::DisplayChanged {
+                scale_factor: *scale_factor,
+                physical_size: [size.width, size.height],
+            });
+        }
         if let Some(input) = super::input::window_input(event) {
             self.input(input);
+        }
+        if let WindowEvent::KeyboardInput { event, .. } = event {
+            self.committed_key_text(
+                event.text.as_deref(),
+                event.state == winit::event::ElementState::Pressed,
+            );
         }
     }
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {

@@ -118,6 +118,20 @@ impl WindowlessRetained<'_> {
             }
         }
     }
+    /// Deterministic display-scale transition without a native window. Size stays physical.
+    pub fn set_display_scale(&mut self, scale_factor: f64) -> Result<(), ViewerError> {
+        self.ensure_open()?;
+        if !scale_factor.is_finite() || scale_factor <= 0. || scale_factor > f64::from(f32::MAX) {
+            return Err(ViewerError::InvalidOptions("invalid display scale"));
+        }
+        self.session.input(super::RetainedInput::DisplayChanged {
+            scale_factor,
+            physical_size: self.session.host.size(),
+        });
+        let result = self.session.take_failure().map_or(Ok(()), Err);
+        self.finish(result)
+    }
+
     /// Explicit physical-pixel resize, delivered even when the surface is suspended.
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
         self.ensure_open()?;

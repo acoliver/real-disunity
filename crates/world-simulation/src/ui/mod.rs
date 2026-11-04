@@ -24,6 +24,8 @@ pub use scroll::UiScrollView;
 mod renderer;
 mod sdf;
 mod text;
+mod text_field;
+pub use text_field::{TextFieldStyle, TextReject, UiTextField};
 mod wrap;
 use crate::{ObjectHandle, WorldError};
 pub use atlas::GlyphAtlas;

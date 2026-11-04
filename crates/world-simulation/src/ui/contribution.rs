@@ -115,7 +115,7 @@ pub fn extract_ui_layout(
     })
 }
 
-fn contribution(
+pub(super) fn contribution(
     rect: &RectLayout,
     text: TextLayout,
     overlay: bool,
@@ -258,4 +258,13 @@ fn graphics(
         )
     });
     Ok(graphics)
+}
+
+pub(super) fn field_clip(
+    world: &World,
+    layout: &UiLayout,
+    rect: &RectLayout,
+) -> Result<[u32; 4], WorldError> {
+    let roots = super::graphics::root_canvases(world)?;
+    Ok(clip::screen_clip(world, layout, rect, &roots))
 }

@@ -1,4 +1,5 @@
 mod graphics;
+mod text_field;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
     let width = image.viewport.width;
     let height = image.viewport.height;

@@ -1,10 +1,11 @@
-use super::{RetainedHost, RetainedInput};
+use super::{RetainedHost, RetainedInput, TextInput};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 use winit::window::Window;
 mod simulation;
+pub(in crate::retained) mod text;
 
 pub use winit::{
     event::MouseButton,
@@ -32,6 +33,7 @@ pub enum CursorError {
 
 #[derive(Default)]
 pub(super) struct InputState {
+    pub text: text::TextState,
     keys: BTreeMap<PhysicalKey, (String, LogicalKey)>,
     buttons: BTreeSet<MouseButton>,
     pub window: Option<Arc<Window>>,
@@ -61,6 +63,12 @@ impl InputState {
                     self.buttons.remove(button);
                 }
             }
+            RetainedInput::Text(TextInput::Preedit { text, .. }) => {
+                self.text.composing = !text.is_empty();
+            }
+            RetainedInput::Text(TextInput::Commit(_) | TextInput::Cancel | TextInput::Disabled) => {
+                self.text.composing = false;
+            }
             RetainedInput::Focused(false) => return self.release(),
             _ => {}
         }
@@ -78,7 +86,7 @@ impl InputState {
                 repeat: false,
             })
             .collect();
-        if !events.is_empty() || !self.buttons.is_empty() {
+        if !events.is_empty() || !self.buttons.is_empty() || self.text.area.is_some() {
             events.insert(0, RetainedInput::PointerCancelled);
         }
         events.extend(std::mem::take(&mut self.buttons).into_iter().map(|button| {
@@ -87,6 +95,10 @@ impl InputState {
                 pressed: false,
             }
         }));
+        if self.text.area.is_some() {
+            events.insert(0, RetainedInput::Text(TextInput::Cancel));
+        }
+        self.text.composing = false;
         events
     }
 }
@@ -135,6 +147,7 @@ fn grab(
 pub(super) fn window_input(event: &winit::event::WindowEvent) -> Option<RetainedInput> {
     use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
     Some(match event {
+        WindowEvent::Ime(event) => text::ime_input(event),
         WindowEvent::Resized(size) => RetainedInput::Resized([size.width, size.height]),
         WindowEvent::Focused(value) => RetainedInput::Focused(*value),
         WindowEvent::Occluded(value) => RetainedInput::Occluded(*value),

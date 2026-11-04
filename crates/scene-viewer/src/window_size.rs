@@ -1,5 +1,5 @@
 /// Unit of the initial desktop window request. Resize events always use physical
-/// pixels. Windowless hosts have no display scale and interpret both units as pixels.
+/// pixels. Windowless hosts start at display scale 1 and interpret both units as pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WindowSizeUnit {
     #[default]

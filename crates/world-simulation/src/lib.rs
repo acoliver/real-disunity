@@ -25,7 +25,7 @@ pub use clock::Clock;
 pub use coroutines::{CoroutineId, WaitCondition};
 pub use input::{
     AxisBinding, AxisId, InputAction, InputEvent, InputPhase, InputView, KeyCode, PointerButton,
-    PointerEvent, PointerState, PointerWheel,
+    PointerEvent, PointerState, PointerWheel, TextInput,
 };
 pub use ratio::{TimeError, TimeSpan};
 pub use timeline::{

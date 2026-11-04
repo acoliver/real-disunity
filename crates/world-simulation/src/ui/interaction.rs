@@ -1,5 +1,5 @@
 //! Typed native controls attached to existing world object identities.
-use super::{UiLayoutRules, group::groups_by_object};
+use super::{TextReject, UiLayoutRules, group::groups_by_object};
 use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
 mod keyboard;
@@ -7,6 +7,7 @@ mod pointer;
 mod slider;
 mod style;
 mod targets;
+mod text;
 pub use slider::UiSlider;
 pub use style::UiStyle;
 use targets::Targets;
@@ -15,6 +16,7 @@ pub(super) use targets::contains;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UiControlKind {
     Button,
+    TextField,
     Slider(UiSlider),
     Toggle { on: bool },
     Choice { group: ObjectHandle, index: usize },
@@ -26,6 +28,12 @@ pub struct UiControl {
     pub kind: UiControlKind,
 }
 impl UiControl {
+    pub fn text_field() -> Self {
+        Self {
+            enabled: true,
+            kind: UiControlKind::TextField,
+        }
+    }
     pub fn slider(slider: UiSlider) -> Self {
         Self {
             enabled: true,
@@ -59,11 +67,38 @@ impl UiControl {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UiAction {
-    ValueChanged { control: ObjectHandle, value: f64 },
-    Toggled { control: ObjectHandle, on: bool },
-    Activated { object: ObjectHandle },
-    ChoiceSelected { group: ObjectHandle, index: usize },
-    Selected { list: ObjectHandle, index: usize },
+    TextChanged {
+        control: ObjectHandle,
+    },
+    TextSubmitted {
+        control: ObjectHandle,
+    },
+    TextCancelled {
+        control: ObjectHandle,
+    },
+    TextRejected {
+        control: ObjectHandle,
+        reason: TextReject,
+    },
+    ValueChanged {
+        control: ObjectHandle,
+        value: f64,
+    },
+    Toggled {
+        control: ObjectHandle,
+        on: bool,
+    },
+    Activated {
+        object: ObjectHandle,
+    },
+    ChoiceSelected {
+        group: ObjectHandle,
+        index: usize,
+    },
+    Selected {
+        list: ObjectHandle,
+        index: usize,
+    },
 }
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct UiResponse {
@@ -74,6 +109,12 @@ pub struct UiResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UiKey {
     Tab,
+    Control,
+    Alt,
+    SelectAll,
+    Backspace,
+    Delete,
+    Escape,
     Shift,
     Enter,
     Space,
@@ -94,6 +135,7 @@ pub struct UiRouter {
     pub modals: BTreeSet<ObjectHandle>,
     pub layout: UiLayoutRules,
     pub styles: BTreeMap<ObjectHandle, UiStyle>,
+    pub text_fields: BTreeMap<ObjectHandle, super::UiTextField>,
     position: Option<[f64; 2]>,
     capture: Option<ObjectHandle>,
     primary_held: bool,
@@ -103,6 +145,13 @@ pub struct UiRouter {
     modal_focus: Vec<(ObjectHandle, Option<ObjectHandle>)>,
 }
 impl UiRouter {
+    fn retain_focus(&mut self, eligible: impl Fn(ObjectHandle) -> bool) {
+        let old = self.focus;
+        self.focus = self.focus.filter(|o| eligible(*o));
+        if old != self.focus {
+            self.cancel_preedits();
+        }
+    }
     pub fn focused(&self) -> Option<ObjectHandle> {
         self.focus
     }
@@ -122,9 +171,11 @@ impl UiRouter {
             self.modal_focus.push((object, self.focus));
             self.focus = None;
         }
+        self.cancel_preedits();
         self.capture = None;
     }
     fn cancel(&mut self) {
+        self.cancel_preedits();
         self.capture = None;
         self.primary_held = false;
         self.position = None;
@@ -139,7 +190,7 @@ impl UiRouter {
             .expect("registered control")
             .kind;
         let action = match *kind {
-            UiControlKind::Slider(_) => return None,
+            UiControlKind::Slider(_) | UiControlKind::TextField => return None,
             UiControlKind::Toggle { on } => {
                 *kind = UiControlKind::Toggle { on: !on };
                 UiAction::Toggled {

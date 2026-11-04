@@ -1,14 +1,20 @@
-use super::UiRouter;
+use super::{TargetId, UiControlKind, UiRouter};
 use crate::ui::{CanvasGroup, RectLayout, UiLayout};
 use crate::{ObjectHandle, World, WorldError};
 use glam::{DVec2, Vec2};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
+pub(super) struct Target<'a> {
+    pub id: TargetId,
+    pub rect: &'a RectLayout,
+    pub regions: Option<Vec<[Vec2; 2]>>,
+    pub clip: Option<[u32; 4]>,
+    pub eligible: bool,
+    pub blocking: bool,
+}
 pub(super) struct Targets<'a> {
-    pub rects: Vec<&'a RectLayout>,
+    pub entries: Vec<Target<'a>>,
     pub modal: Option<ObjectHandle>,
-    eligible: BTreeSet<ObjectHandle>,
-    blocking: BTreeSet<ObjectHandle>,
     height: f64,
 }
 impl<'a> Targets<'a> {
@@ -24,8 +30,7 @@ impl<'a> Targets<'a> {
                 && world.object_alive(rect.object)
                 && world.active_in_hierarchy(rect.object)?
             {
-                let path = world.ancestry(rect.object)?;
-                sorted.push((rect.draw_order(), path, rect));
+                sorted.push((rect.draw_order(), world.ancestry(rect.object)?, rect));
             }
         }
         sorted.sort_by_key(|entry| entry.0);
@@ -35,37 +40,77 @@ impl<'a> Targets<'a> {
             .find(|(_, _, r)| router.modals.contains(&r.object))
             .map(|(_, _, r)| r.object);
         let mut result = Self {
-            rects: Vec::new(),
+            entries: Vec::new(),
             modal,
-            eligible: BTreeSet::new(),
-            blocking: BTreeSet::new(),
             height: f64::from(layout.viewport.y),
         };
         for (_, path, rect) in sorted {
             if modal.is_some_and(|m| !path.contains(&m)) {
                 continue;
             }
-            let (interactable, blocks) = flags(&path, groups);
-            if router.controls.get(&rect.object).is_some_and(|c| c.enabled) && interactable {
-                result.eligible.insert(rect.object);
+            let Some(control) = router.controls.get(&rect.object) else {
+                continue;
+            };
+            let (interactable, blocking) = flags(&path, groups);
+            let target = Target {
+                id: rect.object.into(),
+                rect,
+                regions: None,
+                clip: None,
+                eligible: control.enabled && interactable,
+                blocking,
+            };
+            if control.kind == UiControlKind::Text {
+                result
+                    .entries
+                    .extend(super::links::targets(world, layout, router, &target)?);
+            } else {
+                result.entries.push(target);
             }
-            if blocks && router.controls.contains_key(&rect.object) {
-                result.blocking.insert(rect.object);
-            }
-            result.rects.push(rect);
         }
         Ok(result)
     }
-    pub fn interactable(&self, object: ObjectHandle) -> bool {
-        self.eligible.contains(&object)
+    pub fn order(&self) -> Vec<TargetId> {
+        self.entries
+            .iter()
+            .filter(|t| t.eligible)
+            .map(|t| t.id)
+            .collect()
     }
-    pub fn hit(&self, position: [f64; 2]) -> Option<ObjectHandle> {
+    pub fn interactable(&self, id: TargetId) -> bool {
+        self.entries.iter().any(|t| t.id == id && t.eligible)
+    }
+    pub fn hit(&self, position: [f64; 2]) -> Option<TargetId> {
         let point = DVec2::new(position[0], self.height - position[1]).as_vec2();
-        self.rects
+        self.entries
             .iter()
             .rev()
-            .find(|r| self.blocking.contains(&r.object) && contains(r, point))
-            .map(|r| r.object)
+            .find(|t| t.blocking && t.contains(point))
+            .map(|t| t.id)
+    }
+}
+impl Target<'_> {
+    fn contains(&self, point: Vec2) -> bool {
+        if !contains(self.rect, point) {
+            return false;
+        }
+        if let Some([x, y, width, height]) = self.clip {
+            let low = glam::UVec2::new(x, y).as_vec2();
+            let high = glam::UVec2::new(x + width, y + height).as_vec2();
+            if point.cmplt(low).any() || point.cmpge(high).any() {
+                return false;
+            }
+        }
+        let Some(regions) = &self.regions else {
+            return true;
+        };
+        let Some(local) = coordinates(self.rect, point.as_dvec2()) else {
+            return false;
+        };
+        let local = local.as_vec2() * self.rect.size;
+        regions
+            .iter()
+            .any(|[low, high]| local.cmpge(*low).all() && local.cmplt(*high).all())
     }
 }
 fn flags(path: &[ObjectHandle], groups: &BTreeMap<ObjectHandle, CanvasGroup>) -> (bool, bool) {
@@ -91,8 +136,8 @@ pub(crate) fn contains(rect: &RectLayout, point: Vec2) -> bool {
     };
     (0. ..=1.).contains(&local.x) && (0. ..=1.).contains(&local.y)
 }
-/// Shared affine coordinates for hits and captured drags. Scale the host delta before cross
-/// products so even extreme finite external coordinates cannot overflow into NaN.
+/// Scale the host delta before cross products so extreme finite external coordinates cannot
+/// overflow into NaN. Shared by ordinary hits, linked glyphs and captured drags.
 pub(super) fn coordinates(rect: &RectLayout, point: DVec2) -> Option<DVec2> {
     let [origin, right, _, up] = rect.screen_corners?;
     let x = right.as_dvec2() - origin.as_dvec2();

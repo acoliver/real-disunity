@@ -291,6 +291,7 @@ pub fn append_ui_from(
     {
         return Err(worldrunner_camera::ViewError::InvalidWorldPoint);
     }
+    append_text_graphics(plan, ui.graphics)?;
     for text in ui.texts {
         let screen = text_screen(&ui.layout, &text, plan.camera.is_some());
         let overlay = text.overlay || screen.is_some();
@@ -326,6 +327,19 @@ pub fn append_ui_from(
     plan.quads
         .sort_by_key(|q| (q.overlay, q.sorting_layer, q.sorting_order));
     Ok(())
+}
+
+#[cfg(feature = "ui")]
+fn append_text_graphics(
+    plan: &mut WorldRenderPlan,
+    graphics: Vec<crate::ui::contribution::UiGraphicContribution>,
+) -> Result<(), worldrunner_camera::ViewError> {
+    let decorations = graphics
+        .into_iter()
+        .filter(|g| g.link.is_some())
+        .map(|g| g.graphic)
+        .collect();
+    crate::ui::append_graphics(plan, decorations)
 }
 
 /// The map from a text's world points to screen pixels when the presentation draws it on the

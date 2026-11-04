@@ -34,6 +34,7 @@ fn available_latin1_glyphs_keep_utf8_ranges_through_word_wrapping() {
         text: "A é".into(),
         font_size: 20.,
         spans: vec![TextSpan {
+            link: None,
             range: 2..4,
             color: [0., 1., 0., 1.],
         }],
@@ -106,6 +107,7 @@ fn invalid_paragraph_settings_and_utf8_span_boundaries_fail_explicitly() {
     run.paragraph_spacing = 0.;
     run.text = "é".into();
     run.spans.push(TextSpan {
+        link: None,
         range: 0..1,
         color: [1.; 4],
     });

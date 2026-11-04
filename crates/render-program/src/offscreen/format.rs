@@ -9,6 +9,7 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
         4 => wgpu::TextureFormat::Rgba8UnormSrgb,
         5 => wgpu::TextureFormat::R8Unorm,
         8 => wgpu::TextureFormat::Rgba8Unorm,
+        45 => wgpu::TextureFormat::R16Float,
         48 => wgpu::TextureFormat::Rgba16Float,
         _ => return Err(OffscreenError::UnsupportedFormat { code }),
     })
@@ -35,6 +36,7 @@ mod tests {
             (4, wgpu::TextureFormat::Rgba8UnormSrgb),
             (5, wgpu::TextureFormat::R8Unorm),
             (8, wgpu::TextureFormat::Rgba8Unorm),
+            (45, wgpu::TextureFormat::R16Float),
             (48, wgpu::TextureFormat::Rgba16Float),
         ] {
             assert_eq!(color_format(code).unwrap(), format);

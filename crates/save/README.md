@@ -71,9 +71,12 @@ The desktop host exposes `worldrunner::scene::viewer::application_root` with the
 `$HOME/.local/share`, and Windows uses `%APPDATA%`. Missing required variables and
 unsupported platforms return `ApplicationPathError`.
 
-Application identifiers contain 1 to 64 UTF-8 bytes. The directory component is
-`app-` followed by lowercase hex-encoded identifier bytes, so different identifiers
-remain distinct on case-insensitive filesystems and cannot inject path components.
+Application identifiers contain 1 to 64 bytes of lowercase ASCII letters, digits,
+`.`, `-` or `_`. They must start with a letter or digit, contain no `..` sequence and
+not end in `.`. Other identifiers return `ApplicationPathError::InvalidIdentifier`.
+The identifier itself names the directory, for example
+`$HOME/Library/Application Support/org.acoliver.chess3d`, so players can find their
+saves. Lowercase-only identifiers avoid collisions on case-insensitive filesystems.
 Application-storage tests use synthetic environment inputs and directories under
 `target/`; they do not write user application data. Managed `PlayerPrefs.xml` remains
 independent in the configured managed persistent-data directory. Native storage

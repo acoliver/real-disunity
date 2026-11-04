@@ -31,6 +31,10 @@ pub(super) fn screen_clip(
         low = low.max(min).min(viewport).ceil();
         high = high.min(max).max(low).floor();
     }
+    if let Some([min, max]) = rect.clip_bounds {
+        low = low.max(min).min(viewport).ceil();
+        high = high.min(max).floor().max(low);
+    }
     let low = low.as_uvec2();
     let high = high.as_uvec2();
     [low.x, low.y, high.x - low.x, high.y - low.y]

@@ -5,5 +5,6 @@
 
 pub use worldrunner_world_simulation::ui::contribution::{
     UiGlyphQuad, UiGraphicContribution, UiRenderPlan, UiTextContribution, extract_ui,
+    extract_ui_layout,
 };
 pub use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};

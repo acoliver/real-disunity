@@ -52,9 +52,9 @@ mod terrain_tests;
 
 #[cfg(test)]
 mod batch_tests;
-/// Caller-selected identity. Initial objects have IDs 0 through `object_count - 1`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ObjectId(pub u64);
+pub use worldrunner_render_plan::{ObjectId, PickHit};
+mod picking;
+pub use picking::RetainedPickHit;
 
 /// Ordered edits reference the latest accepted mesh and material tables.
 #[derive(Clone, Debug)]
@@ -186,6 +186,7 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    picking: picking::Picking,
     work: work::WorkServices,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,

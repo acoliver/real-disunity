@@ -4,6 +4,41 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Picking the presented scene
+
+`RetainedHost::pick([x, y], include)` and `RetainedEventHost::pick` query the
+last presented frame on the event thread. Coordinates are continuous physical
+pixels from the top-left window corner, matching `RetainedInput::PointerMoved`.
+Do not multiply them by the display scale. `include: FnMut(ObjectId) -> bool`
+can consult the game's selectable-ID set. A hit returns `RetainedPickHit` with
+`generation` and a render-plan `PickHit` containing the object ID, distance from
+the near-plane ray origin in metres, scene-space point, triangle and barycentrics.
+These types are re-exported through `worldrunner::scene::viewer`.
+
+The host freezes the resolved camera, physical viewport, resident resources and
+object placements only after a successful presentation submission, before the
+`Presented` callback. Accepted edits and renderer readiness cannot change that
+snapshot. A move, removal, resource replacement, camera edit or physical resize
+becomes pickable only with its presented frame. Misses, excluded objects,
+nonfinite/out-of-viewport pixels and queries before the first frame return `None`.
+The snapshot remains available during presentation pauses. Submission follows the
+host's existing presentation contract and does not assert GPU completion or OS
+scanout. Windowless ordinary submissions publish the same snapshot; an accumulated
+capture publishes its frozen unjittered view when the capture completes, without
+emitting `Presented`. Desktop capture-only work leaves the displayed snapshot alone.
+
+Snapshots share meshes, textures, materials and unchanged object tables through
+`Arc`. A published object edit copies the previous table only if a displayed
+snapshot still references it. Accepting an edit keeps the existing batch-sized
+cost. There is no GPU readback, physics world or spatial acceleration structure.
+Picking uses undeformed resident LOD-zero triangles and material/LOD-slot sidedness.
+Texture alpha, shader wind, distance-fade dithering, billboard replacement, terrain,
+water and UI are outside this geometric query. This is suitable for object selection,
+but does not reproduce every shaded pixel. The retained object API has no separate
+visibility flag: removing an object removes its pickable geometry at presentation.
+See the [CPU query contract](../render-plan/README.md#cpu-object-picking).
+
+
 ## Retained run activity
 
 On macOS, retained desktop and windowless runs hold an `NSProcessInfo` activity

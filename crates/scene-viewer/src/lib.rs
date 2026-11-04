@@ -37,11 +37,12 @@ mod retained;
 mod world_edits;
 pub use retained::{
     CancelToken, CaptureJitter, CaptureOutput, CaptureRequestError, CursorError, CursorGrabMode,
-    KeyCode, LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey,
+    KeyCode, LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, PickHit,
     RetainedCaptureObservation, RetainedCaptureOutcome, RetainedCaptureProducts,
     RetainedCaptureRecipe, RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost,
-    RetainedInput, RetainedTick, RetainedUpdate, SceneObjectEdit, WheelDelta, WindowlessRetained,
-    WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError, WorkTicket,
+    RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate, SceneObjectEdit, WheelDelta,
+    WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
+    WorkTicket,
 };
 pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 

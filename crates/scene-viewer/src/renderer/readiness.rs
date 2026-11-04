@@ -66,7 +66,7 @@ impl Renderer {
 }
 
 impl Renderer {
-    pub(super) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
+    pub(crate) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
         self.streaming.publish(
             &self.context,
             &mut self.resident,
@@ -142,7 +142,7 @@ impl Streaming {
                 super::retained::configure_effects(context, resident, presentation, &effects)?;
             }
         }
-        host.readiness.publish_front();
+        host.publish_pick_front();
         Ok(())
     }
     fn advance_preparation(

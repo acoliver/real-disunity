@@ -18,7 +18,21 @@ const VULKAN: u32 = 18;
 const OTHER: u32 = 14;
 
 /// A shader object to write: its path id, platforms, passes and queue tag.
-type Spec<'a> = (i64, &'a [u32], usize, Option<(&'a str, &'a str)>);
+struct Spec<'a> {
+    path_id: i64,
+    platforms: &'a [u32],
+    passes: usize,
+    queue: Option<(&'a str, &'a str)>,
+}
+
+fn spec(path_id: i64, platforms: &[u32], passes: usize) -> Spec<'_> {
+    Spec {
+        path_id,
+        platforms,
+        passes,
+        queue: None,
+    }
+}
 
 fn write(directory: &Path, file: &str, shaders: &[Spec<'_>]) {
     let contents = FileContents {
@@ -39,14 +53,14 @@ fn write(directory: &Path, file: &str, shaders: &[Spec<'_>]) {
         }],
         objects: shaders
             .iter()
-            .map(|&(path_id, platforms, passes, queue)| ObjectData {
-                path_id,
+            .map(|shader| ObjectData {
+                path_id: shader.path_id,
                 type_index: 0,
                 data: shader_bytes::shader_with_platforms(
                     "Test/Shader",
-                    queue,
-                    &[passes],
-                    platforms,
+                    shader.queue,
+                    &[shader.passes],
+                    shader.platforms,
                 ),
             })
             .collect(),
@@ -74,8 +88,11 @@ fn a_shader_loads_from_the_file_and_object_its_source_names() {
         directory.path(),
         "level0",
         &[
-            (3, &[OTHER, VULKAN], 2, None),
-            (4, &[VULKAN], 5, Some(("QUEUE", "Transparent"))),
+            spec(3, &[OTHER, VULKAN], 2),
+            Spec {
+                queue: Some(("QUEUE", "Transparent")),
+                ..spec(4, &[VULKAN], 5)
+            },
         ],
     );
     let mut loader = ShaderLoader::new(directory.path());
@@ -92,7 +109,7 @@ fn a_file_in_a_subdirectory_is_named_with_forward_slashes() {
     write(
         directory.path(),
         "Resources/shaders.assets",
-        &[(1, &[VULKAN], 1, None)],
+        &[spec(1, &[VULKAN], 1)],
     );
     let mut loader = ShaderLoader::new(directory.path());
     assert_eq!(
@@ -107,7 +124,7 @@ fn a_file_in_a_subdirectory_is_named_with_forward_slashes() {
 #[test]
 fn a_source_is_decoded_once_however_many_shaders_name_it() {
     let directory = tempfile::tempdir().unwrap();
-    write(directory.path(), "level0", &[(3, &[VULKAN], 2, None)]);
+    write(directory.path(), "level0", &[spec(3, &[VULKAN], 2)]);
     let mut loader = ShaderLoader::new(directory.path());
     let wanted = source("level0", 3);
     loader.load(&wanted).unwrap();
@@ -126,7 +143,7 @@ fn a_source_that_failed_is_not_read_again() {
         loader.load(&wanted),
         Err(ShaderLoadError::Read(_))
     ));
-    write(directory.path(), "missing", &[(1, &[VULKAN], 1, None)]);
+    write(directory.path(), "missing", &[spec(1, &[VULKAN], 1)]);
     assert!(
         matches!(loader.load(&wanted), Err(ShaderLoadError::Read(_))),
         "the failure is kept"
@@ -137,7 +154,7 @@ fn a_source_that_failed_is_not_read_again() {
 #[test]
 fn a_shader_with_no_vulkan_platform_is_named() {
     let directory = tempfile::tempdir().unwrap();
-    write(directory.path(), "level0", &[(1, &[OTHER], 1, None)]);
+    write(directory.path(), "level0", &[spec(1, &[OTHER], 1)]);
     let mut loader = ShaderLoader::new(directory.path());
     let error = loader.load(&source("level0", 1)).err().unwrap();
     assert!(matches!(error, ShaderLoadError::NoVulkanPlatform));
@@ -147,7 +164,7 @@ fn a_shader_with_no_vulkan_platform_is_named() {
 #[test]
 fn an_object_that_is_not_in_the_file_is_a_read_error() {
     let directory = tempfile::tempdir().unwrap();
-    write(directory.path(), "level0", &[(1, &[VULKAN], 1, None)]);
+    write(directory.path(), "level0", &[spec(1, &[VULKAN], 1)]);
     let mut loader = ShaderLoader::new(directory.path());
     assert!(matches!(
         loader.load(&source("level0", 99)),
@@ -177,12 +194,12 @@ fn the_census_counts_shaders_programs_passes_and_failures_by_name() {
     write(
         directory.path(),
         "level0",
-        &[(1, &[VULKAN], 2, None), (2, &[OTHER], 1, None)],
+        &[spec(1, &[VULKAN], 2), spec(2, &[OTHER], 1)],
     );
     write(
         directory.path(),
         "sharedassets0.assets",
-        &[(5, &[VULKAN], 3, None)],
+        &[spec(5, &[VULKAN], 3)],
     );
     // A file that is not a serialized file of the player is not read.
     std::fs::write(directory.path().join("boot.config"), b"not serialized").unwrap();

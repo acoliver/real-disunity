@@ -16,7 +16,7 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
     })
 }
 
-/// The color format of a render texture: `None` for GraphicsFormat 0, a target with only depth,
+/// The color format of a render texture: `None` for `GraphicsFormat` 0, a target with only depth,
 /// else the format of the table.
 pub(crate) fn render_color_format(
     code: u32,

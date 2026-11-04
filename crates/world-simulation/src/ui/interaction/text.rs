@@ -63,11 +63,10 @@ impl UiRouter {
             return Ok(None);
         };
         let rect = layout.rect(control).expect("eligible rectangle");
-        Ok(Some(self.text_fields[&control].caret_area(
-            fonts,
-            rect,
-            layout.viewport.as_vec2().y,
-        )?))
+        fonts.validate_single_line(self.text_fields[&control].text_run())?;
+        Ok(Some(
+            self.text_fields[&control].caret_area(rect, layout.viewport.as_vec2().y)?,
+        ))
     }
     pub(super) fn field_key(
         &mut self,

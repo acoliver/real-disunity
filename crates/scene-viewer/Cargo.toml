@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+arboard = { version = "=3.7.0", default-features = false, features = ["wayland-data-control"] }
 worldrunner-camera = { path = "../camera" }
 worldrunner-render-post = { path = "../render-post" }
 worldrunner-render-gpu = { path = "../render-gpu" }
@@ -15,7 +16,7 @@ glam.workspace = true
 pollster.workspace = true
 thiserror.workspace = true
 worldrunner-render-plan = { path = "../render-plan", features = ["ui"] }
-worldrunner-world-simulation = { path = "../world-simulation" }
+worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"] }
 worldrunner-render-scene = { path = "../render-scene" }
 wgpu.workspace = true
 winit.workspace = true

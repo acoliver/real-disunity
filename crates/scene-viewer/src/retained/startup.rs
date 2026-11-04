@@ -45,6 +45,7 @@ impl RetainedHost {
             None => 0,
         };
         let mut host = Self {
+            clipboard: super::clipboard::HostClipboard::default(),
             picking: super::picking::Picking::default(),
             work: super::work::WorkServices::default(),
             statistics: None,

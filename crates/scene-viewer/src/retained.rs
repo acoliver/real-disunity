@@ -4,6 +4,9 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+mod clipboard;
+#[cfg(test)]
+mod clipboard_tests;
 mod startup;
 #[cfg(test)]
 #[path = "../../world-simulation/tests/ui_font/mod.rs"]
@@ -195,6 +198,7 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    clipboard: clipboard::HostClipboard,
     picking: picking::Picking,
     work: work::WorkServices,
     pub(crate) gpu_timing: GpuTiming,

@@ -2,12 +2,14 @@
 use super::{TextReject, UiLayoutRules, group::groups_by_object};
 use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
+mod clipboard;
 mod keyboard;
 mod pointer;
 mod slider;
 mod style;
 mod targets;
 mod text;
+mod text_pointer;
 pub use slider::UiSlider;
 pub use style::UiStyle;
 use targets::Targets;
@@ -136,6 +138,7 @@ pub struct UiRouter {
     pub layout: UiLayoutRules,
     pub styles: BTreeMap<ObjectHandle, UiStyle>,
     pub text_fields: BTreeMap<ObjectHandle, super::UiTextField>,
+    text_clicks: text_pointer::TextClicks,
     position: Option<[f64; 2]>,
     capture: Option<ObjectHandle>,
     primary_held: bool,
@@ -172,10 +175,12 @@ impl UiRouter {
             self.focus = None;
         }
         self.cancel_preedits();
+        self.text_clicks = text_pointer::TextClicks::default();
         self.capture = None;
     }
     fn cancel(&mut self) {
         self.cancel_preedits();
+        self.text_clicks = text_pointer::TextClicks::default();
         self.capture = None;
         self.primary_held = false;
         self.position = None;

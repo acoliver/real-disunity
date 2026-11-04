@@ -59,8 +59,17 @@ fn a_camera_writes_only_depth_into_a_depth_only_render_texture() {
     assert_eq!(texels.len(), 64);
     for y in 0..8 {
         for x in 0..4 {
-            assert_eq!(texels[y * 8 + x], 0.5, "left ({x}, {y})");
-            assert_eq!(texels[y * 8 + x + 4], 0.25, "right ({}, {y})", x + 4);
+            assert_eq!(
+                texels[y * 8 + x].to_bits(),
+                0.5_f32.to_bits(),
+                "left ({x}, {y})"
+            );
+            assert_eq!(
+                texels[y * 8 + x + 4].to_bits(),
+                0.25_f32.to_bits(),
+                "right ({}, {y})",
+                x + 4
+            );
         }
     }
 }
@@ -71,8 +80,8 @@ fn a_depth_only_render_texture_is_cleared_to_far_where_nothing_draws() {
     let frame = depth_frame(&mut rig, LEFT_ONLY, 32);
     let image = rig.run(&frame, &[(TARGET, 0, 0)]).unwrap().remove(0);
     let texels = depths(&image);
-    assert_eq!(texels[3], 0.5);
-    assert_eq!(texels[4], 1.0);
+    assert_eq!(texels[3].to_bits(), 0.5_f32.to_bits());
+    assert_eq!(texels[4].to_bits(), 1.0_f32.to_bits());
 }
 
 /// The depth of `target` read as a float texture by a blit pass into an 8x8 RGBA8 texture, with the

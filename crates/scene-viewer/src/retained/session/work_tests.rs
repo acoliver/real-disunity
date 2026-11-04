@@ -81,11 +81,11 @@ fn blocked_work_leaves_ticks_and_input_live_then_wakes_paused_delivery() {
         assert!(session.host.view().unwrap().is_none());
         release.send(()).unwrap();
         ready_event.recv_timeout(Duration::from_secs(5)).unwrap();
-        session.work_ready().unwrap();
+        session.host_ready().unwrap();
         assert_eq!(*results.borrow(), vec![42]);
         assert_eq!(ticks.get(), 3);
         session.shutdown().unwrap();
-        session.work_ready().unwrap();
+        session.host_ready().unwrap();
         assert_eq!(*results.borrow(), vec![42]);
     }
 }
@@ -110,9 +110,9 @@ fn shutdown_discards_ready_results_without_notifying_work() {
     };
     let mut session = Session::new(host, &mut driver);
     session.input(RetainedInput::CloseRequested);
-    session.work_ready().unwrap();
+    session.host_ready().unwrap();
     assert!(results.borrow().is_empty());
     session.shutdown().unwrap();
-    session.work_ready().unwrap();
+    session.host_ready().unwrap();
     assert!(results.borrow().is_empty());
 }

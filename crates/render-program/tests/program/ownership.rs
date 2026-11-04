@@ -527,13 +527,15 @@ fn the_target_of_an_immediate_draw_stays_counted_through_its_frame_after_the_run
     assert_eq!(renderer.held(), 0, "the completed frame freed both");
 }
 
+/// Releases a resource a recorded call used.
+type Release = Box<dyn Fn(&mut ProgramRuntime) -> Result<bool, ProgramError>>;
+
 /// A call recorded into a finished, unsubmitted frame, and what it used.
 struct Recorded {
     frame: PreparedFrame,
     /// Descriptor bytes the runtime held just before the call.
     before: u64,
-    /// Releases a resource the call used.
-    release: Box<dyn Fn(&mut ProgramRuntime) -> Result<bool, ProgramError>>,
+    release: Release,
 }
 
 /// Creates what one recording entry point uses in `runtime` and records the call into a frame.

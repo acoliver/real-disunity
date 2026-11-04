@@ -4,5 +4,7 @@
 
 mod common;
 mod draw;
+mod join;
 mod properties;
+mod registration;
 mod resources;

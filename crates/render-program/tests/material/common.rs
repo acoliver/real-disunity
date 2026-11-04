@@ -304,3 +304,10 @@ pub fn assert_all(image: &TargetImage, want: [f32; 4]) {
         }
     }
 }
+
+/// The opaque state without back-face culling.
+pub fn no_cull() -> RenderState {
+    let mut state = RenderState::opaque_depth();
+    state.raster.cull = None;
+    state
+}

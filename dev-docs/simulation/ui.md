@@ -54,7 +54,7 @@ for every routed event and withhold consumed events from board/camera/scene inte
 Register a Canvas or group object's rectangle in `modals` for modal behavior. The highest sorted
 visible modal root consumes all pointer input, even outside its rectangle, and restricts pointer
 and keyboard targets to its subtree. Removing or hiding it removes the restriction. Map host
-keys to `UiKey::{Tab, Shift, Enter, Space}` and call `key` with press and repeat observations.
+navigation and activation keys to `UiKey` and call `key` with press and repeat observations.
 Tab/shift-Tab cycles enabled interactable controls in target order; Enter/Space activates on the
 first key-down. Held/repeated key-downs never activate twice. Focus is revalidated at each key
 event. The router records each modal's opener when it first observes that modal. When the
@@ -114,7 +114,8 @@ Register caller-authored `UiStyle` tints in `router.styles`, then call `style_pl
 once on a freshly extracted plan. It multiplies graphic vertex colours and text colour using
 this priority: disabled, pressed, focused, hovered, selected, normal. Focus takes precedence over
 hover so pointer position cannot conceal keyboard focus. The engine supplies no default colour
-scheme; default tints are white. Sliders and toggles are not implemented by this native API.
+scheme; default tints are white. An enabled toggle uses the selected tint while on, subject
+to the same state priority.
 
 Resolve and extract again after routing events that can change an offset:
 
@@ -128,6 +129,42 @@ router.style_plan(&world, &mut plan)?;
 
 The scrolled-list windowless overlay test checks exact RGBA bytes inside the viewport and
 unchanged scene pixels outside it. A real-window resize check remains pending.
+
+## Slider and toggle values
+
+`UiControl::slider(UiSlider::new(min, max, step, value, axis)?)` registers a value control.
+The range, initial value and optional step are `f64`. Construction returns
+`WorldError::InvalidInput` for nonfinite values, `min >= max`, a nonfinite range span,
+a nonpositive step or a step whose range-to-step ratio overflows. `None` gives continuous
+pointer values. `Some(step)` snaps to the nearest step measured from `min`, with midpoint
+ties toward the larger value. Values are clamped, and both range endpoints remain reachable
+even when the span is not a multiple of the step. The initial value is clamped and snapped too.
+
+The explicit `UiAxis` uses the track's local coordinates: horizontal increases rightward,
+vertical increases upward. Affine transforms and Canvas scaling apply to both hit testing
+and value mapping. A primary press on the track focuses and captures it and immediately
+sets its value at that point. Captured movement continues outside the track and clamps at
+the ends. Release ends capture without activating. Cancellation, loss of eligibility or a
+modal change ends capture. Disabled controls still block hits under the ordinary raycast
+rules, but neither focus nor change their values.
+
+With a slider focused, Right/Up increases and Left/Down decreases by one step. Continuous
+sliders use one percent of the range per arrow press. Home/End goes to the exact minimum
+or maximum. Arrow and Home/End navigation accepts repeats; Enter/Space has no slider action.
+`UiAction::ValueChanged { control, value }` is emitted only when the numeric value changes.
+The router stores that current value; the game reads the action and owns persistence.
+`router.slider(control)` returns the typed `UiSlider` observation. Its `value()`,
+`normalized_value()` and `axis()` let the caller position a knob or size a fill child through
+the existing rectangle and graphic APIs. The router does not author geometry or add a draw
+path. Resolve and extract again after changing caller-authored rectangles.
+
+`UiControl::toggle(on)` registers a boolean control. A primary press followed by release
+inside toggles once, as does the first Space or Enter key-down while focused. Held and repeat
+key-downs do not toggle again. It emits `UiAction::Toggled { control, on }` and stores the
+new state in `UiControlKind::Toggle { on }`. Disabled toggles ignore activation and focus.
+Both value controls share ordinary Tab order, CanvasGroup eligibility, modal restrictions
+and caller-authored state tints with buttons and list items. The CPU tests in
+`crates/world-simulation/tests/ui_values.rs` cover these input and contribution contracts.
 
 ## Text contract
 

@@ -86,17 +86,23 @@ pub(crate) fn contains(rect: &RectLayout, point: Vec2) -> bool {
     }) {
         return false;
     }
-    let Some([origin, right, _, up]) = rect.screen_corners else {
+    let Some(local) = coordinates(rect, point.as_dvec2()) else {
         return false;
     };
-    let x = right - origin;
-    let y = up - origin;
+    (0. ..=1.).contains(&local.x) && (0. ..=1.).contains(&local.y)
+}
+/// Shared affine coordinates for hits and captured drags. Scale the host delta before cross
+/// products so even extreme finite external coordinates cannot overflow into NaN.
+pub(super) fn coordinates(rect: &RectLayout, point: DVec2) -> Option<DVec2> {
+    let [origin, right, _, up] = rect.screen_corners?;
+    let x = right.as_dvec2() - origin.as_dvec2();
+    let y = up.as_dvec2() - origin.as_dvec2();
     let determinant = x.perp_dot(y);
     if determinant == 0. {
-        return false;
+        return None;
     }
-    let delta = point - origin;
-    let u = delta.perp_dot(y) / determinant;
-    let v = x.perp_dot(delta) / determinant;
-    (0. ..=1.).contains(&u) && (0. ..=1.).contains(&v)
+    let delta = point - origin.as_dvec2();
+    let scale = delta.abs().max_element().max(1.);
+    let delta = delta / scale;
+    Some(DVec2::new(delta.perp_dot(y), x.perp_dot(delta)) / determinant * scale)
 }

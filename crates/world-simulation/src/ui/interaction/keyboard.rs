@@ -30,7 +30,10 @@ impl UiRouter {
             self.keys.remove(&key);
             return Ok(response);
         }
-        let navigation = matches!(key, UiKey::Up | UiKey::Down | UiKey::Home | UiKey::End);
+        let navigation = matches!(
+            key,
+            UiKey::Left | UiKey::Right | UiKey::Up | UiKey::Down | UiKey::Home | UiKey::End
+        );
         let fresh = self.keys.insert(key);
         if (!fresh || repeat) && !(repeat && navigation) {
             return Ok(response);
@@ -42,13 +45,14 @@ impl UiRouter {
             }
             UiKey::Enter | UiKey::Space => {
                 if let Some(object) = self.focus {
-                    response.actions.push(self.activate(object));
+                    response.actions.extend(self.activate(object));
                 }
             }
             _ if navigation => {
+                response.actions.extend(self.slider_key(key));
                 if let Some(object) = self.navigate_list(&order, key) {
                     self.focus = Some(object);
-                    response.actions.push(self.activate(object));
+                    response.actions.extend(self.activate(object));
                 }
             }
             _ => {}

@@ -7,6 +7,8 @@
 //!
 //! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
 
+mod application_paths;
+pub use application_paths::{ApplicationPathError, application_root};
 mod activity;
 pub use activity::ActivityReason;
 mod adapter;

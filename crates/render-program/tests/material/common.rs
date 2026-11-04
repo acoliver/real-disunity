@@ -37,7 +37,14 @@ struct Tint { color: vec4<f32> }
 ) -> @builtin(position) vec4<f32> {
     return vec4<f32>(position.xy + shift, position.z, 1.0);
 }
+@group(1) @binding(0) var albedo: texture_2d<f32>;
+@group(1) @binding(1) var albedo_sampler: sampler;
+@group(1) @binding(2) var<uniform> block: Tint;
 @fragment fn fs() -> @location(0) vec4<f32> { return tint.color; }
+@fragment fn fs_texture() -> @location(0) vec4<f32> {
+    return textureSample(albedo, albedo_sampler, vec2<f32>(0.5, 0.5));
+}
+@fragment fn fs_block() -> @location(0) vec4<f32> { return block.color; }
 @fragment fn fs_double() -> @location(0) vec4<f32> {
     return vec4<f32>(tint.color.r * 2.0, tint.color.g, tint.color.b, tint.color.a);
 }";

@@ -96,13 +96,17 @@ impl ProgramRuntime {
     /// Creates a material of `program` with `properties` and no feature enabled.
     ///
     /// # Errors
-    /// Fails on a handle that is not a program of this runtime.
+    /// Fails on a handle that is not a program of this runtime and, like
+    /// [`set_property`](Self::set_property), on any initial property that would be refused.
     pub fn create_material(
         &mut self,
         program: ProgramHandle,
         properties: PropertySet,
     ) -> Result<MaterialHandle, ProgramError> {
         let program = self.registry.program(program)?.clone();
+        program
+            .schema
+            .check_all(&self.store, &program.label, &properties)?;
         Ok(self.registry.add_material(MaterialEntry {
             program,
             properties,
@@ -140,17 +144,28 @@ impl ProgramRuntime {
     /// values they were prepared with; the next preparation sees the new one.
     ///
     /// # Errors
-    /// Fails on a handle that is not a live material.
+    /// Fails on a handle that is not a live material and, naming the property, on one the
+    /// program does not have or a value of another kind. A refused call leaves the material as
+    /// it was.
     pub fn set_property(
         &mut self,
         material: MaterialHandle,
         name: &str,
         value: PropertyValue,
     ) -> Result<(), ProgramError> {
-        self.registry
-            .material_mut(material)?
-            .properties
-            .set(name, value);
+        let entry = self.registry.material_mut(material)?;
+        let program = &entry.program;
+        program
+            .schema
+            .check(&self.store, &program.label, name, &value)?;
+        entry.properties.set(name, value);
         Ok(())
+    }
+}
+
+impl ProgramRuntime {
+    /// Releases a material for new calls. Packets prepared from it keep drawing.
+    pub fn release_material(&mut self, material: MaterialHandle) -> bool {
+        self.registry.remove_material(material)
     }
 }

@@ -15,6 +15,7 @@ use crate::material::{MaterialEntry, MaterialHandle};
 use crate::module::{StageDeclarations, StageKind, StageModule, StageProgram, StageSource};
 use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
+use crate::schema::Schema;
 use crate::state::RenderState;
 use crate::variant::{FeatureSet, Variants};
 
@@ -116,6 +117,7 @@ pub(crate) struct Registered {
     pub(crate) label: String,
     pub(crate) state: RenderState,
     pub(crate) variants: Variants<Variant>,
+    pub(crate) schema: Schema,
 }
 
 /// The registered programs and materials of one runtime.
@@ -272,11 +274,16 @@ impl ProgramRuntime {
                 Variant::new(program, [&vertex, &fragment])?,
             ));
         }
+        let schema = Schema::of(
+            &desc.label,
+            &built.iter().map(|(_, v)| v).collect::<Vec<_>>(),
+        )?;
         let variants = Variants::new(declared, built)?;
         Ok(self.registry.add_program(Registered {
             label: desc.label,
             state: desc.state,
             variants,
+            schema,
         }))
     }
 }

@@ -5,3 +5,4 @@
 mod common;
 mod draw;
 mod properties;
+mod resources;

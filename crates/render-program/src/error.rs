@@ -20,6 +20,16 @@ pub enum ProgramError {
     Variant(#[from] VariantError),
     #[error("program {program} has no variants")]
     NoVariants { program: String },
+    #[error("program {program} has no property {property}")]
+    UnknownProperty { program: String, property: String },
+    #[error("property {property} takes {expected} and was given {found}")]
+    WrongPropertyKind {
+        property: String,
+        expected: String,
+        found: String,
+    },
+    #[error("program {program} uses property {property} as two different kinds of value")]
+    PropertyConflict { program: String, property: String },
     #[error("property {property} has no value for set {set} binding {binding}")]
     MissingProperty {
         property: String,

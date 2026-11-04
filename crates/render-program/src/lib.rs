@@ -29,6 +29,7 @@ mod reflect;
 pub mod registry;
 mod resources;
 pub mod runtime;
+mod schema;
 pub mod state;
 pub mod targets;
 #[cfg(feature = "unity")]

@@ -48,6 +48,9 @@ impl ProgramRuntime {
         let variant = registered
             .variants
             .select(&material.features, UnknownFeatures::Fail)?;
+        registered
+            .schema
+            .check_all(&self.store, &registered.label, &draw.overrides)?;
         self.store.check_instanced_geometry(
             &draw.vertices,
             draw.geometry,

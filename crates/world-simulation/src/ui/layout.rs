@@ -19,9 +19,16 @@ pub struct RectLayout {
     pub mode: CanvasMode,
     pub sorting_layer: i32,
     pub sorting_order: i32,
+    /// Hierarchy preorder among resolved rectangles, with siblings in `World::children` order.
+    pub hierarchy_order: usize,
 }
 
 impl RectLayout {
+    /// Shared ascending ordering for UI composition and hit testing. Later surfaces are on top.
+    pub fn draw_order(&self) -> (i32, i32, usize) {
+        (self.sorting_layer, self.sorting_order, self.hierarchy_order)
+    }
+
     /// Whether the rectangle is drawn on the screen, as every rectangle under a screen-space
     /// canvas is. A frame presents one camera, so a canvas a separate UI camera renders is drawn
     /// over the presented camera's picture at its screen position, as the engine's choice.
@@ -96,10 +103,17 @@ impl World {
     /// Resolves completed live state without mutating serialized local transforms.
     pub fn ui_layout(&self, viewport: UVec2) -> Result<UiLayout, WorldError> {
         let (rects, canvases, resolved) = self.resolve_ui(viewport)?;
-        Ok(UiLayout {
-            viewport,
-            rects: self.ui_rects(&rects, &canvases, &resolved, viewport)?,
-        })
+        let mut rects = self.ui_rects(&rects, &canvases, &resolved, viewport)?;
+        let mut paths = rects
+            .iter()
+            .enumerate()
+            .map(|(index, rect)| self.ancestry(rect.object).map(|path| (path, index)))
+            .collect::<Result<Vec<_>, _>>()?;
+        paths.sort();
+        for (order, (_, index)) in paths.into_iter().enumerate() {
+            rects[index].hierarchy_order = order;
+        }
+        Ok(UiLayout { viewport, rects })
     }
 
     /// The size and pivot of an object's rectangle, as a script reads them. Every rectangle has
@@ -287,6 +301,7 @@ impl World {
                 mode: settings.mode,
                 sorting_layer: settings.sorting_layer,
                 sorting_order: settings.sorting_order,
+                hierarchy_order: 0,
             });
         }
         Ok(output)

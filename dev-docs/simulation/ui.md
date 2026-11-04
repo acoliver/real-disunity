@@ -14,6 +14,51 @@ Both screen modes ignore the serialized root transform for layout, including zer
 
 Constant scaling sets pixels per logical unit. Viewport matching uses the geometric interpolation of width and height ratios against a positive reference resolution. Recompute layout after viewport changes; there is no persistent layout cache to invalidate.
 
+## Native pointer routing and controls
+
+`InputAction::Pointer` carries physical host-pixel positions measured from the top left,
+button edges, unit-preserving wheel observations and explicit cancellation. `InputView::pointer`
+projects held/down/up buttons, position, separate line/pixel wheel sums and ordered events for
+each fixed or dynamic frame. Edges, sums and events clear on that phase's next projection.
+Nonfinite positions/deltas are rejected atomically by `World::push_input`. Focus loss projects
+cancellation, clears held buttons and invalidates the position. Input while unfocused is ignored.
+
+`RetainedInput::simulation_action` converts the existing window observations into this contract.
+Queue the result with the host event timestamp, then route the dynamic view's ordered pointer
+events once per frame. Alternatively route each host event directly; do not use both routes.
+Host coordinates and viewport extents are already physical pixels on scaled displays. Do not
+apply the OS scale a second time. The retained host emits `PointerCancelled` before synthetic
+key/button releases on focus loss. Key bindings remain caller policy.
+
+Keep one `UiRouter` for the interaction session and register controls by existing `ObjectHandle`
+in `controls`. `UiControl::button` produces `UiAction::Activated`; `UiControl::choice` produces
+`ChoiceSelected { group, index }` and updates `selected(group)`. No game callback is invoked.
+Pass `pointer` a freshly resolved `World::ui_layout` for the current physical viewport. The router
+converts top-left host positions to lower-left layout pixels once and tests the screen-space
+affine rectangle, including rotation, shear and Canvas scale. World-space ray picking is outside
+this contract. Registered controls supply hit surfaces; an unregistered rectangle or ordinary
+CanvasGroup does not consume input. Groups modify descendant interaction without adding a surface.
+
+`RectLayout::draw_order()` provides Canvas layer/order followed by `hierarchy_order`, a preorder
+with siblings in `World::children` order. The router uses this tuple; rendering consumers must
+use the same tuple to align visible overlap with hit testing. The last matching surface wins. The router applies enabled CanvasGroup interaction flags
+from child to parent, stopping at `ignore_parent_groups`. A disabled control or a non-interactable
+group cannot activate, but still consumes hits when blocking raycasts. Inactive objects and
+disabled canvases have no resolved targets. Group alpha does not control interaction.
+
+A primary press captures an eligible hit. Release activates once only if the same control is
+still eligible and is hit; release outside remains consumed without activation. Cancellation
+clears capture, pointer position, keyboard focus and held navigation keys. Read `UiResponse::consumed`
+for every routed event and withhold consumed events from board/camera/scene interaction.
+
+Register a Canvas or group object's rectangle in `modals` for modal behavior. The highest sorted
+visible modal root consumes all pointer input, even outside its rectangle, and restricts pointer
+and keyboard targets to its subtree. Removing or hiding it removes the restriction. Map host
+keys to `UiKey::{Tab, Shift, Enter, Space}` and call `key` with press and repeat observations.
+Tab/shift-Tab cycles enabled interactable controls in target order; Enter/Space activates on the
+first key-down. Held/repeated key-downs never activate twice. Focus is revalidated at each key
+event. Nested-modal focus restoration and visual focus styling are separate UI work.
+
 ## Text contract
 
 Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.

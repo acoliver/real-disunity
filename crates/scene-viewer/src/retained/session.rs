@@ -88,6 +88,14 @@ impl<'a> Session<'a> {
 }
 
 impl Content for Session<'_> {
+    fn accessibility(&mut self) -> Option<&mut super::accessibility::Accessibility> {
+        Some(&mut self.host.accessibility)
+    }
+    fn accessibility_action(&mut self, request: worldrunner_world_simulation::ui::UiAccessRequest) {
+        if let Err(error) = self.notify(&RetainedEvent::Accessibility(request)) {
+            self.failure = Some(error);
+        }
+    }
     fn set_work_waker(&mut self, waker: std::sync::Arc<dyn Fn() + Send + Sync>) {
         self.host.work.set_waker(waker);
     }

@@ -14,7 +14,7 @@ use worldrunner_render_scene::{
 };
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
-    presentation::{Camera, Sprite, SpriteRenderer},
+    presentation::{Camera, CoverageTexture, Sprite, SpriteRenderer},
 };
 
 fn contribution(size: [u32; 2]) -> WorldSceneContribution {
@@ -226,12 +226,9 @@ fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
             sorting_layer: 0,
             sorting_order: 0,
             color: [1., 1., 1., 0.5],
-            texture: Some(SceneTexture::Texels {
-                format: TexelFormat::R8Unorm,
-                color_space: TextureColorSpace::Linear,
+            texture: Some(CoverageTexture {
                 width: 1,
                 height: 1,
-                mips: 1,
                 bytes: vec![128].into_boxed_slice(),
             }),
             quads: vec![UiGlyphQuad {

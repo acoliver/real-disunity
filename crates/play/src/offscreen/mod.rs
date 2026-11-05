@@ -47,6 +47,8 @@ mod assets;
 mod builtins;
 mod camera;
 mod census;
+mod compute;
+mod flush;
 mod frame;
 mod ids;
 mod properties;
@@ -65,7 +67,9 @@ pub use builtins::{
 };
 pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use census::{ShaderCensus, shader_census};
+pub use compute::{ComputeAdapter, ComputeLoadError, ComputeSupply, NoKernels};
+pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
-    Adapted, Available, BLIT_MESH, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
+    Adapted, Available, BLIT_MESH, Placed, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
 };
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};

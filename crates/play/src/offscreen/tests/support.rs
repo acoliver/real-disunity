@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::{
-    MaterialEdit, MaterialId, PropertyValue, RenderTextureId, ShaderId, ShaderSource, TextureRef,
-    TextureSlot, WorldRenderTexture, WorldSampler, WorldShader,
+    ComputeBufferId, ComputeKernel, ComputeShaderId, MaterialEdit, MaterialId, PropertyValue,
+    RenderTextureId, ShaderId, ShaderSource, TextureRef, TextureSlot, WorldComputeShader,
+    WorldRenderTexture, WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
@@ -196,4 +197,49 @@ pub fn assert_close(found: &[f32], expected: &[f32]) {
             "entry {index}: {found} against {expected} in {found:?} and {expected:?}"
         );
     }
+}
+
+/// A compute shader whose compiled kernels are found by `file`, with one kernel `Copy` of
+/// thread groups of 2 by 2 by 1.
+pub fn compute_shader(world: &mut World, file: &str) -> ComputeShaderId {
+    world
+        .create_compute_shader(WorldComputeShader {
+            name: file.into(),
+            source: ShaderSource {
+                file: file.into(),
+                path_id: 1,
+            },
+            kernels: vec![ComputeKernel {
+                name: "Copy".into(),
+                thread_group_size: Some([2, 2, 1]),
+            }],
+            generation: 0,
+        })
+        .unwrap()
+}
+
+/// A zeroed compute buffer of `count` four-byte elements.
+pub fn compute_buffer(world: &mut World, count: u32) -> ComputeBufferId {
+    world.create_compute_buffer(count, 4, 0).unwrap()
+}
+
+/// Records a dispatch of kernel 0 of `shader` that reads `texture` as `_Heights` and writes
+/// `buffer` as `_Output`.
+pub fn dispatch(
+    world: &mut World,
+    shader: ComputeShaderId,
+    (texture, buffer): (RenderTextureId, ComputeBufferId),
+    groups: [u32; 3],
+) {
+    world
+        .set_compute_property(
+            shader,
+            Some(0),
+            PropertyValue::Texture("_Heights".into(), texture_slot(TextureRef::Render(texture))),
+        )
+        .unwrap();
+    world
+        .bind_compute_buffer(shader, 0, "_Output".into(), buffer)
+        .unwrap();
+    world.dispatch_compute(shader, 0, groups).unwrap();
 }

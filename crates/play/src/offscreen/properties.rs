@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
-use worldrunner_render_program::properties::PropertyValue;
+use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::sampler::SamplerState;
 use worldrunner_world_simulation::graphics::{
     RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
@@ -72,21 +72,32 @@ impl<'a> Textures<'a> {
     }
 }
 
-/// The layer of `properties`.
-pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> PropertyLayer {
-    let mut layer = PropertyLayer::default();
+/// The values of `properties` by name. A name that two kinds hold takes the later kind of
+/// floats, integers, vectors, matrices.
+#[must_use]
+pub fn values(properties: &ShaderProperties) -> PropertySet {
+    let mut set = PropertySet::new();
     for (name, value) in &properties.floats {
-        layer.values.set(name, PropertyValue::Float(*value));
+        set.set(name, PropertyValue::Float(*value));
     }
     for (name, value) in &properties.ints {
-        layer.values.set(name, PropertyValue::Int(*value));
+        set.set(name, PropertyValue::Int(*value));
     }
     for (name, value) in &properties.vectors {
-        layer.values.set(name, PropertyValue::Vector(*value));
+        set.set(name, PropertyValue::Vector(*value));
     }
     for (name, value) in &properties.matrices {
-        layer.values.set(name, PropertyValue::Matrix(*value));
+        set.set(name, PropertyValue::Matrix(*value));
     }
+    set
+}
+
+/// The layer of `properties`.
+pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> PropertyLayer {
+    let mut layer = PropertyLayer {
+        values: values(properties),
+        ..PropertyLayer::default()
+    };
     for (name, slot) in &properties.textures {
         if let Some((texture, sampler)) = textures.resolve(&slot.texture) {
             layer

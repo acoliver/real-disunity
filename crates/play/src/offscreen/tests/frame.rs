@@ -13,11 +13,11 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
-use super::super::frame::{BLIT_MESH, RendererSkip, Settings, Skip, adapt};
+use super::super::frame::{BLIT_MESH, Placed, RendererSkip, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{
-    available, camera, material, render_texture, renderer, renderer_with, set, shader, snapshot,
-    texture_slot, world,
+    available, camera, compute_buffer, compute_shader, dispatch, material, render_texture,
+    renderer, renderer_with, set, shader, snapshot, texture_slot, world,
 };
 
 const MESH: u64 = (1 << 41) + 3;
@@ -659,5 +659,44 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
             wrap_v: Wrap::Mirror,
             filter: Filter::Point,
         })
+    );
+}
+
+#[test]
+fn a_dispatch_is_not_a_record_but_keeps_its_place_among_them_and_brings_its_textures() {
+    let mut world = world();
+    let (target, read, other) = (
+        render_texture(&mut world, [8, 8]),
+        render_texture(&mut world, [8, 8]),
+        render_texture(&mut world, [8, 8]),
+    );
+    let view = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    let shader = compute_shader(&mut world, "kernels");
+    let buffer = compute_buffer(&mut world, 4);
+    draw(&mut world, view, target);
+    dispatch(&mut world, shader, (read, buffer), [1, 1, 1]);
+    draw(&mut world, view, other);
+    let snapshot = snapshot(&mut world);
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
+    assert_eq!(adapted.frame.records.len(), 2, "the two camera renders");
+    assert_eq!(adapted.dispatches, [Placed { after: 1, work: 1 }]);
+    assert_eq!(
+        (
+            adapted.report.records,
+            adapted.report.built,
+            adapted.report.dispatches
+        ),
+        (3, 2, 1)
+    );
+    assert!(adapted.report.skipped.is_empty());
+    let ids: Vec<_> = adapted
+        .frame
+        .render_textures
+        .iter()
+        .map(|spec| spec.id)
+        .collect();
+    assert!(
+        ids.contains(&ids::render_texture(read)),
+        "a texture only the dispatch reads is in the frame: {ids:?}"
     );
 }

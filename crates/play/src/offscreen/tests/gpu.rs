@@ -31,8 +31,8 @@ use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
 use super::support::{camera, render_texture, renderer_with, world};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
-const MESH: u64 = (1 << 41) + 1;
-const SIDE: u32 = 4;
+pub(super) const MESH: u64 = (1 << 41) + 1;
+pub(super) const SIDE: u32 = 4;
 const RED: [u8; 4] = [255, 0, 0, 255];
 const BLUE: [u8; 4] = [0, 0, 255, 255];
 const CYAN: [u8; 4] = [0, 255, 255, 255];
@@ -40,7 +40,7 @@ const YELLOW: [u8; 4] = [255, 255, 0, 255];
 const WHITE: [u8; 4] = [255; 4];
 
 /// Shaders by the file their source names: `camera` and `blit`.
-struct Synthetic;
+pub(super) struct Synthetic;
 
 impl ShaderSupply for Synthetic {
     fn load(&mut self, source: &ShaderSource) -> Result<LoadedShader, ShaderLoadError> {
@@ -59,7 +59,7 @@ impl ShaderSupply for Synthetic {
 }
 
 /// One quad of two triangles over clip space at depth 0.5, as the managed engine would store it.
-struct Quad;
+pub(super) struct Quad;
 
 impl Assets for Quad {
     fn mesh(&self, identity: u64, known: u64) -> Result<Option<MeshChannels>, AssetError> {
@@ -102,6 +102,46 @@ impl Assets for Quad {
     }
 }
 
+/// A device with its submission authority, a program runtime and the arena the renderer
+/// reserved for it.
+pub(super) struct Gpu {
+    pub(super) device: wgpu::Device,
+    pub(super) authority: SubmissionAuthority,
+    pub(super) runtime: ProgramRuntime,
+    pub(super) arena: ProgramArena,
+}
+
+pub(super) fn gpu() -> Gpu {
+    let instance = headless_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("the offscreen tests need a GPU adapter");
+    let (device, queue, _) =
+        pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
+    let authority = SubmissionAuthority::new(queue);
+    let budget = AllocationBudget(64 << 20);
+    let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
+    let limits = device.limits();
+    let mut renderer = Configuration::new(
+        &authority,
+        (),
+        AllocationSet::default(),
+        &limits,
+        AllocationBudget(1 << 30),
+    )
+    .unwrap();
+    let reservation = renderer
+        .reserve::<()>(&limits, ProgramRuntime::arena_allocations(budget.0))
+        .unwrap();
+    let arena = runtime.open_arena(reservation).unwrap();
+    Gpu {
+        device,
+        authority,
+        runtime,
+        arena,
+    }
+}
+
 struct Rig {
     device: wgpu::Device,
     authority: SubmissionAuthority,
@@ -113,28 +153,12 @@ struct Rig {
 
 impl Rig {
     fn new() -> Self {
-        let instance = headless_instance();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .expect("the offscreen tests need a GPU adapter");
-        let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
-        let authority = SubmissionAuthority::new(queue);
-        let budget = AllocationBudget(64 << 20);
-        let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
-        let limits = device.limits();
-        let mut renderer = Configuration::new(
-            &authority,
-            (),
-            AllocationSet::default(),
-            &limits,
-            AllocationBudget(1 << 30),
-        )
-        .unwrap();
-        let reservation = renderer
-            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(budget.0))
-            .unwrap();
-        let arena = runtime.open_arena(reservation).unwrap();
+        let Gpu {
+            device,
+            authority,
+            runtime,
+            arena,
+        } = gpu();
         let state = OffscreenState::new(&runtime);
         let settings = Settings {
             light_modes: vec!["Alpha".to_owned()],
@@ -186,7 +210,10 @@ impl Rig {
     }
 }
 
-fn shader(world: &mut World, file: &str) -> worldrunner_world_simulation::graphics::ShaderId {
+pub(super) fn shader(
+    world: &mut World,
+    file: &str,
+) -> worldrunner_world_simulation::graphics::ShaderId {
     world
         .create_shader(WorldShader {
             name: file.into(),
@@ -198,7 +225,7 @@ fn shader(world: &mut World, file: &str) -> worldrunner_world_simulation::graphi
         .unwrap()
 }
 
-fn vector(world: &mut World, material: MaterialId, name: &str, value: [f32; 4]) {
+pub(super) fn vector(world: &mut World, material: MaterialId, name: &str, value: [f32; 4]) {
     world
         .edit_material(
             material,
@@ -207,7 +234,7 @@ fn vector(world: &mut World, material: MaterialId, name: &str, value: [f32; 4]) 
         .unwrap();
 }
 
-fn target(world: &mut World, format: u32) -> RenderTextureId {
+pub(super) fn target(world: &mut World, format: u32) -> RenderTextureId {
     world
         .create_render_texture(WorldRenderTexture {
             width: SIDE,

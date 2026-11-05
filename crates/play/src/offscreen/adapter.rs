@@ -263,7 +263,12 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
             OffscreenWork::Blit { source, .. } | OffscreenWork::CopyTexture { source, .. } => {
                 note(source);
             }
-            OffscreenWork::CameraRender { .. } | OffscreenWork::Dispatch { .. } => {}
+            OffscreenWork::Dispatch { bindings, .. } => {
+                for (_, slot) in &bindings.properties.textures {
+                    note(&slot.texture);
+                }
+            }
+            OffscreenWork::CameraRender { .. } => {}
         }
     }
     found

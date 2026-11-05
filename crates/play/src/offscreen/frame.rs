@@ -14,8 +14,8 @@ use worldrunner_render_program::offscreen::frame::{
 use worldrunner_render_program::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId, ShaderId as WorldShaderId,
-    TextureRef,
+    ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
+    ShaderId as WorldShaderId, TextureRef,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
@@ -67,8 +67,6 @@ pub enum Skip {
     SourceUnavailable,
     NoBlitSource,
     PartialViewport,
-    /// A dispatch is not an offscreen record; the flush executor runs it.
-    Dispatch,
     /// A copy or blit source that names a global texture, which a record never does.
     GlobalSource,
 }
@@ -88,6 +86,8 @@ pub struct Report {
     pub records: usize,
     /// The records of the frame, after a blit of every pass became one for each pass.
     pub built: usize,
+    /// The dispatches among the records. They are not frame records; see [`Placed`].
+    pub dispatches: usize,
     pub skipped: BTreeMap<Skip, usize>,
     pub renderers_skipped: BTreeMap<RendererSkip, usize>,
     /// The `GraphicsFormat` codes of the render textures the frame uses.
@@ -97,10 +97,22 @@ pub struct Report {
     pub failures: BTreeMap<String, usize>,
 }
 
+/// Where a dispatch sits among the frame's records.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Placed {
+    /// How many of the frame's records come before it.
+    pub after: usize,
+    /// Its index among the snapshot's work.
+    pub work: usize,
+}
+
 #[derive(Debug)]
 pub struct Adapted {
     pub frame: OffscreenFrame,
     pub report: Report,
+    /// The dispatches of the snapshot, in call order. The frame holds none: a host that runs
+    /// them splits `frame.records` at these places.
+    pub dispatches: Vec<Placed>,
 }
 
 /// A render texture's side as a float. Sides above 65535 saturate, and none reaches them.
@@ -142,6 +154,7 @@ struct Mapper<'a> {
     textures: Textures<'a>,
     frame: OffscreenFrame,
     report: Report,
+    dispatches: Vec<Placed>,
     cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
 }
@@ -168,13 +181,18 @@ impl<'a> Mapper<'a> {
                 records: snapshot.work.len(),
                 ..Report::default()
             },
+            dispatches: Vec::new(),
             cameras: BTreeMap::new(),
             queued: BTreeMap::new(),
         }
     }
 
     fn records(&mut self) {
-        for work in &self.snapshot.work {
+        for (index, work) in self.snapshot.work.iter().enumerate() {
+            if let OffscreenWork::Dispatch { bindings, .. } = work {
+                self.dispatch(index, bindings);
+                continue;
+            }
             match self.record(work) {
                 Ok(records) => {
                     self.report.built += records.len();
@@ -185,9 +203,22 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// Notes where a dispatch sits and brings the render textures its properties name into the
+    /// frame, so they exist when the dispatch binds them.
+    fn dispatch(&mut self, work: usize, bindings: &ComputeBindings) {
+        self.report.dispatches += 1;
+        self.dispatches.push(Placed {
+            after: self.frame.records.len(),
+            work,
+        });
+        for (_, slot) in &bindings.properties.textures {
+            self.textures.resolve(&slot.texture);
+        }
+    }
+
     fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
         match work {
-            OffscreenWork::Dispatch { .. } => Err(Skip::Dispatch),
+            OffscreenWork::Dispatch { .. } => unreachable!("dispatches are placed, not mapped"),
             OffscreenWork::CameraRender { camera, target } => self
                 .camera_render(*camera, *target)
                 .map(|record| vec![record]),
@@ -483,6 +514,7 @@ impl<'a> Mapper<'a> {
         Adapted {
             frame: self.frame,
             report: self.report,
+            dispatches: self.dispatches,
         }
     }
 }

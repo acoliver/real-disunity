@@ -311,6 +311,7 @@ Require(defaultParameters.Length == 2 && defaultParameters[0].IsFunctionPointer 
     "disunity_gpu_flush_register_default: wrong complete parameter signature");
 checkedImports.Add("disunity_gpu_flush_register_default");
 CheckImport("disunity_gpu_flush", u64);
+CheckImport("disunity_graphics_snapshot", u64, bytes, u32, u32.MakePointerType());
 var unverified = bindings.GetMethods(Imports).Select(method => method.Name).Except(checkedImports).ToArray();
 Require(unverified.Length == 0, $"native imports without a signature check: {string.Join(", ", unverified)}");
 AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);

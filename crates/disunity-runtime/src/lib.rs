@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use libloading::Library;
 mod gpu_flush;
 mod gpu_reads;
-mod gpu_work;
+mod graphics_snapshot;
 mod managed_entrypoints;
 pub mod signal_stack;
 
@@ -24,7 +24,6 @@ use managed_entrypoints::ManagedBridge;
 pub mod native;
 pub use gpu_flush::{GpuFlush, GpuFlushHandler};
 pub use gpu_reads::{GpuComputeBuffer, GpuComputeShader, GpuKernel, GpuScope, GpuShader};
-pub use gpu_work::{GpuBinding, GpuDispatch, GpuTexture, GpuValue, GpuWork};
 pub use native::DisunityErrorReason;
 pub use native::DisunityObjectState;
 use native::{DisunityAdvance, DisunityResult};
@@ -59,6 +58,8 @@ pub enum HostError {
     Managed(String),
     #[error("no slice world is loaded")]
     NoWorld,
+    #[error("the graphics snapshot from the engine image is unreadable: {0}")]
+    Snapshot(worldrunner_world_simulation::graphics::snapshot_wire::WireError),
 }
 
 static CLAIMED: AtomicBool = AtomicBool::new(false);

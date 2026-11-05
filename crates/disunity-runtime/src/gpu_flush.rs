@@ -21,16 +21,7 @@ type Trampoline = unsafe extern "C" fn(u64, u64, *mut u8, u32, *mut u32) -> R;
 
 /// The engine functions a flush calls, resolved once from the image the host retains.
 pub(crate) struct Calls {
-    pub(crate) take:
-        unsafe extern "C" fn(u64, *mut native::DisunityOffscreenWork, u32, *mut u32) -> R,
-    pub(crate) bindings: unsafe extern "C" fn(
-        u64,
-        u32,
-        *mut native::DisunityComputeBindingsInfo,
-        *mut native::DisunityComputeBinding,
-        *mut f32,
-        *mut u8,
-    ) -> R,
+    pub(crate) snapshot: crate::graphics_snapshot::SnapshotCall,
     pub(crate) shader:
         unsafe extern "C" fn(u64, u64, *mut native::DisunityShaderInfo, *mut u8) -> R,
     pub(crate) material: unsafe extern "C" fn(u64, u64, *mut native::DisunityMaterialInfo) -> R,
@@ -57,7 +48,7 @@ pub(crate) struct Calls {
 }
 
 /// Resolves a symbol of the image the host retains.
-fn symbol<T: Copy>(library: &Library, name: &'static [u8]) -> Result<T, HostError> {
+pub(crate) fn symbol<T: Copy>(library: &Library, name: &'static [u8]) -> Result<T, HostError> {
     // SAFETY: the caller names the exported function the type `T` describes.
     unsafe {
         library.get::<T>(name).map(|symbol| *symbol).map_err(|_| {
@@ -69,8 +60,7 @@ fn symbol<T: Copy>(library: &Library, name: &'static [u8]) -> Result<T, HostErro
 impl Calls {
     fn load(library: &Library) -> Result<Self, HostError> {
         Ok(Self {
-            take: symbol(library, b"disunity_offscreen_take\0")?,
-            bindings: symbol(library, b"disunity_compute_bindings_read\0")?,
+            snapshot: symbol(library, b"disunity_graphics_snapshot\0")?,
             shader: symbol(library, b"disunity_shader_read\0")?,
             material: symbol(library, b"disunity_material_read\0")?,
             render_texture: symbol(library, b"disunity_render_texture_read\0")?,
@@ -167,7 +157,7 @@ unsafe extern "C" fn trampoline(
 impl DisunityHost {
     /// Sets the handler a flush calls, replacing the one set before. The managed engine flushes
     /// when a script reads back a compute buffer or a kernel's thread group size; the handler
-    /// takes the pending work ([`GpuFlush::take_offscreen`]) and executes it. A handler that
+    /// takes the pending work ([`GpuFlush::snapshot`]) and executes it. A handler that
     /// returns an error does not fail the managed call: the engine logs the text once per
     /// distinct text and the call goes on with the contents the CPU holds. Without a handler a flush does nothing and a compute buffer keeps the
     /// contents the CPU wrote.

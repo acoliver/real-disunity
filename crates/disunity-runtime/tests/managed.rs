@@ -1,8 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use worldrunner_disunity_runtime::{
-    DisunityHost, GpuFlush, GpuValue, GpuWork, HostError, ManagedHostConfig,
-};
+use worldrunner_disunity_runtime::{DisunityHost, GpuFlush, HostError, ManagedHostConfig};
+use worldrunner_world_simulation::graphics::{OffscreenWork, TextureRef};
 
 fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -172,6 +171,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_player_meshes(&mut host, &root);
     assert_player_distance_field_atlas(&mut host, &root);
     assert_gpu_flush(&mut host, &root);
+    assert_graphics_snapshot(&mut host, &root);
     host.run_slice(&fixture).unwrap();
     assert_cross_language_writes(&mut host);
     drop(host);
@@ -434,39 +434,95 @@ fn fake_executor(
     log: std::rc::Rc<std::cell::RefCell<Vec<Seen>>>,
 ) -> impl FnMut(&mut GpuFlush<'_>) -> Result<(), String> + 'static {
     move |flush| {
-        let work = flush.take_offscreen().map_err(|error| error.to_string())?;
+        let snapshot = flush.snapshot().map_err(|error| error.to_string())?;
         let mut seen = Seen::new();
-        for item in work {
-            let GpuWork::Dispatch(dispatch) = item else {
+        for item in &snapshot.work {
+            let OffscreenWork::Dispatch {
+                shader,
+                kernel,
+                groups,
+                bindings,
+            } = item
+            else {
                 continue;
             };
-            let shader = flush
-                .compute_shader(dispatch.shader)
-                .map_err(|error| error.to_string())?;
-            let kernel = &shader.kernels[dispatch.kernel as usize];
-            if kernel.thread_group_size.is_none() {
+            let held = snapshot
+                .compute_shaders
+                .get(shader)
+                .ok_or("a dispatch without its compute shader")?;
+            if held.kernels[*kernel as usize].thread_group_size.is_none() {
                 flush
-                    .set_kernel_thread_group_size(dispatch.shader, dispatch.kernel, [4, 2, 1])
+                    .set_kernel_thread_group_size(shader.to_bits(), *kernel, [4, 2, 1])
                     .map_err(|error| error.to_string())?;
             }
-            let names = dispatch.bindings.iter().map(|b| b.name.clone()).collect();
-            seen.push((dispatch.kernel, dispatch.groups, names));
-            let Some(GpuValue::Buffer(buffer)) = dispatch
-                .bindings
+            let ints = bindings
+                .properties
+                .ints
                 .iter()
-                .find_map(|b| matches!(b.value, GpuValue::Buffer(_)).then(|| b.value.clone()))
-            else {
+                .map(|(name, _)| name.clone());
+            let buffers = bindings.buffers.iter().map(|(name, _)| name.clone());
+            seen.push((*kernel, *groups, ints.chain(buffers).collect()));
+            let Some((_, buffer)) = bindings.buffers.first() else {
                 return Err("a dispatch without a buffer".into());
             };
-            let [x, y, z] = dispatch.groups;
-            let value = dispatch.kernel * 100 + x * y * z;
+            let [x, y, z] = *groups;
+            let value = kernel * 100 + x * y * z;
             flush
-                .write_compute_buffer(buffer, u64::from(dispatch.kernel) * 4, &value.to_le_bytes())
+                .write_compute_buffer(
+                    buffer.to_bits(),
+                    u64::from(*kernel) * 4,
+                    &value.to_le_bytes(),
+                )
                 .map_err(|error| error.to_string())?;
         }
         log.borrow_mut().push(seen);
         Ok(())
     }
+}
+
+fn assert_graphics_snapshot(host: &mut DisunityHost, root: &Path) {
+    host.run_slice(&root.join("csharp/PortableFixture/offscreen.fixture"))
+        .unwrap();
+    let snapshot = host.graphics_snapshot().unwrap();
+    let [
+        OffscreenWork::CameraRender {
+            camera,
+            target: camera_target,
+        },
+        OffscreenWork::Blit {
+            source: TextureRef::Render(blit_source),
+            target: blit_target,
+            material: Some(material),
+            pass: -1,
+        },
+    ] = snapshot.work.as_slice()
+    else {
+        panic!(
+            "the managed side recorded a camera render and a blit: {:?}",
+            snapshot.work
+        );
+    };
+    assert_eq!(
+        blit_source, camera_target,
+        "the blit reads what the camera drew"
+    );
+    assert_ne!(blit_target, camera_target);
+    let view = &snapshot.cameras[camera];
+    assert_eq!(view.settings.culling_mask, 1 << 3);
+    assert_eq!(view.settings.target_texture, Some(*camera_target));
+    assert_eq!(view.world_matrix[12..15], [1.0, 2.0, 3.0]);
+    let size = |id| {
+        let texture = &snapshot.render_textures[id];
+        (texture.width, texture.height)
+    };
+    assert_eq!((size(camera_target), size(blit_target)), ((8, 8), (16, 4)));
+    let blit_shader = snapshot.materials[material].shader;
+    assert_eq!(snapshot.shaders[&blit_shader].name, "Fixture/Blit");
+    assert!(
+        host.graphics_snapshot().unwrap().work.is_empty(),
+        "the records were taken once"
+    );
+    host.unload_slice().unwrap();
 }
 
 fn assert_gpu_flush(host: &mut DisunityHost, root: &Path) {

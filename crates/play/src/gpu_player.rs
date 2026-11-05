@@ -38,7 +38,7 @@ use crate::offscreen::{
 };
 
 /// Bytes of GPU storage the program runtime may hold.
-const RUNTIME_BUDGET: u64 = 3 << 30;
+const RUNTIME_BUDGET: u64 = 512 << 20;
 
 /// The `LightMode` values a camera draws, in the order of preference.
 const LIGHT_MODES: [&str; 5] = [
@@ -207,6 +207,18 @@ impl AssetCache {
     }
 }
 
+/// The device the headless player asks for: the default limits, except that one buffer may hold
+/// the whole storage budget, since the program arena is reserved as one buffer of that size.
+fn device_requirements() -> DeviceRequirements {
+    DeviceRequirements {
+        required_limits: wgpu::Limits {
+            max_buffer_size: RUNTIME_BUDGET,
+            ..wgpu::Limits::default()
+        },
+        ..DeviceRequirements::default()
+    }
+}
+
 /// A device and the player's offscreen host on it.
 pub struct PlayerGpu {
     offscreen: Rc<RefCell<OffscreenHost>>,
@@ -217,6 +229,12 @@ pub struct PlayerGpu {
 }
 
 impl PlayerGpu {
+    /// Bytes of GPU storage the runtime may hold.
+    #[must_use]
+    pub fn storage_budget(&self) -> u64 {
+        self.offscreen.borrow().storage_budget()
+    }
+
     /// A device without a window and the host on it, with shaders loaded from the player in
     /// `data`.
     ///
@@ -229,7 +247,7 @@ impl PlayerGpu {
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
         let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))
+            pollster::block_on(request_device(&adapter, &device_requirements()))
                 .map_err(|error| format!("no device: {error}"))?;
         let authority = SubmissionAuthority::new(queue);
         let budget = AllocationBudget(RUNTIME_BUDGET);
@@ -407,6 +425,17 @@ mod tests {
         assert_eq!(
             cache.mesh(7, 2).unwrap().map(|held| held.generation),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn the_headless_device_can_hold_the_whole_storage_budget_in_one_arena_buffer() {
+        let directory = tempfile::tempdir().unwrap();
+        let gpu = PlayerGpu::headless(directory.path()).unwrap();
+        assert_eq!(gpu.storage_budget(), RUNTIME_BUDGET);
+        assert!(
+            gpu.storage_budget() > 256 << 20,
+            "the Old World frames need more than the default buffer limit"
         );
     }
 

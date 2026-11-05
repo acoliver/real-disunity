@@ -98,6 +98,12 @@ pub struct OffscreenHost {
 }
 
 impl OffscreenHost {
+    /// Bytes of GPU storage the runtime may hold.
+    #[must_use]
+    pub fn storage_budget(&self) -> u64 {
+        self.runtime.budget().0
+    }
+
     /// Bytes of GPU storage the runtime holds now: the render textures and uploads it keeps, and
     /// storage released but possibly still in use.
     #[must_use]

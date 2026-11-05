@@ -5,7 +5,9 @@ fn geometry_observations_retain_selected_fine_leaves_in_hysteresis_band() {
     let matrix = ortho(90.0, [32.0, 32.0, 100.0]);
     let plan = select(&terrain, &children, matrix, [128; 2]);
     let stats = crate::draw::geometry_statistics::measure(&plan.leaves, plan.observation);
-    assert_eq!(plan.leaves, children);
+    let mut expected = children;
+    expected.sort();
+    assert_eq!(plan.leaves, expected);
     assert!(plan.uploads.is_empty());
     assert_eq!(stats.selected_leaves, 4);
     assert_eq!(stats.drawn_at_detail, 4);
@@ -20,7 +22,9 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
     let blocked = select_with_retired(&terrain, &children, matrix, [128; 2], 1);
     let before = crate::draw::geometry_statistics::measure(&blocked.leaves, blocked.observation);
-    assert_eq!(blocked.leaves, children);
+    let mut expected = children;
+    expected.sort();
+    assert_eq!(blocked.leaves, expected);
     assert!(blocked.uploads.is_empty());
     assert_eq!(before.selected_leaves, 1);
     assert_eq!(before.unresolved_leaves, 1);

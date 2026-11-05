@@ -25,6 +25,7 @@ const BLOCK_PATH: BlockPath = BlockPath::Rgba8;
 pub struct PlayerTextures {
     generations: BTreeMap<u64, u64>,
     reported: BTreeSet<u64>,
+    failures: BTreeMap<u64, String>,
     /// The textures converted again since [`PlayerTextures::take_changed`] last ran.
     changed: BTreeSet<u64>,
 }
@@ -32,6 +33,16 @@ pub struct PlayerTextures {
 impl PlayerTextures {
     pub(crate) fn generation(&self, identity: u64) -> u64 {
         self.generations.get(&identity).copied().unwrap_or(0)
+    }
+
+    pub(crate) fn unavailable_reason(&self, identity: u64) -> String {
+        if identity < FIRST_PLAYER_TEXTURE {
+            return "scene texture identity is absent from the sprite textures".into();
+        }
+        if let Some(error) = self.failures.get(&identity) {
+            return format!("texture conversion failed: {error}");
+        }
+        "no texture was stored by the managed host".into()
     }
 
     /// The textures converted new or again since the last call.
@@ -57,20 +68,31 @@ impl PlayerTextures {
             let Some(stored) = host.player_texture(identity, known)? else {
                 continue;
             };
-            self.generations.insert(identity, stored.generation);
-            match player_scene_texture(&stored, BLOCK_PATH) {
-                Ok(scene) => {
-                    textures.textures.insert(identity, scene);
-                    self.changed.insert(identity);
-                }
-                Err(error) => {
-                    textures.textures.remove(&identity);
-                    if self.reported.insert(identity) {
-                        eprintln!("texture {identity}: {error}; its sprites are left out");
-                    }
+            self.convert(identity, &stored, textures);
+        }
+        Ok(())
+    }
+
+    fn convert(
+        &mut self,
+        identity: u64,
+        stored: &worldrunner_disunity_runtime::PlayerTexture,
+        textures: &mut SpriteTextures,
+    ) {
+        self.generations.insert(identity, stored.generation);
+        match player_scene_texture(stored, BLOCK_PATH) {
+            Ok(scene) => {
+                self.failures.remove(&identity);
+                textures.textures.insert(identity, scene);
+                self.changed.insert(identity);
+            }
+            Err(error) => {
+                self.failures.insert(identity, error.to_string());
+                textures.textures.remove(&identity);
+                if self.reported.insert(identity) {
+                    eprintln!("texture {identity}: {error}; its sprites are left out");
                 }
             }
         }
-        Ok(())
     }
 }

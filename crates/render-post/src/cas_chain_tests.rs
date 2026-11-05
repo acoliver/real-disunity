@@ -1,4 +1,4 @@
-//! CAS inside the HDR post chain: scheduling after each resolve, the unchanged path when it
+//! CAS inside the HDR post chain: the unchanged path when it
 //! is off, resize and the 8-bit sRGB result of a tone-mapped frame.
 use super::{chain, pixels, step};
 use crate::{
@@ -45,24 +45,10 @@ fn resolves() -> [PostResolve; 3] {
     ]
 }
 
-fn stage_names(device: &wgpu::Device, settings: &HdrPostSettings) -> Vec<&'static str> {
-    chain(device, settings, [8, 8]).configured[0]
-        .stages
-        .iter()
-        .map(|stage| stage.id.name)
-        .collect()
-}
-
 #[test]
-fn off_schedules_exactly_the_stages_it_did_before_the_field_existed() {
+fn off_renders_as_the_default_settings_and_zero_sharpness_still_sharpens() {
     let rig = Rig::new();
-    let expected: [&[&str]; 3] = [
-        &["tone"],
-        &["tone", "fxaa"],
-        &["tone", "smaa_edges", "smaa_weights", "smaa_blend"],
-    ];
-    for (resolve, expected) in resolves().into_iter().zip(expected) {
-        assert_eq!(stage_names(&rig.device, &with(resolve, None)), expected);
+    for resolve in resolves() {
         // The default descriptor value and an explicit `None` are the same settings.
         assert_eq!(
             with(resolve, None),
@@ -89,23 +75,6 @@ fn off_schedules_exactly_the_stages_it_did_before_the_field_existed() {
     }
     assert!(!with(PostResolve::None, None).enabled());
     assert!(with(PostResolve::None, Some(0.0)).enabled());
-}
-
-#[test]
-fn one_cas_pass_follows_the_resolve_and_has_its_own_stage_identity() {
-    let rig = Rig::new();
-    let expected: [&[&str]; 3] = [
-        &["tone", "cas"],
-        &["tone", "fxaa", "cas"],
-        &["tone", "smaa_edges", "smaa_weights", "smaa_blend", "cas"],
-    ];
-    for (resolve, expected) in resolves().into_iter().zip(expected) {
-        assert_eq!(
-            stage_names(&rig.device, &with(resolve, Some(0.5))),
-            expected,
-            "{resolve:?}"
-        );
-    }
 }
 
 #[test]

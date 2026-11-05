@@ -228,10 +228,15 @@ impl PlayerRetainedDriver {
             .map_err(|error| scene_error("the frame", &error))?;
         self.report(&update.skipped);
         apply(viewer, update)?;
-        if let Some(update) = self
-            .ui
-            .update(ui, self.size, &self.sprites, &self.player_textures)?
-        {
+        if let Some(update) = self.ui.update(
+            ui,
+            self.size,
+            &self.sprites,
+            &self.player_textures,
+            |message| {
+                eprintln!("{message}");
+            },
+        )? {
             viewer
                 .apply(update)
                 .map_err(|error| PlayError::Invalid(error.to_string()))?;

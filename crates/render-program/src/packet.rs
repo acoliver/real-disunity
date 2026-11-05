@@ -309,6 +309,18 @@ impl ProgramRuntime {
         parts: Option<&MaterialParts<'_>>,
     ) -> Result<(RecordableDraw, Vec<Arc<Reservation>>), ProgramError> {
         self.authority.check_device()?;
+        if signature.samples() != 1 {
+            return Err(UnsupportedTarget::Multisampled {
+                samples: signature.samples(),
+            }
+            .into());
+        }
+        if signature.color_count() != 1 {
+            return Err(UnsupportedTarget::ColorAttachments {
+                count: signature.color_count(),
+            }
+            .into());
+        }
         let color = packet.state.check_drawable()?;
         let (snapshots, instances) = parts.map_or((&[][..], 0..1), |parts| {
             (parts.snapshots, parts.instances.clone())

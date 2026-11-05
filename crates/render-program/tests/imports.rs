@@ -10,9 +10,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use wgpu::util::DeviceExt;
 use wgpu::{ShaderStages, TextureFormat};
-use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
-use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_gpu::tolerance_test_support::assert_code_within;
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
@@ -27,6 +24,9 @@ use worldrunner_render_program::runtime::{
     ImportedVertexInput, Keepalive, PreparedProgramDraw, ProgramRuntime, TargetSignature,
 };
 use worldrunner_render_program::state::RenderState;
+
+mod support;
+use support::{Attachment, Gpu};
 
 const WGSL: &str = "
 struct Tint { color: vec4<f32> }
@@ -109,52 +109,7 @@ fn stage(entry: &str, kind: StageKind, declarations: StageDeclarations) -> Stage
     .unwrap()
 }
 
-struct Gpu {
-    device: wgpu::Device,
-    authority: SubmissionAuthority,
-}
-
 impl Gpu {
-    fn new() -> Self {
-        let instance = headless_instance();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .expect("the import tests need a GPU adapter");
-        eprintln!(
-            "render-program import tests adapter: {}",
-            adapter.get_info().name
-        );
-        let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))
-                .expect("the adapter gives a device");
-        Self {
-            device,
-            authority: SubmissionAuthority::new(queue),
-        }
-    }
-
-    fn runtime(&self) -> ProgramRuntime {
-        ProgramRuntime::new(
-            self.device.clone(),
-            self.authority.clone(),
-            AllocationBudget(1 << 20),
-        )
-    }
-
-    fn buffer(&self, usage: wgpu::BufferUsages, bytes: &[u8]) -> wgpu::Buffer {
-        self.device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("lent"),
-                contents: bytes,
-                usage,
-            })
-    }
-
-    fn floats(&self, usage: wgpu::BufferUsages, values: &[f32]) -> wgpu::Buffer {
-        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
-        self.buffer(usage, &bytes)
-    }
-
     /// A 2x1 texture of a red and a blue texel.
     fn albedo(&self) -> (wgpu::Texture, wgpu::TextureView) {
         let texture = self.device.create_texture_with_data(
@@ -189,90 +144,22 @@ impl Gpu {
     }
 
     fn target(&self) -> wgpu::Texture {
-        self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("target"),
-            size: wgpu::Extent3d {
-                width: SIZE,
-                height: SIZE,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: RGBA8,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        })
+        self.texture(SIZE, RGBA8, 1)
     }
 
-    /// Records one pass over `target`, cleared to transparent black, with `draws`, and copies
-    /// the result out.
+    /// Records one pass over `target`, cleared to transparent black, with `draws`, and reads
+    /// the result back.
     fn render(&self, target: &wgpu::Texture, draws: &[&PreparedProgramDraw]) -> Vec<u8> {
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let row = (SIZE * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"),
-            size: u64::from(row * SIZE),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut frame = self.authority.begin(&self.device).unwrap();
-        for draw in draws {
-            draw.retain(&frame).unwrap();
-        }
-        {
-            let mut pass = frame.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("imports"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..wgpu::RenderPassDescriptor::default()
-            });
-            for draw in draws {
-                draw.record(&mut pass);
-            }
-        }
-        frame.copy_texture_to_buffer(
-            target.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &staging,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(row),
-                    rows_per_image: Some(SIZE),
-                },
-            },
-            target.size(),
+        self.pass(
+            &[Attachment {
+                view: &view,
+                resolve: None,
+                clear: wgpu::Color::TRANSPARENT,
+            }],
+            draws,
         );
-        let index = frame.finish().submit().unwrap();
-        staging
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, |r| r.unwrap());
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(index),
-                timeout: None,
-            })
-            .unwrap();
-        let padded = staging.slice(..).get_mapped_range().unwrap().to_vec();
-        staging.unmap();
-        padded
-            .chunks_exact(row as usize)
-            .flat_map(|line| &line[..(SIZE * 4) as usize])
-            .copied()
-            .collect()
-    }
-
-    fn completes(&self) {
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
+        self.read(target)
     }
 }
 

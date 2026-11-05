@@ -182,4 +182,39 @@ mod tests {
         state.colors = Vec::new();
         assert_eq!(refused(&state), "several colour targets");
     }
+
+    #[test]
+    fn several_targets_are_described_one_state_each_with_the_same_fixed_function_rules() {
+        let mut state = RenderState::opaque_depth();
+        state.colors.push(Some(ColorState {
+            blend: None,
+            write_mask: wgpu::ColorWrites::empty(),
+        }));
+        let colors = state.check_targets(2).unwrap();
+        assert_eq!(colors[0].write_mask, wgpu::ColorWrites::ALL);
+        assert_eq!(colors[1].write_mask, wgpu::ColorWrites::empty());
+        assert_eq!(
+            state.check_targets(3).unwrap_err(),
+            ProgramError::ColorStates {
+                states: 2,
+                targets: 3
+            }
+        );
+        state.colors[1] = None;
+        assert_eq!(
+            state.check_targets(2).unwrap_err(),
+            ProgramError::UnsupportedState {
+                what: "an unwritten colour target"
+            }
+        );
+        state.raster.alpha_to_coverage = true;
+        assert_eq!(refused_targets(&state, 2), "alpha to coverage");
+    }
+
+    fn refused_targets(state: &RenderState, count: usize) -> &'static str {
+        match state.check_targets(count) {
+            Err(ProgramError::UnsupportedState { what }) => what,
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
 }

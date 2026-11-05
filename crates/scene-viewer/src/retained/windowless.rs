@@ -29,12 +29,13 @@ impl RetainedHost {
     }
 
     pub(crate) fn start_windowless_with_activity<'a, G, T>(
-        self,
+        mut self,
         driver: &'a mut dyn RetainedDriver,
         begin: impl FnOnce(&str) -> G,
         start: impl FnOnce(Self, &'a mut dyn RetainedDriver) -> Result<T, ViewerError>,
     ) -> Result<(T, G), ViewerError> {
         let activity = begin(self.options.activity_reason.as_ref());
+        self.input_state.window = super::input::WindowControlTarget::Windowless;
         Ok((start(self, driver)?, activity))
     }
 }
@@ -44,6 +45,7 @@ fn initialize(
     driver: &mut dyn RetainedDriver,
 ) -> Result<(Session<'_>, Renderer), ViewerError> {
     host.picking.windowless = true;
+    host.timers.freeze();
     let renderer = pollster::block_on(Renderer::windowless(&mut host));
     let mut session = Session::new(host, driver);
     match renderer {
@@ -63,6 +65,17 @@ impl WindowlessRetained<'_> {
     }
     pub fn host_mut(&mut self) -> &mut RetainedHost {
         &mut self.session.host
+    }
+
+    /// Advances the session's monotonic clock without dispatching or rendering.
+    /// Timers and update ticks observe this time on the next `frame` or `poll`.
+    pub fn advance_time(&mut self, elapsed: std::time::Duration) -> Result<(), ViewerError> {
+        self.ensure_open()?;
+        self.session
+            .host
+            .timers
+            .advance(elapsed)
+            .map_err(|error| ViewerError::Driver(error.to_string()))
     }
 
     /// Requests one update/submission through the same session as desktop mode.
@@ -100,7 +113,7 @@ impl WindowlessRetained<'_> {
     }
     fn begin(&mut self) -> Result<bool, ViewerError> {
         self.ensure_open()?;
-        let result = self.session.work_ready();
+        let result = self.session.host_ready();
         self.finish(result)?;
         if self.session.host.exit {
             self.shutdown()?;

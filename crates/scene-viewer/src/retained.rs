@@ -5,6 +5,8 @@ use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObjec
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 mod startup;
+mod timers;
+pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
 mod work;
 pub use work::{
     CancelToken, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
@@ -33,7 +35,7 @@ pub(crate) use windowless::tests::pages::layered_scene;
 mod input;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
-    WheelDelta,
+    WheelDelta, WindowControlError,
 };
 mod capture;
 pub use capture::{
@@ -144,6 +146,10 @@ pub enum RetainedInput {
 pub enum RetainedEvent {
     /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
     WorkReady,
+    /// A host timer expired, including during presentation pauses.
+    Timer {
+        handle: TimerHandle,
+    },
     /// Final notification, after every outstanding capture has been cancelled.
     Shutdown,
     Input(RetainedInput),
@@ -188,6 +194,7 @@ pub trait RetainedDriver {
 pub struct RetainedHost {
     picking: picking::Picking,
     work: work::WorkServices,
+    timers: timers::Timers,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,

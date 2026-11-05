@@ -54,7 +54,8 @@ impl TerrainChunk {
     }
 }
 
-/// Admitted next leaf set and complete chunk uploads. Removed leaves are evicted.
+/// Admitted next leaves in chunk-key order and complete chunk uploads.
+/// Removed leaves are evicted; upload priority is independent of resident order.
 #[derive(Debug)]
 pub struct TerrainSelection {
     pub leaves: Vec<TerrainChunk>,
@@ -130,6 +131,9 @@ pub(crate) fn select_with_retired(
     let mut candidates = leaves.clone();
     candidates.sort_by(|a, b| {
         error(terrain, *b, matrix, viewport).total_cmp(&error(terrain, *a, matrix, viewport))
+            // Larger strides precede smaller strides, ordering levels from the root.
+            .then_with(|| b.stride.cmp(&a.stride))
+            .then_with(|| a.cmp(b))
     });
     for node in candidates {
         let Some(children) = node.children() else {
@@ -151,6 +155,7 @@ pub(crate) fn select_with_retired(
         leaves.extend(children.iter().copied());
         uploads.extend(children);
     }
+    leaves.sort_unstable();
     TerrainSelection {
         observation: observation(&desired, &leaves),
         leaves,

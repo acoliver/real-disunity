@@ -241,11 +241,9 @@ fn scattering_scene(channel: u8) -> RenderScene {
 
 fn mask_oracle(channel: u8, enabled: bool) -> String {
     let source = crate::shader::ENVIRONMENT_WGSL;
-    let start = source.find("    var masked_amount = 0.0;").unwrap();
-    let end = source[start..]
-        .find("    let lighting = scene_surface_lighting(")
-        .unwrap()
-        + start;
+    let function = source.find("fn scene_shading_scattering(").unwrap();
+    let start = source[function..].find('{').unwrap() + function + 1;
+    let end = source[start..].find("\n}").unwrap() + start;
     let value = f64::from(channel) / 255.0;
     let (metal, mask) = if value > 0.05 {
         (0.0, value * 128.0 / 255.0)
@@ -254,7 +252,7 @@ fn mask_oracle(channel: u8, enabled: bool) -> String {
     };
     let mask = if enabled { mask } else { 0.0 };
     format!(
-        "{} let masked_amount: f32 = {mask:?}; metalness = {metal:?};\n{}",
+        "{} return vec2<f32>({metal:?}, {mask:?});\n{}",
         &source[..start],
         &source[end..]
     )

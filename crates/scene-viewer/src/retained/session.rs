@@ -7,6 +7,10 @@ pub(crate) mod pointer_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod timer_tests;
+#[cfg(test)]
+mod window_control_tests;
+#[cfg(test)]
 mod work_tests;
 
 use crate::{
@@ -31,7 +35,7 @@ pub(crate) struct Session<'a> {
 
 impl<'a> Session<'a> {
     pub fn new(host: RetainedHost, driver: &'a mut dyn RetainedDriver) -> Self {
-        let start = Instant::now();
+        let start = host.timer_now();
         Self {
             host,
             driver,
@@ -42,6 +46,10 @@ impl<'a> Session<'a> {
             failure: None,
             closed: false,
         }
+    }
+
+    fn set_window_controls(&mut self, window: std::sync::Arc<dyn super::input::WindowControls>) {
+        self.host.input_state.window = super::input::WindowControlTarget::Native(window);
     }
 
     fn input(&mut self, input: RetainedInput) {
@@ -70,7 +78,7 @@ impl<'a> Session<'a> {
     }
 
     fn tick(&mut self) -> Result<(), ViewerError> {
-        let now = Instant::now();
+        let now = self.host.timer_now();
         let tick = RetainedTick {
             frame: self.frame,
             elapsed: now - self.start,
@@ -89,10 +97,35 @@ impl Content for Session<'_> {
     fn set_work_waker(&mut self, waker: std::sync::Arc<dyn Fn() + Send + Sync>) {
         self.host.work.set_waker(waker);
     }
-    fn work_ready(&mut self) -> Result<(), ViewerError> {
-        if !self.host.exit && self.host.work.take_ready() {
+    fn next_wakeup(&self) -> Option<Instant> {
+        if self.host.exit {
+            return None;
+        }
+        self.host.timers.next_deadline()
+    }
+    fn host_ready(&mut self) -> Result<(), ViewerError> {
+        if self.host.exit {
+            return Ok(());
+        }
+        let now = self.host.timer_now();
+        let due = self.host.timers.due(now);
+        if self.host.work.take_ready() {
             self.notify(&RetainedEvent::WorkReady)
                 .map_err(ViewerError::Driver)?;
+        }
+        for generation in due {
+            if self.host.exit {
+                break;
+            }
+            if let Some(handle) = self
+                .host
+                .timers
+                .fire(generation, now)
+                .map_err(|error| ViewerError::Driver(error.to_string()))?
+            {
+                self.notify(&RetainedEvent::Timer { handle })
+                    .map_err(ViewerError::Driver)?;
+            }
         }
         Ok(())
     }
@@ -107,6 +140,7 @@ impl Content for Session<'_> {
         }
         self.closed = true;
         self.host.exit = true;
+        self.host.timers.shutdown();
         self.host.work.shutdown();
         self.host.captures.cancel();
         let mut failure = self.failure.take();
@@ -135,7 +169,7 @@ impl Content for Session<'_> {
         self.host.options.cadence
     }
     fn window_ready(&mut self, window: std::sync::Arc<winit::window::Window>) {
-        self.host.input_state.window = Some(window);
+        self.set_window_controls(window);
     }
     fn device_event(&mut self, event: &DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {

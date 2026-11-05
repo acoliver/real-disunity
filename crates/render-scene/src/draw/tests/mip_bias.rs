@@ -151,7 +151,7 @@ fn bias_zero_matches_the_unbiased_stock_sample_on_one_device() {
     let context = context();
     let source = sample_source();
     let stock = source.replace(
-        "textureSampleBias(map, material_sampler, input.texcoord, frame.lighting_options.w)",
+        "textureSampleGrad(map, material_sampler, input.texcoord, footprint.stock_dx, footprint.stock_dy)",
         "textureSample(map, material_sampler, input.texcoord)",
     );
     assert_ne!(

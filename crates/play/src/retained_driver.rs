@@ -228,10 +228,15 @@ impl PlayerRetainedDriver {
             .map_err(|error| scene_error("the frame", &error))?;
         self.report(&update.skipped);
         apply(viewer, update)?;
-        if let Some(update) = self
-            .ui
-            .update(ui, self.size, &self.sprites, &self.player_textures)?
-        {
+        if let Some(update) = self.ui.update(
+            ui,
+            self.size,
+            &self.sprites,
+            &self.player_textures,
+            |message| {
+                eprintln!("{message}");
+            },
+        )? {
             viewer
                 .apply(update)
                 .map_err(|error| PlayError::Invalid(error.to_string()))?;
@@ -388,7 +393,7 @@ impl RetainedDriver for PlayerRetainedDriver {
             }
             RetainedEvent::Presented { frame } => self.presented = frame + 1,
             RetainedEvent::Capture { id, outcome, .. } => self.delivered(*id, outcome),
-            RetainedEvent::Shutdown | RetainedEvent::WorkReady => {}
+            RetainedEvent::Shutdown | RetainedEvent::WorkReady | RetainedEvent::Timer { .. } => {}
         }
         if self.finished() {
             viewer.request_exit();

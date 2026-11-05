@@ -5,8 +5,9 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{
     MAX_SNAPSHOT_BYTES, WIRE_VERSION, WireError, decode, encode,
 };
 use worldrunner_world_simulation::graphics::{
-    ComputeKernel, GraphicsSnapshot, MaterialEdit, MaterialId, OffscreenWork, PropertyValue,
-    RenderTextureId, ShaderSource, TextureRef, TextureSlot, WorldComputeShader, WorldSampler,
+    ComputeKernel, ComputeShaderId, GraphicsSnapshot, MaterialEdit, MaterialId, OffscreenWork,
+    PropertyValue, RenderTextureId, ShaderSource, TextureRef, TextureSlot, WorldComputeShader,
+    WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear, Projection};
 use worldrunner_world_simulation::{MeshRenderer, World};
@@ -67,54 +68,54 @@ fn full_snapshot() -> GraphicsSnapshot {
     let camera = camera(&mut world, settings, Vec3::new(1.0, 2.0, 3.0), rotation);
     let blit_shader = shader(&mut world, "Blit");
     let blit = material(&mut world, blit_shader);
-    edit_all(&mut world, blit, every_property(TextureRef::Render(other)));
-    world
-        .edit_material(
-            blit,
-            MaterialEdit::Keyword {
-                name: "FAST".into(),
-                enabled: true,
-            },
-        )
-        .unwrap();
-    world
-        .edit_material(
-            blit,
-            MaterialEdit::Pass {
-                name: "Shadow".into(),
-                enabled: false,
-            },
-        )
-        .unwrap();
-    world
-        .edit_material(blit, MaterialEdit::RenderQueue(3000))
-        .unwrap();
+    edit_blit_material(&mut world, blit, other);
     for value in every_property(TextureRef::Asset((1 << 40) + 5)) {
         world.set_global_property(value).unwrap();
     }
     world.set_global_keyword("GLOBAL_ON", true).unwrap();
-    let mut block = MeshRenderer::default();
-    let mut properties = worldrunner_world_simulation::graphics::ShaderProperties::default();
-    for value in every_property(TextureRef::None) {
-        properties.set(value).unwrap();
-    }
-    block.property_block = Some(properties);
-    block.render_queue = Some(2450);
-    block.material_count = 2;
-    block.slot_materials = vec![Some(blit), None];
-    renderer_with(&mut world, (0, true), (1 << 41) + 1, block);
-    renderer(&mut world, 4, (1 << 41) + 2, vec![Some(blit)]);
+    add_renderers(&mut world, blit);
     record_work(&mut world, camera, target, blit, other);
     snapshot(&mut world)
 }
 
-fn record_work(
-    world: &mut World,
-    camera: worldrunner_world_simulation::ComponentHandle,
-    target: RenderTextureId,
-    blit: MaterialId,
-    other: RenderTextureId,
-) {
+fn edit_blit_material(world: &mut World, blit: MaterialId, other: RenderTextureId) {
+    edit_all(world, blit, every_property(TextureRef::Render(other)));
+    let edits = [
+        MaterialEdit::Keyword {
+            name: "FAST".into(),
+            enabled: true,
+        },
+        MaterialEdit::Pass {
+            name: "Shadow".into(),
+            enabled: false,
+        },
+        MaterialEdit::RenderQueue(3000),
+    ];
+    for edit in edits {
+        world.edit_material(blit, edit).unwrap();
+    }
+}
+
+/// A renderer with a property block, a queue and an empty slot, and one on another layer.
+fn add_renderers(world: &mut World, blit: MaterialId) {
+    let mut properties = worldrunner_world_simulation::graphics::ShaderProperties::default();
+    for value in every_property(TextureRef::None) {
+        properties.set(value).unwrap();
+    }
+    let block = MeshRenderer {
+        property_block: Some(properties),
+        render_queue: Some(2450),
+        material_count: 2,
+        slot_materials: vec![Some(blit), None],
+        ..MeshRenderer::default()
+    };
+    renderer_with(world, (0, true), (1 << 41) + 1, block);
+    renderer(world, 4, (1 << 41) + 2, vec![Some(blit)]);
+}
+
+/// A compute shader with a sized and an unsized kernel, a buffer bound to the first and every
+/// kind of value set on it.
+fn readback_shader(world: &mut World, other: RenderTextureId) -> ComputeShaderId {
     let compute = world
         .create_compute_shader(WorldComputeShader {
             name: "Readback".into(),
@@ -145,6 +146,17 @@ fn record_work(
     for value in every_property(TextureRef::Render(other)) {
         world.set_compute_property(compute, Some(0), value).unwrap();
     }
+    compute
+}
+
+fn record_work(
+    world: &mut World,
+    camera: worldrunner_world_simulation::ComponentHandle,
+    target: RenderTextureId,
+    blit: MaterialId,
+    other: RenderTextureId,
+) {
+    let compute = readback_shader(world, other);
     let records = [
         OffscreenWork::CameraRender { camera, target },
         OffscreenWork::Blit {

@@ -170,9 +170,8 @@ fn a_snapshot_nobody_copied_is_dropped_when_the_world_advances() {
     assert!(snapshot(world).work.is_empty());
 }
 
-#[test]
-fn the_snapshot_carries_a_dispatch_with_its_shader_and_buffers() {
-    let world = new_world();
+/// A compute shader with one kernel and a buffer bound to it, and a dispatch recorded.
+fn dispatch_with_buffer(world: u64) {
     let blob = "Readbackresources.assetsRead";
     let desc = DisunityComputeShaderDesc {
         path_id: 8167,
@@ -187,53 +186,44 @@ fn the_snapshot_carries_a_dispatch_with_its_shader_and_buffers() {
         size_y: 8,
         size_z: 1,
     }];
-    let mut shader = 0;
     let buffer_desc = DisunityComputeBufferDesc {
         count: 4,
         stride: 4,
         kind: 0,
     };
-    let mut buffer = 0;
+    let (mut shader, mut buffer) = (0, 0);
     let name = "_Output";
     unsafe {
+        let blob_length = u32::try_from(blob.len()).unwrap();
         let made = disunity_compute_shader_create(
             world,
             &desc,
             blob.as_ptr(),
-            u32::try_from(blob.len()).unwrap(),
+            blob_length,
             kernels.as_ptr(),
             &mut shader,
         );
         assert_eq!(made.code, 0);
-        assert_eq!(
-            disunity_compute_buffer_create(world, &buffer_desc, &mut buffer).code,
-            0
-        );
-        let bound = disunity_compute_buffer_bind(
-            world,
-            shader,
-            0,
-            name.as_ptr(),
-            u32::try_from(name.len()).unwrap(),
-            buffer,
-        );
+        let made = disunity_compute_buffer_create(world, &buffer_desc, &mut buffer);
+        assert_eq!(made.code, 0);
+        let name_length = u32::try_from(name.len()).unwrap();
+        let bound =
+            disunity_compute_buffer_bind(world, shader, 0, name.as_ptr(), name_length, buffer);
         assert_eq!(bound.code, 0);
         assert_eq!(disunity_compute_dispatch(world, shader, 0, 2, 1, 1).code, 0);
     }
+}
+
+#[test]
+fn the_snapshot_carries_a_dispatch_with_its_shader_and_buffers() {
+    let world = new_world();
+    dispatch_with_buffer(world);
     let taken = snapshot(world);
     assert_eq!(taken.work.len(), 1);
     assert_eq!(taken.compute_shaders.len(), 1);
     assert_eq!(taken.compute_buffers.len(), 1);
-    assert_eq!(
-        taken
-            .compute_buffers
-            .values()
-            .next()
-            .unwrap()
-            .contents
-            .len(),
-        16
-    );
+    let buffer = taken.compute_buffers.values().next().unwrap();
+    assert_eq!(buffer.contents.len(), 16);
 }
 
 #[test]

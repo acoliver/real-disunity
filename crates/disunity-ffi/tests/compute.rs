@@ -867,3 +867,79 @@ fn bindings_with_floats_need_a_place_for_them() {
     };
     assert_ne!(result.code, 0);
 }
+
+#[test]
+fn bindings_are_refused_when_any_capacity_is_one_short() {
+    let world = new_world();
+    let id = shader(world);
+    let out = buffer(world, 1, 4);
+    let (name, length) = text("_Output");
+    let (scale, scale_length) = text("_Scale");
+    unsafe {
+        assert_eq!(
+            disunity_compute_buffer_bind(world, id, 0, name, length, out).code,
+            0
+        );
+        assert_eq!(
+            disunity_compute_float_write(world, id, -1, scale, scale_length, 2.0).code,
+            0
+        );
+    }
+    assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
+    let token = take(world)[0].bindings;
+    let mut held = DisunityComputeBindingsInfo::default();
+    unsafe {
+        let probe = disunity_compute_bindings_read(
+            world,
+            token,
+            &mut held,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        );
+        assert_eq!(probe.code, 0);
+    }
+    assert_eq!((held.entry_count, held.float_count), (2, 1));
+    let mut entries = vec![DisunityComputeBinding::default(); held.entry_count as usize];
+    let mut floats = vec![0.0_f32; held.float_count as usize];
+    let mut bytes = vec![0_u8; held.text_length as usize];
+    let short = [
+        DisunityComputeBindingsInfo {
+            entry_count: held.entry_count - 1,
+            ..held
+        },
+        DisunityComputeBindingsInfo {
+            float_count: held.float_count - 1,
+            ..held
+        },
+        DisunityComputeBindingsInfo {
+            text_length: held.text_length - 1,
+            ..held
+        },
+    ];
+    for mut info in short {
+        let result = unsafe {
+            disunity_compute_bindings_read(
+                world,
+                token,
+                &mut info,
+                entries.as_mut_ptr(),
+                floats.as_mut_ptr(),
+                bytes.as_mut_ptr(),
+            )
+        };
+        assert_ne!(result.code, 0, "{info:?}");
+    }
+    let mut exact = held;
+    let result = unsafe {
+        disunity_compute_bindings_read(
+            world,
+            token,
+            &mut exact,
+            entries.as_mut_ptr(),
+            floats.as_mut_ptr(),
+            bytes.as_mut_ptr(),
+        )
+    };
+    assert_eq!(result.code, 0);
+}

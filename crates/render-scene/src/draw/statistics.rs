@@ -45,6 +45,8 @@ pub struct SceneStatistics {
     pub passes: super::PassDrawStatistics,
     pub effects: super::EffectStatistics,
     pub terrain_pages: TerrainPageStatistics,
+    /// None before an owning terrain draw, or in a submitted frame without terrain.
+    pub terrain_geometry: Option<super::TerrainGeometryStatistics>,
     pub meshes: DrawCount,
     pub impostors: DrawCount,
     pub textures: ResourceStatistics,
@@ -103,10 +105,13 @@ impl SceneGpu {
 
     /// Reads submitted mesh draws and prepared decal counts without polling or allocation.
     pub fn statistics(&self) -> SceneStatistics {
-        let selection = self.camera_selection.borrow();
+        let selection = self.views[super::selection_reuse::CAMERA]
+            .published
+            .borrow();
         let mut stats = SceneStatistics {
             passes: self.pass_counters.snapshot(),
             effects: self.effect_statistics.get(),
+            terrain_geometry: self.pass_counters.geometry.get(),
             textures: resource(
                 self.resource_counters.textures,
                 self.resource_counters.uploaded,

@@ -11,11 +11,12 @@
 //! configured by the caller. Authored [`ContractDocument`] route
 //! declarations activate into one exact [`RenderWorldContract`] through
 //! caller-registered implementation factories keyed by exact handler factory
-//! URI, with no fallback across route kinds. Every activated implementation
-//! additionally carries an exact activation-bound scene factory: route
-//! factories produce closed [`SceneContribution`] values and the document
-//! factory composes one mandatory, wholly owned, pathless
-//! [`RenderScene`] that the final
+//! URI, with no fallback across route kinds. Payload preparation returns owned,
+//! route-qualified CPU state without invoking scene factories. Full render
+//! activation additionally requires each route scene factory and the document
+//! composer: route factories produce explicit [`SceneContribution`] values,
+//! including nonrendering outcomes, and the composer can join prepared payloads
+//! across routes before producing the mandatory validated [`RenderScene`] that
 //! [`RenderWorldPlan`] retains.
 
 mod adapter;
@@ -26,8 +27,10 @@ mod document;
 mod error;
 mod implementation_registry;
 mod limits;
+pub mod picking;
 mod plan;
 mod plan_closure;
+pub use picking::{ObjectId, PickHit};
 mod plan_scene;
 pub mod post;
 mod scene;
@@ -49,15 +52,17 @@ pub use error::{
     RenderAdapterError, RenderContractError, RenderImplementationError, RenderPlanError,
 };
 pub use implementation_registry::{
-    ActivatedRenderWorldContract, CapabilityImplementation, CapabilityImplementationFactory,
-    ComponentImplementation, ComponentImplementationFactory, DocumentImplementation,
-    DocumentImplementationFactory, RenderFactoryError, RenderImplementationRegistry,
-    RenderImplementationRegistryBuilder, RenderRouteKind, activate_render_world_contract,
+    ActivatedRenderPayloadContract, ActivatedRenderWorldContract, CapabilityImplementation,
+    CapabilityImplementationFactory, ComponentImplementation, ComponentImplementationFactory,
+    DocumentImplementation, DocumentImplementationFactory, RenderFactoryError,
+    RenderImplementationRegistry, RenderImplementationRegistryBuilder, RenderRouteKind,
+    activate_render_payload_contract, activate_render_world_contract,
 };
 pub use limits::RenderWorldLimits;
 pub use plan::{
-    RenderContribution, RenderWorldPlan, build_discovered_render_world_plan,
-    build_render_world_plan,
+    PreparedRenderWorldPayloads, RenderContribution, RenderWorldPlan,
+    build_discovered_render_world_plan, build_render_world_plan, compose_render_world_plan,
+    prepare_discovered_render_world_payloads, prepare_render_world_payloads,
 };
 pub use scene::TextureAnisotropy;
 pub use scene::{

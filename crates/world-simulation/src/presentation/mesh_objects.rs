@@ -23,10 +23,9 @@ pub struct MeshObject {
 /// left out, and so is every renderer that is not a plain mesh renderer: skinned and particle
 /// renderers draw from data a mesh filter does not hold.
 pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError> {
-    let snapshot = world.snapshot();
-    let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
+    let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
     let mut meshes: HashMap<ObjectHandle, u64> = HashMap::new();
-    for component in &snapshot.components {
+    for component in world.published_components() {
         if let ComponentDesc::MeshFilter(filter) = &component.desc
             && filter.drawn_mesh != 0
         {
@@ -35,7 +34,7 @@ pub fn extract_mesh_objects(world: &World) -> Result<Vec<MeshObject>, WorldError
     }
     let basis = view_basis();
     let mut objects = Vec::new();
-    for component in &snapshot.components {
+    for component in world.published_components() {
         let ComponentDesc::MeshRenderer(renderer) = &component.desc else {
             continue;
         };

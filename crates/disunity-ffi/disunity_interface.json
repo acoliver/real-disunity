@@ -638,6 +638,21 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_presentation_ui_count",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_ui_draw",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_ui_coverage",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_rect_read",
       "since": "2.0.0",
       "rets": "DisunityResult"
@@ -680,6 +695,11 @@
     {
       "name": "disunity_script_set_enabled",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_script_type_messages",
+      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

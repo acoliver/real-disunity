@@ -40,6 +40,74 @@ UI into scene contributions (the `simulation` and `ui` features).
   Y-up XYZ to scene Z-up `(x, -z, y)`. Producers quantize units before crossing
   this boundary. Positions, normals, and quaternion axes must cross together.
 
+## CPU object picking
+
+`RenderScene::pick(ScreenRay, objects, include)` tests world-space metre rays
+against `(ObjectId, SceneObject)` placements referencing the scene's resident
+mesh and material tables. `ObjectId` is the shared retained identity type.
+The predicate can implement inclusion or exclusion sets without allocating a
+query-specific object list. Nonfinite and zero-direction rays return `None`;
+other directions are normalized, so `PickHit::distance_meters` is a distance
+from the supplied origin. Camera screen rays start on the near plane.
+
+Each mesh LOD caches its local bounds at construction. A query transforms the
+LOD-zero bounds to a world AABB, rejects nonintersecting placements, then tests
+indexed triangles with a double-precision ray in local space. It uses the same
+model matrix as rasterization, including quaternion normalization and float
+unit conversion. Exact distance ties choose the lowest `ObjectId`, then the
+lowest triangle index. Single-sided materials reject back faces; LOD material
+slots override the placement material. Misses return `None`.
+
+This query uses undeformed LOD-zero geometry. It does not sample texture alpha,
+shader wind, fade dithering, billboard replacements, terrain or water. Transform
+scale is positive and uniform, as required by `SceneTransform`; non-uniform
+scaling must already be in resident vertex positions. It allocates no spatial
+index or per-query triangle storage. Worst-case work is O(objects * triangles),
+with O(objects) bounds rejection when all objects miss. The `measure_pick_cost`
+test prints timings for 1000 objects with 100 triangles each, both all-hit bounds
+and all-rejected bounds, with no machine-dependent timing assertion.
+
+## Governed payload preparation and composition
+
+`activate_render_payload_contract` binds the authored handlers and adapters
+without requiring scene factories. `prepare_discovered_render_world_payloads`
+then checks that discovery matches the publication's unique bare render-contract
+binding ID and content address and the activated document. Both discovered entry
+points reject a mismatch with `GovernedContractSubstitution`. Preparation checks
+authored route and asset closure, runtime preparation, contribution limits and
+payload adaptation. It returns
+`PreparedRenderWorldPayloads`, retaining the contract binding ID, content address,
+publication identities, root payload and owned adapted contributions. No route
+scene factory or document composer runs during preparation. The low-level
+`prepare_render_world_payloads` deliberately accepts a caller-supplied contract
+and has no discovery binding, matching `build_render_world_plan`.
+
+`payloads_for_route(kind, route_key)` selects by exact component schema or
+capability URI, independently of shared payload contracts. Each contribution
+retains its route, claimant, handler descriptor and payload contract. A declared
+idle route returns an empty iterator; an undeclared route returns
+`AuthoredRouteMismatch` with its kind and exact name. Selection does not choose
+one payload when several match. The consumer must enforce its join cardinality
+and reject missing, ambiguous or incorrectly typed inputs.
+
+For rendering, use `activate_render_world_contract`, or call
+`ActivatedRenderPayloadContract::into_render_contract` on the original payload
+activation. Admission requires the document composer and every declared route's
+scene factory, including idle routes. `compose_render_world_plan` consumes the
+prepared result and invokes those factories through the existing composition
+path. The activation must be the same instance that prepared the payloads;
+a separate activation, even of equal authored declarations, is rejected with
+`AuthoredRouteMismatch` naming the prepared executable contract.
+
+`DocumentSceneInput::payloads_for_route` gives the document composer the same
+route-qualified adapted inputs alongside the root and proven scene contributions.
+A composer can therefore join separately decoded resources before constructing
+one scene. A route factory may explicitly return
+`SceneContribution::NonRendering` for metadata or other join-only inputs. This
+outcome retains its claimant and adapted payload. Omitting the factory still
+returns `MissingSceneFactory`. Every `RenderWorldPlan` requires a validated
+scene; preparation never manufactures one or substitutes an empty scene.
+
 There is no built-in content adapter registry, inventory interpreter, source
 terrain/clutter table, format-specific decoder, or bundled content. Producers must
 supply engine artifacts or construct scenes through the validated public API.

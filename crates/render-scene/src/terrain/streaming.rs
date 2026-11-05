@@ -54,11 +54,48 @@ impl TerrainChunk {
     }
 }
 
-/// Selected next leaf set and complete chunk uploads. Removed leaves are evicted.
+/// Admitted next leaf set and complete chunk uploads. Removed leaves are evicted.
 #[derive(Debug)]
 pub struct TerrainSelection {
     pub leaves: Vec<TerrainChunk>,
     pub uploads: Vec<TerrainChunk>,
+    /// Desired selection and replacement work remaining after budget admission.
+    pub observation: TerrainSelectionObservation,
+}
+
+/// Desired selection compared with admitted coverage, including blocked merges.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TerrainSelectionObservation {
+    pub selected_leaves: usize,
+    pub drawn_at_detail: usize,
+    pub drawn_coarse: usize,
+    pub unresolved_leaves: usize,
+}
+
+pub(crate) fn observe(
+    terrain: &SceneTerrain,
+    current: &[TerrainChunk],
+    matrix: Mat4,
+    viewport: [u32; 2],
+) -> TerrainSelectionObservation {
+    observation(&desired(terrain, current, matrix, viewport), current)
+}
+
+fn observation(desired: &[TerrainChunk], leaves: &[TerrainChunk]) -> TerrainSelectionObservation {
+    let drawn_coarse = leaves
+        .iter()
+        .filter(|leaf| {
+            desired
+                .iter()
+                .any(|next| next != *leaf && contains(**leaf, *next))
+        })
+        .count();
+    TerrainSelectionObservation {
+        selected_leaves: desired.len(),
+        drawn_at_detail: leaves.len() - drawn_coarse,
+        drawn_coarse,
+        unresolved_leaves: desired.iter().filter(|node| !leaves.contains(node)).count(),
+    }
 }
 
 /// Refines by projected cell footprint. Cached splits merge below 1/1.2 of the
@@ -84,7 +121,8 @@ pub(crate) fn select_with_retired(
     let mut leaves = current.to_vec();
     let mut uploads = Vec::new();
     let root = TerrainChunk::root(terrain, policy);
-    merge(terrain, root, matrix, viewport, &mut leaves, &mut uploads);
+    let desired = desired(terrain, current, matrix, viewport);
+    merge(terrain, root, &desired, &mut leaves, &mut uploads);
     if current.len() + retired + uploads.len() > policy.maximum_resident_chunks() as usize {
         leaves = current.to_vec();
         uploads.clear();
@@ -97,8 +135,9 @@ pub(crate) fn select_with_retired(
         let Some(children) = node.children() else {
             continue;
         };
-        if error(terrain, node, matrix, viewport)
-            <= f64::from(policy.split_error_millipixels()) / 1000.0
+        if !desired
+            .iter()
+            .any(|next| *next != node && contains(node, *next))
         {
             continue;
         }
@@ -112,14 +151,17 @@ pub(crate) fn select_with_retired(
         leaves.extend(children.iter().copied());
         uploads.extend(children);
     }
-    TerrainSelection { leaves, uploads }
+    TerrainSelection {
+        observation: observation(&desired, &leaves),
+        leaves,
+        uploads,
+    }
 }
 
 fn merge(
     terrain: &SceneTerrain,
     node: TerrainChunk,
-    matrix: Mat4,
-    viewport: [u32; 2],
+    desired: &[TerrainChunk],
     leaves: &mut Vec<TerrainChunk>,
     uploads: &mut Vec<TerrainChunk>,
 ) {
@@ -127,8 +169,7 @@ fn merge(
         return;
     }
     let policy = terrain.streaming_policy().expect("streaming policy");
-    let threshold = f64::from(policy.split_error_millipixels()) / 1200.0;
-    if error(terrain, node, matrix, viewport) < threshold {
+    if desired.contains(&node) {
         if uploads.is_empty() && leaves.len() < policy.maximum_resident_chunks() as usize {
             leaves.retain(|leaf| !contains(node, *leaf));
             leaves.push(node);
@@ -136,10 +177,39 @@ fn merge(
         }
     } else if let Some(children) = node.children() {
         for child in children {
-            merge(terrain, child, matrix, viewport, leaves, uploads);
+            merge(terrain, child, desired, leaves, uploads);
         }
     }
 }
+fn desired(
+    terrain: &SceneTerrain,
+    current: &[TerrainChunk],
+    matrix: Mat4,
+    viewport: [u32; 2],
+) -> Vec<TerrainChunk> {
+    let policy = terrain.streaming_policy().expect("streaming policy");
+    let mut pending = vec![TerrainChunk::root(terrain, policy)];
+    let mut selected = Vec::new();
+    while let Some(node) = pending.pop() {
+        let refined = current
+            .iter()
+            .any(|leaf| *leaf != node && contains(node, *leaf));
+        let footprint = error(terrain, node, matrix, viewport);
+        let threshold = f64::from(policy.split_error_millipixels());
+        let subdivide = if refined {
+            footprint >= threshold / 1200.0
+        } else {
+            footprint > threshold / 1000.0
+        };
+        if subdivide && let Some(children) = node.children() {
+            pending.extend(children);
+        } else {
+            selected.push(node);
+        }
+    }
+    selected
+}
+
 fn contains(parent: TerrainChunk, child: TerrainChunk) -> bool {
     (0..2).all(|axis| {
         parent.minimum[axis] <= child.minimum[axis] && parent.maximum[axis] >= child.maximum[axis]

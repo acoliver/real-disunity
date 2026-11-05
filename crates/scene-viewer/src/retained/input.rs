@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 use winit::window::Window;
+mod simulation;
 
 pub use winit::{
     event::MouseButton,
@@ -34,6 +35,7 @@ pub(super) struct InputState {
     keys: BTreeMap<PhysicalKey, (String, LogicalKey)>,
     buttons: BTreeSet<MouseButton>,
     pub window: Option<Arc<Window>>,
+    pub surface_extent: Option<[u32; 2]>,
 }
 
 impl InputState {
@@ -76,6 +78,9 @@ impl InputState {
                 repeat: false,
             })
             .collect();
+        if !events.is_empty() || !self.buttons.is_empty() {
+            events.insert(0, RetainedInput::PointerCancelled);
+        }
         events.extend(std::mem::take(&mut self.buttons).into_iter().map(|button| {
             RetainedInput::Button {
                 button,

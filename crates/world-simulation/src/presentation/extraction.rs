@@ -38,7 +38,6 @@ pub fn extract_world(
     textures: &SpriteTextures,
     viewport: [u32; 2],
 ) -> Result<WorldRenderPlan, WorldError> {
-    let snapshot = world.snapshot();
     let lighting = super::lighting::GlobalLighting::from_world(world)?;
     let mut result = WorldRenderPlan {
         camera: None,
@@ -47,18 +46,25 @@ pub fn extract_world(
         quads: vec![],
         textures: textures.textures.clone(),
     };
-    let selected = selected_camera(world, &snapshot.components)?;
+    let selected = selected_camera(world, world.published_components())?;
     let culling = selected.map(|(_, camera)| camera);
-    for component in snapshot.components {
+    for component in world.published_components() {
+        if !matches!(
+            component.desc,
+            ComponentDesc::Sprite(_) | ComponentDesc::Tilemap(_) | ComponentDesc::Camera(_)
+        ) {
+            continue;
+        }
         if !world.active_in_hierarchy(component.object)? {
             continue;
         }
         let basis = view_basis();
         let matrix = basis * world.presented_matrix(component.object)?;
-        match component.desc {
-            ComponentDesc::Sprite(mut renderer)
+        match &component.desc {
+            ComponentDesc::Sprite(renderer)
                 if renderer.enabled && camera_admits(world, culling, component.object)? =>
             {
+                let mut renderer = renderer.clone();
                 renderer.color = lighting.color(&renderer);
                 if let Some(mut quad) =
                     extract_sprite(&renderer, world.presented_matrix(component.object)?)
@@ -71,13 +77,14 @@ pub fn extract_world(
             ComponentDesc::Tilemap(map)
                 if map.enabled && camera_admits(world, culling, component.object)? =>
             {
-                append_tiles(&mut result.quads, &map, matrix, &lighting);
+                append_tiles(&mut result.quads, map, matrix, &lighting);
             }
             ComponentDesc::Camera(camera)
                 if selected.is_some_and(|(object, _)| object == component.object) =>
             {
                 result.clear = camera.clear_color()?;
-                let state = camera_state(world, component.object, camera, matrix, basis, viewport)?;
+                let state =
+                    camera_state(world, component.object, *camera, matrix, basis, viewport)?;
                 result.camera = Some(resolve(&state).map_err(|_| {
                     WorldError::InvalidComponent(crate::ComponentError::InvalidPresentation)
                 })?);
@@ -102,9 +109,9 @@ pub(crate) fn view_basis() -> Mat4 {
 /// that keeps a lower camera's output (clear flags Depth or Nothing) lays over the base camera, and
 /// a frame has one camera, so the engine's choice is to present the base and leave the overlay out.
 /// Only when no camera clears does an overlay camera become the choice, and it is then rejected.
-pub(crate) fn selected_camera(
+pub(crate) fn selected_camera<'a>(
     world: &World,
-    components: &[crate::world::ComponentSnapshot],
+    components: impl IntoIterator<Item = &'a crate::world::ComponentSnapshot>,
 ) -> Result<Option<(crate::ObjectHandle, crate::presentation::Camera)>, WorldError> {
     let mut selected: Option<(crate::ObjectHandle, crate::presentation::Camera)> = None;
     for component in components {

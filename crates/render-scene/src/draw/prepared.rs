@@ -107,6 +107,7 @@ impl PreparedScene {
         device: &wgpu::Device,
         pipelines: &super::ScenePipelines,
     ) -> Result<(), DrawError> {
+        super::validate_profile(&self.scene, pipelines)?;
         super::source_environment::allocations(&self.scene)?
             .validate(&device.limits())
             .map_err(|_| crate::sky::preparation::PreparationError::Budget)?;

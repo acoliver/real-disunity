@@ -56,6 +56,63 @@ flight.retire();
 The legacy profile retains exposed sRGB output. The HDR profile writes unexposed `Rgba16Float` radiance and applies exposure and tone mapping once in post before the final output transfer. Selecting HDR therefore changes colour behavior explicitly. It supports 1x or 4x forward samples; the optional screen-space metadata prepass is single-sample. Ordinary cross-feature transparent sorting and temporal AA remain unsupported and return typed errors.
 
 ## External features
+## Retained frame-coherent picking
+
+`RetainedHost::pick` and `RetainedEventHost::pick` query the last presented
+camera, viewport and object/resource generation. Publication to renderer residency
+can happen before a frame is submitted, so it must not advance the displayed
+`Arc` snapshot. Successful ordinary presentation submissions freeze it before
+`Presented`; accepted edits and asynchronous preparation cannot mutate it.
+Windowless accumulated captures freeze their unjittered source view at completion.
+Desktop capture-only work does not replace the displayed snapshot. Results carry
+the displayed generation and use top-left physical pixels through
+`ResolvedView::screen_ray`. This CPU geometry query does not imply GPU completion
+or pixel-exact shader coverage. The [host contract](../../crates/scene-viewer/README.md#picking-the-presented-scene)
+documents coverage, filtering, lifetimes and resource sharing.
+
+## Retained host CPU work
+
+`RetainedHost::work_queue::<R>(workers, capacity)` creates a caller-sized worker
+pool for application CPU work. Both bounds must be positive. Host and queue
+handles stay on the event thread; only job inputs and results cross threads.
+The queue accepts `FnOnce(&CancelToken) -> R + Send + 'static` jobs and returns a typed
+`WorkTicket<R>` or `WorkSubmitError::{Full, Closed}`. Submission never waits for
+space or job execution. At most `capacity` jobs wait for the fixed workers, and
+at most `workers + capacity` uncancelled tickets exist, including completed
+results. Drain results to release that admission budget. These workers use only
+standard-library synchronization and are separate from renderer preparation.
+
+Workers wake the desktop event loop through its proxy. The driver receives
+`RetainedEvent::WorkReady` on the event thread, including while occluded,
+suspended or zero-sized, and drains its queues with `try_recv`. Windowless
+retained sessions use the same dispatch on the calling thread at the next
+`frame` or `poll`, before updates, presentation or capture notifications.
+`poll` delivers completed CPU work without requesting a frame, including at
+zero size. No notification is delivered between windowless calls. A notification
+can cover several completions; cancelled or replaced results are discarded,
+and no event is sent if no queue has a ready result. Exit requests and shutdown
+suppress further work notifications. Store application changes in the driver
+and apply scene edits in the next `update`.
+The public types are also available through `worldrunner::scene::viewer` with
+the facade's `scene-viewer` feature. CPU queues can also be polled directly
+without starting a window or GPU.
+
+Cancellation is cooperative: jobs must poll `CancelToken::is_cancelled` and
+finish promptly, including during their own waits. `cancel` invalidates a
+queue-scoped generation and removes completed work; running results for that
+generation are discarded. Cancelled queued jobs occupy their bounded channel
+slots until a worker dequeues and skips them. `replace` cancels first and then
+submits; if submission fails, the old generation stays cancelled. Old or foreign tickets
+cannot cancel a newer job. Panics unwind at the job boundary and produce
+`WorkFailure::Panicked` for that ticket; the worker continues serving jobs.
+Aborting panics cannot be caught.
+
+Queue drop, host drop and session shutdown cancel outstanding jobs, discard
+queued jobs and results, and join workers. Session shutdown finishes this before
+notifying the driver of `RetainedEvent::Shutdown`. A queue retained by the driver
+then returns `Closed` from submission and no further results. A job that ignores
+cancellation delays shutdown; the host does not forcibly terminate threads.
+
 
 Consumers needing texture generations, subresource access declarations, MRT or a different authored pass order can use the [shared resource and raster contracts](resource-contracts.md). Stock geometry uses the same raster executor and retains its existing outputs and timing identities.
 
@@ -70,6 +127,39 @@ cargo run -p worldrunner --features scene --example frame-feature
 Player shader programs join the frame without registering a feature. `SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted for the frame, and the scene's own feature records them in the stock opaque pass after its geometry, so they share the pass's attachments and the frame's one submission. The slice covers one single-sample color attachment with `Depth32Float`; scenes with temporal reconstruction, screen-space passes or multisampling refuse them by name. See the [scene README](../../crates/render-scene/README.md#player-program-draws).
 
 Declare every pass and sampled resource before preparation. Build pipelines through `BuildContext`; use `PrepareContext::resource` for checked snapshot views. Stage uploads during `prepare` and publish resident state only in `commit`. `PrepareContext::completed_in_prefix` identifies slots already encoded by a validated geometry prefix belonging to this same frame, including a capture continuation. Features can preserve execution observations for those slots without inheriting a previous submitted frame. The executor opens passes and owns attachments. Features receive no queue and cannot submit or change attachments. Snapshot consumers require the HDR profile. External features must provide matching metadata passes to participate as SSR receivers.
+
+## Retained host timers
+
+`RetainedHost` and `RetainedEventHost` expose `timer_now`, `timer_at(deadline)`,
+`timer_every(interval)` and `cancel_timer(&handle)`. Deadlines use the host's
+monotonic `Instant` clock. Scheduling returns a host-scoped `TimerHandle` or
+`TimerError`. Each host accepts at most `MAX_HOST_TIMERS` (256) live timers;
+excess admission returns `Full { limit }`. Zero repeating intervals and clock
+overflow return `ZeroInterval` and `DeadlineOverflow`. Shutdown closes admission
+with `Closed`. Foreign and obsolete handles cannot cancel a live timer.
+
+The shared session host-service dispatch snapshots due timers, delivers any
+`WorkReady` first, then delivers `RetainedEvent::Timer { handle }` in deadline
+order, breaking ties by creation order. It rechecks cancellation before each
+delivery. Timers scheduled by a callback wait until the next dispatch, even if
+already due. One-shots release capacity before their callback. Repeating timers
+deliver at most once per dispatch and rearm from the dispatch's clock sample,
+discarding missed intervals after a stall. Cancellation inside a repeating
+callback removes its next expiry. Exit and shutdown suppress all timer delivery.
+
+Desktop scheduling combines the earliest timer deadline with the existing
+presentation and completion-poll deadlines through `ControlFlow::WaitUntil`.
+Timers require no worker threads and still wake during occlusion, suspension
+and zero-size presentation pauses. Driver callbacks run on the event thread.
+
+Windowless initialization freezes the session clock before GPU initialization.
+`WindowlessRetained::advance_time(elapsed)` advances it explicitly without
+callbacks or rendering; the next `frame` or `poll` runs the same host-service
+dispatch before updates and capture notifications. Repeated polling does not
+advance time. Update ticks use this clock too; shader/capture time remains
+independently selected by `RenderClock`. Timers created before initialization
+retain their deadlines, and time before the freeze counts toward expiry. The
+public timer types also pass through `worldrunner::scene::viewer`.
 
 ## Temporal state
 

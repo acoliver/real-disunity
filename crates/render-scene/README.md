@@ -84,8 +84,8 @@ gutter-safe page lookup. See the
 `FrameUniform::material_mip_bias` (the last f32 of the frame block, bytes 316 to 320) is the mip
 bias of the scene's texture sampling, and `FrameRenderer::jitter_frame` sets it from
 `HdrPostSettings::material_mip_bias`, which returns exactly `+0.0` in every mode, so no bias is
-active and every frame keeps its bytes. The sites that use the lane are the implicit-derivative
-atlas samples, impostor and relief mip-enabled gradients, decal and terrain gradients and layered
+active and every frame keeps its bytes. The sites that use the lane are the explicit-gradient
+material, impostor and relief samples, decal and terrain gradients and layered
 terrain gradients; tests force a bias to prove that each selects the finer level. Explicit LOD 0
 samples, control fields, environment roughness LOD, water normals and the sky are unbiased, and
 shadow caster frames carry exactly 0. See
@@ -93,6 +93,21 @@ shadow caster frames carry exactly 0. See
 the decision and what remains before a policy can be enabled.
 
 ## Masked alpha-to-coverage
+
+Masked geometry filters albedo alpha and applies its material factor once.
+Forward and metadata passes use that alpha for coverage; shadows use their
+shadow cutoff. Flat impostors support varying atlas alpha without a relief
+atlas. Atlas footprints and conditional normal samples are computed in uniform
+control flow, before fragment-dependent branches or returns. Sampling uses
+explicit gradients with the material mip bias, or explicit level zero according
+to the atlas policy. Clamped UVs and per-texture insets determine each footprint.
+Coverage is resolved after shading, and relief depth before discard, so normal
+frames and atlas derivatives retain their complete fragment quad.
+
+A CPU Naga-IR test guards the atlas/coverage derivative helpers, normal frames
+and their transitive callers in forward, metadata, prepass and shadow shaders.
+It conservatively requires derivative-sensitive operations before control flow;
+it is scoped to these paths rather than a general WGSL uniformity validator.
 
 `SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA
 sample coverage. Opaque materials reject this request. It belongs to the material
@@ -482,8 +497,8 @@ LOD transition complement, with instance counts summed across those draws.
 These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
 
 `passes` counts CPU-encoded calls and instances for main terrain, transparent
-water, background sky (including discs), and each of four directional shadow
-cascades. Counts are recorded alongside the draw commands and published only on
+water, background sky (including discs), native screen-space text (`passes.ui`),
+and each of four directional shadow cascades. Counts are recorded alongside the draw commands and published only on
 submission. A skipped cascade reports zero draws, even when its cached map is
 reused. Metadata, water masks and separate celestial mesh passes are excluded.
 Submitted `SceneStatistics::effects` records directional-shadow installation,
@@ -616,3 +631,14 @@ clamping, tile corners, adjacent tile edges and perspective interpolation. A 0.6
 triangle in a 10 m tile differs from fragment sampling by 0.002811 at its centroid.
 
 AO receiver reconstruction is shared by mesh and terrain lighting. The optional depth-aware gather packs source metre depth beside final AO without adding a sampled texture binding. See [receiver contracts](../../dev-docs/rendering/ambient-occlusion.md#full-resolution-receivers).
+
+`SceneStatistics::terrain_geometry` publishes main-camera geometry replacement
+observations on the owning composition submission. Absence means no terrain draw;
+`Static` identifies a nonstreaming mesh. `Streaming` carries the selector's desired
+leaves, including its split and hysteretic merge decisions, alongside admitted
+coverage, unresolved replacements, residency and completion. Budget-blocked merges
+remain unresolved until admitted, even when resident fine leaves already exceed
+the selected detail. Fine leaves retained by hysteresis are selected and complete. Its bounded drawn-leaf
+fingerprint includes every sorted sample window. See the
+[host statistics contract](../scene-viewer/README.md#retained-frame-statistics)
+for counting units and identity encoding. Raw and cancelled draws do not publish.

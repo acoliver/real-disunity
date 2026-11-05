@@ -2,6 +2,16 @@ use crate::PresentationCadence;
 use std::time::{Duration, Instant};
 use winit::event_loop::ControlFlow;
 
+pub(super) fn with_wakeup(flow: ControlFlow, deadline: Option<Instant>) -> ControlFlow {
+    match (flow, deadline) {
+        (ControlFlow::Wait, Some(deadline)) => ControlFlow::WaitUntil(deadline),
+        (ControlFlow::WaitUntil(next), Some(deadline)) => {
+            ControlFlow::WaitUntil(next.min(deadline))
+        }
+        _ => flow,
+    }
+}
+
 pub(super) fn next_frame(now: Instant, cadence: PresentationCadence) -> Instant {
     match cadence {
         PresentationCadence::Fixed(interval) => now + interval,
@@ -43,6 +53,31 @@ pub(super) fn schedule(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timers_wake_paused_loops_and_preserve_earlier_frame_or_completion_deadlines() {
+        let now = Instant::now();
+        let later = now + Duration::from_secs(1);
+        assert_eq!(
+            with_wakeup(ControlFlow::Wait, Some(now)),
+            ControlFlow::WaitUntil(now)
+        );
+        assert_eq!(
+            with_wakeup(ControlFlow::WaitUntil(later), Some(now)),
+            ControlFlow::WaitUntil(now)
+        );
+        assert_eq!(
+            with_wakeup(ControlFlow::WaitUntil(now), Some(later)),
+            ControlFlow::WaitUntil(now)
+        );
+        assert_eq!(with_wakeup(ControlFlow::Poll, Some(now)), ControlFlow::Poll);
+        assert_eq!(with_wakeup(ControlFlow::Wait, None), ControlFlow::Wait);
+        let (_, paused) = schedule(PresentationCadence::default(), now, later, false, false);
+        assert_eq!(
+            with_wakeup(paused, Some(later)),
+            ControlFlow::WaitUntil(later)
+        );
+    }
 
     #[test]
     fn fixed_cadence_obeys_deadline_and_capture_polling() {

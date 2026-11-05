@@ -34,6 +34,7 @@
 mod capture;
 pub(crate) use capture::capture_sources;
 mod cascades;
+mod compaction;
 mod refresh;
 mod resources;
 mod schedule;
@@ -501,11 +502,10 @@ impl ShadowedScene {
         self.update_caster_pipelines(context);
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
-        let (scheduler, fitting) = input;
-        let (color, depth) = attachments;
+        let ((scheduler, fitting), (color, depth)) = (input, attachments);
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
-        scheduler.bind_water_inputs(&self.gpu.water_inputs, self.gpu.pass_counters.water.clone());
+        scheduler.prepare_scene_inputs(context.device(), &self.gpu);
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
@@ -538,6 +538,7 @@ impl ShadowedScene {
             depth_frames: &self.depth_frames,
             shadow_group: &map.group,
             cascades,
+            refresh,
             frame,
             shadow_uniform: &map.uniform,
             settings: self.settings,
@@ -604,6 +605,8 @@ struct ShadowFeature<'a> {
     depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
     shadow_group: &'a wgpu::BindGroup,
     cascades: cascades::CascadeViews,
+    /// Cascades whose depth pass runs this frame.
+    refresh: [bool; 4],
     frame: FrameUniform,
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
@@ -626,6 +629,8 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.gpu.prepare_view_compaction(context, None, &self.frame);
+        self.prepare_cascade_compaction(context);
         // Each light view has its own immutable uniform range; billboards keep the main eye.
         for (index, &matrix) in self.cascades.matrices.iter().enumerate() {
             let light_frame = light_frame(&self.frame, matrix);

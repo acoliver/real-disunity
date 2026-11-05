@@ -428,12 +428,48 @@ fn assert_player_distance_field_atlas(host: &mut DisunityHost, root: &Path) {
 /// of the values bound.
 type Seen = Vec<(u32, [u32; 3], Vec<String>)>;
 
+/// What a flush read of the fixture's texture and mesh: the texture's width, its sampler's
+/// anisotropy, and the mesh's vertex and index counts.
+type SeenAssets = (u32, u32, u32, usize);
+
+/// Reads the compute fixture's texture and mesh from inside a flush, where the host is borrowed.
+fn flush_assets(
+    flush: &GpuFlush<'_>,
+) -> Result<SeenAssets, worldrunner_disunity_runtime::HostError> {
+    const TEXTURES: u64 = 1 << 40;
+    const MESHES: u64 = 1 << 41;
+    let (identity, texture) = (TEXTURES..TEXTURES + 64)
+        .find_map(|id| {
+            flush
+                .player_texture(id, 0)
+                .transpose()
+                .map(|read| read.map(|t| (id, t)))
+        })
+        .transpose()?
+        .expect("the fixture's texture is readable in a flush");
+    let sampler = flush.texture_sampler(identity)?.expect("its sampler");
+    let mesh = (MESHES..MESHES + 64)
+        .find_map(|id| flush.mesh_channels(id).transpose())
+        .transpose()?
+        .expect("the fixture's mesh channels are readable in a flush");
+    Ok((
+        texture.width,
+        sampler.aniso_level,
+        mesh.vertex_count,
+        mesh.indices.len(),
+    ))
+}
+
 /// A fake executor: for each dispatch it states a group size for a kernel that has none, and
 /// writes `kernel * 100 + groups` into the first buffer bound at the kernel's own slot.
 fn fake_executor(
     log: std::rc::Rc<std::cell::RefCell<Vec<Seen>>>,
+    assets: std::rc::Rc<std::cell::RefCell<Vec<SeenAssets>>>,
 ) -> impl FnMut(&mut GpuFlush<'_>) -> Result<(), String> + 'static {
     move |flush| {
+        assets
+            .borrow_mut()
+            .push(flush_assets(flush).map_err(|error| error.to_string())?);
         let snapshot = flush.snapshot().map_err(|error| error.to_string())?;
         let mut seen = Seen::new();
         for item in &snapshot.work {
@@ -528,7 +564,8 @@ fn assert_graphics_snapshot(host: &mut DisunityHost, root: &Path) {
 fn assert_gpu_flush(host: &mut DisunityHost, root: &Path) {
     let fixture = root.join("csharp/PortableFixture/compute.fixture");
     let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-    host.set_gpu_flush(Box::new(fake_executor(log.clone())))
+    let assets = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    host.set_gpu_flush(Box::new(fake_executor(log.clone(), assets.clone())))
         .unwrap();
     host.run_slice(&fixture).unwrap();
     let positions: Vec<_> = host
@@ -556,6 +593,11 @@ fn assert_gpu_flush(host: &mut DisunityHost, root: &Path) {
     assert!(
         flushes[1].is_empty(),
         "work already taken is not taken again"
+    );
+    assert_eq!(
+        *assets.borrow(),
+        vec![(2, 4, 4, 10); 2],
+        "each flush read the texture (2 wide, anisotropy 4) and the mesh (4 vertices, 10 indices)"
     );
     host.unload_slice().unwrap();
     assert_gpu_flush_failure(host, &fixture);

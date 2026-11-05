@@ -39,7 +39,7 @@ pub struct MeshChannels {
     pub ranges: Vec<MeshRange>,
 }
 
-type Read = unsafe extern "C" fn(
+pub(crate) type Read = unsafe extern "C" fn(
     u64,
     *mut native::DisunityMeshChannelsInfo,
     *mut native::DisunityMeshChannel,
@@ -69,44 +69,57 @@ impl DisunityHost {
                 .get(b"disunity_mesh_channels_read\0")
                 .map_err(|_| HostError::MissingSymbol("disunity_mesh_channels_read".into()))?
         };
-        let mut info = native::DisunityMeshChannelsInfo {
-            identity,
-            generation: known_generation,
-            ..Default::default()
-        };
-        let sizes = unsafe {
-            read(
-                world,
-                &mut info,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        };
-        self.check(sizes)?;
-        if info.present == 0 || info.changed == 0 {
-            return Ok(None);
-        }
-        let mut channels =
-            vec![native::DisunityMeshChannel::default(); info.channel_count as usize];
-        let mut data = vec![0f32; info.float_count as usize];
-        let mut indices = vec![0u32; info.index_count as usize];
-        let mut ranges = vec![native::DisunityMeshRange::default(); info.range_count as usize];
-        let mut request = info;
-        request.generation = known_generation;
-        self.check(unsafe {
-            read(
-                world,
-                &mut request,
-                channels.as_mut_ptr(),
-                data.as_mut_ptr(),
-                indices.as_mut_ptr(),
-                ranges.as_mut_ptr(),
-            )
-        })?;
-        Ok(Some(assemble(&info, &channels, &data, indices, &ranges)))
+        read_channels(world, read, identity, known_generation, |result| {
+            self.check(result)
+        })
     }
+}
+
+/// Reads the channels of mesh `identity` through `read`, `None` when none are stored or the
+/// stored generation is still `known_generation`. `check` turns a failed call into its error.
+pub(crate) fn read_channels(
+    world: u64,
+    read: Read,
+    identity: u64,
+    known_generation: u64,
+    check: impl Fn(native::DisunityResult) -> Result<(), HostError>,
+) -> Result<Option<MeshChannels>, HostError> {
+    let mut info = native::DisunityMeshChannelsInfo {
+        identity,
+        generation: known_generation,
+        ..Default::default()
+    };
+    let sizes = unsafe {
+        read(
+            world,
+            &mut info,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    check(sizes)?;
+    if info.present == 0 || info.changed == 0 {
+        return Ok(None);
+    }
+    let mut channels = vec![native::DisunityMeshChannel::default(); info.channel_count as usize];
+    let mut data = vec![0f32; info.float_count as usize];
+    let mut indices = vec![0u32; info.index_count as usize];
+    let mut ranges = vec![native::DisunityMeshRange::default(); info.range_count as usize];
+    let mut request = info;
+    request.generation = known_generation;
+    check(unsafe {
+        read(
+            world,
+            &mut request,
+            channels.as_mut_ptr(),
+            data.as_mut_ptr(),
+            indices.as_mut_ptr(),
+            ranges.as_mut_ptr(),
+        )
+    })?;
+    Ok(Some(assemble(&info, &channels, &data, indices, &ranges)))
 }
 
 fn assemble(

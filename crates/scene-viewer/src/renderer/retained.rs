@@ -121,12 +121,12 @@ impl Renderer {
         if self.render_recipe(host)?.is_some() {
             return Ok(false);
         }
-        let Some(view) = host.view()? else {
+        if !host.has_view_extent() {
             return Ok(false);
-        };
+        }
         let mut noop: crate::SceneUpdate = Box::new(|_| Ok(()));
         Ok(self
-            .render_admitted(&view, &mut noop, None, Some(host))?
+            .render_admitted(super::FrameSource::Retained(host), &mut noop, None)?
             .is_some())
     }
 }

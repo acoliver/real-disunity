@@ -395,7 +395,13 @@ fn two_rebuilds_published_in_one_frame_report_both_uploads() {
     prepared_rebuild(&mut host);
     render_frame(&mut host, &mut renderer);
     assert_eq!(host.ready_generation(), host.accepted_generation());
+    // A capture of the frame freezes the statistics without consuming them, so the ordinary
+    // take still reports the carried uploads exactly once.
+    let frozen = renderer.scene_statistics();
+    assert_eq!(frozen.textures.uploaded_bytes, 2 * texture_bytes);
+    assert_eq!(renderer.scene_statistics(), frozen);
     let both = renderer.take_statistics();
+    assert_eq!(both, frozen);
     assert_eq!(both.textures.uploaded_bytes, 2 * texture_bytes);
     assert_eq!(both.mesh_buffers.uploaded_bytes, 2 * mesh_bytes);
     assert_eq!(both.textures.resident_bytes, texture_bytes);

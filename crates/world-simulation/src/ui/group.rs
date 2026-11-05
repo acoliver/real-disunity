@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 /// The three interaction flags of a group.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CanvasGroupFlags {
-    /// Whether the group's elements take input. The engine sends no UI pointer events yet.
+    /// Whether the group's registered native controls can activate.
     pub interactable: bool,
     /// Whether the group's elements count as hit by a pointer inside their rectangle.
     pub blocks_raycasts: bool,

@@ -14,7 +14,7 @@
 //!
 //! # A frame
 //!
-//! 1. [`GraphicsSnapshot::take`] drains the world's records and copies what they reach.
+//! 1. The host's `graphics_snapshot` drains the world's records and copies what they reach.
 //! 2. [`OffscreenAdapter::adapt`] loads the shaders ([`ShaderLoader`]), uploads the meshes and
 //!    stored textures the managed engine holds ([`Assets`]) and maps the snapshot
 //!    ([`frame::adapt`]) onto an `OffscreenFrame`, with a [`Report`] of what it left out.
@@ -49,7 +49,6 @@ mod frame;
 mod ids;
 mod properties;
 mod shaders;
-mod snapshot;
 
 #[cfg(test)]
 mod tests;
@@ -66,4 +65,3 @@ pub use frame::{
     Adapted, Available, BLIT_MESH, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
 };
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
-pub use snapshot::{CameraView, GraphicsSnapshot, RendererView};

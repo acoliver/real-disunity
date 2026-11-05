@@ -7,5 +7,4 @@ mod frame;
 mod gpu;
 mod properties;
 mod shaders;
-mod snapshot;
 mod support;

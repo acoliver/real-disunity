@@ -72,7 +72,7 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 
 use super::camera::{clip_from_gl, projection, world_to_camera};
-use super::snapshot::CameraView;
+use worldrunner_world_simulation::graphics::CameraView;
 
 pub const OBJECT_TO_WORLD: &str = "unity_ObjectToWorld";
 pub const WORLD_TO_OBJECT: &str = "unity_WorldToObject";

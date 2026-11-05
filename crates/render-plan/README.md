@@ -40,6 +40,33 @@ UI into scene contributions (the `simulation` and `ui` features).
   Y-up XYZ to scene Z-up `(x, -z, y)`. Producers quantize units before crossing
   this boundary. Positions, normals, and quaternion axes must cross together.
 
+## CPU object picking
+
+`RenderScene::pick(ScreenRay, objects, include)` tests world-space metre rays
+against `(ObjectId, SceneObject)` placements referencing the scene's resident
+mesh and material tables. `ObjectId` is the shared retained identity type.
+The predicate can implement inclusion or exclusion sets without allocating a
+query-specific object list. Nonfinite and zero-direction rays return `None`;
+other directions are normalized, so `PickHit::distance_meters` is a distance
+from the supplied origin. Camera screen rays start on the near plane.
+
+Each mesh LOD caches its local bounds at construction. A query transforms the
+LOD-zero bounds to a world AABB, rejects nonintersecting placements, then tests
+indexed triangles with a double-precision ray in local space. It uses the same
+model matrix as rasterization, including quaternion normalization and float
+unit conversion. Exact distance ties choose the lowest `ObjectId`, then the
+lowest triangle index. Single-sided materials reject back faces; LOD material
+slots override the placement material. Misses return `None`.
+
+This query uses undeformed LOD-zero geometry. It does not sample texture alpha,
+shader wind, fade dithering, billboard replacements, terrain or water. Transform
+scale is positive and uniform, as required by `SceneTransform`; non-uniform
+scaling must already be in resident vertex positions. It allocates no spatial
+index or per-query triangle storage. Worst-case work is O(objects * triangles),
+with O(objects) bounds rejection when all objects miss. The `measure_pick_cost`
+test prints timings for 1000 objects with 100 triangles each, both all-hit bounds
+and all-rejected bounds, with no machine-dependent timing assertion.
+
 ## Governed payload preparation and composition
 
 `activate_render_payload_contract` binds the authored handlers and adapters

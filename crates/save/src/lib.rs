@@ -1,6 +1,11 @@
-use atomic_write_file::AtomicWriteFile;
-use std::fs::{self, File};
-use std::io::{Read, Seek, SeekFrom, Write};
+mod application;
+mod byte_io;
+mod settings;
+pub use application::{
+    ApplicationStore, SlotContents, SlotId, SlotInfo, SlotMetadata, StoreLimits,
+};
+pub use byte_io::ByteFile;
+pub use settings::{SettingValue, Settings};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use worldrunner_core_types::{SchemaVersion, WorldStateHash};
@@ -17,6 +22,14 @@ pub const DEFAULT_MAX_PAYLOAD_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum SaveError {
+    #[error("invalid slot identifier")]
+    InvalidSlotId,
+    #[error("invalid store limits")]
+    InvalidLimits,
+    #[error("invalid settings document: {0}")]
+    InvalidSettings(&'static str),
+    #[error("invalid metadata text")]
+    InvalidMetadata,
     #[error("save I/O failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("save serialization failed: {0}")]
@@ -101,29 +114,20 @@ pub fn decode_world(bytes: &[u8], max_payload_bytes: usize) -> Result<WorldDocum
 
 pub fn save_world_transactional(path: &Path, world: &WorldDocument) -> Result<(), SaveError> {
     let encoded = encode_world(world)?;
-    if let Some(parent) = non_empty_parent(path) {
-        fs::create_dir_all(parent)?;
-    }
     let expected_hash =
         canonical_world_hash(world).map_err(|error| SaveError::InvalidWorld(error.to_string()))?;
-    let mut options = AtomicWriteFile::options();
-    options.read(true);
-    let mut transaction = options.open(path)?;
-    transaction.write_all(&encoded)?;
-    transaction.sync_all()?;
-    let staged_bytes = transaction_bytes(&mut transaction)?;
-    let verification = decode_world(&staged_bytes, DEFAULT_MAX_PAYLOAD_BYTES)?;
-    let verified_hash = canonical_world_hash(&verification)
-        .map_err(|error| SaveError::InvalidWorld(error.to_string()))?;
-    if verified_hash != expected_hash {
-        return Err(SaveError::TransactionVerification(
-            "staged save canonical hash differs from source world".to_owned(),
-        ));
-    }
-    preserve_backup(path)?;
-    transaction.commit()?;
+    ByteFile::new(DEFAULT_MAX_PAYLOAD_BYTES + HEADER_LENGTH).write(path, &encoded, |staged| {
+        let verification = decode_world(staged, DEFAULT_MAX_PAYLOAD_BYTES)?;
+        let verified_hash = canonical_world_hash(&verification)
+            .map_err(|error| SaveError::InvalidWorld(error.to_string()))?;
+        if verified_hash != expected_hash {
+            return Err(SaveError::TransactionVerification(
+                "staged save canonical hash differs from source world".to_owned(),
+            ));
+        }
+        preserve_backup(path)
+    })?;
     verify_committed_world(path, expected_hash)?;
-    sync_parent(path)?;
     Ok(())
 }
 
@@ -261,28 +265,16 @@ fn read_bounded(
     max_payload_bytes: usize,
     maximum_header_length: usize,
 ) -> Result<Vec<u8>, SaveError> {
-    let mut file = File::open(path)?;
-    let metadata = file.metadata()?;
-    let maximum_file_length = u64::try_from(max_payload_bytes)
-        .unwrap_or(u64::MAX)
-        .saturating_add(u64::try_from(maximum_header_length).expect("header length fits u64"));
-    if metadata.len() > maximum_file_length {
-        return Err(SaveError::PayloadTooLarge {
-            actual: usize::try_from(metadata.len()).unwrap_or(usize::MAX),
-            limit: max_payload_bytes,
-        });
-    }
-    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes)
-}
-
-fn transaction_bytes(transaction: &mut AtomicWriteFile) -> Result<Vec<u8>, SaveError> {
-    transaction.flush()?;
-    transaction.seek(SeekFrom::Start(0))?;
-    let mut bytes = Vec::new();
-    transaction.read_to_end(&mut bytes)?;
-    Ok(bytes)
+    let limit = max_payload_bytes.saturating_add(maximum_header_length);
+    ByteFile::new(limit)
+        .read(path)
+        .map_err(|error| match error {
+            SaveError::PayloadTooLarge { actual, .. } => SaveError::PayloadTooLarge {
+                actual,
+                limit: max_payload_bytes,
+            },
+            other => other,
+        })
 }
 
 fn verify_committed_world(path: &Path, expected_hash: WorldStateHash) -> Result<(), SaveError> {
@@ -307,10 +299,9 @@ fn preserve_backup(path: &Path) -> Result<(), SaveError> {
         return Ok(());
     }
     let bytes = read_bounded(path, DEFAULT_MAX_PAYLOAD_BYTES, HEADER_LENGTH)?;
-    let mut writer = AtomicWriteFile::open(&backup)?;
-    writer.write_all(&bytes)?;
-    writer.sync_all()?;
-    writer.commit()?;
+    ByteFile::new(DEFAULT_MAX_PAYLOAD_BYTES + HEADER_LENGTH).write(&backup, &bytes, |staged| {
+        decode_world(staged, DEFAULT_MAX_PAYLOAD_BYTES).map(|_| ())
+    })?;
     load_world(&backup, DEFAULT_MAX_PAYLOAD_BYTES)?;
     Ok(())
 }
@@ -321,25 +312,6 @@ fn backup_path(path: &Path) -> PathBuf {
         .map_or_else(|| "world".into(), std::ffi::OsStr::to_os_string);
     name.push(".bak");
     path.with_file_name(name)
-}
-
-fn non_empty_parent(path: &Path) -> Option<&Path> {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-}
-
-#[cfg(unix)]
-fn sync_parent(path: &Path) -> Result<(), SaveError> {
-    if let Some(parent) = non_empty_parent(path) {
-        File::open(parent)?.sync_all()?;
-    }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-#[allow(clippy::unnecessary_wraps)]
-fn sync_parent(_path: &Path) -> Result<(), SaveError> {
-    Ok(())
 }
 
 fn blake3_digest(bytes: &[u8]) -> [u8; DIGEST_LENGTH] {
@@ -365,6 +337,9 @@ fn read_u64(bytes: &[u8], offset: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atomic_write_file::AtomicWriteFile;
+    use std::fs;
+    use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
     use worldrunner_world_generation::{WorldGenerationRequest, generate_world};
 

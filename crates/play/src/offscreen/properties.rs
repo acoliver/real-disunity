@@ -43,9 +43,9 @@ impl<'a> Textures<'a> {
     /// The name of the texture a reference names, or `None` for no texture, a render texture
     /// that was destroyed and a stored texture the frame cannot read. A render texture named is
     /// remembered.
-    pub fn resolve(&mut self, texture: TextureRef) -> Option<TextureId> {
-        match texture {
-            TextureRef::None => None,
+    pub fn resolve(&mut self, texture: &TextureRef) -> Option<TextureId> {
+        match *texture {
+            TextureRef::None | TextureRef::Global(_) => None,
             TextureRef::Render(id) => self.render.contains_key(&id).then(|| {
                 self.used.insert(id);
                 ids::render_texture(id)
@@ -81,7 +81,7 @@ pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> Prop
         layer.values.set(name, PropertyValue::Matrix(*value));
     }
     for (name, slot) in &properties.textures {
-        if let Some(texture) = textures.resolve(slot.texture) {
+        if let Some(texture) = textures.resolve(&slot.texture) {
             layer.textures.insert(
                 name.clone(),
                 TextureInput {

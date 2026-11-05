@@ -57,6 +57,7 @@ pub fn encode_resident(
             "offscreen operations on the resident path",
         ));
     }
+    renderer.prepare_scene_inputs(device, scene);
     let (color, depth) = attachments;
     scene.prepare_terrain_geometry(device, encoder, &scene.resident_frame(), color.size())?;
     scene.prepare_sky(device, encoder, &scene.resident_frame())?;

@@ -30,7 +30,7 @@ impl SceneGpu {
             device,
             authority.queue(),
             crate::dynamic::DynamicBindings {
-                pipelines,
+                layout: pipelines.material_layout(),
                 placeholder: &self.retained.placeholder,
                 sampler: &self.retained.sampler,
             },
@@ -53,7 +53,7 @@ impl SceneGpu {
             device,
             authority.queue(),
             crate::dynamic::DynamicBindings {
-                pipelines,
+                layout: pipelines.material_layout(),
                 placeholder: &self.retained.placeholder,
                 sampler: &self.retained.sampler,
             },

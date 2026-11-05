@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, PropertyValue, RenderTextureId, ShaderId, ShaderSource, TextureRef,
-    TextureSlot, WorldRenderTexture, WorldShader,
+    TextureSlot, WorldRenderTexture, WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
@@ -14,7 +14,7 @@ use worldrunner_world_simulation::{
 };
 
 use super::super::frame::{Available, ShaderInfo};
-use super::super::snapshot::GraphicsSnapshot;
+use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
 pub fn world() -> World {
     World::new(WorldSettings::default()).unwrap()
@@ -29,6 +29,7 @@ pub fn render_texture(world: &mut World, size: [u32; 2]) -> RenderTextureId {
             depth_bits: 0,
             mip_count: 1,
             srgb: false,
+            sampler: WorldSampler::default(),
             generation: 0,
         })
         .unwrap()

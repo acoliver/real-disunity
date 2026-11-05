@@ -22,7 +22,7 @@ use worldrunner_world_simulation::presentation::CameraClear;
 use super::builtins::{camera_layer, draw_layer};
 use super::ids;
 use super::properties::{Textures, layer};
-use super::snapshot::{CameraView, GraphicsSnapshot, RendererView};
+use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
 /// The tag key whose value names a pass's purpose.
 const PASS_TAG: &str = "LightMode";
@@ -67,6 +67,10 @@ pub enum Skip {
     SourceUnavailable,
     NoBlitSource,
     PartialViewport,
+    /// A dispatch is not an offscreen record; the flush executor runs it.
+    Dispatch,
+    /// A copy or blit source that names a global texture, which a record never does.
+    GlobalSource,
 }
 
 /// Why a renderer was left out of the frame.
@@ -182,16 +186,17 @@ impl<'a> Mapper<'a> {
     }
 
     fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
-        match *work {
+        match work {
+            OffscreenWork::Dispatch { .. } => Err(Skip::Dispatch),
             OffscreenWork::CameraRender { camera, target } => self
-                .camera_render(camera, target)
+                .camera_render(*camera, *target)
                 .map(|record| vec![record]),
             OffscreenWork::Blit {
                 source,
                 target,
                 material,
                 pass,
-            } => self.blit(source, target, material, pass),
+            } => self.blit(source.clone(), *target, *material, *pass),
             OffscreenWork::CopyTexture {
                 source,
                 source_element,
@@ -200,14 +205,14 @@ impl<'a> Mapper<'a> {
                 target_element,
                 target_mip,
             } => {
-                let (source, target) = (self.source(source)?, self.target(target)?);
+                let (source, target) = (self.source(source.clone())?, self.target(*target)?);
                 Ok(vec![Record::CopyTexture {
                     source,
-                    source_element,
-                    source_mip,
+                    source_element: *source_element,
+                    source_mip: *source_mip,
                     target,
-                    target_element,
-                    target_mip,
+                    target_element: *target_element,
+                    target_mip: *target_mip,
                 }])
             }
         }
@@ -231,6 +236,7 @@ impl<'a> Mapper<'a> {
     ) -> Result<worldrunner_render_program::ids::TextureId, Skip> {
         match source {
             TextureRef::None => Err(Skip::NoBlitSource),
+            TextureRef::Global(_) => Err(Skip::GlobalSource),
             TextureRef::Render(id) => {
                 if !self.snapshot.render_textures.contains_key(&id) {
                     return Err(Skip::StaleSource);

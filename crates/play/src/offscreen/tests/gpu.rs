@@ -17,7 +17,7 @@ use worldrunner_render_program::shader::ProgramShader;
 use worldrunner_render_program::synthetic::shaders::{blit_passes, camera_passes};
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,
-    ShaderSource, TextureRef, WorldRenderTexture, WorldShader,
+    ShaderSource, TextureRef, WorldRenderTexture, WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{MeshRenderer, World};
@@ -26,8 +26,8 @@ use super::super::adapter::{OffscreenAdapter, build};
 use super::super::assets::{AssetError, Assets};
 use super::super::frame::{Adapted, Settings};
 use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
-use super::super::snapshot::GraphicsSnapshot;
 use super::support::{camera, render_texture, renderer_with, world};
+use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
 const MESH: u64 = (1 << 41) + 1;
 const SIDE: u32 = 4;
@@ -204,6 +204,7 @@ fn target(world: &mut World, format: u32) -> RenderTextureId {
             depth_bits: 0,
             mip_count: 1,
             srgb: false,
+            sampler: WorldSampler::default(),
             generation: 0,
         })
         .unwrap()

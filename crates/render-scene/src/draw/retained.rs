@@ -84,6 +84,11 @@ impl SceneGpu {
                 .map(|view| crate::compositor::publication::key(&view.published)),
         );
         keys.extend(
+            self.views
+                .iter()
+                .map(|view| crate::compositor::publication::key(&view.compaction.committed)),
+        );
+        keys.extend(
             self.instances
                 .batches
                 .values()

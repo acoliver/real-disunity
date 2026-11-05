@@ -15,7 +15,7 @@ use crate::upload::{FRAME_GROUP, MATERIAL_GROUP, upload_buffer, upload_texture};
 
 #[derive(Clone, Copy)]
 pub(crate) struct DynamicBindings<'a> {
-    pub pipelines: &'a ScenePipelines,
+    pub layout: &'a BindGroupLayout,
     pub placeholder: &'a Texture,
     pub sampler: &'a Sampler,
 }
@@ -35,6 +35,7 @@ struct QuadDraw {
     tint: Buffer,
     instance_count: u32,
     material: BindGroup,
+    clip_rect: Option<[u32; 4]>,
 }
 
 #[derive(Debug, Default)]
@@ -97,7 +98,14 @@ impl DynamicGpu {
             validate_quad(quad, index, self.textures.len())?;
         }
         let mut ordered: Vec<_> = quads.iter().collect();
-        ordered.sort_by_key(|quad| (quad.overlay, quad.sorting_layer, quad.sorting_order));
+        ordered.sort_by_key(|quad| {
+            (
+                quad.overlay,
+                quad.sorting_layer,
+                quad.sorting_order,
+                quad.hierarchy_order,
+            )
+        });
         let placeholder = bindings
             .placeholder
             .create_view(&TextureViewDescriptor::default());
@@ -108,14 +116,15 @@ impl DynamicGpu {
             .collect();
         let mut draws = Vec::with_capacity(ordered.len());
         let material_bindings = QuadBindings {
-            layout: bindings.pipelines.material_layout(),
+            layout: bindings.layout,
             placeholder: &placeholder,
             views: &views,
             samplers: &self.samplers,
             sampler: bindings.sampler,
         };
         for group in ordered.chunk_by(|a, b| {
-            a.texture == b.texture
+            a.clip_rect == b.clip_rect
+                && a.texture == b.texture
                 && a.corners == b.corners
                 && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
                 && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
@@ -145,11 +154,24 @@ impl DynamicGpu {
         frame_group: &BindGroup,
         pipelines: &ScenePipelines,
     ) {
+        self.draw_with_pipeline(pass, Some(frame_group), pipelines.unlit_alpha(), None);
+    }
+
+    pub(crate) fn draw_with_pipeline(
+        &self,
+        pass: &mut RenderPass<'_>,
+        frame_group: Option<&BindGroup>,
+        pipeline: &wgpu::RenderPipeline,
+        viewport: Option<[u32; 2]>,
+    ) -> crate::draw::DrawCount {
+        let mut count = crate::draw::DrawCount::default();
         if self.draws.is_empty() {
-            return;
+            return count;
         }
-        pass.set_pipeline(pipelines.unlit_alpha());
-        pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
+        pass.set_pipeline(pipeline);
+        if let Some(frame_group) = frame_group {
+            pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
+        }
         pass.set_index_buffer(
             self.indices
                 .as_ref()
@@ -158,12 +180,17 @@ impl DynamicGpu {
             wgpu::IndexFormat::Uint32,
         );
         for draw in &self.draws {
+            if viewport.is_some_and(|size| !set_scissor(pass, draw.clip_rect, size)) {
+                continue;
+            }
             pass.set_bind_group(MATERIAL_GROUP, &draw.material, &[]);
             pass.set_vertex_buffer(0, draw.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.instance.slice(..));
             pass.set_vertex_buffer(2, draw.tint.slice(..));
             pass.draw_indexed(0..6, 0, 0..draw.instance_count);
+            count.draw(u64::from(draw.instance_count));
         }
+        count
     }
 }
 
@@ -214,6 +241,7 @@ impl QuadDraw {
             tint: upload_buffer(device, queue, "dynamic tints", BufferUsages::VERTEX, &tints),
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
             material,
+            clip_rect: quad.clip_rect,
         }
     }
 }
@@ -269,4 +297,15 @@ fn quad_material(
         &[0u8; 48],
     );
     crate::upload::material_group(device, bindings.layout, &uniform, &bound, sampler, &heights)
+}
+
+fn set_scissor(pass: &mut RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]) -> bool {
+    let [x, y, width, height] = clip.unwrap_or([0, 0, size[0], size[1]]);
+    let width = width.min(size[0].saturating_sub(x));
+    let height = height.min(size[1].saturating_sub(y));
+    if width == 0 || height == 0 {
+        return false;
+    }
+    pass.set_scissor_rect(x, size[1] - y - height, width, height);
+    true
 }

@@ -7,8 +7,8 @@ use worldrunner_world_simulation::presentation::Camera;
 use super::super::builtins::{
     CAMERA_POSITION, OBJECT_TO_WORLD, VIEW, WORLD_TO_OBJECT, camera_layer, draw_layer,
 };
-use super::super::snapshot::CameraView;
 use super::support::{IDENTITY, assert_close, matrix, product, transform};
+use worldrunner_world_simulation::graphics::CameraView;
 
 /// The bit patterns of a matrix, so that a copy is compared exactly.
 fn bits(matrix: &[f32; 16]) -> [u32; 16] {

@@ -129,7 +129,7 @@ pub fn append_ui(
         quads: plan.quads.iter().copied().map(into_quad).collect(),
         textures: BTreeMap::new(),
     };
-    native::append_ui_from(&mut frame, crate::ui::into_native(ui)?, next)?;
+    native::append_ui_from(&mut frame, ui, next)?;
     *plan = from_presentation(
         frame,
         &SpriteTextures {

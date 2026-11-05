@@ -4,8 +4,8 @@ use glam::{Mat4, Quat, Vec3};
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 
 use super::super::builtins::{VIEW_PROJECTION, camera_layer};
-use super::super::snapshot::CameraView;
 use super::support::{IDENTITY, assert_close, matrix, transform};
+use worldrunner_world_simulation::graphics::CameraView;
 
 fn view(settings: Camera, position: Vec3, rotation: Quat) -> CameraView {
     CameraView {

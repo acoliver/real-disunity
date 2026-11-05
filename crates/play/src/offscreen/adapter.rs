@@ -24,7 +24,7 @@ use super::frame::{
 };
 use super::ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
-use super::snapshot::GraphicsSnapshot;
+use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
 /// What the adapter keeps between frames.
 pub struct OffscreenAdapter {
@@ -219,9 +219,9 @@ fn usable(stored: &BTreeMap<u64, Stored>) -> BTreeSet<u64> {
 /// The identities of the stored textures the snapshot's properties and records name.
 fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
     let mut found = BTreeSet::new();
-    let mut note = |texture: TextureRef| {
+    let mut note = |texture: &TextureRef| {
         if let TextureRef::Asset(identity) = texture {
-            found.insert(identity);
+            found.insert(*identity);
         }
     };
     let properties = snapshot
@@ -237,15 +237,15 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
         .chain(snapshot.global.iter().map(|global| &global.properties));
     for properties in properties {
         for (_, slot) in &properties.textures {
-            note(slot.texture);
+            note(&slot.texture);
         }
     }
     for work in &snapshot.work {
-        match *work {
+        match work {
             OffscreenWork::Blit { source, .. } | OffscreenWork::CopyTexture { source, .. } => {
                 note(source);
             }
-            OffscreenWork::CameraRender { .. } => {}
+            OffscreenWork::CameraRender { .. } | OffscreenWork::Dispatch { .. } => {}
         }
     }
     found

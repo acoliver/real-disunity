@@ -12,7 +12,7 @@
 use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 
-use super::snapshot::CameraView;
+use worldrunner_world_simulation::graphics::CameraView;
 
 /// The matrix that takes OpenGL clip coordinates to the clip space a Unity Vulkan module is
 /// drawn in.

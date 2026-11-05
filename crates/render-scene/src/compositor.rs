@@ -1,6 +1,8 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod capture;
+#[cfg(test)]
+mod overlay_tests;
 pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
@@ -9,6 +11,7 @@ mod depth_prefix;
 mod environment;
 mod offscreen;
 mod output;
+mod overlay;
 mod programs;
 pub(crate) mod publication;
 mod temporal;
@@ -30,6 +33,8 @@ use worldrunner_render_post::{
 /// Encoding requires the authority-owned encoder. Cancellation discards publication.
 pub struct FrameRenderer {
     chain: PostChain<FrameOutput>,
+    overlay: overlay::OverlayStage,
+    output_format: wgpu::TextureFormat,
     environment_conventions: [Option<worldrunner_render_plan::SceneSpecularConvention>; 2],
     pub(crate) water: Option<crate::water::Water>,
     water_state: std::rc::Rc<std::cell::RefCell<crate::water::WaterState>>,
@@ -90,6 +95,8 @@ impl FrameRenderer {
         output_format: wgpu::TextureFormat,
     ) -> Result<Self, worldrunner_render_post::PostError> {
         Ok(Self {
+            overlay: overlay::OverlayStage::default(),
+            output_format,
             environment_conventions: [None; 2],
             ssao: None,
             ssr: None,
@@ -177,6 +184,8 @@ impl FrameRenderer {
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
         let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
         let mut renderer = Self {
+            overlay: overlay::OverlayStage::default(),
+            output_format,
             environment_conventions: [None; 2],
             ssao_requested,
             ssr_requested,
@@ -449,6 +458,7 @@ impl FrameRenderer {
         }
         self.chain.encode_resolve(encoder);
         self.chain.encode(encoder, output);
+        self.overlay.encode(encoder, output);
         self.chain
             .finish_timing(encoder)
             .map_err(FrameError::from)?;

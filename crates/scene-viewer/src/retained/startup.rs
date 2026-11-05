@@ -45,6 +45,9 @@ impl RetainedHost {
             None => 0,
         };
         let mut host = Self {
+            picking: super::picking::Picking::default(),
+            work: super::work::WorkServices::default(),
+            timers: super::timers::Timers::default(),
             statistics: None,
             gpu_timing: if options.gpu_timing {
                 super::GpuTiming::Pending
@@ -80,6 +83,7 @@ impl RetainedHost {
                 .enumerate()
                 .map(|(index, object)| (super::ObjectId(index as u64), object))
                 .collect();
+            self.picking.initialize(scene, &self.objects);
             self.decals = scene
                 .decals()
                 .iter()

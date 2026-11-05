@@ -56,7 +56,17 @@ It writes the script layouts of the player's game assemblies with `csharp/Disuni
 
 The adapter takes a `GraphicsSnapshot`, which a host in the process of the world fills with `GraphicsSnapshot::take`. A window that plays a built player loads the world through `disunity-ffi` as a dynamic library, and `DisunityHost` does not expose the world's graphics state, so `PlayDriver` cannot call the adapter yet. What it needs from `disunity-runtime` is a call that returns the frame's `GraphicsSnapshot`: the offscreen records (`disunity_offscreen_take` exists), the cameras they name with their settings and pose, the live shaders with their sources, the materials with their properties and keywords, the render textures, the global state, and the mesh renderers with their layers, slot materials, property blocks and render queues. The ABI has no enumeration of shaders, materials or render textures and no read of a shader's source yet. With that, each frame is `OffscreenAdapter::adapt`, `build`, `OffscreenOperations::admit` and `SceneGpu::admit_offscreen` before the scene is encoded. No host frame creates a `ProgramRuntime` or an arena today.
 
+`play_player_window` draws built-player mesh objects and screen-space overlay UI
+through the retained scene renderer. Text coverage and image quads retain native
+hierarchy order and pixel clip bounds. UI replacements track draw changes, image
+texture generations and viewport size; unchanged frames reuse the overlay.
+Ordinary 2D scene quads and world-space UI remain outside this retained path.
+
 ## Tests
+
+The library's synthetic retained-player UI test runs the managed host and captures
+windowless frames. It requires .NET 8 and a GPU adapter and checks image bytes,
+text, clipping and unchanged-frame UI update counts without opening a window.
 
 `tests/play_window.rs` plays all three games in a 480x270 window and checks the captured pixels. It needs an X display; run it as the lavapipe CI job does:
 

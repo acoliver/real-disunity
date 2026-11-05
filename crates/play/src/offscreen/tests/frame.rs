@@ -7,7 +7,7 @@ use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties,
-    TextureRef, WorldRenderTexture,
+    TextureRef, WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
@@ -243,6 +243,7 @@ fn a_render_texture_keeps_its_format_depth_mips_srgb_and_generation() {
         depth_bits: 24,
         mip_count: 4,
         srgb: true,
+        sampler: WorldSampler::default(),
         generation: 0,
     };
     let texture = world.create_render_texture(description).unwrap();
@@ -442,7 +443,7 @@ fn a_camera_with_a_partial_viewport_is_skipped() {
 }
 
 struct Drawn {
-    snapshot: super::super::snapshot::GraphicsSnapshot,
+    snapshot: worldrunner_world_simulation::graphics::GraphicsSnapshot,
 }
 
 /// A camera that sees layers 1 and 2 and three renderers: one on layer 1 with a property block

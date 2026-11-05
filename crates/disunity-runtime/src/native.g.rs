@@ -893,6 +893,18 @@ pub struct DisunityPropertyRead {
     pub offset_y: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DisunityUiDraw {
+    /// 0: image/solid graphic; 1: text sampling prepared R8 coverage.
+    pub kind: u32,
+    pub hierarchy_order: u64,
+    pub clip_x: u32,
+    pub clip_y: u32,
+    pub clip_width: u32,
+    pub clip_height: u32,
+}
+
 /// The ABI revision these records belong to.
 pub const DISUNITY_ABI_VERSION: u32 = 7;
 

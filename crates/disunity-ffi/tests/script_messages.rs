@@ -1,27 +1,8 @@
-use std::ffi::CString;
-use worldrunner_disunity_ffi::{
-    abi::*, scheduling::*, script_messages::disunity_script_type_messages,
-};
+use worldrunner_disunity_ffi::{abi::*, scheduling::*, script_messages::disunity_script_messages};
 
 const FIXED_UPDATE: u32 = 3;
 const UPDATE: u32 = 4;
 const LATE_UPDATE: u32 = 5;
-
-fn report(world: u64, assembly: &str, type_name: &str, messages: u32) -> i32 {
-    let (assembly, type_name) = (
-        CString::new(assembly).unwrap(),
-        CString::new(type_name).unwrap(),
-    );
-    unsafe {
-        disunity_script_type_messages(
-            world,
-            assembly.as_ptr().cast(),
-            type_name.as_ptr().cast(),
-            messages,
-        )
-        .code
-    }
-}
 
 /// Resumes every callback the advance yields and returns the messages in order.
 unsafe fn drain(world: u64, mut work: DisunityAdvance) -> Vec<u32> {
@@ -39,19 +20,19 @@ unsafe fn drain(world: u64, mut work: DisunityAdvance) -> Vec<u32> {
     seen
 }
 
-/// A world with one script bound to `identity`, after its type reported `messages` if given.
+/// A world with one script bound to `identity`, after it reported `messages` if given.
 unsafe fn world_with_script(identity: u64, messages: Option<u32>) -> u64 {
     let (mut world, mut object, mut script) = (0, 0, 0);
     unsafe {
         assert_eq!(disunity_world_create(&mut world).code, 0);
         assert_eq!(disunity_gameobject_create(world, &mut object).code, 0);
-        if let Some(messages) = messages {
-            assert_eq!(report(world, "Managed", &identity.to_string(), messages), 0);
-        }
         assert_eq!(
             disunity_script_register(world, object, identity, &mut script).code,
             0
         );
+        if let Some(messages) = messages {
+            assert_eq!(disunity_script_messages(world, identity, messages).code, 0);
+        }
         let mut work = DisunityAdvance::default();
         assert_eq!(disunity_object_wake(world, object, &mut work).code, 0);
         drain(world, work);
@@ -73,7 +54,7 @@ unsafe fn frame(world: u64) -> Vec<u32> {
 }
 
 #[test]
-fn a_reported_type_receives_only_the_messages_it_defines() {
+fn a_reported_script_receives_only_the_messages_it_defines() {
     unsafe {
         let world = world_with_script(7, Some(0b110));
         let seen = frame(world);
@@ -84,17 +65,17 @@ fn a_reported_type_receives_only_the_messages_it_defines() {
 }
 
 #[test]
-fn a_type_reported_after_its_script_registered_takes_effect() {
+fn a_report_made_after_the_first_frame_takes_effect() {
     unsafe {
         let world = world_with_script(7, None);
-        assert_eq!(report(world, "Managed", "7", 0), 0);
+        assert_eq!(disunity_script_messages(world, 7, 0).code, 0);
         assert!(frame(world).is_empty());
         disunity_world_destroy(world);
     }
 }
 
 #[test]
-fn an_unreported_type_receives_all_three_messages() {
+fn an_unreported_script_receives_all_three_messages() {
     unsafe {
         let world = world_with_script(7, None);
         assert_eq!(frame(world), [FIXED_UPDATE, UPDATE, LATE_UPDATE]);
@@ -103,37 +84,43 @@ fn an_unreported_type_receives_all_three_messages() {
 }
 
 #[test]
-fn unknown_bits_null_text_invalid_utf8_and_stale_worlds_are_rejected() {
+fn a_report_applies_to_the_named_script_only() {
     unsafe {
-        let mut world = 0;
-        assert_eq!(disunity_world_create(&mut world).code, 0);
-        let valid = b"Managed\0";
-        let invalid: [u8; 3] = [0xff, 0xfe, 0];
-        let call = |assembly: *const u8, name: *const u8, bits| {
-            disunity_script_type_messages(world, assembly, name, bits).code
-        };
-        let invalid_argument = result_code::INVALID_ARGUMENT;
-        assert_eq!(call(valid.as_ptr(), valid.as_ptr(), 8), invalid_argument);
+        let world = world_with_script(7, None);
+        let (mut object, mut other) = (0, 0);
+        assert_eq!(disunity_gameobject_create(world, &mut object).code, 0);
         assert_eq!(
-            call(valid.as_ptr(), valid.as_ptr(), u32::MAX),
-            invalid_argument
+            disunity_script_register(world, object, 8, &mut other).code,
+            0
         );
-        assert_eq!(call(std::ptr::null(), valid.as_ptr(), 1), invalid_argument);
-        assert_eq!(call(valid.as_ptr(), std::ptr::null(), 1), invalid_argument);
-        assert_eq!(call(invalid.as_ptr(), valid.as_ptr(), 1), invalid_argument);
-        assert_eq!(call(valid.as_ptr(), invalid.as_ptr(), 1), invalid_argument);
-        assert_eq!(call(valid.as_ptr(), valid.as_ptr(), 7), 0);
-        assert_eq!(disunity_world_destroy(world).code, 0);
-        assert_eq!(call(valid.as_ptr(), valid.as_ptr(), 7), result_code::ERROR);
+        assert_eq!(disunity_script_messages(world, 8, 0).code, 0);
+        let mut work = DisunityAdvance::default();
+        assert_eq!(disunity_object_wake(world, object, &mut work).code, 0);
+        drain(world, work);
+        frame(world);
+        assert_eq!(frame(world), [FIXED_UPDATE, UPDATE, LATE_UPDATE]);
+        disunity_world_destroy(world);
     }
 }
 
 #[test]
-fn an_empty_type_name_is_rejected_by_the_world() {
+fn unknown_bits_unbound_scripts_and_stale_worlds_are_rejected() {
     unsafe {
-        let mut world = 0;
-        assert_eq!(disunity_world_create(&mut world).code, 0);
-        assert_ne!(report(world, "Managed", "", 1), 0);
+        let world = world_with_script(7, None);
+        let invalid_argument = result_code::INVALID_ARGUMENT;
+        assert_eq!(disunity_script_messages(world, 7, 8).code, invalid_argument);
+        assert_eq!(
+            disunity_script_messages(world, 7, u32::MAX).code,
+            invalid_argument
+        );
+        assert_ne!(disunity_script_messages(world, 99, 1).code, 0);
+        assert_ne!(disunity_script_messages(world, 0, 1).code, 0);
+        assert_eq!(disunity_script_messages(world, 7, 7).code, 0);
         assert_eq!(disunity_world_destroy(world).code, 0);
+        assert_eq!(
+            disunity_script_messages(world, 7, 7).code,
+            result_code::ERROR
+        );
+        assert_eq!(disunity_script_messages(0, 7, 7).code, result_code::ERROR);
     }
 }

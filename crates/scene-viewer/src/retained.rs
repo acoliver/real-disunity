@@ -5,6 +5,13 @@ use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObjec
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 mod startup;
+mod timers;
+pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
+mod work;
+pub use work::{
+    CancelToken, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
+    WorkTicket,
+};
 mod timing;
 pub use timing::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
@@ -47,13 +54,15 @@ mod terrain_tests;
 
 #[cfg(test)]
 mod batch_tests;
-/// Caller-selected identity. Initial objects have IDs 0 through `object_count - 1`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ObjectId(pub u64);
+pub use worldrunner_render_plan::{ObjectId, PickHit};
+mod picking;
+pub use picking::RetainedPickHit;
 
 /// Ordered edits reference the latest accepted mesh and material tables.
 #[derive(Clone, Debug)]
 pub enum RetainedUpdate {
+    /// Replaces screen-space text without rebuilding scene resources. Empty plans clear it.
+    Ui(std::sync::Arc<worldrunner_render_scene::simulation::UiOverlay>),
     Decal(DecalUpdate),
     Add {
         id: ObjectId,
@@ -116,6 +125,8 @@ pub enum RetainedInput {
     },
     /// Position in physical window pixels.
     PointerMoved([f64; 2]),
+    /// Cancels active gestures before focus-loss releases are delivered.
+    PointerCancelled,
     Button {
         button: MouseButton,
         pressed: bool,
@@ -133,6 +144,12 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
+    WorkReady,
+    /// A host timer expired, including during presentation pauses.
+    Timer {
+        handle: TimerHandle,
+    },
     /// Final notification, after every outstanding capture has been cancelled.
     Shutdown,
     Input(RetainedInput),
@@ -175,6 +192,9 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    picking: picking::Picking,
+    work: work::WorkServices,
+    timers: timers::Timers,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
@@ -252,6 +272,10 @@ impl RetainedHost {
             crate::validate(&scene, &self.options)?;
             self.scene = Some(scene);
             self.enqueue(update, true);
+            return Ok(());
+        }
+        if matches!(&update, RetainedUpdate::Ui(_)) {
+            self.enqueue(update, false);
             return Ok(());
         }
         self.apply_scene_update(update)
@@ -376,8 +400,8 @@ impl RetainedHost {
         Ok(())
     }
 
-    /// Returns transitions to deliver in order. Focus loss first releases keys in
-    /// physical-key order, then buttons in button order, before the focus event.
+    /// Returns transitions to deliver in order. Focus loss first cancels gestures, then
+    /// releases keys in physical-key order and buttons in button order before the focus event.
     /// Repeated focus loss never repeats a release.
     pub fn input(&mut self, input: RetainedInput) -> Vec<RetainedInput> {
         if let RetainedInput::Resized(size) = &input {

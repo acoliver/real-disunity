@@ -653,6 +653,8 @@ fn build(
         ))
     };
     let mut renderer = FrameRenderer {
+        overlay: super::overlay::OverlayStage::default(),
+        output_format: settings.output_format,
         chain: PostChain::new(device, settings.frame, Resources::default(), factory)?,
         environment_conventions: [None; 2],
         water: None,

@@ -4121,6 +4121,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "worldrunner-render-program"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "naga",
+ "pollster",
+ "thiserror 2.0.21",
+ "wgpu",
+ "worldrunner-render-gpu",
+ "worldrunner-unity-serialized",
+]
+
+[[package]]
 name = "worldrunner-render-scene"
 version = "0.1.0"
 dependencies = [
@@ -4216,7 +4229,6 @@ dependencies = [
  "png",
  "serde",
  "serde_json",
- "spirv-webgpu-transform",
  "tempfile",
  "thiserror 2.0.21",
  "worldrunner-original-games",
@@ -4227,6 +4239,7 @@ dependencies = [
 name = "worldrunner-unity-serialized"
 version = "0.1.0"
 dependencies = [
+ "spirv-webgpu-transform",
  "thiserror 2.0.21",
 ]
 

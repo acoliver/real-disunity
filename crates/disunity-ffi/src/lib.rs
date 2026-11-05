@@ -50,6 +50,7 @@ pub mod physics_materials;
 #[cfg(test)]
 mod physics_tests;
 pub mod presentation;
+pub mod presentation_ui;
 pub mod scheduling;
 pub mod script_messages;
 pub mod sorting_group;

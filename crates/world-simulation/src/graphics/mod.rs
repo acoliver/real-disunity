@@ -176,6 +176,7 @@ impl WorldShader {
 }
 
 /// The graphics state of one world.
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct GraphicsState {
     shaders: Slab<WorldShader>,
     materials: Slab<WorldMaterial>,

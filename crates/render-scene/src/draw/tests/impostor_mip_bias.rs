@@ -81,8 +81,8 @@ fn render_center(
 
 /// Both sites, by the expression the fragment returns.
 const SITES: [&str; 2] = [
-    "scene_atlas_sample(albedo_texture,input)",
-    "scene_atlas_first(albedo_texture,input)",
+    "scene_atlas_sample(albedo_texture, input, scene_atlas_footprint(albedo_texture, input))",
+    "scene_atlas_first(albedo_texture, scene_atlas_footprint(albedo_texture, input))",
 ];
 
 fn site_source(site: &str) -> String {

@@ -40,7 +40,10 @@ fn alpha_coverage_requires_multisampled_masked_pass() {
     assert!(!key.alpha_to_coverage(1));
     assert!(key.alpha_to_coverage(4));
     for key in PipelineKey::ALL {
-        assert_eq!(key.alpha_to_coverage(4), key.masked && key.index() >= 8);
+        assert_eq!(
+            key.alpha_to_coverage(4),
+            key.masked && (key.index() & 8) != 0
+        );
         assert!(!key.alpha_to_coverage(1));
     }
 }

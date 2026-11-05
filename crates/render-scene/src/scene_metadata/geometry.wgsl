@@ -1,9 +1,9 @@
 fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> METADATA_TYPE {
     var input = original;
     input.world_position = scene_relief_position(original);
-    var albedo = scene_albedo(scene_atlas_sample(albedo_texture, input), input.tint);
-    let rm = scene_atlas_sample(rough_metal_texture, input);
-    let surface = scene_surface_channels(input, rm);
+    let footprint = scene_atlas_footprint(albedo_texture, input);
+    var albedo = scene_albedo(scene_atlas_sample(albedo_texture, input, footprint), input.tint);
+    let surface = scene_surface_channels(input);
     let geometric = normalize(input.world_normal) * select(-1.0, 1.0, front);
     let mapped_normal = sample_normal(input, geometric, input.world_position, input.world_tangent);
     var normal = scene_fold_direction(mapped_normal, input.ground_fold, material.contact_surface.zw);

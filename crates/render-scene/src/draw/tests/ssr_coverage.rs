@@ -6,7 +6,7 @@ fn sharpened_coverage_half_boundary_survives_derivative_clamping_and_rounding() 
         .split("fn scene_coverage_alpha")
         .nth(1)
         .unwrap()
-        .split("fn scene_mask_alpha")
+        .split("fn scene_sampled_alpha")
         .next()
         .unwrap();
     for width in [0.0, 1e-12, 0.03125, 1.0, 1e10] {

@@ -1,7 +1,11 @@
 mod observations;
 mod replacement;
+mod residents;
+#[cfg(test)]
+pub(in crate::draw) mod schedule_tests;
 use super::{GpuLod, SceneGpu};
 use crate::terrain::streaming::{TerrainChunk, select_with_retired};
+use residents::insert;
 use std::{cell::RefCell, rc::Rc};
 use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
 use worldrunner_render_plan::RenderScene;
@@ -122,7 +126,8 @@ impl Streaming {
             if !selection.leaves.contains(&chunk) {
                 continue;
             }
-            residents.push((chunk, upload_chunk(context, terrain, chunk)?));
+            let lod = upload_chunk(context, terrain, chunk)?;
+            insert(&mut residents, chunk, lod);
         }
         *self.drawing.borrow_mut() = Some(Prepared {
             owner,

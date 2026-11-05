@@ -30,6 +30,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player <player data directory>
        unity-import player-decode <player data directory>
        unity-import player-shader-report <player data directory>
+       unity-import player-compute-report <player data directory>
        unity-import player-scripts <player data directory> <script layouts JSON>
        unity-import player-plan <player data directory> <scene file> <script layouts JSON>
        unity-import player-resources <player data directory> <script layouts JSON> <output directory>
@@ -95,6 +96,9 @@ fn run_shader_reports(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
     Some(match args {
         [command, data] if command == "player-shader-report" => {
             player_shader_report(Path::new(data))
+        }
+        [command, data] if command == "player-compute-report" => {
+            player_compute_report(Path::new(data))
         }
         [command, data] if command == "player-shader-parameters" => {
             player_shader_parameters(Path::new(data))
@@ -347,6 +351,20 @@ fn player_shader_report(data: &Path) -> Result<(), Box<dyn Error>> {
     for (cause, count) in &report.failures {
         println!("{count} {cause}: {}", report.examples[cause]);
     }
+    Ok(())
+}
+
+/// Counts what becomes of every compute shader kernel of a player: its variants' modules, their
+/// preparation for naga, and the stage programs, layouts and targets they build.
+fn player_compute_report(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!(
+        "{}",
+        worldrunner_unity_import::player_compute_report::compute_report(&paths)?
+    );
     Ok(())
 }
 

@@ -804,6 +804,24 @@ fn a_shader_reads_back_its_name_and_source() {
         std::str::from_utf8(&bytes).unwrap(),
         "Terrain/Splatsharedassets3.assets"
     );
+}
+
+#[test]
+fn a_shader_read_needs_room_for_its_text_and_a_live_shader() {
+    let world = new_world();
+    let id = shader(world, "Terrain/Splat");
+    let (file, length) = text("sharedassets3.assets");
+    let mut info = DisunityShaderInfo::default();
+    unsafe {
+        assert_eq!(
+            disunity_shader_source_write(world, id, file, length, -9).code,
+            0
+        );
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+    }
     info.text_capacity = 32;
     let mut short = [0_u8; 32];
     unsafe {

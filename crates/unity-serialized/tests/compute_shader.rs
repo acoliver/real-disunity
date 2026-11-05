@@ -57,7 +57,10 @@ fn kernel(w: &mut ObjectWriter, name: &str, variants: &[([u32; 3], u32)]) {
 
 /// A compute shader with one platform variant that holds `kernels`, followed by the constant
 /// buffer list and a second platform variant the reader does not look at.
-fn shader(name: &str, kernels: &[(&str, Vec<([u32; 3], u32)>)]) -> Vec<u8> {
+/// The variants of one kernel: each has the group size it states and a sampler count.
+type Variants = Vec<([u32; 3], u32)>;
+
+fn shader(name: &str, kernels: &[(&str, Variants)]) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string(name).unwrap();
     w.u32(2).u32(2).u32(0);

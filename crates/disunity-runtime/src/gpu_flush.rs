@@ -18,8 +18,6 @@ pub type GpuFlushHandler = Box<dyn FnMut(&mut GpuFlush<'_>) -> Result<(), String
 
 /// The function the engine image calls to flush; see `disunity_gpu_flush_register`.
 type Trampoline = unsafe extern "C" fn(u64, u64, *mut u8, u32, *mut u32) -> R;
-pub(crate) type Register = unsafe extern "C" fn(u64, Option<Trampoline>, u64) -> R;
-type RegisterDefault = unsafe extern "C" fn(Option<Trampoline>, u64) -> R;
 
 /// The engine functions a flush calls, resolved once from the image the host retains.
 pub(crate) struct Calls {
@@ -203,7 +201,7 @@ impl DisunityHost {
     }
 
     fn register_default(&self, context: *mut FlushContext) -> Result<(), HostError> {
-        let register: RegisterDefault =
+        let register: unsafe extern "C" fn(Option<Trampoline>, u64) -> R =
             symbol(&self._library, b"disunity_gpu_flush_register_default\0")?;
         let callback = (!context.is_null()).then_some(trampoline as Trampoline);
         let result = unsafe { register(callback, context as u64) };
@@ -216,7 +214,8 @@ impl DisunityHost {
 
     /// Registers the context (or nothing, for null) with the engine image for `world`.
     fn register_flush(&self, world: u64, context: *mut FlushContext) -> Result<(), HostError> {
-        let register: Register = symbol(&self._library, b"disunity_gpu_flush_register\0")?;
+        let register: unsafe extern "C" fn(u64, Option<Trampoline>, u64) -> R =
+            symbol(&self._library, b"disunity_gpu_flush_register\0")?;
         let callback = (!context.is_null()).then_some(trampoline as Trampoline);
         let result = unsafe { register(world, callback, context as u64) };
         if result.code == 0 {

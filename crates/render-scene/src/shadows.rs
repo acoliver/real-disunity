@@ -413,7 +413,16 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
         self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+    }
+
+    /// Admitted player program draws are drawn by the configured compositor only.
+    fn refuse_programs(&self) -> Result<(), ShadowError> {
+        if self.gpu.has_programs() {
+            return Err(ShadowError::UnsupportedFeature("player programs"));
+        }
+        Ok(())
     }
 
     /// Encode with completed depth evidence. Empty depth clears all maps and disables
@@ -426,6 +435,7 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
         self.encode_fitted(
             context,
             view,

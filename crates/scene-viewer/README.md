@@ -4,6 +4,19 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Native window focus
+
+Both `RetainedHost::focus_window()` and `RetainedEventHost::focus_window()`
+forward one immediate request to the session's native window, including during
+presentation pauses. They return `WindowControlError::NoWindow` before native
+window creation and `WindowControlError::Unsupported` in windowless sessions.
+Cursor controls retain `CursorError::Unavailable` when there is no native window.
+A successful request does not guarantee that the window system grants focus.
+Focus changes arrive only as ordinary `RetainedInput::Focused(bool)` events;
+the request generates no input. The hosts and error type are also exported by
+`worldrunner::scene::viewer`. See the
+[window control contract](../../dev-docs/rendering/frame-executor.md#retained-native-window-controls).
+
 ## Host timers
 
 Both retained host interfaces provide `timer_at`, `timer_every`, `timer_now` and

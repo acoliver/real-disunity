@@ -10,6 +10,19 @@ a normalized material mixture. Reordering a dense palette with the matching grid
 remap does not change the rendered surface. Blur radii, tints, and rotations come
 from scene inputs; no content-specific blur table is embedded.
 
+Streaming terrain residents remain sorted by `TerrainChunk`'s derived key
+(minimum sample coordinates, maximum coordinates, then stride), including retained
+source replacements. Forward, shadow, depth and metadata passes traverse the same
+ordered residents. Equal-depth boundary overlap therefore has stable ownership
+when the resident leaf set is identical, independently of upload retirement timing.
+Ordering does not change chunk geometry, streaming budgets or draw counts for
+an identical leaf set. Selection ranks candidates by descending projected error,
+then quadtree level from the root (descending stride), then the chunk's derived
+coordinate key. Exact-error ties therefore have explicit admission priority under
+constrained budgets, independent of resident storage and upload-completion history.
+Selected leaves are returned in derived-key order. Relative to history-based tie
+admission, only exact-error ties can change which geometry becomes resident.
+
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies
 to world-to-UV mapping; its inverse brings each layer normal into the common
@@ -47,6 +60,21 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json CARGO_BUILD_JOBS=2 \
   cargo test --locked -p worldrunner-render-scene -- --test-threads=1
 ```
 
+## Player program draws
+
+`SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted into the next frame encoded with this scene. `compositor::encode_scene` and `FrameEncoding::encode_scene` take them, and the scene's feature records them in the stock opaque pass after its own opaque geometry. They draw into the same color target and depth buffer, are depth tested against the scene's geometry, and leave through the frame's one submission with the stock resolve, output and capture copies. No pass, slot or entry point was added, and nothing else can reach the pass. `SceneGpu` accepts only draws from `ProgramRuntime::admit_draws`, so the arena, the frame's authority and the target signature were checked before they arrive. See the [program crate](../render-program/README.md#joining-a-renderer-frame) for admission and lifetime.
+
+Encoding checks the draws before it declares anything:
+
+- A scene with temporal reconstruction (velocity or a jittered projection), screen-space passes or multisampling fails with `FrameError::UnsupportedEffect` and the name `player programs with temporal reconstruction`, `... with screen-space passes` or `... with multisampling`.
+- Draws prepared for other attachments than the scene's color format and `Depth32Float` fail with `FrameError::FeaturePreparation` for `player programs`, carrying `ProgramError::TargetMismatch`.
+- An arena that retired, was dropped or belongs to another submission authority than the frame fails the same way with `LeaseError::Expired` or `LeaseError::ForeignAuthority`.
+- Every refusal comes before the encoder records anything for the frame. The checks take the admitted draws, so a frame they refuse leaves none behind for the next frame, and a later admission replaces draws that no frame has taken.
+
+A frame with no admitted draws is unchanged: `without_admitted_programs_the_frame_is_byte_identical_to_the_stock_scene_draw` compares its output bytes with a direct draw of the scene. A cancelled frame submits nothing, publishes no counters and leaves the target as it was.
+
+The tests are in `src/draw/tests/program_frame*`. `player_program_and_scene_gpu_draw_composite_in_one_submitted_frame` draws a red unlit engine card and two patches of a synthetic SPIR-V program in one frame, with explicit `ProgramParameters`, and checks engine-only, player-only and overlapping pixels, an unchanged `submitted_serial` while recording and a serial rise of exactly one. The patches' clip depths lie on either side of the card's depth, which is derived from the projection, so the expected pixels do not depend on the shaders. Run them with `cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1`.
+
 ## Material sampling
 
 Resident mesh and impostor materials share one sampler across all channels.
@@ -82,17 +110,34 @@ the decision and what remains before a policy can be enabled.
 Masked geometry filters albedo alpha and applies its material factor once.
 Forward and metadata passes use that alpha for coverage; shadows use their
 shadow cutoff. Flat impostors support varying atlas alpha without a relief
-atlas. Atlas footprints and conditional normal samples are computed in uniform
-control flow, before fragment-dependent branches or returns. Sampling uses
+atlas. Atlas footprints are computed in uniform control flow, before
+fragment-dependent branches or returns. Optional maps are sampled only when their
+material feature is enabled. A material-uniform gate skips atlas coordinates and
+derivatives entirely for ordinary materials, and relief depth is sampled only
+when relief is enabled. Sampling uses
 explicit gradients with the material mip bias, or explicit level zero according
 to the atlas policy. Clamped UVs and per-texture insets determine each footprint.
 Coverage is resolved after shading, and relief depth before discard, so normal
 frames and atlas derivatives retain their complete fragment quad.
 
+Surface and impostor materials specialize `SCENE_IMPOSTOR` independently of alpha
+coverage. Surface variants exclude atlas selection and relief sampling at compilation,
+including metadata and shadow passes. Mip-zero atlas policies skip atlas UV gradients;
+mip-enabled policies retain the clamped, biased footprint before varying control flow.
+
 A CPU Naga-IR test guards the atlas/coverage derivative helpers, normal frames
 and their transitive callers in forward, metadata, prepass and shadow shaders.
-It conservatively requires derivative-sensitive operations before control flow;
-it is scoped to these paths rather than a general WGSL uniformity validator.
+It requires derivative-sensitive operations before divergent control flow and
+recognizes conditions composed solely of uniforms and constants. Explicit-gradient
+and explicit-level samples can remain inside fragment-dependent gates. A separate
+IR call-tree cost check specializes `SCENE_IMPOSTOR=false` with unconstrained material
+lanes, and also checks ordinary material uniforms in the shared source. Both checks
+reject reachable atlas selection, packed atlas samples and relief samples for opaque
+and masked entry points in every pass. These checks are scoped to these paths rather
+than general WGSL uniformity or cost validators.
+The GPU sampling-cost regression also reports optional opaque-pass timestamp
+medians for ordinary opaque and masked caster scenes. The structural assertion
+is deterministic; timestamp values are informational and have no pass threshold.
 
 `SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA
 sample coverage. Opaque materials reject this request. It belongs to the material

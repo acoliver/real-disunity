@@ -11,6 +11,8 @@ mod text_tests;
 #[cfg(test)]
 mod timer_tests;
 #[cfg(test)]
+mod window_control_tests;
+#[cfg(test)]
 mod work_tests;
 
 use crate::{
@@ -46,6 +48,10 @@ impl<'a> Session<'a> {
             failure: None,
             closed: false,
         }
+    }
+
+    fn set_window_controls(&mut self, window: std::sync::Arc<dyn super::input::WindowControls>) {
+        self.host.input_state.window = super::input::WindowControlTarget::Native(window);
     }
 
     pub(super) fn input(&mut self, input: RetainedInput) {
@@ -175,7 +181,7 @@ impl Content for Session<'_> {
     fn window_ready(&mut self, window: std::sync::Arc<winit::window::Window>) {
         let size = window.inner_size();
         let scale_factor = window.scale_factor();
-        self.host.input_state.window = Some(window);
+        self.set_window_controls(window);
         self.host.apply_text_input_area();
         self.input(RetainedInput::DisplayChanged {
             scale_factor,
@@ -205,7 +211,7 @@ impl Content for Session<'_> {
                 .host
                 .input_state
                 .window
-                .as_ref()
+                .native()
                 .expect("native scale event requires window")
                 .inner_size();
             self.input(RetainedInput::DisplayChanged {

@@ -2,7 +2,9 @@
 
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
+
+use worldrunner_render_gpu::submission::{FrameOwner, Publications, SubmissionAuthority};
 
 use crate::budget::Reservation;
 use crate::error::ProgramError;
@@ -79,15 +81,65 @@ pub(crate) struct TargetEntry {
     pub(crate) depth: Option<TextureEntry>,
 }
 
-/// A resource with the budget reservation that accounts for it.
+/// A resource with the budget reservation that accounts for it. Prepared draws share the
+/// reservation, so its bytes stay counted while a draw can still use the resource.
 struct Held<T> {
     entry: T,
-    _reservation: Reservation,
+    reservation: Arc<Reservation>,
 }
 
 /// Anything released but possibly still in use by submitted work, and the submission that last
 /// could have used it.
 type Retired = (u64, Box<dyn Any + Send + Sync>);
+
+/// Shares of the reservations of the resources prepared draws use, owned by a [`FrameOwner`].
+///
+/// Each frame that records the draws retains the owner through [`retain`](Self::retain), and the
+/// shares stay held until that frame's outcome: a cancelled or dropped frame releases them at
+/// once and a submitted one when the GPU has completed it. They do not depend on the runtime
+/// that made the draws. Dropping the pins gives up only the draws' own hold, by detaching the
+/// owner: frames that already retained it can still be submitted and keep it until their outcome.
+pub(crate) struct Pins {
+    owner: Option<FrameOwner<Vec<Arc<Reservation>>>>,
+}
+
+impl Drop for Pins {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.take() {
+            owner.detach();
+        }
+    }
+}
+
+impl std::fmt::Debug for Pins {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pins").finish_non_exhaustive()
+    }
+}
+
+impl Pins {
+    pub(crate) fn new(
+        authority: &SubmissionAuthority,
+        reservations: Vec<Arc<Reservation>>,
+    ) -> Self {
+        Self {
+            owner: Some(FrameOwner::new(reservations, authority)),
+        }
+    }
+
+    /// Makes the frame `encoder` records hold the shares until the frame is cancelled, dropped
+    /// or completed on the GPU.
+    ///
+    /// # Errors
+    /// Fails with `ForeignAuthority` when the frame belongs to another submission authority
+    /// than the draws' and when `encoder` is not a frame being recorded.
+    pub(crate) fn retain(&self, encoder: &wgpu::CommandEncoder) -> Result<(), ProgramError> {
+        if let Some(owner) = &self.owner {
+            Publications::retain_lease(encoder, &owner.lease())?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Store {
@@ -101,7 +153,7 @@ pub(crate) struct Store {
 fn held<T>(entry: T, reservation: Reservation) -> Held<T> {
     Held {
         entry,
-        _reservation: reservation,
+        reservation: Arc::new(reservation),
     }
 }
 
@@ -151,6 +203,39 @@ impl Store {
         self.targets
             .get(&handle.0)
             .map(|held| &held.entry)
+            .ok_or(ProgramError::UnknownHandle { kind: "target" })
+    }
+
+    /// The reservation of the buffer, to keep its bytes counted.
+    pub(crate) fn buffer_reservation(
+        &self,
+        handle: BufferHandle,
+    ) -> Result<Arc<Reservation>, ProgramError> {
+        self.buffers
+            .get(&handle.0)
+            .map(|held| held.reservation.clone())
+            .ok_or(ProgramError::UnknownHandle { kind: "buffer" })
+    }
+
+    /// The reservation of the texture, to keep its bytes counted.
+    pub(crate) fn texture_reservation(
+        &self,
+        handle: TextureHandle,
+    ) -> Result<Arc<Reservation>, ProgramError> {
+        self.textures
+            .get(&handle.0)
+            .map(|held| held.reservation.clone())
+            .ok_or(ProgramError::UnknownHandle { kind: "texture" })
+    }
+
+    /// The reservation of the target, to keep its bytes counted.
+    pub(crate) fn target_reservation(
+        &self,
+        handle: TargetHandle,
+    ) -> Result<Arc<Reservation>, ProgramError> {
+        self.targets
+            .get(&handle.0)
+            .map(|held| held.reservation.clone())
             .ok_or(ProgramError::UnknownHandle { kind: "target" })
     }
 

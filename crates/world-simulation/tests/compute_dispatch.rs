@@ -572,13 +572,13 @@ fn no_recorded_dispatch_holds_a_global_texture() {
     let mut world = world();
     let id = compute(&mut world);
     let mut bindings = worldrunner_world_simulation::graphics::ComputeBindings::default();
-    bindings
-        .properties
-        .textures
-        .push(("_Heights".into(), TextureSlot {
+    bindings.properties.textures.push((
+        "_Heights".into(),
+        TextureSlot {
             texture: TextureRef::Global("_Terrain".into()),
             ..TextureSlot::default()
-        }));
+        },
+    ));
     let record = OffscreenWork::Dispatch {
         shader: id,
         kernel: 0,

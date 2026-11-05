@@ -213,10 +213,12 @@ fn a_global_texture_is_resolved_when_the_dispatch_is_called_and_not_when_it_is_r
         let bound = disunity_compute_texture_global_write(world, id, 0, &lengths, names.as_ptr());
         assert_eq!(bound.code, 0);
         assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
-        let first = disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(1 << 40));
+        let first =
+            disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(1 << 40));
         assert_eq!(first.code, 0);
         assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
-        let second = disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(2 << 40));
+        let second =
+            disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(2 << 40));
         assert_eq!(second.code, 0);
     }
     let held: Vec<(u32, u64)> = take(world)

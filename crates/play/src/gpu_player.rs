@@ -24,7 +24,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use worldrunner_disunity_runtime::{
-    DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureSampler,
+    DisunityHost, GpuFlush, MeshChannels, MeshObjectView, MeshSlot, PlayerTexture, TextureSampler,
 };
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
@@ -189,6 +189,24 @@ impl Assets for AssetCache {
 }
 
 impl AssetCache {
+    /// Wants the mesh of every presented object and the texture of every slot that has one, so a
+    /// flush during the next advance finds them read. A flush handler cannot read the host, so
+    /// whatever it first asks for would otherwise be missing from that flush.
+    fn want_presented(&self, objects: &[MeshObjectView]) {
+        let mut meshes = self.wanted_meshes.borrow_mut();
+        let mut textures = self.wanted_textures.borrow_mut();
+        for object in objects {
+            meshes.insert(object.mesh);
+            textures.extend(
+                object
+                    .slots
+                    .iter()
+                    .map(|slot: &MeshSlot| slot.texture)
+                    .filter(|&texture| texture != 0),
+            );
+        }
+    }
+
     /// Reads from `host` what the flush handler asked for since the last fill.
     fn fill(&mut self, host: &DisunityHost) {
         for identity in std::mem::take(&mut *self.wanted_meshes.borrow_mut()) {
@@ -327,7 +345,7 @@ impl PlayerGpu {
     /// Fails when the host cannot give the snapshot. Work the GPU refuses is counted in the
     /// report, not an error: the player goes on without it.
     pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
-        self.assets.borrow_mut().fill(host);
+        self.prefetch(host);
         let snapshot = host.graphics_snapshot()?;
         if snapshot.work.is_empty() {
             return Ok(());
@@ -351,6 +369,16 @@ impl PlayerGpu {
         }
         report.frame_time += started.elapsed();
         Ok(())
+    }
+
+    /// Reads the meshes and textures the frame presents, ahead of the flush that may name them
+    /// during the next advance. A host that presented nothing prefetches nothing.
+    fn prefetch(&self, host: &DisunityHost) {
+        let mut assets = self.assets.borrow_mut();
+        if let Ok(objects) = host.mesh_objects() {
+            assets.want_presented(&objects);
+        }
+        assets.fill(host);
     }
 
     /// Records the operations into a frame of their own, submits it and waits for it.
@@ -388,6 +416,21 @@ impl PlayerGpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn presented(mesh: u64, textures: &[u64]) -> MeshObjectView {
+        MeshObjectView {
+            object: 1,
+            mesh,
+            local_to_world: [0.0; 16],
+            slots: textures
+                .iter()
+                .map(|&texture| MeshSlot {
+                    color: [1.0; 4],
+                    texture,
+                })
+                .collect(),
+        }
+    }
 
     fn mesh(generation: u64) -> MeshChannels {
         MeshChannels {
@@ -436,6 +479,36 @@ mod tests {
         assert!(
             gpu.storage_budget() > 256 << 20,
             "the Old World frames need more than the default buffer limit"
+        );
+    }
+
+    #[test]
+    fn the_meshes_and_slot_textures_a_frame_presents_are_wanted_before_any_flush_asks() {
+        let objects = [
+            presented(7, &[11, 0]),
+            presented(7, &[12]),
+            presented(8, &[]),
+        ];
+        let cache = AssetCache::default();
+        cache.want_presented(&objects);
+        assert_eq!(
+            cache
+                .wanted_meshes
+                .borrow()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            [7, 8]
+        );
+        assert_eq!(
+            cache
+                .wanted_textures
+                .borrow()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            [11, 12],
+            "a slot with no texture (0) wants none"
         );
     }
 

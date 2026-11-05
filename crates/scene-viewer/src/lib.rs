@@ -7,10 +7,14 @@
 //!
 //! Controls: left-drag orbit, wheel zoom, R/Home reset, Escape/close exit.
 
+mod application_paths;
+pub use application_paths::{ApplicationPathError, application_root};
 mod activity;
 pub use activity::ActivityReason;
 mod adapter;
-pub use adapter::{AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent};
+pub use adapter::{
+    AdapterCallback, AdapterClass, AdapterIdentity, FrameSettings, InitialContent, InitialContext,
+};
 mod app;
 pub mod cpu_profile;
 mod live;
@@ -34,11 +38,13 @@ mod renderer;
 mod retained;
 mod world_edits;
 pub use retained::{
-    CaptureJitter, CaptureOutput, CaptureRequestError, CursorError, CursorGrabMode, KeyCode,
-    LogicalKey, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, RetainedCaptureObservation,
-    RetainedCaptureOutcome, RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver,
-    RetainedEvent, RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate,
-    SceneObjectEdit, WheelDelta, WindowlessRetained,
+    CancelToken, CaptureJitter, CaptureOutput, CaptureRequestError, CursorError, CursorGrabMode,
+    KeyCode, LogicalKey, MAX_HOST_TIMERS, MouseButton, NativeKeyCode, ObjectId, PhysicalKey,
+    PickHit, RetainedCaptureObservation, RetainedCaptureOutcome, RetainedCaptureProducts,
+    RetainedCaptureRecipe, RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost,
+    RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate, SceneObjectEdit, TimerError,
+    TimerHandle, WheelDelta, WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue,
+    WorkQueueError, WorkSubmitError, WorkTicket,
 };
 pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 
@@ -310,7 +316,8 @@ fn validate_presentation(options: &ViewerOptions) -> Result<(), ViewerError> {
 pub use retained::{
     DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainPageStatistics,
+    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
+    TerrainPageStatistics, TerrainStreamingStatistics,
 };
 pub use retained::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,

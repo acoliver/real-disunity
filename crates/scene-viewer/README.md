@@ -4,6 +4,52 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Host timers
+
+Both retained host interfaces provide `timer_at`, `timer_every`, `timer_now` and
+`cancel_timer`. Drivers receive `RetainedEvent::Timer { handle }` even during
+presentation pauses. The service bounds live timers at `MAX_HOST_TIMERS` (256)
+and returns typed `TimerError` admission errors. Repeating timers skip missed
+intervals. Windowless sessions freeze the host clock at initialization; use
+`WindowlessRetained::advance_time` before `frame` or `poll` to advance timers
+and update ticks. Shader time remains independent. See the
+[delivery and clock contract](../../dev-docs/rendering/frame-executor.md#retained-host-timers).
+
+## Picking the presented scene
+
+`RetainedHost::pick([x, y], include)` and `RetainedEventHost::pick` query the
+last presented frame on the event thread. Coordinates are continuous physical
+pixels from the top-left window corner, matching `RetainedInput::PointerMoved`.
+Do not multiply them by the display scale. `include: FnMut(ObjectId) -> bool`
+can consult the game's selectable-ID set. A hit returns `RetainedPickHit` with
+`generation` and a render-plan `PickHit` containing the object ID, distance from
+the near-plane ray origin in metres, scene-space point, triangle and barycentrics.
+These types are re-exported through `worldrunner::scene::viewer`.
+
+The host freezes the resolved camera, physical viewport, resident resources and
+object placements only after a successful presentation submission, before the
+`Presented` callback. Accepted edits and renderer readiness cannot change that
+snapshot. A move, removal, resource replacement, camera edit or physical resize
+becomes pickable only with its presented frame. Misses, excluded objects,
+nonfinite/out-of-viewport pixels and queries before the first frame return `None`.
+The snapshot remains available during presentation pauses. Submission follows the
+host's existing presentation contract and does not assert GPU completion or OS
+scanout. Windowless ordinary submissions publish the same snapshot; an accumulated
+capture publishes its frozen unjittered view when the capture completes, without
+emitting `Presented`. Desktop capture-only work leaves the displayed snapshot alone.
+
+Snapshots share meshes, textures, materials and unchanged object tables through
+`Arc`. A published object edit copies the previous table only if a displayed
+snapshot still references it. Accepting an edit keeps the existing batch-sized
+cost. There is no GPU readback, physics world or spatial acceleration structure.
+Picking uses undeformed resident LOD-zero triangles and material/LOD-slot sidedness.
+Texture alpha, shader wind, distance-fade dithering, billboard replacement, terrain,
+water and UI are outside this geometric query. This is suitable for object selection,
+but does not reproduce every shaded pixel. The retained object API has no separate
+visibility flag: removing an object removes its pickable geometry at presentation.
+See the [CPU query contract](../render-plan/README.md#cpu-object-picking).
+
+
 ## Retained run activity
 
 On macOS, retained desktop and windowless runs hold an `NSProcessInfo` activity
@@ -65,6 +111,40 @@ surface lighting currently adds local lights. Fog, exposure, SSR replacement,
 water, transparency, sky and post-processing are outside this sum. Compare against
 `LinearHdr` only where those operations are absent, with unit exposure and one
 forward sample. Unlit surfaces publish albedo as ambient and zero other radiance.
+
+## Retained screen-space UI
+
+Convert an existing `render_plan::ui::UiRenderPlan` with
+`render_scene::simulation::UiOverlay::new`, then submit
+`RetainedUpdate::Ui(Arc::new(overlay))`. For textured graphics, use
+`UiOverlay::with_textures(plan, &textures)` with a map from the graphic's texture
+identity to the existing `SceneTexture` resource. Missing image identities are
+errors. Text supplies its own linear glyph coverage.
+
+This replaces text and graphics together in one ordered generation, without
+preparing or uploading unrelated scene resources. Empty text and graphic lists
+clear it. Resource, terrain and settings replacements preserve the accepted UI.
+Capture observations include submitted draw counts in `scene.passes.ui`;
+fully clipped draws are excluded.
+
+Positions and clip bounds are physical pixels from the lower-left corner. The
+shared compositor draws solid, translucent and textured quads after tone mapping
+and post filters, using straight-alpha blending without scene depth or lighting.
+Text and graphics sort together by `RectLayout::draw_order()`: Canvas layer,
+Canvas order, then hierarchy preorder. Later surfaces cover earlier ones, as in
+`UiRouter` hit testing. Graphics precede text on the same object.
+
+Every contribution clips to the extraction viewport and its object's explicit
+`CanvasRenderer::clip_rect`, measured in root-canvas coordinates. Bounds round
+inward to whole-pixel scissors, including for rotated element geometry. Scissors
+also intersect the current output extent. Re-extract when the viewport changes;
+existing contributions keep their pixel coordinates on resize. Soft clipping and
+stencil/pop-material masks are not implemented.
+
+Only overlay text is accepted; camera/world text canvases remain on the scene
+path. Graphics already projected to screen pixels are accepted; world graphics
+are rejected. Linear HDR and opaque-term capture products exclude this
+display-space UI. Built-player retained-driver UI export is not connected yet.
 
 ## Retained shadow light
 
@@ -249,9 +329,18 @@ the same fields and types that `ViewerOptions` carries, with no engine preset
 names. `Ok(None)` or no callback preserves the supplied options.
 
 Use `RetainedHost::with_initial_content(options, supplier)` when content depends on
-that adapter. The one-shot supplier receives the same `AdapterIdentity` and returns
-`InitialContent { scene, settings: Option<FrameSettings> }`. It replaces
-`adapter_callback`; specifying both fails with `ViewerError::InvalidOptions`.
+that adapter or the physical surface size. The one-shot supplier receives
+`InitialContext { adapter: &AdapterIdentity, surface_extent: [u32; 2] }` and returns
+`InitialContent { scene, settings: Option<FrameSettings> }`. Desktop startup uses
+the window's physical inner size at surface creation, regardless of the logical
+window size or render scale. Windowless startup uses the configured `options.size`.
+A zero dimension is preserved for a minimized desktop surface; rendering stays
+suspended until a nonzero resize. Windowless sizes still require nonzero dimensions.
+The supplied extent initializes `RetainedHost::size()` without a separate resize
+event for that same size. Later different physical sizes still deliver
+`RetainedInput::Resized`, including suspension and restoration.
+The supplier replaces `adapter_callback`; specifying both fails with
+`ViewerError::InvalidOptions`.
 The selected scene is validated and its object/decal IDs, readiness, capture
 features and capture pool are derived before negotiating device features or
 allocating presentation and resident resources. No temporary scene is uploaded.
@@ -324,10 +413,38 @@ the draw table, and pending leaves. Ancestor fallback pages do not count as exac
 residency. Unpaged terrain reports zero page counts. The counts remain tied to
 the submitted frame even while subsequent page uploads settle.
 
+`scene.terrain_geometry` is absent without a main terrain draw and before the
+first owning submission. `Static` identifies one nonstreaming resident mesh.
+`Streaming` reports the streaming selector's desired leaves, leaves drawn at
+that detail or finer, coarser drawn resident ancestors, resident draw leaves and
+unresolved desired leaves. The selector owns both split-error and hysteretic
+merge decisions, independently of replacement admission budgets. All leaves cover
+the grid, including offscreen coarse coverage. Finest-stride leaves satisfy the
+policy even if their projected error exceeds the threshold.
+
+Replacement builds and uploads synchronously within each frame's budgets. There
+is no worker queue. `unresolved_leaves` counts selected leaves not yet built and
+uploaded at their selected detail, including splits and merges blocked by resident,
+retired-allocation or upload limits. Fine leaves retained inside the hysteresis
+band are selected and complete; fine coverage awaiting a selected merge is
+incomplete. Submitted uploads ordered before draws are resident for that frame;
+this does not assert GPU completion. Retired allocations are excluded.
+`drawn_coarse` counts actual ancestor draws, not their covered descendants.
+`complete` requires every selected leaf at its selected detail and no unresolved
+work. Budget-limited coverage remains incomplete even when it stops changing.
+
+`drawn` contains the count and a stable FNV-1a-128 fingerprint of all sorted drawn
+sample windows, encoded as little-endian u32 minimum x/y, maximum x/y and stride.
+These are the engine's rectangular quadtree identities. The fixed-size fingerprint
+avoids truncating large selections and keeps snapshots bounded. Equal fingerprints
+and counts support frame-selection comparison, with the usual noncryptographic
+hash collision limitation; they do not identify terrain content or a camera.
+
 Both completed capture outcomes retain their source `frame` and an `observation`
 with its accepted `generation` and full `scene: SceneStatistics`, including pass
 draws, meshes, impostors, decals, resource bytes, terrain pages and installed
-effects. Terrain readiness lives only in `observation.scene.terrain_pages`.
+effects and terrain geometry. Page and geometry readiness remain distinct fields
+in `observation.scene`.
 The snapshot is frozen at source submission, before resource-upload statistics
 are consumed by ordinary presentation, and never reconstructed from the latest
 presentation when GPU readback completes. Accumulated recipes

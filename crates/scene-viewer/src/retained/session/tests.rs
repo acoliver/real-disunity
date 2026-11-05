@@ -17,6 +17,43 @@ impl RetainedDriver for Consumer {
 }
 
 #[test]
+fn supplied_initial_extent_is_not_delivered_again_but_later_resize_is() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let mut driver = Consumer(events.clone());
+    let mut host = RetainedHost::with_initial_content(crate::tests::options(), |_| {
+        Ok(crate::InitialContent {
+            scene: crate::tests::scene(false),
+            settings: None,
+        })
+    })
+    .unwrap();
+    let identity = crate::AdapterIdentity {
+        name: "synthetic".into(),
+        class: crate::AdapterClass::Integrated,
+        backend: wgpu::Backend::Metal,
+    };
+    host.resolve_initial_content(crate::InitialContext {
+        adapter: &identity,
+        surface_extent: crate::tests::options().size,
+    })
+    .unwrap();
+    let initial = host.size();
+    let later = [initial[0] + 1, initial[1] + 1];
+    let mut session = Session::new(host, &mut driver);
+    session.surface_size(initial);
+    session.event(
+        &WindowEvent::Resized(winit::dpi::PhysicalSize::new(initial[0], initial[1])),
+        None,
+    );
+    assert!(events.borrow().is_empty());
+    session.surface_size(later);
+    assert_eq!(
+        *events.borrow(),
+        vec![RetainedEvent::Input(RetainedInput::Resized(later))]
+    );
+}
+
+#[test]
 fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let mut consumer = Consumer(events.clone());
@@ -36,9 +73,13 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
     session.input(RetainedInput::SurfaceRecreated);
     assert_eq!(session.host.size(), [640, 480]);
     let events = events.borrow();
-    assert_eq!(events.len(), 6);
+    assert_eq!(events.len(), 7);
     assert_eq!(
         events[1],
+        RetainedEvent::Input(RetainedInput::PointerCancelled)
+    );
+    assert_eq!(
+        events[2],
         RetainedEvent::Input(RetainedInput::Key {
             key: "w".into(),
             logical: crate::LogicalKey::Character("w".into()),
@@ -48,11 +89,11 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
         })
     );
     assert_eq!(
-        events[2],
+        events[3],
         RetainedEvent::Input(RetainedInput::Focused(false))
     );
     assert_eq!(
-        events[5],
+        events[6],
         RetainedEvent::Input(RetainedInput::SurfaceRecreated)
     );
 }

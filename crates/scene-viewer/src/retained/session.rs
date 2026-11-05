@@ -6,6 +6,10 @@ mod lifecycle_tests;
 pub(crate) mod pointer_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timer_tests;
+#[cfg(test)]
+mod work_tests;
 
 use crate::{
     RetainedDriver, RetainedEvent, RetainedHost, RetainedInput, RetainedTick, ViewerError,
@@ -29,7 +33,7 @@ pub(crate) struct Session<'a> {
 
 impl<'a> Session<'a> {
     pub fn new(host: RetainedHost, driver: &'a mut dyn RetainedDriver) -> Self {
-        let start = Instant::now();
+        let start = host.timer_now();
         Self {
             host,
             driver,
@@ -68,7 +72,7 @@ impl<'a> Session<'a> {
     }
 
     fn tick(&mut self) -> Result<(), ViewerError> {
-        let now = Instant::now();
+        let now = self.host.timer_now();
         let tick = RetainedTick {
             frame: self.frame,
             elapsed: now - self.start,
@@ -84,6 +88,41 @@ impl<'a> Session<'a> {
 }
 
 impl Content for Session<'_> {
+    fn set_work_waker(&mut self, waker: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.host.work.set_waker(waker);
+    }
+    fn next_wakeup(&self) -> Option<Instant> {
+        if self.host.exit {
+            return None;
+        }
+        self.host.timers.next_deadline()
+    }
+    fn host_ready(&mut self) -> Result<(), ViewerError> {
+        if self.host.exit {
+            return Ok(());
+        }
+        let now = self.host.timer_now();
+        let due = self.host.timers.due(now);
+        if self.host.work.take_ready() {
+            self.notify(&RetainedEvent::WorkReady)
+                .map_err(ViewerError::Driver)?;
+        }
+        for generation in due {
+            if self.host.exit {
+                break;
+            }
+            if let Some(handle) = self
+                .host
+                .timers
+                .fire(generation, now)
+                .map_err(|error| ViewerError::Driver(error.to_string()))?
+            {
+                self.notify(&RetainedEvent::Timer { handle })
+                    .map_err(ViewerError::Driver)?;
+            }
+        }
+        Ok(())
+    }
     fn poll(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {
         let pending = renderer.collect_retained(&mut self.host)?;
         self.notifications()?;
@@ -95,6 +134,8 @@ impl Content for Session<'_> {
         }
         self.closed = true;
         self.host.exit = true;
+        self.host.timers.shutdown();
+        self.host.work.shutdown();
         self.host.captures.cancel();
         let mut failure = self.failure.take();
         while let Some(event) = self.host.captures.take_event() {

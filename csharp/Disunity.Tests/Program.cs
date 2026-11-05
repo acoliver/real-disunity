@@ -71,6 +71,7 @@ var buffer = AbiType("DisunityBuffer");
 var bytes = typeof(byte).MakePointerType();
 CheckImport("disunity_abi_check", u32);
 CheckImport("disunity_script_register", u64, u64, u64, u64.MakePointerType());
+CheckImport("disunity_script_type_messages", u64, bytes, bytes, u32);
 CheckImport("disunity_object_wake", u64, u64, advance.MakePointerType());
 CheckImport("disunity_construction_begin", u64, u64.MakePointerType());
 CheckImport("disunity_construction_object_create", u64, u64, u64.MakePointerType());
@@ -200,6 +201,9 @@ CheckImport("disunity_camera_matrix_write", u64, u64, u32, f32.MakePointerType()
 CheckImport("disunity_presentation_prepare", u64, u32, u32, u64, AbiType("DisunityPresentation").MakePointerType());
 CheckImport("disunity_presentation_quad", u64, u32, AbiType("DisunityQuad").MakePointerType());
 CheckImport("disunity_presentation_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
+CheckImport("disunity_presentation_ui_count", u64, u32.MakePointerType(), u32.MakePointerType());
+CheckImport("disunity_presentation_ui_draw", u64, u32, AbiType("DisunityUiDraw").MakePointerType(), AbiType("DisunityQuad").MakePointerType());
+CheckImport("disunity_presentation_ui_coverage", u64, u32, AbiType("DisunityCoverage").MakePointerType(), bytes, u32);
 CheckImport("disunity_texture_store", u64, u64, AbiType("DisunityTextureInfo").MakePointerType(), bytes, u32);
 CheckImport("disunity_canvas_renderer_geometry_write", u64, u64, AbiType("DisunityUiVertex").MakePointerType(), u32, u32.MakePointerType(), u32);
 CheckImport("disunity_canvas_renderer_texture_write", u64, u64, u64);
@@ -269,6 +273,7 @@ TemplateTests.Run();
 PresentationTests.Run();
 
 CoroutineInputTests.Run();
+ScriptMessageSetTests.Run();
 
 PhysicsTests.Run();
 TilemapTests.Run();

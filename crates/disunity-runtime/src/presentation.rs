@@ -117,7 +117,7 @@ fn camera_state(h: native::DisunityPresentation) -> Result<CameraState, HostErro
         },
     })
 }
-fn decode_quad(q: native::DisunityQuad) -> SpriteQuad {
+pub(crate) fn decode_quad(q: native::DisunityQuad) -> SpriteQuad {
     SpriteQuad {
         lighting: worldrunner_world_simulation::presentation::SpriteLighting::try_from(q.lighting)
             .expect("native quad material is validated"),
@@ -136,7 +136,7 @@ fn decode_quad(q: native::DisunityQuad) -> SpriteQuad {
     }
 }
 
-type Coverage = unsafe extern "C" fn(
+pub(crate) type Coverage = unsafe extern "C" fn(
     u64,
     u32,
     *mut native::DisunityCoverage,
@@ -144,7 +144,7 @@ type Coverage = unsafe extern "C" fn(
     u32,
 ) -> native::DisunityResult;
 
-fn read_coverage(
+pub(crate) fn read_coverage(
     world: u64,
     count: u32,
     coverage: Coverage,

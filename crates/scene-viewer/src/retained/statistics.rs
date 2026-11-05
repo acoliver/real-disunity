@@ -2,7 +2,8 @@
 pub use worldrunner_render_scene::draw::{
     DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ResourceStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
-    TerrainPageStatistics,
+    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
+    TerrainStreamingStatistics,
 };
 
 /// The latest ordinary submission, available during `Presented` and subsequent updates.

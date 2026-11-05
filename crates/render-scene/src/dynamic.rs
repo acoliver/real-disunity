@@ -25,8 +25,8 @@
 mod gpu;
 mod sampling;
 mod unlit;
-mod validation;
-pub(crate) use gpu::{DynamicBindings, DynamicGpu};
+pub(crate) mod validation;
+pub(crate) use gpu::{DynamicBindings, DynamicGpu, QuadTarget, SceneStaging};
 pub(crate) use unlit::UnlitRuntime;
 
 /// One unlit alpha-blended quad in canonical Z-up scene space.
@@ -54,6 +54,10 @@ pub struct DynamicQuad {
     pub sorting_layer: i32,
     /// Ascending painter order within a layer. Equal keys retain submission order.
     pub sorting_order: i32,
+    /// UI hierarchy preorder within equal layer/order keys.
+    pub hierarchy_order: usize,
+    /// Lower-left pixel clip bounds for the post-processing UI overlay stage.
+    pub clip_rect: Option<[u32; 4]>,
 }
 
 impl Default for DynamicQuad {
@@ -70,6 +74,8 @@ impl Default for DynamicQuad {
             texture: None,
             sorting_layer: 0,
             sorting_order: 0,
+            hierarchy_order: 0,
+            clip_rect: None,
         }
     }
 }

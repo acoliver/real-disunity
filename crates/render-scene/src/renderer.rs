@@ -46,6 +46,7 @@
 //! what drives depth fighting on distant coplanar surfaces.
 
 mod objects;
+pub(crate) mod overlay;
 mod pages;
 mod specular;
 #[cfg(test)]

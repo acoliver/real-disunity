@@ -21,7 +21,11 @@ fn selected_effects_supply_initial_capture_readiness() {
     .unwrap();
     host.request_capture_recipe(0, recipe(CaptureOutput::SsrConfidence))
         .unwrap();
-    host.resolve_initial_content(&identity()).unwrap();
+    host.resolve_initial_content(InitialContext {
+        adapter: &identity(),
+        surface_extent: [64, 32],
+    })
+    .unwrap();
     assert!(host.readiness.capture_features[3]);
     assert_eq!(host.captures.recipes[&0].frame_samples, 4);
     assert_eq!(host.accepted_generation(), 0);
@@ -37,7 +41,11 @@ fn supplied_object_and_decal_ids_start_at_authored_indices() {
     })
     .unwrap();
     assert_eq!(host.object(crate::ObjectId(0)), None);
-    host.resolve_initial_content(&identity()).unwrap();
+    host.resolve_initial_content(InitialContext {
+        adapter: &identity(),
+        surface_extent: [64, 32],
+    })
+    .unwrap();
     let expected = content_scene();
     for (index, object) in expected.geometry().objects().iter().enumerate() {
         assert_eq!(host.object(crate::ObjectId(index as u64)), Some(*object));
@@ -81,7 +89,11 @@ fn concrete_startup_without_callback_preserves_scene_options_and_pool() {
     let mut host = crate::RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
     let options = format!("{:?}", host.options());
     let pool = host.capture_pool_bytes();
-    host.resolve_initial_content(&identity()).unwrap();
+    host.resolve_initial_content(InitialContext {
+        adapter: &identity(),
+        surface_extent: [64, 32],
+    })
+    .unwrap();
     assert_eq!(host.initial_scene(), &scene);
     assert_eq!(host.scene(), &scene);
     assert_eq!(format!("{:?}", host.options()), options);
@@ -113,7 +125,11 @@ fn deferred_capture_admission_preserves_generation_and_capacity_checks() {
         host.apply_with_pages(crate::RetainedUpdate::Objects(vec![])),
         Err(ViewerError::InitialSceneUnavailable)
     ));
-    host.resolve_initial_content(&identity()).unwrap();
+    host.resolve_initial_content(InitialContext {
+        adapter: &identity(),
+        surface_extent: [64, 32],
+    })
+    .unwrap();
     assert_eq!(host.captures.waiting.len(), 1);
     assert!(host.view().unwrap().is_some());
 }
@@ -132,7 +148,10 @@ fn selected_invalid_options_and_page_dependencies_fail_startup() {
     })
     .unwrap();
     assert!(matches!(
-        host.resolve_initial_content(&identity()),
+        host.resolve_initial_content(InitialContext {
+            adapter: &identity(),
+            surface_extent: [64, 32]
+        }),
         Err(ViewerError::InvalidOptions(_))
     ));
     assert!(host.initial_scene.is_none());
@@ -145,7 +164,10 @@ fn selected_invalid_options_and_page_dependencies_fail_startup() {
     .unwrap();
     host.request_capture_with_pages(0).unwrap();
     assert!(matches!(
-        host.resolve_initial_content(&identity()),
+        host.resolve_initial_content(InitialContext {
+            adapter: &identity(),
+            surface_extent: [64, 32]
+        }),
         Err(ViewerError::Capture(
             crate::CaptureRequestError::PagingDisabled { generation: 0 }
         ))
@@ -181,7 +203,7 @@ fn supplier_is_deferred_once_and_uses_selected_settings() {
         cap_bytes: None,
     };
     let mut host = RetainedHost::with_initial_content(options, move |selected| {
-        assert_eq!(selected, &identity());
+        assert_eq!(selected.adapter, &identity());
         observed.fetch_add(1, Ordering::SeqCst);
         Ok(InitialContent {
             scene: crate::renderer::retained_tests::source(),
@@ -198,7 +220,11 @@ fn supplier_is_deferred_once_and_uses_selected_settings() {
     ));
     host.request_capture_recipe(0, recipe(CaptureOutput::LinearHdr))
         .unwrap();
-    host.resolve_initial_content(&identity()).unwrap();
+    host.resolve_initial_content(InitialContext {
+        adapter: &identity(),
+        surface_extent: [64, 32],
+    })
+    .unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         host.objects().count(),
@@ -239,10 +265,13 @@ fn supplier_failure_is_typed_and_not_repeated() {
         RetainedHost::with_initial_content(crate::tests::options(), |_| Err("rejected".into()))
             .unwrap();
     assert!(
-        matches!(host.resolve_initial_content(&identity()), Err(ViewerError::InitialContent(message)) if message == "rejected")
+        matches!(host.resolve_initial_content(InitialContext { adapter: &identity(), surface_extent: [64, 32] }), Err(ViewerError::InitialContent(message)) if message == "rejected")
     );
     assert!(matches!(
-        host.resolve_initial_content(&identity()),
+        host.resolve_initial_content(InitialContext {
+            adapter: &identity(),
+            surface_extent: [64, 32]
+        }),
         Err(ViewerError::InitialSceneUnavailable)
     ));
 }
@@ -257,7 +286,10 @@ fn supplier_validates_selected_scene_and_pending_captures() {
     })
     .unwrap();
     assert!(matches!(
-        host.resolve_initial_content(&identity()),
+        host.resolve_initial_content(InitialContext {
+            adapter: &identity(),
+            surface_extent: [64, 32]
+        }),
         Err(ViewerError::UnsupportedScene("water requires HDR"))
     ));
     let mut host = RetainedHost::with_initial_content(crate::tests::options(), |_| {
@@ -270,7 +302,10 @@ fn supplier_validates_selected_scene_and_pending_captures() {
     host.request_capture_recipe(0, recipe(CaptureOutput::SsrConfidence))
         .unwrap();
     assert!(matches!(
-        host.resolve_initial_content(&identity()),
+        host.resolve_initial_content(InitialContext {
+            adapter: &identity(),
+            surface_extent: [64, 32]
+        }),
         Err(ViewerError::Capture(
             crate::CaptureRequestError::FeatureUnavailable { .. }
         ))

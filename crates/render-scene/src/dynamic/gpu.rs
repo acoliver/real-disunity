@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
 use wgpu::{
-    Buffer, BufferUsages, Device, Queue, RenderPass, Sampler, Texture, TextureView,
-    TextureViewDescriptor,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, RenderPass, Sampler, Texture,
+    TextureView, TextureViewDescriptor,
 };
 use worldrunner_render_plan::SceneTexture;
 use worldrunner_render_program::runtime::{PreparedProgramDraw, TargetSignature};
@@ -15,15 +15,30 @@ use crate::geometry::{BILLBOARD_FIXED, pack_model_instance, push_f32, push_vec3}
 use crate::pipeline::MATERIAL_UNIFORM_BYTES;
 use crate::renderer::ScenePipelines;
 use crate::texture::prepare_texture;
-use crate::upload::{upload_buffer, upload_texture};
+use crate::upload::{MATERIAL_GROUP, material_group, upload_buffer, upload_texture};
 
-/// What staging quads needs besides the quads: the pipelines whose pass the first preparation is
-/// for, the scene's placeholder texture and sampler, the frame uniform of each frame slot and the
-/// runtime that prepares the draws.
+/// What staging quads needs besides the quads: the scene's placeholder texture and sampler, and
+/// where the quads are drawn.
 pub(crate) struct DynamicBindings<'a> {
-    pub pipelines: &'a ScenePipelines,
     pub placeholder: &'a Texture,
     pub sampler: &'a Sampler,
+    pub target: QuadTarget<'a>,
+}
+
+/// Where staged quads are drawn.
+pub(crate) enum QuadTarget<'a> {
+    /// The scene's main pass, through the program runtime.
+    Scene(SceneStaging<'a>),
+    /// The retained-UI overlay, which keeps its own fixed pipeline over the material layout that
+    /// pipeline was built with.
+    Overlay(&'a BindGroupLayout),
+}
+
+/// What staging quads for the scene's main pass needs: the pipelines whose pass the first
+/// preparation is for, the frame uniform of each frame slot and the runtime that prepares the
+/// draws.
+pub(crate) struct SceneStaging<'a> {
+    pub pipelines: &'a ScenePipelines,
     pub frames: Vec<Buffer>,
     pub runtime: &'a mut UnlitRuntime,
     pub authority: &'a worldrunner_render_gpu::submission::SubmissionAuthority,
@@ -35,13 +50,18 @@ struct QuadBindings<'a> {
     samplers: &'a [Sampler],
     sampler: &'a Sampler,
     indices: &'a Buffer,
+    overlay_layout: Option<&'a BindGroupLayout>,
 }
 
 /// One instanced draw of adjacent compatible quads: what it draws with, and how many instances.
+/// The scene's pass clips nothing, so the clip rectangle only keeps quads with different ones in
+/// different draws; the overlay scissors each draw to it and binds `material`.
 #[derive(Debug)]
 struct QuadDraw {
     resources: Arc<QuadResources>,
     instance_count: u32,
+    clip_rect: Option<[u32; 4]>,
+    material: Option<BindGroup>,
 }
 
 /// The draws prepared for the pass a signature describes, a draw of each quad group for each
@@ -115,7 +135,14 @@ impl DynamicGpu {
             validate_quad(quad, index, self.textures.len())?;
         }
         let mut ordered: Vec<_> = quads.iter().collect();
-        ordered.sort_by_key(|quad| (quad.overlay, quad.sorting_layer, quad.sorting_order));
+        ordered.sort_by_key(|quad| {
+            (
+                quad.overlay,
+                quad.sorting_layer,
+                quad.sorting_order,
+                quad.hierarchy_order,
+            )
+        });
         let placeholder = bindings
             .placeholder
             .create_view(&TextureViewDescriptor::default());
@@ -125,36 +152,45 @@ impl DynamicGpu {
             .map(|texture| texture.create_view(&TextureViewDescriptor::default()))
             .collect();
         let indices = self.quad_indices(device, queue);
+        let (stage, overlay_layout) = match bindings.target {
+            QuadTarget::Scene(stage) => (Some(stage), None),
+            QuadTarget::Overlay(layout) => (None, Some(layout)),
+        };
         let material_bindings = QuadBindings {
             placeholder: (bindings.placeholder, &placeholder),
             textures: (&self.textures, &views),
             samplers: &self.samplers,
             sampler: bindings.sampler,
             indices: &indices,
+            overlay_layout,
         };
         let draws: Vec<_> = ordered
             .chunk_by(|a, b| {
-                a.texture == b.texture
+                a.clip_rect == b.clip_rect
+                    && a.texture == b.texture
                     && a.corners == b.corners
                     && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
                     && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
             })
             .map(|group| QuadDraw::upload(device, queue, &material_bindings, group))
             .collect();
-        let prepared = if draws.is_empty() {
-            Vec::new()
-        } else {
-            let signature = bindings.pipelines.unlit_signature()?;
-            vec![prepare_signature(
-                Some((device, bindings.authority)),
-                bindings.runtime,
-                bindings.pipelines,
-                signature,
-                (&bindings.frames, &draws),
-            )?]
+        let (frames, prepared) = match stage {
+            Some(stage) if !draws.is_empty() => {
+                let signature = stage.pipelines.unlit_signature()?;
+                let set = prepare_signature(
+                    Some((device, stage.authority)),
+                    stage.runtime,
+                    stage.pipelines,
+                    signature,
+                    (&stage.frames, &draws),
+                )?;
+                (stage.frames, vec![set])
+            }
+            Some(stage) => (stage.frames, Vec::new()),
+            None => (Vec::new(), Vec::new()),
         };
         self.draws = draws;
-        self.frames = bindings.frames;
+        self.frames = frames;
         self.prepared = prepared;
         Ok(())
     }
@@ -268,6 +304,48 @@ impl DynamicGpu {
             draw[slot].record(pass);
         }
     }
+
+    /// Draws the quads into the overlay's pass with its own fixed `pipeline`, each draw clipped
+    /// to its rectangle, or to the whole `viewport` without one, and not at all when the
+    /// rectangle leaves nothing of it. Returns the draw calls and instances recorded.
+    ///
+    /// # Panics
+    /// Panics when the quads were not staged for the overlay.
+    pub(crate) fn draw_overlay(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        viewport: [u32; 2],
+    ) -> crate::draw::DrawCount {
+        let mut count = crate::draw::DrawCount::default();
+        if self.draws.is_empty() {
+            return count;
+        }
+        pass.set_pipeline(pipeline);
+        pass.set_index_buffer(
+            self.indices
+                .as_ref()
+                .expect("resident quads have indices")
+                .slice(..),
+            wgpu::IndexFormat::Uint32,
+        );
+        for draw in &self.draws {
+            if !set_scissor(pass, draw.clip_rect, viewport) {
+                continue;
+            }
+            let material = draw
+                .material
+                .as_ref()
+                .expect("overlay quads carry a material group");
+            pass.set_bind_group(MATERIAL_GROUP, material, &[]);
+            pass.set_vertex_buffer(0, draw.resources.vertices.slice(..));
+            pass.set_vertex_buffer(1, draw.resources.instance.slice(..));
+            pass.set_vertex_buffer(2, draw.resources.tint.slice(..));
+            pass.draw_indexed(0..6, 0, 0..draw.instance_count);
+            count.draw(u64::from(draw.instance_count));
+        }
+        count
+    }
 }
 
 /// A prepared draw of every quad group for each frame slot, for the pass `signature` describes.
@@ -353,9 +431,14 @@ impl QuadDraw {
             sampler: sampler.clone(),
             indices: bindings.indices.clone(),
         };
+        let material = bindings.overlay_layout.map(|layout| {
+            overlay_material(device, queue, layout, (&resources, bindings.placeholder.1))
+        });
         Self {
             resources: Arc::new(resources),
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
+            clip_rect: quad.clip_rect,
+            material,
         }
     }
 }
@@ -385,4 +468,44 @@ fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
         bytes.extend_from_slice(&[0; 16]);
     }
     bytes
+}
+
+/// The overlay's material group for one draw: the draw's texture and sampler over the shared
+/// zero material block and the placeholder in the slots the unlit shader does not read.
+fn overlay_material(
+    device: &Device,
+    queue: &Queue,
+    layout: &BindGroupLayout,
+    (resources, placeholder): (&QuadResources, &TextureView),
+) -> BindGroup {
+    let mut bound = [placeholder; 5];
+    bound[0] = &resources.albedo_view;
+    let heights = upload_buffer(
+        device,
+        queue,
+        "dynamic contact heights",
+        BufferUsages::STORAGE,
+        &[0u8; 48],
+    );
+    material_group(
+        device,
+        layout,
+        &resources.material,
+        &bound,
+        &resources.sampler,
+        &heights,
+    )
+}
+
+/// Clips the next draws to `clip`, a lower-left pixel rectangle, or to the whole target without
+/// one. Returns whether anything of the target is left to draw into.
+fn set_scissor(pass: &mut RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]) -> bool {
+    let [x, y, width, height] = clip.unwrap_or([0, 0, size[0], size[1]]);
+    let width = width.min(size[0].saturating_sub(x));
+    let height = height.min(size[1].saturating_sub(y));
+    if width == 0 || height == 0 {
+        return false;
+    }
+    pass.set_scissor_rect(x, size[1] - y - height, width, height);
+    true
 }

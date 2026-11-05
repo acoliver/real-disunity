@@ -14,13 +14,21 @@ pub struct ProgramEntry {
     pub range: Range<usize>,
 }
 
+impl ProgramEntry {
+    /// The entry's bytes in the chunks it was read from.
+    #[must_use]
+    pub fn bytes<'c>(&self, chunks: &'c [Vec<u8>]) -> Option<&'c [u8]> {
+        chunks.get(self.segment)?.get(self.range.clone())
+    }
+}
+
 const ENTRY_LEN: usize = 12;
 
-fn invalid(offset: usize, reason: &'static str) -> SerializedError {
+pub(crate) fn invalid(offset: usize, reason: &'static str) -> SerializedError {
     SerializedError::InvalidShaderProgram { offset, reason }
 }
 
-fn index(value: u32, offset: usize) -> Result<usize, SerializedError> {
+pub(crate) fn index(value: u32, offset: usize) -> Result<usize, SerializedError> {
     usize::try_from(value).map_err(|_| invalid(offset, "the value does not fit in memory"))
 }
 
@@ -103,7 +111,8 @@ pub struct ProgramRecord {
     pub keywords: Vec<String>,
     /// Byte range of the compiled program within the record.
     pub code: Range<usize>,
-    /// The bytes after the program, which are not interpreted yet.
+    /// The bytes after the program: the variant's vertex input table, which
+    /// [`crate::shader_parameters::read_bind_channels`] reads.
     pub rest: Range<usize>,
 }
 
@@ -268,9 +277,8 @@ pub fn platform_programs<'v, L>(
             .ok()
             .and_then(|index| entries.get(index))
             .ok_or_else(|| invalid(0, "a variant names a blob entry that does not exist"))?;
-        let record = chunks
-            .get(entry.segment)
-            .and_then(|chunk| chunk.get(entry.range.clone()))
+        let record = entry
+            .bytes(chunks)
             .ok_or_else(|| invalid(0, "a variant's entry lies outside the chunks"))?;
         if i64::from(record_type(record)?) != i64::from(variant.gpu_program_type) {
             return Err(invalid(

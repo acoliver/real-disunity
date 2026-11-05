@@ -67,16 +67,26 @@ impl SceneGpu {
         }
         let mut keys = vec![
             crate::compositor::publication::key(&self.frame),
-            crate::compositor::publication::key(&self.camera_selection),
+            crate::compositor::publication::key(
+                &self.views[super::selection_reuse::CAMERA].published,
+            ),
         ];
         keys.extend(geometry_keys);
         keys.extend(self.pass_counters.write_keys());
         keys.push(crate::compositor::publication::key(&self.effect_statistics));
+        keys.push(crate::compositor::publication::key(
+            &self.pass_counters.geometry,
+        ));
         keys.extend(self.sky.as_ref().and_then(crate::sky::Sky::write_key));
         keys.extend(
-            self.shadow_selection
+            self.views[super::selection_reuse::CAMERA + 1..]
                 .iter()
-                .map(crate::compositor::publication::key),
+                .map(|view| crate::compositor::publication::key(&view.published)),
+        );
+        keys.extend(
+            self.views
+                .iter()
+                .map(|view| crate::compositor::publication::key(&view.compaction.committed)),
         );
         keys.extend(
             self.instances

@@ -19,6 +19,7 @@ use crate::{
 
 mod cadence;
 mod static_scene;
+mod surface;
 
 pub(super) trait Content {
     fn title(&self) -> &str;
@@ -33,6 +34,13 @@ pub(super) trait Content {
         PresentationCadence::Fixed(self.interval())
     }
     fn window_ready(&mut self, _window: Arc<Window>) {}
+    fn set_work_waker(&mut self, _waker: Arc<dyn Fn() + Send + Sync>) {}
+    fn next_wakeup(&self) -> Option<Instant> {
+        None
+    }
+    fn host_ready(&mut self) -> Result<(), ViewerError> {
+        Ok(())
+    }
     fn device_event(&mut self, _event: &DeviceEvent) {}
     fn source(&mut self) -> SceneSource<'_>;
     fn event(&mut self, event: &WindowEvent, viewport: Option<Viewport>);
@@ -83,7 +91,16 @@ pub(super) fn run_retained(
 
 fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
     let mut app = App::new(content);
-    let result = EventLoop::new().and_then(|event_loop| event_loop.run_app(&mut app));
+    let result = EventLoop::<()>::with_user_event()
+        .build()
+        .and_then(|event_loop| {
+            let proxy = event_loop.create_proxy();
+            app.content.set_work_waker(Arc::new(move || {
+                // A closed loop means the host is shutting down.
+                let _ = proxy.send_event(());
+            }));
+            event_loop.run_app(&mut app)
+        });
     let shutdown = app.content.shutdown();
     let drain = app.renderer.as_ref().map(Renderer::drain).transpose();
     cleanup(&mut app.renderer);
@@ -150,15 +167,17 @@ impl<'a> App<'a> {
 }
 
 impl ApplicationHandler for App<'_> {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, (): ()) {
+        if let Err(error) = self.content.host_ready() {
+            self.fail(event_loop, error);
+            return;
+        }
+        self.event_actions(event_loop);
+    }
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.suspended = false;
         let result = if let Some(renderer) = &mut self.renderer {
-            let size = renderer
-                .window
-                .as_ref()
-                .expect("windowed renderer")
-                .inner_size();
-            renderer.resize([size.width, size.height])
+            surface::resume(&mut *self.content, renderer)
         } else {
             let size = self.content.size();
             event_loop
@@ -182,14 +201,9 @@ impl ApplicationHandler for App<'_> {
             return;
         }
         if let Some(renderer) = &self.renderer {
-            let size = renderer
-                .window
-                .as_ref()
-                .expect("windowed renderer")
-                .inner_size();
             self.content
                 .window_ready(renderer.window.as_ref().expect("windowed renderer").clone());
-            self.content.surface_size([size.width, size.height]);
+            surface::notify(&mut *self.content, renderer);
             renderer
                 .window
                 .as_ref()
@@ -251,7 +265,9 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::Resized(size) => {
-                if let Err(error) = renderer.resize([size.width, size.height]) {
+                if let Err(error) =
+                    surface::resize(&mut *self.content, renderer, [size.width, size.height])
+                {
                     self.fail(event_loop, error);
                 }
             }
@@ -275,11 +291,19 @@ impl ApplicationHandler for App<'_> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Err(error) = self.content.host_ready() {
+            self.fail(event_loop, error);
+            return;
+        }
         if let Some(error) = self.content.take_failure() {
             self.fail(event_loop, error);
             return;
         }
         let Some(renderer) = &mut self.renderer else {
+            event_loop.set_control_flow(cadence::with_wakeup(
+                winit::event_loop::ControlFlow::Wait,
+                self.content.next_wakeup(),
+            ));
             return;
         };
         let pending = match renderer.poll().and_then(|()| self.content.poll(renderer)) {
@@ -310,6 +334,6 @@ impl ApplicationHandler for App<'_> {
                 .request_redraw();
             self.next_frame = cadence::next_frame(now, self.content.cadence());
         }
-        event_loop.set_control_flow(flow);
+        event_loop.set_control_flow(cadence::with_wakeup(flow, self.content.next_wakeup()));
     }
 }

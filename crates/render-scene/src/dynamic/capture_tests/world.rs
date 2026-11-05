@@ -7,7 +7,7 @@ use worldrunner_render_plan::simulation::{
 };
 use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
 use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
-use worldrunner_world_simulation::presentation::{Camera, Sprite, SpriteRenderer};
+use worldrunner_world_simulation::presentation::{Camera, CoverageTexture, Sprite, SpriteRenderer};
 use worldrunner_world_simulation::ui::UiLayout;
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
@@ -91,19 +91,19 @@ pub(super) fn glyph_frame() -> WorldSceneContribution {
             viewport: [SIZE, SIZE].into(),
             rects: vec![],
         },
+        graphics: vec![],
         texts: vec![UiTextContribution {
             object,
             canvas: object,
+            hierarchy_order: 0,
+            clip_rect: [0, 0, SIZE, SIZE],
             overlay: true,
             sorting_layer: 0,
             sorting_order: 0,
             color: [1., 1., 1., 0.5],
-            texture: Some(SceneTexture::Texels {
-                format: TexelFormat::R8Unorm,
-                color_space: TextureColorSpace::Linear,
+            texture: Some(CoverageTexture {
                 width: 1,
                 height: 1,
-                mips: 1,
                 bytes: vec![128].into_boxed_slice(),
             }),
             quads: vec![UiGlyphQuad {

@@ -38,16 +38,18 @@ impl SceneGpu {
             device,
             authority.queue(),
             crate::dynamic::DynamicBindings {
-                pipelines,
                 placeholder: &self.retained.placeholder,
                 sampler: &self.retained.sampler,
-                frames: self
-                    .frame_slots
-                    .iter()
-                    .map(|(frame, _)| frame.clone())
-                    .collect(),
-                runtime: &mut self.unlit,
-                authority,
+                target: crate::dynamic::QuadTarget::Scene(crate::dynamic::SceneStaging {
+                    pipelines,
+                    frames: self
+                        .frame_slots
+                        .iter()
+                        .map(|(frame, _)| frame.clone())
+                        .collect(),
+                    runtime: &mut self.unlit,
+                    authority,
+                }),
             },
             quads,
         )
@@ -68,16 +70,18 @@ impl SceneGpu {
             device,
             authority.queue(),
             crate::dynamic::DynamicBindings {
-                pipelines,
                 placeholder: &self.retained.placeholder,
                 sampler: &self.retained.sampler,
-                frames: self
-                    .frame_slots
-                    .iter()
-                    .map(|(frame, _)| frame.clone())
-                    .collect(),
-                runtime: &mut self.unlit,
-                authority,
+                target: crate::dynamic::QuadTarget::Scene(crate::dynamic::SceneStaging {
+                    pipelines,
+                    frames: self
+                        .frame_slots
+                        .iter()
+                        .map(|(frame, _)| frame.clone())
+                        .collect(),
+                    runtime: &mut self.unlit,
+                    authority,
+                }),
             },
             quads,
         )?;

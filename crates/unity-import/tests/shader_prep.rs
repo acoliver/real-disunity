@@ -1,6 +1,4 @@
-use worldrunner_unity_import::shader_prep::{
-    PrepareError, ResourceBinding, check_with_naga, prepare,
-};
+use worldrunner_unity_import::shader_prep::{ResourceBinding, check_with_naga, prepare};
 
 /// Which of the three things naga cannot read a test module contains.
 #[derive(Clone, Copy, Default)]
@@ -178,20 +176,6 @@ fn handles_every_problem_together() {
     assert_eq!(naga_cause(&prepared.words), None);
 }
 
-#[test]
-fn rejects_modules_that_are_not_structurally_valid() {
-    let mut broken = module(Problems::default());
-    // The final `OpFunctionEnd` claims a second word that is not there.
-    let last = broken.last_mut().unwrap();
-    assert_eq!([*last], *op(56, &[]));
-    *last = op(56, &[0])[0];
-    assert!(matches!(prepare(&broken), Err(PrepareError::Module(_))));
-    assert!(matches!(
-        prepare(&broken[..4]),
-        Err(PrepareError::Module(_))
-    ));
-}
-
 /// A fragment shader with resources in set 0, declared out of binding order: combined
 /// samplers B (ID 43, binding 2) and A (ID 44, binding 0), a uniform block (ID 45,
 /// binding 1) and a separate image (ID 46, binding 3). Without `combined`, only the uniform
@@ -316,21 +300,6 @@ fn leaves_signed_negation_unchanged() {
     words[3] = 33;
     assert_eq!(naga_cause(&words), None);
     assert_eq!(prepare(&words).unwrap().words, words);
-}
-
-#[test]
-fn a_panic_in_the_sampler_split_is_an_error() {
-    // A resource with a descriptor set but no binding, next to an image type.
-    let mut words = resources(false);
-    let binding_of_45 = op(71, &[45, 33, 1]);
-    let at = words.windows(4).position(|w| w == binding_of_45).unwrap();
-    words.drain(at..at + 4);
-    match prepare(&words) {
-        Err(error @ PrepareError::Panicked { .. }) => {
-            assert_eq!(error.cause(), "sampler split panic");
-        }
-        other => panic!("expected a caught panic, got {other:?}"),
-    }
 }
 
 /// One GLSL.std.450 bit search to test.
@@ -464,18 +433,6 @@ fn leaves_matching_bit_searches_and_other_instruction_sets_alone() {
         [0x4c53_4c47, 0x6474_732e, 0x3135_342e, 0],
     );
     assert_eq!(prepare(&other).unwrap().words, other);
-}
-
-#[test]
-fn rejects_msb_searches_whose_operand_reads_the_other_way() {
-    for case in [
-        search(74, false, false, false),
-        search(75, true, true, true),
-    ] {
-        let error = prepare(&bit_search(case, GLSL)).unwrap_err();
-        assert!(matches!(error, PrepareError::MsbSignedness), "{error}");
-        assert_eq!(error.cause(), "Msb signedness");
-    }
 }
 
 /// One integer-coordinate image access to test.

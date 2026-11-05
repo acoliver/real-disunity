@@ -359,6 +359,49 @@ fn the_edit_after_a_resource_edit_publishes_in_the_same_frame() {
     );
 }
 
+/// Renders until a frame is submitted.
+fn render_frame(host: &mut RetainedHost, renderer: &mut Renderer) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_mins(1);
+    while !renderer.render_retained(host).unwrap() {
+        renderer.poll().unwrap();
+        assert!(std::time::Instant::now() < deadline, "frame timed out");
+        std::thread::yield_now();
+    }
+}
+
+/// Queues a full resource rebuild whose prepared scene is already delivered.
+fn prepared_rebuild(host: &mut RetainedHost) {
+    let scene = host.scene().clone();
+    host.apply(RetainedUpdate::Resources {
+        resources: scene.resources().clone(),
+        meshes: scene.geometry().meshes().to_vec(),
+    })
+    .unwrap();
+    let prepared = worldrunner_render_scene::draw::PreparedScene::new(host.scene()).unwrap();
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    send.send(Ok(prepared)).unwrap();
+    host.readiness.queue.back_mut().unwrap().scene = Some(receive);
+}
+
+#[test]
+fn two_rebuilds_published_in_one_frame_report_both_uploads() {
+    let (mut host, mut renderer) = windowless_host();
+    render_frame(&mut host, &mut renderer);
+    let baseline = renderer.take_statistics();
+    let texture_bytes = baseline.textures.resident_bytes;
+    let mesh_bytes = baseline.mesh_buffers.resident_bytes;
+    assert!(texture_bytes > 0 && mesh_bytes > 0);
+    prepared_rebuild(&mut host);
+    prepared_rebuild(&mut host);
+    render_frame(&mut host, &mut renderer);
+    assert_eq!(host.ready_generation(), host.accepted_generation());
+    let both = renderer.take_statistics();
+    assert_eq!(both.textures.uploaded_bytes, 2 * texture_bytes);
+    assert_eq!(both.mesh_buffers.uploaded_bytes, 2 * mesh_bytes);
+    assert_eq!(both.textures.resident_bytes, texture_bytes);
+    assert_eq!(renderer.take_statistics().textures.uploaded_bytes, 0);
+}
+
 #[test]
 fn every_ready_object_edit_publishes_in_one_frame() {
     let (mut host, mut renderer) = windowless_host();

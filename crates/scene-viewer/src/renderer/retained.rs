@@ -102,8 +102,17 @@ impl Renderer {
         self.presentation.scheduler.budget().0
     }
 
+    /// The frame's statistics, consuming its uploads and those of residents it replaced.
     pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
-        self.resident.scene_mut().take_statistics()
+        let carried = std::mem::take(&mut self.streaming.carried);
+        carried.applied(self.resident.scene_mut().take_statistics())
+    }
+
+    /// The frame's statistics without consuming anything.
+    pub(crate) fn scene_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
+        self.streaming
+            .carried
+            .applied(self.resident.scene_mut().statistics())
     }
 
     pub fn take_surface_recreated(&mut self) -> bool {

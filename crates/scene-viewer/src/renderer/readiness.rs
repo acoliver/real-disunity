@@ -136,7 +136,9 @@ impl Streaming {
                     .zip(next_resident.scene_mut().instance_handles())
                     .collect(),
             );
-            let old_resident = std::mem::replace(resident, next_resident);
+            let mut old_resident = std::mem::replace(resident, next_resident);
+            self.carried
+                .add(&old_resident.scene_mut().take_statistics());
             self.retired.push_back((serial, old_resident));
         } else {
             self.apply_in_place(context, resident, presentation, front)?;
@@ -263,6 +265,8 @@ pub(super) struct Streaming {
     pub retired: std::collections::VecDeque<(u64, Resident)>,
     pub shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
     pub profile: crate::FrameProfile,
+    /// Uploads of residents that retired before a frame reported them.
+    pub carried: CarriedUploads,
     preparing: Option<(
         Resident,
         worldrunner_render_plan::RenderScene,
@@ -280,8 +284,36 @@ impl Streaming {
             retired: std::collections::VecDeque::new(),
             shadows,
             profile,
+            carried: CarriedUploads::default(),
             preparing: None,
         }
+    }
+}
+
+/// Upload bytes of residents replaced in the same frame as their successor. Publishing several
+/// rebuilds in one frame retires a resident before any frame reads its statistics, so its
+/// uploads are kept here and reported once with the frame that shows the last one. Draw and
+/// residency counts are not carried: they describe the resident the frame draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct CarriedUploads {
+    textures: u64,
+    meshes: u64,
+}
+
+impl CarriedUploads {
+    fn add(&mut self, retired: &worldrunner_render_scene::draw::SceneStatistics) {
+        self.textures += retired.textures.uploaded_bytes;
+        self.meshes += retired.mesh_buffers.uploaded_bytes;
+    }
+
+    /// `statistics` with the carried uploads added.
+    pub(super) fn applied(
+        self,
+        mut statistics: worldrunner_render_scene::draw::SceneStatistics,
+    ) -> worldrunner_render_scene::draw::SceneStatistics {
+        statistics.textures.uploaded_bytes += self.textures;
+        statistics.mesh_buffers.uploaded_bytes += self.meshes;
+        statistics
     }
 }
 

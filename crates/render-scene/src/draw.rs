@@ -389,7 +389,11 @@ impl SceneGpu {
     /// [`crate::compositor::encode_resident`] to schedule their internal visibility pass.
     ///
     /// # Panics
-    /// Panics when celestial meshes are present, before recording any draws.
+    /// Panics when celestial meshes are present, before recording any draws, and when resident
+    /// dynamic quads were staged with pipelines for a pass other than the one `pipelines`
+    /// describe: staging prepares their draws for the pass of the pipelines it is given. The
+    /// frame entry points ([`crate::compositor::encode_scene`] and the shadowed scene) prepare
+    /// them for their own pass instead.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
         assert!(
             self.celestial.is_none(),
@@ -453,35 +457,6 @@ impl SceneGpu {
             })
             .or_else(|| self.frame.get())
             .expect("set frame before drawing")
-    }
-
-    /// Whether the draw in progress belongs to the transaction that committed the frame.
-    fn drawing_in_transaction(&self) -> bool {
-        self.drawing_frame
-            .borrow()
-            .as_ref()
-            .is_some_and(|(owner, _)| {
-                worldrunner_render_gpu::submission::Publications::current()
-                    .is_some_and(|current| current.same_transaction(owner))
-            })
-    }
-
-    fn drawing_frame_group(&self) -> BindGroup {
-        if self.drawing_in_transaction() {
-            self.decals.group()
-        } else {
-            self.committed_frame_group.borrow().0.clone()
-        }
-    }
-
-    /// The frame slot whose uniform the group [`drawing_frame_group`](Self::drawing_frame_group)
-    /// binds, which is the one the dynamic quads' draws bind their frame buffer from.
-    fn drawing_frame_slot(&self) -> usize {
-        if self.drawing_in_transaction() {
-            self.decals.slot
-        } else {
-            self.committed_frame_group.borrow().1
-        }
     }
 
     fn draw_color_pass(

@@ -285,6 +285,37 @@ impl SceneGpu {
 }
 
 impl SceneGpu {
+    /// Whether the draw in progress belongs to the transaction that committed the frame.
+    pub(super) fn drawing_in_transaction(&self) -> bool {
+        self.drawing_frame
+            .borrow()
+            .as_ref()
+            .is_some_and(|(owner, _)| {
+                worldrunner_render_gpu::submission::Publications::current()
+                    .is_some_and(|current| current.same_transaction(owner))
+            })
+    }
+
+    pub(super) fn drawing_frame_group(&self) -> BindGroup {
+        if self.drawing_in_transaction() {
+            self.decals.group()
+        } else {
+            self.committed_frame_group.borrow().0.clone()
+        }
+    }
+
+    /// The frame slot whose uniform the group [`drawing_frame_group`](Self::drawing_frame_group)
+    /// binds, which is the one the dynamic quads' draws bind their frame buffer from.
+    pub(super) fn drawing_frame_slot(&self) -> usize {
+        if self.drawing_in_transaction() {
+            self.decals.slot
+        } else {
+            self.committed_frame_group.borrow().1
+        }
+    }
+}
+
+impl SceneGpu {
     /// Prepare atmospheric columns in the same cancellable frame transaction.
     pub(crate) fn prepare_sky(
         &self,

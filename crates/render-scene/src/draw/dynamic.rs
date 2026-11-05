@@ -25,7 +25,8 @@ impl SceneGpu {
         .expect("empty scene");
         Self::upload(device, authority, &scene, pipelines)
     }
-    /// Atomically replaces the runtime quad contribution.
+    /// Atomically replaces the runtime quad contribution. The quads are prepared for the pass
+    /// `pipelines` describe, which is the pass the frames that draw them must open.
     pub fn set_dynamic_quads(
         &mut self,
         device: &Device,

@@ -4,6 +4,7 @@ use crate::{LimitKind, WorldError};
 /// Generations start at 1, so the all-zero bit pattern never names a resource.
 pub(super) const FIRST_GENERATION: u32 = 1;
 
+#[cfg_attr(test, derive(Clone))]
 struct Slot<T> {
     generation: u32,
     value: Option<T>,
@@ -11,6 +12,7 @@ struct Slot<T> {
 
 /// Slots that reuse vacated indices and bump the generation on every reuse, so an id of a
 /// destroyed resource never reads its successor.
+#[cfg_attr(test, derive(Clone))]
 pub(super) struct Slab<T> {
     slots: Vec<Slot<T>>,
     vacant: Vec<usize>,

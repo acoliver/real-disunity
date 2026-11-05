@@ -74,7 +74,12 @@ public static class NativeBridge
             if (kind == "portable-texture-v1") AddTexture();
             if (kind == "portable-atlas-v1") AddAtlas();
             if (kind == "portable-mesh-v1") AddMesh();
-            if (kind == "portable-compute-v1") AddCompute();
+            if (kind == "portable-compute-v1")
+            {
+                AddMesh();
+                AddTexture();
+                AddCompute();
+            }
             if (kind == "portable-offscreen-v1") OffscreenPass.Create();
             if (kind == "portable-retained-ui-v1") RetainedUiFixture.Create();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");

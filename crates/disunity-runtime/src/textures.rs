@@ -34,10 +34,10 @@ pub struct TextureSampler {
     pub mip_bias: f32,
 }
 
-type SamplerRead =
+pub(crate) type SamplerRead =
     unsafe extern "C" fn(u64, u64, *mut native::DisunitySampler) -> native::DisunityResult;
 
-type Read = unsafe extern "C" fn(
+pub(crate) type Read = unsafe extern "C" fn(
     u64,
     u64,
     *mut native::DisunityTextureInfo,
@@ -62,23 +62,9 @@ impl DisunityHost {
                 .get(b"disunity_texture_read\0")
                 .map_err(|_| HostError::MissingSymbol("disunity_texture_read".into()))?
         };
-        let mut info = native::DisunityTextureInfo::default();
-        self.check(unsafe { read(world, identity, &mut info, std::ptr::null_mut(), 0) })?;
-        if info.present == 0 || info.generation == known_generation {
-            return Ok(None);
-        }
-        let mut bytes = vec![0; info.length as usize];
-        self.check(unsafe { read(world, identity, &mut info, bytes.as_mut_ptr(), info.length) })?;
-        Ok(Some(PlayerTexture {
-            format: info.format,
-            width: info.width,
-            height: info.height,
-            mips: info.mips,
-            linear: info.linear != 0,
-            generation: info.generation,
-            distance_spread: info.distance_spread,
-            bytes,
-        }))
+        read_texture(world, read, identity, known_generation, |result| {
+            self.check(result)
+        })
     }
 
     /// The sampler of the texture stored under renderer `identity`, or `None` when the managed
@@ -92,16 +78,54 @@ impl DisunityHost {
                 .get(b"disunity_texture_sampler_read\0")
                 .map_err(|_| HostError::MissingSymbol("disunity_texture_sampler_read".into()))?
         };
-        let mut sampler = native::DisunitySampler::default();
-        self.check(unsafe { read(world, identity, &mut sampler) })?;
-        Ok((sampler.present != 0).then_some(TextureSampler {
-            generation: sampler.generation,
-            wrap_u: sampler.wrap_u,
-            wrap_v: sampler.wrap_v,
-            wrap_w: sampler.wrap_w,
-            filter: sampler.filter,
-            aniso_level: sampler.aniso_level,
-            mip_bias: sampler.mip_bias,
-        }))
+        read_sampler(world, read, identity, |result| self.check(result))
     }
+}
+
+/// Reads the texture stored under `identity` through `read`; see [`DisunityHost::player_texture`].
+pub(crate) fn read_texture(
+    world: u64,
+    read: Read,
+    identity: u64,
+    known_generation: u64,
+    check: impl Fn(native::DisunityResult) -> Result<(), HostError>,
+) -> Result<Option<PlayerTexture>, HostError> {
+    let mut info = native::DisunityTextureInfo::default();
+    check(unsafe { read(world, identity, &mut info, std::ptr::null_mut(), 0) })?;
+    if info.present == 0 || info.generation == known_generation {
+        return Ok(None);
+    }
+    let mut bytes = vec![0; info.length as usize];
+    check(unsafe { read(world, identity, &mut info, bytes.as_mut_ptr(), info.length) })?;
+    Ok(Some(PlayerTexture {
+        format: info.format,
+        width: info.width,
+        height: info.height,
+        mips: info.mips,
+        linear: info.linear != 0,
+        generation: info.generation,
+        distance_spread: info.distance_spread,
+        bytes,
+    }))
+}
+
+/// Reads the sampler of the texture stored under `identity` through `read`; see
+/// [`DisunityHost::texture_sampler`].
+pub(crate) fn read_sampler(
+    world: u64,
+    read: SamplerRead,
+    identity: u64,
+    check: impl Fn(native::DisunityResult) -> Result<(), HostError>,
+) -> Result<Option<TextureSampler>, HostError> {
+    let mut sampler = native::DisunitySampler::default();
+    check(unsafe { read(world, identity, &mut sampler) })?;
+    Ok((sampler.present != 0).then_some(TextureSampler {
+        generation: sampler.generation,
+        wrap_u: sampler.wrap_u,
+        wrap_v: sampler.wrap_v,
+        wrap_w: sampler.wrap_w,
+        filter: sampler.filter,
+        aniso_level: sampler.aniso_level,
+        mip_bias: sampler.mip_bias,
+    }))
 }

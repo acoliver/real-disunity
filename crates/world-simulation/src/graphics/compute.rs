@@ -65,6 +65,7 @@ pub struct ComputeBindings {
 }
 
 /// A compute shader with the values set on it.
+#[cfg_attr(test, derive(Clone))]
 pub(super) struct ComputeShaderEntry {
     shader: WorldComputeShader,
     /// Values set on the shader as a whole; every kernel sees them.

@@ -140,13 +140,11 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_graphics_snapshot(ulong world, byte* buffer, uint capacity, uint* length);
         /// <summary>
         ///  Records the per-frame messages (bit 0 `FixedUpdate`, bit 1 `Update`, bit 2 `LateUpdate`) that
-        ///  the script type `type_name` in `assembly` defines. Scripts of the type, present or added
-        ///  later, then receive only those messages. Types never reported receive all three.
-        ///  # Safety
-        ///  `assembly` and `type_name` are NUL-terminated strings, or null.
+        ///  the script bound to `identity` defines. The script then receives only those messages. A script
+        ///  never reported receives all three, and a clone starts with its source's set.
         /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_script_type_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_script_type_messages(ulong world, byte* assembly, byte* type_name, uint messages);
+        [DllImport(__DllName, EntryPoint = "disunity_script_messages", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_script_messages(ulong world, ulong identity, uint messages);
         /// <summary>
         ///  # Safety
         ///  Both outputs must be writable for one count.

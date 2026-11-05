@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libloading::Library;
+mod gpu_assets;
 mod gpu_flush;
 mod gpu_reads;
 mod graphics_snapshot;

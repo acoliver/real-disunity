@@ -209,8 +209,16 @@ fn atlas_cutout_depth_matches_forward_metadata() {
         usage: BufferUsages::UNIFORM,
         mapped_at_creation: false,
     });
-    let (metadata, group) = crate::scene_metadata::pipelines(device, &screen, false);
-    let (reflection, reflection_group) = crate::scene_metadata::pipelines(device, &screen, true);
+    let (metadata, group) = crate::scene_metadata::pipelines(
+        device,
+        &screen,
+        crate::scene_metadata::MetadataOutput::Normal,
+    );
+    let (reflection, reflection_group) = crate::scene_metadata::pipelines(
+        device,
+        &screen,
+        crate::scene_metadata::MetadataOutput::Material,
+    );
     let read = super::curved_wind::read_depth;
     let expected = read(
         &context,
@@ -444,10 +452,7 @@ fn metadata_contact_uses_relief_height_against_flat_ground_oracle() {
             .replace("fn fs_relief_masked(", "fn unused_relief_masked(")
             .replace("fn fs_opaque(", "fn unused_opaque(")
             .replace("fn fs_masked(", "fn unused_masked("),
-        include_str!("../../scene_metadata/geometry.wgsl").replace(
-            "METADATA_OUTPUT",
-            "vec4<f32>(vec3<f32>(contact_weight),1.0)"
-        )
+        crate::scene_metadata::single_fragment("vec4<f32>(vec3<f32>(contact_weight),1.0)")
     );
     let pixels = super::foliage::pass_color(&context, &gpu, &layouts, &shader, "fs_opaque");
     let inverse = frame.view_projection.inverse();

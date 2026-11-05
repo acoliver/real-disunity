@@ -190,7 +190,7 @@ fn gpu_reflection_resources_compile_and_half_resolution_includes_odd_edges() {
             [ssr.reflections[0].width(), ssr.reflections[0].height()],
             [size[0].div_ceil(2) * 4, size[1].div_ceil(2)]
         );
-        assert!(screen.geometry.reflection.is_some());
+        assert!(screen.geometry.merged.is_some());
     }
 }
 

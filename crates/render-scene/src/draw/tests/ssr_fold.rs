@@ -136,13 +136,13 @@ fn compare_reflections(
 ) {
     let a = actual.ssr.as_ref().unwrap().textures();
     let b = expected.ssr.as_ref().unwrap().textures();
-    let factor = channel(context, a[3], 0, component);
-    let confidence_a = channel(context, a[4], 0, 3);
-    let confidence_b = channel(context, b[4], 0, 3);
-    let forward_a = channel(context, a[2], 0, component);
-    let forward_b = channel(context, b[2], 0, component);
-    let trace_a = channel(context, a[4], 0, component);
-    let trace_b = channel(context, b[4], 0, component);
+    let factor = channel(context, a[2], 0, component);
+    let confidence_a = channel(context, a[3], 0, 3);
+    let confidence_b = channel(context, b[3], 0, 3);
+    let forward_a = channel(context, a[1], 0, component);
+    let forward_b = channel(context, b[1], 0, component);
+    let trace_a = channel(context, a[3], 0, component);
+    let trace_b = channel(context, b[3], 0, component);
     let final_a = channel(context, actual.targets().scene().texture(), 0, component);
     let final_b = channel(context, expected.targets().scene().texture(), 0, component);
     let mut covered = 0;

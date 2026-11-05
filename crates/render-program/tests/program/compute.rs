@@ -187,7 +187,7 @@ fn read_words(runtime: &mut ProgramRuntime, buffer: BufferHandle) -> Vec<u32> {
         .collect()
 }
 
-fn kernel_program(runtime: &ProgramRuntime, form: Form) -> ComputeProgram {
+pub fn kernel_program(runtime: &ProgramRuntime, form: Form) -> ComputeProgram {
     runtime.compute_program(&kernel(form)).unwrap()
 }
 

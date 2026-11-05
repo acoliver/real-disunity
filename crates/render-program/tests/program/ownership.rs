@@ -2,15 +2,21 @@
 //! resources, admitted draws that can still be recorded, and the frames that retain the arena.
 
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
-use worldrunner_render_gpu::submission::LeaseError;
+use worldrunner_render_gpu::submission::{LeaseError, PreparedFrame};
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{Geometry, ProgramArena, ProgramRuntime};
+use worldrunner_render_program::runtime::{
+    BoundResource, DispatchRequest, DrawRequest, Geometry, ProgramArena, ProgramRuntime,
+    TargetHandle,
+};
 
 use crate::arena::{ARENA, Draw, admit, admit_geometry, arena_runtime, draw, prepare};
-use crate::common::Gpu;
+use crate::common::{Form, Gpu};
+use crate::compute::kernel_program;
+use crate::patch::state;
 use crate::surface::{Surface, pixel, read};
 
 const RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// The renderer's configuration, which counts the arenas it reserved while they are held.
 struct Renderer {
@@ -391,3 +397,369 @@ fn admission_refuses_ranges_past_the_bound_buffers_by_name_and_admits_nothing() 
         .retire()
         .expect("a refused admission did not retain the arena");
 }
+
+fn new_target(runtime: &mut ProgramRuntime) -> TargetHandle {
+    runtime
+        .create_render_target("target", [1, 1], RGBA8, Some(DEPTH))
+        .unwrap()
+}
+
+/// Records the patch as an immediate draw into `target` and returns the finished frame.
+fn record_immediate(
+    gpu: &Gpu,
+    runtime: &mut ProgramRuntime,
+    draw: &Draw,
+    target: TargetHandle,
+) -> PreparedFrame {
+    let state = state();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    runtime
+        .draw(
+            &mut frame,
+            &DrawRequest {
+                program: &draw.patch.program,
+                state: &state,
+                front_face: wgpu::FrontFace::Cw,
+                target,
+                vertex_inputs: std::slice::from_ref(&draw.input),
+                bindings: &draw.bindings,
+                geometry: Geometry::Vertices { first: 0, count: 6 },
+            },
+        )
+        .unwrap();
+    frame.finish()
+}
+
+#[test]
+fn the_buffers_of_an_immediate_draw_cannot_be_released_while_its_frame_is_unsubmitted() {
+    let gpu = Gpu::new();
+    let (mut runtime, _arena) = arena_runtime(&gpu);
+    let draw = draw(&mut runtime);
+    let target = new_target(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
+    assert_eq!(
+        runtime.release_buffer(draw.input.buffer).unwrap_err(),
+        ProgramError::Busy,
+        "an unsubmitted frame may use the buffer, so its serial is not known yet"
+    );
+
+    let before = gpu.authority.submitted_serial();
+    frame.submit().unwrap();
+    assert_eq!(gpu.authority.submitted_serial(), before + 1);
+    assert!(
+        runtime.release_buffer(draw.input.buffer).unwrap(),
+        "the buffer is released once the frame has been submitted"
+    );
+}
+
+#[test]
+fn an_immediate_draws_bytes_stay_counted_through_its_frame_after_the_runtime_is_gone() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let draw = draw(&mut runtime);
+    let target = new_target(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
+    drop(arena);
+    drop(runtime);
+    assert_eq!(
+        renderer.held(),
+        ARENA,
+        "the frame that recorded the draw holds the bytes while its use is pending"
+    );
+
+    frame.submit().unwrap();
+    assert_eq!(renderer.held(), ARENA, "submitted, not yet completed");
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    assert_eq!(renderer.held(), 0, "the completed frame freed the bytes");
+}
+
+#[test]
+fn a_cancelled_frame_gives_back_the_bytes_of_an_immediate_draw() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let draw = draw(&mut runtime);
+    let target = new_target(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
+    let before = gpu.authority.submitted_serial();
+    drop(arena);
+    drop(runtime);
+    assert_eq!(renderer.held(), ARENA);
+
+    frame.cancel();
+    assert_eq!(
+        gpu.authority.submitted_serial(),
+        before,
+        "nothing was submitted"
+    );
+    assert_eq!(renderer.held(), 0, "a cancelled frame used nothing");
+}
+
+#[test]
+fn the_target_of_an_immediate_draw_stays_counted_through_its_frame_after_the_runtime_is_gone() {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let first = renderer.arena(&runtime);
+    let target = new_target(&mut runtime);
+    drop(first);
+    // The target's bytes are reserved by the first arena and the draw's buffers by the second.
+    let second = renderer.arena(&runtime);
+    let draw = draw(&mut runtime);
+    let frame = record_immediate(&gpu, &mut runtime, &draw, target);
+    drop(second);
+    drop(runtime);
+    assert_eq!(
+        renderer.held(),
+        2 * ARENA,
+        "the frame that drew into the target holds the first arena's reservation as well"
+    );
+
+    frame.submit().unwrap();
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    assert_eq!(renderer.held(), 0, "the completed frame freed both");
+}
+
+/// Releases a resource a recorded call used.
+type Release = Box<dyn Fn(&mut ProgramRuntime) -> Result<bool, ProgramError>>;
+
+/// A call recorded into a finished, unsubmitted frame, and what it used.
+struct Recorded {
+    frame: PreparedFrame,
+    /// Descriptor bytes the runtime held just before the call.
+    before: u64,
+    release: Release,
+}
+
+/// Creates what one recording entry point uses in `runtime` and records the call into a frame.
+/// A readback it makes is dropped unresolved.
+type Record = fn(&Gpu, &mut ProgramRuntime) -> Recorded;
+
+fn record_clear(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let target = new_target(runtime);
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    runtime
+        .clear_target(&mut frame, target, [1.0; 4], 1.0)
+        .unwrap();
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_target(target)),
+    }
+}
+
+fn record_dispatch(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let program = kernel_program(runtime, Form::Program);
+    let uniform = runtime.create_buffer("params", &[0; 16]).unwrap();
+    let source = runtime.create_buffer("source", &[0; 48]).unwrap();
+    let result = runtime.create_buffer("result", &[0; 48]).unwrap();
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    runtime
+        .dispatch(
+            &mut frame,
+            &DispatchRequest {
+                program: &program,
+                bindings: &[
+                    BoundResource::buffer(0, 3, uniform),
+                    BoundResource::buffer(0, 5, source),
+                    BoundResource::buffer(0, 7, result),
+                ],
+                groups: [3, 1, 1],
+            },
+        )
+        .unwrap();
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_buffer(result)),
+    }
+}
+
+fn record_read_buffer(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let buffer = runtime.create_buffer("data", &[0; 16]).unwrap();
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    drop(runtime.read_buffer(&mut frame, buffer).unwrap());
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_buffer(buffer)),
+    }
+}
+
+fn record_read_target(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let target = new_target(runtime);
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    drop(runtime.read_target(&mut frame, target).unwrap());
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_target(target)),
+    }
+}
+
+fn record_write(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
+    let buffer = runtime.create_buffer("data", &[0; 16]).unwrap();
+    let before = runtime.live_bytes();
+    let mut frame = gpu.authority.begin(&gpu.device).unwrap();
+    runtime
+        .write_buffer(&mut frame, buffer, 0, &[1, 2, 3, 4])
+        .unwrap();
+    Recorded {
+        frame: frame.finish(),
+        before,
+        release: Box::new(move |runtime| runtime.release_buffer(buffer)),
+    }
+}
+
+fn completes(gpu: &Gpu) {
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+}
+
+fn resources_are_busy_until_the_frame_is_submitted(record: Record) {
+    let gpu = Gpu::new();
+    let (mut runtime, _arena) = arena_runtime(&gpu);
+    let recorded = record(&gpu, &mut runtime);
+    assert_eq!(
+        (recorded.release)(&mut runtime).unwrap_err(),
+        ProgramError::Busy,
+        "an unsubmitted frame may use the resource, so its serial is not known yet"
+    );
+    let before = gpu.authority.submitted_serial();
+    recorded.frame.submit().unwrap();
+    assert_eq!(gpu.authority.submitted_serial(), before + 1);
+    assert!(
+        (recorded.release)(&mut runtime).unwrap(),
+        "released once the frame has been submitted"
+    );
+}
+
+fn bytes_stay_counted_through_the_frame_after_the_runtime_is_gone(record: Record) {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let recorded = record(&gpu, &mut runtime);
+    drop(arena);
+    drop(runtime);
+    assert_eq!(
+        renderer.held(),
+        ARENA,
+        "the frame that recorded the call holds the bytes while its use is pending"
+    );
+
+    recorded.frame.submit().unwrap();
+    assert_eq!(renderer.held(), ARENA, "submitted, not yet completed");
+    completes(&gpu);
+    assert_eq!(renderer.held(), 0, "the completed frame freed the bytes");
+}
+
+fn a_cancelled_frame_gives_the_bytes_back(record: Record) {
+    let gpu = Gpu::new();
+    let mut renderer = Renderer::new(&gpu);
+    let mut runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    let arena = renderer.arena(&runtime);
+    let recorded = record(&gpu, &mut runtime);
+    let before = gpu.authority.submitted_serial();
+    drop(arena);
+    drop(runtime);
+    assert_eq!(renderer.held(), ARENA);
+
+    recorded.frame.cancel();
+    assert_eq!(
+        gpu.authority.submitted_serial(),
+        before,
+        "nothing was submitted"
+    );
+    assert_eq!(renderer.held(), 0, "a cancelled frame used nothing");
+}
+
+/// Staging made by the call is counted by the runtime while its frame is pending, although the
+/// caller dropped the readback.
+fn staging_stays_counted_until_the_frame_completes(record: Record) {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let recorded = record(&gpu, &mut runtime);
+    assert!(
+        runtime.live_bytes() > recorded.before,
+        "the unsubmitted frame holds the staging: {} bytes before the call, {} after",
+        recorded.before,
+        runtime.live_bytes()
+    );
+    recorded.frame.submit().unwrap();
+    assert!(runtime.live_bytes() > recorded.before, "submitted");
+    completes(&gpu);
+    runtime.collect();
+    assert_eq!(runtime.live_bytes(), recorded.before, "completed");
+
+    let again = record(&gpu, &mut runtime);
+    again.frame.cancel();
+    assert_eq!(
+        runtime.live_bytes(),
+        again.before,
+        "a cancelled frame used no staging"
+    );
+}
+
+macro_rules! entry_point {
+    ($module:ident, $record:path) => {
+        mod $module {
+            use super::*;
+
+            #[test]
+            fn its_resources_cannot_be_released_while_its_frame_is_unsubmitted() {
+                resources_are_busy_until_the_frame_is_submitted($record);
+            }
+
+            #[test]
+            fn its_bytes_stay_counted_through_its_frame_after_the_runtime_is_gone() {
+                bytes_stay_counted_through_the_frame_after_the_runtime_is_gone($record);
+            }
+
+            #[test]
+            fn a_cancelled_frame_gives_back_its_bytes() {
+                a_cancelled_frame_gives_the_bytes_back($record);
+            }
+        }
+    };
+}
+
+entry_point!(clear_target, record_clear);
+entry_point!(dispatch, record_dispatch);
+entry_point!(read_buffer, record_read_buffer);
+entry_point!(read_target, record_read_target);
+entry_point!(write_buffer, record_write);
+
+macro_rules! staging {
+    ($module:ident, $record:path) => {
+        #[test]
+        fn $module() {
+            staging_stays_counted_until_the_frame_completes($record);
+        }
+    };
+}
+
+staging!(
+    a_dropped_buffer_readback_keeps_its_staging_counted_through_its_frame,
+    record_read_buffer
+);
+staging!(
+    a_dropped_target_readback_keeps_its_staging_counted_through_its_frame,
+    record_read_target
+);
+staging!(
+    a_recorded_write_keeps_its_staging_counted_through_its_frame,
+    record_write
+);

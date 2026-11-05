@@ -74,6 +74,13 @@ The windowed paths do not run the offscreen work yet. `SceneGpu::admit_offscreen
 through the retained scene renderer. Text coverage and image quads retain native
 hierarchy order and pixel clip bounds. UI replacements track draw changes, image
 texture generations and viewport size; unchanged frames reuse the overlay.
+An image whose identity has no available sprite texture is left out of the UI
+frame. The driver names each unavailable identity once on stderr as
+`UI image <id> is left out: <reason>`: a missing scene texture, an identity the
+managed host has not stored, or a texture conversion failure. A texture stored
+later becomes visible without changing the UI draw. Other images, text and 3D
+objects continue to draw; missing text coverage remains an error. The renderer's
+explicit-texture overlay API still rejects unresolved identities.
 Ordinary 2D scene quads and world-space UI remain outside this retained path.
 
 ## Tests

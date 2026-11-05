@@ -12,7 +12,7 @@ use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
 use crate::pipeline_key::Key;
 use crate::program::GraphicsProgram;
-use crate::resources::{BoundResource, Pins, Resource};
+use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
 use crate::state::RenderState;
 
@@ -227,7 +227,20 @@ impl ProgramRuntime {
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
-        let (draw, shares) = self.prepare_recordable(packet, signature)?;
+        self.prepare_pinned(packet, signature, None)
+    }
+
+    /// The prepared draw, whose pins also cover `target` when the draw is recorded into it.
+    pub(crate) fn prepare_pinned(
+        &mut self,
+        packet: &DrawPacket<'_>,
+        signature: TargetSignature,
+        target: Option<TargetHandle>,
+    ) -> Result<PreparedProgramDraw, ProgramError> {
+        let (draw, mut shares) = self.prepare_recordable(packet, signature)?;
+        if let Some(target) = target {
+            shares.push(self.store.target_reservation(target)?);
+        }
         Ok(PreparedProgramDraw {
             pins: Pins::new(&self.authority, shares),
             draw,
@@ -281,13 +294,7 @@ impl ProgramRuntime {
         &self,
         packet: &DrawPacket<'_>,
     ) -> Result<Vec<Arc<Reservation>>, ProgramError> {
-        let mut reservations = Vec::new();
-        for bound in packet.bindings {
-            reservations.push(match bound.resource {
-                Resource::Buffer(buffer) => self.store.buffer_reservation(buffer)?,
-                Resource::Texture(texture) => self.store.texture_reservation(texture)?,
-            });
-        }
+        let mut reservations = self.binding_shares(packet.bindings)?;
         for input in packet.vertex_inputs {
             reservations.push(self.store.buffer_reservation(input.buffer)?);
         }
@@ -295,6 +302,20 @@ impl ProgramRuntime {
             reservations.push(self.store.buffer_reservation(buffer)?);
         }
         Ok(reservations)
+    }
+
+    /// Shares of the reservations of every buffer and texture bound.
+    pub(crate) fn binding_shares(
+        &self,
+        bindings: &[BoundResource],
+    ) -> Result<Vec<Arc<Reservation>>, ProgramError> {
+        bindings
+            .iter()
+            .map(|bound| match bound.resource {
+                Resource::Buffer(buffer) => self.store.buffer_reservation(buffer),
+                Resource::Texture(texture) => self.store.texture_reservation(texture),
+            })
+            .collect()
     }
 
     fn render_pipeline(

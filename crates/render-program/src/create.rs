@@ -1,6 +1,7 @@
 //! Creating, updating and releasing the buffers, textures and render targets a runtime owns.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::resource::upload_buffer;
@@ -52,7 +53,9 @@ impl ProgramRuntime {
 
     /// Records an overwrite of part of a buffer into `encoder`; the offset and length must be
     /// multiples of four. The bytes are staged in a new buffer and copied when the frame runs,
-    /// so the write lands at this point in the frame's order.
+    /// so the write lands at this point in the frame's order. The frame retains the reservations
+    /// of the buffer and of the staging buffer, so their bytes stay counted until the frame is
+    /// cancelled, dropped or completed on the GPU, even when the runtime is dropped first.
     ///
     /// # Errors
     /// Fails on an unknown handle, a range outside the buffer, a misaligned range, or an
@@ -81,11 +84,11 @@ impl ProgramRuntime {
         if bytes.is_empty() {
             return Ok(());
         }
-        // The staging buffer lives only as long as the recorded copy, so it is admitted for the
-        // peak and released before this returns.
+        // The staging buffer lives as long as the recorded copy may run, so its bytes are
+        // admitted now and held by the frame.
         let mut allocations = AllocationSet::default();
         allocations.buffer("render-program write", len, 1);
-        let _transient = self.admit(allocations)?;
+        let staged = Arc::new(self.admit(allocations)?);
         let staging = self.guarded(|| {
             upload_buffer(
                 &self.device,
@@ -95,6 +98,10 @@ impl ProgramRuntime {
                 bytes,
             )
         })?;
+        self.hold_for_frame(
+            encoder,
+            vec![self.store.buffer_reservation(handle)?, staged],
+        )?;
         encoder.copy_buffer_to_buffer(&staging, 0, &entry.buffer, offset, len);
         Ok(())
     }

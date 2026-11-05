@@ -18,7 +18,7 @@ use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
 
 use super::DynamicQuad;
 use crate::device::GpuContext;
-use crate::draw::SceneGpu;
+use crate::draw::{DrawCount, SceneGpu};
 use crate::frame::FrameUniform;
 use crate::geometry::{BILLBOARD_FIXED, pack_model_instance, push_f32, push_vec3};
 use crate::pipeline::MATERIAL_UNIFORM_BYTES;
@@ -749,6 +749,7 @@ fn an_untextured_batch_and_an_empty_contribution_match_the_fixed_pipeline() {
     assert_eq!(nothing, untouched, "no quads draw nothing");
 }
 
+mod clipping;
 mod legacy;
 mod world;
 

@@ -1,8 +1,11 @@
-//! The fixed unlit-alpha path as it was before dynamic quads drew through the program runtime.
+//! The fixed unlit-alpha path as it was before dynamic quads drew through the program runtime,
+//! with the clip rectangles the retained-UI overlay added to it.
 
 use super::*;
 
 /// The fixed unlit-alpha path as it was before dynamic quads drew through the program runtime.
+/// [`Legacy::draw`] is the scene's pass, which clips nothing; [`Legacy::draw_scissored`] is the
+/// same draws with the scissor the fixed path set for the overlay.
 pub(super) struct Legacy {
     pipeline: RenderPipeline,
     draws: Vec<LegacyDraw>,
@@ -16,6 +19,7 @@ struct LegacyDraw {
     tint: Buffer,
     count: u32,
     material: BindGroup,
+    clip_rect: Option<[u32; 4]>,
 }
 
 /// What every group of quads shares: the material layout, the placeholder texel, the uploaded
@@ -88,6 +92,7 @@ impl LegacyDraw {
             tint: upload_buffer(device, queue, "legacy tints", BufferUsages::VERTEX, &tints),
             count: u32::try_from(group.len()).unwrap(),
             material: material_group(device, bindings.layout, &uniform, &bound, sampler, &heights),
+            clip_rect: quad.clip_rect,
         }
     }
 }
@@ -119,7 +124,14 @@ impl Legacy {
         let shared = material_sampler(device);
         let layout = material_bind_group_layout(device);
         let mut ordered: Vec<_> = quads.iter().collect();
-        ordered.sort_by_key(|quad| (quad.overlay, quad.sorting_layer, quad.sorting_order));
+        ordered.sort_by_key(|quad| {
+            (
+                quad.overlay,
+                quad.sorting_layer,
+                quad.sorting_order,
+                quad.hierarchy_order,
+            )
+        });
         let shared = Shared {
             layout: &layout,
             placeholder: &placeholder_view,
@@ -129,7 +141,8 @@ impl Legacy {
         };
         let draws = ordered
             .chunk_by(|a, b| {
-                a.texture == b.texture
+                a.clip_rect == b.clip_rect
+                    && a.texture == b.texture
                     && a.corners == b.corners
                     && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
                     && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
@@ -163,17 +176,60 @@ impl Legacy {
     }
 
     pub(super) fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
+        self.record(pass, None);
+    }
+
+    /// The draws with each one clipped to its rectangle in a target of `viewport` pixels, and
+    /// the calls and instances the fixed path counted.
+    pub(super) fn draw_scissored(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        viewport: [u32; 2],
+    ) -> DrawCount {
+        self.record(pass, Some(viewport))
+    }
+
+    /// The fixed unlit pipeline, for drawing other staged quads with it.
+    pub(super) fn pipeline(&self) -> &RenderPipeline {
+        &self.pipeline
+    }
+
+    /// The frame uniform group the fixed unlit pipeline reads.
+    pub(super) fn frame_group(&self) -> &BindGroup {
+        &self.frame
+    }
+
+    fn record(&self, pass: &mut wgpu::RenderPass<'_>, viewport: Option<[u32; 2]>) -> DrawCount {
+        let mut count = DrawCount::default();
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.frame, &[]);
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
         for draw in &self.draws {
+            if viewport.is_some_and(|size| !set_scissor(pass, draw.clip_rect, size)) {
+                continue;
+            }
             pass.set_bind_group(1, &draw.material, &[]);
             pass.set_vertex_buffer(0, draw.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.instance.slice(..));
             pass.set_vertex_buffer(2, draw.tint.slice(..));
             pass.draw_indexed(0..6, 0, 0..draw.count);
+            count.draw(u64::from(draw.count));
         }
+        count
     }
+}
+
+/// The fixed path's scissor: the lower-left rectangle clamped to the target, flipped to the
+/// target's top-left origin, or the whole target without one. False when nothing is left of it.
+fn set_scissor(pass: &mut wgpu::RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]) -> bool {
+    let [x, y, width, height] = clip.unwrap_or([0, 0, size[0], size[1]]);
+    let width = width.min(size[0].saturating_sub(x));
+    let height = height.min(size[1].saturating_sub(y));
+    if width == 0 || height == 0 {
+        return false;
+    }
+    pass.set_scissor_rect(x, size[1] - y - height, width, height);
+    true
 }
 
 fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {

@@ -28,6 +28,19 @@ internal static class RetainedUiFixture
         front.SetParent(label, false);
         var graphic = Graphic(front, new Color(0, 1, 0, 1));
         graphic.EnableRectClipping(new Rect(-8, -8, 8, 8));
+        UnavailableGraphics(root);
+    }
+
+    private static void UnavailableGraphics(Transform root)
+    {
+        Texture[] unavailable = [new RenderTexture(1, 1, 0),
+            new Texture2D(1, 1, TextureFormat.Alpha8, false),
+            new Texture2D(1, 1, TextureFormat.RGBAHalf, false)];
+        foreach (var texture in unavailable)
+        {
+            var graphic = Graphic(Rectangle(root, 64), new Color(1, 0, 1, 1));
+            graphic.SetTexture(texture);
+        }
     }
 
     private static void Background()

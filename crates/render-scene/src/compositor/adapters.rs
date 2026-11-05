@@ -37,7 +37,8 @@ impl PreparedFeature for Resident<'_> {
 /// Appends a legacy resident draw to the shared executor without submitting.
 /// The caller has already set the frame and flushed instance edits. For staged
 /// frame uploads, snapshots and screen effects use [`super::encode_scene`] instead.
-/// This entry retains the legacy exposed sRGB output, with no new post look.
+/// This entry retains the legacy exposed sRGB output, with no new post look. It refuses a scene
+/// that holds admitted player program draws; use [`super::encode_scene`] for those.
 pub fn encode_resident(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
@@ -46,6 +47,11 @@ pub fn encode_resident(
     attachments: (&AttachmentView, &AttachmentView),
 ) -> Result<(), FrameError> {
     let (scene, pipelines) = scene;
+    if scene.has_programs() {
+        return Err(FrameError::UnsupportedEffect(
+            "player programs on the resident path",
+        ));
+    }
     renderer.prepare_scene_inputs(device, scene);
     let (color, depth) = attachments;
     scene.prepare_terrain_geometry(device, encoder, &scene.resident_frame(), color.size())?;

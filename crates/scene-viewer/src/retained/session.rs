@@ -9,6 +9,8 @@ mod tests;
 #[cfg(test)]
 mod timer_tests;
 #[cfg(test)]
+mod window_control_tests;
+#[cfg(test)]
 mod work_tests;
 
 use crate::{
@@ -44,6 +46,10 @@ impl<'a> Session<'a> {
             failure: None,
             closed: false,
         }
+    }
+
+    fn set_window_controls(&mut self, window: std::sync::Arc<dyn super::input::WindowControls>) {
+        self.host.input_state.window = super::input::WindowControlTarget::Native(window);
     }
 
     fn input(&mut self, input: RetainedInput) {
@@ -171,7 +177,7 @@ impl Content for Session<'_> {
         self.host.options.cadence
     }
     fn window_ready(&mut self, window: std::sync::Arc<winit::window::Window>) {
-        self.host.input_state.window = Some(window);
+        self.set_window_controls(window);
     }
     fn device_event(&mut self, event: &DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {

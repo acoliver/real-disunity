@@ -1,5 +1,12 @@
 use super::submission::*;
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::Cell,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 fn context() -> (wgpu::Device, wgpu::Queue) {
     let instance = crate::device::headless_instance();
@@ -318,4 +325,99 @@ fn replaced_encoder_cannot_publish_an_abandoned_upload() {
     ));
     assert!(!published.get());
     assert!(authority.is_idle());
+}
+
+struct DropProbe(Arc<AtomicUsize>);
+impl Drop for DropProbe {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+fn retained_by_a_recording_frame(
+    detach: bool,
+) -> (
+    SubmissionAuthority,
+    RecordingFrame,
+    wgpu::Device,
+    Arc<AtomicUsize>,
+) {
+    let (device, queue) = context();
+    let authority = SubmissionAuthority::new(queue);
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let owner = FrameOwner::new(DropProbe(dropped.clone()), &authority);
+    let recording = authority.begin(&device).unwrap();
+    Publications::retain_lease(&recording, &owner.lease()).unwrap();
+    if detach {
+        owner.detach();
+    } else {
+        drop(owner);
+    }
+    (authority, recording, device, dropped)
+}
+
+#[test]
+fn a_detached_owner_stays_held_by_its_frame_until_the_gpu_has_completed_it() {
+    let (authority, recording, device, dropped) = retained_by_a_recording_frame(true);
+    assert_eq!(
+        dropped.load(Ordering::SeqCst),
+        0,
+        "the frame holds the owner"
+    );
+    recording.finish().submit().unwrap();
+    assert_eq!(authority.submitted_serial(), 1);
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .unwrap();
+    assert_eq!(authority.completed_serial(), 1);
+    assert_eq!(
+        dropped.load(Ordering::SeqCst),
+        1,
+        "completion released the owner"
+    );
+}
+
+#[test]
+fn a_detached_owner_is_released_at_once_when_its_frame_is_cancelled() {
+    let (authority, recording, _device, dropped) = retained_by_a_recording_frame(true);
+    assert_eq!(dropped.load(Ordering::SeqCst), 0);
+    recording.finish().cancel();
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    assert_eq!(authority.submitted_serial(), 0, "nothing was submitted");
+}
+
+#[test]
+fn a_detached_owner_with_no_frame_is_released_at_once_and_takes_no_new_frame() {
+    let (device, queue) = context();
+    let authority = SubmissionAuthority::new(queue);
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let owner = FrameOwner::new(DropProbe(dropped.clone()), &authority);
+    let lease = owner.lease();
+    owner.detach();
+    assert_eq!(
+        dropped.load(Ordering::SeqCst),
+        0,
+        "the lease clone still holds it"
+    );
+    let recording = authority.begin(&device).unwrap();
+    assert!(matches!(
+        Publications::retain_lease(&recording, &lease),
+        Err(SubmitError::Lease(LeaseError::Expired))
+    ));
+    drop(lease);
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_dropped_owner_still_expires_the_frame_that_retained_it() {
+    let (authority, recording, _device, dropped) = retained_by_a_recording_frame(false);
+    assert!(matches!(
+        recording.finish().submit(),
+        Err(SubmitError::Lease(LeaseError::Expired))
+    ));
+    assert_eq!(authority.submitted_serial(), 0);
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
 }

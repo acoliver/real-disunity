@@ -36,7 +36,7 @@ pub(crate) use windowless::tests::pages::layered_scene;
 mod input;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
-    WheelDelta,
+    WheelDelta, WindowControlError,
 };
 mod capture;
 pub use capture::{

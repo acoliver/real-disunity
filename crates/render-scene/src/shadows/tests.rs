@@ -12,6 +12,7 @@ mod observations;
 mod receiver;
 mod retained;
 mod sampling;
+mod sampling_cost;
 mod scheduler;
 mod sdsm;
 mod selection;

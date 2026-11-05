@@ -322,9 +322,15 @@ fn scene_coverage_alpha(alpha: f32, cutoff: f32, width: f32) -> f32 {
     if alpha < cutoff { return min(coverage, bitcast<f32>(0x3effffffu)); }
     return max(coverage, 0.5);
 }
+fn scene_sampled_alpha(input: VertexOutput) -> f32 {
+    let footprint = scene_atlas_footprint(albedo_texture, input);
+    return scene_material_alpha(scene_atlas_sample(albedo_texture, input, footprint).a);
+}
+
 fn scene_mask_alpha(alpha: f32, input: VertexOutput) -> f32 {
+    let width = fwidth(alpha);
     if !SCENE_ALPHA_TO_COVERAGE { return 1.0; }
-    return scene_coverage_alpha(alpha, scene_alpha_cutoff(input, false), fwidth(alpha));
+    return scene_coverage_alpha(alpha, scene_alpha_cutoff(input, false), width);
 }
 
 fn scene_alpha_covered(alpha: f32, input: VertexOutput) -> bool {

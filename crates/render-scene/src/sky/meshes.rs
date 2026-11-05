@@ -83,12 +83,16 @@ pub(crate) struct MeshDraw {
     pub instance: wgpu::Buffer,
     pub key: crate::pipeline::PipelineKey,
 }
-type PipelineCache =
-    std::cell::RefCell<std::collections::BTreeMap<[u32; 12], [wgpu::RenderPipeline; 16]>>;
+type PipelineCache = std::cell::RefCell<
+    std::collections::BTreeMap<
+        [u32; 12],
+        [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
+    >,
+>;
 
 #[derive(Debug)]
 pub(crate) struct Meshes {
-    pipelines: [wgpu::RenderPipeline; 16],
+    pipelines: [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     device: wgpu::Device,
     scene: crate::renderer::ScenePipelines,
     physical: bool,
@@ -189,7 +193,7 @@ impl Meshes {
         raster: ([u32; 7], wgpu::FrontFace),
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
-    ) -> [wgpu::RenderPipeline; 16] {
+    ) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
         let (options, front_face) = raster;
         if front_face == wgpu::FrontFace::Ccw
             && options == [0; 7]

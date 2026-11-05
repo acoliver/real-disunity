@@ -81,8 +81,8 @@ fn render_center(
 
 /// Both sites, by the expression the fragment returns.
 const SITES: [&str; 2] = [
-    "scene_atlas_sample(albedo_texture,input)",
-    "scene_atlas_first(albedo_texture,input)",
+    "scene_atlas_sample(albedo_texture, input, scene_atlas_footprint(albedo_texture, input))",
+    "scene_atlas_first(albedo_texture, scene_atlas_footprint(albedo_texture, input))",
 ];
 
 fn site_source(site: &str) -> String {
@@ -129,12 +129,12 @@ fn bias_zero_matches_the_unbiased_impostor_sampling_on_one_device() {
         let source = site_source(site);
         let stock = source
             .replace(
-                "textureSampleBias(map, material_sampler, input.texcoord, frame.lighting_options.w)",
+                "textureSampleGrad(map, material_sampler, input.texcoord, footprint.stock_dx, footprint.stock_dy)",
                 "textureSample(map, material_sampler, input.texcoord)",
             )
             .replace(
-                "textureSampleBias(map, material_sampler, coord, frame.lighting_options.w)",
-                "textureSample(map, material_sampler, coord)",
+                "textureSampleGrad(map, material_sampler, footprint.uv[0], footprint.dx[0], footprint.dy[0])",
+                "textureSample(map, material_sampler, footprint.uv[0])",
             )
             .replace("exp2(frame.lighting_options.w)", "1.0");
         assert_ne!(stock, source, "the reference must differ in the sampling");

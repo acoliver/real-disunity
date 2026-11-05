@@ -109,7 +109,7 @@ fn render_center(context: &GpuContext, source: &str, level: u32, bias: f32) -> [
 
 fn sample_source() -> String {
     format!(
-        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture,input); }}",
+        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture, input, scene_atlas_footprint(albedo_texture, input)); }}",
         crate::shader::ENVIRONMENT_WGSL
     )
 }
@@ -151,7 +151,7 @@ fn bias_zero_matches_the_unbiased_stock_sample_on_one_device() {
     let context = context();
     let source = sample_source();
     let stock = source.replace(
-        "textureSampleBias(map, material_sampler, input.texcoord, frame.lighting_options.w)",
+        "textureSampleGrad(map, material_sampler, input.texcoord, footprint.stock_dx, footprint.stock_dy)",
         "textureSample(map, material_sampler, input.texcoord)",
     );
     assert_ne!(

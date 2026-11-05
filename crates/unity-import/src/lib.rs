@@ -13,6 +13,7 @@ pub mod player;
 pub mod player_animators;
 pub mod player_builtins;
 pub mod player_channels;
+mod player_compute;
 pub mod player_files;
 mod player_graphics;
 mod player_hierarchy;

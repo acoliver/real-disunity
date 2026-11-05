@@ -48,7 +48,10 @@ fn render_texture(world: u64, mip_count: u32) -> u64 {
         depth_bits: 24,
         mip_count,
         srgb: 1,
+        filter: 1,
+        aniso_level: 1,
         generation: 0,
+        ..Default::default()
     };
     let mut id = 0;
     unsafe {
@@ -519,6 +522,28 @@ fn a_render_texture_round_trips_and_a_write_raises_its_generation() {
 }
 
 #[test]
+fn a_render_texture_sampler_round_trips_and_a_change_raises_the_generation() {
+    let world = new_world();
+    let id = render_texture(world, 1);
+    let mut desc = DisunityRenderTexture::default();
+    unsafe { assert_eq!(disunity_render_texture_read(world, id, &mut desc).code, 0) };
+    assert_eq!((desc.wrap_u, desc.wrap_v, desc.wrap_w), (0, 0, 0));
+    assert_eq!((desc.filter, desc.aniso_level, desc.generation), (1, 1, 1));
+    desc.wrap_u = 1;
+    desc.wrap_v = 2;
+    desc.wrap_w = 3;
+    desc.filter = 2;
+    desc.aniso_level = 16;
+    desc.mip_bias = -1.5;
+    unsafe { assert_eq!(disunity_render_texture_write(world, id, &desc).code, 0) };
+    let mut read = DisunityRenderTexture::default();
+    unsafe { assert_eq!(disunity_render_texture_read(world, id, &mut read).code, 0) };
+    assert_eq!((read.wrap_u, read.wrap_v, read.wrap_w), (1, 2, 3));
+    assert_eq!((read.filter, read.aniso_level, read.generation), (2, 16, 2));
+    assert_eq!(read.mip_bias.to_bits(), (-1.5f32).to_bits());
+}
+
+#[test]
 fn a_render_texture_description_is_validated() {
     let world = new_world();
     let mut id = 0;
@@ -529,7 +554,10 @@ fn a_render_texture_description_is_validated() {
         depth_bits: 0,
         mip_count: 1,
         srgb: 0,
+        filter: 1,
+        aniso_level: 1,
         generation: 0,
+        ..Default::default()
     };
     let bad = [
         DisunityRenderTexture { width: 0, ..base },
@@ -540,6 +568,18 @@ fn a_render_texture_description_is_validated() {
         DisunityRenderTexture { srgb: 2, ..base },
         DisunityRenderTexture {
             mip_count: 99,
+            ..base
+        },
+        DisunityRenderTexture { wrap_u: 4, ..base },
+        DisunityRenderTexture { wrap_v: 4, ..base },
+        DisunityRenderTexture { wrap_w: 4, ..base },
+        DisunityRenderTexture { filter: 3, ..base },
+        DisunityRenderTexture {
+            aniso_level: 17,
+            ..base
+        },
+        DisunityRenderTexture {
+            mip_bias: f32::NAN,
             ..base
         },
     ];
@@ -715,4 +755,88 @@ fn offscreen_work_is_validated_before_it_is_recorded() {
         )
     };
     assert_eq!(count, 0);
+}
+
+#[test]
+fn a_shader_reads_back_its_name_and_source() {
+    let world = new_world();
+    let id = shader(world, "Terrain/Splat");
+    let mut info = DisunityShaderInfo::default();
+    unsafe {
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+    }
+    assert_eq!(
+        (info.name_length, info.file_length, info.has_source),
+        (13, 0, 0)
+    );
+    let (file, length) = text("sharedassets3.assets");
+    unsafe {
+        assert_eq!(
+            disunity_shader_source_write(world, id, file, length, -9).code,
+            0
+        );
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+    }
+    assert_eq!(
+        (
+            info.name_length,
+            info.file_length,
+            info.has_source,
+            info.path_id
+        ),
+        (13, 20, 1, -9)
+    );
+    assert_eq!(info.text_capacity, 33);
+    let mut bytes = [0_u8; 33];
+    unsafe {
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, bytes.as_mut_ptr()).code,
+            0
+        );
+    }
+    assert_eq!(
+        std::str::from_utf8(&bytes).unwrap(),
+        "Terrain/Splatsharedassets3.assets"
+    );
+}
+
+#[test]
+fn a_shader_read_needs_room_for_its_text_and_a_live_shader() {
+    let world = new_world();
+    let id = shader(world, "Terrain/Splat");
+    let (file, length) = text("sharedassets3.assets");
+    let mut info = DisunityShaderInfo::default();
+    unsafe {
+        assert_eq!(
+            disunity_shader_source_write(world, id, file, length, -9).code,
+            0
+        );
+        assert_eq!(
+            disunity_shader_read(world, id, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+    }
+    info.text_capacity = 32;
+    let mut short = [0_u8; 32];
+    unsafe {
+        assert_ne!(
+            disunity_shader_read(world, id, &mut info, short.as_mut_ptr()).code,
+            0
+        );
+        assert_ne!(
+            disunity_shader_read(world, id + 1, &mut info, std::ptr::null_mut()).code,
+            0
+        );
+        assert_ne!(
+            disunity_shader_read(world, id, std::ptr::null_mut(), std::ptr::null_mut()).code,
+            0
+        );
+    }
+    assert_eq!(short, [0; 32]);
 }

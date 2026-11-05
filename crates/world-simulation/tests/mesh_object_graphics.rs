@@ -2,7 +2,8 @@
 //! the world material of each slot, the renderer's property block and queue, and the camera
 //! target a camera draws into.
 use worldrunner_world_simulation::graphics::{
-    MaterialId, PropertyValue, RenderTextureId, ShaderProperties, WorldRenderTexture, WorldShader,
+    MaterialId, PropertyValue, RenderTextureId, ShaderProperties, WorldRenderTexture, WorldSampler,
+    WorldShader,
 };
 use worldrunner_world_simulation::presentation::{Camera, mesh_objects::extract_mesh_objects};
 use worldrunner_world_simulation::{
@@ -129,6 +130,7 @@ fn target(world: &mut World) -> RenderTextureId {
         depth_bits: 0,
         mip_count: 1,
         srgb: false,
+        sampler: WorldSampler::default(),
         generation: 0,
     };
     world.create_render_texture(texture).unwrap()

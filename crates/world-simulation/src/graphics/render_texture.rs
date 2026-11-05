@@ -7,9 +7,55 @@ const MAX_SIZE: u32 = 16384;
 /// Most mip levels of a render texture: the full chain of the largest size.
 const MAX_MIPS: u32 = 15;
 
-/// A render texture's description. `format` is the engine's `GraphicsFormat` value. Every edit
-/// raises `generation`; the description a caller passes in only chooses the other fields.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Highest wrap mode value.
+const MAX_WRAP: u32 = 3;
+/// Highest filter mode value.
+const MAX_FILTER: u32 = 2;
+/// Highest anisotropy level.
+const MAX_ANISO: u32 = 16;
+
+/// How a render texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat,
+/// 1 clamp, 2 mirror, 3 mirror once) and `filter` its `FilterMode` (0 point, 1 bilinear,
+/// 2 trilinear). The default is the engine's choice for a texture nothing configured: repeat,
+/// bilinear, anisotropy 1 and no bias.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorldSampler {
+    pub wrap_u: u32,
+    pub wrap_v: u32,
+    pub wrap_w: u32,
+    pub filter: u32,
+    pub aniso_level: u32,
+    pub mip_bias: f32,
+}
+
+impl Default for WorldSampler {
+    fn default() -> Self {
+        Self {
+            wrap_u: 0,
+            wrap_v: 0,
+            wrap_w: 0,
+            filter: 1,
+            aniso_level: 1,
+            mip_bias: 0.0,
+        }
+    }
+}
+
+impl WorldSampler {
+    fn is_valid(&self) -> bool {
+        [self.wrap_u, self.wrap_v, self.wrap_w]
+            .iter()
+            .all(|wrap| *wrap <= MAX_WRAP)
+            && self.filter <= MAX_FILTER
+            && self.aniso_level <= MAX_ANISO
+            && self.mip_bias.is_finite()
+    }
+}
+
+/// A render texture's description. `format` is the engine's `GraphicsFormat` value. Every edit,
+/// including a sampler change, raises `generation`; the description a caller passes in only
+/// chooses the other fields.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WorldRenderTexture {
     pub width: u32,
     pub height: u32,
@@ -18,6 +64,7 @@ pub struct WorldRenderTexture {
     pub depth_bits: u32,
     pub mip_count: u32,
     pub srgb: bool,
+    pub sampler: WorldSampler,
     pub generation: u64,
 }
 
@@ -25,7 +72,7 @@ impl WorldRenderTexture {
     fn validate(&self) -> Result<(), GraphicsError> {
         let sized = (1..=MAX_SIZE).contains(&self.width) && (1..=MAX_SIZE).contains(&self.height);
         let depth = matches!(self.depth_bits, 0 | 16 | 24 | 32);
-        if sized && depth && (1..=MAX_MIPS).contains(&self.mip_count) {
+        if sized && depth && (1..=MAX_MIPS).contains(&self.mip_count) && self.sampler.is_valid() {
             Ok(())
         } else {
             Err(GraphicsError::InvalidRenderTexture)

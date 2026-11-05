@@ -26,6 +26,8 @@ const SCOPE_BLOCK: u32 = 2;
 const TEXTURE_NONE: u32 = 0;
 const TEXTURE_ASSET: u32 = 1;
 const TEXTURE_RENDER: u32 = 2;
+/// A global texture, which only compute bindings name; the name travels beside the record.
+pub(crate) const TEXTURE_GLOBAL: u32 = 3;
 
 /// A texture property. `kind` is 0 for no texture (`texture` must be 0), 1 for an asset texture
 /// by the identity the host knows it by (a player texture identity) and 2 for a world render
@@ -56,11 +58,12 @@ pub(crate) fn texture_ref(kind: u32, texture: u64) -> Result<TextureRef, AbiErro
 }
 
 /// The kind and identity a texture reference is written as.
-pub(crate) fn texture_parts(texture: TextureRef) -> (u32, u64) {
+pub(crate) fn texture_parts(texture: &TextureRef) -> (u32, u64) {
     match texture {
         TextureRef::None => (TEXTURE_NONE, 0),
-        TextureRef::Asset(identity) => (TEXTURE_ASSET, identity),
+        TextureRef::Asset(identity) => (TEXTURE_ASSET, *identity),
         TextureRef::Render(id) => (TEXTURE_RENDER, id.to_bits()),
+        TextureRef::Global(_) => (TEXTURE_GLOBAL, 0),
     }
 }
 
@@ -353,7 +356,7 @@ fn read_values(properties: &ShaderProperties, name: &str) -> DisunityPropertyRea
     }
     if let Some(slot) = properties.texture(name) {
         read.present |= 16;
-        (read.texture_kind, read.texture) = texture_parts(slot.texture);
+        (read.texture_kind, read.texture) = texture_parts(&slot.texture);
         [read.scale_x, read.scale_y] = slot.scale;
         [read.offset_x, read.offset_y] = slot.offset;
     }

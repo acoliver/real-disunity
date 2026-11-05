@@ -267,6 +267,13 @@ pub enum PlanAsset {
         file: String,
         path_id: i64,
     },
+    /// A compute shader of a player, as [`crate::player_resources::ResourceAsset::ComputeShader`].
+    ComputeShader {
+        name: String,
+        file: String,
+        path_id: i64,
+        kernels: Vec<crate::player_compute::PlanKernel>,
+    },
     /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. Its
     /// texture slots are empty: a scene plan holds only the textures its sprites draw.
     Material {

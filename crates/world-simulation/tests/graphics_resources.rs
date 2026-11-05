@@ -1,7 +1,7 @@
 //! Shaders, materials, the global shader state and render textures of a world.
 use worldrunner_world_simulation::graphics::{
     GraphicsError, MaterialEdit, MaterialId, PropertyValue, RenderTextureId, ShaderId,
-    ShaderSource, TextureRef, TextureSlot, WorldRenderTexture, WorldShader,
+    ShaderSource, TextureRef, TextureSlot, WorldRenderTexture, WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::{World, WorldError, WorldSettings};
 
@@ -24,6 +24,7 @@ fn target() -> WorldRenderTexture {
         depth_bits: 24,
         mip_count: 3,
         srgb: true,
+        sampler: WorldSampler::default(),
         generation: 99,
     }
 }
@@ -417,6 +418,119 @@ fn updating_a_render_texture_raises_its_generation_by_one() {
     world.update_render_texture(id, target()).unwrap();
     let held = world.render_texture(id).unwrap();
     assert_eq!((held.width, held.generation), (64, 3));
+}
+
+fn mirrored() -> WorldSampler {
+    WorldSampler {
+        wrap_u: 2,
+        wrap_v: 1,
+        wrap_w: 3,
+        filter: 2,
+        aniso_level: 4,
+        mip_bias: 0.25,
+    }
+}
+
+#[test]
+fn a_render_texture_starts_with_the_engine_default_sampler() {
+    let mut world = world();
+    let id = world.create_render_texture(target()).unwrap();
+    let held = world.render_texture(id).unwrap().sampler;
+    assert_eq!((held.wrap_u, held.wrap_v, held.wrap_w), (0, 0, 0));
+    assert_eq!((held.filter, held.aniso_level), (1, 1));
+    assert_eq!(held.mip_bias.to_bits(), 0.0f32.to_bits());
+}
+
+#[test]
+fn changing_the_sampler_of_a_render_texture_raises_its_generation() {
+    let mut world = world();
+    let id = world.create_render_texture(target()).unwrap();
+    let sampled = WorldRenderTexture {
+        sampler: mirrored(),
+        ..target()
+    };
+    world.update_render_texture(id, sampled).unwrap();
+    let held = world.render_texture(id).unwrap();
+    assert_eq!(held.sampler, mirrored());
+    assert_eq!(held.generation, 2);
+}
+
+#[test]
+fn a_render_texture_sampler_outside_the_engine_values_is_rejected() {
+    let mut world = world();
+    let id = world.create_render_texture(target()).unwrap();
+    let bad = [
+        WorldSampler {
+            wrap_u: 4,
+            ..mirrored()
+        },
+        WorldSampler {
+            wrap_v: 4,
+            ..mirrored()
+        },
+        WorldSampler {
+            wrap_w: 4,
+            ..mirrored()
+        },
+        WorldSampler {
+            filter: 3,
+            ..mirrored()
+        },
+        WorldSampler {
+            aniso_level: 17,
+            ..mirrored()
+        },
+        WorldSampler {
+            mip_bias: f32::NAN,
+            ..mirrored()
+        },
+    ];
+    for sampler in bad {
+        let texture = WorldRenderTexture {
+            sampler,
+            ..target()
+        };
+        assert_eq!(
+            graphics_error(world.create_render_texture(texture).map(drop)),
+            GraphicsError::InvalidRenderTexture,
+            "{sampler:?}"
+        );
+        assert_eq!(
+            graphics_error(world.update_render_texture(id, texture)),
+            GraphicsError::InvalidRenderTexture
+        );
+    }
+    assert_eq!(world.render_texture(id).unwrap().generation, 1);
+}
+
+#[test]
+fn a_render_texture_sampler_at_the_ends_of_each_engine_range_is_accepted() {
+    let mut world = world();
+    for sampler in [
+        WorldSampler {
+            wrap_u: 3,
+            wrap_v: 3,
+            wrap_w: 3,
+            filter: 2,
+            aniso_level: 16,
+            mip_bias: 8.0,
+        },
+        WorldSampler {
+            wrap_u: 0,
+            wrap_v: 0,
+            wrap_w: 0,
+            filter: 0,
+            aniso_level: 0,
+            mip_bias: -8.0,
+        },
+    ] {
+        let texture = WorldRenderTexture {
+            sampler,
+            ..target()
+        };
+        let id = world.create_render_texture(texture).unwrap();
+        assert_eq!(world.render_texture(id).unwrap().sampler, sampler);
+    }
 }
 
 #[test]

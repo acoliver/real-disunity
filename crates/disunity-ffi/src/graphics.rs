@@ -11,7 +11,7 @@ use worldrunner_world_simulation::{
     MAX_RENDERER_MATERIALS,
     graphics::{
         MaterialEdit, MaterialId, RenderTextureId, ShaderId, ShaderSource, WorldRenderTexture,
-        WorldShader,
+        WorldSampler, WorldShader,
     },
 };
 
@@ -77,6 +77,66 @@ pub unsafe extern "C" fn disunity_shader_source_write(
         };
         s.native
             .update_shader(id, WorldShader { source, ..current })?;
+        Ok(())
+    })
+}
+
+/// What a shader holds. `has_source` is 1 when the shader has a source, whose file is
+/// `file_length` bytes of the text after the name and whose object is `path_id` there. On input
+/// `text_capacity` is the capacity of the text a caller passes; on output it is the length of the
+/// name and the file together.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityShaderInfo {
+    pub path_id: i64,
+    pub name_length: u32,
+    pub file_length: u32,
+    pub has_source: u32,
+    pub text_capacity: u32,
+}
+
+/// Reads a shader. With null `text` only `info` is filled in, to size the text; otherwise the
+/// capacity in `info` must hold the name and then the file, which are written to `text`.
+///
+/// # Safety
+/// `info` is readable and writable for one record; `text` is writable for the capacity `info`
+/// states, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_shader_read(
+    world: u64,
+    shader: u64,
+    info: *mut DisunityShaderInfo,
+    text: *mut u8,
+) -> DisunityResult {
+    if info.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let capacity = unsafe { *info }.text_capacity;
+    mutate(world, |s| {
+        let held = s.native.shader(ShaderId::from_bits(shader))?;
+        let file = held
+            .source
+            .as_ref()
+            .map_or("", |source| source.file.as_str());
+        let length =
+            |text: &str| u32::try_from(text.len()).map_err(|_| AbiError::from("text overflow"));
+        let reported = DisunityShaderInfo {
+            path_id: held.source.as_ref().map_or(0, |source| source.path_id),
+            name_length: length(&held.name)?,
+            file_length: length(file)?,
+            has_source: u32::from(held.source.is_some()),
+            text_capacity: length(&format!("{}{file}", held.name))?,
+        };
+        if !text.is_null() {
+            if capacity < reported.text_capacity {
+                return Err("the text capacity is too small".into());
+            }
+            unsafe {
+                std::ptr::copy_nonoverlapping(held.name.as_ptr(), text, held.name.len());
+                std::ptr::copy_nonoverlapping(file.as_ptr(), text.add(held.name.len()), file.len());
+            }
+        }
+        unsafe { *info = reported };
         Ok(())
     })
 }
@@ -217,9 +277,10 @@ pub unsafe extern "C" fn disunity_material_read(
 }
 
 /// A render texture's description; booleans are 0 or 1. `format` is the engine's
-/// `GraphicsFormat` value. `generation` is ignored on input and starts at 1.
+/// `GraphicsFormat` value. `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
+/// with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityRenderTexture {
     pub width: u32,
     pub height: u32,
@@ -227,6 +288,12 @@ pub struct DisunityRenderTexture {
     pub depth_bits: u32,
     pub mip_count: u32,
     pub srgb: u32,
+    pub wrap_u: u32,
+    pub wrap_v: u32,
+    pub wrap_w: u32,
+    pub filter: u32,
+    pub aniso_level: u32,
+    pub mip_bias: f32,
     pub generation: u64,
 }
 
@@ -242,6 +309,14 @@ impl DisunityRenderTexture {
             depth_bits: self.depth_bits,
             mip_count: self.mip_count,
             srgb: self.srgb == 1,
+            sampler: WorldSampler {
+                wrap_u: self.wrap_u,
+                wrap_v: self.wrap_v,
+                wrap_w: self.wrap_w,
+                filter: self.filter,
+                aniso_level: self.aniso_level,
+                mip_bias: self.mip_bias,
+            },
             generation: 0,
         })
     }
@@ -312,6 +387,12 @@ pub unsafe extern "C" fn disunity_render_texture_read(
                 depth_bits: held.depth_bits,
                 mip_count: held.mip_count,
                 srgb: u32::from(held.srgb),
+                wrap_u: held.sampler.wrap_u,
+                wrap_v: held.sampler.wrap_v,
+                wrap_w: held.sampler.wrap_w,
+                filter: held.sampler.filter,
+                aniso_level: held.sampler.aniso_level,
+                mip_bias: held.sampler.mip_bias,
                 generation: held.generation,
             };
         }

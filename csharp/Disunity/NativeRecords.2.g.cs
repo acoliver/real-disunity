@@ -12,6 +12,42 @@ namespace Disunity.Native
 {
 
     /// <summary>
+    ///  A stored mesh's description, also the in/out record of a read. On a store, `generation`,
+    ///  `present`, `changed` and `copied` are ignored. On a read, `generation` is the generation the
+    ///  caller already holds and the three counts are the capacities of the buffers passed (all zero
+    ///  asks for sizes only); the call fills in everything. `channels` is a mask of
+    ///  [`CHANNEL_NORMALS`], [`CHANNEL_UV0`] and [`CHANNEL_COLORS`]; a channel outside it reads as
+    ///  zero in every vertex. `left_out` counts the sub-meshes that are not triangle lists, which the
+    ///  engine leaves out.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshInfo
+    {
+        public ulong identity;
+        /// <summary>
+        ///  Starts at 1 and rises by one each time the identity is stored again.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Zero when a read names an identity nothing stored.
+        /// </summary>
+        public uint present;
+        /// <summary>
+        ///  Nonzero when the stored generation is newer than the one the read passed.
+        /// </summary>
+        public uint changed;
+        /// <summary>
+        ///  Nonzero when the read copied the buffers.
+        /// </summary>
+        public uint copied;
+        public uint channels;
+        public uint vertex_count;
+        public uint index_count;
+        public uint submesh_count;
+        public uint left_out;
+    }
+
+    /// <summary>
     ///  One vertex: position, normal, first texture coordinate and colour (linear RGBA).
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -41,6 +77,70 @@ namespace Disunity.Native
         public uint slot;
         public uint first_index;
         public uint index_count;
+    }
+
+    /// <summary>
+    ///  A stored mesh's channels, also the in/out record of a read. On a store, `identity` names the
+    ///  mesh, `vertex_count` must equal the fixed mesh's, the four counts are those of the buffers
+    ///  passed, and `generation`, `present`, `changed` and `copied` are ignored. On a read,
+    ///  `identity` names the mesh, `generation` is the generation the caller already holds and the
+    ///  four counts are the capacities of the buffers passed (all zero asks for sizes only); the call
+    ///  fills in everything.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshChannelsInfo
+    {
+        public ulong identity;
+        /// <summary>
+        ///  The generation of the fixed mesh the channels were stored for, or one more than the held
+        ///  channels' when they are stored again without the fixed mesh changing.
+        /// </summary>
+        public ulong generation;
+        /// <summary>
+        ///  Zero when a read names an identity with no stored channels.
+        /// </summary>
+        public uint present;
+        /// <summary>
+        ///  Nonzero when the stored generation is newer than the one the read passed.
+        /// </summary>
+        public uint changed;
+        /// <summary>
+        ///  Nonzero when the read copied the buffers.
+        /// </summary>
+        public uint copied;
+        public uint vertex_count;
+        public uint channel_count;
+        public uint float_count;
+        public uint index_count;
+        public uint range_count;
+    }
+
+    /// <summary>
+    ///  One channel: its number, its float count per vertex (1 to 4) and the offset in floats of its
+    ///  first value in the shared float buffer. Vertex `v` holds `dimension` floats from
+    ///  `offset + v * dimension`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshChannel
+    {
+        public uint number;
+        public uint dimension;
+        public uint offset;
+    }
+
+    /// <summary>
+    ///  A run of indices that forms one sub-mesh, drawn with the given topology: 0 triangles, 1 quads,
+    ///  2 lines, 3 line strip, 4 points. Range `i` is sub-mesh `i` (its material slot), so an empty
+    ///  sub-mesh is a range with `count` zero. `base_vertex` is the offset the managed mesh adds to the
+    ///  sub-mesh's indices; the stored indices already include it.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityMeshRange
+    {
+        public uint start;
+        public uint count;
+        public uint base_vertex;
+        public uint topology;
     }
 
     /// <summary>
@@ -112,6 +212,132 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  A compute shader to create. `text` holds the name (`name_length` bytes), then the file
+    ///  (`file_length` bytes), then whatever the kernels name; `kernel_count` records describe the
+    ///  kernels.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeShaderDesc
+    {
+        public long path_id;
+        public uint name_length;
+        public uint file_length;
+        public uint kernel_count;
+    }
+
+    /// <summary>
+    ///  One kernel: its name is `name_length` bytes of the text at `name_offset`. A thread group size
+    ///  of 0 by 0 by 0 is unknown; any other size must be launchable.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeKernel
+    {
+        public uint name_offset;
+        public uint name_length;
+        public uint size_x;
+        public uint size_y;
+        public uint size_z;
+    }
+
+    /// <summary>
+    ///  What a compute shader holds. On input, `kernel_count` and `text_length` are the capacities of
+    ///  the arrays a caller passes; on output they are what the shader holds. `generation` rises with
+    ///  every edit.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeShaderInfo
+    {
+        public long path_id;
+        public uint name_length;
+        public uint file_length;
+        public uint kernel_count;
+        public uint text_length;
+        public ulong generation;
+    }
+
+    /// <summary>
+    ///  A compute buffer to create: `count` elements of `stride` bytes, `kind` the engine's type.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeBufferDesc
+    {
+        public uint count;
+        public uint stride;
+        public uint kind;
+    }
+
+    /// <summary>
+    ///  What a compute buffer holds besides its contents. `generation` rises with every write.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeBufferInfo
+    {
+        public uint count;
+        public uint stride;
+        public uint kind;
+        public ulong generation;
+    }
+
+    /// <summary>
+    ///  The lengths of a texture property's name and of the global texture it names, which are the
+    ///  first and second string of the text beside the record.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeGlobalTexture
+    {
+        public uint name_length;
+        public uint global_length;
+    }
+
+    /// <summary>
+    ///  One bound value. `kind` is 0 for a float (one float at `float_offset`), 1 for an integer
+    ///  (`int_value`), 2 for a vector (four floats), 3 for a matrix (sixteen floats, column-major),
+    ///  4 for a texture and 5 for a buffer (`resource` is the compute buffer's id). A texture reads
+    ///  scale x, scale y, offset x and offset y at `float_offset`; its `texture_kind` is 0 for none,
+    ///  1 for a player texture and 2 for a render texture (`resource` is the identity or the id).
+    ///  The name is `name_length` bytes of the text at `name_offset`.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeBinding
+    {
+        public uint kind;
+        public uint name_offset;
+        public uint name_length;
+        public uint float_offset;
+        public int int_value;
+        public uint texture_kind;
+        public ulong resource;
+    }
+
+    /// <summary>
+    ///  How many entries, floats and text bytes the bindings hold. On input they are the capacities
+    ///  of the arrays a caller passes; on output they are what the bindings hold.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityComputeBindingsInfo
+    {
+        public uint entry_count;
+        public uint float_count;
+        public uint text_length;
+    }
+
+    /// <summary>
+    ///  What a shader holds. `has_source` is 1 when the shader has a source, whose file is
+    ///  `file_length` bytes of the text after the name and whose object is `path_id` there. On input
+    ///  `text_capacity` is the capacity of the text a caller passes; on output it is the length of the
+    ///  name and the file together.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShaderInfo
+    {
+        public long path_id;
+        public uint name_length;
+        public uint file_length;
+        public uint has_source;
+        public uint text_capacity;
+    }
+
+    /// <summary>
     ///  What a material holds besides its properties. `generation` rises with every edit.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -126,7 +352,8 @@ namespace Disunity.Native
 
     /// <summary>
     ///  A render texture's description; booleans are 0 or 1. `format` is the engine's
-    ///  `GraphicsFormat` value. `generation` is ignored on input and starts at 1.
+    ///  `GraphicsFormat` value. `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
+    ///  with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityRenderTexture
@@ -137,16 +364,26 @@ namespace Disunity.Native
         public uint depth_bits;
         public uint mip_count;
         public uint srgb;
+        public uint wrap_u;
+        public uint wrap_v;
+        public uint wrap_w;
+        public uint filter;
+        public uint aniso_level;
+        public float mip_bias;
         public ulong generation;
     }
 
     /// <summary>
     ///  One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
-    ///  component, `target` the render texture), 1 for a blit and 2 for a texture copy. A blit and a
-    ///  copy read `source_kind` and `source` as a texture property does (0 none, 1 asset, 2 render
-    ///  texture); a blit draws with `material` (0 for none) and `pass` (-1 for every pass); a copy
-    ///  addresses `source_element`, `source_mip`, `target_element` and `target_mip`. Fields a kind
-    ///  does not use are ignored.
+    ///  component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
+    ///  compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
+    ///  does (0 none, 1 asset, 2 render texture); a blit draws with `material` (0 for none) and
+    ///  `pass` (-1 for every pass); a copy addresses `source_element`, `source_mip`,
+    ///  `target_element` and `target_mip`. A dispatch names its `shader` and `kernel` and the thread
+    ///  groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
+    ///  it ran with by, valid until the next take. A dispatch is recorded by
+    ///  `disunity_compute_dispatch`, never by [`disunity_offscreen_record`], and only taking returns
+    ///  one. Fields a kind does not use are ignored.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityOffscreenWork
@@ -162,6 +399,12 @@ namespace Disunity.Native
         public uint source_mip;
         public uint target_element;
         public uint target_mip;
+        public ulong shader;
+        public uint kernel;
+        public uint groups_x;
+        public uint groups_y;
+        public uint groups_z;
+        public uint bindings;
     }
 
     /// <summary>

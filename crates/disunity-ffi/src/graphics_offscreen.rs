@@ -13,13 +13,18 @@ use worldrunner_world_simulation::graphics::{MaterialId, OffscreenWork, RenderTe
 const WORK_CAMERA_RENDER: u32 = 0;
 const WORK_BLIT: u32 = 1;
 const WORK_COPY_TEXTURE: u32 = 2;
+const WORK_DISPATCH: u32 = 3;
 
 /// One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
-/// component, `target` the render texture), 1 for a blit and 2 for a texture copy. A blit and a
-/// copy read `source_kind` and `source` as a texture property does (0 none, 1 asset, 2 render
-/// texture); a blit draws with `material` (0 for none) and `pass` (-1 for every pass); a copy
-/// addresses `source_element`, `source_mip`, `target_element` and `target_mip`. Fields a kind
-/// does not use are ignored.
+/// component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
+/// compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
+/// does (0 none, 1 asset, 2 render texture); a blit draws with `material` (0 for none) and
+/// `pass` (-1 for every pass); a copy addresses `source_element`, `source_mip`,
+/// `target_element` and `target_mip`. A dispatch names its `shader` and `kernel` and the thread
+/// groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
+/// it ran with by, valid until the next take. A dispatch is recorded by
+/// `disunity_compute_dispatch`, never by [`disunity_offscreen_record`], and only taking returns
+/// one. Fields a kind does not use are ignored.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityOffscreenWork {
@@ -34,6 +39,12 @@ pub struct DisunityOffscreenWork {
     pub source_mip: u32,
     pub target_element: u32,
     pub target_mip: u32,
+    pub shader: u64,
+    pub kernel: u32,
+    pub groups_x: u32,
+    pub groups_y: u32,
+    pub groups_z: u32,
+    pub bindings: u32,
 }
 
 impl DisunityOffscreenWork {
@@ -58,18 +69,45 @@ impl DisunityOffscreenWork {
                 target_element: self.target_element,
                 target_mip: self.target_mip,
             }),
+            WORK_DISPATCH => {
+                Err("a compute dispatch is recorded by disunity_compute_dispatch".into())
+            }
             _ => Err("offscreen work is a camera render (0), a blit (1) or a copy (2)".into()),
         }
     }
 
-    fn from_native(session: &Session, work: &OffscreenWork) -> Self {
-        match *work {
+    fn from_native(session: &Session, work: &OffscreenWork, token: u32) -> Self {
+        match work {
             OffscreenWork::CameraRender { camera, target } => Self {
                 kind: WORK_CAMERA_RENDER,
-                camera: identity(session, camera).unwrap_or(0),
+                camera: identity(session, *camera).unwrap_or(0),
                 target: target.to_bits(),
                 ..Self::default()
             },
+            OffscreenWork::Blit { .. } | OffscreenWork::CopyTexture { .. } => {
+                Self::draw_record(work)
+            }
+            OffscreenWork::Dispatch {
+                shader,
+                kernel,
+                groups,
+                ..
+            } => Self {
+                kind: WORK_DISPATCH,
+                shader: shader.to_bits(),
+                kernel: *kernel,
+                groups_x: groups[0],
+                groups_y: groups[1],
+                groups_z: groups[2],
+                bindings: token,
+                ..Self::default()
+            },
+        }
+    }
+
+    /// The record of a blit or a texture copy.
+    fn draw_record(work: &OffscreenWork) -> Self {
+        match work {
             OffscreenWork::Blit {
                 source,
                 target,
@@ -83,7 +121,7 @@ impl DisunityOffscreenWork {
                     source_kind,
                     source,
                     material: material.map_or(0, MaterialId::to_bits),
-                    pass,
+                    pass: *pass,
                     ..Self::default()
                 }
             }
@@ -101,13 +139,14 @@ impl DisunityOffscreenWork {
                     target: target.to_bits(),
                     source_kind,
                     source,
-                    source_element,
-                    source_mip,
-                    target_element,
-                    target_mip,
+                    source_element: *source_element,
+                    source_mip: *source_mip,
+                    target_element: *target_element,
+                    target_mip: *target_mip,
                     ..Self::default()
                 }
             }
+            _ => Self::default(),
         }
     }
 }
@@ -159,11 +198,20 @@ pub unsafe extern "C" fn disunity_offscreen_take(
         if capacity < pending {
             return Err("offscreen work capacity is too small".into());
         }
-        for (index, work) in s.native.take_offscreen().iter().enumerate() {
+        let drained = s.native.take_offscreen();
+        s.dispatch_bindings.clear();
+        for (index, work) in drained.iter().enumerate() {
+            let token = match work {
+                OffscreenWork::Dispatch { bindings, .. } => {
+                    s.dispatch_bindings.push(bindings.clone());
+                    u32::try_from(s.dispatch_bindings.len()).map_err(|_| "work count overflow")?
+                }
+                _ => 0,
+            };
             unsafe {
                 records
                     .add(index)
-                    .write(DisunityOffscreenWork::from_native(s, work));
+                    .write(DisunityOffscreenWork::from_native(s, work, token));
             }
         }
         Ok(())

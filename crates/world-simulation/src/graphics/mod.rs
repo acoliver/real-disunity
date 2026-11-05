@@ -1,5 +1,6 @@
 //! The graphics resources a world carries for a host that draws: shaders, materials, render
-//! textures, the global shader state and the offscreen work scripts record each frame.
+//! textures, compute shaders and buffers, the global shader state and the offscreen work scripts
+//! record each frame.
 //!
 //! The world stores and validates these; it draws nothing. A host reads them through the
 //! accessors on [`World`] when it extracts a frame.
@@ -10,19 +11,27 @@
 //! render texture reads as [`TextureRef::None`] through [`World::live_texture`]. Offscreen work
 //! that names a destroyed render texture stays in the list, and the host skips it when the id no
 //! longer resolves.
+mod compute;
 mod material;
 mod offscreen;
 mod properties;
 mod render_texture;
 mod slab;
+pub mod snapshot;
+pub mod snapshot_wire;
 
+pub use compute::{
+    ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
+    WorldComputeBuffer, WorldComputeShader,
+};
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
     MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, PropertyValue, ShaderProperties, TextureRef,
     TextureSlot,
 };
-pub use render_texture::WorldRenderTexture;
+pub use render_texture::{WorldRenderTexture, WorldSampler};
+pub use snapshot::{CameraView, GraphicsSnapshot, RendererView};
 
 use slab::Slab;
 
@@ -30,6 +39,8 @@ use slab::Slab;
 const MAX_SHADERS: usize = 1 << 16;
 const MAX_MATERIALS: usize = 1 << 20;
 const MAX_RENDER_TEXTURES: usize = 1 << 16;
+const MAX_COMPUTE_SHADERS: usize = 1 << 16;
+const MAX_COMPUTE_BUFFERS: usize = 1 << 16;
 
 /// Why a graphics call was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -60,6 +71,22 @@ pub enum GraphicsError {
     InvalidOffscreen,
     #[error("the camera of offscreen work must be a live camera component")]
     NotCamera,
+    #[error("the compute shader id is stale")]
+    StaleComputeShader,
+    #[error("the compute buffer id is stale")]
+    StaleComputeBuffer,
+    #[error(
+        "a compute shader holds at most 256 kernels, each with a thread group size of at most 1024 by 1024 by 64 and 1024 threads"
+    )]
+    InvalidComputeShader,
+    #[error("the compute shader has no kernel with this index")]
+    InvalidKernel,
+    #[error(
+        "a compute buffer needs a count of at least 1, a stride that is a multiple of 4 from 4 to 2048, at most 256 MiB, and a world holds at most 1 GiB of them"
+    )]
+    InvalidComputeBuffer,
+    #[error("the data range lies outside the compute buffer")]
+    ComputeRange,
 }
 
 impl GraphicsError {
@@ -67,7 +94,11 @@ impl GraphicsError {
     pub fn is_stale(self) -> bool {
         matches!(
             self,
-            Self::StaleShader | Self::StaleMaterial | Self::StaleRenderTexture
+            Self::StaleShader
+                | Self::StaleMaterial
+                | Self::StaleRenderTexture
+                | Self::StaleComputeShader
+                | Self::StaleComputeBuffer
         )
     }
 }
@@ -104,6 +135,14 @@ graphics_id!(
     /// A render texture of a world.
     RenderTextureId
 );
+graphics_id!(
+    /// A compute shader registered in a world.
+    ComputeShaderId
+);
+graphics_id!(
+    /// A compute buffer of a world.
+    ComputeBufferId
+);
 
 /// Where a shader's programs are: the serialized file the shader object lives in, as the
 /// reader names it, and the object's path id in that file.
@@ -120,15 +159,19 @@ pub struct WorldShader {
     pub source: Option<ShaderSource>,
 }
 
+impl ShaderSource {
+    pub(crate) fn validate(&self) -> Result<(), GraphicsError> {
+        if self.file.is_empty() || self.file.len() > 1024 {
+            return Err(GraphicsError::InvalidShaderSource);
+        }
+        Ok(())
+    }
+}
+
 impl WorldShader {
     pub(crate) fn validate(&self) -> Result<(), GraphicsError> {
         properties::check_name(&self.name)?;
-        match &self.source {
-            Some(source) if source.file.is_empty() || source.file.len() > 1024 => {
-                Err(GraphicsError::InvalidShaderSource)
-            }
-            _ => Ok(()),
-        }
+        self.source.as_ref().map_or(Ok(()), ShaderSource::validate)
     }
 }
 
@@ -137,6 +180,10 @@ pub(crate) struct GraphicsState {
     shaders: Slab<WorldShader>,
     materials: Slab<WorldMaterial>,
     render_textures: Slab<WorldRenderTexture>,
+    compute_shaders: Slab<compute::ComputeShaderEntry>,
+    compute_buffers: Slab<WorldComputeBuffer>,
+    /// Bytes the live compute buffers hold.
+    compute_bytes: u64,
     global: GlobalShaderState,
     offscreen: Vec<OffscreenWork>,
 }
@@ -152,6 +199,9 @@ impl GraphicsState {
             shaders: Slab::new(MAX_SHADERS),
             materials: Slab::new(MAX_MATERIALS),
             render_textures: Slab::new(MAX_RENDER_TEXTURES),
+            compute_shaders: Slab::new(MAX_COMPUTE_SHADERS),
+            compute_buffers: Slab::new(MAX_COMPUTE_BUFFERS),
+            compute_bytes: 0,
             global: GlobalShaderState::new(),
             offscreen: Vec::new(),
         }

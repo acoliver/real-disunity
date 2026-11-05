@@ -146,16 +146,18 @@ impl World {
     pub fn check_property(&self, value: &PropertyValue) -> Result<(), WorldError> {
         value.validate()?;
         if let PropertyValue::Texture(_, TextureSlot { texture, .. }) = value {
-            self.check_texture(*texture)?;
+            self.check_texture(texture)?;
         }
         Ok(())
     }
 
     /// Checks that a render texture a texture reference names is alive.
-    pub(crate) fn check_texture(&self, texture: TextureRef) -> Result<(), WorldError> {
+    pub(crate) fn check_texture(&self, texture: &TextureRef) -> Result<(), WorldError> {
         match texture {
-            TextureRef::Render(id) => self.render_texture(id).map(drop),
-            TextureRef::Asset(0) => Err(GraphicsError::InvalidTexture.into()),
+            TextureRef::Render(id) => self.render_texture(*id).map(drop),
+            TextureRef::Asset(0) | TextureRef::Global(_) => {
+                Err(GraphicsError::InvalidTexture.into())
+            }
             TextureRef::Asset(_) | TextureRef::None => Ok(()),
         }
     }

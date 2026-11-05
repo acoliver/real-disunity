@@ -47,6 +47,7 @@ mod fold_translucency;
 mod foliage;
 mod foliage_fixes;
 mod impostor;
+mod impostor_flat_mask;
 mod impostor_mip_bias;
 mod layered_terrain;
 mod lod;

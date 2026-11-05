@@ -662,20 +662,14 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
-            let screen = self.screen.as_ref().expect("declared metadata");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.reflection.as_ref().expect("reflection pipelines"),
-                &screen.group,
-            ));
-        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(
-                self.gpu
-                    .draw_prepass(pass, &screen.pipelines, &screen.group),
-            );
+            self.publications.record(self.gpu.draw_prepass(
+                pass,
+                screen.prepass_pipelines(),
+                &screen.group,
+            ));
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;

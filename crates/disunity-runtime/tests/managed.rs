@@ -381,7 +381,7 @@ fn assert_managed_overlay_order_and_clipping(host: &mut DisunityHost, root: &Pat
         "world canvas stays in the scene"
     );
     let ui = host.ui_presentation().unwrap();
-    assert_eq!(ui.draws.len(), 4, "world canvas is absent from the overlay");
+    assert_eq!(ui.draws.len(), 7, "world canvas is absent from the overlay");
     let kinds = ui
         .draws
         .iter()
@@ -393,6 +393,9 @@ fn assert_managed_overlay_order_and_clipping(host: &mut DisunityHost, root: &Pat
             (-3, UiDrawKind::Graphic),
             (7, UiDrawKind::Graphic),
             (7, UiDrawKind::Text),
+            (7, UiDrawKind::Graphic),
+            (7, UiDrawKind::Graphic),
+            (7, UiDrawKind::Graphic),
             (7, UiDrawKind::Graphic)
         ]
     );

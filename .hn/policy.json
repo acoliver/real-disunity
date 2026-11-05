@@ -92,6 +92,7 @@
           "crates/render-lighting/",
           "crates/render-plan/",
           "crates/render-post/",
+          "crates/render-program/",
           "crates/render-scene/",
           "crates/render-shadow/",
           "crates/save/",

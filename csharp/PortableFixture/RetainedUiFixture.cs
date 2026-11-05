@@ -34,6 +34,19 @@ internal static class RetainedUiFixture
         var spatial = Rectangle(null, 8);
         spatial.gameObject.AddComponent<Canvas>().renderMode = RenderMode.WorldSpace;
         Graphic(Rectangle(spatial, 8), new Color(1, 0, 1, 1));
+        UnavailableGraphics(root);
+    }
+
+    private static void UnavailableGraphics(Transform root)
+    {
+        Texture[] unavailable = [new RenderTexture(1, 1, 0),
+            new Texture2D(1, 1, TextureFormat.Alpha8, false),
+            new Texture2D(1, 1, TextureFormat.RGBAHalf, false)];
+        foreach (var texture in unavailable)
+        {
+            var graphic = Graphic(Rectangle(root, 64), new Color(1, 0, 1, 1));
+            graphic.SetTexture(texture);
+        }
     }
 
     private static void Background()

@@ -109,3 +109,12 @@ mod decal_tests;
 
 #[cfg(test)]
 mod lighting_terms_tests;
+
+#[cfg(test)]
+mod impostor_uniformity_tests;
+
+#[cfg(test)]
+pub(crate) mod geometry_test_sources;
+
+#[cfg(test)]
+pub(crate) mod impostor_cost_tests;

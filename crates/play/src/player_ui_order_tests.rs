@@ -26,14 +26,18 @@ fn exported_ui_replaces_retained_contributions_when_only_order_or_clip_changes()
     };
     for revision in 0..3 {
         let update = player
-            .update(plan.clone(), [64, 64], &textures, &images)
+            .update(plan.clone(), [64, 64], &textures, &images, |message| {
+                panic!("{message}")
+            })
             .unwrap();
         assert!(matches!(update, Some(RetainedUpdate::Ui(_))));
         assert_eq!(player.plan.as_ref(), Some(&plan));
         assert_eq!(player.updates, revision + 1);
         assert!(
             player
-                .update(plan.clone(), [64, 64], &textures, &images)
+                .update(plan.clone(), [64, 64], &textures, &images, |message| {
+                    panic!("{message}")
+                })
                 .unwrap()
                 .is_none()
         );

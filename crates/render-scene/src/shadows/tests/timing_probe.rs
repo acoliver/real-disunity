@@ -94,7 +94,7 @@ fn measure(context: &GpuContext, source: &RenderScene, policy: CascadeRefreshPol
     samples
 }
 
-fn timed_frame(
+pub(super) fn timed_frame(
     renderer: &mut ShadowedScene,
     context: &GpuContext,
     view: &SceneView,

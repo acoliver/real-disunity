@@ -51,7 +51,7 @@ internal static class ComputeDispatchTests
         shader.SetInt("_OutputWidth", 2048);
         shader.SetFloat("_Scale", 0.5f);
         shader.SetVector("_Tint", new Vector4(1, 2, 3, 4));
-        shader.SetMatrix("_View", Matrix4x4.identity);
+        shader.SetMatrix("_View", new Matrix4x4(new Vector4(1, 2, 3, 4), new Vector4(5, 6, 7, 8), new Vector4(9, 10, 11, 12), new Vector4(13, 14, 15, 16)));
         shader.SetBuffer(0, "_Output", output);
         shader.SetTextureFromGlobal(0, "_Heights", "_GlobalTerrainHeightmap");
         shader.SetBuffer(1, "_OtherKernelOnly", output);
@@ -63,7 +63,7 @@ internal static class ComputeDispatchTests
         Expect.Equal(2048, entries["_OutputWidth"].Int, "the shader-wide integer");
         Expect.Near(0.5f, entries["_Scale"].Floats[0], "the shader-wide float");
         Expect.Sequence(new[] { 1f, 2f, 3f, 4f }, entries["_Tint"].Floats, "the shader-wide vector");
-        Expect.Equal(16, entries["_View"].Floats.Length, "the shader-wide matrix");
+        Expect.Sequence(Enumerable.Range(1, 16).Select(i => (float)i), entries["_View"].Floats, "the shader-wide matrix, column by column");
         Expect.That(entries["_Output"].Kind == 5, "the buffer binding");
         Expect.That(entries["_Heights"].TextureKind == 3 && entries["_Heights"].Global == "_GlobalTerrainHeightmap", "the global texture binding names the global");
         Expect.That(!entries.ContainsKey("_OtherKernelOnly"), "a value of another kernel is not in this dispatch");

@@ -6,7 +6,9 @@
 //! 3 colour, 4 to 11 the texture coordinate sets 0 to 7. Blend weights and indices (12 and 13)
 //! are not inputs of this renderer and are left out.
 
-use worldrunner_disunity_runtime::{DisunityHost, MeshChannels, PlayerTexture, TextureSampler};
+use worldrunner_disunity_runtime::{
+    DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureSampler,
+};
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::offscreen::frame::{
     ChannelFormat, Mesh, MeshChannel, MeshIndices, SourceTexture, SubMesh,
@@ -54,6 +56,33 @@ pub trait Assets {
 }
 
 impl Assets for DisunityHost {
+    fn mesh(
+        &self,
+        identity: u64,
+        known_generation: u64,
+    ) -> Result<Option<MeshChannels>, AssetError> {
+        self.mesh_channels_since(identity, known_generation)
+            .map_err(|error| AssetError(error.to_string()))
+    }
+
+    fn texture(
+        &self,
+        identity: u64,
+        known_generation: u64,
+    ) -> Result<Option<PlayerTexture>, AssetError> {
+        self.player_texture(identity, known_generation)
+            .map_err(|error| AssetError(error.to_string()))
+    }
+
+    fn sampler(&self, identity: u64) -> Result<Option<TextureSampler>, AssetError> {
+        self.texture_sampler(identity)
+            .map_err(|error| AssetError(error.to_string()))
+    }
+}
+
+/// A flush reads what the engine stored the way the host does between frames, so a mesh or
+/// texture it names for the first time is there for that flush.
+impl Assets for GpuFlush<'_> {
     fn mesh(
         &self,
         identity: u64,

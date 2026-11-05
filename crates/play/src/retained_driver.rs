@@ -8,7 +8,7 @@
 
 #[cfg(test)]
 #[path = "retained_ui_tests.rs"]
-mod ui_tests;
+pub(crate) mod ui_tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;

@@ -14,6 +14,8 @@ mod bc7_tables;
 mod bc7_tests;
 mod block_texture;
 mod driver;
+#[cfg(test)]
+mod gpu_flush_tests;
 mod gpu_player;
 mod keys;
 mod navigation;
@@ -32,7 +34,7 @@ mod textures_tests;
 mod unresolved;
 
 pub use driver::{Capture, PlayDriver};
-pub use gpu_player::{AssetCache, GpuWorkReport, PlayerGpu};
+pub use gpu_player::{GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
 pub use player::{GpuWork, PreparedPlayer, prepare_player, run_player, run_player_with};
 pub use player_meshes::{

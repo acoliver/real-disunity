@@ -9,23 +9,18 @@
 //!   are adapted, built and run in one submission.
 //! * When a script reads a compute buffer back, the managed engine calls the flush handler
 //!   [`PlayerGpu::install`] registers. It runs the work recorded so far, dispatches included,
-//!   waits for the submission, and writes the changed buffers back before the read returns.
+//!   waits for the submission, and writes the changed buffers back before the read returns. It
+//!   reads meshes, textures and samplers through [`GpuFlush`], so one the flush names for the
+//!   first time is there for that flush.
 //!
-//! The flush handler reaches the engine only through [`GpuFlush`], which does not read meshes
-//! and textures. It reads the ones [`PlayerGpu::frame`] and its own earlier flushes asked for
-//! from an [`AssetCache`] that the frame loop fills from the host between advances, so a mesh or
-//! texture the very first flush names is left out of that flush as `MeshUnavailable` or
-//! `SourceUnavailable` and is there for the next.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use worldrunner_disunity_runtime::{
-    DisunityHost, GpuFlush, MeshChannels, MeshObjectView, MeshSlot, PlayerTexture, TextureSampler,
-};
+use worldrunner_disunity_runtime::{DisunityHost, GpuFlush};
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
@@ -33,8 +28,7 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    AssetError, Assets, ComputeAdapter, OffscreenAdapter, OffscreenHost, PlayerKernels, Report,
-    Settings,
+    ComputeAdapter, OffscreenAdapter, OffscreenHost, PlayerKernels, Report, Settings,
 };
 
 /// Bytes of GPU storage the program runtime may hold.
@@ -142,89 +136,6 @@ impl GpuWorkReport {
     }
 }
 
-/// The meshes and textures the host read for the flush handler, which cannot read them itself.
-#[derive(Default)]
-pub struct AssetCache {
-    meshes: BTreeMap<u64, MeshChannels>,
-    textures: BTreeMap<u64, PlayerTexture>,
-    samplers: BTreeMap<u64, TextureSampler>,
-    wanted_meshes: RefCell<BTreeSet<u64>>,
-    wanted_textures: RefCell<BTreeSet<u64>>,
-}
-
-impl Assets for AssetCache {
-    fn mesh(
-        &self,
-        identity: u64,
-        known_generation: u64,
-    ) -> Result<Option<MeshChannels>, AssetError> {
-        match self.meshes.get(&identity) {
-            Some(held) if held.generation != known_generation => Ok(Some(held.clone())),
-            Some(_) => Ok(None),
-            None => {
-                self.wanted_meshes.borrow_mut().insert(identity);
-                Ok(None)
-            }
-        }
-    }
-
-    fn texture(
-        &self,
-        identity: u64,
-        known_generation: u64,
-    ) -> Result<Option<PlayerTexture>, AssetError> {
-        match self.textures.get(&identity) {
-            Some(held) if held.generation != known_generation => Ok(Some(held.clone())),
-            Some(_) => Ok(None),
-            None => {
-                self.wanted_textures.borrow_mut().insert(identity);
-                Ok(None)
-            }
-        }
-    }
-
-    fn sampler(&self, identity: u64) -> Result<Option<TextureSampler>, AssetError> {
-        Ok(self.samplers.get(&identity).copied())
-    }
-}
-
-impl AssetCache {
-    /// Wants the mesh of every presented object and the texture of every slot that has one, so a
-    /// flush during the next advance finds them read. A flush handler cannot read the host, so
-    /// whatever it first asks for would otherwise be missing from that flush.
-    fn want_presented(&self, objects: &[MeshObjectView]) {
-        let mut meshes = self.wanted_meshes.borrow_mut();
-        let mut textures = self.wanted_textures.borrow_mut();
-        for object in objects {
-            meshes.insert(object.mesh);
-            textures.extend(
-                object
-                    .slots
-                    .iter()
-                    .map(|slot: &MeshSlot| slot.texture)
-                    .filter(|&texture| texture != 0),
-            );
-        }
-    }
-
-    /// Reads from `host` what the flush handler asked for since the last fill.
-    fn fill(&mut self, host: &DisunityHost) {
-        for identity in std::mem::take(&mut *self.wanted_meshes.borrow_mut()) {
-            if let Ok(Some(mesh)) = host.mesh_channels(identity) {
-                self.meshes.insert(identity, mesh);
-            }
-        }
-        for identity in std::mem::take(&mut *self.wanted_textures.borrow_mut()) {
-            if let Ok(Some(texture)) = host.player_texture(identity, 0) {
-                self.textures.insert(identity, texture);
-            }
-            if let Ok(Some(sampler)) = host.texture_sampler(identity) {
-                self.samplers.insert(identity, sampler);
-            }
-        }
-    }
-}
-
 /// The device the headless player asks for: the default limits, except that one buffer may hold
 /// the whole storage budget, since the program arena is reserved as one buffer of that size.
 fn device_requirements() -> DeviceRequirements {
@@ -240,7 +151,6 @@ fn device_requirements() -> DeviceRequirements {
 /// A device and the player's offscreen host on it.
 pub struct PlayerGpu {
     offscreen: Rc<RefCell<OffscreenHost>>,
-    assets: Rc<RefCell<AssetCache>>,
     report: Rc<RefCell<GpuWorkReport>>,
     authority: SubmissionAuthority,
     device: wgpu::Device,
@@ -296,7 +206,6 @@ impl PlayerGpu {
         );
         Ok(Self {
             offscreen: Rc::new(RefCell::new(offscreen)),
-            assets: Rc::new(RefCell::new(AssetCache::default())),
             report: Rc::new(RefCell::new(GpuWorkReport::default())),
             authority,
             device,
@@ -309,14 +218,13 @@ impl PlayerGpu {
     /// Fails when the engine image has no flush registration.
     pub fn install(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
         let offscreen = Rc::clone(&self.offscreen);
-        let assets = Rc::clone(&self.assets);
         let report = Rc::clone(&self.report);
         host.set_gpu_flush(Box::new(move |flush: &mut GpuFlush<'_>| {
             let started = Instant::now();
             let snapshot = flush.snapshot().map_err(|error| error.to_string())?;
             let outcome = offscreen
                 .borrow_mut()
-                .flush(&snapshot, &*assets.borrow())
+                .flush(&snapshot, &*flush)
                 .map_err(|error| error.to_string());
             let mut report = report.borrow_mut();
             report.flushes += 1;
@@ -345,7 +253,6 @@ impl PlayerGpu {
     /// Fails when the host cannot give the snapshot. Work the GPU refuses is counted in the
     /// report, not an error: the player goes on without it.
     pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
-        self.prefetch(host);
         let snapshot = host.graphics_snapshot()?;
         if snapshot.work.is_empty() {
             return Ok(());
@@ -369,16 +276,6 @@ impl PlayerGpu {
         }
         report.frame_time += started.elapsed();
         Ok(())
-    }
-
-    /// Reads the meshes and textures the frame presents, ahead of the flush that may name them
-    /// during the next advance. A host that presented nothing prefetches nothing.
-    fn prefetch(&self, host: &DisunityHost) {
-        let mut assets = self.assets.borrow_mut();
-        if let Ok(objects) = host.mesh_objects() {
-            assets.want_presented(&objects);
-        }
-        assets.fill(host);
     }
 
     /// Records the operations into a frame of their own, submits it and waits for it.
@@ -417,60 +314,6 @@ impl PlayerGpu {
 mod tests {
     use super::*;
 
-    fn presented(mesh: u64, textures: &[u64]) -> MeshObjectView {
-        MeshObjectView {
-            object: 1,
-            mesh,
-            local_to_world: [0.0; 16],
-            slots: textures
-                .iter()
-                .map(|&texture| MeshSlot {
-                    color: [1.0; 4],
-                    texture,
-                })
-                .collect(),
-        }
-    }
-
-    fn mesh(generation: u64) -> MeshChannels {
-        MeshChannels {
-            generation,
-            vertex_count: 0,
-            channels: Vec::new(),
-            indices: Vec::new(),
-            ranges: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn a_mesh_the_cache_lacks_is_wanted_for_the_next_fill_and_a_held_one_is_given_per_generation() {
-        let mut cache = AssetCache::default();
-        assert_eq!(cache.mesh(7, 0).unwrap(), None);
-        assert_eq!(
-            cache
-                .wanted_meshes
-                .borrow()
-                .iter()
-                .copied()
-                .collect::<Vec<_>>(),
-            [7]
-        );
-        cache.meshes.insert(7, mesh(3));
-        assert_eq!(
-            cache.mesh(7, 0).unwrap().map(|held| held.generation),
-            Some(3)
-        );
-        assert_eq!(
-            cache.mesh(7, 3).unwrap(),
-            None,
-            "unchanged since the adapter read it"
-        );
-        assert_eq!(
-            cache.mesh(7, 2).unwrap().map(|held| held.generation),
-            Some(3)
-        );
-    }
-
     #[test]
     fn the_headless_device_can_hold_the_whole_storage_budget_in_one_arena_buffer() {
         let directory = tempfile::tempdir().unwrap();
@@ -480,43 +323,5 @@ mod tests {
             gpu.storage_budget() > 256 << 20,
             "the Old World frames need more than the default buffer limit"
         );
-    }
-
-    #[test]
-    fn the_meshes_and_slot_textures_a_frame_presents_are_wanted_before_any_flush_asks() {
-        let objects = [
-            presented(7, &[11, 0]),
-            presented(7, &[12]),
-            presented(8, &[]),
-        ];
-        let cache = AssetCache::default();
-        cache.want_presented(&objects);
-        assert_eq!(
-            cache
-                .wanted_meshes
-                .borrow()
-                .iter()
-                .copied()
-                .collect::<Vec<_>>(),
-            [7, 8]
-        );
-        assert_eq!(
-            cache
-                .wanted_textures
-                .borrow()
-                .iter()
-                .copied()
-                .collect::<Vec<_>>(),
-            [11, 12],
-            "a slot with no texture (0) wants none"
-        );
-    }
-
-    #[test]
-    fn a_texture_the_cache_lacks_is_wanted_and_has_no_sampler() {
-        let cache = AssetCache::default();
-        assert!(cache.texture(9, 0).unwrap().is_none());
-        assert!(cache.sampler(9).unwrap().is_none());
-        assert!(cache.wanted_textures.borrow().contains(&9));
     }
 }

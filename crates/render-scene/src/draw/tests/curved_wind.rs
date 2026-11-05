@@ -299,8 +299,16 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
         usage: BufferUsages::UNIFORM,
         mapped_at_creation: false,
     });
-    let (metadata, group) = crate::scene_metadata::pipelines(device, &screen, false);
-    let (reflection, reflection_group) = crate::scene_metadata::pipelines(device, &screen, true);
+    let (metadata, group) = crate::scene_metadata::pipelines(
+        device,
+        &screen,
+        crate::scene_metadata::MetadataOutput::Normal,
+    );
+    let (reflection, reflection_group) = crate::scene_metadata::pipelines(
+        device,
+        &screen,
+        crate::scene_metadata::MetadataOutput::Material,
+    );
     let shadow = crate::shadows::wind_test_pipelines(device, &forward);
     let mut previous = None;
     for time in [250, 1750, 250] {

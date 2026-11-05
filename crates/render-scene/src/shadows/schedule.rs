@@ -42,9 +42,6 @@ impl ShadowSchedule {
         crate::compositor::declare_velocity(opaque, &mut self.views, velocity.as_ref())?;
         if scheduler.ssao.is_some() {
             crate::ssao::passes::geometry_declaration(&mut self.declaration);
-            if scheduler.ssr.is_some() {
-                crate::ssr::geometry_declaration(&mut self.declaration);
-            }
         }
         Ok(())
     }

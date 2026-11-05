@@ -246,7 +246,24 @@ impl ScreenPasses {
 
 pub(crate) struct ScreenFeature<'a> {
     pub ssao: &'a crate::scene_metadata::SceneMetadata,
+    /// The reflection material texture the prepass also writes when reflections are installed.
+    pub material: Option<&'a wgpu::Texture>,
     pub frame: crate::frame::FrameUniform,
+}
+impl<'a> ScreenFeature<'a> {
+    /// The screen feature for installed SSAO metadata. Installed reflections add their material
+    /// texture to the prepass.
+    pub(crate) fn installed(
+        ssao: Option<&'a crate::scene_metadata::SceneMetadata>,
+        ssr: Option<&'a crate::ssr::Ssr>,
+        frame: &crate::frame::FrameUniform,
+    ) -> Option<Self> {
+        ssao.map(|ssao| Self {
+            ssao,
+            material: ssr.map(crate::ssr::Ssr::material_target),
+            frame: *frame,
+        })
+    }
 }
 impl PreparedFeature for ScreenFeature<'_> {
     fn prepare(
@@ -278,8 +295,11 @@ impl PreparedFeature for ScreenFeature<'_> {
     }
 }
 
+/// Declares the depth and normal prepass. With a `material` texture the prepass also writes the
+/// reflection material as a second colour output, from the same draw.
 pub(crate) fn prepass(
     ssao: &crate::scene_metadata::SceneMetadata,
+    material: Option<&wgpu::Texture>,
     passes: &mut Vec<PassDeclaration>,
     views: &mut Vec<AttachmentView>,
 ) -> Result<(), FrameError> {
@@ -299,8 +319,17 @@ pub(crate) fn prepass(
         &depth,
         true,
     ));
-    passes.push(pass);
     views.extend([normals, depth]);
+    if let Some(texture) = material {
+        let material = FrameProduct::material().attachment(texture)?;
+        pass.additional_colors.push(crate::compositor::attachment(
+            material.resource(),
+            &material,
+            false,
+        ));
+        views.push(material);
+    }
+    passes.push(pass);
     Ok(())
 }
 
@@ -336,7 +365,7 @@ impl ScreenFeature<'_> {
             ));
         }
         let mut screen_passes = Vec::new();
-        crate::ssao::passes::prepass(ssao, &mut screen_passes, views)?;
+        crate::ssao::passes::prepass(ssao, self.material, &mut screen_passes, views)?;
         let declaration = ssao.passes.schedule(&mut screen_passes, views)?;
         let insertion = passes
             .iter()

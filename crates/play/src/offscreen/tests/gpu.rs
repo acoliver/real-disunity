@@ -364,6 +364,33 @@ fn a_camera_a_blit_of_every_pass_and_a_copy_run_with_the_players_shaders() {
 }
 
 #[test]
+fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_not_drawn_and_is_counted() {
+    let mut rig = Rig::new();
+    let mut world = world();
+    let target = render_texture(&mut world, [SIDE, SIDE]);
+    camera_render(&mut world, target);
+    // The blit shader has no `Alpha` pass, so the camera has nothing to draw of it.
+    let blit = shader(&mut world, "blit");
+    let material = world.create_material(blit).unwrap();
+    let ignored = MeshRenderer {
+        material_count: 1,
+        slot_materials: vec![Some(material)],
+        ..MeshRenderer::default()
+    };
+    renderer_with(&mut world, (0, true), MESH, ignored);
+    let (adapted, operations, reads) = rig.frame(&mut world, &[target]);
+    assert_eq!(adapted.report.failures["draw:NoPassForCamera"], 1);
+    assert_eq!(adapted.report.built, 1, "the camera render itself");
+    rig.run(operations);
+    let image = reads.into_iter().next().unwrap().bytes(&rig.device);
+    for y in 0..SIDE as usize {
+        assert_eq!(pixel(&image, (0, y)), RED);
+        assert_eq!(pixel(&image, (1, y)), RED);
+        assert_eq!(pixel(&image, (2, y)), BLUE);
+    }
+}
+
+#[test]
 fn a_render_texture_the_renderer_cannot_draw_into_costs_its_records_and_nothing_else() {
     let mut rig = Rig::new();
     let mut world = world();

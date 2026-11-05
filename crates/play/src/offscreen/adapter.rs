@@ -315,12 +315,18 @@ pub fn build(
     arena: &ProgramArena,
     adapted: &mut Adapted,
 ) -> Result<OffscreenOperations, OffscreenError> {
-    if let Ok(operations) = state.build(runtime, arena, &adapted.frame) {
-        return Ok(operations);
-    }
-    drop_unusable_textures(state, runtime, arena, adapted);
-    drop_unusable_records(state, runtime, arena, adapted);
-    state.build(runtime, arena, &adapted.frame)
+    let operations = match state.build(runtime, arena, &adapted.frame) {
+        Ok(operations) => operations,
+        Err(_) => {
+            drop_unusable_textures(state, runtime, arena, adapted);
+            drop_unusable_records(state, runtime, arena, adapted);
+            state.build(runtime, arena, &adapted.frame)?
+        }
+    };
+    adapted
+        .report
+        .count_many("draw:NoPassForCamera", operations.unmatched_draws());
+    Ok(operations)
 }
 
 /// The frame with `records` only, and `textures` as its render textures.

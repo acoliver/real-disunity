@@ -116,8 +116,15 @@ impl Report {
 
     /// Counts a failure that has no error behind it, by the whole of its name.
     pub fn count(&mut self, name: &str) {
-        *self.failures.entry(name.to_owned()).or_default() += 1;
-        *self.causes.entry(name.to_owned()).or_default() += 1;
+        self.count_many(name, 1);
+    }
+
+    /// Counts `times` failures of the same name. Nothing is counted for zero.
+    pub fn count_many(&mut self, name: &str, times: usize) {
+        if times > 0 {
+            *self.failures.entry(name.to_owned()).or_default() += times;
+            *self.causes.entry(name.to_owned()).or_default() += times;
+        }
     }
 
     /// Adds the failures, causes and examples of `other` to this report's, keeping the first

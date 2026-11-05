@@ -38,7 +38,7 @@ use crate::offscreen::{
 };
 
 /// Bytes of GPU storage the program runtime may hold.
-const RUNTIME_BUDGET: u64 = 256 << 20;
+const RUNTIME_BUDGET: u64 = 3 << 30;
 
 /// The `LightMode` values a camera draws, in the order of preference.
 const LIGHT_MODES: [&str; 5] = [
@@ -71,6 +71,8 @@ pub struct GpuWorkReport {
     /// Compute buffers written back and the bytes of them that are not zero.
     pub buffers_written: usize,
     pub nonzero_values: usize,
+    /// The most bytes of GPU storage the runtime held after a flush.
+    pub peak_live_bytes: u64,
     /// Why a frame's work or a flush failed, by message.
     pub errors: BTreeMap<String, usize>,
     /// Time spent in the frame path and in flushes.
@@ -128,6 +130,10 @@ impl GpuWorkReport {
         eprintln!(
             "[gpu] compute buffers written {}, non-zero values {}",
             self.buffers_written, self.nonzero_values
+        );
+        eprintln!(
+            "[gpu] most storage held after a flush {} bytes",
+            self.peak_live_bytes
         );
         eprintln!(
             "[gpu] time in the frame path {:?}, in flushes {:?}",
@@ -279,6 +285,7 @@ impl PlayerGpu {
             let mut report = report.borrow_mut();
             report.flushes += 1;
             report.flush_time += started.elapsed();
+            report.peak_live_bytes = report.peak_live_bytes.max(offscreen.borrow().live_bytes());
             let outcome = outcome.inspect_err(|message| {
                 *report.errors.entry(message.clone()).or_default() += 1;
             })?;

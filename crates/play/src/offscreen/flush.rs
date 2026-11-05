@@ -98,6 +98,13 @@ pub struct OffscreenHost {
 }
 
 impl OffscreenHost {
+    /// Bytes of GPU storage the runtime holds now: the render textures and uploads it keeps, and
+    /// storage released but possibly still in use.
+    #[must_use]
+    pub fn live_bytes(&self) -> u64 {
+        self.runtime.live_bytes()
+    }
+
     #[must_use]
     pub fn new(
         runtime: ProgramRuntime,

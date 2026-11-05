@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::properties::PropertyValue;
+use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_world_simulation::graphics::{
     PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef, TextureSlot,
     WorldRenderTexture,
@@ -91,7 +92,17 @@ fn a_texture_slot_names_a_render_texture_a_stored_texture_or_nothing() {
         0,
         "a render texture has the top bit"
     );
-    assert_eq!(layer.textures["_Render"].sampler, None);
+    // A render texture brings the sampler the world holds for it (here the engine's default:
+    // repeat and bilinear); a stored texture was uploaded with its own.
+    assert_eq!(
+        layer.textures["_Render"].sampler,
+        Some(SamplerState {
+            wrap_u: Wrap::Repeat,
+            wrap_v: Wrap::Repeat,
+            filter: Filter::Bilinear,
+        })
+    );
+    assert_eq!(layer.textures["_Stored"].sampler, None);
     assert_eq!(textures.used().iter().copied().collect::<Vec<_>>(), [live]);
 }
 

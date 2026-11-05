@@ -152,6 +152,7 @@ pub struct SourceTexture {
 /// The format of one vertex channel's data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChannelFormat {
+    Float32,
     Float32x2,
     Float32x3,
     Float32x4,
@@ -161,6 +162,7 @@ pub enum ChannelFormat {
 impl ChannelFormat {
     pub(crate) fn vertex_format(self) -> wgpu::VertexFormat {
         match self {
+            Self::Float32 => wgpu::VertexFormat::Float32,
             Self::Float32x2 => wgpu::VertexFormat::Float32x2,
             Self::Float32x3 => wgpu::VertexFormat::Float32x3,
             Self::Float32x4 => wgpu::VertexFormat::Float32x4,

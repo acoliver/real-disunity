@@ -7,7 +7,9 @@
 //! colors and the inversion, not from the output.
 
 use glam::{Quat, Vec3};
-use worldrunner_disunity_runtime::{MeshRun, PlayerMesh, PlayerTexture};
+use worldrunner_disunity_runtime::{
+    MeshChannel, MeshChannels, MeshRange, PlayerTexture, TextureSampler,
+};
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
@@ -60,32 +62,42 @@ impl ShaderSupply for Synthetic {
 struct Quad;
 
 impl Assets for Quad {
-    fn mesh(&self, identity: u64, known: u64) -> Result<Option<PlayerMesh>, AssetError> {
+    fn mesh(&self, identity: u64, known: u64) -> Result<Option<MeshChannels>, AssetError> {
         if identity != MESH || known != 0 {
             return Ok(None);
         }
-        Ok(Some(PlayerMesh {
+        Ok(Some(MeshChannels {
             generation: 1,
-            positions: vec![
-                [-1.0, -1.0, 0.5],
-                [1.0, -1.0, 0.5],
-                [-1.0, 1.0, 0.5],
-                [1.0, 1.0, 0.5],
+            vertex_count: 4,
+            channels: vec![
+                MeshChannel {
+                    number: 0,
+                    dimension: 3,
+                    data: vec![
+                        -1.0, -1.0, 0.5, 1.0, -1.0, 0.5, -1.0, 1.0, 0.5, 1.0, 1.0, 0.5,
+                    ],
+                },
+                MeshChannel {
+                    number: 4,
+                    dimension: 2,
+                    data: vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                },
             ],
-            normals: Vec::new(),
-            uvs: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
-            colors: Vec::new(),
             indices: vec![0, 1, 2, 2, 1, 3],
-            submeshes: vec![MeshRun {
-                slot: 0,
-                first_index: 0,
-                index_count: 6,
+            ranges: vec![MeshRange {
+                start: 0,
+                count: 6,
+                base_vertex: 0,
+                topology: 0,
             }],
-            left_out: 0,
         }))
     }
 
     fn texture(&self, _: u64, _: u64) -> Result<Option<PlayerTexture>, AssetError> {
+        Ok(None)
+    }
+
+    fn sampler(&self, _: u64) -> Result<Option<TextureSampler>, AssetError> {
         Ok(None)
     }
 }
@@ -333,8 +345,8 @@ fn a_render_texture_the_renderer_cannot_draw_into_costs_its_records_and_nothing_
         render_texture(&mut world, [SIDE, SIDE]),
         render_texture(&mut world, [SIDE, SIDE]),
     );
-    // Format 52 is not one render-program draws into.
-    let odd = target(&mut world, 52);
+    // Format 7 (RGB8) is not one render-program draws into.
+    let odd = target(&mut world, 7);
     camera_render(&mut world, odd);
     blit_and_copy(&mut world, (a, b, c));
     let (adapted, operations, reads) = rig.frame(&mut world, &[b, c]);

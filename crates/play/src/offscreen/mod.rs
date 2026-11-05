@@ -34,8 +34,10 @@
 //!
 //! * A texture slot's scale and offset (render-program's property convention names no member
 //!   that carries them).
-//! * Wrap and filter modes of a stored texture (the stored texture does not say them); every
-//!   texture is read with the fixed sampler.
+//! * The wrap along w, anisotropy and mip bias of a sampler (render-program's sampler state
+//!   carries a wrap along u and v and a filter), and a render texture's sampler when a blit or a
+//!   copy reads it as its source, which the frame does not describe; those read with the fixed
+//!   sampler.
 //! * A material's disabled passes.
 //! * Built-in values whose meaning the repository's evidence does not give; [`builtins`] lists
 //!   them with the number of the player's variants that hold each.
@@ -54,7 +56,9 @@ mod shaders;
 mod tests;
 
 pub use adapter::{OffscreenAdapter, build};
-pub use assets::{AssetError, Assets, MeshError, mesh_of, texture_of};
+pub use assets::{
+    AssetError, Assets, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
+};
 pub use builtins::{
     CAMERA_POSITION, OBJECT_TO_WORLD, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT, camera_layer,
     draw_layer,

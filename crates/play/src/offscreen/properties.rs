@@ -12,10 +12,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::properties::PropertyValue;
+use worldrunner_render_program::sampler::SamplerState;
 use worldrunner_world_simulation::graphics::{
     RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
 };
 
+use super::assets::sampler_of_world;
 use super::ids;
 
 /// Which textures a frame can name, and which render textures its properties did.
@@ -40,21 +42,26 @@ impl<'a> Textures<'a> {
         }
     }
 
-    /// The name of the texture a reference names, or `None` for no texture, a render texture
-    /// that was destroyed and a stored texture the frame cannot read. A render texture named is
-    /// remembered.
-    pub fn resolve(&mut self, texture: &TextureRef) -> Option<TextureId> {
+    /// The name of the texture a reference names and the sampler state it is read with, or
+    /// `None` for no texture, a render texture that was destroyed and a stored texture the frame
+    /// cannot read. A render texture named is remembered and brings its own sampler; a stored
+    /// texture's sampler is the one it was uploaded with.
+    pub fn resolve(&mut self, texture: &TextureRef) -> Option<(TextureId, Option<SamplerState>)> {
         match *texture {
             TextureRef::None | TextureRef::Global(_) => None,
-            TextureRef::Render(id) => self.render.contains_key(&id).then(|| {
+            TextureRef::Render(id) => self.render.get(&id).map(|description| {
                 self.used.insert(id);
-                ids::render_texture(id)
+                (
+                    ids::render_texture(id),
+                    Some(sampler_of_world(&description.sampler)),
+                )
             }),
             TextureRef::Asset(identity) => self
                 .stored
                 .contains(&identity)
                 .then(|| ids::stored_texture(identity))
-                .flatten(),
+                .flatten()
+                .map(|id| (id, None)),
         }
     }
 
@@ -81,14 +88,10 @@ pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> Prop
         layer.values.set(name, PropertyValue::Matrix(*value));
     }
     for (name, slot) in &properties.textures {
-        if let Some(texture) = textures.resolve(&slot.texture) {
-            layer.textures.insert(
-                name.clone(),
-                TextureInput {
-                    texture,
-                    sampler: None,
-                },
-            );
+        if let Some((texture, sampler)) = textures.resolve(&slot.texture) {
+            layer
+                .textures
+                .insert(name.clone(), TextureInput { texture, sampler });
         }
     }
     layer

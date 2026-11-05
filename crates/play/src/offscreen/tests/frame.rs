@@ -4,6 +4,7 @@ use glam::{Quat, Vec3};
 use worldrunner_render_program::ids::{CameraId, MeshId, RendererId, ShaderId, TextureId};
 use worldrunner_render_program::offscreen::frame::Record;
 use worldrunner_render_program::properties::PropertyValue;
+use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_render_program::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties,
@@ -616,4 +617,47 @@ fn a_stored_texture_the_host_can_read_is_named_by_its_identity() {
         panic!("a blit");
     };
     assert_eq!(*source, TextureId(1 << 40));
+}
+
+#[test]
+fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
+    let mut world = world();
+    let description = WorldRenderTexture {
+        width: 8,
+        height: 8,
+        format: 8,
+        depth_bits: 0,
+        mip_count: 1,
+        srgb: false,
+        sampler: WorldSampler {
+            wrap_u: 1,
+            wrap_v: 2,
+            wrap_w: 0,
+            filter: 0,
+            aniso_level: 1,
+            mip_bias: 0.0,
+        },
+        generation: 0,
+    };
+    let (a, b) = (
+        world.create_render_texture(description).unwrap(),
+        render_texture(&mut world, [8, 8]),
+    );
+    world
+        .set_global_property(WorldValue::Texture(
+            "_Lookup".into(),
+            texture_slot(TextureRef::Render(a)),
+        ))
+        .unwrap();
+    blit(&mut world, TextureRef::Render(a), b, None, 0);
+    let snapshot = snapshot(&mut world);
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
+    assert_eq!(
+        adapted.frame.globals.textures["_Lookup"].sampler,
+        Some(SamplerState {
+            wrap_u: Wrap::Clamp,
+            wrap_v: Wrap::Mirror,
+            filter: Filter::Point,
+        })
+    );
 }

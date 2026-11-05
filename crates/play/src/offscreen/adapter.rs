@@ -18,7 +18,7 @@ use worldrunner_world_simulation::graphics::{
     OffscreenWork, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
 
-use super::assets::{Assets, mesh_of, texture_of};
+use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
 use super::frame::{
     Adapted, Available, BLIT_MESH, Report, Settings, ShaderInfo, adapt, textures_of,
 };
@@ -36,10 +36,12 @@ pub struct OffscreenAdapter {
     blit_mesh: bool,
 }
 
-/// A stored mesh or texture the adapter has read: the generation, and whether it can be drawn.
+/// A stored mesh or texture the adapter has read: the generation, the generation of the sampler
+/// it was uploaded with (0 for a mesh), and whether it can be drawn.
 #[derive(Clone, Copy)]
 struct Stored {
     generation: u64,
+    sampler_generation: u64,
     usable: bool,
 }
 
@@ -156,6 +158,7 @@ impl OffscreenAdapter {
                 identity,
                 Stored {
                     generation: stored.generation,
+                    sampler_generation: 0,
                     usable: uploaded.is_ok(),
                 },
             );
@@ -176,9 +179,22 @@ impl OffscreenAdapter {
                     .or_default() += 1;
                 continue;
             };
-            let known = self
-                .textures
-                .get(&identity)
+            let held = self.textures.get(&identity).copied();
+            let sampler = match assets.sampler(identity) {
+                Ok(sampler) => sampler,
+                Err(_) => {
+                    *failures
+                        .entry("texture:SamplerRead".to_owned())
+                        .or_default() += 1;
+                    None
+                }
+            };
+            // A sampler that changed alone replaces the texture, whose bytes are read again.
+            let sampler_changed = sampler.as_ref().is_some_and(|sampler| {
+                held.is_none_or(|held| held.sampler_generation != sampler.generation)
+            });
+            let known = held
+                .filter(|_| !sampler_changed)
                 .map_or(0, |held| held.generation);
             let stored = match assets.texture(identity, known) {
                 Ok(Some(stored)) => stored,
@@ -188,7 +204,8 @@ impl OffscreenAdapter {
                     continue;
                 }
             };
-            let uploaded = match texture_of(id, &stored) {
+            let sampled = sampler.as_ref().map(sampler_of_stored);
+            let uploaded = match texture_of(id, &stored, sampled) {
                 Ok(texture) => state
                     .set_texture(runtime, &texture)
                     .map_err(|error| format!("texture:{}", variant_name(&error))),
@@ -201,6 +218,7 @@ impl OffscreenAdapter {
                 identity,
                 Stored {
                     generation: stored.generation,
+                    sampler_generation: sampler.map_or(0, |sampler| sampler.generation),
                     usable: uploaded.is_ok(),
                 },
             );

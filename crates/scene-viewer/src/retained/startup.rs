@@ -48,6 +48,7 @@ impl RetainedHost {
             clipboard: super::clipboard::HostClipboard::default(),
             picking: super::picking::Picking::default(),
             work: super::work::WorkServices::default(),
+            timers: super::timers::Timers::default(),
             statistics: None,
             gpu_timing: if options.gpu_timing {
                 super::GpuTiming::Pending

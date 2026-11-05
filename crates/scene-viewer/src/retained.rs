@@ -8,9 +8,11 @@ mod clipboard;
 #[cfg(test)]
 mod clipboard_tests;
 mod startup;
+mod timers;
 #[cfg(test)]
 #[path = "../../world-simulation/tests/ui_font/mod.rs"]
 mod ui_font;
+pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
 mod work;
 pub use work::{
     CancelToken, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
@@ -156,6 +158,10 @@ pub enum RetainedInput {
 pub enum RetainedEvent {
     /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
     WorkReady,
+    /// A host timer expired, including during presentation pauses.
+    Timer {
+        handle: TimerHandle,
+    },
     /// Final notification, after every outstanding capture has been cancelled.
     Shutdown,
     Input(RetainedInput),
@@ -201,6 +207,7 @@ pub struct RetainedHost {
     clipboard: clipboard::HostClipboard,
     picking: picking::Picking,
     work: work::WorkServices,
+    timers: timers::Timers,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,

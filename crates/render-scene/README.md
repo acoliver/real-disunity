@@ -110,17 +110,34 @@ the decision and what remains before a policy can be enabled.
 Masked geometry filters albedo alpha and applies its material factor once.
 Forward and metadata passes use that alpha for coverage; shadows use their
 shadow cutoff. Flat impostors support varying atlas alpha without a relief
-atlas. Atlas footprints and conditional normal samples are computed in uniform
-control flow, before fragment-dependent branches or returns. Sampling uses
+atlas. Atlas footprints are computed in uniform control flow, before
+fragment-dependent branches or returns. Optional maps are sampled only when their
+material feature is enabled. A material-uniform gate skips atlas coordinates and
+derivatives entirely for ordinary materials, and relief depth is sampled only
+when relief is enabled. Sampling uses
 explicit gradients with the material mip bias, or explicit level zero according
 to the atlas policy. Clamped UVs and per-texture insets determine each footprint.
 Coverage is resolved after shading, and relief depth before discard, so normal
 frames and atlas derivatives retain their complete fragment quad.
 
+Surface and impostor materials specialize `SCENE_IMPOSTOR` independently of alpha
+coverage. Surface variants exclude atlas selection and relief sampling at compilation,
+including metadata and shadow passes. Mip-zero atlas policies skip atlas UV gradients;
+mip-enabled policies retain the clamped, biased footprint before varying control flow.
+
 A CPU Naga-IR test guards the atlas/coverage derivative helpers, normal frames
 and their transitive callers in forward, metadata, prepass and shadow shaders.
-It conservatively requires derivative-sensitive operations before control flow;
-it is scoped to these paths rather than a general WGSL uniformity validator.
+It requires derivative-sensitive operations before divergent control flow and
+recognizes conditions composed solely of uniforms and constants. Explicit-gradient
+and explicit-level samples can remain inside fragment-dependent gates. A separate
+IR call-tree cost check specializes `SCENE_IMPOSTOR=false` with unconstrained material
+lanes, and also checks ordinary material uniforms in the shared source. Both checks
+reject reachable atlas selection, packed atlas samples and relief samples for opaque
+and masked entry points in every pass. These checks are scoped to these paths rather
+than general WGSL uniformity or cost validators.
+The GPU sampling-cost regression also reports optional opaque-pass timestamp
+medians for ordinary opaque and masked caster scenes. The structural assertion
+is deterministic; timestamp values are informational and have no pass threshold.
 
 `SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA
 sample coverage. Opaque materials reject this request. It belongs to the material

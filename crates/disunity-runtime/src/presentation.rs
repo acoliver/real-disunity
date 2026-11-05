@@ -167,7 +167,7 @@ pub(crate) fn read_coverage(
             SceneTexture {
                 width: meta.width,
                 height: meta.height,
-                bytes: bytes.into_boxed_slice(),
+                bytes: bytes.into(),
             },
         );
     }

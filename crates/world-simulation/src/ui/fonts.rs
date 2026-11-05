@@ -1,8 +1,10 @@
+use super::text_cache::{TextCache, TextCacheStats};
 use super::{FontId, TextLayout, TextRun, UiError};
 use ab_glyph::FontArc;
 use glam::Vec2;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 static NEXT_FONT: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +30,7 @@ impl Default for UiLimits {
 pub struct FontBook {
     fonts: BTreeMap<FontId, FontArc>,
     bytes: usize,
+    cache: Mutex<TextCache>,
     pub(super) limits: UiLimits,
 }
 impl FontBook {
@@ -49,6 +52,7 @@ impl FontBook {
         Ok(Self {
             fonts: BTreeMap::new(),
             bytes: 0,
+            cache: Mutex::default(),
             limits,
         })
     }
@@ -73,15 +77,27 @@ impl FontBook {
         self.bytes = total;
         Ok(id)
     }
-    pub fn layout(&self, run: &TextRun, size: Vec2) -> Result<TextLayout, UiError> {
+    pub fn cache_stats(&self) -> TextCacheStats {
+        self.cache.lock().expect("text cache lock").stats
+    }
+    /// Reuses immutable glyphs and coverage until bounded cache eviction.
+    pub fn layout(&self, run: &TextRun, size: Vec2) -> Result<Arc<TextLayout>, UiError> {
         run.validate()?;
         if !size.is_finite() || size.min_element() < 0. {
             return Err(UiError::InvalidRect);
+        }
+        if run.text.chars().count() > self.limits.max_glyphs {
+            return Err(UiError::GlyphLimit);
         }
         let font = self
             .fonts
             .get(&run.font)
             .ok_or(UiError::MissingFont(run.font))?;
-        super::text::layout(font, run, size, self.limits)
+        self.cache
+            .lock()
+            .expect("text cache lock")
+            .layout(run, size, self.limits, || {
+                super::text::layout(font, run, size, self.limits)
+            })
     }
 }

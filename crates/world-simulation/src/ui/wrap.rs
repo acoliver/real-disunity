@@ -5,8 +5,9 @@ use super::{UiError, UiLimits};
 use ab_glyph::{FontArc, GlyphId, PxScaleFont, ScaleFont};
 
 pub(super) struct Line {
-    pub characters: Vec<char>,
+    pub characters: Vec<(usize, char)>,
     pub width: f32,
+    pub paragraph_end: bool,
 }
 
 type Scaled<'a> = PxScaleFont<&'a FontArc>;
@@ -15,20 +16,20 @@ struct Breaker<'a> {
     font: &'a Scaled<'a>,
     limit: Option<f32>,
     lines: Vec<Line>,
-    current: Vec<char>,
+    current: Vec<(usize, char)>,
     width: f32,
     previous: Option<GlyphId>,
 }
 
 impl Breaker<'_> {
-    fn push(&mut self, character: char) -> Result<(), UiError> {
+    fn push(&mut self, byte: usize, character: char) -> Result<(), UiError> {
         let id = self.font.glyph_id(character);
         if id == GlyphId(0) {
             return Err(UiError::MissingGlyph(character));
         }
         self.width += self.previous.map_or(0., |p| self.font.kern(p, id)) + self.font.h_advance(id);
         self.previous = Some(id);
-        self.current.push(character);
+        self.current.push((byte, character));
         while self.overflows() {
             self.break_line();
         }
@@ -40,35 +41,41 @@ impl Breaker<'_> {
     }
 
     fn break_line(&mut self) {
-        let split = match self.current.iter().rposition(|&c| c == ' ') {
+        let split = match self.current.iter().rposition(|&(_, c)| c == ' ') {
             Some(space) if space > 0 => space,
             _ => self.current.len() - 1,
         };
         let mut rest = self.current.split_off(split);
-        if rest.first() == Some(&' ') {
+        if rest.first().is_some_and(|&(_, c)| c == ' ') {
             rest.remove(0);
         }
-        self.finish();
+        self.finish(false);
         (self.width, self.previous) = measure(self.font, &rest);
         self.current = rest;
     }
 
-    fn finish(&mut self) {
+    fn finish(&mut self, paragraph_end: bool) {
         let characters = std::mem::take(&mut self.current);
         let (width, _) = measure(self.font, &characters);
-        self.lines.push(Line { characters, width });
+        self.lines.push(Line {
+            characters,
+            width,
+            paragraph_end,
+        });
         (self.width, self.previous) = (0., None);
     }
 }
 
 /// Width of `characters` with kerning, and the last glyph for kerning what follows. Callers
 /// have already rejected characters the font lacks.
-fn measure(font: &Scaled<'_>, characters: &[char]) -> (f32, Option<GlyphId>) {
-    characters.iter().fold((0., None), |(width, previous), &c| {
-        let id = font.glyph_id(c);
-        let kern = previous.map_or(0., |p| font.kern(p, id));
-        (width + kern + font.h_advance(id), Some(id))
-    })
+fn measure(font: &Scaled<'_>, characters: &[(usize, char)]) -> (f32, Option<GlyphId>) {
+    characters
+        .iter()
+        .fold((0., None), |(width, previous), &(_, c)| {
+            let id = font.glyph_id(c);
+            let kern = previous.map_or(0., |p| font.kern(p, id));
+            (width + kern + font.h_advance(id), Some(id))
+        })
 }
 
 /// Splits `text` into lines at newlines, and at `wrap_width` when it is set.
@@ -86,18 +93,18 @@ pub(super) fn lines(
         width: 0.,
         previous: None,
     };
-    for (count, character) in text.chars().filter(|&c| c != '\r').enumerate() {
+    for (count, (byte, character)) in text.char_indices().filter(|&(_, c)| c != '\r').enumerate() {
         if count >= limits.max_glyphs {
             return Err(UiError::GlyphLimit);
         }
         if character == '\n' {
-            breaker.finish();
+            breaker.finish(true);
         } else {
-            breaker.push(character)?;
+            breaker.push(byte, character)?;
         }
     }
     if !text.is_empty() {
-        breaker.finish();
+        breaker.finish(false);
     }
     if breaker.lines.iter().any(|line| !line.width.is_finite()) {
         return Err(UiError::InvalidFont);

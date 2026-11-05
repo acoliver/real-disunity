@@ -35,7 +35,8 @@ pub enum OffscreenWork {
     },
     /// A dispatch of one kernel of a compute shader over `groups` thread groups. `bindings` is
     /// the snapshot of the values the kernel ran with when the script called it; a script's
-    /// later edits leave it alone.
+    /// later edits leave it alone. A texture it holds is an asset, a render texture or none,
+    /// never a global name.
     Dispatch {
         shader: ComputeShaderId,
         kernel: u32,
@@ -111,8 +112,8 @@ impl World {
                 shader,
                 kernel,
                 groups,
-                ..
-            } => self.check_dispatch(*shader, *kernel, *groups),
+                bindings,
+            } => self.check_dispatch(*shader, *kernel, *groups, bindings),
         }
     }
 

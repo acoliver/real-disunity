@@ -2,7 +2,9 @@
 //!
 //! Taking the frame's offscreen work (see [`crate::graphics_offscreen`]) keeps each dispatch's
 //! bindings in the session and gives the record a token, from 1, naming them. A token is valid
-//! until the next call that takes work.
+//! until the next call that takes work. A texture a kernel names from the global shader state
+//! was resolved when the dispatch was recorded, so a record holds an asset, a render texture or
+//! none.
 use crate::{
     DisunityResult, callbacks::mutate, errors::AbiError, graphics_properties::texture_parts,
 };
@@ -19,9 +21,8 @@ const KIND_BUFFER: u32 = 5;
 /// (`int_value`), 2 for a vector (four floats), 3 for a matrix (sixteen floats, column-major),
 /// 4 for a texture and 5 for a buffer (`resource` is the compute buffer's id). A texture reads
 /// scale x, scale y, offset x and offset y at `float_offset`; its `texture_kind` is 0 for none,
-/// 1 for a player texture, 2 for a render texture (`resource` is the identity or the id) and
-/// 3 for a global texture, named by `global_length` bytes of the text at `global_offset`. The
-/// name is `name_length` bytes of the text at `name_offset`.
+/// 1 for a player texture and 2 for a render texture (`resource` is the identity or the id).
+/// The name is `name_length` bytes of the text at `name_offset`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeBinding {
@@ -31,8 +32,6 @@ pub struct DisunityComputeBinding {
     pub float_offset: u32,
     pub int_value: i32,
     pub texture_kind: u32,
-    pub global_offset: u32,
-    pub global_length: u32,
     pub resource: u64,
 }
 
@@ -88,19 +87,14 @@ impl Flat {
         name: &str,
         slot: &worldrunner_world_simulation::graphics::TextureSlot,
     ) -> Result<(), AbiError> {
+        if matches!(slot.texture, TextureRef::Global(_)) {
+            return Err("a dispatch record never names a global texture".into());
+        }
         let (texture_kind, resource) = texture_parts(&slot.texture);
-        let global = match &slot.texture {
-            TextureRef::Global(global) => Some(self.string(global)?),
-            _ => None,
-        };
         let floats = [slot.scale[0], slot.scale[1], slot.offset[0], slot.offset[1]];
         let entry = self.push(KIND_TEXTURE, name, &floats)?;
         entry.texture_kind = texture_kind;
         entry.resource = resource;
-        if let Some((offset, length)) = global {
-            entry.global_offset = offset;
-            entry.global_length = length;
-        }
         Ok(())
     }
 

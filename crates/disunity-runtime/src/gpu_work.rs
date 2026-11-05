@@ -10,9 +10,6 @@ pub enum GpuTexture {
     Asset(u64),
     /// A render texture of the world, by id.
     Render(u64),
-    /// The texture the global shader state holds under this property name when the dispatch
-    /// runs (see [`GpuFlush::property`] with [`crate::GpuScope::Global`]).
-    Global(String),
 }
 
 /// One value a dispatch ran with.
@@ -41,7 +38,9 @@ pub struct GpuBinding {
 
 /// A dispatch of one kernel of a compute shader. `bindings` is the snapshot of the values the
 /// kernel had when the script called `Dispatch`: floats, integers, vectors, matrices, textures
-/// and buffers, each list in name order.
+/// and buffers, each list in name order. A texture the kernel took from the global shader state
+/// holds what the global state held at that call, so executing the dispatch never reads global
+/// state that scripts have changed since.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GpuDispatch {
     /// The compute shader's id (see [`GpuFlush::compute_shader`]).
@@ -80,12 +79,11 @@ pub enum GpuWork {
     Dispatch(GpuDispatch),
 }
 
-fn texture(kind: u32, resource: u64, global: String) -> Result<GpuTexture, HostError> {
+fn texture(kind: u32, resource: u64) -> Result<GpuTexture, HostError> {
     match kind {
         0 => Ok(GpuTexture::None),
         1 => Ok(GpuTexture::Asset(resource)),
         2 => Ok(GpuTexture::Render(resource)),
-        3 => Ok(GpuTexture::Global(global)),
         other => Err(HostError::Managed(format!("unknown texture kind {other}"))),
     }
 }
@@ -111,7 +109,7 @@ impl GpuFlush<'_> {
     }
 
     fn work(&self, record: &native::DisunityOffscreenWork) -> Result<GpuWork, HostError> {
-        let source = || texture(record.source_kind, record.source, String::new());
+        let source = || texture(record.source_kind, record.source);
         Ok(match record.kind {
             0 => GpuWork::CameraRender {
                 camera: record.camera,
@@ -205,11 +203,7 @@ fn binding(
         4 => {
             let [scale_x, scale_y, offset_x, offset_y] = floats_at::<4>(floats, at)?;
             GpuValue::Texture {
-                texture: texture(
-                    entry.texture_kind,
-                    entry.resource,
-                    text_at(text, entry.global_offset, entry.global_length)?,
-                )?,
+                texture: texture(entry.texture_kind, entry.resource)?,
                 scale: [scale_x, scale_y],
                 offset: [offset_x, offset_y],
             }

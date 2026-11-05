@@ -294,9 +294,8 @@ namespace Disunity.Native
     ///  (`int_value`), 2 for a vector (four floats), 3 for a matrix (sixteen floats, column-major),
     ///  4 for a texture and 5 for a buffer (`resource` is the compute buffer's id). A texture reads
     ///  scale x, scale y, offset x and offset y at `float_offset`; its `texture_kind` is 0 for none,
-    ///  1 for a player texture, 2 for a render texture (`resource` is the identity or the id) and
-    ///  3 for a global texture, named by `global_length` bytes of the text at `global_offset`. The
-    ///  name is `name_length` bytes of the text at `name_offset`.
+    ///  1 for a player texture and 2 for a render texture (`resource` is the identity or the id).
+    ///  The name is `name_length` bytes of the text at `name_offset`.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityComputeBinding
@@ -307,8 +306,6 @@ namespace Disunity.Native
         public uint float_offset;
         public int int_value;
         public uint texture_kind;
-        public uint global_offset;
-        public uint global_length;
         public ulong resource;
     }
 

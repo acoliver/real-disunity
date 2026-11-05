@@ -15,8 +15,8 @@ pub enum TextureRef {
     /// A render texture of the world.
     Render(RenderTextureId),
     /// The texture the global shader state holds under this property name when a compute
-    /// dispatch runs. Only compute bindings take one; materials, property blocks and the global
-    /// state itself refuse it.
+    /// dispatch is recorded. Only the bindings a compute shader stores take one; materials,
+    /// property blocks, the global state itself and recorded offscreen work refuse it.
     Global(String),
     /// No texture.
     None,

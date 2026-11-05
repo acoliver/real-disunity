@@ -115,6 +115,15 @@ fn bind_kernel_values(world: u64, id: u64, out: u64) {
         global_length: 15,
     };
     let names = "_HeightsGlobalHeightmap";
+    let (global_name, global_name_length) = text("GlobalHeightmap");
+    let heightmap = DisunityTextureSlot {
+        kind: 1,
+        texture: (1 << 40) + 9,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        offset_x: 0.0,
+        offset_y: 0.0,
+    };
     let matrix = matrix();
     unsafe {
         let results = [
@@ -123,6 +132,7 @@ fn bind_kernel_values(world: u64, id: u64, out: u64) {
             disunity_compute_matrix_write(world, id, 0, mname, mlength, matrix.as_ptr()),
             disunity_compute_texture_write(world, id, 0, tname, tlength, &slot),
             disunity_compute_texture_global_write(world, id, 0, &global, names.as_ptr()),
+            disunity_shader_texture_write(world, 1, 0, global_name, global_name_length, &heightmap),
             disunity_compute_buffer_bind(world, id, 0, output_name, output_length, out),
         ];
         assert!(results.iter().all(|result| result.code == 0));
@@ -173,10 +183,51 @@ fn values_and_buffers_bound_to_a_kernel_arrive_in_the_dispatch_snapshot() {
     );
     assert_eq!(albedo.floats, [1.0, 1.0, 0.5, 0.0]);
     let heights = find("_Heights");
-    assert_eq!(heights.entry.texture_kind, 3);
-    assert_eq!(heights.global, "GlobalHeightmap");
+    assert_eq!(
+        (heights.entry.texture_kind, heights.entry.resource),
+        (1, (1 << 40) + 9),
+        "the record holds the texture the global state held at the dispatch"
+    );
     let bound = find("_Output");
     assert_eq!((bound.entry.kind, bound.entry.resource), (5, out));
+}
+
+#[test]
+fn a_global_texture_is_resolved_when_the_dispatch_is_called_and_not_when_it_is_read() {
+    let world = new_world();
+    let id = shader(world);
+    let (global, global_length) = text("_Terrain");
+    let names = "_Heights_Terrain";
+    let lengths = DisunityComputeGlobalTexture {
+        name_length: 8,
+        global_length,
+    };
+    let asset = |texture: u64| DisunityTextureSlot {
+        kind: 1,
+        texture,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        ..Default::default()
+    };
+    unsafe {
+        let bound = disunity_compute_texture_global_write(world, id, 0, &lengths, names.as_ptr());
+        assert_eq!(bound.code, 0);
+        assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
+        let first = disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(1 << 40));
+        assert_eq!(first.code, 0);
+        assert_eq!(disunity_compute_dispatch(world, id, 0, 1, 1, 1).code, 0);
+        let second = disunity_shader_texture_write(world, 1, 0, global, global_length, &asset(2 << 40));
+        assert_eq!(second.code, 0);
+    }
+    let held: Vec<(u32, u64)> = take(world)
+        .iter()
+        .map(|record| {
+            let entries = read_bindings(world, record.bindings);
+            let heights = entries.iter().find(|e| e.name == "_Heights").unwrap();
+            (heights.entry.texture_kind, heights.entry.resource)
+        })
+        .collect();
+    assert_eq!(held, [(0, 0), (1, 1 << 40)]);
 }
 
 #[test]
@@ -374,7 +425,6 @@ fn compute_buffer_ids_in_the_world_match_the_ids_the_abi_hands_out() {
 struct Entry {
     entry: DisunityComputeBinding,
     name: String,
-    global: String,
     floats: Vec<f32>,
 }
 
@@ -421,7 +471,6 @@ fn read_bindings(world: u64, token: u32) -> Vec<Entry> {
             Entry {
                 entry: *entry,
                 name: slice(entry.name_offset, entry.name_length),
-                global: slice(entry.global_offset, entry.global_length),
                 floats: floats[start..start + count].to_vec(),
             }
         })

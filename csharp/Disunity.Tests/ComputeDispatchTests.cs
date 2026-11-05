@@ -14,6 +14,8 @@ internal static class ComputeDispatchTests
             Console.WriteLine("PASS: a planned ComputeShader finds its kernels by name and index and refuses a kernel it lacks");
             DispatchRecordsGroupsAndBindings();
             Console.WriteLine("PASS: ComputeShader.Dispatch records the kernel, the groups and the shader-wide and kernel values it had at the call");
+            GlobalTexturesAreResolvedAtTheDispatch();
+            Console.WriteLine("PASS: a kernel's global texture is the texture the global state held at the dispatch, and a later change does not reach the record");
             DispatchOrderAndSnapshot();
             Console.WriteLine("PASS: dispatches keep call order beside blits and later changes do not reach an earlier dispatch");
             GroupSizesComeFromThePlanThenTheHost();
@@ -65,8 +67,29 @@ internal static class ComputeDispatchTests
         Expect.Sequence(new[] { 1f, 2f, 3f, 4f }, entries["_Tint"].Floats, "the shader-wide vector");
         Expect.Sequence(Enumerable.Range(1, 16).Select(i => (float)i), entries["_View"].Floats, "the shader-wide matrix, column by column");
         Expect.That(entries["_Output"].Kind == 5, "the buffer binding");
-        Expect.That(entries["_Heights"].TextureKind == 3 && entries["_Heights"].Global == "_GlobalTerrainHeightmap", "the global texture binding names the global");
+        Expect.That(entries["_Heights"].TextureKind == 0, "a global texture the global state does not hold reads as no texture in the record");
         Expect.That(!entries.ContainsKey("_OtherKernelOnly"), "a value of another kernel is not in this dispatch");
+    }
+
+    private static void GlobalTexturesAreResolvedAtTheDispatch()
+    {
+        var world = DisunityHost.WorldHandle;
+        TakeWork(world);
+        var shader = Planned(TerrainPlan);
+        var first = new RenderTexture(4, 4, 0);
+        first.Create();
+        var second = new RenderTexture(8, 8, 0);
+        second.Create();
+        shader.SetTextureFromGlobal(0, "_Heights", "_GlobalTerrainHeightmap");
+        Shader.SetGlobalTexture("_GlobalTerrainHeightmap", first);
+        shader.Dispatch(0, 1, 1, 1);
+        Shader.SetGlobalTexture("_GlobalTerrainHeightmap", second);
+        shader.Dispatch(0, 1, 1, 1);
+        Shader.SetGlobalTexture("_GlobalTerrainHeightmap", (Texture)null!);
+        var work = TakeWork(world);
+        var heights = work.Select(record => Bindings(world, record.bindings).Single(entry => entry.Name == "_Heights")).ToArray();
+        Expect.That(heights[0].TextureKind == 2 && heights[0].Resource == first.WorldId, "the first dispatch holds the render texture the global held then");
+        Expect.That(heights[1].TextureKind == 2 && heights[1].Resource == second.WorldId, "the second dispatch holds the render texture set after the first");
     }
 
     private static void DispatchOrderAndSnapshot()

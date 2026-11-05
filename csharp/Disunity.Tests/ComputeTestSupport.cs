@@ -96,7 +96,7 @@ internal static unsafe class ComputeTestSupport
         return records;
     }
 
-    internal readonly record struct Entry(string Name, uint Kind, uint TextureKind, ulong Resource, int Int, float[] Floats, string Global);
+    internal readonly record struct Entry(string Name, uint Kind, uint TextureKind, ulong Resource, int Int, float[] Floats);
 
     /// <summary>The values a dispatch record carries, by its token.</summary>
     internal static Entry[] Bindings(ulong world, uint token)
@@ -113,8 +113,7 @@ internal static unsafe class ComputeTestSupport
                 entries.Length == 0 ? null : entryPointer, floats.Length == 0 ? null : floatPointer, text.Length == 0 ? null : textPointer));
         string Text(uint offset, uint length) => Encoding.UTF8.GetString(text, (int)offset, (int)length);
         return entries.Select(entry => new Entry(Text(entry.name_offset, entry.name_length), entry.kind, entry.texture_kind, entry.resource, entry.int_value,
-            floats.Skip((int)entry.float_offset).Take(entry.kind switch { 0 => 1, 2 => 4, 3 => 16, 4 => 4, _ => 0 }).ToArray(),
-            Text(entry.global_offset, entry.global_length))).ToArray();
+            floats.Skip((int)entry.float_offset).Take(entry.kind switch { 0 => 1, 2 => 4, 3 => 16, 4 => 4, _ => 0 }).ToArray())).ToArray();
     }
 
     /// <summary>A planned compute shader as the loader builds it.</summary>

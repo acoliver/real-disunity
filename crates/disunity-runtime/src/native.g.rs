@@ -793,8 +793,6 @@ pub struct DisunityComputeBinding {
     pub float_offset: u32,
     pub int_value: i32,
     pub texture_kind: u32,
-    pub global_offset: u32,
-    pub global_length: u32,
     pub resource: u64,
 }
 

@@ -265,14 +265,18 @@ impl World {
 
     /// Records a dispatch of `kernel` over `groups` thread groups with a snapshot of the
     /// bindings it has now, in call order with the frame's other offscreen work. Later edits do
-    /// not change the record. A group count is 1 to 65535 along each axis.
+    /// not change the record, the global shader state's included: a texture the kernel names
+    /// from the global state is replaced by what the global state holds under that name now
+    /// (an asset, a render texture, or no texture when the global is unset). A group count is
+    /// 1 to 65535 along each axis.
     pub fn dispatch_compute(
         &mut self,
         id: ComputeShaderId,
         kernel: u32,
         groups: [u32; 3],
     ) -> Result<(), WorldError> {
-        let bindings = self.compute_bindings(id, kernel)?;
+        let mut bindings = self.compute_bindings(id, kernel)?;
+        self.resolve_global_textures(&mut bindings);
         self.record_offscreen(OffscreenWork::Dispatch {
             shader: id,
             kernel,
@@ -281,13 +285,39 @@ impl World {
         })
     }
 
-    /// Checks the shader, the kernel and the group counts of a dispatch record.
+    /// Replaces each texture that names a global with the texture the global state holds under
+    /// that name, keeping the slot's scale and offset.
+    fn resolve_global_textures(&self, bindings: &mut ComputeBindings) {
+        for (_, slot) in &mut bindings.properties.textures {
+            if let TextureRef::Global(name) = &slot.texture {
+                slot.texture = self
+                    .graphics
+                    .global
+                    .properties
+                    .texture(name)
+                    .map_or(TextureRef::None, |held| held.texture);
+            }
+        }
+    }
+
+    /// Checks the shader, the kernel, the group counts and the bindings of a dispatch record.
+    /// A record never names a global texture: the executor must not read global state that
+    /// scripts keep changing.
     pub(super) fn check_dispatch(
         &self,
         shader: ComputeShaderId,
         kernel: u32,
         groups: [u32; 3],
+        bindings: &ComputeBindings,
     ) -> Result<(), WorldError> {
+        let names_global = bindings
+            .properties
+            .textures
+            .iter()
+            .any(|(_, slot)| matches!(slot.texture, TextureRef::Global(_)));
+        if names_global {
+            return Err(GraphicsError::InvalidTexture.into());
+        }
         let held = &self.compute_entry(shader)?.shader;
         if usize::try_from(kernel).map_or(true, |index| index >= held.kernels.len()) {
             return Err(GraphicsError::InvalidKernel.into());

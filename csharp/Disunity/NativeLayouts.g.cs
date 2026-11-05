@@ -554,10 +554,8 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityComputeBinding>("float_offset").ToInt32() != 12) throw new InvalidOperationException("DisunityComputeBinding.float_offset offset");
         if (Marshal.OffsetOf<DisunityComputeBinding>("int_value").ToInt32() != 16) throw new InvalidOperationException("DisunityComputeBinding.int_value offset");
         if (Marshal.OffsetOf<DisunityComputeBinding>("texture_kind").ToInt32() != 20) throw new InvalidOperationException("DisunityComputeBinding.texture_kind offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("global_offset").ToInt32() != 24) throw new InvalidOperationException("DisunityComputeBinding.global_offset offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("global_length").ToInt32() != 28) throw new InvalidOperationException("DisunityComputeBinding.global_length offset");
-        if (Marshal.OffsetOf<DisunityComputeBinding>("resource").ToInt32() != 32) throw new InvalidOperationException("DisunityComputeBinding.resource offset");
-        if (Marshal.SizeOf<DisunityComputeBinding>() != 40 || typeof(DisunityComputeBinding).GetFields().Length != 9) throw new InvalidOperationException("DisunityComputeBinding layout");
+        if (Marshal.OffsetOf<DisunityComputeBinding>("resource").ToInt32() != 24) throw new InvalidOperationException("DisunityComputeBinding.resource offset");
+        if (Marshal.SizeOf<DisunityComputeBinding>() != 32 || typeof(DisunityComputeBinding).GetFields().Length != 7) throw new InvalidOperationException("DisunityComputeBinding layout");
         if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("entry_count").ToInt32() != 0) throw new InvalidOperationException("DisunityComputeBindingsInfo.entry_count offset");
         if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("float_count").ToInt32() != 4) throw new InvalidOperationException("DisunityComputeBindingsInfo.float_count offset");
         if (Marshal.OffsetOf<DisunityComputeBindingsInfo>("text_length").ToInt32() != 8) throw new InvalidOperationException("DisunityComputeBindingsInfo.text_length offset");

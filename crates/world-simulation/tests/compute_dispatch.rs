@@ -50,6 +50,16 @@ fn global_slot(name: &str) -> PropertyValue {
     )
 }
 
+fn global_texture(name: &str, texture: TextureRef) -> PropertyValue {
+    PropertyValue::Texture(
+        name.into(),
+        TextureSlot {
+            texture,
+            ..TextureSlot::default()
+        },
+    )
+}
+
 fn render_texture(world: &mut World) -> RenderTextureId {
     world
         .create_render_texture(WorldRenderTexture {
@@ -299,6 +309,12 @@ fn a_dispatch_records_the_shader_kernel_groups_and_a_snapshot_of_the_bindings() 
     world
         .bind_compute_buffer(id, 0, "_Output".into(), buffer)
         .unwrap();
+    world
+        .set_global_property(global_texture(
+            "_GlobalTerrainHeightmap",
+            TextureRef::Asset(1 << 40),
+        ))
+        .unwrap();
     world.dispatch_compute(id, 0, [256, 128, 1]).unwrap();
 
     let work = dispatched(&mut world);
@@ -317,7 +333,8 @@ fn a_dispatch_records_the_shader_kernel_groups_and_a_snapshot_of_the_bindings() 
     assert_eq!(bindings.buffers, vec![("_Output".to_owned(), buffer)]);
     assert_eq!(
         bindings.properties.texture("_Heights").unwrap().texture,
-        TextureRef::Global("_GlobalTerrainHeightmap".into())
+        TextureRef::Asset(1 << 40),
+        "the record holds the global texture as it stood at the dispatch"
     );
 }
 
@@ -458,4 +475,119 @@ fn recording_a_dispatch_directly_checks_the_shader_and_kernel() {
         GraphicsError::InvalidKernel
     );
     assert_eq!(world.offscreen_work().len(), 1);
+}
+
+fn dispatched_heights(world: &mut World) -> Vec<TextureRef> {
+    dispatched(world)
+        .into_iter()
+        .map(|record| match record {
+            OffscreenWork::Dispatch { bindings, .. } => {
+                bindings.properties.texture("_Heights").unwrap().texture
+            }
+            other => panic!("unexpected {other:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_dispatch_resolves_a_global_texture_to_what_the_global_holds_at_that_dispatch() {
+    let mut world = world();
+    let id = compute(&mut world);
+    let target = render_texture(&mut world);
+    world
+        .set_compute_property(id, Some(0), global_slot("_Terrain"))
+        .unwrap();
+    world.dispatch_compute(id, 0, [1, 1, 1]).unwrap();
+    for texture in [
+        TextureRef::Asset(7),
+        TextureRef::Render(target),
+        TextureRef::None,
+    ] {
+        world
+            .set_global_property(global_texture("_Terrain", texture))
+            .unwrap();
+        world.dispatch_compute(id, 0, [1, 1, 1]).unwrap();
+    }
+    assert_eq!(
+        dispatched_heights(&mut world),
+        [
+            TextureRef::None,
+            TextureRef::Asset(7),
+            TextureRef::Render(target),
+            TextureRef::None,
+        ],
+        "an unset global reads as none, a set one as the asset or render texture it holds"
+    );
+}
+
+#[test]
+fn changing_the_global_after_a_dispatch_does_not_change_the_record() {
+    let mut world = world();
+    let id = compute(&mut world);
+    world
+        .set_compute_property(id, Some(0), global_slot("_Terrain"))
+        .unwrap();
+    world
+        .set_global_property(global_texture("_Terrain", TextureRef::Asset(7)))
+        .unwrap();
+    world.dispatch_compute(id, 0, [1, 1, 1]).unwrap();
+    world
+        .set_global_property(global_texture("_Terrain", TextureRef::Asset(8)))
+        .unwrap();
+    world.clear_global_properties();
+    assert_eq!(dispatched_heights(&mut world), [TextureRef::Asset(7)]);
+}
+
+#[test]
+fn a_resolved_texture_keeps_the_scale_and_offset_of_the_kernel_slot() {
+    let mut world = world();
+    let id = compute(&mut world);
+    let slot = TextureSlot {
+        texture: TextureRef::Global("_Terrain".into()),
+        scale: [2.0, 3.0],
+        offset: [0.5, 0.25],
+    };
+    world
+        .set_compute_property(id, Some(0), PropertyValue::Texture("_Heights".into(), slot))
+        .unwrap();
+    world
+        .set_global_property(global_texture("_Terrain", TextureRef::Asset(7)))
+        .unwrap();
+    world.dispatch_compute(id, 0, [1, 1, 1]).unwrap();
+    let OffscreenWork::Dispatch { bindings, .. } = dispatched(&mut world).remove(0) else {
+        panic!("expected a dispatch");
+    };
+    assert_eq!(
+        bindings.properties.texture("_Heights"),
+        Some(TextureSlot {
+            texture: TextureRef::Asset(7),
+            scale: [2.0, 3.0],
+            offset: [0.5, 0.25],
+        })
+    );
+}
+
+#[test]
+fn no_recorded_dispatch_holds_a_global_texture() {
+    let mut world = world();
+    let id = compute(&mut world);
+    let mut bindings = worldrunner_world_simulation::graphics::ComputeBindings::default();
+    bindings
+        .properties
+        .textures
+        .push(("_Heights".into(), TextureSlot {
+            texture: TextureRef::Global("_Terrain".into()),
+            ..TextureSlot::default()
+        }));
+    let record = OffscreenWork::Dispatch {
+        shader: id,
+        kernel: 0,
+        groups: [1, 1, 1],
+        bindings,
+    };
+    assert_eq!(
+        graphics_error(world.record_offscreen(record)),
+        GraphicsError::InvalidTexture
+    );
+    assert!(world.offscreen_work().is_empty());
 }

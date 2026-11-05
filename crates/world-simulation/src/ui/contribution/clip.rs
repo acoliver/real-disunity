@@ -39,3 +39,22 @@ pub(super) fn screen_clip(
     let high = high.as_uvec2();
     [low.x, low.y, high.x - low.x, high.y - low.y]
 }
+
+/// Text also clips to its own rectangle. Local glyph clipping handles affine edges;
+/// this scissor intersects the inherited screen-space viewport.
+pub(super) fn text_clip(clip: [u32; 4], rect: &RectLayout) -> [u32; 4] {
+    let Some(corners) = rect.screen_corners else {
+        return clip;
+    };
+    let low = corners.into_iter().fold(Vec2::INFINITY, Vec2::min).ceil();
+    let high = corners
+        .into_iter()
+        .fold(Vec2::NEG_INFINITY, Vec2::max)
+        .floor();
+    let [x, y, width, height] = clip;
+    let min = glam::UVec2::new(x, y).as_vec2();
+    let max = glam::UVec2::new(x + width, y + height).as_vec2();
+    let low = low.max(min).min(max).as_uvec2();
+    let high = high.min(max).max(low.as_vec2()).as_uvec2();
+    [low.x, low.y, high.x - low.x, high.y - low.y]
+}

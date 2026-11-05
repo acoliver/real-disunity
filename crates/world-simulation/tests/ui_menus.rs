@@ -254,11 +254,16 @@ fn scroll_clip_reaches_text_and_graphic_contributions_and_style() {
             .unwrap();
     }
     let mut plan = contribution::extract_ui_layout(&w, &fonts, layout(&w, &r)).unwrap();
-    assert!(
-        plan.texts
-            .iter()
-            .all(|t| t.clip_rect == [30, 30, 40, 40] && !t.quads.is_empty())
+    assert_eq!(
+        plan.texts.iter().map(|t| t.clip_rect).collect::<Vec<_>>(),
+        [
+            [30, 50, 40, 20],
+            [30, 30, 40, 20],
+            [30, 30, 40, 0],
+            [30, 30, 40, 0]
+        ]
     );
+    assert!(plan.texts.iter().all(|t| !t.quads.is_empty()));
     assert!(
         plan.graphics
             .iter()

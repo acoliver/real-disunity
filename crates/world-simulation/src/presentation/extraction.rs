@@ -316,7 +316,7 @@ pub fn append_ui_from(
                 overlay,
                 corners,
                 uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
-                color: text.color,
+                color: std::array::from_fn(|i| text.color[i] * glyph.color[i]),
                 texture: Some(id),
                 sorting_layer: text.sorting_layer,
                 sorting_order: text.sorting_order,
@@ -386,7 +386,7 @@ fn glyph_texture(texture: &SceneTexture) -> SceneTexture {
             .iter()
             .flat_map(|&alpha| [255, 255, 255, alpha])
             .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .into(),
     }
 }
 

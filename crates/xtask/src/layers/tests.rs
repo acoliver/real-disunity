@@ -237,6 +237,7 @@ fn shared_shadow_backend_is_graphics_and_rejected_from_cpu_graphs() {
     );
     check(&data).unwrap();
     assert!(forbidden("worldrunner-render-shadow"));
+    assert!(forbidden("worldrunner-render-program"));
 
     package(
         &dir,

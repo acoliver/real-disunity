@@ -245,7 +245,7 @@ fn pass_pipelines(
     source: &str,
     entry: &str,
     color: bool,
-) -> [wgpu::RenderPipeline; 16] {
+) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -288,27 +288,7 @@ fn pass_pipelines(
 }
 
 pub(super) fn geometry_sources() -> [String; 4] {
-    let forward = crate::shader::ENVIRONMENT_WGSL.to_owned();
-    let base = forward
-        .replace("fn fs_relief_opaque(", "fn unused_relief_opaque(")
-        .replace("fn fs_relief_masked(", "fn unused_relief_masked(")
-        .replace("fn fs_opaque(", "fn unused_opaque(")
-        .replace("fn fs_masked(", "fn unused_masked(");
-    let prepass = format!(
-        "{base}\n{}",
-        include_str!("../../scene_metadata/geometry.wgsl")
-            .replace("METADATA_OUTPUT", "vec4<f32>(normal, 1.0)")
-    );
-    let metadata = format!(
-        "{base}\n{}",
-        include_str!("../../scene_metadata/geometry.wgsl")
-            .replace("METADATA_OUTPUT", "vec4<f32>(normal, roughness)")
-    );
-    let shadow = format!(
-        "{forward}\n{}",
-        include_str!("../../shader/shadow_depth.wgsl")
-    );
-    [forward, prepass, metadata, shadow]
+    crate::shader::geometry_test_sources::geometry_sources()
 }
 
 pub(super) fn coverage_depth(device: &Device) -> Texture {

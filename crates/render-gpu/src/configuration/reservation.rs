@@ -5,6 +5,16 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct AllocationReservation(Arc<AllocationSet>);
 
+impl AllocationReservation {
+    /// The descriptor bytes this reservation holds on a device with `limits`.
+    ///
+    /// # Errors
+    /// Fails when a descriptor is invalid for those limits.
+    pub fn bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
+        self.0.validate(limits)
+    }
+}
+
 impl<T> Configuration<T> {
     /// Admits storage without replacing the current value or changing its generation.
     pub fn reserve<E>(

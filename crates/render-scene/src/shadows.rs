@@ -413,7 +413,16 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
         self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+    }
+
+    /// Admitted player program draws are drawn by the configured compositor only.
+    fn refuse_programs(&self) -> Result<(), ShadowError> {
+        if self.gpu.has_programs() {
+            return Err(ShadowError::UnsupportedFeature("player programs"));
+        }
+        Ok(())
     }
 
     /// Encode with completed depth evidence. Empty depth clears all maps and disables
@@ -426,6 +435,7 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
         self.encode_fitted(
             context,
             view,
@@ -646,20 +656,14 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
-            let screen = self.screen.as_ref().expect("declared metadata");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.reflection.as_ref().expect("reflection pipelines"),
-                &screen.group,
-            ));
-        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(
-                self.gpu
-                    .draw_prepass(pass, &screen.pipelines, &screen.group),
-            );
+            self.publications.record(self.gpu.draw_prepass(
+                pass,
+                screen.prepass_pipelines(),
+                &screen.group,
+            ));
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;

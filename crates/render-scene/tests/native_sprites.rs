@@ -232,9 +232,10 @@ fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
             texture: Some(CoverageTexture {
                 width: 1,
                 height: 1,
-                bytes: vec![128].into_boxed_slice(),
+                bytes: vec![128].into(),
             }),
             quads: vec![UiGlyphQuad {
+                color: [1.; 4],
                 corners: [
                     [0., 0., 0.],
                     [pixels.x, 0., 0.],

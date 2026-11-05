@@ -34,7 +34,10 @@ pub(super) fn build(
         FragmentState {
             module,
             entry_point: Some("fs_unlit"),
-            compilation_options: PipelineCompilationOptions::default(),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[("SCENE_IMPOSTOR", 0.0)],
+                ..Default::default()
+            },
             targets: &alpha_targets,
         },
         ObjectState {
@@ -42,6 +45,7 @@ pub(super) fn build(
             front_face: wgpu::FrontFace::Ccw,
             key: PipelineKey {
                 coverage: crate::pipeline::MaskCoverage::Cutoff,
+                sampling: crate::pipeline::MaterialSampling::Surface,
                 relief: false,
                 masked: false,
                 double_sided: true,

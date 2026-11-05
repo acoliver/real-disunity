@@ -58,7 +58,10 @@ pub(super) fn depth_pipelines(
     pipelines: &ScenePipelines,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-) -> ([wgpu::RenderPipeline; 16], wgpu::RenderPipeline) {
+) -> (
+    [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
+    wgpu::RenderPipeline,
+) {
     let mut configuration = settings.configuration();
     configuration.caster_bias.slope_scale = slope_bias(sampling);
     let module = depth_shader(device);
@@ -81,40 +84,57 @@ pub(super) fn depth_pipelines(
         configuration,
     );
     // Relief is deliberately flat in directional maps, so its pipelines are identical.
-    let objects: [_; 4] = std::array::from_fn(|index| {
-        let key = PipelineKey::ALL[index];
-        worldrunner_render_shadow::create_depth_pipeline(
-            device,
-            DepthPipelineDescriptor {
-                label: Some("environment"),
-                layout: &layout,
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some("vs_shadow"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &buffers,
-                },
-                primitive: wgpu::PrimitiveState {
-                    cull_mode: key.cull_mode(),
-                    ..Default::default()
-                },
-                compare: configuration.caster_compare,
-                bias: configuration.caster_bias,
-                fragment: Some(DepthFragmentState {
-                    module: &module,
-                    entry_point: Some(if key.masked {
-                        "fs_depth_masked"
-                    } else {
-                        "fs_depth_opaque"
-                    }),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-            },
-        )
+    let objects: [_; 8] = std::array::from_fn(|index| {
+        let key = PipelineKey::ALL[(index / 4) * 16 + index % 4];
+        object_depth_pipeline(device, key, &layout, &module, &buffers, configuration)
     });
     (
-        std::array::from_fn(|index| objects[index % 4].clone()),
+        std::array::from_fn(|index| {
+            let key = PipelineKey::ALL[index];
+            objects[usize::from(key.sampling.is_impostor()) * 4 + index % 4].clone()
+        }),
         terrain,
+    )
+}
+
+fn object_depth_pipeline(
+    device: &wgpu::Device,
+    key: PipelineKey,
+    layout: &wgpu::PipelineLayout,
+    module: &wgpu::ShaderModule,
+    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+    configuration: worldrunner_render_shadow::DirectionalShadowConfig,
+) -> wgpu::RenderPipeline {
+    worldrunner_render_shadow::create_depth_pipeline(
+        device,
+        DepthPipelineDescriptor {
+            label: Some("environment"),
+            layout,
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: Some("vs_shadow"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers,
+            },
+            primitive: wgpu::PrimitiveState {
+                cull_mode: key.cull_mode(),
+                ..Default::default()
+            },
+            compare: configuration.caster_compare,
+            bias: configuration.caster_bias,
+            fragment: Some(DepthFragmentState {
+                module,
+                entry_point: Some(if key.masked {
+                    "fs_depth_masked"
+                } else {
+                    "fs_depth_opaque"
+                }),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &key.fragment_constants(1),
+                    ..Default::default()
+                },
+            }),
+        },
     )
 }
 

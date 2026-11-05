@@ -41,7 +41,7 @@ fn relief_texture() -> SceneTexture {
 /// The world normal the fragment decodes, as 8 bit colour.
 fn normal_source() -> String {
     format!(
-        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return vec4<f32>(scene_relief_normal(input) * 0.5 + 0.5, 1.0); }}",
+        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ let footprint = scene_atlas_footprint(normal_texture, input); return vec4<f32>(scene_relief_normal(input, footprint) * 0.5 + 0.5, 1.0); }}",
         crate::shader::ENVIRONMENT_WGSL
     )
 }

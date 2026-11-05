@@ -59,6 +59,7 @@ impl Shape {
     }
 }
 
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct SpatialIndex {
     cell_size: f32,
     cells: HashMap<Cell, Vec<Entry>>,

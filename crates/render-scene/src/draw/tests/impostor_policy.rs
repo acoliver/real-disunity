@@ -109,7 +109,7 @@ fn implicit_atlas_sampling_uses_minification_mips() {
         bytes: bytes.into(),
     };
     let source = format!(
-        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture,input); }}",
+        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture, input, scene_atlas_footprint(albedo_texture, input)); }}",
         crate::shader::ENVIRONMENT_WGSL
     );
     for (sampling, channel) in [
@@ -145,7 +145,7 @@ fn packed_atlas_surface_and_emission_occlusion_channels_ignore_material_scalars(
     );
     let gpu = upload(&context, &layouts, &scene);
     let source = format!(
-        "{}\n@fragment fn fs_channels(input: VertexOutput) -> @location(0) vec4<f32> {{ let rm=scene_surface_channels(input,scene_atlas_sample(rough_metal_texture,input)); let siao=scene_atlas_first(ambient_occlusion_texture,input); return vec4(rm,siao.g,1.0); }}",
+        "{}\n@fragment fn fs_channels(input: VertexOutput) -> @location(0) vec4<f32> {{ let rm=scene_surface_channels(input); let siao=scene_atlas_first(ambient_occlusion_texture, scene_atlas_footprint(ambient_occlusion_texture, input)); return vec4(rm,siao.g,1.0); }}",
         crate::shader::ENVIRONMENT_WGSL
     );
     let image = pass_color(&context, &gpu, &layouts, &source, "fs_channels");
@@ -241,11 +241,9 @@ fn scattering_scene(channel: u8) -> RenderScene {
 
 fn mask_oracle(channel: u8, enabled: bool) -> String {
     let source = crate::shader::ENVIRONMENT_WGSL;
-    let start = source.find("    var masked_amount = 0.0;").unwrap();
-    let end = source[start..]
-        .find("    let lighting = scene_surface_lighting(")
-        .unwrap()
-        + start;
+    let function = source.find("fn scene_shading_scattering(").unwrap();
+    let start = source[function..].find('{').unwrap() + function + 1;
+    let end = source[start..].find("\n}").unwrap() + start;
     let value = f64::from(channel) / 255.0;
     let (metal, mask) = if value > 0.05 {
         (0.0, value * 128.0 / 255.0)
@@ -254,7 +252,7 @@ fn mask_oracle(channel: u8, enabled: bool) -> String {
     };
     let mask = if enabled { mask } else { 0.0 };
     format!(
-        "{} let masked_amount: f32 = {mask:?}; metalness = {metal:?};\n{}",
+        "{} return vec2<f32>({metal:?}, {mask:?});\n{}",
         &source[..start],
         &source[end..]
     )

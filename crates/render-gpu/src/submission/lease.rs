@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -19,6 +19,7 @@ pub enum LeaseError {
 }
 struct State {
     active: Mutex<bool>,
+    detached: AtomicBool,
     uses: AtomicUsize,
     last: AtomicU64,
     authority: SubmissionAuthority,
@@ -46,6 +47,7 @@ impl<T: Send + 'static> FrameOwner<T> {
         Self {
             lease: FrameLease(Arc::new(State {
                 active: Mutex::new(true),
+                detached: AtomicBool::new(false),
                 uses: AtomicUsize::new(0),
                 last: AtomicU64::new(0),
                 authority: authority.clone(),
@@ -78,6 +80,15 @@ impl<T: Send + 'static> FrameOwner<T> {
             .unwrap()
             .take()
             .expect("active owner"))
+    }
+}
+impl<T: Send + 'static> FrameOwner<T> {
+    /// Gives up the owner's own hold without expiring the frames that already retained it.
+    /// Those frames can still be submitted and keep the owner until they are cancelled,
+    /// dropped or completed on the GPU, which frees it. No further frame can retain it.
+    /// Dropping the owner instead expires every frame that retained it.
+    pub fn detach(self) {
+        self.lease.0.detached.store(true, Ordering::Release);
     }
 }
 impl<T: Send + 'static> Drop for FrameOwner<T> {
@@ -114,6 +125,9 @@ impl FrameLease {
 pub(super) struct LeaseUse(FrameLease);
 impl LeaseUse {
     pub(super) fn check(&self) -> Result<(), LeaseError> {
+        if self.0.0.detached.load(Ordering::Acquire) {
+            return Ok(());
+        }
         self.0.check()
     }
     pub(super) fn submitted(&self, serial: u64) {

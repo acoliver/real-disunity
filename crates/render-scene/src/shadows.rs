@@ -112,7 +112,7 @@ pub enum ShadowError {
 pub struct ShadowedScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
-    depth_pipelines: [wgpu::RenderPipeline; 16],
+    depth_pipelines: [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     terrain_depth_pipeline: wgpu::RenderPipeline,
     caster_slope_bits: u32,
     depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
@@ -419,7 +419,16 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
         self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+    }
+
+    /// Admitted player program draws are drawn by the configured compositor only.
+    fn refuse_programs(&self) -> Result<(), ShadowError> {
+        if self.gpu.has_programs() {
+            return Err(ShadowError::UnsupportedFeature("player programs"));
+        }
+        Ok(())
     }
 
     /// Encode with completed depth evidence. Empty depth clears all maps and disables
@@ -432,6 +441,7 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
         self.encode_fitted(
             context,
             view,
@@ -596,7 +606,7 @@ struct ShadowFeature<'a> {
     screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
-    depth_pipelines: &'a [wgpu::RenderPipeline; 16],
+    depth_pipelines: &'a [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     terrain_depth_pipeline: &'a wgpu::RenderPipeline,
     depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
     shadow_group: &'a wgpu::BindGroup,
@@ -730,7 +740,7 @@ fn light_frame(frame: &FrameUniform, matrix: glam::Mat4) -> FrameUniform {
 pub(crate) fn wind_test_pipelines(
     device: &wgpu::Device,
     layouts: &ScenePipelines,
-) -> [wgpu::RenderPipeline; 16] {
+) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
     resources::depth_pipelines(
         device,
         layouts,

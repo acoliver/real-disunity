@@ -17,7 +17,7 @@ use crate::terrain::{TERRAIN_PLACEMENT, TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, MATERIAL_GROUP, TERRAIN_GROUP, material_sampler, placeholder_texture,
+    FRAME_GROUP, MATERIAL_GROUP, TERRAIN_GROUP, material_sampler, placeholder_with_view,
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
@@ -36,6 +36,7 @@ mod lod_material;
 pub(crate) mod overlay;
 mod pages;
 pub(crate) mod pass_statistics;
+mod programs;
 mod publication;
 mod retained;
 pub use retained::reflections_enabled;
@@ -256,6 +257,7 @@ pub struct SceneGpu {
     terrain: Option<GpuTerrain>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
+    programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
     retained: Retained,
 }
 
@@ -310,8 +312,7 @@ impl SceneGpu {
         prepared.validate_device(device, pipelines)?;
         let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
-        let placeholder = placeholder_texture(device, queue);
-        let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());
+        let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
         let (materials, material_uniforms) = resources::scene_materials(
             device,
@@ -356,6 +357,7 @@ impl SceneGpu {
             terrain,
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
+            programs: None,
             retained: Retained {
                 contact_heights,
                 textures,

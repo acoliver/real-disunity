@@ -11,6 +11,7 @@ mod depth_prefix;
 mod environment;
 mod output;
 mod overlay;
+mod programs;
 pub(crate) mod publication;
 mod temporal;
 mod validation;

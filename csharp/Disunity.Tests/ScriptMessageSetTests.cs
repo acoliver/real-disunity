@@ -1,8 +1,9 @@
 using Disunity.Hosting;
 using UnityEngine;
 
-/// <summary>Per-frame messages reach only scripts whose type defines them. A lookup for a message
-/// happens only when the native world delivers it, so a missing lookup shows it was never delivered.</summary>
+/// <summary>Per-frame messages reach only scripts whose type defines them, and each script reports its set
+/// when it is bound. A lookup for a message happens only when the native world delivers it, so a missing
+/// lookup shows it was never delivered.</summary>
 internal static class ScriptMessageSetTests
 {
     private sealed class AllThree : MonoBehaviour
@@ -53,7 +54,7 @@ internal static class ScriptMessageSetTests
         var copy = UnityEngine.Object.Instantiate(without);
         for (var frame = 0; frame < 3; frame++) DisunityHost.Step(0.05f);
         Require(all.Fixed > 0 && all.Updates == 3 && all.Late == 3, "a script with all three receives all three");
-        Require(without.Updates == 3 && without.Late == 3 && copy.Updates == 3, "a script without FixedUpdate still receives Update and LateUpdate");
+        Require(without.Updates == 3 && without.Late == 3 && copy.Updates == 3 && copy.Late == 3, "a script without FixedUpdate still receives Update and LateUpdate");
         Require(!ScriptMessages.HasLooked(typeof(WithoutFixed), "FixedUpdate"), "FixedUpdate is not delivered to a type without it");
         Require(ScriptMessages.HasLooked(typeof(AllThree), "FixedUpdate"), "FixedUpdate is delivered to a type with it");
         Require(inherits.Updates == 3, "an inherited Update counts");
@@ -66,6 +67,9 @@ internal static class ScriptMessageSetTests
         Require(ScriptMessages.PerFrameMessages(typeof(AllThree)) == 7 && ScriptMessages.PerFrameMessages(typeof(WithoutFixed)) == 6
             && ScriptMessages.PerFrameMessages(typeof(OnlyStart)) == 0 && ScriptMessages.PerFrameMessages(typeof(InheritsUpdate)) == 2
             && ScriptMessages.PerFrameMessages(typeof(OnlyPrivateLate)) == 4, "the defined sets");
+        var later = DisunityHost.AddComponent(new WithoutFixed());
+        for (var frame = 0; frame < 2; frame++) DisunityHost.Step(0.05f);
+        Require(later.Updates == 2 && later.Late == 2 && without.Updates == 5, "a script attached after frames have run takes its type's set too");
         DisunityHost.UnloadWorld();
         Console.WriteLine("PASS: per-frame messages reach only the scripts whose type defines them");
     }

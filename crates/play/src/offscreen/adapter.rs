@@ -74,13 +74,13 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
     ) -> Adapted {
-        let mut failures = BTreeMap::new();
+        let mut notes = Report::default();
         let mut available = Available::default();
-        self.register_shaders(snapshot, state, &mut available, &mut failures);
+        self.register_shaders(snapshot, state, &mut available, &mut notes);
         let renderers = snapshot.renderers.iter().map(|renderer| renderer.mesh);
-        self.register_meshes(renderers.collect(), assets, (state, runtime), &mut failures);
+        self.register_meshes(renderers.collect(), assets, (state, runtime), &mut notes);
         let wanted = stored_textures(snapshot);
-        self.register_textures(&wanted, assets, (state, runtime), &mut failures);
+        self.register_textures(&wanted, assets, (state, runtime), &mut notes);
         available.meshes = usable(&self.meshes);
         available.textures = usable(&self.textures);
         if !self.blit_mesh {
@@ -88,7 +88,7 @@ impl OffscreenAdapter {
             self.blit_mesh = blit.is_ok();
         }
         let mut adapted = adapt(snapshot, &available, &self.settings);
-        adapted.report.failures.extend(failures);
+        adapted.report.absorb_failures(notes);
         adapted
     }
 
@@ -97,11 +97,11 @@ impl OffscreenAdapter {
         snapshot: &GraphicsSnapshot,
         state: &mut OffscreenState,
         available: &mut Available,
-        failures: &mut BTreeMap<String, usize>,
+        notes: &mut Report,
     ) {
         for (id, shader) in &snapshot.shaders {
             let Some(source) = &shader.source else {
-                *failures.entry("shader:NoSource".to_owned()).or_default() += 1;
+                notes.count("shader:NoSource");
                 continue;
             };
             if let Some((held, info)) = self.shaders.get(id)
@@ -120,10 +120,7 @@ impl OffscreenAdapter {
                     self.shaders.insert(*id, (source.clone(), info));
                     available.shaders.insert(*id, info);
                 }
-                Err(error) => {
-                    let name = format!("shader:{}", error.name());
-                    *failures.entry(name).or_default() += 1;
-                }
+                Err(error) => notes.fail("shader", &error),
             }
         }
     }
@@ -133,7 +130,7 @@ impl OffscreenAdapter {
         identities: BTreeSet<u64>,
         assets: &dyn Assets,
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
-        failures: &mut BTreeMap<String, usize>,
+        notes: &mut Report,
     ) {
         for identity in identities {
             let known = self.meshes.get(&identity).map_or(0, |held| held.generation);
@@ -141,19 +138,16 @@ impl OffscreenAdapter {
                 Ok(Some(stored)) => stored,
                 Ok(None) => continue,
                 Err(_) => {
-                    *failures.entry("mesh:Read".to_owned()).or_default() += 1;
+                    notes.count("mesh:Read");
                     continue;
                 }
             };
             let uploaded = match mesh_of(&stored) {
                 Ok(mesh) => state
                     .set_mesh(runtime, ids::mesh(identity), &mesh)
-                    .map_err(|error| format!("mesh:{}", variant_name(&error))),
-                Err(error) => Err(format!("mesh:{}", variant_name(&error))),
+                    .map_err(|error| notes.fail("mesh", &error)),
+                Err(error) => Err(notes.fail("mesh", &error)),
             };
-            if let Err(name) = &uploaded {
-                *failures.entry(name.clone()).or_default() += 1;
-            }
             self.meshes.insert(
                 identity,
                 Stored {
@@ -170,20 +164,16 @@ impl OffscreenAdapter {
         identities: &BTreeSet<u64>,
         assets: &dyn Assets,
         (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
-        failures: &mut BTreeMap<String, usize>,
+        notes: &mut Report,
     ) {
         for &identity in identities {
             let Some(id) = ids::stored_texture(identity) else {
-                *failures
-                    .entry("texture:IdentityTooLarge".to_owned())
-                    .or_default() += 1;
+                notes.count("texture:IdentityTooLarge");
                 continue;
             };
             let held = self.textures.get(&identity).copied();
             let stored_sampler = assets.sampler(identity).unwrap_or_else(|_| {
-                *failures
-                    .entry("texture:SamplerRead".to_owned())
-                    .or_default() += 1;
+                notes.count("texture:SamplerRead");
                 None
             });
             // A sampler that changed alone replaces the texture, whose bytes are read again.
@@ -197,7 +187,7 @@ impl OffscreenAdapter {
                 Ok(Some(stored)) => stored,
                 Ok(None) => continue,
                 Err(_) => {
-                    *failures.entry("texture:Read".to_owned()).or_default() += 1;
+                    notes.count("texture:Read");
                     continue;
                 }
             };
@@ -205,12 +195,9 @@ impl OffscreenAdapter {
             let uploaded = match texture_of(id, &stored, sampled) {
                 Ok(texture) => state
                     .set_texture(runtime, &texture)
-                    .map_err(|error| format!("texture:{}", variant_name(&error))),
-                Err(error) => Err(format!("texture:{}", variant_name(&error))),
+                    .map_err(|error| notes.fail("texture", &error)),
+                Err(error) => Err(notes.fail("texture", &error)),
             };
-            if let Err(name) = &uploaded {
-                *failures.entry(name.clone()).or_default() += 1;
-            }
             self.textures.insert(
                 identity,
                 Stored {
@@ -314,15 +301,6 @@ pub(super) fn blit_mesh() -> Mesh {
     }
 }
 
-/// The name of an error's variant: the leading identifier of its `Debug` form.
-fn variant_name(error: &dyn std::fmt::Debug) -> String {
-    let text = format!("{error:?}");
-    text.split(|c: char| !c.is_alphanumeric() && c != '_')
-        .next()
-        .unwrap_or_default()
-        .to_owned()
-}
-
 /// Builds the frame's operations. When the frame as a whole is refused, the parts the state
 /// refuses are left out and counted in the report by the name of their error: first each render
 /// texture (with the records that name it), then each record on its own. What is left is built
@@ -343,11 +321,6 @@ pub fn build(
     drop_unusable_textures(state, runtime, arena, adapted);
     drop_unusable_records(state, runtime, arena, adapted);
     state.build(runtime, arena, &adapted.frame)
-}
-
-fn refused(report: &mut Report, error: &OffscreenError, what: &str) {
-    let name = format!("{what}:{}", variant_name(error));
-    *report.failures.entry(name).or_default() += 1;
 }
 
 /// The frame with `records` only, and `textures` as its render textures.
@@ -375,7 +348,7 @@ fn drop_unusable_textures(
     for spec in &adapted.frame.render_textures {
         let alone = part(&adapted.frame, std::slice::from_ref(spec), Vec::new());
         if let Err(error) = state.build(runtime, arena, &alone) {
-            refused(&mut adapted.report, &error, "rendertexture");
+            adapted.report.fail("rendertexture", &error);
             unusable.insert(spec.id);
         }
     }
@@ -424,7 +397,7 @@ fn drop_unusable_records(
         match state.build(runtime, arena, &alone) {
             Ok(_) => kept.push(record),
             Err(error) => {
-                refused(&mut adapted.report, &error, "record");
+                adapted.report.fail("record", &error);
                 adapted.report.built = adapted.report.built.saturating_sub(1);
             }
         }

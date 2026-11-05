@@ -222,9 +222,7 @@ impl OffscreenHost {
             dispatches: Vec::new(),
         };
         let operations = build(&mut self.state, &mut self.runtime, &self.arena, &mut part)?;
-        for (name, count) in part.report.failures {
-            *report.failures.entry(name).or_default() += count;
-        }
+        report.absorb_failures(part.report);
         Ok((operations, part.frame.records.len()))
     }
 
@@ -252,10 +250,7 @@ impl OffscreenHost {
         ) {
             Ok(prepared) => Some(prepared),
             Err(name) => {
-                *report
-                    .failures
-                    .entry(format!("dispatch:{name}"))
-                    .or_default() += 1;
+                report.count(&format!("dispatch:{name}"));
                 None
             }
         }

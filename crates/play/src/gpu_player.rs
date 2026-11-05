@@ -65,6 +65,9 @@ pub struct GpuWorkReport {
     pub skipped: BTreeMap<String, usize>,
     pub renderers_skipped: BTreeMap<String, usize>,
     pub failures: BTreeMap<String, usize>,
+    /// The failures by the chain of names inside the error, and the first message of each.
+    pub causes: BTreeMap<String, usize>,
+    pub examples: BTreeMap<String, String>,
     /// Compute buffers written back and the bytes of them that are not zero.
     pub buffers_written: usize,
     pub nonzero_values: usize,
@@ -92,6 +95,14 @@ impl GpuWorkReport {
         for (name, count) in &report.failures {
             *self.failures.entry(name.clone()).or_default() += count;
         }
+        for (cause, count) in &report.causes {
+            *self.causes.entry(cause.clone()).or_default() += count;
+        }
+        for (cause, example) in &report.examples {
+            self.examples
+                .entry(cause.clone())
+                .or_insert_with(|| example.clone());
+        }
     }
 
     /// Writes the counts, one line each, to standard error.
@@ -104,11 +115,15 @@ impl GpuWorkReport {
             ("skipped records", &self.skipped),
             ("skipped renderers", &self.renderers_skipped),
             ("failures", &self.failures),
+            ("causes", &self.causes),
             ("errors", &self.errors),
         ] {
             for (name, count) in counts {
                 eprintln!("[gpu] {title}: {name} {count}");
             }
+        }
+        for (cause, example) in &self.examples {
+            eprintln!("[gpu] example of {cause}: {example}");
         }
         eprintln!(
             "[gpu] compute buffers written {}, non-zero values {}",

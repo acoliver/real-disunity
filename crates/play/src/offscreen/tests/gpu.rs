@@ -382,6 +382,11 @@ fn a_render_texture_the_renderer_cannot_draw_into_costs_its_records_and_nothing_
         1
     );
     assert_eq!(adapted.report.failures["record:UnusableRenderTexture"], 1);
+    assert_eq!(adapted.report.causes["rendertexture:UnsupportedFormat"], 1);
+    assert_eq!(
+        adapted.report.examples["rendertexture:UnsupportedFormat"],
+        "GraphicsFormat 7 is not one this renderer draws into or samples"
+    );
     assert_eq!(
         adapted.report.built, 4,
         "the three blit passes and the copy"

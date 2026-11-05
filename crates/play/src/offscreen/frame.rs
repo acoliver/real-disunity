@@ -5,6 +5,7 @@
 //! becomes one record for each pass of its material's shader, in pass order.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{Debug, Display};
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId};
 use worldrunner_render_program::layers::PropertyLayer;
@@ -95,6 +96,75 @@ pub struct Report {
     /// What could not be loaded, uploaded or built, by the kind of thing and the name of the
     /// error, such as `shader:NoVulkanPlatform`.
     pub failures: BTreeMap<String, usize>,
+    /// The same failures by the chain of variant names inside the error, such as
+    /// `texture:Program/Layout/UnsupportedParameter`, and the first message of each chain.
+    pub causes: BTreeMap<String, usize>,
+    pub examples: BTreeMap<String, String>,
+}
+
+impl Report {
+    /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it.
+    pub fn fail(&mut self, kind: &str, error: &(impl Debug + Display)) {
+        let name = format!("{kind}:{}", variant_name(error));
+        *self.failures.entry(name).or_default() += 1;
+        let cause = format!("{kind}:{}", variant_chain(error));
+        *self.causes.entry(cause.clone()).or_default() += 1;
+        self.examples
+            .entry(cause)
+            .or_insert_with(|| error.to_string());
+    }
+
+    /// Counts a failure that has no error behind it, by the whole of its name.
+    pub fn count(&mut self, name: &str) {
+        *self.failures.entry(name.to_owned()).or_default() += 1;
+        *self.causes.entry(name.to_owned()).or_default() += 1;
+    }
+
+    /// Adds the failures, causes and examples of `other` to this report's, keeping the first
+    /// example of each cause.
+    pub fn absorb_failures(&mut self, other: Self) {
+        for (name, count) in other.failures {
+            *self.failures.entry(name).or_default() += count;
+        }
+        for (cause, count) in other.causes {
+            *self.causes.entry(cause).or_default() += count;
+        }
+        for (cause, example) in other.examples {
+            self.examples.entry(cause).or_insert(example);
+        }
+    }
+}
+
+/// The leading identifier of an error's `Debug` form: the name of its variant.
+pub(super) fn variant_name(error: &dyn Debug) -> String {
+    variant_chain(error)
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// The names of the variants nested in an error's `Debug` form, outermost first and joined by
+/// `/`: `Program(Layout(UnsupportedParameter { kind: ".." }))` is `Program/Layout/UnsupportedParameter`.
+/// The chain ends at a variant whose payload is not another variant.
+pub(super) fn variant_chain(error: &dyn Debug) -> String {
+    let text = format!("{error:?}");
+    let mut names = Vec::new();
+    let mut rest = text.as_str();
+    loop {
+        let end = rest
+            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .unwrap_or(rest.len());
+        if end == 0 {
+            break;
+        }
+        names.push(&rest[..end]);
+        match rest[end..].strip_prefix('(') {
+            Some(inner) => rest = inner,
+            None => break,
+        }
+    }
+    names.join("/")
 }
 
 /// Where a dispatch sits among the frame's records.

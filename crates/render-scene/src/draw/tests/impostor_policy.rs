@@ -109,7 +109,7 @@ fn implicit_atlas_sampling_uses_minification_mips() {
         bytes: bytes.into(),
     };
     let source = format!(
-        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture,input); }}",
+        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture, input, scene_atlas_footprint(albedo_texture, input)); }}",
         crate::shader::ENVIRONMENT_WGSL
     );
     for (sampling, channel) in [
@@ -145,7 +145,7 @@ fn packed_atlas_surface_and_emission_occlusion_channels_ignore_material_scalars(
     );
     let gpu = upload(&context, &layouts, &scene);
     let source = format!(
-        "{}\n@fragment fn fs_channels(input: VertexOutput) -> @location(0) vec4<f32> {{ let rm=scene_surface_channels(input,scene_atlas_sample(rough_metal_texture,input)); let siao=scene_atlas_first(ambient_occlusion_texture,input); return vec4(rm,siao.g,1.0); }}",
+        "{}\n@fragment fn fs_channels(input: VertexOutput) -> @location(0) vec4<f32> {{ let rm=scene_surface_channels(input); let siao=scene_atlas_first(ambient_occlusion_texture, scene_atlas_footprint(ambient_occlusion_texture, input)); return vec4(rm,siao.g,1.0); }}",
         crate::shader::ENVIRONMENT_WGSL
     );
     let image = pass_color(&context, &gpu, &layouts, &source, "fs_channels");

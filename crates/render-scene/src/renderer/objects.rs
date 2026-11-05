@@ -15,7 +15,7 @@ struct Objects {
     samples: u32,
     front_face: wgpu::FrontFace,
     constants: Vec<(String, f64)>,
-    pipelines: [OnceLock<wgpu::RenderPipeline>; 16],
+    pipelines: [OnceLock<wgpu::RenderPipeline>; PipelineKey::ALL.len()],
 }
 
 impl ObjectPipelines {
@@ -64,10 +64,7 @@ impl Index<usize> for ObjectPipelines {
                 .iter()
                 .map(|(name, value)| (name.as_str(), *value))
                 .collect();
-            constants.push((
-                "SCENE_ALPHA_TO_COVERAGE",
-                f64::from(key.alpha_to_coverage(state.samples)),
-            ));
+            constants.extend(key.fragment_constants(state.samples));
             let entry = match (key.relief, key.masked) {
                 (true, true) => "fs_relief_masked",
                 (true, false) => "fs_relief_opaque",

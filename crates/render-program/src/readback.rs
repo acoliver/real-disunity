@@ -1,6 +1,6 @@
 //! Recording copies of GPU results into staging buffers, and resolving them once submitted.
 
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use worldrunner_render_gpu::configuration::AllocationSet;
@@ -36,12 +36,13 @@ const ROW_ALIGNMENT: u32 = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A mappable staging buffer that a recorded copy fills. Its bytes stay in the runtime's
-/// budget until it is resolved or dropped.
+/// budget until it is resolved or dropped and the frame that recorded the copy is cancelled,
+/// dropped or completed on the GPU.
 struct Staged {
     buffer: wgpu::Buffer,
     device: wgpu::Device,
     authority: SubmissionAuthority,
-    _reservation: Reservation,
+    reservation: Arc<Reservation>,
 }
 
 impl Staged {
@@ -142,7 +143,9 @@ impl PendingTargetRead {
 
 impl ProgramRuntime {
     /// Records a copy of a buffer into `encoder`. Submit the frame, then resolve the result
-    /// with the submission index.
+    /// with the submission index. The frame retains the reservations of the buffer and of the
+    /// staging buffer, so their bytes stay counted until the frame is cancelled, dropped or
+    /// completed on the GPU, even when the runtime or the pending read is dropped first.
     ///
     /// # Errors
     /// Fails on an unknown handle, an encoder that is not the authority's or a lost device.
@@ -159,6 +162,13 @@ impl ProgramRuntime {
             allocations.buffer("render-program readback", size, 1);
         }
         let staged = self.staging(size, allocations)?;
+        self.hold_for_frame(
+            encoder,
+            vec![
+                self.store.buffer_reservation(handle)?,
+                staged.reservation.clone(),
+            ],
+        )?;
         encoder.copy_buffer_to_buffer(&entry.buffer, 0, &staged.buffer, 0, size);
         Ok(PendingBufferRead {
             staged,
@@ -167,7 +177,8 @@ impl ProgramRuntime {
     }
 
     /// Records a copy of a render target's color texture into `encoder`. Submit the frame,
-    /// then resolve the result with the submission index.
+    /// then resolve the result with the submission index. The frame retains the reservations of
+    /// the target and of the staging buffer, as `read_buffer` does.
     ///
     /// # Errors
     /// Fails on an unknown handle, a format that cannot be copied, an encoder that is not the
@@ -189,6 +200,13 @@ impl ProgramRuntime {
         let mut allocations = AllocationSet::default();
         allocations.readback("render-program readback", [width, height], texel, 1);
         let staged = self.staging(u64::from(padded_row) * u64::from(height), allocations)?;
+        self.hold_for_frame(
+            encoder,
+            vec![
+                self.store.target_reservation(handle)?,
+                staged.reservation.clone(),
+            ],
+        )?;
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -224,7 +242,7 @@ impl ProgramRuntime {
             buffer,
             device: self.device.clone(),
             authority: self.authority.clone(),
-            _reservation: reservation,
+            reservation: Arc::new(reservation),
         })
     }
 }

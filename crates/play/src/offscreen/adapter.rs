@@ -145,15 +145,19 @@ impl OffscreenAdapter {
             let uploaded = match mesh_of(&stored) {
                 Ok(mesh) => state
                     .set_mesh(runtime, ids::mesh(identity), &mesh)
-                    .map_err(|error| notes.fail("mesh", &error)),
-                Err(error) => Err(notes.fail("mesh", &error)),
+                    .map_err(|error| notes.fail("mesh", &error))
+                    .is_ok(),
+                Err(error) => {
+                    notes.fail("mesh", &error);
+                    false
+                }
             };
             self.meshes.insert(
                 identity,
                 Stored {
                     generation: stored.generation,
                     sampler_generation: 0,
-                    usable: uploaded.is_ok(),
+                    usable: uploaded,
                 },
             );
         }
@@ -195,15 +199,19 @@ impl OffscreenAdapter {
             let uploaded = match texture_of(id, &stored, sampled) {
                 Ok(texture) => state
                     .set_texture(runtime, &texture)
-                    .map_err(|error| notes.fail("texture", &error)),
-                Err(error) => Err(notes.fail("texture", &error)),
+                    .map_err(|error| notes.fail("texture", &error))
+                    .is_ok(),
+                Err(error) => {
+                    notes.fail("texture", &error);
+                    false
+                }
             };
             self.textures.insert(
                 identity,
                 Stored {
                     generation: stored.generation,
                     sampler_generation: stored_sampler.map_or(0, |found| found.generation),
-                    usable: uploaded.is_ok(),
+                    usable: uploaded,
                 },
             );
         }
@@ -315,13 +323,12 @@ pub fn build(
     arena: &ProgramArena,
     adapted: &mut Adapted,
 ) -> Result<OffscreenOperations, OffscreenError> {
-    let operations = match state.build(runtime, arena, &adapted.frame) {
-        Ok(operations) => operations,
-        Err(_) => {
-            drop_unusable_textures(state, runtime, arena, adapted);
-            drop_unusable_records(state, runtime, arena, adapted);
-            state.build(runtime, arena, &adapted.frame)?
-        }
+    let operations = if let Ok(operations) = state.build(runtime, arena, &adapted.frame) {
+        operations
+    } else {
+        drop_unusable_textures(state, runtime, arena, adapted);
+        drop_unusable_records(state, runtime, arena, adapted);
+        state.build(runtime, arena, &adapted.frame)?
     };
     adapted
         .report

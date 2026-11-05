@@ -9,7 +9,10 @@ use layout::{
 };
 use naga::ShaderStage;
 use worldrunner_render_program::synthetic::stage_spirv;
-use worldrunner_unity_import::{player_compute_report::compute_report, shader_prep::Backend};
+use worldrunner_unity_import::{
+    player_compute_report::{ComputeReport, compute_report},
+    shader_prep::Backend,
+};
 use worldrunner_unity_serialized::{
     ClassId, SerializedType,
     write::{FileContents, ObjectData},
@@ -131,6 +134,29 @@ fn write_player(dir: &std::path::Path) -> std::path::PathBuf {
     path
 }
 
+fn assert_tables_agree(report: &ComputeReport, variants: usize) {
+    let all = format!("{variants} of {variants}");
+    assert_eq!(report.bindings.to_string(), all);
+    assert_eq!(report.slot_flags.to_string(), all);
+    assert_eq!(report.group_sizes.to_string(), all);
+}
+
+fn assert_only_failure(report: &ComputeReport, cause: &str) {
+    assert_eq!(report.failures.len(), 1, "{:?}", report.failures);
+    assert_eq!(report.failures.get(cause), Some(&1));
+}
+
+fn assert_written_by_every_backend(report: &ComputeReport, modules: usize) {
+    for backend in Backend::ALL {
+        assert_eq!(
+            report.written.get(&backend),
+            Some(&modules),
+            "{}",
+            backend.name()
+        );
+    }
+}
+
 #[test]
 fn counts_the_kernels_variants_modules_and_what_becomes_of_them() {
     let dir = tempfile::tempdir().unwrap();
@@ -146,21 +172,13 @@ fn counts_the_kernels_variants_modules_and_what_becomes_of_them() {
     // The copy and skewed kernels share one module.
     assert_eq!((report.modules, report.distinct_modules), (3, 2));
     assert_eq!((report.prepared, report.ready), (3, 3));
-    for backend in Backend::ALL {
-        assert_eq!(report.written.get(&backend), Some(&3), "{}", backend.name());
-    }
-    assert_eq!(report.bindings.to_string(), "3 of 3");
-    assert_eq!(report.slot_flags.to_string(), "3 of 3");
-    assert_eq!(report.group_sizes.to_string(), "3 of 3");
+    assert_written_by_every_backend(&report, 3);
+    assert_tables_agree(&report, 3);
     // The skewed kernel's buffer puts its member at 8, where the block has it at 0.
     assert_eq!(report.constant_buffers.to_string(), "1 of 2");
     // The copy kernels become programs with layouts and targets; the image kernel does not.
     assert_eq!((report.programs, report.layouts, report.targets), (2, 2, 2));
-    assert_eq!(report.failures.len(), 1, "{:?}", report.failures);
-    assert_eq!(
-        report.failures.get("unsupported resource: storage texture"),
-        Some(&1)
-    );
+    assert_only_failure(&report, "unsupported resource: storage texture");
 }
 
 #[test]

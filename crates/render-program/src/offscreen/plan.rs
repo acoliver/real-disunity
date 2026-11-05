@@ -118,6 +118,15 @@ pub(super) struct DrawSpec<'a> {
     pub(super) layers: Layers<'a>,
 }
 
+/// What planning a frame's draws left out or narrowed, for the host to report.
+#[derive(Default)]
+pub(super) struct DrawCounts {
+    /// Camera draws left out because the shader has no pass the camera selects.
+    pub(super) unmatched: usize,
+    /// Texture reads that bound fewer levels than the texture has.
+    pub(super) partial_mips: usize,
+}
+
 /// The parts of the state a draw is planned from, borrowed from it together.
 pub(super) struct Services<'a> {
     pub(super) runtime: &'a mut ProgramRuntime,
@@ -129,10 +138,7 @@ pub(super) struct Services<'a> {
     pub(super) tracker: &'a mut Tracker,
     pub(super) constants: &'a mut ConstantsPlan,
     pub(super) missing: &'a mut BTreeSet<String>,
-    /// How many camera draws were left out because the shader has no pass the camera selects.
-    pub(super) unmatched: &'a mut usize,
-    /// How many texture reads bound fewer levels than the texture has.
-    pub(super) partial_mips: &'a mut usize,
+    pub(super) counts: &'a mut DrawCounts,
     /// The reservations of the storage the frame uses, which the frame holds.
     pub(super) shares: &'a mut Vec<Arc<Reservation>>,
 }
@@ -285,7 +291,7 @@ impl Services<'_> {
             })?;
         let (imported, own) = self.import(input.texture)?;
         let (version, mips) = self.tracker.sampled_levels(input.texture, imported)?;
-        *self.partial_mips += usize::from(mips < imported.mips);
+        self.counts.partial_mips += usize::from(mips < imported.mips);
         let view = self
             .tracker
             .whole_view(imported, mips, view_dimension, version)?;

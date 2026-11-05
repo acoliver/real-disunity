@@ -40,7 +40,7 @@ use crate::shader::ProgramShader;
 use finish::Finish;
 use frame::{Mesh, OffscreenFrame, SourceTexture};
 use meshes::MeshTable;
-use plan::{ConstantsPlan, ProgramEntry, Services};
+use plan::{ConstantsPlan, DrawCounts, ProgramEntry, Services};
 use textures::TextureTable;
 use tracker::Tracker;
 
@@ -142,8 +142,7 @@ impl OffscreenState {
         let mut tracker = Tracker::new(arena.lease());
         let mut constants = ConstantsPlan::new(alignment);
         let mut missing = BTreeSet::new();
-        let mut unmatched = 0;
-        let mut partial_mips = 0;
+        let mut counts = DrawCounts::default();
         let mut shares = Vec::new();
         let (steps, reads) = {
             let mut services = Services {
@@ -156,8 +155,7 @@ impl OffscreenState {
                 tracker: &mut tracker,
                 constants: &mut constants,
                 missing: &mut missing,
-                unmatched: &mut unmatched,
-                partial_mips: &mut partial_mips,
+                counts: &mut counts,
                 shares: &mut shares,
             };
             for spec in &frame.render_textures {
@@ -190,8 +188,8 @@ impl OffscreenState {
             reads,
             shares,
             missing: missing.into_iter().collect(),
-            unmatched,
-            partial_mips,
+            unmatched: counts.unmatched,
+            partial_mips: counts.partial_mips,
         })
     }
 

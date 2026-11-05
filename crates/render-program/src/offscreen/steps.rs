@@ -121,7 +121,7 @@ fn camera_step(
             (signature, camera.front_face),
         ) {
             Ok(draw) => draws.push(draw),
-            Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => *svc.unmatched += 1,
+            Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => svc.counts.unmatched += 1,
             Err(error) => return Err(error),
         }
     }

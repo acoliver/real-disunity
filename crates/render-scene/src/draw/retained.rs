@@ -296,7 +296,7 @@ impl SceneGpu {
             })
     }
 
-    pub(super) fn drawing_frame_group(&self) -> BindGroup {
+    pub(super) fn drawing_frame_group(&self) -> wgpu::BindGroup {
         if self.drawing_in_transaction() {
             self.decals.group()
         } else {

@@ -61,6 +61,7 @@ mod mip_end_to_end;
 mod mip_rig;
 mod mip_textures;
 mod normal_frames;
+mod program_frame;
 mod relief_mip_bias;
 mod resident_sampling;
 mod retained;

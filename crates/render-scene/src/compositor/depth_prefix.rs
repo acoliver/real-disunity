@@ -41,6 +41,7 @@ impl FrameRenderer {
             pipelines,
             frame: *frame,
             screen: Some(source.geometry.clone()),
+            programs: None,
         };
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: source,

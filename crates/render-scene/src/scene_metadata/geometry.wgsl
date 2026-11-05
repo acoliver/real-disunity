@@ -2,14 +2,14 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
     var input = original;
     input.world_position = scene_relief_position(original);
     var albedo = scene_albedo(scene_atlas_sample(albedo_texture, input), input.tint);
+    let rm = scene_atlas_sample(rough_metal_texture, input);
+    let surface = scene_surface_channels(input, rm);
     let geometric = normalize(input.world_normal) * select(-1.0, 1.0, front);
     let mapped_normal = sample_normal(input, geometric, input.world_position, input.world_tangent);
     var normal = scene_fold_direction(mapped_normal, input.ground_fold, material.contact_surface.zw);
     var roughness = material.roughness;
     var metalness = material.metalness;
     if (material.texture_flags & FLAG_ROUGH_METAL) != 0u {
-        let rm = scene_atlas_sample(rough_metal_texture, input);
-        let surface = scene_surface_channels(input, rm);
         roughness = surface.x;
         metalness = surface.y;
     }
@@ -33,10 +33,16 @@ fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> vec
     return METADATA_OUTPUT;
 }
 @fragment fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneSurfaceOutput {
-    return SceneSurfaceOutput(reflection_metadata(input, front, false),scene_relief_depth(input));
+    let depth = scene_relief_depth(input);
+    let metadata = reflection_metadata(input, front, false);
+    if !depth.visible { discard; }
+    return SceneSurfaceOutput(metadata, depth.value);
 }
 @fragment fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front: bool) -> SceneSurfaceOutput {
-    return SceneSurfaceOutput(reflection_metadata(input, front, true),scene_relief_depth(input));
+    let depth = scene_relief_depth(input);
+    let metadata = reflection_metadata(input, front, true);
+    if !depth.visible { discard; }
+    return SceneSurfaceOutput(metadata, depth.value);
 }
 
 fn scene_metadata_direction(direction: vec3<f32>) -> vec3<f32> {

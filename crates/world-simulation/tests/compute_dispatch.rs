@@ -99,6 +99,59 @@ fn shader_wide_values_and_kernel_values_merge_into_one_snapshot() {
 }
 
 #[test]
+fn a_kernel_value_wins_over_the_shader_wide_value_of_the_same_name_in_every_kind() {
+    let mut world = world();
+    let id = compute(&mut world);
+    let identity = |scale: f32| {
+        let mut matrix = [0.0; 16];
+        matrix[0] = scale;
+        matrix
+    };
+    let slot = |texture: TextureRef| TextureSlot {
+        texture,
+        ..TextureSlot::default()
+    };
+    let values = |float: f32, vector: f32, matrix: f32, texture: TextureRef| {
+        [
+            PropertyValue::Float("_F".into(), float),
+            PropertyValue::Vector("_V".into(), [vector; 4]),
+            PropertyValue::Matrix("_M".into(), identity(matrix)),
+            PropertyValue::Texture("_T".into(), slot(texture)),
+        ]
+    };
+    for value in values(1.0, 1.0, 1.0, TextureRef::Asset(1 << 40)) {
+        world.set_compute_property(id, None, value).unwrap();
+    }
+    world
+        .set_compute_property(id, None, PropertyValue::Float("_OnlyShared".into(), 9.0))
+        .unwrap();
+    for value in values(2.0, 2.0, 2.0, TextureRef::Global("_G".into())) {
+        world.set_compute_property(id, Some(0), value).unwrap();
+    }
+    world
+        .set_compute_property(id, Some(0), PropertyValue::Float("_OnlyKernel".into(), 7.0))
+        .unwrap();
+
+    let kernel = world.compute_bindings(id, 0).unwrap().properties;
+    assert_eq!(kernel.float("_F"), Some(2.0));
+    assert_eq!(kernel.vector("_V"), Some([2.0; 4]));
+    assert_eq!(kernel.matrix("_M"), Some(identity(2.0)));
+    assert_eq!(
+        kernel.texture("_T"),
+        Some(slot(TextureRef::Global("_G".into())))
+    );
+    assert_eq!(kernel.float("_OnlyShared"), Some(9.0));
+    assert_eq!(kernel.float("_OnlyKernel"), Some(7.0));
+
+    let other = world.compute_bindings(id, 1).unwrap().properties;
+    assert_eq!(other.float("_F"), Some(1.0));
+    assert_eq!(other.vector("_V"), Some([1.0; 4]));
+    assert_eq!(other.matrix("_M"), Some(identity(1.0)));
+    assert_eq!(other.texture("_T"), Some(slot(TextureRef::Asset(1 << 40))));
+    assert_eq!(other.float("_OnlyKernel"), None);
+}
+
+#[test]
 fn binding_a_buffer_again_under_a_name_replaces_it() {
     let mut world = world();
     let id = compute(&mut world);

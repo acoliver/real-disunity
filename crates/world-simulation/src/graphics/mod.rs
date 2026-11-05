@@ -18,6 +18,7 @@ mod properties;
 mod render_texture;
 mod slab;
 pub mod snapshot;
+pub mod snapshot_wire;
 
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,

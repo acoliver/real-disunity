@@ -26,7 +26,7 @@ fn overlapping(text_on_top: bool) -> (World, UiRenderPlan, ObjectHandle) {
     glyphs.object = text;
     glyphs.canvas = canvas;
     glyphs.hierarchy_order = ui.layout.rect(text).unwrap().draw_order().2;
-    glyphs.texture.as_mut().unwrap().bytes.fill(255);
+    std::sync::Arc::make_mut(&mut glyphs.texture.as_mut().unwrap().bytes).fill(255);
     ui.texts.push(glyphs);
     (world, ui, if text_on_top { text } else { rect })
 }

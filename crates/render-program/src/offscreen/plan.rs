@@ -108,6 +108,8 @@ pub(super) struct Services<'a> {
     pub(super) tracker: &'a mut Tracker,
     pub(super) constants: &'a mut ConstantsPlan,
     pub(super) missing: &'a mut BTreeSet<String>,
+    /// How many camera draws were left out because the shader has no pass the camera selects.
+    pub(super) unmatched: &'a mut usize,
     /// The reservations of the storage the frame uses, which the frame holds.
     pub(super) shares: &'a mut Vec<Arc<Reservation>>,
 }

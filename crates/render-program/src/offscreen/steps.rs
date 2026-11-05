@@ -11,7 +11,7 @@ use crate::ids::{CameraId, MaterialId, MeshId, TextureId};
 use crate::layers::{Layers, PropertyLayer, TextureInput};
 use crate::packet::TargetSignature;
 use crate::properties::PropertyValue;
-use crate::shader::PassSelector;
+use crate::shader::{PassSelector, ResolveError};
 
 use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
@@ -113,13 +113,17 @@ fn camera_step(
         if sub.count == 0 {
             continue;
         }
-        draws.push(camera_draw(
+        match camera_draw(
             svc,
             &spec,
             renderer.mesh,
             sub,
             (signature, camera.front_face),
-        )?);
+        ) {
+            Ok(draw) => draws.push(draw),
+            Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => *svc.unmatched += 1,
+            Err(error) => return Err(error),
+        }
     }
     let pass = camera_pass(
         svc,

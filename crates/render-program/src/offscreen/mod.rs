@@ -142,6 +142,7 @@ impl OffscreenState {
         let mut tracker = Tracker::new(arena.lease());
         let mut constants = ConstantsPlan::new(alignment);
         let mut missing = BTreeSet::new();
+        let mut unmatched = 0;
         let mut shares = Vec::new();
         let (steps, reads) = {
             let mut services = Services {
@@ -154,6 +155,7 @@ impl OffscreenState {
                 tracker: &mut tracker,
                 constants: &mut constants,
                 missing: &mut missing,
+                unmatched: &mut unmatched,
                 shares: &mut shares,
             };
             for spec in &frame.render_textures {
@@ -186,6 +188,7 @@ impl OffscreenState {
             reads,
             shares,
             missing: missing.into_iter().collect(),
+            unmatched,
         })
     }
 
@@ -292,9 +295,18 @@ pub struct OffscreenOperations {
     reads: Vec<ResourceUse>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
+    unmatched: usize,
 }
 
 impl OffscreenOperations {
+    /// The camera draws left out because the material's shader has no pass the camera selects.
+    /// A renderer without a matching pass is not drawn by that camera; the count keeps a selector
+    /// that matches nothing from passing as an empty image.
+    #[must_use]
+    pub fn unmatched_draws(&self) -> usize {
+        self.unmatched
+    }
+
     /// The operations, in call order. The constants upload comes first when any draw has constants.
     #[must_use]
     pub fn operations(&self) -> &[TypedOperation] {

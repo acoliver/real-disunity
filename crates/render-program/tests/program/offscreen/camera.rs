@@ -233,23 +233,53 @@ fn a_property_no_layer_supplies_is_listed_and_keeps_zero() {
 }
 
 #[test]
-fn a_camera_with_a_pass_no_material_shader_has_is_a_named_error() {
+fn a_camera_with_a_pass_no_material_shader_has_draws_nothing_and_counts_the_draws() {
     let mut rig = Rig::new();
-    let mut frame = halves(&mut rig, 1 << LEFT);
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {
         key: "LightMode".to_owned(),
         values: vec!["Missing".to_owned()],
     };
-    let error = rig.build(&frame).err().unwrap();
-    assert!(
-        matches!(
-            &error,
-            OffscreenError::Resolve(
-                worldrunner_render_program::shader::ResolveError::NoPass { .. }
-            )
-        ),
-        "{error}"
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.unmatched_draws(), 2);
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert!(image.chunks(4).all(|texel| texel == CLEAR));
+}
+
+#[test]
+fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_left_out_beside_one_that_has() {
+    use worldrunner_render_program::synthetic::shaders::blit_passes;
+    let mut rig = Rig::new();
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    // The blit shader's passes carry no `LightMode` tag, so the camera has none to draw of it.
+    let blit = blit_passes("_MainTex");
+    rig.state.add_shader(
+        ShaderId(2),
+        ProgramShader::new(blit.shader, blit.chunks).unwrap(),
     );
+    frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.unmatched_draws(), 1);
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert_eq!(
+        pixel(&image, 8, (1, 3)),
+        RED,
+        "the renderer with a pass is drawn"
+    );
+    assert_eq!(
+        pixel(&image, 8, (5, 3)),
+        CLEAR,
+        "the other leaves the clear color"
+    );
+}
+
+#[test]
+fn a_frame_whose_draws_all_have_a_pass_counts_none_left_out() {
+    let mut rig = Rig::new();
+    let frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    assert_eq!(rig.build(&frame).unwrap().unmatched_draws(), 0);
 }
 
 #[test]

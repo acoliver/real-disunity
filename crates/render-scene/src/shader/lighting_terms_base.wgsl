@@ -21,6 +21,7 @@ struct Frame {
     // x selects SH; y stores untinted sun intensity when z selects a coloured sun.
     // Neutral sun frames leave y/z zero and retain intensity in sun_irradiance.x.
     lighting_options: vec4<f32>,
+    raster_viewport: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> frame: Frame;

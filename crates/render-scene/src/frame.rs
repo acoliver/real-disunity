@@ -40,9 +40,9 @@ use worldrunner_render_plan::{
 
 /// Size in bytes of the frame uniform block.
 ///
-/// The original 160-byte prefix is followed by nine padded SH coefficients
-/// and a lighting selection vector. All members are sixteen-byte aligned.
-pub const FRAME_UNIFORM_BYTES: usize = 320;
+/// The original 160-byte prefix is followed by nine padded SH coefficients,
+/// a lighting selection vector and a raster extent vector. All members are sixteen-byte aligned.
+pub const FRAME_UNIFORM_BYTES: usize = 336;
 
 /// Micro-unit scale shared by the effects domain.
 const MICRO_SCALE: f32 = 1_000_000.0;
@@ -132,9 +132,12 @@ pub struct FrameUniform {
     /// Mip levels added to every implicit-derivative material sample; negative while temporal
     /// reconstruction rasterises below the output extent, exactly `+0.0` otherwise.
     ///
-    /// Encoded in `lighting_options.w`, the last lane of the block, which was always zero.
+    /// Encoded in the fourth lane of `lighting_options`.
     /// Derive it with `HdrPostSettings::material_mip_bias`; it is policy, not an authored value.
     pub material_mip_bias: f32,
+    /// Raster extent in pixels, encoded in the named `raster_viewport.xy` vector.
+    /// Set to the actual render extent when rendering below the output resolution.
+    pub raster_viewport: [u32; 2],
 }
 
 impl FrameUniform {
@@ -219,6 +222,7 @@ impl FrameUniform {
             animation_time_milliseconds: 0,
             temporal: None,
             material_mip_bias: 0.0,
+            raster_viewport: [view.viewport().width, view.viewport().height],
         })
     }
 
@@ -245,6 +249,7 @@ impl FrameUniform {
             animation_time_milliseconds: 0,
             temporal: None,
             material_mip_bias: 0.0,
+            raster_viewport: [view.viewport().width, view.viewport().height],
         }
     }
 
@@ -326,6 +331,10 @@ impl FrameUniform {
             .sun_ao_intensity
             .map_or([0.0, 0.0], |intensity| [intensity, 1.0]);
         for value in [enabled, sun_intensity, tinted, self.material_mip_bias] {
+            write_f32(bytes, offset, value);
+        }
+        let extent = glam::UVec2::from_array(self.raster_viewport).as_vec2();
+        for value in [extent.x, extent.y, 0.0, 0.0] {
             write_f32(bytes, offset, value);
         }
     }

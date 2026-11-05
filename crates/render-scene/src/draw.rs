@@ -11,9 +11,9 @@ use wgpu::{
 use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
 
 use crate::frame::{FRAME_UNIFORM_BYTES, FrameUniform};
-use crate::geometry::{GeometryError, pack_indices, pack_instance, pack_vertices};
+use crate::geometry::{GeometryError, pack_indices, pack_vertices};
 use crate::renderer::ScenePipelines;
-use crate::terrain::{TERRAIN_PLACEMENT, TerrainError, build_terrain_mesh};
+use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
@@ -90,6 +90,14 @@ pub enum DrawError {
     /// The selected terrain contact samples cannot be sized in GPU address space.
     #[error("terrain contact height buffer byte size overflow")]
     ContactHeightSizeOverflow,
+    /// Exact triangle source exceeds the device's buffer or storage binding limit.
+    #[error("terrain triangle source needs {required} bytes, device limit is {limit}")]
+    TerrainPlaneLimit { required: u64, limit: u64 },
+    #[error("terrain instance buffer byte size overflow")]
+    TerrainInstanceSizeOverflow,
+    /// Terrain instances exceed the device's vertex buffer size limit.
+    #[error("terrain instances need {required} bytes, device buffer limit is {limit}")]
+    TerrainInstanceLimit { required: u64, limit: u64 },
     /// Contact samples exceed the device buffer or storage binding limit.
     #[error("terrain contact needs {required} bytes, device limit is {limit}")]
     ContactHeightLimit {
@@ -185,6 +193,8 @@ struct GpuTerrain {
     page_bounds: [f32; 4],
     page_elevation: [f32; 2],
     uniform: Buffer,
+    /// Exact f32 heightfield and chunk descriptors for analytic filtering.
+    triangle_source: Buffer,
     sampler: Sampler,
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
     retained: Vec<Texture>,

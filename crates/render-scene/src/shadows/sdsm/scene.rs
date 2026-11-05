@@ -366,6 +366,7 @@ impl ShadowedScene {
                     input.source_frame,
                     fitting.reducer().write_key(),
                 )?);
+                self.refuse_programs()?;
                 self.encode_fitted(
                     context,
                     input.view,

@@ -12,6 +12,7 @@ mod environment;
 mod output;
 mod overlay;
 mod overlay_depth;
+mod programs;
 pub(crate) mod publication;
 mod snapshots;
 mod temporal;

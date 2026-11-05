@@ -110,7 +110,7 @@ fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
     assert!(gpu.frame.get().is_some());
 }
 
-fn settings(intensity: u64) -> SceneSsao {
+pub(super) fn settings(intensity: u64) -> SceneSsao {
     SceneSsao {
         receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,
         depth_footprint: worldrunner_render_plan::SceneSsaoDepthFootprint::default(),
@@ -123,7 +123,7 @@ fn settings(intensity: u64) -> SceneSsao {
         horizon_angle_millidegrees: 90_000,
     }
 }
-fn source(intensity: u64, ambient: bool, alpha: u8) -> RenderScene {
+pub(super) fn source(intensity: u64, ambient: bool, alpha: u8) -> RenderScene {
     source_with_policy(
         intensity,
         ambient,

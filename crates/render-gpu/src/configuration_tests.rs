@@ -275,3 +275,26 @@ fn retained_arrays_buffers_and_cpu_reservations_are_counted_once_at_peak() {
         256 * 1024 * 1024 + 2048 + 16 + 16
     );
 }
+
+#[test]
+fn a_reservation_reports_the_descriptor_bytes_it_holds() {
+    let (device, authority) = context();
+    let mut config = Configuration::new(
+        &authority,
+        1,
+        bytes(16),
+        &device.limits(),
+        AllocationBudget(1024),
+    )
+    .unwrap();
+    let mut arena = AllocationSet::default();
+    arena.shared_buffer("arena", 512, 1);
+    let reservation = config.reserve::<()>(&device.limits(), arena).unwrap();
+    assert_eq!(reservation.bytes(&device.limits()), Ok(512));
+    let mut large = AllocationSet::default();
+    large.buffer("too large", 1024, 1);
+    assert!(matches!(
+        config.reserve::<()>(&device.limits(), large),
+        Err(ConfigurationError::Budget { .. })
+    ));
+}

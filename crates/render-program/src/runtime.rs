@@ -21,12 +21,18 @@ use crate::resources::{Pins, Store};
 pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
+pub use crate::import::{
+    Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource, ImportedTexture,
+    ImportedVertexInput,
+};
 pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
-pub use crate::packet::{DrawPacket, PreparedProgramDraw, TargetSignature};
+pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
 pub use crate::program::{ComputeProgram, GraphicsProgram};
 pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
 pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
-pub use crate::resources::{BoundResource, BufferHandle, Resource, TargetHandle, TextureHandle};
+pub use crate::resources::{
+    BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,
+};
 
 /// Shares the caller's wgpu device and `SubmissionAuthority`, owns the resources it creates by
 /// handle, and caches shader modules and pipelines keyed by their content.

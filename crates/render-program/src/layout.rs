@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::binding::{BindingAddress, ResourceBinding, ResourceLayout};
+use crate::binding::{BindingAddress, BindingSource, ResourceBinding, ResourceLayout};
 use crate::module::{StageKind, StageProgram};
 use crate::reflect::Reflected;
 
@@ -16,6 +16,9 @@ pub struct Slot {
     pub ty: wgpu::BindingType,
     /// Bytes a buffer binding must hold; zero for textures and samplers.
     pub min_size: u64,
+    /// Where the binding's resource comes from. A slot sourced from an engine semantic is
+    /// filled by an import of that name.
+    pub source: BindingSource,
 }
 
 /// A binding a stage declares for itself but whose entry point does not use. It gets no slot.
@@ -169,6 +172,7 @@ fn stage_slot(
         visibility: found.visibility,
         ty: resource.ty,
         min_size: resource.min_size.max(found.kind.min_size()),
+        source: found.source.clone(),
     })
 }
 
@@ -184,6 +188,18 @@ fn merge(merged: &mut BTreeMap<(u32, u32), Slot>, slot: Slot) -> Result<(), Layo
             first: format!("{:?}", existing.ty),
             second: format!("{:?}", slot.ty),
         });
+    }
+    match (&existing.source, &slot.source) {
+        (BindingSource::Engine(first), BindingSource::Engine(second)) if first != second => {
+            return Err(LayoutError::Conflict {
+                set: slot.set,
+                binding: slot.binding,
+                first: format!("engine value {first}"),
+                second: format!("engine value {second}"),
+            });
+        }
+        (BindingSource::Engine(_), _) => {}
+        _ => existing.source = slot.source,
     }
     existing.visibility |= slot.visibility;
     existing.min_size = existing.min_size.max(slot.min_size);

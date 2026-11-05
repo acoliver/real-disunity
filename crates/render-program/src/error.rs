@@ -36,6 +36,20 @@ pub enum ProgramError {
         set: u32,
         binding: u32,
     },
+    #[error("the state describes {states} colour targets and the pass has {targets}")]
+    ColorStates { states: usize, targets: usize },
+    #[error(
+        "set {set} binding {binding} imports {semantic}, and the draw imports nothing of that name"
+    )]
+    MissingImport {
+        semantic: String,
+        set: u32,
+        binding: u32,
+    },
+    #[error("the draw imports {semantic}, which no binding of the program takes")]
+    UnusedImport { semantic: String },
+    #[error("the draw imports {semantic} more than once")]
+    DuplicateImport { semantic: String },
     #[error("the instance range {start}..{end} ends before it starts")]
     InstanceRange { start: u32, end: u32 },
     #[error("the {kind} handle is not a live resource of this runtime")]
@@ -139,7 +153,9 @@ pub enum ProgramError {
 pub enum UnsupportedTarget {
     #[error("the pass has {samples} samples per pixel; program draws are single-sample")]
     Multisampled { samples: u32 },
-    #[error("the pass has {count} color attachments; program draws write exactly one")]
+    #[error("the pass has {samples} samples per pixel; draws support 1 or 4")]
+    SampleCount { samples: u32 },
+    #[error("the pass has {count} color attachments, which the signature constructor refuses")]
     ColorAttachments { count: usize },
     #[error("{format:?} has a stencil aspect; program draws do not use stencil")]
     Stencil { format: wgpu::TextureFormat },

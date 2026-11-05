@@ -75,6 +75,38 @@ impl RenderState {
     /// # Errors
     /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses.
     pub fn check_drawable(&self) -> Result<ColorState, ProgramError> {
+        self.check_fixed_function()?;
+        match self.colors.as_slice() {
+            [Some(color)] => Ok(*color),
+            [None] => Err(unwritten()),
+            _ => Err(ProgramError::UnsupportedState {
+                what: "several colour targets",
+            }),
+        }
+    }
+
+    /// Checks that a draw into `count` colour targets can use this state and returns each
+    /// target's state, in target order. A target the fragment stage does not write is
+    /// expressed by an empty write mask, which keeps the attachment compatible with the pass.
+    ///
+    /// # Errors
+    /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses,
+    /// and with `ColorStates` when the state does not describe each of the `count` targets.
+    pub fn check_targets(&self, count: usize) -> Result<Vec<ColorState>, ProgramError> {
+        self.check_fixed_function()?;
+        if self.colors.len() != count {
+            return Err(ProgramError::ColorStates {
+                states: self.colors.len(),
+                targets: count,
+            });
+        }
+        self.colors
+            .iter()
+            .map(|color| color.ok_or_else(unwritten))
+            .collect()
+    }
+
+    fn check_fixed_function(&self) -> Result<(), ProgramError> {
         let refuse = |what| Err(ProgramError::UnsupportedState { what });
         if self.stencil.is_some() {
             return refuse("stencil");
@@ -88,11 +120,13 @@ impl RenderState {
         if self.raster.alpha_to_coverage {
             return refuse("alpha to coverage");
         }
-        match self.colors.as_slice() {
-            [Some(color)] => Ok(*color),
-            [None] => refuse("an unwritten colour target"),
-            _ => refuse("several colour targets"),
-        }
+        Ok(())
+    }
+}
+
+fn unwritten() -> ProgramError {
+    ProgramError::UnsupportedState {
+        what: "an unwritten colour target",
     }
 }
 

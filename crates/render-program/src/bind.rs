@@ -2,9 +2,10 @@
 
 use std::sync::Arc;
 
-use crate::binding::BindingAddress;
+use crate::binding::{BindingAddress, BindingSource};
 use crate::budget::Reservation;
 use crate::error::ProgramError;
+use crate::import::{Import, ImportedResource};
 use crate::layout::Slot;
 use crate::program::GpuLayout;
 use crate::resources::{BoundResource, Resource};
@@ -43,7 +44,24 @@ impl ProgramRuntime {
         bound: &[BoundResource],
         snapshots: &[Snapshot],
     ) -> Result<Vec<(u32, wgpu::BindGroup)>, ProgramError> {
+        self.bind_groups_importing(gpu, bound, snapshots, &[])
+    }
+
+    /// Like [`bind_groups_with`](Self::bind_groups_with), with `imports` filling the bindings
+    /// the program sources from an engine semantic.
+    ///
+    /// # Errors
+    /// Also fails when a binding that takes an import has none, when an import is given twice
+    /// or names no binding, and when an import is not the kind of resource its binding is.
+    pub(crate) fn bind_groups_importing(
+        &self,
+        gpu: &GpuLayout,
+        bound: &[BoundResource],
+        snapshots: &[Snapshot],
+        imports: &[Import],
+    ) -> Result<Vec<(u32, wgpu::BindGroup)>, ProgramError> {
         check_bound(gpu, bound, snapshots)?;
+        check_imports(gpu, imports)?;
         let mut groups = Vec::new();
         for (set, layout) in (0..).zip(&gpu.groups) {
             let Some(layout) = layout else { continue };
@@ -51,7 +69,7 @@ impl ProgramRuntime {
             for slot in gpu.layout.slots().iter().filter(|s| s.set == set) {
                 entries.push(wgpu::BindGroupEntry {
                     binding: slot.binding,
-                    resource: self.slot_resource(slot, bound, snapshots)?,
+                    resource: self.slot_resource(slot, (bound, snapshots, imports))?,
                 });
             }
             let group = self.guarded(|| {
@@ -69,9 +87,19 @@ impl ProgramRuntime {
     fn slot_resource<'a>(
         &'a self,
         slot: &Slot,
-        bound: &[BoundResource],
-        snapshots: &'a [Snapshot],
+        (bound, snapshots, imports): (&[BoundResource], &'a [Snapshot], &'a [Import]),
     ) -> Result<wgpu::BindingResource<'a>, ProgramError> {
+        if let BindingSource::Engine(semantic) = &slot.source {
+            let import = imports
+                .iter()
+                .find(|import| &import.semantic == semantic)
+                .ok_or_else(|| ProgramError::MissingImport {
+                    semantic: semantic.to_string(),
+                    set: slot.set,
+                    binding: slot.binding,
+                })?;
+            return imported_resource(slot, &import.resource);
+        }
         if matches!(slot.ty, wgpu::BindingType::Sampler(_)) {
             return Ok(wgpu::BindingResource::Sampler(&self.sampler));
         }
@@ -118,6 +146,64 @@ impl ProgramRuntime {
     }
 }
 
+/// The imported resource as the binding's entry, when it is the kind of resource the binding is.
+fn imported_resource<'a>(
+    slot: &Slot,
+    resource: &'a ImportedResource,
+) -> Result<wgpu::BindingResource<'a>, ProgramError> {
+    match (&slot.ty, resource) {
+        (wgpu::BindingType::Buffer { .. }, ImportedResource::Buffer(buffer)) => {
+            if buffer.size() < slot.min_size {
+                return Err(ProgramError::BufferTooSmall {
+                    set: slot.set,
+                    binding: slot.binding,
+                    needed: slot.min_size,
+                    have: buffer.size(),
+                });
+            }
+            Ok(buffer.as_entire_binding())
+        }
+        (wgpu::BindingType::Texture { .. }, ImportedResource::Texture(texture)) => {
+            check_texture(slot, &texture.texture)?;
+            Ok(wgpu::BindingResource::TextureView(&texture.view))
+        }
+        (wgpu::BindingType::Sampler(_), ImportedResource::Sampler(sampler)) => {
+            Ok(wgpu::BindingResource::Sampler(sampler))
+        }
+        (expected, found) => Err(ProgramError::WrongResource {
+            set: slot.set,
+            binding: slot.binding,
+            expected: format!("{expected:?}"),
+            found: found.describe().to_owned(),
+        }),
+    }
+}
+
+/// Every import is given once and is taken by a binding of the program.
+fn check_imports(gpu: &GpuLayout, imports: &[Import]) -> Result<(), ProgramError> {
+    for (index, import) in imports.iter().enumerate() {
+        if imports[..index]
+            .iter()
+            .any(|other| other.semantic == import.semantic)
+        {
+            return Err(ProgramError::DuplicateImport {
+                semantic: import.semantic.to_string(),
+            });
+        }
+        let taken = gpu
+            .layout
+            .slots()
+            .iter()
+            .any(|slot| slot.source == BindingSource::Engine(import.semantic.clone()));
+        if !taken {
+            return Err(ProgramError::UnusedImport {
+                semantic: import.semantic.to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn snapshot_resource<'a>(
     slot: &Slot,
     snapshot: &'a Snapshot,
@@ -141,18 +227,18 @@ fn snapshot_resource<'a>(
     Ok(snapshot.buffer.as_entire_binding())
 }
 
-/// Every bound resource names a distinct, non-sampler binding of the program that no snapshot
-/// fills.
+/// Every bound resource names a distinct binding of the program that is neither a sampler, nor
+/// sourced from an engine semantic, nor filled by a snapshot.
 fn check_bound(
     gpu: &GpuLayout,
     bound: &[BoundResource],
     snapshots: &[Snapshot],
 ) -> Result<(), ProgramError> {
     for (index, item) in bound.iter().enumerate() {
-        let known = gpu
-            .layout
-            .slot(item.set, item.binding)
-            .is_some_and(|slot| !matches!(slot.ty, wgpu::BindingType::Sampler(_)));
+        let known = gpu.layout.slot(item.set, item.binding).is_some_and(|slot| {
+            !matches!(slot.ty, wgpu::BindingType::Sampler(_))
+                && !matches!(slot.source, BindingSource::Engine(_))
+        });
         let repeated = bound[..index]
             .iter()
             .any(|other| (other.set, other.binding) == (item.set, item.binding));

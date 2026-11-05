@@ -18,13 +18,19 @@ use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, DepthState, RenderState};
 
+/// The most colour attachments a signature describes.
+pub const MAX_COLOR_ATTACHMENTS: usize = 4;
+
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
-/// A signature exists only for what the runtime draws into: one single-sample color attachment
-/// and, optionally, a depth attachment without stencil.
+/// A signature exists only for what the runtime draws into: one to four colour attachments of
+/// one sample count (1 or 4) and, optionally, a depth attachment without stencil.
+/// [`new`](Self::new) describes the pass the runtime opens for its own targets, one
+/// single-sample colour attachment, and [`attachments`](Self::attachments) the passes a
+/// renderer opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TargetSignature {
-    color: wgpu::TextureFormat,
+    colors: [Option<wgpu::TextureFormat>; MAX_COLOR_ATTACHMENTS],
     depth: Option<wgpu::TextureFormat>,
     samples: u32,
 }
@@ -43,12 +49,46 @@ impl TargetSignature {
         if samples != 1 {
             return Err(UnsupportedTarget::Multisampled { samples }.into());
         }
-        let &[color] = colors else {
+        if colors.len() != 1 {
             return Err(UnsupportedTarget::ColorAttachments {
                 count: colors.len(),
             }
             .into());
-        };
+        }
+        Self::build(colors, depth, samples)
+    }
+
+    /// The signature of a pass a renderer opens: one to four colour attachments, the first of
+    /// which the fragment stage writes and the others of which a draw may leave unwritten with
+    /// an empty write mask, and `samples` of 1 or 4 per pixel. A pass with the same attachments
+    /// and one sample is equal to [`new`](Self::new)'s.
+    ///
+    /// # Errors
+    /// Fails by name for a count of colour attachments outside one to four, a sample count
+    /// other than 1 or 4, a depth format with a stencil aspect, and a depth attachment that has
+    /// no depth.
+    pub fn attachments(
+        colors: &[wgpu::TextureFormat],
+        depth: Option<wgpu::TextureFormat>,
+        samples: u32,
+    ) -> Result<Self, ProgramError> {
+        if !matches!(samples, 1 | 4) {
+            return Err(UnsupportedTarget::SampleCount { samples }.into());
+        }
+        if !(1..=MAX_COLOR_ATTACHMENTS).contains(&colors.len()) {
+            return Err(UnsupportedTarget::ColorAttachments {
+                count: colors.len(),
+            }
+            .into());
+        }
+        Self::build(colors, depth, samples)
+    }
+
+    fn build(
+        colors: &[wgpu::TextureFormat],
+        depth: Option<wgpu::TextureFormat>,
+        samples: u32,
+    ) -> Result<Self, ProgramError> {
         if let Some(format) = depth {
             if !format.has_depth_aspect() {
                 return Err(UnsupportedTarget::NotDepth { format }.into());
@@ -57,16 +97,31 @@ impl TargetSignature {
                 return Err(UnsupportedTarget::Stencil { format }.into());
             }
         }
+        let mut slots = [None; MAX_COLOR_ATTACHMENTS];
+        for (slot, format) in slots.iter_mut().zip(colors) {
+            *slot = Some(*format);
+        }
         Ok(Self {
-            color,
+            colors: slots,
             depth,
             samples,
         })
     }
 
+    /// The first colour attachment, which every signature has.
     #[must_use]
     pub fn color(&self) -> wgpu::TextureFormat {
-        self.color
+        self.colors[0].expect("a signature has a first colour attachment")
+    }
+
+    /// The colour attachments in order.
+    pub fn colors(&self) -> impl Iterator<Item = wgpu::TextureFormat> + '_ {
+        self.colors.iter().copied().flatten()
+    }
+
+    #[must_use]
+    pub fn color_count(&self) -> usize {
+        self.colors().count()
     }
 
     #[must_use]
@@ -110,7 +165,7 @@ pub(crate) struct MaterialParts<'a> {
 }
 
 #[derive(Debug)]
-enum PreparedGeometry {
+pub(crate) enum PreparedGeometry {
     Vertices {
         first: u32,
         count: u32,
@@ -128,12 +183,12 @@ enum PreparedGeometry {
 /// Recording it touches no runtime state.
 #[derive(Debug)]
 pub(crate) struct RecordableDraw {
-    signature: TargetSignature,
-    pipeline: wgpu::RenderPipeline,
-    groups: Vec<(u32, wgpu::BindGroup)>,
-    vertex_buffers: Vec<wgpu::Buffer>,
-    geometry: PreparedGeometry,
-    instances: Range<u32>,
+    pub(crate) signature: TargetSignature,
+    pub(crate) pipeline: wgpu::RenderPipeline,
+    pub(crate) groups: Vec<(u32, wgpu::BindGroup)>,
+    pub(crate) vertex_buffers: Vec<wgpu::Buffer>,
+    pub(crate) geometry: PreparedGeometry,
+    pub(crate) instances: Range<u32>,
 }
 
 impl RecordableDraw {
@@ -177,8 +232,8 @@ impl RecordableDraw {
 /// the draw, until that frame is cancelled or the GPU has completed it. A frame that records the
 /// draw without retaining it leaves nothing counted for it once the draw is dropped.
 pub struct PreparedProgramDraw {
-    pins: Pins,
-    draw: RecordableDraw,
+    pub(crate) pins: Pins,
+    pub(crate) draw: RecordableDraw,
 }
 
 impl std::fmt::Debug for PreparedProgramDraw {
@@ -263,7 +318,22 @@ impl ProgramRuntime {
             packet.geometry,
             instance_end(&instances),
         )?;
-        let pipeline = self.render_pipeline(packet, signature, color)?;
+        let layouts: Vec<_> = packet
+            .vertex_inputs
+            .iter()
+            .map(|input| VertexLayout {
+                stride: input.stride,
+                step: input.step,
+                attributes: &input.attributes,
+            })
+            .collect();
+        let pipeline = self.render_pipeline(&PipelineRequest {
+            program: packet.program,
+            state: packet.state,
+            layouts: &layouts,
+            signature,
+            colors: &[color],
+        })?;
         let groups = self.bind_groups_with(&packet.program.gpu, packet.bindings, snapshots)?;
         let vertex_buffers = packet
             .vertex_inputs
@@ -332,62 +402,65 @@ impl ProgramRuntime {
             .collect()
     }
 
-    fn render_pipeline(
+    /// The pipeline for `request`, built on first use and cached by content.
+    pub(crate) fn render_pipeline(
         &mut self,
-        packet: &DrawPacket<'_>,
-        signature: TargetSignature,
-        color: ColorState,
+        request: &PipelineRequest<'_>,
     ) -> Result<wgpu::RenderPipeline, ProgramError> {
-        let key = pipeline_key(packet, signature);
+        let key = request.key();
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
         }
         let modules = (
-            self.shader_module(&packet.program.vertex)?,
-            self.shader_module(&packet.program.fragment)?,
+            self.shader_module(&request.program.vertex)?,
+            self.shader_module(&request.program.fragment)?,
         );
-        let pipeline =
-            self.guarded(|| self.create_render_pipeline(packet, &modules, signature, color))?;
+        let pipeline = self.guarded(|| self.create_render_pipeline(request, &modules))?;
         self.render_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }
 
     fn create_render_pipeline(
         &self,
-        packet: &DrawPacket<'_>,
+        request: &PipelineRequest<'_>,
         (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
-        signature: TargetSignature,
-        color: ColorState,
     ) -> wgpu::RenderPipeline {
-        let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = packet
-            .vertex_inputs
+        let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = request
+            .layouts
             .iter()
-            .map(|input| {
+            .map(|layout| {
                 Some(wgpu::VertexBufferLayout {
-                    array_stride: input.stride,
-                    step_mode: input.step,
-                    attributes: &input.attributes,
+                    array_stride: layout.stride,
+                    step_mode: layout.step,
+                    attributes: layout.attributes,
                 })
             })
             .collect();
-        let state = packet.state;
-        let targets = [Some(wgpu::ColorTargetState {
-            format: signature.color,
-            blend: color.blend,
-            write_mask: color.write_mask,
-        })];
+        let (state, signature) = (request.state, request.signature);
+        let targets: Vec<_> = signature
+            .colors()
+            .zip(request.colors)
+            .map(|(format, color)| {
+                Some(wgpu::ColorTargetState {
+                    format,
+                    blend: color.blend,
+                    write_mask: color.write_mask,
+                })
+            })
+            .collect();
         let depth = state.depth.unwrap_or(DepthState {
             test: wgpu::CompareFunction::Always,
             write: false,
             bias: wgpu::DepthBiasState::default(),
         });
+        let program = request.program;
         self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("render-program pipeline"),
-                layout: Some(&packet.program.gpu.pipeline),
+                layout: Some(&program.gpu.pipeline),
                 vertex: wgpu::VertexState {
                     module: vertex,
-                    entry_point: Some(&packet.program.vertex.module().entry_point),
+                    entry_point: Some(&program.vertex.module().entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     buffers: &layouts,
                 },
@@ -409,13 +482,47 @@ impl ProgramRuntime {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: fragment,
-                    entry_point: Some(&packet.program.fragment.module().entry_point),
+                    entry_point: Some(&program.fragment.module().entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &targets,
                 }),
                 multiview_mask: None,
                 cache: None,
             })
+    }
+}
+
+/// How a draw reads one vertex buffer.
+#[derive(Clone, Copy)]
+pub(crate) struct VertexLayout<'a> {
+    pub(crate) stride: u64,
+    pub(crate) step: wgpu::VertexStepMode,
+    pub(crate) attributes: &'a [wgpu::VertexAttribute],
+}
+
+/// Everything a render pipeline is built from. `colors` has one state per colour attachment of
+/// the signature.
+pub(crate) struct PipelineRequest<'a> {
+    pub(crate) program: &'a GraphicsProgram,
+    pub(crate) state: &'a RenderState,
+    pub(crate) layouts: &'a [VertexLayout<'a>],
+    pub(crate) signature: TargetSignature,
+    pub(crate) colors: &'a [ColorState],
+}
+
+impl PipelineRequest<'_> {
+    /// The pipeline's content key: stage sources, layout, the whole state, the target signature
+    /// and the vertex layouts.
+    fn key(&self) -> blake3::Hash {
+        let mut key = Key::new("render");
+        key.hash(self.program.vertex.content_key());
+        key.hash(self.program.fragment.content_key());
+        key.debug(&self.program.gpu.layout);
+        key.debug(&(self.state, self.signature));
+        for layout in self.layouts {
+            key.debug(&(layout.stride, layout.step, layout.attributes));
+        }
+        key.finish()
     }
 }
 
@@ -426,17 +533,4 @@ pub(crate) fn instance_end(instances: &Range<u32>) -> u32 {
     } else {
         instances.end
     }
-}
-
-/// Everything a render pipeline is built from, as a content key.
-fn pipeline_key(packet: &DrawPacket<'_>, signature: TargetSignature) -> blake3::Hash {
-    let mut key = Key::new("render");
-    key.hash(packet.program.vertex.content_key());
-    key.hash(packet.program.fragment.content_key());
-    key.debug(&packet.program.gpu.layout);
-    key.debug(&(packet.state, signature));
-    for input in packet.vertex_inputs {
-        key.debug(&(input.stride, input.step, &input.attributes));
-    }
-    key.finish()
 }

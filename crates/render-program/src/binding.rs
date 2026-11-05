@@ -35,12 +35,45 @@ impl std::fmt::Display for PropertyId {
     }
 }
 
+/// A value the engine supplies to a binding, named by the host that owns it.
+///
+/// The name is a contract between a program's declarations and the draw that supplies the
+/// value, so a host can bind its own frame uniform or texture without renaming anything in
+/// the shader. The runtime gives a name no meaning of its own.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum EngineSemantic {
+    /// A value or resource the host names, such as `scene.frame`.
+    Named(String),
+}
+
+impl EngineSemantic {
+    #[must_use]
+    pub fn named(name: impl Into<String>) -> Self {
+        Self::Named(name.into())
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        let Self::Named(name) = self;
+        name
+    }
+}
+
+impl std::fmt::Display for EngineSemantic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
 /// Where the value of a binding or constant member comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BindingSource {
     /// A property looked up by name in the caller's layers.
     Property(PropertyId),
+    /// A buffer, texture view or sampler the draw imports from its owner, by semantic.
+    Engine(EngineSemantic),
     /// A binding the runtime fills itself, such as a sampler.
     Unnamed,
 }

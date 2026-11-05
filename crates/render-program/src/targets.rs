@@ -31,7 +31,7 @@ impl StageProgram {
                     property: property.clone(),
                     at: binding.at,
                 }),
-                BindingSource::Unnamed => None,
+                BindingSource::Engine(_) | BindingSource::Unnamed => None,
             })
             .collect()
     }

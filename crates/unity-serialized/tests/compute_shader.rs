@@ -16,8 +16,11 @@ use worldrunner_unity_serialized::{
     write::ObjectWriter,
 };
 
-/// SPIR-V's magic number, little-endian, then a version word: the start of a module.
-const MODULE: [u8; 8] = [0x03, 0x02, 0x23, 0x07, 0x00, 0x00, 0x01, 0x00];
+/// The header of a SPIR-V module with no instructions: magic, version, generator, ID bound and
+/// the reserved word, little-endian.
+const MODULE: [u8; 20] = [
+    0x03, 0x02, 0x23, 0x07, 0x00, 0x00, 0x01, 0x00, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+];
 
 fn decoded(bytes: Vec<u8>) -> Result<ComputeShader, SerializedError> {
     decode_one::<ComputeShader>(ClassId::COMPUTE_SHADER, bytes, false)
@@ -427,7 +430,10 @@ fn reads_a_shader_laid_out_word_by_word() {
 fn a_raw_module_gives_its_words() {
     let shader = decoded(read_back()).unwrap();
     let variant = &shader.platform(SPIRV).unwrap().kernels[0].variants[0];
-    assert_eq!(variant.module_words().unwrap(), [0x0723_0203, 0x0001_0000]);
+    assert_eq!(
+        variant.module_words().unwrap(),
+        [0x0723_0203, 0x0001_0000, 0, 1, 0]
+    );
     let text = &shader.platform(GLSL).unwrap().kernels[0].variants[0];
     assert!(text.module_words().is_err());
 }

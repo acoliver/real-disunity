@@ -27,6 +27,7 @@ use std::ops::Deref;
 use crate::{
     ClassId, SerializedError,
     object::{Layout, ObjectReader},
+    shader_records::ModuleEncoding,
     smolv,
 };
 
@@ -186,26 +187,27 @@ pub struct ComputeVariant {
 }
 
 impl ComputeVariant {
-    /// The variant's SPIR-V module as words, from raw SPIR-V or SMOL-V code.
+    /// The variant's SPIR-V module as words, from raw SPIR-V or SMOL-V code, checked as
+    /// [`smolv::module_words`] checks a stage module.
     ///
     /// # Errors
-    /// Fails when the code is neither, which a GLSL platform's is.
+    /// Fails when the code is neither, which a GLSL platform's is, or is not a valid module.
     pub fn module_words(&self) -> Result<Vec<u32>, SerializedError> {
-        let invalid = |reason| SerializedError::InvalidComputeShader { offset: 0, reason };
         let magic = self
             .code
             .first_chunk::<4>()
             .map(|bytes| u32::from_le_bytes(*bytes));
-        match magic {
-            Some(SMOLV_MAGIC) => smolv::decode(&self.code),
-            Some(SPIRV_MAGIC) if self.code.len().is_multiple_of(4) => Ok(self
-                .code
-                .chunks_exact(4)
-                .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
-                .collect()),
-            Some(SPIRV_MAGIC) => Err(invalid("the SPIR-V module is not a whole number of words")),
-            _ => Err(invalid("the code is neither SPIR-V nor SMOL-V")),
-        }
+        let encoding = match magic {
+            Some(SMOLV_MAGIC) => ModuleEncoding::Smolv,
+            Some(SPIRV_MAGIC) => ModuleEncoding::SpirV,
+            _ => {
+                return Err(SerializedError::InvalidComputeShader {
+                    offset: 0,
+                    reason: "the code is neither SPIR-V nor SMOL-V",
+                });
+            }
+        };
+        smolv::module_words(encoding, &self.code)
     }
 
     fn read(r: &mut ObjectReader<'_>, last: bool) -> Result<Self, SerializedError> {

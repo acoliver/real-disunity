@@ -387,7 +387,6 @@ fn cached_terrain_entries() -> Vec<BindGroupLayoutEntry> {
 }
 
 /// Builds the shared material bindings, including the scene contact heightfield.
-#[cfg(test)]
 pub(crate) fn material_group(
     device: &Device,
     layout: &BindGroupLayout,

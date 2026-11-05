@@ -49,7 +49,6 @@ mod objects;
 pub(crate) mod overlay;
 mod pages;
 mod specular;
-#[cfg(test)]
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::constants as specular_constants;

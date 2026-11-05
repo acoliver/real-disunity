@@ -123,15 +123,7 @@ impl Legacy {
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let shared = material_sampler(device);
         let layout = material_bind_group_layout(device);
-        let mut ordered: Vec<_> = quads.iter().collect();
-        ordered.sort_by_key(|quad| {
-            (
-                quad.overlay,
-                quad.sorting_layer,
-                quad.sorting_order,
-                quad.hierarchy_order,
-            )
-        });
+        let ordered = painter_order(quads);
         let shared = Shared {
             layout: &layout,
             placeholder: &placeholder_view,
@@ -217,6 +209,21 @@ impl Legacy {
         }
         count
     }
+}
+
+/// The quads in the order the fixed path painted them: overlays last, then by layer, order and
+/// hierarchy, with submission order between equal keys.
+fn painter_order(quads: &[DynamicQuad]) -> Vec<&DynamicQuad> {
+    let mut ordered: Vec<_> = quads.iter().collect();
+    ordered.sort_by_key(|quad| {
+        (
+            quad.overlay,
+            quad.sorting_layer,
+            quad.sorting_order,
+            quad.hierarchy_order,
+        )
+    });
+    ordered
 }
 
 /// The fixed path's scissor: the lower-left rectangle clamped to the target, flipped to the

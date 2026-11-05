@@ -123,26 +123,7 @@ impl DynamicGpu {
         bindings: DynamicBindings<'_>,
         quads: &[DynamicQuad],
     ) -> Result<(), DynamicError> {
-        let count =
-            u64::try_from(quads.len()).map_err(|_| DynamicError::DeviceLimit("quad count"))?;
-        if count > u64::from(u32::MAX)
-            || count.saturating_mul(crate::geometry::INSTANCE_STRIDE)
-                > device.limits().max_buffer_size
-        {
-            return Err(DynamicError::DeviceLimit("instance buffer size"));
-        }
-        for (index, quad) in quads.iter().enumerate() {
-            validate_quad(quad, index, self.textures.len())?;
-        }
-        let mut ordered: Vec<_> = quads.iter().collect();
-        ordered.sort_by_key(|quad| {
-            (
-                quad.overlay,
-                quad.sorting_layer,
-                quad.sorting_order,
-                quad.hierarchy_order,
-            )
-        });
+        let ordered = self.painter_order(device, quads)?;
         let placeholder = bindings
             .placeholder
             .create_view(&TextureViewDescriptor::default());
@@ -174,25 +155,41 @@ impl DynamicGpu {
             })
             .map(|group| QuadDraw::upload(device, queue, &material_bindings, group))
             .collect();
-        let (frames, prepared) = match stage {
-            Some(stage) if !draws.is_empty() => {
-                let signature = stage.pipelines.unlit_signature()?;
-                let set = prepare_signature(
-                    Some((device, stage.authority)),
-                    stage.runtime,
-                    stage.pipelines,
-                    signature,
-                    (&stage.frames, &draws),
-                )?;
-                (stage.frames, vec![set])
-            }
-            Some(stage) => (stage.frames, Vec::new()),
-            None => (Vec::new(), Vec::new()),
-        };
+        let (frames, prepared) = prepare_stage(device, stage, &draws)?;
         self.draws = draws;
         self.frames = frames;
         self.prepared = prepared;
         Ok(())
+    }
+
+    /// The quads in the order they paint, after checking them against the device's limits and
+    /// the texture table. Equal keys keep their submission order.
+    fn painter_order<'q>(
+        &self,
+        device: &Device,
+        quads: &'q [DynamicQuad],
+    ) -> Result<Vec<&'q DynamicQuad>, DynamicError> {
+        let count =
+            u64::try_from(quads.len()).map_err(|_| DynamicError::DeviceLimit("quad count"))?;
+        if count > u64::from(u32::MAX)
+            || count.saturating_mul(crate::geometry::INSTANCE_STRIDE)
+                > device.limits().max_buffer_size
+        {
+            return Err(DynamicError::DeviceLimit("instance buffer size"));
+        }
+        for (index, quad) in quads.iter().enumerate() {
+            validate_quad(quad, index, self.textures.len())?;
+        }
+        let mut ordered: Vec<_> = quads.iter().collect();
+        ordered.sort_by_key(|quad| {
+            (
+                quad.overlay,
+                quad.sorting_layer,
+                quad.sorting_order,
+                quad.hierarchy_order,
+            )
+        });
+        Ok(ordered)
     }
 
     /// The index buffer of two triangles over a quad's four corners, made once and shared.
@@ -346,6 +343,30 @@ impl DynamicGpu {
         }
         count
     }
+}
+
+/// The frame uniforms of the scene's slots and the draws prepared for the pass its pipelines
+/// describe, when the quads are for the scene's pass and there are any. The overlay has neither.
+fn prepare_stage(
+    device: &Device,
+    stage: Option<SceneStaging<'_>>,
+    draws: &[QuadDraw],
+) -> Result<(Vec<Buffer>, Vec<Prepared>), DynamicError> {
+    let Some(stage) = stage else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    if draws.is_empty() {
+        return Ok((stage.frames, Vec::new()));
+    }
+    let signature = stage.pipelines.unlit_signature()?;
+    let set = prepare_signature(
+        Some((device, stage.authority)),
+        stage.runtime,
+        stage.pipelines,
+        signature,
+        (&stage.frames, draws),
+    )?;
+    Ok((stage.frames, vec![set]))
 }
 
 /// A prepared draw of every quad group for each frame slot, for the pass `signature` describes.

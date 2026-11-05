@@ -146,6 +146,9 @@ fn a_renamed_dependency_on_the_format_package_is_rejected() {
             name: boundary().foreign_package.to_owned(),
             path: None,
             rename: rename.map(str::to_owned),
+            kind: None,
+            features: Vec::new(),
+            uses_default_features: true,
         };
         let mut errors = Vec::new();
         dependency_errors(boundary(), &[dependency], &mut errors);
@@ -182,4 +185,178 @@ fn only_files_under_the_adapter_directory_may_cross() {
         errors[1].starts_with("src/nested/unity.rs:1:"),
         "{errors:?}"
     );
+}
+
+/// Workspace metadata in `cargo metadata`'s shape: the render-program package with its feature
+/// table, and one consumer package with the given dependency entries.
+fn workspace(consumer: &str, dependencies: serde_json::Value) -> Metadata {
+    let package = |name: &str, dependencies: serde_json::Value, features: serde_json::Value| {
+        serde_json::json!({
+            "id": name,
+            "name": name,
+            "manifest_path": format!("/workspace/{name}/Cargo.toml"),
+            "dependencies": dependencies,
+            "targets": [],
+            "features": features,
+        })
+    };
+    serde_json::from_value(serde_json::json!({
+        "packages": [
+            package(
+                boundary().package,
+                serde_json::json!([]),
+                serde_json::json!({
+                    "unity": ["dep:worldrunner-unity-serialized"],
+                    "everything": ["unity"],
+                    "default": [],
+                }),
+            ),
+            package(consumer, dependencies, serde_json::json!({})),
+        ],
+        "workspace_members": [boundary().package, consumer],
+        "workspace_root": "/workspace",
+        "resolve": { "nodes": [] },
+    }))
+    .unwrap()
+}
+
+/// One entry of a package's `dependencies` on render-program, as `cargo metadata` prints it.
+fn on_render_program(extra: serde_json::Value) -> serde_json::Value {
+    let mut entry = serde_json::json!({
+        "name": boundary().package,
+        "path": "/workspace/render-program",
+        "kind": null,
+        "rename": null,
+        "features": [],
+        "uses_default_features": true,
+    });
+    let serde_json::Value::Object(overrides) = extra else {
+        panic!("a dependency override is an object");
+    };
+    for (key, value) in overrides {
+        entry[key] = value;
+    }
+    entry
+}
+
+fn manifest_errors(consumer: &str, extra: serde_json::Value) -> Vec<String> {
+    let data = workspace(consumer, serde_json::json!([on_render_program(extra)]));
+    let mut errors = Vec::new();
+    feature_errors(boundary(), &data, &data.packages[0], &mut errors);
+    errors
+}
+
+#[test]
+fn a_normal_dependency_with_the_adapter_feature_is_rejected_for_other_crates() {
+    let errors = manifest_errors(
+        "worldrunner-render-scene",
+        serde_json::json!({ "features": ["unity"] }),
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("worldrunner-render-scene"), "{errors:?}");
+    assert!(
+        errors[0].contains("worldrunner-render-program"),
+        "{errors:?}"
+    );
+    assert!(errors[0].contains("`unity` feature"), "{errors:?}");
+    assert!(
+        errors[0].contains("worldrunner-play, worldrunner-unity-import"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn a_dependency_without_the_adapter_feature_is_allowed_everywhere() {
+    for extra in [
+        serde_json::json!({}),
+        serde_json::json!({ "features": ["other"] }),
+        serde_json::json!({ "kind": "build", "uses_default_features": false }),
+    ] {
+        let errors = manifest_errors("worldrunner-render-scene", extra);
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+}
+
+#[test]
+fn a_dev_dependency_with_the_adapter_feature_is_allowed() {
+    let errors = manifest_errors(
+        "worldrunner-render-scene",
+        serde_json::json!({ "kind": "dev", "features": ["unity"] }),
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
+fn the_play_and_unity_import_crates_may_enable_the_adapter_feature() {
+    for consumer in ["worldrunner-play", "worldrunner-unity-import"] {
+        for kind in [serde_json::Value::Null, "build".into(), "dev".into()] {
+            let errors = manifest_errors(
+                consumer,
+                serde_json::json!({ "kind": kind, "features": ["unity"] }),
+            );
+            assert!(errors.is_empty(), "{consumer}: {errors:?}");
+        }
+    }
+}
+
+#[test]
+fn a_build_dependency_with_the_adapter_feature_is_rejected() {
+    let errors = manifest_errors(
+        "worldrunner-render-scene",
+        serde_json::json!({ "kind": "build", "features": ["unity"] }),
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("build dependency"), "{errors:?}");
+    assert!(errors[0].contains("worldrunner-render-scene"), "{errors:?}");
+}
+
+#[test]
+fn a_renamed_dependency_with_the_adapter_feature_is_rejected() {
+    let errors = manifest_errors(
+        "worldrunner-render-scene",
+        serde_json::json!({ "rename": "programs", "features": ["unity"] }),
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("worldrunner-render-scene"), "{errors:?}");
+}
+
+#[test]
+fn a_target_specific_dependency_counts_as_a_normal_one() {
+    let errors = manifest_errors(
+        "worldrunner-render-scene",
+        serde_json::json!({ "target": "cfg(unix)", "features": ["unity"] }),
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+}
+
+#[test]
+fn a_feature_that_enables_the_adapter_feature_counts_as_enabling_it() {
+    let errors = manifest_errors(
+        "worldrunner-render-scene",
+        serde_json::json!({ "features": ["everything"] }),
+    );
+    assert_eq!(errors.len(), 1, "{errors:?}");
+}
+
+#[test]
+fn default_features_count_when_the_package_makes_the_adapter_a_default() {
+    let mut data = workspace(
+        "worldrunner-render-scene",
+        serde_json::json!([on_render_program(serde_json::json!({}))]),
+    );
+    let mut errors = Vec::new();
+    feature_errors(boundary(), &data, &data.packages[0], &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
+
+    data.packages[0]
+        .features
+        .insert("default".into(), vec!["unity".into()]);
+    feature_errors(boundary(), &data, &data.packages[0], &mut errors);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].contains("default features"), "{errors:?}");
+
+    data.packages[1].dependencies[0].uses_default_features = false;
+    let mut errors = Vec::new();
+    feature_errors(boundary(), &data, &data.packages[0], &mut errors);
+    assert!(errors.is_empty(), "{errors:?}");
 }

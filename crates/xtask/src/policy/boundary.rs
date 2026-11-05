@@ -6,7 +6,12 @@
 //! outside the adapter directory, no path, import (renamed or not), re-export, macro input or
 //! `extern crate` may name the adapter's crate, and no module may name the adapter module, so a
 //! root module can neither expose an adapter type nor re-export the adapter.
+//!
+//! The manifests are checked too. The adapter's feature may be enabled only by the packages in
+//! `feature_users`, through a normal or build dependency, so a renderer's dev-only use of the
+//! feature cannot reach production builds through feature unification.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use quote::ToTokens;
@@ -15,7 +20,7 @@ use syn::visit::{self, Visit};
 
 use super::source::rust_files;
 use super::use_tree::use_leaves;
-use crate::metadata::{self, Dependency, Metadata};
+use crate::metadata::{self, Dependency, Metadata, Package};
 
 /// One package whose source is split into a neutral part and a format adapter.
 pub struct Boundary {
@@ -27,6 +32,9 @@ pub struct Boundary {
     /// The format crate only the adapter may name.
     foreign_package: &'static str,
     foreign_crate: &'static str,
+    /// The only workspace packages whose normal or build dependency on `package` may enable
+    /// `feature`.
+    feature_users: &'static [&'static str],
 }
 
 pub const BOUNDARIES: &[Boundary] = &[Boundary {
@@ -35,6 +43,7 @@ pub const BOUNDARIES: &[Boundary] = &[Boundary {
     feature: "unity",
     foreign_package: "worldrunner-unity-serialized",
     foreign_crate: "worldrunner_unity_serialized",
+    feature_users: &["worldrunner-play", "worldrunner-unity-import"],
 }];
 
 pub fn check(data: &Metadata) -> Result<(), String> {
@@ -49,6 +58,7 @@ pub fn check(data: &Metadata) -> Result<(), String> {
             continue;
         };
         dependency_errors(boundary, &package.dependencies, &mut errors);
+        feature_errors(boundary, data, package, &mut errors);
         let src = metadata::canonical(
             &package
                 .manifest_path
@@ -71,6 +81,75 @@ fn dependency_errors(boundary: &Boundary, dependencies: &[Dependency], errors: &
             ));
         }
     }
+}
+
+/// Reports a workspace package, other than the allowed ones, whose normal or build dependency on
+/// the boundary's package enables the adapter feature. A dev-dependency's features apply to the
+/// dependent's own tests and examples only, so dev-dependencies are not checked. Cargo reports
+/// workspace-inherited features and `default-features` already resolved, and lists a renamed or
+/// target-specific dependency like any other, so one entry shape covers every manifest form.
+fn feature_errors(
+    boundary: &Boundary,
+    data: &Metadata,
+    foreign: &Package,
+    errors: &mut Vec<String>,
+) {
+    for package in data
+        .packages
+        .iter()
+        .filter(|p| data.workspace_members.contains(&p.id))
+        .filter(|p| !boundary.feature_users.contains(&p.name.as_str()))
+    {
+        for dependency in &package.dependencies {
+            let kind = match dependency.kind.as_deref() {
+                None => "dependency",
+                Some("build") => "build dependency",
+                Some(_) => continue,
+            };
+            if dependency.name != boundary.package {
+                continue;
+            }
+            let Some(through) = enables_feature(boundary.feature, foreign, dependency) else {
+                continue;
+            };
+            errors.push(format!(
+                "{}: {kind} on {} enables the `{}` feature through {through}; only {} may, so a \
+                 dev-only use of the feature cannot reach production builds",
+                package.name,
+                boundary.package,
+                boundary.feature,
+                boundary.feature_users.join(", ")
+            ));
+        }
+    }
+}
+
+/// How the dependency turns `wanted` on, following features that enable other features.
+fn enables_feature(wanted: &str, foreign: &Package, dependency: &Dependency) -> Option<String> {
+    let mut pending: Vec<(&str, String)> = dependency
+        .features
+        .iter()
+        .map(|f| (f.as_str(), format!("features = [\"{f}\"]")))
+        .collect();
+    if dependency.uses_default_features {
+        pending.push(("default", "its default features".to_owned()));
+    }
+    let mut seen = BTreeSet::new();
+    while let Some((feature, through)) = pending.pop() {
+        if feature == wanted {
+            return Some(through);
+        }
+        if !seen.insert(feature) {
+            continue;
+        }
+        for implied in foreign.features.get(feature).into_iter().flatten() {
+            // `dep:x` and `x/y` entries reach the package's own dependencies, not its features.
+            if !implied.contains(['/', ':']) {
+                pending.push((implied, through.clone()));
+            }
+        }
+    }
+    None
 }
 
 fn source_errors(

@@ -39,14 +39,8 @@ impl RetainedHost {
         Ok(())
     }
     pub(in crate::retained) fn apply_text_input_area(&self) {
-        if let Some(window) = &self.input_state.window {
-            window.set_ime_allowed(self.text_input_area().is_some());
-            if let Some([x, y, w, h]) = self.text_input_area() {
-                window.set_ime_cursor_area(
-                    winit::dpi::PhysicalPosition::new(x, y),
-                    winit::dpi::PhysicalSize::new(w, h),
-                );
-            }
+        if let super::WindowControlTarget::Native(window) = &self.input_state.window {
+            window.set_text_input_area(self.text_input_area());
         }
     }
 }

@@ -2,7 +2,7 @@ use crate::texture::PreparedTexture;
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Device,
     FilterMode, Queue, Sampler, SamplerDescriptor, ShaderStages, Texture, TextureFormat,
-    TextureSampleType, TextureUsages, TextureViewDimension,
+    TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
 };
 use worldrunner_render_gpu::texture::{
     TextureKind, TextureLayer, TextureUpload, UploadError, packed_mips,
@@ -323,6 +323,13 @@ pub fn upload_texture(
         "material-texture",
         TextureUsages::empty(),
     )
+}
+
+/// The placeholder with its default view, which is how scene upload binds it.
+pub(crate) fn placeholder_with_view(device: &Device, queue: &Queue) -> (Texture, TextureView) {
+    let texture = placeholder_texture(device, queue);
+    let view = texture.create_view(&TextureViewDescriptor::default());
+    (texture, view)
 }
 
 /// Creates the neutral texture bound where a material omits an optional map.

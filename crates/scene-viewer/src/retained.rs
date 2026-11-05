@@ -42,7 +42,7 @@ mod input;
 pub use input::text::TextInput;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
-    WheelDelta,
+    WheelDelta, WindowControlError,
 };
 mod capture;
 pub use capture::{

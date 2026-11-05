@@ -124,7 +124,29 @@ cargo run -p worldrunner --features scene --example frame-feature
 
 `crates/worldrunner/examples/frame-feature.rs` depends only on public facade APIs. It registers a custom `FrameFeature`, draws into `opaque`, declares immutable opaque colour/depth snapshot reads, and samples the colour snapshot in a later pass. Its integration test runs the same example headlessly and checks output and snapshot bytes. The facade exposes the feature contracts through `worldrunner::scene::gpu::executor`.
 
+Player shader programs join the frame without registering a feature. `SceneGpu::admit_programs` carries draws that `worldrunner-render-program` admitted for the frame, and the scene's own feature records them in the stock opaque pass after its geometry, so they share the pass's attachments and the frame's one submission. The slice covers one single-sample color attachment with `Depth32Float`; scenes with temporal reconstruction, screen-space passes or multisampling refuse them by name. See the [scene README](../../crates/render-scene/README.md#player-program-draws).
+
 Declare every pass and sampled resource before preparation. Build pipelines through `BuildContext`; use `PrepareContext::resource` for checked snapshot views. Stage uploads during `prepare` and publish resident state only in `commit`. `PrepareContext::completed_in_prefix` identifies slots already encoded by a validated geometry prefix belonging to this same frame, including a capture continuation. Features can preserve execution observations for those slots without inheriting a previous submitted frame. The executor opens passes and owns attachments. Features receive no queue and cannot submit or change attachments. Snapshot consumers require the HDR profile. External features must provide matching metadata passes to participate as SSR receivers.
+
+## Retained native window controls
+
+`RetainedHost::focus_window()` and `RetainedEventHost::focus_window()` request
+focus immediately through the same session-owned native window as cursor controls.
+They work from update and event callbacks, including during presentation pauses.
+Each call forwards one request to `winit::window::Window::focus_window`; requests
+are neither queued for startup nor coalesced. Before the native window is created,
+they return `WindowControlError::NoWindow`. Windowless startup selects
+`WindowControlError::Unsupported` before renderer initialization. Cursor controls
+continue to return `CursorError::Unavailable` whenever there is no native window,
+including windowless sessions. None of these controls silently succeeds without
+a native window.
+
+A successful focus request means it was forwarded, not that focus was granted.
+The window system can decline it. Actual changes still arrive through ordinary
+`RetainedEvent::Input(RetainedInput::Focused(bool))` notifications; the request
+never synthesizes focus input or changes held-key/button state. The two host
+interfaces and `WindowControlError` are available through
+`worldrunner::scene::viewer` with the `scene-viewer` feature.
 
 ## Retained host timers
 

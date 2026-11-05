@@ -132,8 +132,8 @@ fn every_reachable_material_maps_into_the_prebuilt_pipeline_set() {
     let all: BTreeSet<PipelineKey> = PipelineKey::ALL.into_iter().collect();
     assert_eq!(
         all.len(),
-        16,
-        "the coverage and raster variants are distinct"
+        32,
+        "the sampling, coverage and raster variants are distinct"
     );
     for double_sided in [false, true] {
         for alpha_mode in [
@@ -291,3 +291,30 @@ fn normal_parameters_are_validated_and_encoded_without_changing_stock_prefix() {
 
 #[path = "coverage_tests.rs"]
 mod coverage_tests;
+
+#[test]
+fn ordinary_flat_and_relief_materials_select_their_sampling_family() {
+    use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout};
+    for alpha in [
+        SceneAlphaMode::Opaque,
+        SceneAlphaMode::Mask {
+            cutoff_micro: COMMON_CUTOFF_MICRO,
+        },
+    ] {
+        let base = material(alpha, true);
+        let atlas =
+            SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false).unwrap();
+        let ordinary = PipelineKey::from_material(&base);
+        let flat = PipelineKey::from_material(&base.with_impostor(atlas));
+        let relief = PipelineKey::from_material(
+            &base.with_impostor(atlas.with_relief(TextureHandle::from_raw(1), 100).unwrap()),
+        );
+        assert!(!ordinary.sampling.is_impostor());
+        assert!(flat.sampling.is_impostor());
+        assert!(relief.sampling.is_impostor());
+        assert!(!flat.relief);
+        assert!(relief.relief);
+        assert_ne!(ordinary.index(), flat.index());
+        assert_ne!(flat.index(), relief.index());
+    }
+}

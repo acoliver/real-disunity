@@ -177,6 +177,7 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
         gpu: &mut resident.gpu,
         pipelines: &pipelines,
         screen: None,
+        programs: None,
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     FrameRenderer::new(context.device())

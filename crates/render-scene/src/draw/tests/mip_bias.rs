@@ -109,7 +109,7 @@ fn render_center(context: &GpuContext, source: &str, level: u32, bias: f32) -> [
 
 fn sample_source() -> String {
     format!(
-        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture,input); }}",
+        "{}\n@fragment fn fs_sample(input: VertexOutput) -> @location(0) vec4<f32> {{ return scene_atlas_sample(albedo_texture, input, scene_atlas_footprint(albedo_texture, input)); }}",
         crate::shader::ENVIRONMENT_WGSL
     )
 }

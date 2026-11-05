@@ -1,4 +1,4 @@
-use super::{CursorError, CursorGrabMode, RetainedHost};
+use super::{CursorError, CursorGrabMode, RetainedHost, WindowControlError};
 
 /// Event-time CPU controls. Scene edits and frame scheduling remain in `update`.
 /// Cursor operations apply immediately and return platform errors without fallback.
@@ -9,6 +9,12 @@ pub struct RetainedEventHost<'a> {
 impl RetainedEventHost<'_> {
     pub fn request_exit(&mut self) {
         self.host.request_exit();
+    }
+
+    /// Requests native focus immediately, including during presentation pauses.
+    /// Uses the same errors and OS focus events as `RetainedHost::focus_window`.
+    pub fn focus_window(&mut self) -> Result<(), WindowControlError> {
+        self.host.focus_window()
     }
 
     pub fn set_cursor_grab(&mut self, mode: CursorGrabMode) -> Result<(), CursorError> {

@@ -1,12 +1,16 @@
 // Decode source channels before scaling tangent-space XY.
 fn sample_normal(input: VertexOutput, geometric: vec3<f32>, position: vec3<f32>, tangent: vec4<f32>) -> vec3<f32> {
-    let relief_normal = scene_relief_normal(input);
-    let sampled = scene_atlas_sample(normal_texture, input).rgb * 2.0 - 1.0;
-    var frame_basis = cotangent_frame(geometric, position, input.texcoord);
     if (material.texture_flags & FLAG_NORMAL) == 0u {
         return geometric;
     }
-    if input.atlas_eye.w != 0.0 && (material.impostor_relief.x != 0.0 || scene_packed_atlas(input)) { return relief_normal; }
+    let footprint = scene_atlas_footprint(normal_texture, input);
+    var frame_basis = cotangent_frame(geometric, position, input.texcoord);
+    if SCENE_IMPOSTOR {
+        if material.impostor_grid.w != 0.0 {
+            if input.atlas_eye.w != 0.0 && (material.impostor_relief.x != 0.0 || scene_packed_atlas(input)) { return scene_relief_normal(input, footprint); }
+        }
+    }
+    let sampled = scene_atlas_sample(normal_texture, input, footprint).rgb * 2.0 - 1.0;
     var xy = sampled.xy;
     var z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
     if (material.geometry_flags.w & 1u) != 0u { z = sampled.z; }
@@ -21,13 +25,8 @@ fn sample_normal(input: VertexOutput, geometric: vec3<f32>, position: vec3<f32>,
     return normalize(frame_basis * vec3<f32>(xy, z));
 }
 
-fn scene_shading_occlusion(input: VertexOutput, sampled: f32, packed: f32) -> vec2<f32> {
-    var ambient_occlusion = 1.0;
-    if (material.texture_flags & FLAG_AMBIENT_OCCLUSION) != 0u {
-        ambient_occlusion = sampled;
-    }
-
-    if scene_packed_atlas(input) { ambient_occlusion = packed; }
+fn scene_shading_occlusion(input: VertexOutput, sampled: f32) -> vec2<f32> {
+    var ambient_occlusion = sampled;
     var packed_occlusion = ambient_occlusion;
     if material.scattering_mode.y != 0.0 {
         packed_occlusion = min(ambient_occlusion, input.ambient_occlusion);
@@ -37,6 +36,32 @@ fn scene_shading_occlusion(input: VertexOutput, sampled: f32, packed: f32) -> ve
     }
 
     return vec2<f32>(ambient_occlusion, packed_occlusion);
+}
+fn scene_occlusion_sample(input: VertexOutput) -> vec2<f32> {
+    if ((material.texture_flags & FLAG_AMBIENT_OCCLUSION) | (material.wind_clock.z & 2u)) == 0u {
+        return vec2<f32>(1.0, 0.0);
+    }
+    let footprint = scene_atlas_footprint(ambient_occlusion_texture, input);
+    if SCENE_IMPOSTOR {
+        if material.impostor_grid.w != 0.0 {
+            if scene_packed_atlas(input) { return scene_atlas_first(ambient_occlusion_texture, footprint).gr; }
+        }
+    }
+    if (material.texture_flags & FLAG_AMBIENT_OCCLUSION) != 0u {
+        return vec2<f32>(scene_atlas_sample(ambient_occlusion_texture, input, footprint).r, 0.0);
+    }
+    return vec2<f32>(1.0, 0.0);
+}
+fn scene_emission_sample(input: VertexOutput) -> f32 {
+    if (material.texture_flags & FLAG_SELF_ILLUMINATION) == 0u { return 0.0; }
+    let footprint = scene_atlas_footprint(self_illumination_texture, input);
+    if scene_packed_atlas(input) { return 0.0; }
+    return scene_atlas_sample(self_illumination_texture, input, footprint).r;
+}
+fn scene_auxiliary_samples(input: VertexOutput) -> vec2<f32> {
+    let occlusion = scene_occlusion_sample(input);
+    let emission = scene_emission_sample(input);
+    return vec2<f32>(occlusion.x, select(emission, occlusion.y, scene_packed_atlas(input)));
 }
 fn scene_shading_scattering(input: VertexOutput, original: f32, occlusion: vec2<f32>) -> vec2<f32> {
     var metalness = original;
@@ -68,12 +93,10 @@ struct SceneShadingSurface {
 fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
     var input = original;
     input.world_position = scene_relief_position(original);
-    var albedo_sample = scene_albedo(scene_atlas_sample(albedo_texture, input), input.tint);
-    let rough_metal = scene_atlas_sample(rough_metal_texture, input);
-    let surface = scene_surface_channels(input, rough_metal);
-    let ao_sample = scene_atlas_sample(ambient_occlusion_texture, input).r;
-    let packed = scene_atlas_first(ambient_occlusion_texture, input);
-    let emission_sample = scene_atlas_sample(self_illumination_texture, input).r;
+    let albedo_footprint = scene_atlas_footprint(albedo_texture, input);
+    var albedo_sample = scene_albedo(scene_atlas_sample(albedo_texture, input, albedo_footprint), input.tint);
+    let surface = scene_surface_channels(input);
+    let auxiliary = scene_auxiliary_samples(input);
 
     // A double-sided card is one sheet of geometry standing in for a leaf with
     // two faces. Its stored normal describes the front, so the back must be
@@ -96,11 +119,10 @@ fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
         roughness = surface.x;
         metalness = surface.y;
     }
-    let occlusion = scene_shading_occlusion(input, ao_sample, packed.g);
+    let occlusion = scene_shading_occlusion(input, auxiliary.x);
     let scattering = scene_shading_scattering(input, metalness, occlusion);
     let surface_material = SceneShadingSurface(albedo_sample, normal, vec3<f32>(roughness, scattering.x, occlusion.x));
-    let emission = select(emission_sample, packed.r, scene_packed_atlas(input));
-    return scene_finish_shading(input, geometric_normal, surface_material, scattering.y, emission);
+    return scene_finish_shading(input, geometric_normal, surface_material, scattering.y, auxiliary.y);
 }
 fn scene_finish_shading(input: VertexOutput, geometric_normal: vec3<f32>, surface: SceneShadingSurface, masked_amount: f32, emission: f32) -> vec4<f32> {
     var normal = surface.normal;
@@ -173,7 +195,8 @@ fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bo
 
 @fragment
 fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
-    let sampled = scene_atlas_sample(albedo_texture, input) * input.tint;
+    let footprint = scene_atlas_footprint(albedo_texture, input);
+    let sampled = scene_atlas_sample(albedo_texture, input, footprint) * input.tint;
     return vec4<f32>(sampled.rgb, scene_material_alpha(sampled.a));
 }
 

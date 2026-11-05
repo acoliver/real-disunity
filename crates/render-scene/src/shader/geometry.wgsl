@@ -323,7 +323,8 @@ fn scene_coverage_alpha(alpha: f32, cutoff: f32, width: f32) -> f32 {
     return max(coverage, 0.5);
 }
 fn scene_sampled_alpha(input: VertexOutput) -> f32 {
-    return scene_material_alpha(scene_atlas_sample(albedo_texture, input).a);
+    let footprint = scene_atlas_footprint(albedo_texture, input);
+    return scene_material_alpha(scene_atlas_sample(albedo_texture, input, footprint).a);
 }
 
 fn scene_mask_alpha(alpha: f32, input: VertexOutput) -> f32 {

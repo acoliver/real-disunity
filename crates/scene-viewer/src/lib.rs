@@ -44,8 +44,9 @@ pub use retained::{
     ObjectId, PhysicalKey, PickHit, RetainedCaptureObservation, RetainedCaptureOutcome,
     RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent,
     RetainedEventHost, RetainedHost, RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate,
-    SceneObjectEdit, TimerError, TimerHandle, VoiceHandle, WheelDelta, WindowlessRetained,
-    WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError, WorkTicket,
+    SceneObjectEdit, TimerError, TimerHandle, VoiceHandle, WheelDelta, WindowControlError,
+    WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
+    WorkTicket,
 };
 pub use world_edits::{ObjectIdMap, edits_from_world_changes, edits_from_world_changes_with};
 

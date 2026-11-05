@@ -71,7 +71,7 @@ var buffer = AbiType("DisunityBuffer");
 var bytes = typeof(byte).MakePointerType();
 CheckImport("disunity_abi_check", u32);
 CheckImport("disunity_script_register", u64, u64, u64, u64.MakePointerType());
-CheckImport("disunity_script_type_messages", u64, bytes, bytes, u32);
+CheckImport("disunity_script_messages", u64, u64, u32);
 CheckImport("disunity_object_wake", u64, u64, advance.MakePointerType());
 CheckImport("disunity_construction_begin", u64, u64.MakePointerType());
 CheckImport("disunity_construction_object_create", u64, u64, u64.MakePointerType());

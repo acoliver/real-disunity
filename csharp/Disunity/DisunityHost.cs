@@ -69,9 +69,9 @@ public static partial class DisunityHost
     {
         behaviour.gameObject = owner;
         var identity = checked(_nextScript++);
-        ReportScriptMessages(identity, behaviour.GetType());
         ulong script;
         ThrowIfError(NativeBindings.disunity_script_register(WorldHandle, behaviour.gameObject.NativeHandle, identity, &script));
+        ReportScriptMessages(script, behaviour.GetType());
         Scripts.Add(identity, behaviour);
         DisunityAdvance work;
         ThrowIfError(NativeBindings.disunity_object_wake(WorldHandle, behaviour.gameObject.NativeHandle, &work));

@@ -131,6 +131,8 @@ pub(super) struct Services<'a> {
     pub(super) missing: &'a mut BTreeSet<String>,
     /// How many camera draws were left out because the shader has no pass the camera selects.
     pub(super) unmatched: &'a mut usize,
+    /// How many texture reads bound fewer levels than the texture has.
+    pub(super) partial_mips: &'a mut usize,
     /// The reservations of the storage the frame uses, which the frame holds.
     pub(super) shares: &'a mut Vec<Arc<Reservation>>,
 }
@@ -282,8 +284,11 @@ impl Services<'_> {
                 name: name.to_owned(),
             })?;
         let (imported, own) = self.import(input.texture)?;
-        let version = self.tracker.uniform_version(input.texture, imported)?;
-        let view = self.tracker.whole_view(imported, view_dimension, version)?;
+        let (version, mips) = self.tracker.sampled_levels(input.texture, imported)?;
+        *self.partial_mips += usize::from(mips < imported.mips);
+        let view = self
+            .tracker
+            .whole_view(imported, mips, view_dimension, version)?;
         let features = self.runtime.device().features();
         let (sample_type, state) = read_unfilterable(
             sample_type,

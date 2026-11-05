@@ -8,6 +8,7 @@ mod depth_only;
 mod formats;
 mod layers;
 mod lifetime;
+mod mips;
 mod resolve;
 mod rig;
 mod sampler;

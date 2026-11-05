@@ -143,6 +143,7 @@ impl OffscreenState {
         let mut constants = ConstantsPlan::new(alignment);
         let mut missing = BTreeSet::new();
         let mut unmatched = 0;
+        let mut partial_mips = 0;
         let mut shares = Vec::new();
         let (steps, reads) = {
             let mut services = Services {
@@ -156,6 +157,7 @@ impl OffscreenState {
                 constants: &mut constants,
                 missing: &mut missing,
                 unmatched: &mut unmatched,
+                partial_mips: &mut partial_mips,
                 shares: &mut shares,
             };
             for spec in &frame.render_textures {
@@ -189,6 +191,7 @@ impl OffscreenState {
             shares,
             missing: missing.into_iter().collect(),
             unmatched,
+            partial_mips,
         })
     }
 
@@ -296,6 +299,7 @@ pub struct OffscreenOperations {
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     unmatched: usize,
+    partial_mips: usize,
 }
 
 impl OffscreenOperations {
@@ -305,6 +309,12 @@ impl OffscreenOperations {
     #[must_use]
     pub fn unmatched_draws(&self) -> usize {
         self.unmatched
+    }
+
+    /// The texture reads that bound only the levels written at the same point as the base level.
+    #[must_use]
+    pub fn partial_mip_reads(&self) -> usize {
+        self.partial_mips
     }
 
     /// The operations, in call order. The constants upload comes first when any draw has constants.

@@ -130,11 +130,12 @@ impl Tracker {
     pub(super) fn whole_view(
         &self,
         imported: Imported,
+        mips: u32,
         dimension: wgpu::TextureViewDimension,
         version: u32,
     ) -> Result<CheckedView, ContractError> {
         let range = TextureRange {
-            mips: 0..imported.mips,
+            mips: 0..mips,
             layers: 0..imported.layers,
             aspect: wgpu::TextureAspect::All,
         };
@@ -146,21 +147,31 @@ impl Tracker {
         self.cells.get(&(key, mip, layer)).copied().unwrap_or(0)
     }
 
-    /// The version every cell of the texture has, or `MixedVersions` when its cells differ.
-    pub(super) fn uniform_version(
+    /// The version a draw samples a texture at and how many levels, from the base, it binds. The
+    /// levels bound are the leading ones whose layers all have the base level's version, since a
+    /// view reads one version. A level written at another point, or never written when the base
+    /// was, is left out: the engine writes the base level of a render texture and generates no
+    /// other.
+    ///
+    /// # Errors
+    /// Fails with `MixedVersions` when the layers of the base level differ, since no level can be
+    /// bound then.
+    pub(super) fn sampled_levels(
         &self,
         id: TextureId,
         imported: Imported,
-    ) -> Result<u32, OffscreenError> {
-        let mut versions = (0..imported.mips).flat_map(|mip| {
-            (0..imported.layers).map(move |layer| self.cell(imported.primary, mip, layer))
-        });
-        let first = versions.next().unwrap_or(0);
-        if versions.all(|version| version == first) {
-            Ok(first)
-        } else {
-            Err(OffscreenError::MixedVersions { texture: id })
-        }
+    ) -> Result<(u32, u32), OffscreenError> {
+        let level = |mip| {
+            let mut versions =
+                (0..imported.layers).map(|layer| self.cell(imported.primary, mip, layer));
+            let first = versions.next().unwrap_or(0);
+            versions.all(|version| version == first).then_some(first)
+        };
+        let version = level(0).ok_or(OffscreenError::MixedVersions { texture: id })?;
+        let mips = (1..imported.mips)
+            .take_while(|&mip| level(mip) == Some(version))
+            .count();
+        Ok((version, u32::try_from(mips).unwrap_or(u32::MAX) + 1))
     }
 
     /// Takes the next version of a cell, and returns the one it had.

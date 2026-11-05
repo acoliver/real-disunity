@@ -352,3 +352,25 @@ fn a_stage_of_the_wrong_kind_is_a_named_error() {
         })
     ));
 }
+
+#[test]
+fn the_storage_buffers_a_kernel_names_come_with_their_places_in_either_form() {
+    use worldrunner_render_program::buffers::ParamName;
+    each_form(|form| {
+        let targets = kernel(form).buffer_targets().unwrap();
+        let places: Vec<_> = targets
+            .iter()
+            .map(|target| (target.set, target.binding))
+            .collect();
+        assert_eq!(places, [(0, 5), (0, 7)]);
+        let names: Vec<_> = targets.into_iter().map(|target| target.name).collect();
+        let expected = match form {
+            Form::Program => [ParamName::Index(5), ParamName::Index(7)],
+            Form::Variant => [
+                ParamName::Named("source".to_owned()),
+                ParamName::Named("result".to_owned()),
+            ],
+        };
+        assert_eq!(names, expected);
+    });
+}

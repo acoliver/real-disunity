@@ -431,3 +431,30 @@ pub fn shader(keyword_names: &[&str], passes: &[PassSpec]) -> SyntheticShader {
     };
     SyntheticShader { shader, chunks }
 }
+
+/// A compute stage built from WGSL, for hosts that test dispatches. `places` are the sets and
+/// bindings the module declares, which `parameters` name; each is its own prepared binding.
+pub fn compute_stage(
+    wgsl: &str,
+    entry: &str,
+    places: &[(u32, u32)],
+    parameters: VariantParameters,
+) -> crate::module::StageProgram {
+    use crate::module::{ResourceBinding, StageKind, StageModule, StageProgram};
+    let bindings = places
+        .iter()
+        .map(|&(set, binding)| ResourceBinding {
+            set,
+            unity_binding: binding,
+            binding,
+            sampler_binding: None,
+        })
+        .collect();
+    let module = StageModule {
+        words: stage_spirv(wgsl, entry, naga::ShaderStage::Compute),
+        entry_point: entry.to_owned(),
+        kind: StageKind::Compute,
+        bindings,
+    };
+    StageProgram::new(module, parameters).expect("a compute stage that parses")
+}

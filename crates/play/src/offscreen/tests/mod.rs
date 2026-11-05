@@ -6,6 +6,7 @@ mod camera;
 mod flush;
 mod frame;
 mod gpu;
+mod kernels;
 mod properties;
 mod shaders;
 mod support;

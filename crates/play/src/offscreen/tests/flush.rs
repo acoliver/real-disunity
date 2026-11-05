@@ -2,27 +2,28 @@
 //! map, a dispatch that copies it into a compute buffer, and the bytes the world gets back.
 //!
 //! The kernel is the shape of the terrain read-back: it reads an R16 float render texture and
-//! writes a storage buffer, and a vector in a constant buffer scales the values. Every expected
+//! writes a storage buffer, and a vector in a constant buffer scales the values. It is stored as
+//! a serialized compute shader object in a synthetic data directory and reaches the host through
+//! the player's decoder, so the flush runs a kernel built the way a player's are. Every expected
 //! value comes from the tint, the clear color and the scale, not from the output.
 
+use std::path::Path;
+
 use glam::{Quat, Vec3};
-use worldrunner_render_program::module::StageProgram;
-use worldrunner_render_program::synthetic::{
-    binding, compute_stage, constant_buffer, slot, vector_member,
-};
-use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
 use worldrunner_world_simulation::graphics::{
     ComputeBufferId, ComputeShaderId, OffscreenWork, PropertyValue, RenderTextureId,
-    ShaderProperties, WorldComputeShader,
+    ShaderProperties,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::OffscreenAdapter;
-use super::super::compute::{ComputeAdapter, ComputeLoadError, ComputeSupply};
+use super::super::compute::ComputeAdapter;
 use super::super::flush::OffscreenHost;
 use super::super::frame::Settings;
+use super::super::kernels::PlayerKernels;
 use super::gpu::{MESH, Quad, SIDE, Synthetic, gpu, shader, target, vector};
+use super::kernels::{copy_object, text_object, write_compute};
 use super::support::{
     camera, compute_buffer, compute_shader, dispatch, renderer_with, snapshot, world,
 };
@@ -35,55 +36,8 @@ const CLEAR: f32 = 0.25;
 /// What the kernel multiplies every height by.
 const SCALE: f32 = 2.0;
 
-const KERNEL: &str = "
-struct Params { scale: vec4<f32> }
-@group(0) @binding(0) var heights: texture_2d<f32>;
-@group(0) @binding(1) var<storage, read_write> output: array<f32>;
-@group(0) @binding(2) var<uniform> params: Params;
-@compute @workgroup_size(2, 2, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    output[id.y * 4u + id.x] = textureLoad(heights, vec2<i32>(id.xy), 0).x * params.scale.x;
-}";
-
-fn copy_kernel() -> StageProgram {
-    let parameters = VariantParameters {
-        constant_buffers: vec![constant_buffer(
-            "Params",
-            16,
-            vec![vector_member("_Scale", 0)],
-        )],
-        bindings: vec![
-            binding(
-                "_Heights",
-                slot(0, 0, 0),
-                ResourceKind::Texture {
-                    sampler: None,
-                    dimension: 4,
-                },
-            ),
-            binding("_Output", slot(0, 1, 0), ResourceKind::Buffer),
-            binding("Params", slot(0, 2, 0), ResourceKind::ConstantBuffer),
-        ],
-    };
-    compute_stage(KERNEL, "main", &[(0, 0), (0, 1), (0, 2)], parameters)
-}
-
-/// The compiled kernels of the shader whose source file is `heights`.
-struct Kernels;
-
-impl ComputeSupply for Kernels {
-    fn load(
-        &mut self,
-        shader: &WorldComputeShader,
-        _: u32,
-    ) -> Result<StageProgram, ComputeLoadError> {
-        match shader.source.file.as_str() {
-            "heights" => Ok(copy_kernel()),
-            _ => Err(ComputeLoadError::NoCompiledCode),
-        }
-    }
-}
-
-fn host() -> OffscreenHost {
+/// A host whose kernels are read from the compute shader objects under `directory`.
+fn host(directory: &Path) -> OffscreenHost {
     let gpu = gpu();
     let settings = Settings {
         light_modes: vec!["Alpha".to_owned()],
@@ -92,7 +46,7 @@ fn host() -> OffscreenHost {
         gpu.runtime,
         gpu.arena,
         OffscreenAdapter::with_supply(Synthetic, settings),
-        ComputeAdapter::new(Kernels),
+        ComputeAdapter::new(PlayerKernels::new(directory)),
     )
 }
 
@@ -171,7 +125,9 @@ fn expected() -> Vec<f32> {
 
 #[test]
 fn a_camera_render_into_a_height_map_then_a_dispatch_that_copies_it_writes_the_buffer_back() {
-    let mut host = host();
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
     let mut world = world();
     let heights = target(&mut world, HEIGHT);
     camera_render(&mut world, heights);
@@ -200,7 +156,9 @@ fn a_camera_render_into_a_height_map_then_a_dispatch_that_copies_it_writes_the_b
 
 #[test]
 fn work_runs_in_the_order_it_was_called() {
-    let mut host = host();
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
     let mut world = world();
     let heights = target(&mut world, HEIGHT);
     let shader = scaling(&mut world);
@@ -229,7 +187,9 @@ fn work_runs_in_the_order_it_was_called() {
 
 #[test]
 fn a_flush_with_no_work_writes_nothing() {
-    let mut host = host();
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
     let mut world = world();
     let snapshot = snapshot(&mut world);
     let outcome = host.flush(&snapshot, &Quad).unwrap();
@@ -238,14 +198,19 @@ fn a_flush_with_no_work_writes_nothing() {
 
 #[test]
 fn a_dispatch_that_cannot_run_is_left_out_by_the_name_of_the_cause() {
-    let mut host = host();
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    write_compute(directory.path(), "text", vec![(1, text_object())]);
+    let mut host = host(directory.path());
     let mut world = world();
     let heights = target(&mut world, HEIGHT);
     camera_render(&mut world, heights);
     let buffer = compute_buffer(&mut world, SIDE * SIDE);
-    // A shader whose kernels the supply does not have.
+    // A shader whose file is not in the data directory, and one compiled for GLSL only.
     let unknown = compute_shader(&mut world, "missing");
     dispatch(&mut world, unknown, (heights, buffer), [2, 2, 1]);
+    let text = compute_shader(&mut world, "text");
+    dispatch(&mut world, text, (heights, buffer), [2, 2, 1]);
     // A kernel that names a texture the dispatch does not set.
     let bare = scaling(&mut world);
     world
@@ -282,6 +247,7 @@ fn a_dispatch_that_cannot_run_is_left_out_by_the_name_of_the_cause() {
             ("dispatch:MissingTexture", 1),
             ("dispatch:NoCompiledCode", 1),
             ("dispatch:UnboundBuffer", 1),
+            ("dispatch:Unreadable", 1),
         ]
     );
     assert!(outcome.writes.is_empty());

@@ -110,6 +110,11 @@ pub fn stage_spirv(wgsl: &str, entry: &str, stage: naga::ShaderStage) -> Vec<u32
     spv::write_vec(&module, &info, &options, Some(&pipeline)).unwrap()
 }
 
+/// SPIR-V of the compute entry point `entry` of a WGSL module.
+pub fn compute_spirv(wgsl: &str, entry: &str) -> Vec<u32> {
+    stage_spirv(wgsl, entry, naga::ShaderStage::Compute)
+}
+
 /// A float vector member of a constant buffer.
 pub fn vector_member(name: &str, offset: i32) -> BufferMember {
     BufferMember {
@@ -451,7 +456,7 @@ pub fn compute_stage(
         })
         .collect();
     let module = StageModule {
-        words: stage_spirv(wgsl, entry, naga::ShaderStage::Compute),
+        words: compute_spirv(wgsl, entry),
         entry_point: entry.to_owned(),
         kind: StageKind::Compute,
         bindings,

@@ -147,16 +147,18 @@ impl ShaderLoader {
 
     /// The file under the data directory, refusing a path that leaves it.
     fn path_of(&self, file: &str) -> Result<PathBuf, ShaderLoadError> {
-        let outside = || ShaderLoadError::OutsideDataDirectory {
+        data_path(&self.data_directory, file).ok_or_else(|| ShaderLoadError::OutsideDataDirectory {
             file: file.to_owned(),
-        };
-        let relative = Path::new(file);
-        let plain = relative
-            .components()
-            .all(|part| matches!(part, Component::Normal(_)));
-        if file.is_empty() || file.contains('\\') || !plain {
-            return Err(outside());
-        }
-        Ok(self.data_directory.join(relative))
+        })
     }
+}
+
+/// The file `file` names under `directory`, or `None` for a path that leaves it: an absolute
+/// one, one with `..` or a backslash, or an empty one.
+pub(super) fn data_path(directory: &Path, file: &str) -> Option<PathBuf> {
+    let relative = Path::new(file);
+    let plain = relative
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)));
+    (!file.is_empty() && !file.contains('\\') && plain).then(|| directory.join(relative))
 }

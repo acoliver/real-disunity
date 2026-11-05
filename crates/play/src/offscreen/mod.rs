@@ -51,6 +51,7 @@ mod compute;
 mod flush;
 mod frame;
 mod ids;
+mod kernels;
 mod properties;
 mod shaders;
 
@@ -72,4 +73,5 @@ pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
 };
+pub use kernels::PlayerKernels;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};

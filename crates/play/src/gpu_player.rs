@@ -33,7 +33,7 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    AssetError, Assets, ComputeAdapter, NoKernels, OffscreenAdapter, OffscreenHost, Report,
+    AssetError, Assets, ComputeAdapter, OffscreenAdapter, OffscreenHost, PlayerKernels, Report,
     Settings,
 };
 
@@ -235,7 +235,7 @@ impl PlayerGpu {
             runtime,
             arena,
             OffscreenAdapter::new(data, settings),
-            ComputeAdapter::new(NoKernels),
+            ComputeAdapter::new(PlayerKernels::new(data)),
         );
         Ok(Self {
             offscreen: Rc::new(RefCell::new(offscreen)),

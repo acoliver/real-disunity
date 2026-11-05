@@ -28,14 +28,18 @@ use super::ids;
 use super::properties::values;
 
 /// Why a kernel could not be loaded.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ComputeLoadError {
     #[error("the shader has no kernel {0}")]
     NoSuchKernel(u32),
     #[error("the shader's compiled code is not in the player")]
     NoCompiledCode,
+    #[error("the kernel has no variant for no keywords")]
+    NoVariant,
     #[error("{0}")]
     Unreadable(String),
+    #[error("the kernel does not build a stage program: {0}")]
+    Program(String),
 }
 
 impl ComputeLoadError {
@@ -45,7 +49,9 @@ impl ComputeLoadError {
         match self {
             Self::NoSuchKernel(_) => "NoSuchKernel",
             Self::NoCompiledCode => "NoCompiledCode",
+            Self::NoVariant => "NoVariant",
             Self::Unreadable(_) => "Unreadable",
+            Self::Program(_) => "Program",
         }
     }
 }

@@ -36,4 +36,3 @@ fn scene_metadata_direction(direction: vec3<f32>) -> vec3<f32> {
     if material.contact_surface.z > 0.0 { return direction; }
     return normalize(direction);
 }
-

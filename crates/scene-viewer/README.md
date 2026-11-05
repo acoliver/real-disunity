@@ -4,6 +4,17 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Host timers
+
+Both retained host interfaces provide `timer_at`, `timer_every`, `timer_now` and
+`cancel_timer`. Drivers receive `RetainedEvent::Timer { handle }` even during
+presentation pauses. The service bounds live timers at `MAX_HOST_TIMERS` (256)
+and returns typed `TimerError` admission errors. Repeating timers skip missed
+intervals. Windowless sessions freeze the host clock at initialization; use
+`WindowlessRetained::advance_time` before `frame` or `poll` to advance timers
+and update ticks. Shader time remains independent. See the
+[delivery and clock contract](../../dev-docs/rendering/frame-executor.md#retained-host-timers).
+
 ## Picking the presented scene
 
 `RetainedHost::pick([x, y], include)` and `RetainedEventHost::pick` query the

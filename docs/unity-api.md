@@ -163,6 +163,14 @@ These types keep their state in managed memory. Nothing in this section is drawn
 | `MeshTopology`, `UnityEngine.Rendering.IndexFormat` | `MeshTopology` has Triangles (0), Quads (2), Lines (3), LineStrip (4) and Points (5); `IndexFormat` has UInt16 (0) and UInt32 (1). `Mesh` stores any topology and the renderer does not draw them yet. |
 | `MetadataValue`, `BatchCullingContext`, `BatchCullingOutput`, `BatchCullingOutputDrawCommands`, `BatchDrawCommand`, `BatchDrawRange`, `BatchFilterSettings` | Structs with the fields the game's culling callback reads and writes. `BatchFilterSettings` defaults to no shadow casting and no shadow receiving. |
 
+## Reading offscreen graphics from a host
+
+A host that draws what scripts record reads one `GraphicsSnapshot` (`worldrunner_world_simulation::graphics`) for each frame. It holds the offscreen work in call order (`Camera.Render` into a render texture, `Graphics.Blit`, `Graphics.CopyTexture` and `ComputeShader.Dispatch`), the cameras those renders name with their settings and pose, the mesh renderers those cameras may draw, the materials and shaders of the blits and renderers, every live render texture, the global shader state, and the compute shaders and compute buffers (contents included) that the dispatches name. A texture a dispatch took from the global shader state is already resolved in its record.
+
+- A host whose world is in its own process calls `GraphicsSnapshot::take(&mut World)`.
+- A host that loads the engine image calls `DisunityHost::graphics_snapshot()`, and a GPU flush handler calls `GpuFlush::snapshot()`. Both drain the pending work, so a second call returns only work recorded after the first, and a frame with no work gives an empty snapshot.
+- Across the ABI the call is `disunity_graphics_snapshot(world, buffer, capacity, length)`. The image encodes the snapshot with `graphics::snapshot_wire::encode` (a marker, a version and a length, then every field, floats bit for bit) and the host decodes it with `decode`, which refuses truncated or corrupt bytes, another version and any length over its cap with a named `WireError`. A call with a zero `capacity` reports the length and takes the work into the image; the call that copies hands the bytes out. A `capacity` that is too small fails and loses nothing, and work recorded between the two calls comes with the next snapshot. A snapshot nobody copied is dropped when the world advances.
+
 ## Jobs and native containers
 
 | Type | Supported |

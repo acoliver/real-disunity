@@ -20,7 +20,7 @@ use worldrunner_unity_serialized::shader_state::ShaderState;
 use worldrunner_unity_serialized::spirv_prep::prepare_stages;
 use worldrunner_unity_serialized::{SerializedError, smolv};
 
-use crate::module::{ModuleError, StageKind, StageModule, StageProgram};
+use crate::module::{ModuleError, StageKind, StageModule, StageProgram, entry_point_names};
 use crate::variant::{declared_keywords, select_variant};
 
 /// Which pass of the shader a draw runs. The crate names no tag key and no tag value.
@@ -308,31 +308,8 @@ fn stage_words(record: &[u8]) -> Result<RecordStages, SerializedError> {
     })
 }
 
-const OP_ENTRY_POINT: u32 = 15;
-const FIRST_INSTRUCTION: usize = 5;
-
 /// The name of the module's only entry point.
 fn entry_point(words: &[u32]) -> Option<String> {
-    let mut found = None;
-    let mut at = FIRST_INSTRUCTION;
-    while let Some(&head) = words.get(at) {
-        let length = usize::try_from(head >> 16).ok().filter(|&n| n > 0)?;
-        let instruction = words.get(at..at + length)?;
-        if head & 0xffff == OP_ENTRY_POINT {
-            let bytes: Vec<u8> = instruction
-                .get(3..)?
-                .iter()
-                .flat_map(|word| word.to_le_bytes())
-                .take_while(|&byte| byte != 0)
-                .collect();
-            if found
-                .replace(String::from_utf8_lossy(&bytes).into_owned())
-                .is_some()
-            {
-                return None;
-            }
-        }
-        at += length;
-    }
-    found
+    let mut names = entry_point_names(words);
+    (names.len() == 1).then(|| names.remove(0))
 }

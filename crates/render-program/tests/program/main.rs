@@ -4,6 +4,7 @@ mod arena;
 mod budget;
 mod common;
 mod compute;
+mod compute_kernel;
 mod constants;
 mod conventions;
 mod drawn_state;

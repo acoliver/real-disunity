@@ -4,6 +4,7 @@ mod arena;
 mod bind;
 mod budget;
 pub mod buffers;
+pub mod compute_kernel;
 pub mod constants;
 mod create;
 mod declare;

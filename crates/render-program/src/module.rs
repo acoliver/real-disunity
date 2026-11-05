@@ -176,6 +176,38 @@ impl StageProgram {
     }
 }
 
+const OP_ENTRY_POINT: u32 = 15;
+const FIRST_INSTRUCTION: usize = 5;
+
+/// The names of the entry points of a SPIR-V module, in the order it declares them. Words that
+/// do not hold well-formed instructions end the list.
+#[must_use]
+pub fn entry_point_names(words: &[u32]) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut at = FIRST_INSTRUCTION;
+    while let Some(&head) = words.get(at) {
+        let Some(instruction) = usize::try_from(head >> 16)
+            .ok()
+            .filter(|&length| length > 0)
+            .and_then(|length| words.get(at..at + length))
+        else {
+            break;
+        };
+        if head & 0xffff == OP_ENTRY_POINT {
+            let bytes: Vec<u8> = instruction
+                .get(3..)
+                .unwrap_or_default()
+                .iter()
+                .flat_map(|word| word.to_le_bytes())
+                .take_while(|&byte| byte != 0)
+                .collect();
+            names.push(String::from_utf8_lossy(&bytes).into_owned());
+        }
+        at += instruction.len();
+    }
+    names
+}
+
 fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     payload
         .downcast_ref::<&str>()

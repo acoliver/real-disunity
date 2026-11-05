@@ -1,6 +1,6 @@
 use super::{Device, DrawError, RenderScene, SceneGpu, ScenePipelines};
 
-fn dynamic_refused(error: crate::dynamic::DynamicError) -> worldrunner_render_post::FrameError {
+fn dynamic_refused(error: &crate::dynamic::DynamicError) -> worldrunner_render_post::FrameError {
     worldrunner_render_post::FrameError::FeaturePreparation {
         feature: "dynamic quads",
         reason: error.to_string(),
@@ -95,7 +95,7 @@ impl SceneGpu {
     ) -> Result<(), worldrunner_render_post::FrameError> {
         self.dynamic
             .prepare_for(&mut self.unlit, pipelines)
-            .map_err(dynamic_refused)?;
+            .map_err(|error| dynamic_refused(&error))?;
         self.retain_dynamic(encoder, pipelines)
     }
 
@@ -108,7 +108,7 @@ impl SceneGpu {
     ) -> Result<(), worldrunner_render_post::FrameError> {
         self.dynamic
             .retain(encoder, pipelines)
-            .map_err(dynamic_refused)
+            .map_err(|error| dynamic_refused(&error))
     }
 
     #[cfg(test)]

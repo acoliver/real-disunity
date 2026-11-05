@@ -223,9 +223,8 @@ pub struct SceneGpu {
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
-    committed_frame_group: std::rc::Rc<RefCell<BindGroup>>,
-    /// The frame slot whose uniform `committed_frame_group` binds.
-    committed_frame_slot: std::rc::Rc<Cell<usize>>,
+    /// The committed frame group and the frame slot whose uniform it binds.
+    committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
@@ -313,7 +312,6 @@ impl SceneGpu {
             prepared_terrain(device, authority, &prepared, pipelines, &sampler, previous)?;
         let (decals, frame_slots) =
             decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
-        let (frame_buffer, frame_group) = frame_slots[0].clone();
         let gpu = Self {
             pass_counters: pass_statistics::PassCounters::default(),
             effect_statistics: std::rc::Rc::default(),
@@ -328,11 +326,10 @@ impl SceneGpu {
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             water: water_bodies(scene),
             water_inputs: crate::water::surface::inputs(scene, &views),
-            committed_frame_group: std::rc::Rc::new(RefCell::new(frame_group.clone())),
-            committed_frame_slot: std::rc::Rc::new(Cell::new(0)),
+            committed_frame_group: std::rc::Rc::new(RefCell::new((frame_slots[0].1.clone(), 0))),
+            frame_buffer: frame_slots[0].0.clone(),
+            frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            frame_buffer,
-            frame_group,
             materials,
             meshes,
             mesh_selection: prepared.selection,
@@ -362,8 +359,7 @@ impl SceneGpu {
         self.decal_counts
             .set([decals::selected_count(&bytes), self.decals.count()]);
         self.frame.set(Some(frame));
-        *self.committed_frame_group.borrow_mut() = self.decals.group();
-        self.committed_frame_slot.set(self.decals.slot);
+        *self.committed_frame_group.borrow_mut() = (self.decals.group(), self.decals.slot);
         *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
         queue.write_buffer(
@@ -474,7 +470,7 @@ impl SceneGpu {
         if self.drawing_in_transaction() {
             self.decals.group()
         } else {
-            self.committed_frame_group.borrow().clone()
+            self.committed_frame_group.borrow().0.clone()
         }
     }
 
@@ -484,7 +480,7 @@ impl SceneGpu {
         if self.drawing_in_transaction() {
             self.decals.slot
         } else {
-            self.committed_frame_slot.get()
+            self.committed_frame_group.borrow().1
         }
     }
 

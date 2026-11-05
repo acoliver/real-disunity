@@ -64,11 +64,11 @@ fn program(runtime: &ProgramRuntime, fragment: &str) -> GraphicsProgram {
         .unwrap()
 }
 
-fn plain(write_mask: ColorWrites) -> Option<ColorState> {
-    Some(ColorState {
+fn plain(write_mask: ColorWrites) -> ColorState {
+    ColorState {
         blend: None,
         write_mask,
-    })
+    }
 }
 
 fn state(colors: Vec<Option<ColorState>>) -> RenderState {
@@ -172,9 +172,9 @@ fn assert_filled(image: &[u8], want: [f64; 4], what: &str) {
 #[test]
 fn an_empty_write_mask_leaves_an_attachment_the_fragment_does_not_write_as_it_was() {
     let mask = state(vec![
-        plain(ColorWrites::ALL),
-        plain(ColorWrites::empty()),
-        plain(ColorWrites::empty()),
+        Some(plain(ColorWrites::ALL)),
+        Some(plain(ColorWrites::empty())),
+        Some(plain(ColorWrites::empty())),
     ]);
     let [first, second, third] = draw_three("fs_one", &mask).unwrap();
     assert_filled(&first, [0.25, 0.5, 0.75, 1.0], "target 0");
@@ -185,9 +185,9 @@ fn an_empty_write_mask_leaves_an_attachment_the_fragment_does_not_write_as_it_wa
 #[test]
 fn each_target_has_its_own_write_mask() {
     let masks = state(vec![
-        plain(ColorWrites::GREEN | ColorWrites::ALPHA),
-        plain(ColorWrites::RED | ColorWrites::GREEN),
-        plain(ColorWrites::empty()),
+        Some(plain(ColorWrites::GREEN | ColorWrites::ALPHA)),
+        Some(plain(ColorWrites::RED | ColorWrites::GREEN)),
+        Some(plain(ColorWrites::empty())),
     ]);
     let [first, second, third] = draw_three("fs_two", &masks).unwrap();
     assert_filled(
@@ -206,12 +206,12 @@ fn each_target_has_its_own_write_mask() {
 #[test]
 fn each_target_has_its_own_blend() {
     let blended = state(vec![
-        plain(ColorWrites::ALL),
+        Some(plain(ColorWrites::ALL)),
         Some(ColorState {
             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
             write_mask: ColorWrites::ALL,
         }),
-        plain(ColorWrites::empty()),
+        Some(plain(ColorWrites::empty())),
     ]);
     let [first, second, _] = draw_three("fs_two", &blended).unwrap();
     assert_filled(&first, [0.25, 0.5, 0.75, 1.0], "target 0 replaces");
@@ -235,7 +235,7 @@ fn a_state_that_does_not_describe_each_attachment_is_refused_by_name() {
     let mut runtime = gpu.runtime();
     let signature = TargetSignature::attachments(&[RGBA8; 3], None, 1).unwrap();
     let area = [-1.0, -1.0, 1.0, 1.0];
-    let one = state(vec![plain(ColorWrites::ALL)]);
+    let one = state(vec![Some(plain(ColorWrites::ALL))]);
     assert_eq!(
         prepare(&gpu, &mut runtime, "fs_one", &one, (area, signature)).unwrap_err(),
         ProgramError::ColorStates {
@@ -244,9 +244,9 @@ fn a_state_that_does_not_describe_each_attachment_is_refused_by_name() {
         }
     );
     let unwritten = state(vec![
-        plain(ColorWrites::ALL),
+        Some(plain(ColorWrites::ALL)),
         None,
-        plain(ColorWrites::empty()),
+        Some(plain(ColorWrites::empty())),
     ]);
     assert_eq!(
         prepare(&gpu, &mut runtime, "fs_one", &unwritten, (area, signature)).unwrap_err(),
@@ -277,6 +277,11 @@ fn a_signature_describes_one_to_four_attachments_of_a_power_of_two_samples() {
         TargetSignature::attachments(&[], None, 1).unwrap_err(),
         ProgramError::UnsupportedTarget(UnsupportedTarget::ColorAttachments { count: 0 })
     ));
+}
+
+#[test]
+fn a_signature_admits_the_power_of_two_sample_counts_and_names_the_others() {
+    let colors = |count| vec![RGBA8; count];
     for samples in [3, 6, 32] {
         assert!(matches!(
             TargetSignature::attachments(&colors(1), None, samples).unwrap_err(),
@@ -303,19 +308,46 @@ fn a_signature_describes_one_to_four_attachments_of_a_power_of_two_samples() {
 }
 
 #[test]
+fn a_signature_hands_back_the_depth_format_it_was_given_and_refuses_the_ones_it_cannot_use() {
+    for format in [
+        TextureFormat::Depth16Unorm,
+        TextureFormat::Depth24Plus,
+        TextureFormat::Depth32Float,
+    ] {
+        let signature = TargetSignature::attachments(&[RGBA8], Some(format), 1).unwrap();
+        assert_eq!(signature.depth(), Some(format));
+    }
+    assert_eq!(
+        TargetSignature::attachments(&[RGBA8], None, 1)
+            .unwrap()
+            .depth(),
+        None
+    );
+    assert!(matches!(
+        TargetSignature::attachments(&[RGBA8], Some(TextureFormat::Depth24PlusStencil8), 1)
+            .unwrap_err(),
+        ProgramError::UnsupportedTarget(UnsupportedTarget::Stencil { .. })
+    ));
+    assert!(matches!(
+        TargetSignature::attachments(&[RGBA8], Some(RGBA8), 1).unwrap_err(),
+        ProgramError::UnsupportedTarget(UnsupportedTarget::NotDepth { .. })
+    ));
+}
+
+#[test]
 fn the_plain_draw_path_still_refuses_what_it_cannot_record() {
     let gpu = Gpu::new();
     let mut runtime = gpu.runtime();
     let program = program(&runtime, "fs_one");
     let input = rectangle(&gpu, [-1.0, -1.0, 1.0, 1.0]);
-    let buffer = runtime.create_buffer("quad", &vec![0; 48]).unwrap();
+    let buffer = runtime.create_buffer("quad", &[0; 48]).unwrap();
     let inputs = [worldrunner_render_program::runtime::VertexInput {
         buffer,
         stride: 8,
         step: wgpu::VertexStepMode::Vertex,
         attributes: input.attributes,
     }];
-    let state = state(vec![plain(ColorWrites::ALL)]);
+    let state = state(vec![Some(plain(ColorWrites::ALL))]);
     let packet = worldrunner_render_program::runtime::DrawPacket {
         program: &program,
         state: &state,
@@ -335,29 +367,9 @@ fn the_plain_draw_path_still_refuses_what_it_cannot_record() {
     ));
 }
 
-/// A 4x multisampled colour attachment with depth, resolved into a single-sample texture, over
-/// which a draw covers the left half of a pixel column: `x` from -1 to -0.5 of a 4 pixel row.
-#[test]
-fn a_four_sample_draw_resolves_a_partly_covered_pixel_to_its_coverage() {
-    let gpu = Gpu::new();
-    let mut runtime = gpu.runtime();
-    let signature = TargetSignature::attachments(&[RGBA8], Some(DEPTH), 4).unwrap();
-    // Clip x from -1 to -0.5 covers the first pixel column of a four pixel row; the
-    // edge at -0.5 lies on the pixel boundary. Covering -1..-0.75 covers half of it.
-    let mut opaque = state(vec![plain(ColorWrites::ALL)]);
-    opaque.depth = Some(worldrunner_render_program::state::DepthState {
-        test: wgpu::CompareFunction::LessEqual,
-        write: false,
-        bias: wgpu::DepthBiasState::default(),
-    });
-    let draw = prepare(
-        &gpu,
-        &mut runtime,
-        "fs_one",
-        &opaque,
-        ([-1.0, -1.0, -0.75, 1.0], signature),
-    )
-    .unwrap();
+/// Draws `draw` into a cleared 4x colour attachment with depth and returns the bytes of the
+/// single-sample texture it resolves into.
+fn resolved_pixels(gpu: &Gpu, draw: &PreparedProgramDraw) -> Vec<u8> {
     let multisampled = gpu.texture(SIZE, RGBA8, 4);
     let resolved = gpu.texture(SIZE, RGBA8, 1);
     let depth = gpu.texture(SIZE, DEPTH, 4);
@@ -391,7 +403,33 @@ fn a_four_sample_draw_resolves_a_partly_covered_pixel_to_its_coverage() {
         draw.record(&mut pass);
     }
     frame.finish().submit().unwrap();
-    let image = gpu.read(&resolved);
+    gpu.read(&resolved)
+}
+
+/// A 4x multisampled colour attachment with depth, resolved into a single-sample texture, over
+/// which a draw covers the left half of a pixel column: `x` from -1 to -0.5 of a 4 pixel row.
+#[test]
+fn a_four_sample_draw_resolves_a_partly_covered_pixel_to_its_coverage() {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let signature = TargetSignature::attachments(&[RGBA8], Some(DEPTH), 4).unwrap();
+    // Clip x from -1 to -0.5 covers the first pixel column of a four pixel row; the
+    // edge at -0.5 lies on the pixel boundary. Covering -1..-0.75 covers half of it.
+    let mut opaque = state(vec![Some(plain(ColorWrites::ALL))]);
+    opaque.depth = Some(worldrunner_render_program::state::DepthState {
+        test: wgpu::CompareFunction::LessEqual,
+        write: false,
+        bias: wgpu::DepthBiasState::default(),
+    });
+    let draw = prepare(
+        &gpu,
+        &mut runtime,
+        "fs_one",
+        &opaque,
+        ([-1.0, -1.0, -0.75, 1.0], signature),
+    )
+    .unwrap();
+    let image = resolved_pixels(&gpu, &draw);
     let texel = |x: usize, y: usize| &image[(y * SIZE as usize + x) * 4..][..4];
     // The four standard sample positions have two of four with x below 0.5 of the pixel, so
     // half the samples are covered: the resolve is the average of the draw and the clear.
@@ -412,7 +450,7 @@ fn a_four_sample_draw_resolves_a_partly_covered_pixel_to_its_coverage() {
 fn a_four_sample_signature_is_part_of_the_pipeline_identity() {
     let gpu = Gpu::new();
     let mut runtime = gpu.runtime();
-    let opaque = state(vec![plain(ColorWrites::ALL)]);
+    let opaque = state(vec![Some(plain(ColorWrites::ALL))]);
     let area = [-1.0, -1.0, 1.0, 1.0];
     let single = TargetSignature::attachments(&[RGBA8], None, 1).unwrap();
     let multi = TargetSignature::attachments(&[RGBA8], None, 4).unwrap();

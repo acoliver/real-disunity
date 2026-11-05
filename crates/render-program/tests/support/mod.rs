@@ -156,10 +156,4 @@ impl Gpu {
             .copied()
             .collect()
     }
-
-    pub fn completes(&self) {
-        self.device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-    }
 }

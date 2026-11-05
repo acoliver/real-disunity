@@ -203,7 +203,7 @@ fn register(runtime: &ProgramRuntime, source: &Arc<str>) -> Result<GraphicsProgr
     runtime.graphics_program(&vertex, &fragment)
 }
 
-/// Straight alpha over the first target, LessEqual depth without a depth write, no culling and
+/// Straight alpha over the first target, `LessEqual` depth without a depth write, no culling and
 /// counter-clockwise fronts. The attachments after the first belong to other materials, so their
 /// write masks are empty and the fragment stage, which writes location zero only, leaves them as
 /// they were.

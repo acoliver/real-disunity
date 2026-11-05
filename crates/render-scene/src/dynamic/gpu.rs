@@ -124,22 +124,7 @@ impl DynamicGpu {
             .iter()
             .map(|texture| texture.create_view(&TextureViewDescriptor::default()))
             .collect();
-        let indices = self
-            .indices
-            .get_or_insert_with(|| {
-                let indices: Vec<_> = [0u32, 1, 2, 0, 2, 3]
-                    .into_iter()
-                    .flat_map(u32::to_le_bytes)
-                    .collect();
-                upload_buffer(
-                    device,
-                    queue,
-                    "dynamic quad indices",
-                    BufferUsages::INDEX,
-                    &indices,
-                )
-            })
-            .clone();
+        let indices = self.quad_indices(device, queue);
         let material_bindings = QuadBindings {
             placeholder: (bindings.placeholder, &placeholder),
             textures: (&self.textures, &views),
@@ -172,6 +157,25 @@ impl DynamicGpu {
         self.frames = bindings.frames;
         self.prepared = prepared;
         Ok(())
+    }
+
+    /// The index buffer of two triangles over a quad's four corners, made once and shared.
+    fn quad_indices(&mut self, device: &Device, queue: &Queue) -> Buffer {
+        self.indices
+            .get_or_insert_with(|| {
+                let indices: Vec<_> = [0u32, 1, 2, 0, 2, 3]
+                    .into_iter()
+                    .flat_map(u32::to_le_bytes)
+                    .collect();
+                upload_buffer(
+                    device,
+                    queue,
+                    "dynamic quad indices",
+                    BufferUsages::INDEX,
+                    &indices,
+                )
+            })
+            .clone()
     }
 
     /// Prepares the quads for the pass `pipelines` describe, if they are not yet, so the frame

@@ -31,8 +31,37 @@ pub const MAX_COLOR_ATTACHMENTS: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TargetSignature {
     colors: [Option<wgpu::TextureFormat>; MAX_COLOR_ATTACHMENTS],
-    depth: Option<wgpu::TextureFormat>,
+    depth: Option<DepthFormat>,
     samples: u32,
+}
+
+/// The depth formats a signature admits, which are the ones without a stencil aspect. Keeping
+/// them as a byte holds a signature, and so an error that names two of them, within the size
+/// the workspace lints allow a returned error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum DepthFormat {
+    Depth16Unorm,
+    Depth24Plus,
+    Depth32Float,
+}
+
+impl DepthFormat {
+    fn of(format: wgpu::TextureFormat) -> Option<Self> {
+        match format {
+            wgpu::TextureFormat::Depth16Unorm => Some(Self::Depth16Unorm),
+            wgpu::TextureFormat::Depth24Plus => Some(Self::Depth24Plus),
+            wgpu::TextureFormat::Depth32Float => Some(Self::Depth32Float),
+            _ => None,
+        }
+    }
+
+    fn format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Depth16Unorm => wgpu::TextureFormat::Depth16Unorm,
+            Self::Depth24Plus => wgpu::TextureFormat::Depth24Plus,
+            Self::Depth32Float => wgpu::TextureFormat::Depth32Float,
+        }
+    }
 }
 
 impl TargetSignature {
@@ -89,14 +118,7 @@ impl TargetSignature {
         depth: Option<wgpu::TextureFormat>,
         samples: u32,
     ) -> Result<Self, ProgramError> {
-        if let Some(format) = depth {
-            if !format.has_depth_aspect() {
-                return Err(UnsupportedTarget::NotDepth { format }.into());
-            }
-            if format.has_stencil_aspect() {
-                return Err(UnsupportedTarget::Stencil { format }.into());
-            }
-        }
+        let depth = depth.map(depth_format).transpose()?;
         let mut slots = [None; MAX_COLOR_ATTACHMENTS];
         for (slot, format) in slots.iter_mut().zip(colors) {
             *slot = Some(*format);
@@ -126,13 +148,23 @@ impl TargetSignature {
 
     #[must_use]
     pub fn depth(&self) -> Option<wgpu::TextureFormat> {
-        self.depth
+        self.depth.map(DepthFormat::format)
     }
 
     #[must_use]
     pub fn samples(&self) -> u32 {
         self.samples
     }
+}
+
+fn depth_format(format: wgpu::TextureFormat) -> Result<DepthFormat, ProgramError> {
+    if !format.has_depth_aspect() {
+        return Err(UnsupportedTarget::NotDepth { format }.into());
+    }
+    if format.has_stencil_aspect() {
+        return Err(UnsupportedTarget::Stencil { format }.into());
+    }
+    DepthFormat::of(format).ok_or_else(|| UnsupportedTarget::NotDepth { format }.into())
 }
 
 /// One draw of triangles, without the target it draws into.
@@ -309,18 +341,7 @@ impl ProgramRuntime {
         parts: Option<&MaterialParts<'_>>,
     ) -> Result<(RecordableDraw, Vec<Arc<Reservation>>), ProgramError> {
         self.authority.check_device()?;
-        if signature.samples() != 1 {
-            return Err(UnsupportedTarget::Multisampled {
-                samples: signature.samples(),
-            }
-            .into());
-        }
-        if signature.color_count() != 1 {
-            return Err(UnsupportedTarget::ColorAttachments {
-                count: signature.color_count(),
-            }
-            .into());
-        }
+        check_plain(signature)?;
         let color = packet.state.check_drawable()?;
         let (snapshots, instances) = parts.map_or((&[][..], 0..1), |parts| {
             (parts.snapshots, parts.instances.clone())
@@ -352,22 +373,7 @@ impl ProgramRuntime {
             .iter()
             .map(|input| Ok(self.store.buffer(input.buffer)?.buffer.clone()))
             .collect::<Result<_, ProgramError>>()?;
-        let geometry = match packet.geometry {
-            Geometry::Vertices { first, count } => PreparedGeometry::Vertices { first, count },
-            Geometry::Indexed {
-                buffer,
-                format,
-                first,
-                count,
-                base_vertex,
-            } => PreparedGeometry::Indexed {
-                buffer: self.store.buffer(buffer)?.buffer.clone(),
-                format,
-                first,
-                count,
-                base_vertex,
-            },
-        };
+        let geometry = self.prepared_geometry(packet.geometry)?;
         let draw = RecordableDraw {
             signature,
             pipeline,
@@ -383,6 +389,25 @@ impl ProgramRuntime {
                 .map(|snapshot| snapshot.reservation.clone()),
         );
         Ok((draw, shares))
+    }
+
+    fn prepared_geometry(&self, geometry: Geometry) -> Result<PreparedGeometry, ProgramError> {
+        Ok(match geometry {
+            Geometry::Vertices { first, count } => PreparedGeometry::Vertices { first, count },
+            Geometry::Indexed {
+                buffer,
+                format,
+                first,
+                count,
+                base_vertex,
+            } => PreparedGeometry::Indexed {
+                buffer: self.store.buffer(buffer)?.buffer.clone(),
+                format,
+                first,
+                count,
+                base_vertex,
+            },
+        })
     }
 
     /// Shares of the reservations of every buffer and texture the packet draws with.
@@ -437,29 +462,9 @@ impl ProgramRuntime {
         request: &PipelineRequest<'_>,
         (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
     ) -> wgpu::RenderPipeline {
-        let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = request
-            .layouts
-            .iter()
-            .map(|layout| {
-                Some(wgpu::VertexBufferLayout {
-                    array_stride: layout.stride,
-                    step_mode: layout.step,
-                    attributes: layout.attributes,
-                })
-            })
-            .collect();
+        let layouts = request.vertex_buffers();
+        let targets = request.color_targets();
         let (state, signature) = (request.state, request.signature);
-        let targets: Vec<_> = signature
-            .colors()
-            .zip(request.colors)
-            .map(|(format, color)| {
-                Some(wgpu::ColorTargetState {
-                    format,
-                    blend: color.blend,
-                    write_mask: color.write_mask,
-                })
-            })
-            .collect();
         let depth = state.depth.unwrap_or(DepthState {
             test: wgpu::CompareFunction::Always,
             write: false,
@@ -481,7 +486,7 @@ impl ProgramRuntime {
                     cull_mode: state.raster.cull,
                     ..wgpu::PrimitiveState::default()
                 },
-                depth_stencil: signature.depth.map(|format| wgpu::DepthStencilState {
+                depth_stencil: signature.depth().map(|format| wgpu::DepthStencilState {
                     format,
                     depth_write_enabled: Some(depth.write),
                     depth_compare: Some(depth.test),
@@ -523,6 +528,33 @@ pub(crate) struct PipelineRequest<'a> {
 }
 
 impl PipelineRequest<'_> {
+    fn vertex_buffers(&self) -> Vec<Option<wgpu::VertexBufferLayout<'_>>> {
+        self.layouts
+            .iter()
+            .map(|layout| {
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: layout.stride,
+                    step_mode: layout.step,
+                    attributes: layout.attributes,
+                })
+            })
+            .collect()
+    }
+
+    fn color_targets(&self) -> Vec<Option<wgpu::ColorTargetState>> {
+        self.signature
+            .colors()
+            .zip(self.colors)
+            .map(|(format, color)| {
+                Some(wgpu::ColorTargetState {
+                    format,
+                    blend: color.blend,
+                    write_mask: color.write_mask,
+                })
+            })
+            .collect()
+    }
+
     /// The pipeline's content key: stage sources, layout, the whole state, the target signature
     /// and the vertex layouts.
     fn key(&self) -> blake3::Hash {
@@ -536,6 +568,23 @@ impl PipelineRequest<'_> {
         }
         key.finish()
     }
+}
+
+/// The plain and material draws record into one single-sample colour attachment.
+fn check_plain(signature: TargetSignature) -> Result<(), ProgramError> {
+    if signature.samples() != 1 {
+        return Err(UnsupportedTarget::Multisampled {
+            samples: signature.samples(),
+        }
+        .into());
+    }
+    if signature.color_count() != 1 {
+        return Err(UnsupportedTarget::ColorAttachments {
+            count: signature.color_count(),
+        }
+        .into());
+    }
+    Ok(())
 }
 
 /// The instance strides an instance-rate vertex buffer must hold for `instances`.

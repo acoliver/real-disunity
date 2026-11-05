@@ -527,8 +527,18 @@ fn render_cleared(
         });
         draw(&mut pass);
     }
-    let staging: Vec<_> = attachments
-        .results()
+    let staging = copy_results(device, &mut encoder, attachments.results());
+    let index = encoder.finish().submit().unwrap();
+    read_results(device, index, staging)
+}
+
+/// Copies each single-sample attachment into a mappable buffer with its rows padded.
+fn copy_results(
+    device: &Device,
+    encoder: &mut wgpu::CommandEncoder,
+    results: &[Texture],
+) -> Vec<(Buffer, usize, usize)> {
+    results
         .iter()
         .map(|texture| {
             let row = SIZE * texture.format().block_copy_size(None).unwrap();
@@ -553,8 +563,15 @@ fn render_cleared(
             );
             (buffer, row as usize, padded as usize)
         })
-        .collect();
-    let index = encoder.finish().submit().unwrap();
+        .collect()
+}
+
+/// Waits for the submission and returns each attachment's bytes without the row padding.
+fn read_results(
+    device: &Device,
+    index: wgpu::SubmissionIndex,
+    staging: Vec<(Buffer, usize, usize)>,
+) -> Vec<Vec<u8>> {
     for (buffer, ..) in &staging {
         buffer
             .slice(..)
@@ -577,186 +594,6 @@ fn render_cleared(
                 .collect()
         })
         .collect()
-}
-
-/// The fixed unlit-alpha path as it was before dynamic quads drew through the program runtime.
-struct Legacy {
-    pipeline: RenderPipeline,
-    draws: Vec<LegacyDraw>,
-    indices: Buffer,
-    frame: BindGroup,
-}
-
-struct LegacyDraw {
-    vertices: Buffer,
-    instance: Buffer,
-    tint: Buffer,
-    count: u32,
-    material: BindGroup,
-}
-
-impl Legacy {
-    fn new(
-        context: &GpuContext,
-        pipelines: &ScenePipelines,
-        textures: &[SceneTexture],
-        quads: &[DynamicQuad],
-        view: &SceneView,
-    ) -> Self {
-        let (device, queue) = (context.device(), context.queue());
-        let uploaded: Vec<Texture> = textures
-            .iter()
-            .map(|texture| {
-                upload_texture(device, queue, &prepare_texture(texture).unwrap()).unwrap()
-            })
-            .collect();
-        let samplers: Vec<_> = textures
-            .iter()
-            .map(|texture| super::sampling::create_sampler(device, texture.sampler()))
-            .collect();
-        let views: Vec<_> = uploaded
-            .iter()
-            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()))
-            .collect();
-        let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
-        let shared = material_sampler(device);
-        let layout = material_bind_group_layout(device);
-        let mut ordered: Vec<_> = quads.iter().collect();
-        ordered.sort_by_key(|quad| (quad.overlay, quad.sorting_layer, quad.sorting_order));
-        let draws = ordered
-            .chunk_by(|a, b| {
-                a.texture == b.texture
-                    && a.corners == b.corners
-                    && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
-                    && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
-            })
-            .map(|group| {
-                let quad = group[0];
-                let mut instances = Vec::new();
-                let mut tints = Vec::new();
-                for quad in group {
-                    let model = Mat4::from_scale_rotation_translation(
-                        Vec3::from_array(quad.scale),
-                        Quat::from_array(quad.rotation).normalize(),
-                        Vec3::from_array(quad.position),
-                    );
-                    instances.extend_from_slice(&pack_model_instance(model));
-                    for channel in quad.tint {
-                        push_f32(&mut tints, channel);
-                    }
-                }
-                let albedo = quad
-                    .texture
-                    .map_or(&placeholder_view, |index| &views[index]);
-                let sampler = quad.texture.map_or(&shared, |index| &samplers[index]);
-                let mut bound = [&placeholder_view; 5];
-                bound[0] = albedo;
-                let uniform = upload_buffer(
-                    device,
-                    queue,
-                    "legacy material",
-                    BufferUsages::UNIFORM,
-                    &[0u8; MATERIAL_UNIFORM_BYTES],
-                );
-                let heights = upload_buffer(
-                    device,
-                    queue,
-                    "legacy heights",
-                    BufferUsages::STORAGE,
-                    &[0u8; 48],
-                );
-                LegacyDraw {
-                    vertices: upload_buffer(
-                        device,
-                        queue,
-                        "legacy quad",
-                        BufferUsages::VERTEX,
-                        &pack_quad(quad),
-                    ),
-                    instance: upload_buffer(
-                        device,
-                        queue,
-                        "legacy instances",
-                        BufferUsages::VERTEX,
-                        &instances,
-                    ),
-                    tint: upload_buffer(
-                        device,
-                        queue,
-                        "legacy tints",
-                        BufferUsages::VERTEX,
-                        &tints,
-                    ),
-                    count: u32::try_from(group.len()).unwrap(),
-                    material: material_group(device, &layout, &uniform, &bound, sampler, &heights),
-                }
-            })
-            .collect();
-        drop(placeholder);
-        let indices: Vec<u8> = [0u32, 1, 2, 0, 2, 3]
-            .into_iter()
-            .flat_map(u32::to_le_bytes)
-            .collect();
-        let frame_bytes = upload_buffer(
-            device,
-            queue,
-            "legacy frame",
-            BufferUsages::UNIFORM,
-            &FrameUniform::unlit(view).to_bytes(),
-        );
-        Self {
-            pipeline: pipelines.legacy_unlit_alpha(),
-            draws,
-            indices: upload_buffer(
-                device,
-                queue,
-                "legacy indices",
-                BufferUsages::INDEX,
-                &indices,
-            ),
-            frame: crate::draw::decals::empty_group(device, pipelines.frame_layout(), &frame_bytes),
-        }
-    }
-
-    fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.frame, &[]);
-        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
-        for draw in &self.draws {
-            pass.set_bind_group(1, &draw.material, &[]);
-            pass.set_vertex_buffer(0, draw.vertices.slice(..));
-            pass.set_vertex_buffer(1, draw.instance.slice(..));
-            pass.set_vertex_buffer(2, draw.tint.slice(..));
-            pass.draw_indexed(0..6, 0, 0..draw.count);
-        }
-    }
-}
-
-fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
-    let [left, bottom, right, top] = quad.rect;
-    let [u0, v0, u1, v1] = quad.uv_rect;
-    let mut bytes = Vec::new();
-    for (index, (x, z, u, v)) in [
-        (left, bottom, u0, v1),
-        (right, bottom, u1, v1),
-        (right, top, u1, v0),
-        (left, top, u0, v0),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let position = quad.corners.map_or(Vec3::new(x, 0., z), |corners| {
-            Vec3::from_array(corners[index])
-        });
-        push_vec3(&mut bytes, position);
-        push_vec3(&mut bytes, Vec3::NEG_Y);
-        push_f32(&mut bytes, u);
-        push_f32(&mut bytes, v);
-        bytes.extend_from_slice(&BILLBOARD_FIXED.to_le_bytes());
-        push_f32(&mut bytes, 1.0);
-        bytes.extend_from_slice(&[0; 16]);
-    }
-    bytes
 }
 
 /// FNV-1a over the bytes: stable across runs, toolchains and hosts, unlike the std hasher.
@@ -912,229 +749,10 @@ fn an_untextured_batch_and_an_empty_contribution_match_the_fixed_pipeline() {
     assert_eq!(nothing, untouched, "no quads draw nothing");
 }
 
-/// Native world contributions, which reach the dynamic path as sprites and as UI glyphs, drawn
-/// through the frame renderer's scene entry point.
-mod world {
-    use glam::Vec3;
-    use worldrunner_render_plan::simulation::{
-        SpriteTextures, WorldRenderPlan, append_ui, extract_world,
-    };
-    use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
-    use worldrunner_render_post::{AttachmentView, FrameConfig, Readback, ResourceRef};
-    use worldrunner_world_simulation::presentation::{Camera, Sprite, SpriteRenderer};
-    use worldrunner_world_simulation::ui::UiLayout;
-    use worldrunner_world_simulation::{
-        ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
-    };
+mod legacy;
+mod world;
 
-    use super::*;
-    use crate::compositor::{FrameRenderer, encode_scene};
-    use crate::simulation::WorldSceneContribution;
-
-    const SPRITE: TextureFormat = SRGB;
-
-    pub(super) fn sprite_frame() -> WorldSceneContribution {
-        let mut world = World::new(WorldSettings::default()).unwrap();
-        let camera = world
-            .create_object(ObjectDesc {
-                local_transform: LocalTransform {
-                    translation: Vec3::new(0., 0., -10.),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .unwrap();
-        world
-            .add_component(
-                camera,
-                ComponentDesc::Camera(Camera {
-                    half_height: 2.,
-                    background: [0., 0., 0., 0.25],
-                    ..Default::default()
-                }),
-            )
-            .unwrap();
-        let object = world.create_object(ObjectDesc::default()).unwrap();
-        world
-            .add_component(
-                object,
-                ComponentDesc::Sprite(SpriteRenderer {
-                    sprite: Some(Sprite {
-                        identity: 0,
-                        texture: 42,
-                        rect: [0., 0., 1., 1.],
-                        texture_size: [1, 1],
-                        pivot: [0.5, 0.5],
-                        pixels_per_unit: 0.5,
-                    }),
-                    color: [0.5, 1., 1., 0.5],
-                    ..Default::default()
-                }),
-            )
-            .unwrap();
-        let textures = SpriteTextures {
-            textures: std::collections::BTreeMap::from([(
-                42,
-                SceneTexture::Texels {
-                    format: TexelFormat::Rgba8Unorm,
-                    color_space: TextureColorSpace::Srgb,
-                    width: 1,
-                    height: 1,
-                    mips: 1,
-                    bytes: vec![128, 64, 32, 128].into_boxed_slice(),
-                },
-            )]),
-        };
-        WorldSceneContribution::new(extract_world(&world, &textures, [SIZE, SIZE]).unwrap())
-            .unwrap()
-    }
-
-    pub(super) fn glyph_frame() -> WorldSceneContribution {
-        let frame = sprite_frame();
-        let mut plan = WorldRenderPlan {
-            camera_state: None,
-            camera: Some(*frame.view.resolved_view()),
-            clear: frame.clear,
-            quads: vec![],
-            textures: std::collections::BTreeMap::new(),
-        };
-        let mut world = World::new(WorldSettings::default()).unwrap();
-        let object = world.create_object(ObjectDesc::default()).unwrap();
-        let pixels = SIZE as f32;
-        let ui = UiRenderPlan {
-            layout: UiLayout {
-                viewport: [SIZE, SIZE].into(),
-                rects: vec![],
-            },
-            texts: vec![UiTextContribution {
-                object,
-                canvas: object,
-                overlay: true,
-                sorting_layer: 0,
-                sorting_order: 0,
-                color: [1., 1., 1., 0.5],
-                texture: Some(SceneTexture::Texels {
-                    format: TexelFormat::R8Unorm,
-                    color_space: TextureColorSpace::Linear,
-                    width: 1,
-                    height: 1,
-                    mips: 1,
-                    bytes: vec![128].into_boxed_slice(),
-                }),
-                quads: vec![UiGlyphQuad {
-                    corners: [
-                        [0., 0., 0.],
-                        [pixels, 0., 0.],
-                        [pixels, pixels, 0.],
-                        [0., pixels, 0.],
-                    ],
-                    uv: [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],
-                }],
-            }],
-        };
-        append_ui(&mut plan, ui).unwrap();
-        WorldSceneContribution::new(plan).unwrap()
-    }
-
-    /// The frame renderer's output for `contribution`, as the native sprite tests capture it.
-    fn compositor(
-        context: &GpuContext,
-        gpu: &mut SceneGpu,
-        pipelines: &ScenePipelines,
-        samples: u32,
-        contribution: &WorldSceneContribution,
-    ) -> Vec<u8> {
-        let size = [SIZE, SIZE];
-        let mut renderer = FrameRenderer::with_output(
-            context.device(),
-            FrameConfig::new(size, SPRITE, samples),
-            SPRITE,
-        )
-        .unwrap();
-        let [r, g, b, a] = contribution.clear;
-        renderer
-            .set_clear_color(wgpu::Color { r, g, b, a })
-            .unwrap();
-        let color = AttachmentView::new(
-            ResourceRef::new("capture color"),
-            renderer.targets().scene().texture(),
-        )
-        .unwrap();
-        let depth = AttachmentView::new(
-            ResourceRef::new("capture depth"),
-            renderer.targets().depth().texture(),
-        )
-        .unwrap();
-        let mut encoder = context.submission().begin(context.device()).unwrap();
-        encode_scene(
-            &mut renderer,
-            context.device(),
-            &mut encoder,
-            (gpu, pipelines),
-            (&color, &depth),
-            FrameUniform::unlit(&contribution.view),
-        )
-        .unwrap();
-        renderer.targets().encode_resolve(&mut encoder);
-        encoder.finish().submit().unwrap();
-        Readback::new(
-            context.device(),
-            FrameConfig::new(size, SPRITE, 1),
-            1_000_000,
-        )
-        .unwrap()
-        .read(
-            context.device(),
-            context.submission(),
-            renderer.targets().texture(),
-        )
-        .unwrap()
-    }
-
-    pub(super) fn captures(context: &GpuContext, name: &str, frame: &WorldSceneContribution) {
-        for samples in [1, 4] {
-            let pipelines =
-                ScenePipelines::with_samples(context.device(), SPRITE, samples).unwrap();
-            let mut gpu =
-                SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
-            gpu.set_dynamic_contribution(
-                context.device(),
-                context.submission(),
-                &pipelines,
-                &frame.textures,
-                &frame.quads,
-            )
-            .unwrap();
-            let scene = compositor(context, &mut gpu, &pipelines, samples, frame);
-            let legacy = Legacy::new(
-                context,
-                &pipelines,
-                &frame.textures,
-                &frame.quads,
-                &frame.view,
-            );
-            let [r, g, b, a] = frame.clear;
-            let reference = render_cleared(
-                context,
-                (&[SPRITE], samples),
-                Some(wgpu::Color { r, g, b, a }),
-                |pass| legacy.draw(pass),
-            );
-            assert!(
-                scene == reference[0],
-                "{name} at {samples} samples differs from the fixed pipeline's output"
-            );
-            let clear_only = render_cleared(
-                context,
-                (&[SPRITE], samples),
-                Some(wgpu::Color { r, g, b, a }),
-                |_| {},
-            );
-            assert!(scene != clear_only[0], "{name} drew nothing");
-            report(context, &format!("{name}-{samples}x"), &[scene]);
-        }
-    }
-}
+use legacy::Legacy;
 
 #[test]
 fn native_sprites_match_the_fixed_pipeline_through_the_frame_renderer() {

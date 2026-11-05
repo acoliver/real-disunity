@@ -367,7 +367,7 @@ fn an_instance_range_past_the_instance_buffer_is_refused_by_name() {
     let gpu = Gpu::new();
     let mut runtime = gpu.runtime();
     let lent = lent(&gpu, &runtime, wgpu::FilterMode::Nearest);
-    assert!(lent.instance_buffer.size() == 24);
+    assert_eq!(lent.instance_buffer.size(), 24);
     // Three instances of eight bytes are held, and the instance-rate input is slot 1.
     assert_eq!(
         lent.prepare(&mut runtime, 0..4, &[]).unwrap_err(),
@@ -386,8 +386,9 @@ fn an_instance_range_past_the_instance_buffer_is_refused_by_name() {
         },
         "the range's end bounds the buffer, not its length"
     );
+    let backwards = std::ops::Range { start: 2, end: 1 };
     assert_eq!(
-        lent.prepare(&mut runtime, 2..1, &[]).unwrap_err(),
+        lent.prepare(&mut runtime, backwards, &[]).unwrap_err(),
         ProgramError::InstanceRange { start: 2, end: 1 }
     );
     assert!(lent.prepare(&mut runtime, 0..3, &[]).is_ok());
@@ -623,6 +624,13 @@ fn stages_that_source_one_binding_from_different_semantics_conflict_by_name() {
     );
 }
 
+/// Waits until the device has finished everything submitted.
+fn completes(gpu: &Gpu) {
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+}
+
 /// Sets a flag when the last holder lets go.
 struct Probe(Arc<AtomicBool>);
 
@@ -698,7 +706,7 @@ fn a_submitted_frame_holds_the_owner_until_the_gpu_has_completed_it() {
         !dropped.load(Ordering::SeqCst),
         "submitted, not yet observed complete"
     );
-    gpu.completes();
+    completes(&gpu);
     assert!(
         dropped.load(Ordering::SeqCst),
         "the completed frame let the owner go"
@@ -720,7 +728,7 @@ fn a_frame_that_records_the_draw_pixels_still_draws_after_the_lender_lets_go() {
     let image = gpu.render(&gpu.target(), &[&draw]);
     assert_pixel(&image, (0, 2), RED_TINTED);
     drop(draw);
-    gpu.completes();
+    completes(&gpu);
     assert!(dropped.load(Ordering::SeqCst));
 }
 

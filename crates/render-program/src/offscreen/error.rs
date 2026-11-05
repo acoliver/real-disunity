@@ -69,6 +69,11 @@ pub enum OffscreenError {
         channel: i8,
         input: i8,
     },
+    #[error(
+        "the vertex input table feeds inputs {low} and {high}, which are numbered two ways \
+         (below 13 as the module's locations, from 13 as the locations plus 13)"
+    )]
+    MixedInputNumbering { low: i8, high: i8 },
     #[error("mesh {mesh:?}: {reason}")]
     BadMesh { mesh: MeshId, reason: String },
     #[error("a blit without a material needs the same size and format; {reason}")]

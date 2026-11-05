@@ -276,6 +276,52 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_left_out_beside_one_tha
 }
 
 #[test]
+fn a_table_that_numbers_the_shader_inputs_from_13_feeds_the_locations_from_0() {
+    use worldrunner_render_program::synthetic::shaders::{
+        POSITION_AND_UV_FROM_13, camera_pass_with_table,
+    };
+    let mut rig = Rig::new();
+    let mut frame = halves(&mut rig, 1 << LEFT);
+    // The player's tables number a variant's inputs from 13 when the module's locations start at
+    // 0: position is input 13 of the table and location 0 of the module.
+    let numbered = camera_pass_with_table(&POSITION_AND_UV_FROM_13);
+    rig.state.add_shader(
+        SHADER,
+        ProgramShader::new(numbered.shader, numbered.chunks).unwrap(),
+    );
+    let image = render(&mut rig, &frame);
+    for y in 0..8 {
+        for x in 0..4 {
+            assert_eq!(pixel(&image, 8, (x, y)), RED, "left ({x}, {y})");
+            assert_eq!(pixel(&image, 8, (x + 4, y)), CLEAR, "right ({x}, {y})");
+        }
+    }
+    frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = 1 << RIGHT;
+    let right = render(&mut rig, &frame);
+    assert_eq!(pixel(&right, 8, (6, 3)), BLUE);
+}
+
+#[test]
+fn a_table_that_numbers_inputs_both_ways_is_a_named_error() {
+    use worldrunner_render_program::synthetic::shaders::camera_pass_with_table;
+    let mut rig = Rig::new();
+    let frame = halves(&mut rig, 1 << LEFT);
+    let mixed = camera_pass_with_table(&[[0, 0], [4, 14]]);
+    rig.state.add_shader(
+        SHADER,
+        ProgramShader::new(mixed.shader, mixed.chunks).unwrap(),
+    );
+    let error = rig.build(&frame).err().unwrap();
+    assert!(
+        matches!(
+            error,
+            OffscreenError::MixedInputNumbering { low: 0, high: 14 }
+        ),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_frame_whose_draws_all_have_a_pass_counts_none_left_out() {
     let mut rig = Rig::new();
     let frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));

@@ -82,6 +82,27 @@ pub(super) struct DrawPlan {
     pub(super) texture_uses: Vec<ResourceUse>,
 }
 
+/// The first shader input number of the tables that number their inputs as the Unity 6 player's
+/// do for most variants (10,002 of 10,773 in the Old World player): the module's location is the
+/// number minus 13. A table with every number below 13 gives the locations themselves.
+const PROGRAM_INPUT_BASE: i8 = 13;
+
+/// The number to subtract from a table's shader inputs to get the module's locations.
+fn input_base(table: &[[i8; 2]]) -> Result<i8, OffscreenError> {
+    let mut inputs = table.iter().map(|pair| pair[1]);
+    let Some(first) = inputs.next() else {
+        return Ok(0);
+    };
+    let (low, high) = inputs.fold((first, first), |(low, high), input| {
+        (low.min(input), high.max(input))
+    });
+    match (low >= PROGRAM_INPUT_BASE, high >= PROGRAM_INPUT_BASE) {
+        (true, true) => Ok(PROGRAM_INPUT_BASE),
+        (false, false) => Ok(0),
+        _ => Err(OffscreenError::MixedInputNumbering { low, high }),
+    }
+}
+
 /// The vertex streams a program reads from a mesh.
 pub(super) struct VertexPlan {
     pub(super) inputs: Vec<VertexInput>,
@@ -353,13 +374,14 @@ impl Services<'_> {
             views: Vec::new(),
             uses: Vec::new(),
         };
+        let base = input_base(&variant.channels.channels)?;
         for &[source, target] in &variant.channels.channels {
             let channel = info.channel(source).ok_or(OffscreenError::MissingChannel {
                 mesh,
                 channel: source,
                 input: target,
             })?;
-            let location = u32::try_from(target).map_err(|_| OffscreenError::BadMesh {
+            let location = u32::try_from(target - base).map_err(|_| OffscreenError::BadMesh {
                 mesh,
                 reason: format!("the shader input {target} is negative"),
             })?;

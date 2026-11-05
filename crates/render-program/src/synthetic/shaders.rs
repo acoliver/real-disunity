@@ -101,6 +101,10 @@ pub const POSITION_AND_UV: [[i8; 2]; 2] = [[0, 0], [4, 1]];
 pub const POSITION: i8 = 0;
 pub const UV: i8 = 4;
 
+/// The same inputs as [`POSITION_AND_UV`], numbered as the Unity 6 player's tables number the
+/// shader inputs of most variants: 13 more than the SPIR-V location.
+pub const POSITION_AND_UV_FROM_13: [[i8; 2]; 2] = [[0, 13], [4, 14]];
+
 /// The `_Tint` constants of the fragment stage at binding 0 and the `_Place` constants of the
 /// vertex stage at binding 1.
 pub fn tint_parameters() -> VariantParameters {
@@ -237,6 +241,20 @@ pub fn two_passes() -> SyntheticShader {
             },
         ],
     )
+}
+
+/// One pass tagged `Alpha` that tints, whose vertex input table is `channels`.
+pub fn camera_pass_with_table(channels: &[[i8; 2]]) -> SyntheticShader {
+    no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: vec![("LIGHTMODE", "Alpha")],
+            variants: vec![VariantSpec {
+                channels: channels.to_vec(),
+                ..tint_variant(&[], "fs_main")
+            }],
+        }],
+    ))
 }
 
 /// One pass tagged `Alpha` that tints, and one tagged `Gamma` that samples the albedo texture.

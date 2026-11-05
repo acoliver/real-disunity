@@ -257,7 +257,7 @@ fn a_state_that_does_not_describe_each_attachment_is_refused_by_name() {
 }
 
 #[test]
-fn a_signature_describes_one_to_four_attachments_of_one_or_four_samples() {
+fn a_signature_describes_one_to_four_attachments_of_a_power_of_two_samples() {
     let colors = |count| vec![RGBA8; count];
     assert_eq!(
         TargetSignature::attachments(&colors(1), Some(DEPTH), 1).unwrap(),
@@ -277,10 +277,21 @@ fn a_signature_describes_one_to_four_attachments_of_one_or_four_samples() {
         TargetSignature::attachments(&[], None, 1).unwrap_err(),
         ProgramError::UnsupportedTarget(UnsupportedTarget::ColorAttachments { count: 0 })
     ));
-    assert!(matches!(
-        TargetSignature::attachments(&colors(1), None, 2).unwrap_err(),
-        ProgramError::UnsupportedTarget(UnsupportedTarget::SampleCount { samples: 2 })
-    ));
+    for samples in [3, 6, 32] {
+        assert!(matches!(
+            TargetSignature::attachments(&colors(1), None, samples).unwrap_err(),
+            ProgramError::UnsupportedTarget(UnsupportedTarget::SampleCount { samples: refused })
+                if refused == samples
+        ));
+    }
+    for samples in [2, 8, 16] {
+        assert_eq!(
+            TargetSignature::attachments(&colors(1), None, samples)
+                .unwrap()
+                .samples(),
+            samples
+        );
+    }
     assert_ne!(
         TargetSignature::attachments(&colors(2), None, 1).unwrap(),
         TargetSignature::attachments(&colors(3), None, 1).unwrap()

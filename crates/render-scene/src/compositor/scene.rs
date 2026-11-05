@@ -132,6 +132,7 @@ pub fn encode_scene(
     renderer.validate_post(gpu.post)?;
     let programs =
         super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;

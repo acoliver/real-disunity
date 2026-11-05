@@ -153,7 +153,7 @@ pub enum ProgramError {
 pub enum UnsupportedTarget {
     #[error("the pass has {samples} samples per pixel; program draws are single-sample")]
     Multisampled { samples: u32 },
-    #[error("the pass has {samples} samples per pixel; draws support 1 or 4")]
+    #[error("the pass has {samples} samples per pixel; draws support 1, 2, 4, 8 or 16")]
     SampleCount { samples: u32 },
     #[error("the pass has {count} color attachments, which the signature constructor refuses")]
     ColorAttachments { count: usize },

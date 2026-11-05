@@ -224,6 +224,8 @@ pub struct SceneGpu {
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
     committed_frame_group: std::rc::Rc<RefCell<BindGroup>>,
+    /// The frame slot whose uniform `committed_frame_group` binds.
+    committed_frame_slot: std::rc::Rc<Cell<usize>>,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
@@ -239,6 +241,7 @@ pub struct SceneGpu {
     shadow_selection: [std::rc::Rc<RefCell<Selection>>; 4],
     terrain: Option<GpuTerrain>,
     dynamic: crate::dynamic::DynamicGpu,
+    unlit: crate::dynamic::UnlitRuntime,
     programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
     retained: Retained,
 }
@@ -326,6 +329,7 @@ impl SceneGpu {
             water: water_bodies(scene),
             water_inputs: crate::water::surface::inputs(scene, &views),
             committed_frame_group: std::rc::Rc::new(RefCell::new(frame_group.clone())),
+            committed_frame_slot: std::rc::Rc::new(Cell::new(0)),
             frame_slots,
             frame_buffer,
             frame_group,
@@ -339,6 +343,7 @@ impl SceneGpu {
             shadow_selection: std::array::from_fn(|_| std::rc::Rc::default()),
             terrain,
             dynamic: crate::dynamic::DynamicGpu::default(),
+            unlit: crate::dynamic::UnlitRuntime::default(),
             programs: None,
             retained: Retained {
                 contact_heights,
@@ -358,6 +363,7 @@ impl SceneGpu {
             .set([decals::selected_count(&bytes), self.decals.count()]);
         self.frame.set(Some(frame));
         *self.committed_frame_group.borrow_mut() = self.decals.group();
+        self.committed_frame_slot.set(self.decals.slot);
         *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
         queue.write_buffer(
@@ -453,19 +459,32 @@ impl SceneGpu {
             .expect("set frame before drawing")
     }
 
-    fn drawing_frame_group(&self) -> BindGroup {
-        let transaction_frame = self
-            .drawing_frame
+    /// Whether the draw in progress belongs to the transaction that committed the frame.
+    fn drawing_in_transaction(&self) -> bool {
+        self.drawing_frame
             .borrow()
             .as_ref()
             .is_some_and(|(owner, _)| {
                 worldrunner_render_gpu::submission::Publications::current()
                     .is_some_and(|current| current.same_transaction(owner))
-            });
-        if transaction_frame {
+            })
+    }
+
+    fn drawing_frame_group(&self) -> BindGroup {
+        if self.drawing_in_transaction() {
             self.decals.group()
         } else {
             self.committed_frame_group.borrow().clone()
+        }
+    }
+
+    /// The frame slot whose uniform the group [`drawing_frame_group`](Self::drawing_frame_group)
+    /// binds, which is the one the dynamic quads' draws bind their frame buffer from.
+    fn drawing_frame_slot(&self) -> usize {
+        if self.drawing_in_transaction() {
+            self.decals.slot
+        } else {
+            self.committed_frame_slot.get()
         }
     }
 
@@ -500,7 +519,8 @@ impl SceneGpu {
                     .bind_background(pass, &frame_group);
                 meshes.draw(pass, pipelines.sky_targets());
             }
-            self.dynamic.draw(pass, &frame_group, pipelines);
+            self.dynamic
+                .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
             selection,

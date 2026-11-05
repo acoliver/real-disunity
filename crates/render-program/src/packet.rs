@@ -24,7 +24,7 @@ pub const MAX_COLOR_ATTACHMENTS: usize = 4;
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
 /// A signature exists only for what the runtime draws into: one to four colour attachments of
-/// one sample count (1 or 4) and, optionally, a depth attachment without stencil.
+/// one sample count (1, 2, 4, 8 or 16) and, optionally, a depth attachment without stencil.
 /// [`new`](Self::new) describes the pass the runtime opens for its own targets, one
 /// single-sample colour attachment, and [`attachments`](Self::attachments) the passes a
 /// renderer opens.
@@ -60,19 +60,19 @@ impl TargetSignature {
 
     /// The signature of a pass a renderer opens: one to four colour attachments, the first of
     /// which the fragment stage writes and the others of which a draw may leave unwritten with
-    /// an empty write mask, and `samples` of 1 or 4 per pixel. A pass with the same attachments
+    /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with the same attachments
     /// and one sample is equal to [`new`](Self::new)'s.
     ///
     /// # Errors
     /// Fails by name for a count of colour attachments outside one to four, a sample count
-    /// other than 1 or 4, a depth format with a stencil aspect, and a depth attachment that has
+    /// that is not a power of two up to 16, a depth format with a stencil aspect, and a depth attachment that has
     /// no depth.
     pub fn attachments(
         colors: &[wgpu::TextureFormat],
         depth: Option<wgpu::TextureFormat>,
         samples: u32,
     ) -> Result<Self, ProgramError> {
-        if !matches!(samples, 1 | 4) {
+        if !matches!(samples, 1 | 2 | 4 | 8 | 16) {
             return Err(UnsupportedTarget::SampleCount { samples }.into());
         }
         if !(1..=MAX_COLOR_ATTACHMENTS).contains(&colors.len()) {

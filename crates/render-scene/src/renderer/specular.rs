@@ -63,6 +63,11 @@ impl Specialization {
         }
     }
 }
+impl Specialization {
+    pub(super) fn source(&self) -> &str {
+        &self.source
+    }
+}
 impl ScenePipelines {
     pub(crate) fn has_ao_receiver(&self) -> bool {
         self.specialization.screen.is_some()

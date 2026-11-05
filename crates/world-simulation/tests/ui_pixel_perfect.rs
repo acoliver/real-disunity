@@ -47,6 +47,8 @@ fn first_glyph_pixel(pixel_perfect: bool) -> Vec2 {
         }),
         ComponentDesc::Text(TextRun {
             text: "AB".into(),
+            // Keep the snapping probe away from the rectangle's clip edges.
+            horizontal: worldrunner_world_simulation::ui::HorizontalAlign::Center,
             ..TextRun::new(font)
         }),
     ] {

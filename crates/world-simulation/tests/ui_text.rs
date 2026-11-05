@@ -11,7 +11,7 @@ use worldrunner_world_simulation::ui::{
 /// Every printable character in the test font is one glyph 600 units wide, 12 px at size 20.
 const ADVANCE: f32 = 12.;
 
-fn layout(text: &str, size: Vec2, change: impl FnOnce(&mut TextRun)) -> TextLayout {
+fn layout(text: &str, size: Vec2, change: impl FnOnce(&mut TextRun)) -> std::sync::Arc<TextLayout> {
     let mut fonts = FontBook::new(UiLimits::default()).unwrap();
     let id = fonts.register(ui_font::font()).unwrap();
     let mut run = TextRun {

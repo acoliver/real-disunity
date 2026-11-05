@@ -21,6 +21,9 @@ concurrency:
 
 env:
   CARGO_BUILD_JOBS: 2
+  # Line tables keep backtraces readable at a fraction of full debug info's disk use.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
   cpu:
@@ -72,11 +75,13 @@ jobs:
       - name: Required .NET build, native host, and managed lifecycle tests
         run: cargo xtask ci-managed
 
-  lavapipe:
-    name: lavapipe
+  # The serial suite took more than 90 minutes in one job, so the nightly run splits it the way
+  # pr.yml does: the static checks and doctests in one job, the tests in twelve shards.
+  lavapipe-static:
+    name: lavapipe static checks
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -90,15 +95,43 @@ jobs:
         with:
           shared-key: lavapipe
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Required full GPU suite, all targets/features and doctests
+      - name: Required GPU static checks and doctests
         env:
           WGPU_BACKEND: vulkan
           WGPU_ADAPTER_NAME: llvmpipe
-        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu
+        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu-static
+
+  lavapipe:
+    name: lavapipe (${{ matrix.shard }}/12)
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+      - uses: ./.github/actions/lavapipe
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          shared-key: lavapipe
+          save-if: false
+      - name: Required GPU tests, one twelfth of the full serial suite
+        env:
+          WGPU_BACKEND: vulkan
+          WGPU_ADAPTER_NAME: llvmpipe
+        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu-shard ${{ matrix.shard }}/12
 
   report:
     name: report
-    needs: [cpu, managed, lavapipe]
+    needs: [cpu, managed, lavapipe-static, lavapipe]
     if: ${{ always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

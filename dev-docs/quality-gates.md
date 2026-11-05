@@ -72,7 +72,7 @@ cargo xtask policy
 cargo xtask source-size
 cargo xtask ci-cpu
 cargo xtask ci-gpu       # requires a real or software adapter
-cargo xtask ci-gpu-plan 8 # lists and verifies the GPU test shards; runs no test
+cargo xtask ci-gpu-plan 12 # lists and verifies the GPU test shards; runs no test
 cargo xtask ci-gpu-csharp # GPU tests of the packages that consume csharp/
 python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 cargo xtask ci-managed   # requires .NET 8 plus native hosting dependencies
@@ -99,7 +99,7 @@ the candidate commit, in the same order as the Linux jobs below:
 
 The scope comes from the base commit's `ci_changes.py classify`, as described
 under [Scope classification](#scope-classification). The hub gate does not run
-the eight GPU test shards; GPU behavior is tested every night by `Platforms`.
+the twelve GPU test shards; GPU behavior is tested every night by `Platforms`.
 A proposal merges on a passing gate under the `ordinary` automerge rule in
 `.hn/policy.json`, without a required review. Changes to the protected paths
 listed in `AGENTS.md`, and to any path outside the rule, need Andrew's
@@ -134,12 +134,12 @@ The Linux jobs run in parallel:
 | `documentation checks` | `git diff --check`, and a check that relative links and anchors in added or modified Markdown files resolve. It runs for every change. |
 | `cpu and managed (ubuntu-latest)` | `cargo xtask ci-cpu`, then `cargo xtask ci-managed`. |
 | `gpu static checks` | `cargo xtask ci-gpu-static` on lavapipe under Xvfb. |
-| `gpu tests (K/8)` | `cargo xtask ci-gpu-shard K/8` for K from 1 to 8, each on its own lavapipe runner. |
+| `gpu tests (K/12)` | `cargo xtask ci-gpu-shard K/12` for K from 1 to 12, each on its own lavapipe runner. |
 | `gpu tests of C# consumers` | `cargo xtask ci-gpu-csharp`: the GPU-required tests of `worldrunner` and `worldrunner-play`, the GPU-layer packages that build or read `csharp/`. |
 
 A change limited to `csharp/` leaves every Rust source unchanged, so only tests that build or read the C# projects can observe it. `ci-cpu` and `ci-managed` cover the CPU and managed packages; `ci-gpu-csharp` covers the rest. `cargo xtask policy` fails when a workspace package's Rust sources refer to `csharp/` and neither profile nor the consumer list in `crates/xtask/src/csharp.rs` covers it, so a new consumer is added to the list in the same change.
 
-The eight test shards replace the serial test run of `ci-gpu`, which took about 50 minutes, almost all of it in the `worldrunner-render-scene` tests. Run `cargo xtask ci-gpu-plan 8` to see the current split. Shards are balanced by estimated run time. `crates/xtask/gpu-test-weights.toml` lists the measured seconds of the slowest tests and of the harness-free binaries on the hosted lavapipe runner; every other test weighs `default_test`. `ci-gpu-shard` deals the heaviest items first, each to the shard with the least estimated work, so two slow tests no longer share a shard. A stale weight only unbalances the shards, because `verify` still proves each test runs exactly once. `cargo xtask ci-gpu-plan 8` prints each shard's estimated seconds and any weight entries that no longer match a test. When a shard log shows a new test of 15 seconds or more, add it to the file. Raise the shard count in `pr.yml` (both the matrix and the argument) when a shard approaches its 30 minute timeout.
+The twelve test shards replace the serial test run of `ci-gpu`. On 4 and 5 November 2026 the hosted runners took about 180 minutes for the whole suite in eight shards, almost all of it in the `worldrunner-render-scene` tests. Run `cargo xtask ci-gpu-plan 12` to see the current split. Shards are balanced by estimated run time. `crates/xtask/gpu-test-weights.toml` lists the measured seconds of the slowest tests and of the harness-free binaries on the hosted lavapipe runner; every other test weighs `default_test`. `ci-gpu-shard` deals the heaviest items first, each to the shard with the least estimated work, so two slow tests no longer share a shard. A stale weight only unbalances the shards, because `verify` still proves each test runs exactly once. `cargo xtask ci-gpu-plan 12` prints each shard's estimated seconds and any weight entries that no longer match a test. When a shard log shows a new test of 15 seconds or more, add it to the file. Raise the shard count in `pr.yml` and `platforms.yml` (both the matrix and the argument) when a shard approaches its 40 minute timeout. The GPU jobs free runner disk first and build with line-table debug information, because the GPU profile's target directory outgrows the hosted runner's free disk otherwise.
 
 A newer push cancels the earlier run of the same pull request, and a newer merge cancels the earlier `PR` and `Platforms` runs on `main`, so a burst of merges checks only the newest commit. Runs on `main` and manual dispatches always use the `full` scope. Only `main` saves the Rust caches.
 
@@ -158,7 +158,7 @@ Skipping the build is sound only while no Markdown file is an input to a build o
 | Trigger | Jobs |
 | --- | --- |
 | push to `main` | `cpu` and `managed` on Windows and macOS. A newer merge cancels the earlier push run. |
-| nightly schedule, manual dispatch | `cpu` and `managed` on Ubuntu, Windows and macOS, and `lavapipe`, the full serial `cargo xtask ci-gpu` with a 90 minute timeout. |
+| nightly schedule, manual dispatch | `cpu` and `managed` on Ubuntu, Windows and macOS, and the serial GPU suite on lavapipe: `cargo xtask ci-gpu-static` in one job and `cargo xtask ci-gpu-shard K/12` in twelve, with the same shards and timeouts as `pr.yml`. |
 
 Pull requests do not run Windows or macOS, so a regression that affects only those platforms is found after merge, through the failure issue described below. Running those jobs on every pull request would add runner queue time to the 15 minute budget, and the project accepts later detection in exchange. Code must still build on all three platforms.
 
@@ -174,7 +174,7 @@ A failed run on `main` (`PR` after a push, `Platforms (push)` after a push, `Pla
 
 ## Running the CI profiles locally
 
-Run the same commands before pushing. `ci-gpu` runs the complete GPU suite serially and is the command to use locally and in the nightly job; the pull request workflow splits it into `ci-gpu-static` and eight `ci-gpu-shard` runs. On Linux without a GPU, select lavapipe explicitly:
+Run the same commands before pushing. `ci-gpu` runs the complete GPU suite serially and is the command to use locally; the pull request and nightly workflows split it into `ci-gpu-static` and twelve `ci-gpu-shard` runs. On Linux without a GPU, select lavapipe explicitly:
 
 ```sh
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-gpu
@@ -183,7 +183,7 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-
 A single shard can reproduce a CI failure locally:
 
 ```sh
-VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-gpu-shard 3/8
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a cargo xtask ci-gpu-shard 3/12
 ```
 
 A passing Linux run does not show that Windows or macOS pass. Code must not assume `/` path separators, `/dev/urandom`, symlink-free temporary directories or non-verbatim canonical paths.

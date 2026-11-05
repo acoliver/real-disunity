@@ -202,6 +202,18 @@ impl DynamicGpu {
         Ok(())
     }
 
+    /// Weak references to what the staged draws lend the runtime, for tests of its lifetime.
+    #[cfg(test)]
+    pub(crate) fn probes(&self) -> Vec<std::sync::Weak<dyn std::any::Any + Send + Sync>> {
+        self.draws
+            .iter()
+            .map(|draw| {
+                let owner: Arc<dyn std::any::Any + Send + Sync> = draw.resources.clone();
+                Arc::downgrade(&owner)
+            })
+            .collect()
+    }
+
     fn prepared_for(&self, signature: TargetSignature) -> Option<&Prepared> {
         self.prepared.iter().find(|set| set.signature == signature)
     }

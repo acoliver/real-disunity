@@ -120,4 +120,6 @@ pub enum DynamicError {
 #[cfg(test)]
 mod capture_tests;
 #[cfg(test)]
+mod lifetime_tests;
+#[cfg(test)]
 mod tests;

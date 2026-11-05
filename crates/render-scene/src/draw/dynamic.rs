@@ -111,6 +111,11 @@ impl SceneGpu {
             .map_err(dynamic_refused)
     }
 
+    #[cfg(test)]
+    pub(crate) fn dynamic_probes(&self) -> Vec<std::sync::Weak<dyn std::any::Any + Send + Sync>> {
+        self.dynamic.probes()
+    }
+
     /// Releases every runtime texture, draw buffer and retained quad index buffer on unload.
     pub fn clear_dynamic(&mut self) {
         self.dynamic = crate::dynamic::DynamicGpu::default();

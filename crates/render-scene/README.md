@@ -69,8 +69,8 @@ gutter-safe page lookup. See the
 `FrameUniform::material_mip_bias` (the last f32 of the frame block, bytes 316 to 320) is the mip
 bias of the scene's texture sampling, and `FrameRenderer::jitter_frame` sets it from
 `HdrPostSettings::material_mip_bias`, which returns exactly `+0.0` in every mode, so no bias is
-active and every frame keeps its bytes. The sites that use the lane are the implicit-derivative
-atlas samples, impostor and relief mip-enabled gradients, decal and terrain gradients and layered
+active and every frame keeps its bytes. The sites that use the lane are the explicit-gradient
+material, impostor and relief samples, decal and terrain gradients and layered
 terrain gradients; tests force a bias to prove that each selects the finer level. Explicit LOD 0
 samples, control fields, environment roughness LOD, water normals and the sky are unbiased, and
 shadow caster frames carry exactly 0. See
@@ -78,6 +78,21 @@ shadow caster frames carry exactly 0. See
 the decision and what remains before a policy can be enabled.
 
 ## Masked alpha-to-coverage
+
+Masked geometry filters albedo alpha and applies its material factor once.
+Forward and metadata passes use that alpha for coverage; shadows use their
+shadow cutoff. Flat impostors support varying atlas alpha without a relief
+atlas. Atlas footprints and conditional normal samples are computed in uniform
+control flow, before fragment-dependent branches or returns. Sampling uses
+explicit gradients with the material mip bias, or explicit level zero according
+to the atlas policy. Clamped UVs and per-texture insets determine each footprint.
+Coverage is resolved after shading, and relief depth before discard, so normal
+frames and atlas derivatives retain their complete fragment quad.
+
+A CPU Naga-IR test guards the atlas/coverage derivative helpers, normal frames
+and their transitive callers in forward, metadata, prepass and shadow shaders.
+It conservatively requires derivative-sensitive operations before control flow;
+it is scoped to these paths rather than a general WGSL uniformity validator.
 
 `SceneMaterial::with_alpha_to_coverage(true)` opts a masked material into MSAA
 sample coverage. Opaque materials reject this request. It belongs to the material

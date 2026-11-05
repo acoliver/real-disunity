@@ -66,15 +66,13 @@ impl Renderer {
 }
 
 impl Renderer {
-    /// Publishes the front generation. A resource edit changes nothing a frame can show until
-    /// the edits after it arrive, so the generation behind one publishes in the same frame.
+    /// Publishes every generation that is ready, in order. A live driver sends several updates
+    /// a frame (resources, objects, UI, camera), so publishing one a frame would let the queue
+    /// grow until it refuses updates. Publishing stops at the first generation that is not ready
+    /// (a scene still preparing, a page or geometry wait) and at one a capture holds, so a
+    /// requested capture still sees its own generation.
     pub(crate) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
         loop {
-            let edit = host
-                .readiness
-                .queue
-                .front()
-                .is_some_and(|front| front.edit.is_some());
             let published = host.readiness.published;
             self.streaming.publish(
                 &self.context,
@@ -82,7 +80,7 @@ impl Renderer {
                 &mut self.presentation,
                 host,
             )?;
-            if !edit || host.readiness.published == published {
+            if host.readiness.published == published {
                 return Ok(());
             }
         }

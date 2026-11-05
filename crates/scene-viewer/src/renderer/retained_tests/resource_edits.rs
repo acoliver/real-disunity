@@ -350,19 +350,17 @@ fn the_edit_after_a_resource_edit_publishes_in_the_same_frame() {
         object: object(2, 1),
     })
     .unwrap();
+    assert_eq!(host.accepted_generation(), 3);
     renderer.publish_retained(&mut host).unwrap();
     assert_eq!(
         host.ready_generation(),
-        2,
-        "the append and the object after it"
+        3,
+        "the append and both objects after it"
     );
-    assert_eq!(host.accepted_generation(), 3);
-    renderer.publish_retained(&mut host).unwrap();
-    assert_eq!(host.ready_generation(), 3);
 }
 
 #[test]
-fn object_edits_alone_still_publish_one_generation_per_frame() {
+fn every_ready_object_edit_publishes_in_one_frame() {
     let (mut host, mut renderer) = windowless_host();
     for id in 1..=2 {
         host.apply(RetainedUpdate::Add {
@@ -372,7 +370,23 @@ fn object_edits_alone_still_publish_one_generation_per_frame() {
         .unwrap();
     }
     renderer.publish_retained(&mut host).unwrap();
-    assert_eq!(host.ready_generation(), 1);
+    assert_eq!(host.ready_generation(), 2);
+}
+
+#[test]
+fn a_driver_sending_two_updates_a_frame_never_meets_back_pressure() {
+    let (mut host, mut renderer) = windowless_host();
+    for frame in 0..100u64 {
+        for id in [2 * frame + 1, 2 * frame + 2] {
+            host.apply(RetainedUpdate::Add {
+                id: ObjectId(id),
+                object: object(0, 0),
+            })
+            .unwrap();
+        }
+        renderer.publish_retained(&mut host).unwrap();
+        assert_eq!(host.ready_generation(), host.accepted_generation());
+    }
 }
 
 /// A square of half extent `half` centred at `shift` millimetres east and `height` above the

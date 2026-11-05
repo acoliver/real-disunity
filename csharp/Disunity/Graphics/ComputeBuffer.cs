@@ -9,8 +9,10 @@ namespace UnityEngine;
 /// compute buffer for it from its first use, which checks the shape (a stride that is a multiple of 4 from 4 to 2048, and at
 /// most 256 MiB). <see cref="SetData(Array)"/> writes the bytes of the elements it is given. <see cref="GetData(Array)"/>
 /// first asks the host to execute the recorded offscreen work, the dispatches included (a GPU flush), then copies the bytes
-/// out; without a host executor it returns what the CPU wrote, zeros for what it did not. A call whose elements do not fill
-/// the stride (an element type of another size) throws <see cref="ArgumentException"/>. Release and Dispose are the same
+/// out; without a host executor it returns what the CPU wrote, zeros for what it did not. The element type of an array need not
+/// match the stride (a buffer of one 20 byte element takes five unsigned integers). Offsets and counts are in elements of the
+/// array's type, and the byte range they name has to fit the buffer, otherwise the call throws
+/// <see cref="ArgumentException"/>. Release and Dispose are the same
 /// operation and may be repeated; <see cref="count"/> and <see cref="stride"/> still read afterwards, and
 /// <see cref="IsValid"/> is false. The contents are sent to the world when they are set, so a world unloaded and loaded again
 /// starts with a new, zeroed buffer.
@@ -134,17 +136,19 @@ public sealed class ComputeBuffer : IDisposable
     }
 
     /// <summary>The byte size of an element, the byte offset in the buffer and the byte length of a range, after the checks every
-    /// overload shares.</summary>
+    /// overload shares. Offsets and counts are in elements of the array's type; the engine's choice is that the buffer's
+    /// stride only sizes the buffer, so what has to fit is the byte range.</summary>
     private (int ElementSize, long Start, int Bytes) Range(Array data, int managedStart, int computeStart, int elements, string member)
     {
         var elementSize = ElementSize(data, member);
         if (managedStart < 0 || elements < 0 || computeStart < 0 || managedStart + elements > data.Length)
             throw new ArgumentOutOfRangeException(nameof(elements), $"ComputeBuffer.{member}: the range lies outside the array");
-        if (computeStart + (long)elements > count)
-            throw new ArgumentException($"ComputeBuffer.{member}: {elements} elements from element {computeStart} do not fit a buffer of {count}", nameof(elements));
-        if (elementSize != stride)
-            throw new ArgumentException($"ComputeBuffer.{member}: the array's elements are {elementSize} bytes and the buffer's stride is {stride}", nameof(data));
-        return (elementSize, (long)computeStart * stride, elements * elementSize);
+        var start = (long)computeStart * elementSize;
+        var bytes = (long)elements * elementSize;
+        var size = (long)count * stride;
+        if (start + bytes > size)
+            throw new ArgumentException($"ComputeBuffer.{member}: {bytes} bytes at byte {start} do not fit a buffer of {size} bytes", nameof(elements));
+        return (elementSize, start, (int)bytes);
     }
 
     private static int ElementSize(Array data, string member)

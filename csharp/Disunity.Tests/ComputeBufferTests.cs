@@ -19,8 +19,10 @@ internal static class ComputeBufferTests
         {
             SetDataThenGetDataRoundTrips();
             Console.WriteLine("PASS: ComputeBuffer.SetData followed by GetData round-trips arrays, lists, native arrays and offsets");
-            RangesAndElementSizesAreChecked();
-            Console.WriteLine("PASS: ComputeBuffer SetData and GetData refuse a range outside the array or the buffer and an element size other than the stride");
+            RangesAreChecked();
+            Console.WriteLine("PASS: ComputeBuffer SetData and GetData refuse a range outside the array or the buffer, counted in bytes of the array's elements");
+            ElementsNeedNotMatchTheStride();
+            Console.WriteLine("PASS: ComputeBuffer SetData and GetData move the bytes of elements of any size, as long as the byte range fits the buffer");
             GetDataFlushesAndReadsWhatTheHostWrote();
             Console.WriteLine("PASS: ComputeBuffer.GetData runs the GPU flush before it copies, and a flush that fails fails GetData");
             ReleaseAndShape();
@@ -74,13 +76,14 @@ internal static class ComputeBufferTests
         return data;
     }
 
-    private static void RangesAndElementSizesAreChecked()
+    private static void RangesAreChecked()
     {
         using var buffer = new ComputeBuffer(4, 4);
-        Expect.Throws<ArgumentException>(() => buffer.SetData(new long[2]), "an 8 byte element in a stride of 4");
-        Expect.Throws<ArgumentException>(() => buffer.GetData(new byte[4]), "a 1 byte element in a stride of 4");
+        Expect.Throws<ArgumentException>(() => buffer.SetData(new long[3]), "24 bytes in a buffer of 16");
+        Expect.Throws<ArgumentException>(() => buffer.GetData(new byte[17]), "17 bytes from a buffer of 16");
         Expect.Throws<ArgumentException>(() => buffer.SetData(new int[5]), "more elements than the buffer holds");
         Expect.Throws<ArgumentException>(() => buffer.SetData(new int[2], 0, 3, 2), "a range that runs past the end of the buffer");
+        Expect.Throws<ArgumentException>(() => buffer.SetData(new long[1], 0, 2, 1), "an 8 byte element at byte 16 of a buffer of 16");
         Expect.Throws<ArgumentOutOfRangeException>(() => buffer.SetData(new int[2], 1, 0, 2), "a range that runs past the end of the array");
         Expect.Throws<ArgumentOutOfRangeException>(() => buffer.SetData(new int[2], -1, 0, 1), "a negative array start");
         Expect.Throws<ArgumentOutOfRangeException>(() => buffer.GetData(new int[2], 0, -1, 1), "a negative buffer start");
@@ -115,6 +118,25 @@ internal static class ComputeBufferTests
         Unregister(world);
         Expect.Sequence(new[] { 6, 1, 1, 1 }, Get(buffer), "with no executor GetData returns the CPU contents");
         Expect.Equal(0, Flushes, "an unregistered executor is not called");
+    }
+
+    private static void ElementsNeedNotMatchTheStride()
+    {
+        using var args = new ComputeBuffer(1, 20, ComputeBufferType.DrawIndirect);
+        args.SetData(new uint[] { 6, 1, 0, 0, 0 });
+        var back = new uint[5];
+        args.GetData(back);
+        Expect.Sequence(new uint[] { 6, 1, 0, 0, 0 }, back, "five 4 byte elements fill a buffer of one 20 byte element");
+        using var buffer = new ComputeBuffer(4, 4);
+        buffer.SetData(new long[] { 0x0000000200000001L, 0x0000000400000003L });
+        Expect.Sequence(new[] { 1, 2, 3, 4 }, Get(buffer), "8 byte elements fill the buffer as their bytes");
+        buffer.SetData(new byte[] { 9, 0, 0, 0 }, 0, 4, 4);
+        var bytes = new byte[16];
+        buffer.GetData(bytes);
+        Expect.Equal<byte>(9, bytes[4], "a byte offset counts bytes of the array's own element size");
+        var wide = new long[2];
+        buffer.GetData(wide, 0, 1, 1);
+        Expect.Equal(0x0000000400000003L, wide[0], "an offset in 8 byte elements lands on byte 8");
     }
 
     private static void ReleaseAndShape()

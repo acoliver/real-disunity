@@ -34,6 +34,8 @@ pub(crate) struct Session {
     /// The values the dispatches of the last offscreen take ran with; a record's token is an
     /// index into this list, plus one.
     pub dispatch_bindings: Vec<worldrunner_world_simulation::graphics::ComputeBindings>,
+    /// The encoded graphics snapshot a size query took and no copy has handed out yet.
+    pub graphics_snapshot: Option<Vec<u8>>,
     /// The host's GPU flush callback and whether it is running.
     pub gpu_flush: Option<crate::gpu_flush::GpuFlushHook>,
     pub flushing: bool,
@@ -142,6 +144,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             objects: crate::object_ids::ObjectIds::default(),
             pending_commands: Vec::new(),
             dispatch_bindings: Vec::new(),
+            graphics_snapshot: None,
             gpu_flush: store.default_gpu_flush,
             flushing: false,
             last_error: None,

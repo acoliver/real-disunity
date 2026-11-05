@@ -588,6 +588,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_graphics_snapshot",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_material_create",
       "since": "7.0.0",
       "rets": "DisunityResult"

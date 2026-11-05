@@ -33,6 +33,7 @@ pub mod gpu_flush;
 pub mod graphics;
 pub mod graphics_offscreen;
 pub mod graphics_properties;
+pub mod graphics_snapshot;
 pub mod hierarchy;
 pub mod input;
 pub mod input_axes;

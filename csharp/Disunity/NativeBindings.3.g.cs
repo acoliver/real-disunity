@@ -127,6 +127,18 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_shader_property_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_shader_property_read(ulong world, uint scope, ulong target, byte* name, uint length, DisunityPropertyRead* output);
         /// <summary>
+        ///  Writes the length of the snapshot to `length`. With a zero `capacity` that is all it does.
+        ///  Otherwise `capacity` bytes at `buffer` must hold the snapshot: it is copied there and the
+        ///  session forgets it, and a smaller `capacity` is rejected without copying or dropping
+        ///  anything, so the host can ask again with room for `length` bytes.
+        ///
+        ///  # Safety
+        ///  `buffer` is writable for `capacity` bytes, or null when `capacity` is zero; `length` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_graphics_snapshot", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_graphics_snapshot(ulong world, byte* buffer, uint capacity, uint* length);
+        /// <summary>
         ///  Records the per-frame messages (bit 0 `FixedUpdate`, bit 1 `Update`, bit 2 `LateUpdate`) that
         ///  the script type `type_name` in `assembly` defines. Scripts of the type, present or added
         ///  later, then receive only those messages. Types never reported receive all three.

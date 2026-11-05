@@ -38,7 +38,7 @@ use crate::offscreen::{
 };
 
 /// Bytes of GPU storage the program runtime may hold.
-const RUNTIME_BUDGET: u64 = 1 << 30;
+const RUNTIME_BUDGET: u64 = 256 << 20;
 
 /// The `LightMode` values a camera draws, in the order of preference.
 const LIGHT_MODES: [&str; 5] = [
@@ -197,15 +197,19 @@ pub struct PlayerGpu {
 
 impl PlayerGpu {
     /// A device without a window and the host on it, with shaders loaded from the player in
-    /// `data`. `None` when the machine has no adapter, and the run goes on without GPU work.
-    #[must_use]
-    pub fn headless(data: &Path) -> Option<Self> {
+    /// `data`.
+    ///
+    /// # Errors
+    /// Fails with the reason when the machine has no adapter, the device cannot be had or the
+    /// program runtime cannot reserve its arena. The run goes on without GPU work then.
+    pub fn headless(data: &Path) -> Result<Self, String> {
         let instance = headless_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .ok()?;
+                .map_err(|error| format!("no adapter: {error}"))?;
         let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).ok()?;
+            pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))
+                .map_err(|error| format!("no device: {error}"))?;
         let authority = SubmissionAuthority::new(queue);
         let budget = AllocationBudget(RUNTIME_BUDGET);
         let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
@@ -215,13 +219,15 @@ impl PlayerGpu {
             (),
             AllocationSet::default(),
             &limits,
-            AllocationBudget(RUNTIME_BUDGET * 2),
+            AllocationBudget(RUNTIME_BUDGET * 4),
         )
-        .ok()?;
+        .map_err(|error| format!("no renderer configuration: {error}"))?;
         let reservation = renderer
             .reserve::<()>(&limits, ProgramRuntime::arena_allocations(budget.0))
-            .ok()?;
-        let arena = runtime.open_arena(reservation).ok()?;
+            .map_err(|error| format!("no arena reservation: {error:?}"))?;
+        let arena = runtime
+            .open_arena(reservation)
+            .map_err(|error| format!("no arena: {error}"))?;
         let settings = Settings {
             light_modes: LIGHT_MODES.map(str::to_owned).to_vec(),
         };
@@ -231,7 +237,7 @@ impl PlayerGpu {
             OffscreenAdapter::new(data, settings),
             ComputeAdapter::new(NoKernels),
         );
-        Some(Self {
+        Ok(Self {
             offscreen: Rc::new(RefCell::new(offscreen)),
             assets: Rc::new(RefCell::new(AssetCache::default())),
             report: Rc::new(RefCell::new(GpuWorkReport::default())),

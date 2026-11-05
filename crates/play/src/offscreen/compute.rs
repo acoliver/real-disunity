@@ -153,6 +153,65 @@ impl GpuBuffers {
         self.held.insert(id, (handle, buffer.contents.clone()));
         Ok(handle)
     }
+
+    /// The buffers `kernel` declares, bound by name to the buffers the dispatch bound.
+    fn bind(
+        &mut self,
+        kernel: &Kernel,
+        (runtime, snapshot): (&mut ProgramRuntime, &GraphicsSnapshot),
+        bindings: &ComputeBindings,
+    ) -> Result<Vec<BoundResource>, String> {
+        let mut bound = Vec::new();
+        for target in &kernel.buffers {
+            let name = target
+                .name
+                .resolve(&[])
+                .map_err(|_| "BufferName".to_owned())?;
+            let (_, buffer) = bindings
+                .buffers
+                .iter()
+                .find(|(bound, _)| bound == name)
+                .ok_or_else(|| "UnboundBuffer".to_owned())?;
+            let handle = self
+                .upload(runtime, snapshot, *buffer)
+                .map_err(str::to_owned)?;
+            bound.push(BoundResource::buffer(target.set, target.binding, handle));
+        }
+        Ok(bound)
+    }
+}
+
+/// The textures `kernel` declares, bound by name to the textures the dispatch's properties name.
+fn textures(
+    kernel: &Kernel,
+    state: &OffscreenState,
+    bindings: &ComputeBindings,
+) -> Result<Vec<BoundResource>, String> {
+    let mut bound = Vec::new();
+    for target in &kernel.textures {
+        let name = target
+            .name
+            .resolve(&[])
+            .map_err(|_| "TextureName".to_owned())?;
+        let texture = bindings
+            .properties
+            .textures
+            .iter()
+            .find(|(property, _)| property == name)
+            .map(|(_, slot)| &slot.texture)
+            .ok_or_else(|| "MissingTexture".to_owned())?;
+        let id = match texture {
+            TextureRef::Render(id) => Some(ids::render_texture(*id)),
+            TextureRef::Asset(identity) => ids::stored_texture(*identity),
+            TextureRef::None | TextureRef::Global(_) => None,
+        }
+        .ok_or_else(|| "MissingTexture".to_owned())?;
+        let handle = state
+            .texture_handle(id)
+            .ok_or_else(|| "TextureUnavailable".to_owned())?;
+        bound.push(BoundResource::texture(target.set, target.binding, handle));
+    }
+    Ok(bound)
 }
 
 impl ComputeAdapter {
@@ -251,44 +310,8 @@ impl ComputeAdapter {
             buffers.constants.push(handle);
             bound.push(BoundResource::buffer(target.set, target.binding, handle));
         }
-        for target in &kernel.textures {
-            let name = target
-                .name
-                .resolve(&[])
-                .map_err(|_| "TextureName".to_owned())?;
-            let texture = bindings
-                .properties
-                .textures
-                .iter()
-                .find(|(property, _)| property == name)
-                .map(|(_, slot)| &slot.texture)
-                .ok_or_else(|| "MissingTexture".to_owned())?;
-            let id = match texture {
-                TextureRef::Render(id) => Some(ids::render_texture(*id)),
-                TextureRef::Asset(identity) => ids::stored_texture(*identity),
-                TextureRef::None | TextureRef::Global(_) => None,
-            }
-            .ok_or_else(|| "MissingTexture".to_owned())?;
-            let handle = state
-                .texture_handle(id)
-                .ok_or_else(|| "TextureUnavailable".to_owned())?;
-            bound.push(BoundResource::texture(target.set, target.binding, handle));
-        }
-        for target in &kernel.buffers {
-            let name = target
-                .name
-                .resolve(&[])
-                .map_err(|_| "BufferName".to_owned())?;
-            let (_, buffer) = bindings
-                .buffers
-                .iter()
-                .find(|(bound, _)| bound == name)
-                .ok_or_else(|| "UnboundBuffer".to_owned())?;
-            let handle = buffers
-                .upload(runtime, snapshot, *buffer)
-                .map_err(str::to_owned)?;
-            bound.push(BoundResource::buffer(target.set, target.binding, handle));
-        }
+        bound.extend(textures(&kernel, state, bindings)?);
+        bound.extend(buffers.bind(&kernel, (runtime, snapshot), bindings)?);
         Ok(Prepared {
             kernel,
             bindings: bound,

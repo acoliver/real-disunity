@@ -180,18 +180,15 @@ impl OffscreenAdapter {
                 continue;
             };
             let held = self.textures.get(&identity).copied();
-            let sampler = match assets.sampler(identity) {
-                Ok(sampler) => sampler,
-                Err(_) => {
-                    *failures
-                        .entry("texture:SamplerRead".to_owned())
-                        .or_default() += 1;
-                    None
-                }
-            };
+            let stored_sampler = assets.sampler(identity).unwrap_or_else(|_| {
+                *failures
+                    .entry("texture:SamplerRead".to_owned())
+                    .or_default() += 1;
+                None
+            });
             // A sampler that changed alone replaces the texture, whose bytes are read again.
-            let sampler_changed = sampler.as_ref().is_some_and(|sampler| {
-                held.is_none_or(|held| held.sampler_generation != sampler.generation)
+            let sampler_changed = stored_sampler.as_ref().is_some_and(|found| {
+                held.is_none_or(|held| held.sampler_generation != found.generation)
             });
             let known = held
                 .filter(|_| !sampler_changed)
@@ -204,7 +201,7 @@ impl OffscreenAdapter {
                     continue;
                 }
             };
-            let sampled = sampler.as_ref().map(sampler_of_stored);
+            let sampled = stored_sampler.as_ref().map(sampler_of_stored);
             let uploaded = match texture_of(id, &stored, sampled) {
                 Ok(texture) => state
                     .set_texture(runtime, &texture)
@@ -218,7 +215,7 @@ impl OffscreenAdapter {
                 identity,
                 Stored {
                     generation: stored.generation,
-                    sampler_generation: sampler.map_or(0, |sampler| sampler.generation),
+                    sampler_generation: stored_sampler.map_or(0, |found| found.generation),
                     usable: uploaded.is_ok(),
                 },
             );

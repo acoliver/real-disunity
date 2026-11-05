@@ -267,13 +267,11 @@ pub fn run_player_with(
     let mut host = DisunityHost::boot(&prepared.config)?;
     let gpu = match gpu {
         GpuWork::Off => None,
-        GpuWork::Auto => {
-            let made = PlayerGpu::headless(&prepared.data);
-            if made.is_none() {
-                eprintln!("[gpu] no adapter; the offscreen work does not run");
-            }
-            made
-        }
+        GpuWork::Auto => PlayerGpu::headless(&prepared.data)
+            .inspect_err(|reason| {
+                eprintln!("[gpu] {reason}; the offscreen work does not run");
+            })
+            .ok(),
     };
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     if let Some(gpu) = &gpu {

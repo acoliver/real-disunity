@@ -227,7 +227,7 @@ impl<'a> Mapper<'a> {
                 target,
                 material,
                 pass,
-            } => self.blit(source.clone(), *target, *material, *pass),
+            } => self.blit(source, *target, *material, *pass),
             OffscreenWork::CopyTexture {
                 source,
                 source_element,
@@ -236,7 +236,7 @@ impl<'a> Mapper<'a> {
                 target_element,
                 target_mip,
             } => {
-                let (source, target) = (self.source(source.clone())?, self.target(*target)?);
+                let (source, target) = (self.source(source)?, self.target(*target)?);
                 Ok(vec![Record::CopyTexture {
                     source,
                     source_element: *source_element,
@@ -263,9 +263,9 @@ impl<'a> Mapper<'a> {
     /// The name of a texture a record reads.
     fn source(
         &mut self,
-        source: TextureRef,
+        source: &TextureRef,
     ) -> Result<worldrunner_render_program::ids::TextureId, Skip> {
-        match source {
+        match *source {
             TextureRef::None => Err(Skip::NoBlitSource),
             TextureRef::Global(_) => Err(Skip::GlobalSource),
             TextureRef::Render(id) => {
@@ -338,7 +338,7 @@ impl<'a> Mapper<'a> {
 
     fn blit(
         &mut self,
-        source: TextureRef,
+        source: &TextureRef,
         target: RenderTextureId,
         material: Option<WorldMaterialId>,
         pass: i32,

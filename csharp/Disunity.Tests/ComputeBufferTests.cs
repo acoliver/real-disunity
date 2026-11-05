@@ -24,7 +24,7 @@ internal static class ComputeBufferTests
             ElementsNeedNotMatchTheStride();
             Console.WriteLine("PASS: ComputeBuffer SetData and GetData move the bytes of elements of any size, as long as the byte range fits the buffer");
             GetDataFlushesAndReadsWhatTheHostWrote();
-            Console.WriteLine("PASS: ComputeBuffer.GetData runs the GPU flush before it copies, and a flush that fails fails GetData");
+            Console.WriteLine("PASS: ComputeBuffer.GetData runs the GPU flush before it copies, and a flush that fails is logged once per reason and GetData returns the CPU contents");
             ReleaseAndShape();
             Console.WriteLine("PASS: a released ComputeBuffer refuses contents calls and keeps its shape, and the world refuses an unusable shape");
         }
@@ -112,8 +112,19 @@ internal static class ComputeBufferTests
         Expect.Equal(2, Flushes, "each GetData flushes");
         Expect.Equal(1, Executed.Count, "work already taken does not run again");
         Reset(Behavior.Fail);
-        var failure = Expect.Catch<DisunityException>(() => Get(buffer), "a failed flush fails GetData");
-        Expect.That(failure.Message.Contains("GPU flush") && failure.Message.Contains("the executor has no device"), "the exception names the flush and carries the host's text: " + failure.Message);
+        using (var log = new GraphicsTestSupport.LogRecorder())
+        {
+            Expect.Sequence(new[] { 6, 1, 1, 1 }, Get(buffer), "a failed flush does not fail GetData, which returns the CPU contents");
+            Expect.Sequence(new[] { 6, 1, 1, 1 }, Get(buffer), "the same failure again");
+            var reasons = log.Messages.Where(message => message.Contains("the executor has no device")).ToArray();
+            Expect.Equal(1, reasons.Length, "the same reason is logged once: " + string.Join("|", log.Messages));
+            Expect.That(reasons[0].StartsWith("Warning: ") && reasons[0].Contains("GPU flush"), "the warning names the flush and carries the host's text: " + reasons[0]);
+            FailureText = "the device is lost";
+            Get(buffer);
+            Get(buffer);
+            Expect.Equal(1, log.Messages.Count(message => message.Contains("the device is lost")), "a different reason is logged, once");
+            Expect.Equal(2, log.Messages.Count, "two distinct reasons make two warnings");
+        }
         Reset(Behavior.Nothing);
         Unregister(world);
         Expect.Sequence(new[] { 6, 1, 1, 1 }, Get(buffer), "with no executor GetData returns the CPU contents");

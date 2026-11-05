@@ -14,6 +14,7 @@ internal static unsafe class ComputeTestSupport
     internal enum Behavior { Nothing, ExecuteDispatches, Fail, StateKernelSizes }
 
     internal static Behavior Mode;
+    internal static string FailureText = "the executor has no device";
     internal static int Flushes;
     internal static readonly List<(ulong Shader, uint Kernel, uint X, uint Y, uint Z)> Executed = [];
     internal static readonly List<string> BindingNames = [];
@@ -21,6 +22,7 @@ internal static unsafe class ComputeTestSupport
     internal static void Reset(Behavior mode)
     {
         (Mode, Flushes) = (mode, 0);
+        FailureText = "the executor has no device";
         Executed.Clear();
         BindingNames.Clear();
     }
@@ -40,7 +42,7 @@ internal static unsafe class ComputeTestSupport
             switch (Mode)
             {
                 case Behavior.Fail:
-                    var text = Encoding.UTF8.GetBytes("the executor has no device");
+                    var text = Encoding.UTF8.GetBytes(FailureText);
                     for (var i = 0; i < text.Length && i < capacity; i++) message[i] = text[i];
                     *length = (uint)Math.Min(text.Length, (int)capacity);
                     return new DisunityResult { code = 3 };

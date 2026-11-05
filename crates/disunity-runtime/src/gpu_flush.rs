@@ -12,8 +12,8 @@ use crate::{DisunityHost, HostError, native};
 
 type R = native::DisunityResult;
 
-/// What a flush does: runs the pending work and writes results. An error fails the managed call
-/// that asked for the flush.
+/// What a flush does: runs the pending work and writes results. An error is logged by the managed
+/// engine and the managed call that asked for the flush goes on without the results.
 pub type GpuFlushHandler = Box<dyn FnMut(&mut GpuFlush<'_>) -> Result<(), String>>;
 
 /// The function the engine image calls to flush; see `disunity_gpu_flush_register`.
@@ -168,8 +168,8 @@ impl DisunityHost {
     /// Sets the handler a flush calls, replacing the one set before. The managed engine flushes
     /// when a script reads back a compute buffer or a kernel's thread group size; the handler
     /// takes the pending work ([`GpuFlush::take_offscreen`]) and executes it. A handler that
-    /// returns an error fails the managed call with an exception that names the GPU flush and
-    /// carries the text. Without a handler a flush does nothing and a compute buffer keeps the
+    /// returns an error does not fail the managed call: the engine logs the text once per
+    /// distinct text and the call goes on with the contents the CPU holds. Without a handler a flush does nothing and a compute buffer keeps the
     /// contents the CPU wrote.
     ///
     /// The handler applies to the world of the running slice and to the worlds of later slices,

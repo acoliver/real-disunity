@@ -79,8 +79,19 @@ internal static unsafe class WorldCompute
     }
 
     /// <summary>Runs the host's GPU flush, so the work scripts recorded has executed and the buffers hold its results when this
-    /// returns. Without a flush handler nothing happens and a buffer holds what the CPU wrote.</summary>
-    internal static void Flush() => Check(NativeBindings.disunity_gpu_flush(WorldGraphics.World));
+    /// returns. Without a flush handler nothing happens and a buffer holds what the CPU wrote. A flush that fails does not throw:
+    /// the reason is logged once per distinct reason and the caller goes on with the contents the CPU holds.</summary>
+    internal static void Flush()
+    {
+        try
+        {
+            Check(NativeBindings.disunity_gpu_flush(WorldGraphics.World));
+        }
+        catch (DisunityException failure)
+        {
+            UndrawnCalls.NoteFlushFailure(failure.Message);
+        }
+    }
 
     internal static void ReadBuffer(WorldGraphics.Link buffer, long byteOffset, Span<byte> data)
     {

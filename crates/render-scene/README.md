@@ -10,6 +10,19 @@ a normalized material mixture. Reordering a dense palette with the matching grid
 remap does not change the rendered surface. Blur radii, tints, and rotations come
 from scene inputs; no content-specific blur table is embedded.
 
+Streaming terrain residents remain sorted by `TerrainChunk`'s derived key
+(minimum sample coordinates, maximum coordinates, then stride), including retained
+source replacements. Forward, shadow, depth and metadata passes traverse the same
+ordered residents. Equal-depth boundary overlap therefore has stable ownership
+when the resident leaf set is identical, independently of upload retirement timing.
+Ordering does not change chunk geometry, streaming budgets or draw counts for
+an identical leaf set. Selection ranks candidates by descending projected error,
+then quadtree level from the root (descending stride), then the chunk's derived
+coordinate key. Exact-error ties therefore have explicit admission priority under
+constrained budgets, independent of resident storage and upload-completion history.
+Selected leaves are returned in derived-key order. Relative to history-based tie
+admission, only exact-error ties can change which geometry becomes resident.
+
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies
 to world-to-UV mapping; its inverse brings each layer normal into the common

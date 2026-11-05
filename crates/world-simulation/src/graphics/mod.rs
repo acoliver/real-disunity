@@ -17,6 +17,7 @@ mod offscreen;
 mod properties;
 mod render_texture;
 mod slab;
+pub mod snapshot;
 
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
@@ -29,6 +30,7 @@ pub use properties::{
     TextureSlot,
 };
 pub use render_texture::{WorldRenderTexture, WorldSampler};
+pub use snapshot::{CameraView, GraphicsSnapshot, RendererView};
 
 use slab::Slab;
 

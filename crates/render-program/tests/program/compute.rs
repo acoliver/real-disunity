@@ -128,7 +128,7 @@ fn a_kernel_writes_the_storage_buffer_and_only_within_its_count() {
     assert_eq!(got, expected);
 }
 
-fn kernel_program(
+pub fn kernel_program(
     runtime: &worldrunner_render_program::runtime::ProgramRuntime,
 ) -> worldrunner_render_program::runtime::ComputeProgram {
     let table = vec![same(0, 3), same(0, 5), same(0, 7)];

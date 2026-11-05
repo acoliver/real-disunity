@@ -1,9 +1,12 @@
 //! Scoped uniformity guard for atlas/coverage derivatives and their callers.
 //!
 //! Naga 30 disables fragment uniformity enforcement. This guard requires the
-//! derivative-sensitive call chain to precede control flow in each caller. It
-//! conservatively rejects even uniform branches, and does not analyze unrelated
+//! derivative-sensitive call chain to precede divergent control flow in each caller. It
+//! permits branches proven to depend only on uniforms, and does not analyze unrelated
 //! lighting/decal derivatives or prove value uniformity throughout the module.
+#[path = "uniformity_values.rs"]
+mod values;
+
 use std::collections::HashSet;
 
 use super::geometry_test_sources::geometry_sources;
@@ -105,76 +108,129 @@ fn terminating_functions(module: &Module) -> HashSet<Handle<Function>> {
     }
 }
 
-fn check_block(
-    function: &Function,
-    block: &naga::Block,
-    sensitive: &HashSet<Handle<Function>>,
-    terminating: &HashSet<Handle<Function>>,
-    mut divergent: bool,
-) -> bool {
-    for statement in block {
-        let needs_quad = match statement {
-            Statement::Emit(range) if scoped(function) => range
-                .clone()
-                .any(|handle| derivative_expression(&function.expressions[handle])),
-            Statement::Call { function, .. } => sensitive.contains(function),
-            _ => false,
-        };
-        if needs_quad && divergent {
-            return false;
-        }
-        if !nested_blocks_valid(function, statement, sensitive, terminating) {
-            return false;
-        }
-        divergent |= matches!(
-            statement,
-            Statement::Block(_)
-                | Statement::If { .. }
-                | Statement::Switch { .. }
-                | Statement::Loop { .. }
-                | Statement::Return { .. }
-                | Statement::Kill
-        ) || matches!(statement, Statement::Call { function, .. } if terminating.contains(function));
-    }
-    true
+struct Guard<'a> {
+    module: &'a Module,
+    sensitive: HashSet<Handle<Function>>,
+    terminating: HashSet<Handle<Function>>,
 }
 
-fn nested_blocks_valid(
-    function: &Function,
-    statement: &Statement,
-    sensitive: &HashSet<Handle<Function>>,
-    terminating: &HashSet<Handle<Function>>,
-) -> bool {
-    match statement {
-        Statement::If { accept, reject, .. } => {
-            check_block(function, accept, sensitive, terminating, true)
-                && check_block(function, reject, sensitive, terminating, true)
+impl Guard<'_> {
+    fn check_block(&self, function: &Function, block: &naga::Block, mut divergent: bool) -> bool {
+        for statement in block {
+            let needs_quad = match statement {
+                Statement::Emit(range) if scoped(function) => range
+                    .clone()
+                    .any(|handle| derivative_expression(&function.expressions[handle])),
+                Statement::Call { function, .. } => self.sensitive.contains(function),
+                _ => false,
+            };
+            if needs_quad && divergent {
+                return false;
+            }
+            if !self.nested_blocks_valid(function, statement, divergent) {
+                return false;
+            }
+            divergent |= self.loses_uniformity(function, statement);
         }
-        Statement::Block(block) => check_block(function, block, sensitive, terminating, true),
-        Statement::Loop {
-            body, continuing, ..
-        } => {
-            check_block(function, body, sensitive, terminating, true)
-                && check_block(function, continuing, sensitive, terminating, true)
+        true
+    }
+
+    fn loses_uniformity(&self, function: &Function, statement: &Statement) -> bool {
+        match statement {
+            Statement::If {
+                condition,
+                accept,
+                reject,
+            } => {
+                !values::uniform_value(self.module, function, *condition)
+                    || self.varying_exit(function, accept, false)
+                    || self.varying_exit(function, reject, false)
+            }
+            Statement::Block(_)
+            | Statement::Switch { .. }
+            | Statement::Loop { .. }
+            | Statement::Return { .. }
+            | Statement::Kill => true,
+            Statement::Call { function, .. } => self.terminating.contains(function),
+            _ => false,
         }
-        Statement::Switch { cases, .. } => cases
-            .iter()
-            .all(|case| check_block(function, &case.body, sensitive, terminating, true)),
-        _ => true,
+    }
+
+    fn varying_exit(&self, function: &Function, block: &naga::Block, divergent: bool) -> bool {
+        block.iter().any(|statement| match statement {
+            Statement::Return { .. } => divergent,
+            Statement::Kill => true,
+            Statement::Call { function, .. } => self.terminating.contains(function),
+            Statement::If {
+                condition,
+                accept,
+                reject,
+            } => {
+                let divergent =
+                    divergent || !values::uniform_value(self.module, function, *condition);
+                self.varying_exit(function, accept, divergent)
+                    || self.varying_exit(function, reject, divergent)
+            }
+            Statement::Block(block) => self.varying_exit(function, block, divergent),
+            Statement::Loop {
+                body, continuing, ..
+            } => {
+                self.varying_exit(function, body, true)
+                    || self.varying_exit(function, continuing, true)
+            }
+            Statement::Switch { cases, .. } => cases
+                .iter()
+                .any(|case| self.varying_exit(function, &case.body, true)),
+            _ => false,
+        })
+    }
+
+    fn nested_blocks_valid(
+        &self,
+        function: &Function,
+        statement: &Statement,
+        divergent: bool,
+    ) -> bool {
+        match statement {
+            Statement::If {
+                condition,
+                accept,
+                reject,
+            } => {
+                let divergent =
+                    divergent || !values::uniform_value(self.module, function, *condition);
+                self.check_block(function, accept, divergent)
+                    && self.check_block(function, reject, divergent)
+            }
+            Statement::Block(block) => self.check_block(function, block, divergent),
+            Statement::Loop {
+                body, continuing, ..
+            } => {
+                self.check_block(function, body, true)
+                    && self.check_block(function, continuing, true)
+            }
+            Statement::Switch { cases, .. } => cases
+                .iter()
+                .all(|case| self.check_block(function, &case.body, true)),
+            _ => true,
+        }
     }
 }
 
 fn uniform_atlas_paths(source: &str) -> Result<(), String> {
     let module = naga::front::wgsl::parse_str(source).unwrap();
-    let sensitive = sensitive_functions(&module);
-    let terminating = terminating_functions(&module);
+    let guard = Guard {
+        module: &module,
+        sensitive: sensitive_functions(&module),
+        terminating: terminating_functions(&module),
+    };
     let functions = module
         .functions
         .iter()
         .map(|(_, function)| function)
         .chain(module.entry_points.iter().map(|entry| &entry.function));
     for function in functions {
-        if !check_block(function, &function.body, &sensitive, &terminating, false) {
+        if !guard.check_block(function, &function.body, false) {
             return Err(function.name.clone().unwrap_or_default());
         }
     }
@@ -203,5 +259,23 @@ fn guard_rejects_implicit_samples_and_derivatives_after_callee_discard() {
     let source = "@group(0) @binding(0) var tex: texture_2d<f32>; @group(0) @binding(1) var smp: sampler; fn scene_atlas_bad(uv: vec2<f32>) -> vec4<f32> { if uv.x == 0.0 { return vec4<f32>(0.0); } return textureSampleBias(tex, smp, uv, 0.0); }";
     assert!(uniform_atlas_paths(source).is_err());
     let source = "fn kill(value: f32) { if value == 0.0 { discard; } } fn scene_atlas_gradient(value: f32) -> f32 { return dpdx(value); } fn normal(value: f32) -> f32 { kill(value); return scene_atlas_gradient(value); }";
+    assert!(uniform_atlas_paths(source).is_err());
+}
+
+#[test]
+fn guard_permits_uniform_feature_gates_and_explicit_samples_in_divergent_flow() {
+    let source = "@group(0) @binding(0) var<uniform> flag: u32; fn scene_atlas_uniform(value: f32) -> f32 { if flag == 0u { return 0.0; } return dpdx(value); }";
+    assert_eq!(uniform_atlas_paths(source), Ok(()));
+    let source = "@group(0) @binding(0) var tex: texture_2d<f32>; @group(0) @binding(1) var smp: sampler; fn scene_atlas_explicit(uv: vec2<f32>) -> vec4<f32> { let dx = dpdx(uv); let dy = dpdy(uv); if uv.x == 0.0 { return textureSampleGrad(tex, smp, uv, dx, dy); } return textureSampleLevel(tex, smp, uv, 0.0); }";
+    assert_eq!(uniform_atlas_paths(source), Ok(()));
+    let source = "@group(0) @binding(0) var<uniform> flag: u32; fn scene_atlas_bad(value: f32) -> f32 { if value == 0.0 { return 0.0; } if flag != 0u { return dpdx(value); } return 0.0; }";
+    assert!(uniform_atlas_paths(source).is_err());
+}
+
+#[test]
+fn uniform_gates_do_not_hide_nested_divergent_returns_or_discards() {
+    let source = "@group(0) @binding(0) var<uniform> flag: u32; fn scene_atlas_bad(value: f32) -> f32 { if flag != 0u { if value == 0.0 { return 0.0; } } return dpdx(value); }";
+    assert!(uniform_atlas_paths(source).is_err());
+    let source = "@group(0) @binding(0) var<uniform> flag: u32; fn kill(value: f32) { if value == 0.0 { discard; } } fn scene_atlas_bad(value: f32) -> f32 { if flag != 0u { kill(value); } return dpdx(value); }";
     assert!(uniform_atlas_paths(source).is_err());
 }

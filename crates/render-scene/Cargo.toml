@@ -16,6 +16,7 @@ publish.workspace = true
 worldrunner-camera = { path = "../camera" }
 worldrunner-render-gpu = { path = "../render-gpu" }
 worldrunner-render-post = { path = "../render-post" }
+worldrunner-render-program = { path = "../render-program" }
 worldrunner-render-lighting = { path = "../render-lighting" }
 glam.workspace = true
 half = "2.7.1"
@@ -31,7 +32,9 @@ pollster.workspace = true
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 worldrunner-render-plan = { path = "../render-plan", features = ["ui"] }
 worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"] }
-naga = { version = "30.0.0", features = ["wgsl-in"] }
+# `spv-out` turns the WGSL of a synthetic player program into the SPIR-V a player ships.
+naga = { version = "30.0.0", features = ["wgsl-in", "spv-out"] }
+worldrunner-unity-serialized = { path = "../unity-serialized" }
 
 [lints]
 workspace = true

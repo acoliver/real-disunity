@@ -1,7 +1,7 @@
 //! Runs a built Unity player's scene headless in the managed host.
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_original_games::workspace_root;
@@ -14,12 +14,14 @@ use worldrunner_unity_import::{
 
 use crate::PlayError;
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
-use crate::{driver::FIRST_COVERAGE_TEXTURE, player_meshes::PlayerMeshes};
+use crate::{driver::FIRST_COVERAGE_TEXTURE, gpu_player::PlayerGpu, player_meshes::PlayerMeshes};
 
 /// A player scene ready to boot: the host configuration and the request its bridge loads.
 pub struct PreparedPlayer {
     pub config: ManagedHostConfig,
     pub request: PathBuf,
+    /// The player's `<Game>_Data` directory, where its shaders and serialized files are read.
+    pub data: PathBuf,
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
@@ -67,6 +69,7 @@ pub fn prepare_player(
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
         request,
+        data: data.to_owned(),
     })
 }
 
@@ -236,20 +239,60 @@ fn path_component(name: &str) -> String {
     }
 }
 
-/// Boots the host, starts the player's scene and advances it `frames` times by `dt`. The
-/// error names the step that failed: starting the scene or the frame that failed.
+/// Whether a run does the player's offscreen work on a device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GpuWork {
+    /// Takes a device when the machine has an adapter, and runs without GPU work when it has
+    /// none. A frame whose snapshot holds no work leaves the device alone.
+    #[default]
+    Auto,
+    /// Never touches a device: the run is the one before the offscreen host existed.
+    Off,
+}
+
+/// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
+/// player's offscreen work on a device when there is one ([`GpuWork::Auto`]). The error names the
+/// step that failed: starting the scene or the frame that failed.
 pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
+    run_player_with(prepared, frames, dt, GpuWork::Auto)
+}
+
+/// [`run_player`] with `gpu` saying whether the offscreen work runs.
+pub fn run_player_with(
+    prepared: &PreparedPlayer,
+    frames: u64,
+    dt: Duration,
+    gpu: GpuWork,
+) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
+    let gpu = match gpu {
+        GpuWork::Off => None,
+        GpuWork::Auto => {
+            let made = PlayerGpu::headless(&prepared.data);
+            if made.is_none() {
+                eprintln!("[gpu] no adapter; the offscreen work does not run");
+            }
+            made
+        }
+    };
+    // Installed before the scene loads: a script may read a compute buffer back while it does.
+    if let Some(gpu) = &gpu {
+        gpu.install(&mut host)?;
+    }
     host.run_slice(&prepared.request)?;
     let nanos = u64::try_from(dt.as_nanos())
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
     let mut result = Ok(());
     let mut meshes = PlayerMeshes::default();
+    let mut times = Vec::new();
     for frame in 0..frames {
+        let started = Instant::now();
         let stepped = host
             .advance(nanos, 1_000_000_000)
             .map_err(PlayError::from)
-            .and_then(|()| present_meshes(&mut host, &mut meshes));
+            .and_then(|()| present_meshes(&mut host, &mut meshes))
+            .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)));
+        times.push(started.elapsed());
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
             break;
@@ -258,9 +301,28 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     if result.is_ok() {
         eprintln!("[player] ran {frames} frames");
     }
+    report_times(&times);
+    if let Some(gpu) = &gpu {
+        gpu.report().print();
+    }
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
+}
+
+/// Writes the first, mean and slowest frame time to standard error.
+fn report_times(times: &[Duration]) {
+    let Some(first) = times.first() else {
+        return;
+    };
+    let total: Duration = times.iter().sum();
+    let slowest = times.iter().max().copied().unwrap_or_default();
+    let count = u32::try_from(times.len()).unwrap_or(u32::MAX);
+    eprintln!(
+        "[player] frame time: first {first:?}, mean {:?}, slowest {slowest:?}, {} frames",
+        total / count,
+        times.len()
+    );
 }
 
 /// Prepares the frame's presentation at the size of a small window and brings its meshes in, so a

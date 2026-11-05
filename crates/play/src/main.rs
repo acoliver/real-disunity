@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerWindow, ScheduledKey, key_code, play_player_window, prepare,
-    prepare_player, run_player,
+    Capture, Game, GpuWork, PlayDriver, PlayerWindow, ScheduledKey, key_code, play_player_window,
+    prepare, prepare_player, run_player_with,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -18,7 +18,8 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
        play shader-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
-            [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...";
+            [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
+            [--gpu-work on|off]";
 
 #[derive(Default)]
 struct Arguments {
@@ -32,6 +33,8 @@ struct Arguments {
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
+    /// Whether a headless player run does its offscreen work on a device.
+    gpu_work: GpuWork,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -95,6 +98,13 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
         "--player" => arguments.player = Some(value.into()),
         "--scene" => arguments.scene = Some(value.to_owned()),
+        "--gpu-work" => {
+            arguments.gpu_work = match value {
+                "on" => GpuWork::Auto,
+                "off" => GpuWork::Off,
+                _ => return Err(format!("--gpu-work `{value}` is on or off")),
+            };
+        }
         "--arg" => arguments.command_line.push(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
     }
@@ -146,7 +156,13 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    run_player(&prepared, arguments.frames.unwrap_or(1), dt).map_err(|error| error.to_string())
+    run_player_with(
+        &prepared,
+        arguments.frames.unwrap_or(1),
+        dt,
+        arguments.gpu_work,
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// Plays `driver` in a window of `--size` (else `size`) and writes the requested captures.
@@ -277,6 +293,28 @@ mod tests {
             ["-userdata", "/saves", "-headless", "--flag"]
         );
         assert_eq!(arguments.frames, Some(3));
+    }
+
+    #[test]
+    fn gpu_work_is_on_unless_the_run_says_off() {
+        use worldrunner_play::GpuWork;
+        assert_eq!(
+            parsed(&["--player", "Game_Data"]).expect("parses").gpu_work,
+            GpuWork::Auto
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--gpu-work", "off"])
+                .expect("parses")
+                .gpu_work,
+            GpuWork::Off
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--gpu-work", "on"])
+                .expect("parses")
+                .gpu_work,
+            GpuWork::Auto
+        );
+        assert!(parsed(&["--player", "Game_Data", "--gpu-work", "maybe"]).is_err());
     }
 
     #[test]

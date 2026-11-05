@@ -14,6 +14,7 @@ mod bc7_tables;
 mod bc7_tests;
 mod block_texture;
 mod driver;
+mod gpu_player;
 mod keys;
 mod navigation;
 pub mod offscreen;
@@ -31,8 +32,9 @@ mod textures_tests;
 mod unresolved;
 
 pub use driver::{Capture, PlayDriver};
+pub use gpu_player::{AssetCache, GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
-pub use player::{PreparedPlayer, prepare_player, run_player};
+pub use player::{GpuWork, PreparedPlayer, prepare_player, run_player, run_player_with};
 pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,
 };

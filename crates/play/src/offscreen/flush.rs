@@ -15,8 +15,6 @@
 //! Each run of records is its own submission because the buffer a run's constants share is
 //! rewritten for the next run, and a submission fixes what its commands read.
 
-use std::collections::BTreeMap;
-
 use worldrunner_disunity_runtime::GpuFlush;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::offscreen::frame::OffscreenFrame;
@@ -319,20 +317,4 @@ impl OffscreenHost {
         }
         Ok(writes)
     }
-}
-
-/// Records of a frame by kind, for the report.
-#[must_use]
-pub fn counts(snapshot: &GraphicsSnapshot) -> BTreeMap<&'static str, usize> {
-    let mut counts = BTreeMap::new();
-    for work in &snapshot.work {
-        let name = match work {
-            OffscreenWork::CameraRender { .. } => "CameraRender",
-            OffscreenWork::Blit { .. } => "Blit",
-            OffscreenWork::CopyTexture { .. } => "CopyTexture",
-            OffscreenWork::Dispatch { .. } => "Dispatch",
-        };
-        *counts.entry(name).or_default() += 1;
-    }
-    counts
 }

@@ -235,13 +235,17 @@ pub(super) fn vector(world: &mut World, material: MaterialId, name: &str, value:
 }
 
 pub(super) fn target(world: &mut World, format: u32) -> RenderTextureId {
+    target_with_mips(world, format, 1)
+}
+
+fn target_with_mips(world: &mut World, format: u32, mip_count: u32) -> RenderTextureId {
     world
         .create_render_texture(WorldRenderTexture {
             width: SIDE,
             height: SIDE,
             format,
             depth_bits: 0,
-            mip_count: 1,
+            mip_count,
             srgb: false,
             sampler: WorldSampler::default(),
             generation: 0,
@@ -360,6 +364,39 @@ fn a_camera_a_blit_of_every_pass_and_a_copy_run_with_the_players_shaders() {
         assert_eq!(pixel(&b, (2, y)), YELLOW);
     }
     // The copy.
+    assert_eq!(c, b);
+}
+
+#[test]
+fn a_render_texture_with_a_mip_chain_is_sampled_at_the_level_the_camera_wrote() {
+    let mut rig = Rig::new();
+    let mut world = world();
+    let a = target_with_mips(&mut world, 8, 3);
+    let (b, c) = (
+        render_texture(&mut world, [SIDE, SIDE]),
+        render_texture(&mut world, [SIDE, SIDE]),
+    );
+    camera_render(&mut world, a);
+    blit_and_copy(&mut world, (a, b, c));
+    let (adapted, operations, reads) = rig.frame(&mut world, &[b, c]);
+    assert_eq!(adapted.report.failures["draw:SampledWrittenLevelsOnly"], 3);
+    assert!(
+        !adapted
+            .report
+            .failures
+            .keys()
+            .any(|name| name.starts_with("record:")),
+        "{:?}",
+        adapted.report.failures
+    );
+    rig.run(operations);
+    let mut images = reads.into_iter().map(|image| image.bytes(&rig.device));
+    let (b, c) = (images.next().unwrap(), images.next().unwrap());
+    // As with a single level: the last blit pass inverts what the camera drew.
+    for y in 0..SIDE as usize {
+        assert_eq!(pixel(&b, (1, y)), CYAN);
+        assert_eq!(pixel(&b, (2, y)), YELLOW);
+    }
     assert_eq!(c, b);
 }
 

@@ -85,6 +85,7 @@ public static partial class DisunityHost
 
     public static void Step(float deltaTime)
     {
+        UpdateRenderPipeline();
         Advance(deltaTime);
         ReportAudioListenerDiagnostic();
     }
@@ -220,6 +221,7 @@ public static partial class DisunityHost
             try { DisposeAllRoutines(); }
             finally
             {
+                DisposeRenderPipeline();
                 foreach (var value in Tracked) value.MarkDestroyed();
                 CurrentScene = null; LoadedScenes.Clear(); UnloadingScenes.Clear(); AxisDefinitions.Clear(); Tracked.Clear(); TrackedByHandle.Clear(); Scripts.Clear(); PendingComponents.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear(); ClearChangedMeshes();
                 var world = WorldHandle;

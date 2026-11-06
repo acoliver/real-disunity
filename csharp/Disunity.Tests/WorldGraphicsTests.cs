@@ -288,7 +288,7 @@ internal static unsafe class WorldGraphicsTests
         var a = new RenderTexture(8, 8, 0, GraphicsFormat.R8G8B8A8_UNorm, 3);
         var b = new RenderTexture(8, 8, 0);
         var c = new RenderTexture(8, 8, 0, GraphicsFormat.R8G8B8A8_UNorm, 3);
-        var material = new Material(DisunityHost.DeclareShader("Test/World/Blit", 2000, 3, 1, _ => { }));
+        var material = new Material(DisunityHost.DeclareShader("Test/World/Blit", 2000, Unnamed(3), 1, _ => { }));
         Graphics.Blit(source, a);
         Graphics.Blit(a, b, material, 2);
         RenderTexture.active = b;
@@ -333,9 +333,9 @@ internal static unsafe class WorldGraphicsTests
 
     private static void ShaderSourceComesFromThePlan()
     {
-        var shader = DisunityHost.DeclareShader("Test/World/Planned", 2000, 1, 1, _ => { }, "sharedassets3.assets", -12);
+        var shader = DisunityHost.DeclareShader("Test/World/Planned", 2000, Unnamed(1), 1, _ => { }, "sharedassets3.assets", -12);
         Expect.That(shader.SourceFile == "sharedassets3.assets" && shader.SourcePathId == -12, "the shader keeps its source");
-        var again = DisunityHost.DeclareShader("Test/World/Planned", 2000, 1, 1, _ => { }, "other.assets", 5);
+        var again = DisunityHost.DeclareShader("Test/World/Planned", 2000, Unnamed(1), 1, _ => { }, "other.assets", 5);
         Expect.That(again == shader && shader.SourceFile == "sharedassets3.assets", "the first source stays");
         Expect.That(shader.WorldLink.Id != 0, "the shader is registered in the world with its source");
         var plain = DisunityHost.RegisterShader("Test/World/Fallback");

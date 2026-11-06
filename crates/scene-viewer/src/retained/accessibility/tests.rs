@@ -173,3 +173,112 @@ fn platform_live_text_has_a_value_and_does_not_announce_modal_restoration() {
         .1;
     assert_eq!(node.live(), Some(accesskit::Live::Off));
 }
+
+fn platform_link() -> (Accessibility, UiNodeId) {
+    use worldrunner_world_simulation::ui::{UiLinkId, UiRole};
+    let (world, mut router, object) = semantic_fixture();
+    let layout = world.ui_layout([400, 300].into()).unwrap();
+    let mut update = router.semantic_update(&world, &layout).unwrap();
+    let parent = update
+        .changed
+        .iter_mut()
+        .find(|n| n.id == UiNodeId::Object(object))
+        .unwrap();
+    parent.role = UiRole::Text;
+    parent.actions.clear();
+    let mut source = parent.clone();
+    source.id = UiNodeId::Link {
+        object,
+        link: UiLinkId(7),
+    };
+    source.role = UiRole::Link;
+    source.label = "Read more".into();
+    source.actions = vec![UiAccessAction::Focus, UiAccessAction::Press];
+    parent.children.push(source.id);
+    update.focus = source.id;
+    let target = source.id;
+    update.changed.push(source);
+    let mut service = Accessibility::default();
+    service.set(update);
+    (service, target)
+}
+
+#[test]
+fn link_semantics_publish_role_click_focus_and_round_trip_span_identity() {
+    let (service, target) = platform_link();
+    let id = service.ids[&target];
+    let full = service.initial.lock().unwrap().clone().unwrap();
+    assert_eq!(full.focus, id);
+    let node = &full.nodes.iter().find(|(n, _)| *n == id).unwrap().1;
+    assert_eq!(node.role(), accesskit::Role::Link);
+    assert_eq!(node.label(), Some("Read more"));
+    let [left, top, right, bottom] = service.tree.as_ref().unwrap().nodes[&target].bounds;
+    assert_eq!(
+        node.bounds(),
+        Some(accesskit::Rect::new(left, top, right, bottom))
+    );
+    let parent_id = service
+        .tree
+        .as_ref()
+        .unwrap()
+        .nodes
+        .values()
+        .find(|n| n.children.contains(&target))
+        .unwrap()
+        .id;
+    let parent = &full
+        .nodes
+        .iter()
+        .find(|(id, _)| *id == service.ids[&parent_id])
+        .unwrap()
+        .1;
+    assert_eq!(parent.role(), accesskit::Role::Label);
+    assert_eq!(parent.children(), &[id]);
+    assert!(node.supports_action(Action::Focus));
+    assert!(node.supports_action(Action::Click));
+    for (action, expected) in [
+        (Action::Click, UiAccessAction::Press),
+        (Action::Focus, UiAccessAction::Focus),
+    ] {
+        assert_eq!(
+            service.request(ActionRequest {
+                action,
+                target_tree: TreeId::ROOT,
+                target_node: id,
+                data: None
+            }),
+            Some(UiAccessRequest {
+                target,
+                action: expected
+            })
+        );
+    }
+}
+
+#[test]
+fn removed_platform_link_rejects_obsolete_requests() {
+    let (mut service, target) = platform_link();
+    let id = service.ids[&target];
+    let UiNodeId::Link { object, .. } = target else {
+        unreachable!()
+    };
+    let mut parent = service.tree.as_ref().unwrap().nodes[&UiNodeId::Object(object)].clone();
+    parent.children.clear();
+    service.set(UiSemanticUpdate {
+        changed: vec![parent],
+        removed: vec![target],
+        focus: UiNodeId::Window,
+        focus_changed: true,
+        announcements: vec![],
+    });
+    assert!(
+        service
+            .request(ActionRequest {
+                action: Action::Click,
+                target_tree: TreeId::ROOT,
+                target_node: id,
+                data: None
+            })
+            .is_none()
+    );
+}

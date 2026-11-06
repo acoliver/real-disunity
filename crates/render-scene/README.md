@@ -111,6 +111,20 @@ The tests are in `src/draw/tests/program_frame*`. `player_program_and_scene_gpu_
 
 ## Material sampling
 
+Mesh and impostor scalar selectors use direct component indexing with uniform integers,
+without selector-dependent fragment branches or additional pipelines. The shared
+material uniform is 576 bytes: its first 448 bytes retain their layout, followed
+by four 16-byte surface index slots and four packed-atlas index slots. Each slot's
+first signed integer is an offset from the default component; the rest is padding.
+Default uniform tails stay zero, and selection performs no arithmetic on texels. Forward and material metadata sampling share these selectors. See the
+[material channel contract](../render-plan/README.md#material-scalar-channels)
+for defaults, map roles and typed admission errors.
+
+DDS DXGI formats 98 and 99 upload as BC7 UNORM and BC7 sRGB without CPU decoding,
+including supplied mip tails. Layered terrain source arrays accept both BC7
+formats. BC7 requires the same `TEXTURE_COMPRESSION_BC` feature as BC1/3/4/5;
+colour-space disagreements and truncated block payloads are rejected.
+
 Resident mesh and impostor materials share one sampler across all channels.
 `SceneMaterial::with_anisotropy` selects 1, 2, 4, 8 or 16, defaulting to 1;
 all levels use linear texel/mip filtering and repeat wrapping. Texture-level

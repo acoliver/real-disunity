@@ -1,5 +1,6 @@
 mod graphics;
 mod text_field;
+mod text_flow;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
     let width = image.viewport.width;
     let height = image.viewport.height;
@@ -38,7 +39,7 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
             corner[0] += offset.x - 16.;
             corner[1] += offset.y - 16.;
         }
-        ui.texts[0].texture.as_mut().unwrap().bytes.fill(255);
+        std::sync::Arc::make_mut(&mut ui.texts[0].texture.as_mut().unwrap().bytes).fill(255);
         apply(&mut run, ui.clone());
         assert_eq!(pixel(&capture(&mut run, &events).1, x, y), [255, 0, 0, 255]);
         let mut front = ui.texts[0].clone();
@@ -78,10 +79,11 @@ fn plan(color: [f32; 4]) -> UiRenderPlan {
                 worldrunner_world_simulation::presentation::CoverageTexture {
                     width: 2,
                     height: 2,
-                    bytes: vec![255, 0, 0, 255].into_boxed_slice(),
+                    bytes: vec![255, 0, 0, 255].into(),
                 },
             ),
             quads: vec![UiGlyphQuad {
+                color: [1.; 4],
                 corners: [[8., 8., 0.], [24., 8., 0.], [24., 24., 0.], [8., 24., 0.]],
                 uv: [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],
             }],

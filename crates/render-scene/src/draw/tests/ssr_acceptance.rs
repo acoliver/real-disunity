@@ -387,7 +387,7 @@ fn geometric_water_hit_and_offscreen_miss_at_every_supported_sample_count() {
                 sample,
                 0,
             );
-            let confidence = channel(&context, hit.ssr.as_ref().unwrap().textures()[4], sample, 3);
+            let confidence = channel(&context, hit.ssr.as_ref().unwrap().textures()[3], sample, 3);
             for y in 16..30 {
                 for x in 13..19 {
                     let i = y * 32 + x;
@@ -442,20 +442,20 @@ fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
         );
         let ssr = renderer.ssr.as_ref().unwrap();
         assert!(
-            channel(&context, ssr.textures()[4], 0, 3)
+            channel(&context, ssr.textures()[3], 0, 3)
                 .iter()
                 .all(|value| *value == 0.0)
         );
         for sample in 0..samples {
             for component in 0..3 {
-                let published = channel(&context, ssr.textures()[2], sample, component);
+                let published = channel(&context, ssr.textures()[1], sample, component);
                 let color = channel(
                     &context,
                     renderer.targets().scene().texture(),
                     sample,
                     component,
                 );
-                let factor = channel(&context, ssr.textures()[3], sample, component);
+                let factor = channel(&context, ssr.textures()[2], sample, component);
                 let radiance = reference_radiance[usize::try_from(component).unwrap()];
                 let mut covered = 0;
                 for i in 0..32 * 32 {

@@ -34,7 +34,7 @@ public static class GraphicsFormatUtility
     /// (the engine's choice for a stencil-only format).</summary>
     public static bool IsDepthStencilFormat(GraphicsFormat format) => IsDepthFormat(format) || IsStencilFormat(format);
 
-    public static uint GetDepthBits(GraphicsFormat format) => (uint)GraphicsFormats.DepthBits(format);
+    public static int GetDepthBits(GraphicsFormat format) => GraphicsFormats.DepthBits(format);
 
     public static uint GetStencilBits(GraphicsFormat format) => GraphicsFormats.HasStencil(format) ? 8u : 0u;
 

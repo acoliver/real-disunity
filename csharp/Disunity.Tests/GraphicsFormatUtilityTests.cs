@@ -42,7 +42,8 @@ internal static class GraphicsFormatUtilityTests
             Expect.That(GraphicsFormatUtility.IsDepthStencilFormat(depthStencil), $"{depthStencil} is a depth or stencil format");
         foreach (var color in new[] { GraphicsFormat.R8_UNorm, GraphicsFormat.R8G8B8A8_SRGB, GraphicsFormat.R32_SFloat, GraphicsFormat.None })
             Expect.That(!GraphicsFormatUtility.IsDepthStencilFormat(color), $"{color} is not a depth or stencil format");
-        Expect.Equal(24u, GraphicsFormatUtility.GetDepthBits(GraphicsFormat.D24_UNorm_S8_UInt), "depth bits");
+        Expect.Equal(24, GraphicsFormatUtility.GetDepthBits(GraphicsFormat.D24_UNorm_S8_UInt), "depth bits");
+        Expect.Equal(0, GraphicsFormatUtility.GetDepthBits(GraphicsFormat.R8_UNorm), "no depth bits for a color format");
         Expect.Equal(8u, GraphicsFormatUtility.GetStencilBits(GraphicsFormat.D24_UNorm_S8_UInt), "stencil bits");
         Expect.Equal(0u, GraphicsFormatUtility.GetStencilBits(GraphicsFormat.D16_UNorm), "no stencil bits");
         Expect.Equal(GraphicsFormat.D16_UNorm, GraphicsFormatUtility.GetDepthStencilFormat(16), "16 depth bits");

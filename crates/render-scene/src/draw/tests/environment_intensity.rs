@@ -49,15 +49,15 @@ fn probe(
     let ssr = renderer.ssr.as_ref().unwrap();
     Probe {
         color: channel(context, renderer.targets().scene().texture(), 0, 0),
-        opaque: channel(context, ssr.textures()[2], 0, 0),
-        factor: channel(context, ssr.textures()[3], 0, 0),
+        opaque: channel(context, ssr.textures()[1], 0, 0),
+        factor: channel(context, ssr.textures()[2], 0, 0),
         water: channel(
             context,
             renderer.water_receivers().unwrap().2.texture(),
             0,
             0,
         ),
-        confidence: channel(context, ssr.textures()[4], 0, 3),
+        confidence: channel(context, ssr.textures()[3], 0, 3),
         water_flag: channel(
             context,
             renderer.water_receivers().unwrap().0.texture(),
@@ -139,9 +139,9 @@ fn forward_diffuse_and_direct_residual_are_independent_of_cube_scale() {
             render_with_environment(&context, &scene, 1, &maps, &texel_center_frame(&scene));
         let color = channel(&context, renderer.targets().scene().texture(), 0, 0);
         let ssr = renderer.ssr.as_ref().unwrap();
-        let environment = channel(&context, ssr.textures()[2], 0, 0);
+        let environment = channel(&context, ssr.textures()[1], 0, 0);
         assert!(
-            channel(&context, ssr.textures()[4], 0, 3)
+            channel(&context, ssr.textures()[3], 0, 3)
                 .iter()
                 .all(|v| *v == 0.0)
         );

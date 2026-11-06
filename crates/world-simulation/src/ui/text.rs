@@ -1,6 +1,7 @@
 use super::{FontId, GlyphAtlas, UiError, UiLimits, atlas::AtlasBuilder, wrap};
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use glam::{UVec2, Vec2};
+use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HorizontalAlign {
@@ -52,8 +53,16 @@ pub enum VerticalOverflow {
     Overflow,
 }
 
-/// A Unity `Text`. `font_size` is pixels per em, as in Unity. Glyphs are not clipped to the
-/// rectangle; the overflow modes decide which lines exist.
+/// A styled UTF-8 byte range. Ranges must be ordered, disjoint and on character boundaries.
+/// Colour multiplies the run tint. No synthetic weight or font substitution is applied.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextSpan {
+    pub range: Range<usize>,
+    pub color: [f32; 4],
+}
+
+/// Text with word wrapping. `font_size` is pixels per em. Contributions clip to the rectangle;
+/// overflow modes decide which lines are laid out.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextRun {
     pub enabled: bool,
@@ -61,6 +70,11 @@ pub struct TextRun {
     pub text: String,
     pub font_size: f32,
     pub color: [f32; 4],
+    pub spans: Vec<TextSpan>,
+    /// Baseline distance in logical pixels; `None` uses font metrics and `line_spacing`.
+    pub line_height: Option<f32>,
+    /// Extra logical pixels after each explicit newline, excluding the last line.
+    pub paragraph_spacing: f32,
     pub horizontal: HorizontalAlign,
     pub vertical: VerticalAlign,
     pub line_spacing: f32,
@@ -78,6 +92,9 @@ impl TextRun {
             text: String::new(),
             font_size: 14.,
             color: [1.; 4],
+            spans: Vec::new(),
+            line_height: None,
+            paragraph_spacing: 0.,
             horizontal: HorizontalAlign::Left,
             vertical: VerticalAlign::Top,
             line_spacing: 1.,
@@ -89,6 +106,9 @@ impl TextRun {
     pub(crate) fn validate(&self) -> Result<(), UiError> {
         if !(1. ..=512.).contains(&self.font_size)
             || !(0.01..=16.).contains(&self.line_spacing)
+            || self.line_height.is_some_and(|h| !h.is_finite() || h <= 0.)
+            || !self.paragraph_spacing.is_finite()
+            || self.paragraph_spacing < 0.
             || self.color.iter().any(|v| !(0. ..=1.).contains(v))
         {
             return Err(UiError::InvalidText);
@@ -100,17 +120,44 @@ impl TextRun {
             return Err(UiError::UnsupportedRichText);
         }
         for c in self.text.chars() {
-            if !(c.is_ascii_graphic() || c == ' ' || c == '\n' || c == '\r') {
+            if !(c.is_ascii_graphic()
+                || c == ' '
+                || c == '\n'
+                || c == '\r'
+                || ('\u{a0}'..='\u{ff}').contains(&c))
+            {
                 return Err(UiError::UnsupportedShaping(c));
             }
         }
+        self.validate_spans()
+    }
+    fn validate_spans(&self) -> Result<(), UiError> {
+        let mut end = 0;
+        for span in &self.spans {
+            if span.range.start < end
+                || span.range.start >= span.range.end
+                || self.text.get(span.range.clone()).is_none()
+                || span.color.iter().any(|v| !(0. ..=1.).contains(v))
+            {
+                return Err(UiError::InvalidText);
+            }
+            end = span.range.end;
+        }
         Ok(())
+    }
+    fn span_color(&self, byte: usize) -> [f32; 4] {
+        let index = self.spans.partition_point(|s| s.range.end <= byte);
+        self.spans
+            .get(index)
+            .filter(|s| s.range.contains(&byte))
+            .map_or([1.; 4], |s| s.color)
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GlyphLayout {
     pub character: char,
+    pub color: [f32; 4],
     pub glyph_id: u16,
     pub origin: Vec2,
     /// Local X-right/Y-up coordinates measured from rectangle bottom-left.
@@ -127,6 +174,8 @@ pub struct LineMetrics {
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextLayout {
+    /// Full pre-truncation extent, suitable for a scroll content's fixed height.
+    pub content_height: f32,
     pub lines: Vec<LineMetrics>,
     pub glyphs: Vec<GlyphLayout>,
     pub atlas: GlyphAtlas,
@@ -141,16 +190,14 @@ fn scale(font: &FontArc, font_size: f32) -> Result<PxScale, UiError> {
     Ok(PxScale::from(scale))
 }
 
-/// How many of `count` lines of height `line`, with `spacing` between baselines, fit in
-/// `available`.
-fn fitting(count: usize, line: f32, spacing: f32, available: f32) -> usize {
-    let mut extent = line;
-    let mut fits = 0;
-    while fits < count && extent <= available {
-        fits += 1;
-        extent += spacing;
+fn offsets(lines: &[wrap::Line], spacing: f32, paragraph: f32) -> Vec<f32> {
+    let mut offset = 0.;
+    let mut result = Vec::with_capacity(lines.len());
+    for line in lines {
+        result.push(offset);
+        offset += spacing + if line.paragraph_end { paragraph } else { 0. };
     }
-    fits
+    result
 }
 
 pub(super) fn layout(
@@ -163,50 +210,77 @@ pub(super) fn layout(
     let scaled = font.as_scaled(px);
     let wrap_width = (run.horizontal_overflow == HorizontalOverflow::Wrap).then_some(size.x);
     let mut lines = wrap::lines(&scaled, &run.text, wrap_width, limits)?;
-    let spacing = (scaled.height() + scaled.line_gap()) * run.line_spacing;
+    let spacing = run
+        .line_height
+        .unwrap_or((scaled.height() + scaled.line_gap()) * run.line_spacing);
+    let offsets = offsets(&lines, spacing, run.paragraph_spacing);
+    let content_height = offsets.last().map_or(0., |last| last + scaled.height());
     if run.vertical_overflow == VerticalOverflow::Truncate {
-        lines.truncate(fitting(lines.len(), scaled.height(), spacing, size.y));
+        lines.truncate(
+            offsets
+                .iter()
+                .take_while(|&&y| y + scaled.height() <= size.y)
+                .count(),
+        );
     }
-    let height = scaled.height()
-        + spacing
-            * f32::from(
-                u16::try_from(lines.len().saturating_sub(1)).map_err(|_| UiError::GlyphLimit)?,
-            );
+    let height = lines
+        .len()
+        .checked_sub(1)
+        .map_or(0., |i| offsets[i] + scaled.height());
     let top = size.y - (size.y - height) * run.vertical.factor();
-    if !top.is_finite() || !scaled.ascent().is_finite() {
+    if !top.is_finite() || !content_height.is_finite() || !scaled.ascent().is_finite() {
         return Err(UiError::InvalidFont);
     }
     let mut atlas = AtlasBuilder::new(limits);
     let mut glyphs = Vec::new();
     let mut metrics = Vec::new();
-    for (i, line) in lines.into_iter().enumerate() {
-        let baseline = top
-            - scaled.ascent()
-            - f32::from(u16::try_from(i).map_err(|_| UiError::GlyphLimit)?) * spacing;
+    for (line, offset) in lines.into_iter().zip(offsets) {
+        let baseline = top - scaled.ascent() - offset;
         metrics.push(LineMetrics {
             width: line.width,
             baseline,
         });
-        let mut x = (size.x - line.width) * run.horizontal.factor();
-        let mut previous = None;
-        for c in line.characters {
-            let id = scaled.glyph_id(c);
-            x += previous.map_or(0., |p| scaled.kern(p, id));
-            let glyph = id.with_scale_and_position(px, point(x, -baseline));
-            if let Some(outlined) = font.outline_glyph(glyph)
-                && let Some(glyph) = raster(&mut atlas, &outlined, c, Vec2::new(x, baseline))?
-            {
-                glyphs.push(glyph);
-            }
-            x += scaled.h_advance(id);
-            previous = Some(id);
-        }
+        layout_line(
+            &mut atlas,
+            &mut glyphs,
+            &scaled,
+            run,
+            &line,
+            Vec2::new(size.x, baseline),
+        )?;
     }
     Ok(TextLayout {
+        content_height,
         lines: metrics,
         glyphs,
         atlas: atlas.finish(),
     })
+}
+
+fn layout_line(
+    atlas: &mut AtlasBuilder,
+    glyphs: &mut Vec<GlyphLayout>,
+    font: &ab_glyph::PxScaleFont<&FontArc>,
+    run: &TextRun,
+    line: &wrap::Line,
+    extent: Vec2,
+) -> Result<(), UiError> {
+    let mut x = (extent.x - line.width) * run.horizontal.factor();
+    let mut previous = None;
+    for &(byte, c) in &line.characters {
+        let id = font.glyph_id(c);
+        x += previous.map_or(0., |p| font.kern(p, id));
+        let glyph = id.with_scale_and_position(font.scale(), point(x, -extent.y));
+        if let Some(outlined) = font.font.outline_glyph(glyph)
+            && let Some(mut glyph) = raster(atlas, &outlined, c, Vec2::new(x, extent.y))?
+        {
+            glyph.color = run.span_color(byte);
+            glyphs.push(glyph);
+        }
+        x += font.h_advance(id);
+        previous = Some(id);
+    }
+    Ok(())
 }
 
 fn raster(
@@ -224,6 +298,7 @@ fn raster(
     let (atlas_min, atlas_size) = atlas.insert(glyph, min, max)?;
     Ok(Some(GlyphLayout {
         character,
+        color: [1.; 4],
         origin,
         glyph_id: glyph.glyph().id.0,
         rect_min: Vec2::new(min.x, -max.y),

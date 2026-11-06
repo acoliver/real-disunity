@@ -52,7 +52,7 @@ pub fn from_presentation(
                 width: t.width,
                 height: t.height,
                 mips: 1,
-                bytes: t.bytes,
+                bytes: t.bytes.as_ref().into(),
             },
         );
     }

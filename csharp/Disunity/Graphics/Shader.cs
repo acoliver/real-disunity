@@ -9,9 +9,10 @@ namespace UnityEngine;
 /// or declarations, so the members that read a shader's passes, tags, keywords or properties throw
 /// <see cref="NotSupportedException"/>, and so do renderQueue, passCount, subshaderCount and an unset maximumLOD,
 /// except for the two built-in sprite shaders, whose queue (3000) and, for Sprites/Default, pass and subshader
-/// counts (1) are known. The global properties and keywords are stored and read back, and nothing applies them
-/// to a draw yet. The globals are main-thread state, as in Unity, and fail on other threads; the global keyword
-/// lists are locked.
+/// counts (1) are known. The global properties and keywords are stored and read back, and sent to the world.
+/// The globals are main-thread state, as in Unity, and fail on other threads; the global keyword
+/// lists are locked. A shader has a resource in the world once something needs one; the global values and
+/// keywords are sent to the world whenever they are set, and again when a world is loaded.
 /// </summary>
 public sealed partial class Shader : Object
 {
@@ -21,8 +22,35 @@ public sealed partial class Shader : Object
     private static readonly List<string> EnabledKeywords = new();
 
     private int? _renderQueue, _passCount, _subshaderCount, _maximumLod;
+    private WorldGraphics.Link _world;
+    private string? _sourceFile;
+    private long _sourcePathId;
 
     internal Shader(string name) => this.name = name;
+
+    /// <summary>The shader's resource in the loaded world, made on first use with the shader's name and, when the player's plan
+    /// gave one, the file and object its programs are in. A shader made by name alone, such as a fallback, has no source.</summary>
+    internal WorldGraphics.Link WorldLink
+    {
+        get
+        {
+            if (_world.IsCurrent) return _world;
+            _world = WorldGraphics.CreateShader(name);
+            if (_sourceFile is not null) WorldGraphics.WriteShaderSource(_world, _sourceFile, _sourcePathId);
+            return _world;
+        }
+    }
+
+    /// <summary>Records the serialized file and object the shader's programs are read from, sending it to the world when the
+    /// shader already has a resource there.</summary>
+    internal void SetSource(string file, long pathId)
+    {
+        (_sourceFile, _sourcePathId) = (file, pathId);
+        if (_world.IsCurrent) WorldGraphics.WriteShaderSource(_world, file, pathId);
+    }
+
+    internal string? SourceFile => _sourceFile;
+    internal long SourcePathId => _sourcePathId;
 
     /// <summary>Records what the engine knows about a built-in shader that has no declarations to read.</summary>
     internal Shader Declare(int renderQueue, int? passCount, int? subshaderCount)
@@ -113,6 +141,18 @@ public sealed partial class Shader : Object
             if (enabled && !EnabledKeywords.Contains(keyword)) EnabledKeywords.Add(keyword);
             else if (!enabled) EnabledKeywords.Remove(keyword);
         }
+        if (DisunityHost.IsLoaded) WorldGraphics.WriteKeyword(WorldGraphics.ScopeGlobal, WorldGraphics.GlobalTarget, keyword, enabled);
+    }
+
+    /// <summary>Sends the global keywords and properties to the world that was just loaded: they outlive worlds, the world's
+    /// copy does not.</summary>
+    internal static void SyncGlobalsToWorld()
+    {
+        var target = WorldGraphics.GlobalTarget;
+        string[] enabled;
+        lock (KeywordLock) enabled = EnabledKeywords.ToArray();
+        foreach (var keyword in enabled) WorldGraphics.WriteKeyword(WorldGraphics.ScopeGlobal, target, keyword, true);
+        WorldGraphics.SendAll(WorldGraphics.ScopeGlobal, target, GlobalStore);
     }
 
     public int GetPassCountInSubshader(int subshaderIndex) =>

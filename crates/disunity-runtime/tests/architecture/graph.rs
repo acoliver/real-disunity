@@ -64,31 +64,10 @@ pub fn assert_runtime_graph(root: &Path) {
     );
     runtime_graph(&graph).unwrap();
 }
-fn managed_graph(graph: &Value, consumer: bool) -> Result<(), String> {
-    let items = &graph["Items"];
-    if !items["PackageReference"].as_array().unwrap().is_empty() {
-        return Err("unexpected managed package".into());
-    }
-    let projects = items["ProjectReference"].as_array().unwrap();
-    if projects.len() != usize::from(consumer)
-        || projects.iter().any(|p| p["Filename"] != "Disunity.Engine")
-    {
-        return Err("unexpected managed project reference".into());
-    }
-    let references = items["ReferencePath"].as_array().unwrap();
-    let custom: Vec<_> = references
-        .iter()
-        .filter(|r| {
-            r["FrameworkReferenceName"]
-                .as_str()
-                .unwrap_or("")
-                .is_empty()
-        })
-        .collect();
-    if custom.len() != usize::from(consumer)
-        || custom.iter().any(|r| r["Filename"] != "Disunity.Engine")
-    {
-        return Err("unexpected resolved assembly reference".into());
+fn managed_graph(graph: &Value) -> Result<(), String> {
+    let projects = graph["Items"]["ProjectReference"].as_array().unwrap();
+    if projects.len() != 1 || projects[0]["Filename"] != "Disunity.Engine" {
+        return Err("the consumer must reference exactly Disunity.Engine".into());
     }
     Ok(())
 }
@@ -106,23 +85,13 @@ pub fn assert_managed_graph(root: &Path) {
         String::from_utf8_lossy(&restore.stdout),
         String::from_utf8_lossy(&restore.stderr)
     );
-    for (project, consumer) in [
-        ("UnityConsumer/UnityConsumer.csproj", true),
-        ("Disunity/Disunity.Engine.csproj", false),
-    ] {
-        let graph = output(
-            Command::new("dotnet")
-                .arg("msbuild")
-                .arg(root.join("csharp").join(project))
-                .args([
-                    "-t:ResolveReferences",
-                    "-getItem:ProjectReference,ReferencePath,PackageReference",
-                    "-v:q",
-                    "-nologo",
-                ]),
-        );
-        managed_graph(&graph, consumer).unwrap();
-    }
+    let graph = output(
+        Command::new("dotnet")
+            .arg("msbuild")
+            .arg(root.join("csharp/UnityConsumer/UnityConsumer.csproj"))
+            .args(["-getItem:ProjectReference", "-v:q", "-nologo"]),
+    );
+    managed_graph(&graph).unwrap();
 }
 #[test]
 fn aliased_resolved_dependency_is_rejected() {
@@ -130,13 +99,14 @@ fn aliased_resolved_dependency_is_rejected() {
     assert!(runtime_graph(&graph).is_err());
 }
 #[test]
-fn imported_and_transitive_managed_references_are_rejected() {
-    let mut graph = serde_json::json!({"Items":{"PackageReference":[],"ProjectReference":[],"ReferencePath":[]}});
+fn a_consumer_reference_other_than_the_engine_is_rejected() {
+    let mut graph =
+        serde_json::json!({"Items":{"ProjectReference":[{"Filename":"Disunity.Engine"}]}});
+    assert!(managed_graph(&graph).is_ok());
     graph["Items"]["ProjectReference"] = serde_json::json!([{"Filename":"RequestTransport","DefiningProjectFullPath":"Imported.props"}]);
-    assert!(managed_graph(&graph, false).is_err());
+    assert!(managed_graph(&graph).is_err());
     graph["Items"]["ProjectReference"] = serde_json::json!([]);
-    graph["Items"]["ReferencePath"] = serde_json::json!([{"Filename":"RequestTransport","ReferenceSourceTarget":"ProjectReference"}]);
-    assert!(managed_graph(&graph, false).is_err());
+    assert!(managed_graph(&graph).is_err());
 }
 
 fn fixture(name: &str) -> std::path::PathBuf {
@@ -179,11 +149,7 @@ fn evaluated_imported_reference_is_rejected() {
         Command::new("dotnet")
             .arg("msbuild")
             .arg(root.join("Consumer.csproj"))
-            .args([
-                "-getItem:ProjectReference,ReferencePath,PackageReference",
-                "-v:q",
-                "-nologo",
-            ]),
+            .args(["-getItem:ProjectReference", "-v:q", "-nologo"]),
     );
-    assert!(managed_graph(&graph, false).is_err());
+    assert!(managed_graph(&graph).is_err());
 }

@@ -699,6 +699,8 @@ fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTarget
         targets
     } else if source.contains("struct ReflectionOutput") {
         vec![color_targets(format)[0].clone(); 3]
+    } else if source.contains(crate::scene_metadata::MERGED_MARKER) {
+        vec![color_targets(format)[0].clone(); 2]
     } else {
         color_targets(format).to_vec()
     }

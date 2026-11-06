@@ -151,8 +151,22 @@ public sealed partial class Camera
     public void RemoveCommandBuffers(CameraEvent evt) => CommandBuffers.RemoveAll(evt, "Camera.RemoveCommandBuffers");
     public void RemoveAllCommandBuffers() => CommandBuffers.Clear();
     public CommandBuffer[] GetCommandBuffers(CameraEvent evt) => CommandBuffers.Get(evt, "Camera.GetCommandBuffers");
-    public bool TryGetCullingParameters(ref ScriptableCullingParameters cullingParameters) => throw Unsupported(nameof(TryGetCullingParameters));
-    public bool TryGetCullingParameters(bool stereoAware, ref ScriptableCullingParameters cullingParameters) => throw Unsupported(nameof(TryGetCullingParameters));
+    /// <summary>Fills the parameters from the camera: its culling mask, the six planes of its view volume, the product of its
+    /// projection and view matrices, its position, its level of detail parameters, the quality settings' shadow distance
+    /// (stopped at the far plane), its layer cull distances, and no culling options (the engine has no light, probe or occlusion
+    /// culling). Returns false, with the parameters left empty, for a camera whose view has no pixels or whose matrices are not
+    /// finite. A destroyed camera throws <see cref="InvalidOperationException"/>.</summary>
+    public bool TryGetCullingParameters(out ScriptableCullingParameters cullingParameters)
+    {
+        ThrowIfDestroyed();
+        return CullingParametersFilled(out cullingParameters);
+    }
+
+    /// <summary>The same as <see cref="TryGetCullingParameters(out ScriptableCullingParameters)"/>: the engine has no stereo
+    /// rendering, so <paramref name="stereoAware"/> changes nothing.</summary>
+    public bool TryGetCullingParameters(bool stereoAware, out ScriptableCullingParameters cullingParameters) =>
+        TryGetCullingParameters(out cullingParameters);
+
     public Matrix4x4 GetStereoNonJitteredProjectionMatrix(StereoscopicEye eye) => throw Unsupported(nameof(GetStereoNonJitteredProjectionMatrix));
     public Matrix4x4 GetStereoViewMatrix(StereoscopicEye eye) => throw Unsupported(nameof(GetStereoViewMatrix));
     public Matrix4x4 GetStereoProjectionMatrix(StereoscopicEye eye) => throw Unsupported(nameof(GetStereoProjectionMatrix));

@@ -49,8 +49,23 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     }
 
     public void ExecuteCommandBufferAsync(CommandBuffer commandBuffer, ComputeQueueType queueType) => throw Unsupported("ExecuteCommandBufferAsync");
-    public CullingResults Cull(ref ScriptableCullingParameters parameters) => throw Unsupported("Cull");
+    /// <summary>Queues a culling of the world's renderers with the parameters and returns a handle to the result. The record
+    /// reaches the world's offscreen list at <see cref="Submit"/>, in order with the commands executed before and after. Parameters
+    /// that did not come from <see cref="Camera.TryGetCullingParameters(out ScriptableCullingParameters)"/> throw
+    /// <see cref="InvalidOperationException"/>. The result has no visible lights or probes (the engine has no light culling).</summary>
+    public CullingResults Cull(ref ScriptableCullingParameters parameters)
+    {
+        if (parameters.CameraHandle == 0) throw new InvalidOperationException("ScriptableRenderContext.Cull: the parameters did not come from a camera");
+        var id = WorldGraphics.NextHandle();
+        var copy = parameters;
+        lock (Pending) Pending.Add(() => WorldGraphics.RecordCull(id, copy));
+        return new CullingResults { Handle = id };
+    }
     public void SetupCameraProperties(Camera camera, bool stereoSetup = false) => throw Unsupported("SetupCameraProperties");
+    /// <summary>Does nothing: it makes canvas geometry available to the camera's culling, and the engine draws canvases
+    /// itself from the world's canvas renderers, so the pipeline has no geometry to ask for (the engine's choice).</summary>
+    public static void EmitGeometryForCamera(Camera camera) => ArgumentNullException.ThrowIfNull(camera);
+
     public void DrawSkybox(Camera camera) => throw Unsupported("DrawSkybox");
     public void DrawGizmos(Camera camera, GizmoSubset gizmoSubset) => throw Unsupported("DrawGizmos");
     public void DrawUIOverlay(Camera camera) => throw Unsupported("DrawUIOverlay");

@@ -1,5 +1,6 @@
 using System.Text;
 using Disunity.Native;
+using UnityEngine.Rendering;
 
 namespace UnityEngine;
 
@@ -72,4 +73,25 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_allocate_temporary(World, nameId, &desc));
 
     internal static void RecordReleaseTemporary(int nameId) => Check(NativeBindings.disunity_offscreen_release_temporary(World, nameId));
+
+    private static long _lastHandle;
+
+    /// <summary>The next id for a culling result or a renderer list. Ids are never reused, so a handle from an earlier frame
+    /// names nothing in a later one.</summary>
+    internal static ulong NextHandle() => (ulong)Interlocked.Increment(ref _lastHandle);
+
+    /// <summary>Records a culling result: the camera the parameters came from, their layer mask, the planes in use and the options.</summary>
+    internal static void RecordCull(ulong id, ScriptableCullingParameters parameters)
+    {
+        var count = parameters.cullingPlaneCount;
+        var floats = new float[count * 4];
+        for (var index = 0; index < count; index++)
+        {
+            var plane = parameters.GetCullingPlane(index);
+            (floats[index * 4], floats[index * 4 + 1], floats[index * 4 + 2], floats[index * 4 + 3]) = (plane.normal.x, plane.normal.y, plane.normal.z, plane.distance);
+        }
+        fixed (float* planes = floats)
+            Check(NativeBindings.disunity_offscreen_cull(World, id, parameters.CameraHandle, parameters.cullingMask, count == 0 ? null : planes,
+                (uint)count, (uint)parameters.cullingOptions));
+    }
 }

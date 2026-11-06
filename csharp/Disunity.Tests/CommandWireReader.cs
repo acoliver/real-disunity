@@ -48,6 +48,7 @@ internal static unsafe class CommandWireReader
             7 => $"Keyword {input.Text()}={input.Bool()}",
             8 => $"Allocate {input.I32()} {input.Texture()}",
             9 => $"Release {input.I32()}",
+            10 => $"Cull id={input.U64()} camera={input.Component()} mask={input.U32()} planes=[{string.Join(",", input.List(() => input.Floats(4)))}] options={input.U32()}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
@@ -61,6 +62,7 @@ internal static unsafe class CommandWireReader
         public int Remaining => bytes.Length - _at;
         public byte U8() => bytes[_at++];
         public bool Bool() => U8() == 1;
+        public string Component() { U64(); var slot = U32(); return $"{slot}.{U32()}"; }
         public uint U32() { var v = BitConverter.ToUInt32(bytes, _at); _at += 4; return v; }
         public int I32() { var v = BitConverter.ToInt32(bytes, _at); _at += 4; return v; }
         public ulong U64() { var v = BitConverter.ToUInt64(bytes, _at); _at += 8; return v; }

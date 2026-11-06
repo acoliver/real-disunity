@@ -49,6 +49,7 @@ internal static class PlayerPipelineTests
     public static void Run()
     {
         SetsTheAssetsBeforeTheFirstSceneAwakes();
+        TheAssetsCanBeSetBeforeThePipelineIsCreated();
         AFailingAssetLeavesThePipelineNullAndLogsTheCause();
         APlanWithoutGraphicsChangesNothing();
         QualityLevelAssets();
@@ -103,7 +104,7 @@ internal static class PlayerPipelineTests
     };
 
     /// <summary>Loads a world and the plan, runs <paramref name="run"/> with the lines the start logged, and unloads both.</summary>
-    private static void With(JsonNode? graphics, string[] levels, Action<List<string>> run)
+    private static void With(JsonNode? graphics, string[] levels, Action<List<string>> run, bool createWithAssets = true)
     {
         var directory = Directory.CreateTempSubdirectory("disunity-pipeline-");
         try
@@ -114,7 +115,8 @@ internal static class PlayerPipelineTests
             {
                 if (levels.Length > 0) DisunityHost.SetQualityLevels(levels, levels.Length - 1);
                 var log = new List<string>();
-                DisunityHost.ApplyRenderPipelines(log.Add);
+                if (createWithAssets) DisunityHost.ApplyRenderPipelines(log.Add);
+                else DisunityHost.ApplyRenderPipelineAssets(log.Add);
                 run(log);
             }
             finally
@@ -129,6 +131,20 @@ internal static class PlayerPipelineTests
             DisunityHost.UnloadResources();
             directory.Delete(recursive: true);
         }
+    }
+
+    private static void TheAssetsCanBeSetBeforeThePipelineIsCreated()
+    {
+        With(Graphics(0, 1, null, 2, null), ["Low", "Medium", "High"], _ =>
+        {
+            Expect.That(GraphicsSettings.defaultRenderPipeline is HighAsset, "the assets are set");
+            Expect.That(RenderPipelineManager.currentPipeline is null, "and no pipeline exists until it is started");
+            DisunityHost.StartRenderPipeline();
+            var created = RenderPipelineManager.currentPipeline;
+            Expect.That(created is TestPipeline, "starting creates the active asset's pipeline");
+            DisunityHost.StartRenderPipeline();
+            Expect.That(ReferenceEquals(created, RenderPipelineManager.currentPipeline), "starting again keeps the pipeline");
+        }, createWithAssets: false);
     }
 
     private static void SetsTheAssetsBeforeTheFirstSceneAwakes()

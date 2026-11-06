@@ -1,6 +1,7 @@
 //! The encodings of the work command buffers record.
 use super::WireError;
 use super::codec::{Reader, Wire, Writer};
+use super::context_parts::{read_context, write_context};
 use super::scene_parts::{
     WORK_ALLOCATE_TEMPORARY, WORK_CLEAR_RENDER_TARGET, WORK_RELEASE_TEMPORARY, WORK_SET_GLOBAL,
     WORK_SET_GLOBAL_KEYWORD, WORK_SET_RENDER_TARGET,
@@ -127,7 +128,7 @@ pub(super) fn write_command(work: &OffscreenWork, out: &mut Writer) -> Result<()
             WORK_RELEASE_TEMPORARY.write(out)?;
             name_id.write(out)
         }
-        _ => Err(WireError::UnknownTag(u32::MAX)),
+        other => write_context(other, out),
     }
 }
 
@@ -164,6 +165,6 @@ pub(super) fn read_command(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
         WORK_RELEASE_TEMPORARY => Ok(OffscreenWork::ReleaseTemporary {
             name_id: Wire::read(input)?,
         }),
-        other => Err(WireError::UnknownTag(u32::from(other))),
+        other => read_context(other, input),
     }
 }

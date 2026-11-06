@@ -66,7 +66,8 @@ public abstract class RenderPipelineGlobalSettings : ScriptableObject
 }
 
 /// <summary>A render pipeline. The host creates it from the active <see cref="RenderPipelineAsset"/> and disposes it when
-/// the asset stops being active or the world unloads. The engine does not call <see cref="Render(ScriptableRenderContext, List{Camera})"/> yet.</summary>
+/// the asset stops being active or the world unloads. It calls <see cref="Render(ScriptableRenderContext, List{Camera})"/>
+/// once per frame step, after the script phases, with the enabled cameras by depth (see DisunityHost.RenderFrame).</summary>
 public abstract class RenderPipeline
 {
     public bool disposed { get; private set; }
@@ -77,6 +78,32 @@ public abstract class RenderPipeline
 
     /// <summary>The array form of <see cref="Render(ScriptableRenderContext, List{Camera})"/>; by default it calls the list form.</summary>
     protected virtual void Render(ScriptableRenderContext context, Camera[] cameras) => Render(context, new List<Camera>(cameras));
+
+    /// <summary>Lets the host call the list form.</summary>
+    internal void InvokeRender(ScriptableRenderContext context, List<Camera> cameras) => Render(context, cameras);
+
+    /// <summary>Does nothing: the host raises <see cref="RenderPipelineManager.beginContextRendering"/> before it calls
+    /// Render, so a pipeline that calls this does not raise the event a second time. The engine's choice.</summary>
+    protected static void BeginContextRendering(ScriptableRenderContext context, List<Camera> cameras) { }
+
+    /// <summary>Does nothing; see <see cref="BeginContextRendering"/>. The host raises the end event after Render returns.</summary>
+    protected static void EndContextRendering(ScriptableRenderContext context, List<Camera> cameras) { }
+
+    /// <summary>Raises <see cref="RenderPipelineManager.beginCameraRendering"/>.</summary>
+    protected static void BeginCameraRendering(ScriptableRenderContext context, Camera camera) =>
+        RenderPipelineManager.RaiseBeginCamera(context, camera);
+
+    /// <summary>Raises <see cref="RenderPipelineManager.endCameraRendering"/>.</summary>
+    protected static void EndCameraRendering(ScriptableRenderContext context, Camera camera) =>
+        RenderPipelineManager.RaiseEndCamera(context, camera);
+
+    /// <summary>Raises <see cref="RenderPipelineManager.beginFrameRendering"/>.</summary>
+    protected static void BeginFrameRendering(ScriptableRenderContext context, Camera[] cameras) =>
+        RenderPipelineManager.RaiseBeginFrame(context, cameras);
+
+    /// <summary>Raises <see cref="RenderPipelineManager.endFrameRendering"/>.</summary>
+    protected static void EndFrameRendering(ScriptableRenderContext context, Camera[] cameras) =>
+        RenderPipelineManager.RaiseEndFrame(context, cameras);
 
     /// <summary>Releases the pipeline's resources. <see cref="Dispose()"/> calls it with true, once.</summary>
     protected virtual void Dispose(bool disposing) { }

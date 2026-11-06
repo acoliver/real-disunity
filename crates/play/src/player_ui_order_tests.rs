@@ -4,6 +4,7 @@ use worldrunner_render_plan::ui::UiDraw;
 fn draw(order: i32, hierarchy: usize, clip_rect: [u32; 4]) -> UiDraw {
     UiDraw {
         kind: UiDrawKind::Graphic,
+        triangle_uv: None,
         corners: [[8., 8., 0.], [24., 8., 0.], [24., 24., 0.], [8., 24., 0.]],
         uv_rect: [0., 0., 1., 1.],
         color: [1.; 4],

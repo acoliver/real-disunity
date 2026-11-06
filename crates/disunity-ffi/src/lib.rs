@@ -32,6 +32,7 @@ pub mod faces;
 pub mod gpu_flush;
 pub mod graphics;
 pub mod graphics_commands;
+pub mod graphics_context;
 pub mod graphics_offscreen;
 pub mod graphics_properties;
 pub mod graphics_snapshot;

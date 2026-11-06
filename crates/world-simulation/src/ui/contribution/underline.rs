@@ -46,7 +46,7 @@ pub(super) fn contributions(
                     sorting_order: rect.sorting_order,
                     texture: None,
                     quads: vec![quad],
-                    left_out_triangles: 0,
+                    triangles: Vec::new(),
                 },
                 link: Some(segment.link),
                 hierarchy_order: rect.hierarchy_order,

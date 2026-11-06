@@ -26,15 +26,12 @@ internal static class RenderEntryPointTests
     private static void Context()
     {
         var context = default(ScriptableRenderContext);
-        var culling = default(ScriptableCullingParameters);
         var drawing = default(DrawingSettings);
         var filtering = FilteringSettings.defaultValue;
         var block = new RenderStateBlock(RenderStateMask.Nothing);
         var list = new RendererListParams(default, drawing, filtering);
         Unsupported(() => context.SubmitForRenderPassValidation(), "SubmitForRenderPassValidation");
         Unsupported(() => context.ExecuteCommandBufferAsync(new CommandBuffer(), ComputeQueueType.Default), "ExecuteCommandBufferAsync");
-        Unsupported(() => context.Cull(ref culling), "Cull");
-        Unsupported(() => context.SetupCameraProperties(null!), "SetupCameraProperties");
         Unsupported(() => context.DrawSkybox(null!), "DrawSkybox");
         Unsupported(() => context.DrawGizmos(null!, GizmoSubset.PreImageEffects), "DrawGizmos");
         Unsupported(() => context.DrawUIOverlay(null!), "DrawUIOverlay");

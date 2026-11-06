@@ -80,7 +80,31 @@ fn a_new_light_has_the_engines_defaults() {
     assert!(!s.use_color_temperature);
     assert_eq!(s.cookie_texture, 0);
     assert_eq!(s.bake_type, LightBakeType::Realtime);
+    assert_eq!(s.shadow_resolution, -1, "the quality settings choose");
     assert_eq!(light.validate(), Ok(()));
+}
+
+#[test]
+fn a_shadow_resolution_is_from_the_quality_settings_or_a_level() {
+    for good in -1..=3 {
+        assert_eq!(
+            with(|s| s.shadow_resolution = good).validate(),
+            Ok(()),
+            "{good}"
+        );
+    }
+    for bad in [-2, 4, i32::MIN, i32::MAX] {
+        assert_eq!(
+            with(|s| s.shadow_resolution = bad).validate(),
+            Err(invalid()),
+            "{bad}"
+        );
+        assert_eq!(
+            with(|s| s.shadow_resolution = bad).normalized(),
+            Err(invalid()),
+            "{bad}"
+        );
+    }
 }
 
 #[test]

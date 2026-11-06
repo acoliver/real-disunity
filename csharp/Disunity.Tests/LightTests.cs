@@ -41,6 +41,15 @@ internal static class LightTests
         Ensure(light.type == LightType.Point && light.color == Color.white && light.intensity == 1f && light.range == 10f, "type, color, intensity and range");
         Ensure(light.spotAngle == 30f && light.innerSpotAngle == 21.8f && light.shadows == LightShadows.None && light.shadowStrength == 1f, "angles and shadows");
         Ensure(light.shadowBias == 0.05f && light.shadowNormalBias == 0.4f && light.shadowNearPlane == 0.2f, "shadow biases");
+        Ensure(light.shadowResolution == UnityEngine.Rendering.LightShadowResolution.FromQualitySettings, "shadow resolution comes from the quality settings");
+        foreach (var level in new[] { UnityEngine.Rendering.LightShadowResolution.Low, UnityEngine.Rendering.LightShadowResolution.VeryHigh })
+        {
+            light.shadowResolution = level;
+            Ensure(light.shadowResolution == level, $"shadow resolution {level} reads back");
+        }
+        Expect.Throws<DisunityException>(() => light.shadowResolution = (UnityEngine.Rendering.LightShadowResolution)7, "a shadow resolution that is no level is refused");
+        Ensure(light.shadowResolution == UnityEngine.Rendering.LightShadowResolution.VeryHigh, "a refused write leaves the resolution as it was");
+        light.shadowResolution = UnityEngine.Rendering.LightShadowResolution.FromQualitySettings;
         Ensure(light.cullingMask == -1 && light.renderingLayerMask == 1 && light.bounceIntensity == 1f, "masks and bounce");
         Ensure(light.colorTemperature == 6570f && !light.useColorTemperature && light.cookieSize == 10f && light.cookie is null, "temperature and cookie");
         Ensure(light.lightmapBakeType == LightmapBakeType.Realtime && light.enabled, "bake type and enabled");

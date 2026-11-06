@@ -7,7 +7,7 @@ use worldrunner_world_simulation::ui::{
 };
 use worldrunner_world_simulation::{ComponentDesc, ObjectHandle, ParentSpace};
 
-fn graphic_world() -> (World, ObjectHandle) {
+pub(super) fn graphic_world() -> (World, ObjectHandle) {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let canvas = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -51,7 +51,7 @@ fn graphic_world() -> (World, ObjectHandle) {
     (world, object)
 }
 
-fn extracted(world: &World) -> UiRenderPlan {
+pub(super) fn extracted(world: &World) -> UiRenderPlan {
     worldrunner_render_plan::ui::extract_ui(
         world,
         &FontBook::new(UiLimits::default()).unwrap(),

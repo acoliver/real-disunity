@@ -274,7 +274,21 @@ impl DisunityHost {
         if result.code != 0 {
             return Err(self.native_error(result));
         }
-        Ok(())
+        self.render_frame()
+    }
+
+    /// Asks the managed side to render the frame the world just advanced. The managed host calls
+    /// the current render pipeline, if it has one; a bridge without the export has nothing to
+    /// render.
+    fn render_frame(&self) -> Result<(), HostError> {
+        let Some(render) = self.bridge.render_frame else {
+            return Ok(());
+        };
+        if unsafe { render() } == 0 {
+            Ok(())
+        } else {
+            Err(HostError::Managed(self.bridge.failure()))
+        }
     }
 
     fn native_error(&self, result: DisunityResult) -> HostError {

@@ -137,7 +137,7 @@ internal static class RenderPipelineLifecycleTests
         DisunityHost.Step(0.016f);
         DisunityHost.Step(0.016f);
         Expect.That(asset.Creations == 1 && _created == 1 && _disposedEvents == 0, "later steps create nothing new");
-        Expect.Equal(0, Pipeline.Renders, "the engine does not render through the pipeline");
+        Expect.Equal(3, Pipeline.Renders, "every step renders through the pipeline, the one that creates it included");
         DisunityHost.SetRenderPipeline(null, null);
         DisunityHost.Step(0.016f);
     }

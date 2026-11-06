@@ -212,3 +212,21 @@ pub(super) fn apply_decal(
     gpu.set_decal_placements(placements.into_iter().collect())?;
     Ok(())
 }
+
+pub(super) fn apply_ui(
+    context: &super::GpuContext,
+    resident: &mut Resident,
+    presentation: &mut super::Presentation,
+    overlay: &worldrunner_render_scene::simulation::UiOverlay,
+) -> Result<(), ViewerError> {
+    let mut settings = presentation.scheduler.configuration().clone();
+    if settings.ui_depth != overlay.needs_depth() {
+        settings.ui_depth = overlay.needs_depth();
+        presentation.scheduler.reconfigure(context, settings)?;
+        presentation.refresh_targets();
+    }
+    resident
+        .scene_mut()
+        .set_ui_overlay(context.device(), context.submission(), overlay)
+        .map_err(|error| ViewerError::Gpu(error.to_string()))
+}

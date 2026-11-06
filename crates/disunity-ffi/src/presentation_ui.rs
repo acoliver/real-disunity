@@ -33,14 +33,14 @@ fn validate_draw(draw: &UiDraw, previous: Option<&UiDraw>) -> Result<(), crate::
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
+    /// Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,
     pub clip_y: u32,
     pub clip_width: u32,
     pub clip_height: u32,
-    /// Top-row-origin UV pairs for kind 2, in corner order; zero for kinds 0 and 1.
+    /// Top-row-origin UV pairs in corner order for triangles; zero for quad graphics and text.
     pub triangle_u0: f32,
     pub triangle_v0: f32,
     pub triangle_u1: f32,
@@ -111,14 +111,14 @@ pub unsafe extern "C" fn disunity_presentation_ui_draw(
         ] = draw.triangle_uv.unwrap_or([[0.; 2]; 3]);
         unsafe {
             *output = DisunityUiDraw {
-                kind: if draw.triangle_uv.is_some() {
+                kind: (if draw.triangle_uv.is_some() {
                     2
                 } else {
                     match draw.kind {
                         UiDrawKind::Graphic => 0,
                         UiDrawKind::Text => 1,
                     }
-                },
+                }) | (u32::from(draw.depth_test) << 2),
                 hierarchy_order: draw.hierarchy_order as u64,
                 clip_x,
                 clip_y,

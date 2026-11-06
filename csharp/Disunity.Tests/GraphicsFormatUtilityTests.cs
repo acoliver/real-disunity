@@ -48,6 +48,19 @@ internal static class GraphicsFormatUtilityTests
         Expect.Equal(0u, GraphicsFormatUtility.GetStencilBits(GraphicsFormat.D16_UNorm), "no stencil bits");
         Expect.Equal(GraphicsFormat.D16_UNorm, GraphicsFormatUtility.GetDepthStencilFormat(16), "16 depth bits");
         Expect.Equal(GraphicsFormat.None, GraphicsFormatUtility.GetDepthStencilFormat(0), "no depth bits");
+        (int Depth, int Stencil, GraphicsFormat Format)[] pairs =
+        [
+            (0, 0, GraphicsFormat.None), (0, 8, GraphicsFormat.S8_UInt), (16, 0, GraphicsFormat.D16_UNorm), (16, 8, GraphicsFormat.D16_UNorm_S8_UInt),
+            (24, 0, GraphicsFormat.D24_UNorm), (24, 8, GraphicsFormat.D24_UNorm_S8_UInt), (32, 0, GraphicsFormat.D32_SFloat), (32, 8, GraphicsFormat.D32_SFloat_S8_UInt),
+        ];
+        foreach (var (depth, stencil, format) in pairs)
+        {
+            Expect.Equal(format, GraphicsFormatUtility.GetDepthStencilFormat(depth, stencil), $"{depth} depth and {stencil} stencil bits");
+            Expect.Equal((depth, stencil), ((int)GraphicsFormatUtility.GetDepthBits(format), (int)GraphicsFormatUtility.GetStencilBits(format)), $"{format} reads back its bits");
+        }
+        Expect.Throws<ArgumentException>(() => GraphicsFormatUtility.GetDepthStencilFormat(20, 0), "odd depth bits with a stencil count");
+        Expect.Throws<ArgumentException>(() => GraphicsFormatUtility.GetDepthStencilFormat(24, 4), "odd stencil bits");
+        Expect.Throws<ArgumentException>(() => GraphicsFormatUtility.GetDepthStencilFormat(-16, 0), "negative depth bits");
         Expect.Equal("R8G8B8A8_SRGB", GraphicsFormatUtility.GetFormatString(GraphicsFormat.R8G8B8A8_SRGB), "GetFormatString");
         Expect.Equal("None", GraphicsFormatUtility.GetFormatString(GraphicsFormat.None), "GetFormatString of None");
         Expect.That(GraphicsFormatUtility.IsCompressedFormat(TextureFormat.DXT5), "DXT5 compressed");

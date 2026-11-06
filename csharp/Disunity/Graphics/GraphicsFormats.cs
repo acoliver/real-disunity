@@ -93,6 +93,20 @@ internal static class GraphicsFormats
         _ => throw new ArgumentException($"Unsupported depth buffer bits {bits}; use 0, 16, 24 or 32", nameof(bits)),
     };
 
+    /// <summary>The format with these depth bits (0, 16, 24 or 32) and stencil bits (0 or 8).</summary>
+    internal static GraphicsFormat DepthStencilFormat(int depthBits, int stencilBits) => (depthBits, stencilBits) switch
+    {
+        (0, 0) => GraphicsFormat.None,
+        (0, 8) => GraphicsFormat.S8_UInt,
+        (16, 0) => GraphicsFormat.D16_UNorm,
+        (16, 8) => GraphicsFormat.D16_UNorm_S8_UInt,
+        (24, 0) => GraphicsFormat.D24_UNorm,
+        (24, 8) => GraphicsFormat.D24_UNorm_S8_UInt,
+        (32, 0) => GraphicsFormat.D32_SFloat,
+        (32, 8) => GraphicsFormat.D32_SFloat_S8_UInt,
+        _ => throw new ArgumentException($"Unsupported depth and stencil buffer bits {depthBits} and {stencilBits}; use 0, 16, 24 or 32 depth bits and 0 or 8 stencil bits"),
+    };
+
     internal static int DepthBits(GraphicsFormat format) => format switch
     {
         GraphicsFormat.D16_UNorm or GraphicsFormat.D16_UNorm_S8_UInt => 16,

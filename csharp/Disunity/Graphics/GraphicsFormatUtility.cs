@@ -40,6 +40,10 @@ public static class GraphicsFormatUtility
 
     public static GraphicsFormat GetDepthStencilFormat(int depthBits) => GraphicsFormats.DepthFormat(depthBits);
 
+    /// <summary>The format with these depth bits (0, 16, 24 or 32) and stencil bits (0 or 8), None for neither. Any other count throws
+    /// <see cref="ArgumentException"/>.</summary>
+    public static GraphicsFormat GetDepthStencilFormat(int depthBits, int stencilBits) => GraphicsFormats.DepthStencilFormat(depthBits, stencilBits);
+
     public static uint GetBlockSize(GraphicsFormat format) => GraphicsFormatBlocks.Bytes(format);
 
     public static uint GetBlockWidth(GraphicsFormat format) => GraphicsFormatBlocks.Width(format);

@@ -126,6 +126,10 @@ internal static class CullingTests
         copy = p;
         copy.SetLayerCullingDistance(2, 9f);
         Expect.That(copy != p, "a layer distance takes part in equality");
+        copy = p;
+        copy.maximumVisibleLights = 8;
+        Expect.Equal(8, copy.maximumVisibleLights, "the light limit is stored");
+        Expect.That(copy != p, "the light limit takes part in equality");
     }
 
     private static void CullRecordsAtSubmit()

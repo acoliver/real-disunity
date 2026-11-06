@@ -62,6 +62,9 @@ public struct ScriptableCullingParameters : IEquatable<ScriptableCullingParamete
     public bool conservativeEnclosingSphere { get; set; }
     public int numIterationsEnclosingSphere { get; set; }
 
+    /// <summary>Stored: the engine has no light culling, so no light is ever visible whatever the limit.</summary>
+    public int maximumVisibleLights { get; set; }
+
     /// <summary>How many planes are in use, from 0 to 10; a larger value throws <see cref="ArgumentException"/>.</summary>
     public int cullingPlaneCount
     {
@@ -104,7 +107,8 @@ public struct ScriptableCullingParameters : IEquatable<ScriptableCullingParamete
         && reflectionProbeSortingCriteria == other.reflectionProbeSortingCriteria && stereoViewMatrix.Equals(other.stereoViewMatrix)
         && stereoProjectionMatrix.Equals(other.stereoProjectionMatrix) && stereoSeparationDistance.Equals(other.stereoSeparationDistance)
         && accurateOcclusionThreshold.Equals(other.accurateOcclusionThreshold) && maximumPortalCullingJobs == other.maximumPortalCullingJobs
-        && conservativeEnclosingSphere == other.conservativeEnclosingSphere && numIterationsEnclosingSphere == other.numIterationsEnclosingSphere;
+        && conservativeEnclosingSphere == other.conservativeEnclosingSphere && numIterationsEnclosingSphere == other.numIterationsEnclosingSphere
+        && maximumVisibleLights == other.maximumVisibleLights;
 
     public override readonly bool Equals(object? obj) => obj is ScriptableCullingParameters other && Equals(other);
     public override readonly int GetHashCode() => HashCode.Combine(_planeCount, CameraHandle, cullingMask, cullingMatrix, origin, shadowDistance, cullingOptions);

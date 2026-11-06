@@ -160,6 +160,17 @@ impl Decals {
         Ok(())
     }
 
+    /// Makes appended materials and textures addressable by later placements.
+    pub fn append(
+        &mut self,
+        source: &worldrunner_render_plan::SceneAppend,
+    ) -> Result<(), DrawError> {
+        self.scene.append_resources(source.clone()).map_err(|_| {
+            crate::frame::FrameError::UnsupportedEffect("invalid appended resources")
+        })?;
+        Ok(())
+    }
+
     /// The previous-frame block buffer of the selected frame slot.
     pub fn previous_buffer(&self) -> &wgpu::Buffer {
         &self.previous[self.slot]

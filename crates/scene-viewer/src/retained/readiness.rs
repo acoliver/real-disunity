@@ -18,6 +18,8 @@ pub(crate) struct Preparation {
     pub capture_ao_format: wgpu::TextureFormat,
     pub require_pages: bool,
     pub require_geometry: bool,
+    /// The prepared bytes of an in-place resource edit, until publication uploads them.
+    pub edit: Option<super::resource_edits::PreparedEdit>,
 }
 
 pub(crate) struct Readiness {
@@ -227,6 +229,7 @@ impl RetainedHost {
                 .is_some(),
             require_pages: false,
             require_geometry: false,
+            edit: None,
             update,
             scene,
             decal_ids: self.decals.keys().copied().collect(),

@@ -48,7 +48,7 @@ use crate::{
     player_render_textures::{
         decode_render_texture, plan_render_texture, unplanned_reference as unplanned_render_texture,
     },
-    player_scripts::script_fields,
+    player_scripts::{Referenced, referenced_script, script_fields},
     player_shader_refs::{ShaderDecl, decode_shader, unplanned_reference},
     player_sprites::{self, AssetRef, TextureData},
     player_texture_arrays::plan_texture_array,
@@ -241,7 +241,7 @@ pub fn plan_player_resources(
     let managers = data_dir.join("globalgamemanagers");
     let container = resource_container(&mut files, &managers)?;
     let mut planner = ResourcePlanner {
-        registry: Registry::new(files),
+        registry: Registry::new(files, layouts),
         output: output.to_owned(),
         tags: tag_manager_names(data_dir)?.tags,
         assets: Vec::new(),
@@ -350,6 +350,8 @@ pub(crate) struct Registry {
     compute_shaders: BTreeMap<ObjectKey, Result<ComputeDecl, String>>,
     /// Each admitted material as decoded, or why it did not.
     materials: BTreeMap<ObjectKey, Result<Material, String>>,
+    /// The player's script layouts, which decide whether a referenced script asset can be planned.
+    layouts: ScriptLayouts,
     /// Each admitted mesh as decoded, until its asset is planned.
     meshes: BTreeMap<ObjectKey, DecodedMesh>,
     /// Each admitted render texture as decoded, or why it did not.
@@ -359,9 +361,10 @@ pub(crate) struct Registry {
 }
 
 impl Registry {
-    fn new(files: PlayerFiles) -> Self {
+    fn new(files: PlayerFiles, layouts: &ScriptLayouts) -> Self {
         Self {
             files,
+            layouts: layouts.clone(),
             planned: BTreeMap::new(),
             queue: Vec::new(),
             rejected: BTreeSet::new(),
@@ -477,13 +480,37 @@ impl Registry {
         if let Some(&index) = self.planned.get(&key) {
             return self.usable(&key, index, pptr);
         }
-        if !referenced_on_demand(class) {
+        if class == ClassId::MONO_BEHAVIOUR {
+            self.check_script_asset(&key, pptr)?;
+        } else if !referenced_on_demand(class) {
             return Err(not_held(pptr));
         }
         match self.admit(&key, class) {
             Ok(Some(index)) => self.usable(&key, index, pptr),
             Ok(None) => Err(not_held(pptr)),
             Err(error) => Err(error.to_string()),
+        }
+    }
+
+    /// Whether a reference may plan the `MonoBehaviour` at `key` as a script asset: it must be a
+    /// script asset rather than a component, and its fields must decode, or the reference is left
+    /// out with the reason.
+    fn check_script_asset(&mut self, key: &ObjectKey, pptr: PPtr) -> Result<(), String> {
+        if self.rejected.contains(key) {
+            return Err(not_held(pptr));
+        }
+        match referenced_script(&mut self.files, &key.0, key.1, &self.layouts)
+            .map_err(|error| error.to_string())?
+        {
+            Referenced::Asset => Ok(()),
+            Referenced::Component => {
+                self.rejected.insert(key.clone());
+                Err(not_held(pptr))
+            }
+            Referenced::Unreadable(cause) => Err(format!(
+                "references object {} of file {}, a script asset that does not decode: {cause}",
+                pptr.path_id, pptr.file_id
+            )),
         }
     }
 

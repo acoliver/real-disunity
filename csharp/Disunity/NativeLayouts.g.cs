@@ -365,7 +365,8 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityLight>("use_color_temperature").ToInt32() != 84) throw new InvalidOperationException("DisunityLight.use_color_temperature offset");
         if (Marshal.OffsetOf<DisunityLight>("cookie_size").ToInt32() != 88) throw new InvalidOperationException("DisunityLight.cookie_size offset");
         if (Marshal.OffsetOf<DisunityLight>("lightmap_bake_type").ToInt32() != 92) throw new InvalidOperationException("DisunityLight.lightmap_bake_type offset");
-        if (Marshal.SizeOf<DisunityLight>() != 96 || typeof(DisunityLight).GetFields().Length != 23) throw new InvalidOperationException("DisunityLight layout");
+        if (Marshal.OffsetOf<DisunityLight>("shadow_resolution").ToInt32() != 96) throw new InvalidOperationException("DisunityLight.shadow_resolution offset");
+        if (Marshal.SizeOf<DisunityLight>() != 104 || typeof(DisunityLight).GetFields().Length != 24) throw new InvalidOperationException("DisunityLight layout");
         if (Marshal.OffsetOf<DisunityTextStyle>("font").ToInt32() != 0) throw new InvalidOperationException("DisunityTextStyle.font offset");
         if (Marshal.OffsetOf<DisunityTextStyle>("alignment").ToInt32() != 8) throw new InvalidOperationException("DisunityTextStyle.alignment offset");
         if (Marshal.OffsetOf<DisunityTextStyle>("horizontal_overflow").ToInt32() != 12) throw new InvalidOperationException("DisunityTextStyle.horizontal_overflow offset");
@@ -639,11 +640,17 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityUiDraw>("clip_y").ToInt32() != 20) throw new InvalidOperationException("DisunityUiDraw.clip_y offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("clip_width").ToInt32() != 24) throw new InvalidOperationException("DisunityUiDraw.clip_width offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("clip_height").ToInt32() != 28) throw new InvalidOperationException("DisunityUiDraw.clip_height offset");
-        if (Marshal.SizeOf<DisunityUiDraw>() != 32 || typeof(DisunityUiDraw).GetFields().Length != 6) throw new InvalidOperationException("DisunityUiDraw layout");
+        if (Marshal.OffsetOf<DisunityUiDraw>("triangle_u0").ToInt32() != 32) throw new InvalidOperationException("DisunityUiDraw.triangle_u0 offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("triangle_v0").ToInt32() != 36) throw new InvalidOperationException("DisunityUiDraw.triangle_v0 offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("triangle_u1").ToInt32() != 40) throw new InvalidOperationException("DisunityUiDraw.triangle_u1 offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("triangle_v1").ToInt32() != 44) throw new InvalidOperationException("DisunityUiDraw.triangle_v1 offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("triangle_u2").ToInt32() != 48) throw new InvalidOperationException("DisunityUiDraw.triangle_u2 offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("triangle_v2").ToInt32() != 52) throw new InvalidOperationException("DisunityUiDraw.triangle_v2 offset");
+        if (Marshal.SizeOf<DisunityUiDraw>() != 56 || typeof(DisunityUiDraw).GetFields().Length != 12) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 7;
+    internal const uint Version = 8;
 }

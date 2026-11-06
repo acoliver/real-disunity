@@ -55,7 +55,7 @@ public static class NativeBridge
         {
             var path = Marshal.PtrToStringUTF8(utf8Fixture);
             var kind = path == null ? "" : File.ReadAllText(path).Trim();
-            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1" or "portable-compute-v1" or "portable-offscreen-v1" or "portable-retained-ui-v1"))
+            if (kind is not ("portable-lit-sprites-v1" or "portable-sprites-v1" or "portable-triangle-v1" or "portable-load-failure-v1" or "portable-callback-failure-v1" or "portable-long-failure-v1" or "portable-perspective-v1" or "portable-camera-rect-v1" or "portable-texture-v1" or "portable-atlas-v1" or "portable-mesh-v1" or "portable-compute-v1" or "portable-offscreen-v1" or "portable-retained-ui-v1" or "portable-ui-triangle-v1" or "portable-pipeline-v1"))
             {
                 return -2;
             }
@@ -65,6 +65,7 @@ public static class NativeBridge
             AssetsBefore = FixtureAsset.Destroyed;
             DestroyedBefore = TriangleBehaviour.Destroyed;
             DisunityHost.LoadWorld();
+            DisunityHost.SetRenderPipeline(null, null);
             var behaviours = Enumerable.Range(0, 3)
                 .Select(i => DisunityHost.AddComponent(new TriangleBehaviour(i))).ToArray();
             if (kind is "portable-sprites-v1" or "portable-lit-sprites-v1") AddSprites(behaviours, kind);
@@ -82,6 +83,8 @@ public static class NativeBridge
             }
             if (kind == "portable-offscreen-v1") OffscreenPass.Create();
             if (kind == "portable-retained-ui-v1") RetainedUiFixture.Create();
+            if (kind == "portable-ui-triangle-v1") UiTriangleFixture.Create();
+            if (kind == "portable-pipeline-v1") ProbePipeline.Install();
             if (kind == "portable-load-failure-v1") throw new InvalidOperationException("fixture load failed after allocation");
             DisunityHost.Step(0.125f);
             if (behaviours.Any(b => b.Starts != 1 || b.Updates != 1 || b.LateUpdates != 1)
@@ -216,6 +219,13 @@ public static class NativeBridge
                 throw new InvalidOperationException("native image did not remain available through final callbacks");
             return 0;
         }
+        catch (Exception error) { LastError = error.ToString(); return -1; }
+    }
+
+    [UnmanagedCallersOnly]
+    public static int RenderFrame()
+    {
+        try { DisunityHost.RenderFrame(); return 0; }
         catch (Exception error) { LastError = error.ToString(); return -1; }
     }
 

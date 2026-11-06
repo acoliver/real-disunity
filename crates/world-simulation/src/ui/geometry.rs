@@ -1,6 +1,6 @@
 //! The mesh a canvas renderer submits: vertices with a position in the element's local space,
 //! a first texture coordinate and a colour, plus the triangle indices of the first sub-mesh.
-//! A graphic is drawn as the quads found among its triangles.
+//! Graphics retain paired quads and all remaining triangle-list vertices.
 use crate::UiError;
 
 /// The most vertices one renderer's mesh holds.
@@ -34,11 +34,11 @@ pub struct GeometryQuad {
     pub color: [f32; 4],
 }
 
-/// The quads of a mesh, and how many triangles belong to none.
+/// Paired quads and the remaining triangles, in mesh order within each list.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GeometryQuads {
     pub quads: Vec<GeometryQuad>,
-    pub left_out_triangles: usize,
+    pub triangles: Vec<[UiVertex; 3]>,
 }
 
 /// A validated mesh: every index names a vertex, every number is finite, and the index count is
@@ -88,7 +88,7 @@ impl UiGeometry {
     /// Finds the quads. A quad is two consecutive triangles that share two vertices and whose
     /// four distinct vertices carry the texture coordinates of an upright or flipped rectangle,
     /// as the usual UI quad (triangles 0 1 2 and 2 3 0) does, in either winding. The triangles
-    /// of a mesh that do not form such pairs are counted in `left_out_triangles`.
+    /// of a mesh that do not form such pairs are retained in `triangles`.
     #[must_use]
     pub fn quads(&self) -> GeometryQuads {
         let mut found = GeometryQuads::default();
@@ -106,7 +106,9 @@ impl UiGeometry {
                 found.quads.push(quad);
                 next += 2;
             } else {
-                found.left_out_triangles += 1;
+                found
+                    .triangles
+                    .push(triangles[next].map(|i| self.vertices[i as usize]));
                 next += 1;
             }
         }

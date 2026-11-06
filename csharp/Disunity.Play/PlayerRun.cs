@@ -43,12 +43,15 @@ internal static class PlayerRun
         // The player runs without a window; it reports the renderer's guaranteed limits, not a device of zeros.
         DisunityHost.SetGraphicsDevice(GraphicsDeviceInfo.Windowless);
         DisunityHost.LoadResources(request.GetProperty("resources").GetString()!, Load);
-        DisunityHost.ApplyRenderPipelines(Log);
+        DisunityHost.ApplyRenderPipelineAssets(Log);
         DisunityHost.ApplyInputAxes(Log);
         var hooks = RuntimeHooks.Resolve(manifest.Hooks, Load);
         foreach (var unresolved in hooks.Unresolved) Log($"startup hook unresolved: {unresolved.Hook}: {unresolved.Reason}");
         var beforeScene = RuntimeHooks.PhaseOrder.Where(phase => phase != RuntimeInitializeLoadType.AfterSceneLoad);
         foreach (var phase in beforeScene) RunPhase(hooks, phase);
+        // The pipeline package resets its static state in its startup hooks, so a pipeline made before they ran
+        // would lose the volume system it set up. Unity makes it when it first renders, after the hooks.
+        DisunityHost.StartRenderPipeline();
         // Player plans name each script's assembly, so the default scripts assembly is unused.
         var options = new SceneLoadOptions(typeof(PlayerRun).Assembly, NoFont)
         {

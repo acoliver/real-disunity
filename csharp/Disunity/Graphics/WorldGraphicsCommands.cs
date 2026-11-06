@@ -1,5 +1,6 @@
 using System.Text;
 using Disunity.Native;
+using UnityEngine.Rendering;
 
 namespace UnityEngine;
 
@@ -72,4 +73,39 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_allocate_temporary(World, nameId, &desc));
 
     internal static void RecordReleaseTemporary(int nameId) => Check(NativeBindings.disunity_offscreen_release_temporary(World, nameId));
+
+    /// <summary>Records the camera's setup: its view and projection, column by column as the world holds them, and its target.</summary>
+    internal static void RecordSetupCamera(ulong camera, Matrix4x4 view, Matrix4x4 projection, CommandTarget target)
+    {
+        var matrices = stackalloc float[32];
+        for (var column = 0; column < 4; column++)
+            for (var row = 0; row < 4; row++)
+            {
+                matrices[column * 4 + row] = view[row, column];
+                matrices[16 + column * 4 + row] = projection[row, column];
+            }
+        var native = target.ToNative();
+        Check(NativeBindings.disunity_offscreen_setup_camera(World, camera, matrices, matrices + 16, &native));
+    }
+
+    private static long _lastHandle;
+
+    /// <summary>The next id for a culling result or a renderer list. Ids are never reused, so a handle from an earlier frame
+    /// names nothing in a later one.</summary>
+    internal static ulong NextHandle() => (ulong)Interlocked.Increment(ref _lastHandle);
+
+    /// <summary>Records a culling result: the camera the parameters came from, their layer mask, the planes in use and the options.</summary>
+    internal static void RecordCull(ulong id, ScriptableCullingParameters parameters)
+    {
+        var count = parameters.cullingPlaneCount;
+        var floats = new float[count * 4];
+        for (var index = 0; index < count; index++)
+        {
+            var plane = parameters.GetCullingPlane(index);
+            (floats[index * 4], floats[index * 4 + 1], floats[index * 4 + 2], floats[index * 4 + 3]) = (plane.normal.x, plane.normal.y, plane.normal.z, plane.distance);
+        }
+        fixed (float* planes = floats)
+            Check(NativeBindings.disunity_offscreen_cull(World, id, parameters.CameraHandle, parameters.cullingMask, count == 0 ? null : planes,
+                (uint)count, (uint)parameters.cullingOptions));
+    }
 }

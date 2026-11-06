@@ -186,7 +186,6 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             extract_graphics(&s.native, &ui.layout).map_err(crate::errors::AbiError::from)?;
         let mesh_objects =
             extract_mesh_objects(&s.native).map_err(crate::errors::AbiError::from)?;
-        note_left_out_triangles(s, &graphics);
         // Graphics go in first, so the engine's own text of the same sorting key draws over them.
         append_graphics(&mut plan, graphics)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
@@ -239,21 +238,6 @@ fn next_glyph_texture(
         .map_or(Some(floor), |n| n.checked_add(1).map(|n| n.max(floor)))
 }
 
-/// Names, once per renderer, the triangles of a mesh that make no quad, which are not drawn.
-fn note_left_out_triangles(
-    session: &mut crate::store::Session,
-    graphics: &[worldrunner_world_simulation::ui::UiGraphic],
-) {
-    for graphic in graphics {
-        if graphic.left_out_triangles > 0 && session.left_out_noted.insert(graphic.object) {
-            eprintln!(
-                "canvas renderer on {:?}: {} triangles make no quad and are left out",
-                graphic.object, graphic.left_out_triangles
-            );
-        }
-    }
-}
-/// Fills the lens fields; the fields of the other lens kind stay zero.
 fn write_lens(header: &mut DisunityPresentation, lens: worldrunner_camera::CameraLens) {
     use worldrunner_camera::CameraLens;
     match lens {

@@ -153,7 +153,7 @@ impl UiTextField {
                 sorting_order: rect.sorting_order,
                 texture: None,
                 quads,
-                left_out_triangles: 0,
+                triangles: Vec::new(),
             },
         });
         plan.texts.push(text);

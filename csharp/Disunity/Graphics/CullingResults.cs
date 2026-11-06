@@ -3,11 +3,15 @@ using Unity.Collections;
 namespace UnityEngine.Rendering;
 
 /// <summary>
-/// What culling found. The engine does not cull, so the three arrays are the empty default and every method that
-/// needs a culling result throws <see cref="NotSupportedException"/> naming the member.
+/// What culling found: a handle to the culling result <see cref="ScriptableRenderContext.Cull"/> recorded in the world, which
+/// later draws name. The engine has no light or probe culling, so the three arrays are empty and every method that needs
+/// them throws <see cref="NotSupportedException"/> naming the member. The default value is no result.
 /// </summary>
 public struct CullingResults : IEquatable<CullingResults>
 {
+    /// <summary>The id the world's culling record has; 0 for no result.</summary>
+    internal ulong Handle;
+
     public readonly NativeArray<VisibleLight> visibleLights => default;
     public readonly NativeArray<VisibleLight> visibleOffscreenVertexLights => default;
     public readonly NativeArray<VisibleReflectionProbe> visibleReflectionProbes => default;
@@ -37,12 +41,11 @@ public struct CullingResults : IEquatable<CullingResults>
         throw Unsupported("ComputeDirectionalShadowMatricesAndCullingPrimitives");
 
     private static NotSupportedException Unsupported(string member) =>
-        new($"CullingResults.{member} needs culling, and the engine does not cull yet");
+        new($"CullingResults.{member} needs light culling, and the engine does not cull lights or probes yet");
 
-    // No culling result exists, so every value is the empty one and equal to every other.
-    public readonly bool Equals(CullingResults other) => true;
-    public override readonly bool Equals(object? obj) => obj is CullingResults;
-    public override readonly int GetHashCode() => 0;
+    public readonly bool Equals(CullingResults other) => Handle == other.Handle;
+    public override readonly bool Equals(object? obj) => obj is CullingResults other && Equals(other);
+    public override readonly int GetHashCode() => Handle.GetHashCode();
     public static bool operator ==(CullingResults left, CullingResults right) => left.Equals(right);
     public static bool operator !=(CullingResults left, CullingResults right) => !left.Equals(right);
 }

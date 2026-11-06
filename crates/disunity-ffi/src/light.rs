@@ -7,7 +7,8 @@ use worldrunner_world_simulation::{
 
 /// A light's settings. `kind` uses the managed `LightType` values (0 Spot, 1 Directional,
 /// 2 Point, 3 Rectangle, 4 Disc, 5 Pyramid, 6 Box, 7 Tube), `shadows` is 0 None, 1 Hard or 2 Soft,
-/// and `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime. The masks have one bit per layer,
+/// `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime, and `shadow_resolution` is -1 for the
+/// quality settings' resolution or 0 (low) to 3 (very high). The masks have one bit per layer,
 /// `cookie_texture` is a managed texture's instance id (0 for none) and booleans are 0 or 1.
 /// A write brings the spot angles and shadow strength into range, as world-simulation defines.
 #[repr(C)]
@@ -36,6 +37,7 @@ pub struct DisunityLight {
     pub use_color_temperature: u32,
     pub cookie_size: f32,
     pub lightmap_bake_type: u32,
+    pub shadow_resolution: i32,
 }
 
 impl Default for DisunityLight {
@@ -73,6 +75,7 @@ impl DisunityLight {
             use_color_temperature: u32::from(s.use_color_temperature),
             cookie_size: s.cookie_size,
             lightmap_bake_type: s.bake_type as u32,
+            shadow_resolution: s.shadow_resolution,
         }
     }
 
@@ -106,6 +109,7 @@ impl DisunityLight {
                 cookie_size: self.cookie_size,
                 cookie_texture: self.cookie_texture,
                 bake_type,
+                shadow_resolution: self.shadow_resolution,
             },
         };
         Ok(light.normalized()?)

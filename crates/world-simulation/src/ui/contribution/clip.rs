@@ -4,7 +4,7 @@ use glam::Vec2;
 use std::collections::BTreeMap;
 
 /// Lower-left pixel clip bounds, intersected with the canvas viewport and rounded inward.
-pub(super) fn screen_clip(
+pub(in crate::ui) fn screen_clip(
     world: &World,
     layout: &UiLayout,
     rect: &RectLayout,
@@ -42,7 +42,7 @@ pub(super) fn screen_clip(
 
 /// Text also clips to its own rectangle. Local glyph clipping handles affine edges;
 /// this scissor intersects the inherited screen-space viewport.
-pub(super) fn text_clip(clip: [u32; 4], rect: &RectLayout) -> [u32; 4] {
+pub(in crate::ui) fn text_clip(clip: [u32; 4], rect: &RectLayout) -> [u32; 4] {
     let Some(corners) = rect.screen_corners else {
         return clip;
     };

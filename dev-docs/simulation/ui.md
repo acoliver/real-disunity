@@ -166,6 +166,85 @@ Both value controls share ordinary Tab order, CanvasGroup eligibility, modal res
 and caller-authored state tints with buttons and list items. The CPU tests in
 `crates/world-simulation/tests/ui_values.rs` cover these input and contribution contracts.
 
+## Native accessibility
+
+`UiRouter::semantic_tree(world, layout)` exposes a platform-free tree from the same freshly
+resolved `UiLayout` used for input and rendering. Call it after routing input and resolving
+again if scrolling changed. Nodes use `UiNodeId::Object(ObjectHandle)`, including the world's
+identity and slot generation, so renaming a label or changing a value preserves identity and
+replacing a destroyed object does not reuse it. `UiNodeId::Window` is the single host root.
+Children follow the router's rectangle order. Bounds are axis-aligned `[left, top, right,
+bottom]` in physical client pixels, derived from the rectangle's transformed screen corners.
+Do not multiply by display scale. World-space rectangles have no screen target and are omitted.
+
+Buttons, checkboxes, sliders, lists and list items receive roles from registered controls.
+Rectangle containers receive group roles. Enabled `TextRun` components provide text nodes and
+accessible names; descendant text also names its nearest registered control. Register
+`router.semantics[object] = UiSemantics::label("Start")` to override a control's name explicitly.
+`UiSemantics { label: None, live: true }` marks a text component as a polite status region.
+An explicit label can supply status content without a text component. There is no editable text
+control in this router, so the tree does not advertise text editing.
+
+The tree reports router-owned toggle, slider and selection values, disabled state, supported
+actions and keyboard focus. A slider reports its value, minimum, maximum and optional step.
+Opening a modal includes only the highest visible modal's subtree below the window root.
+Other controls are absent, including for assistive action requests. Tree extraction revalidates
+focus and modal opener history even without an intervening input event; closing the dialog
+restores its eligible opener under the same rules as keyboard and pointer routing.
+
+`semantic_update` returns changed nodes, removed identities, current focus, a focus-change flag
+and live announcements since that router's preceding update. Its first result is a full tree.
+Publish every result in order to one host; `semantic_tree` can be inspected independently and
+does not consume updates or announcements. Nonempty live text announces once when first
+observed and once per subsequent text change. Geometry, focus, unrelated labels and hiding then
+restoring unchanged live text do not repeat the announcement. Changes while hidden are observed
+when that status becomes navigable again. The application must not announce the same update
+through a second speech service.
+
+Retained drivers pass each result to `RetainedHost::set_accessibility` or the event host's same
+method. `accessibility_tree` exposes the current full tree without creating a window, GPU or
+platform adapter. Desktop startup creates the winit window invisible, attaches AccessKit, then
+shows the window. Native window events reach the adapter before the driver. A synchronized
+snapshot answers initial-tree requests with a full tree; ordinary publication sends incremental
+node updates and focus. These CPU services also operate during presentation pauses.
+
+AccessKit requests arrive as `RetainedEvent::Accessibility(UiAccessRequest)`. Route them through
+`router.accessibility_action(world, layout, request)` and process the returned `UiResponse`
+through the same application action handling as pointer and keyboard responses. Press, focus,
+toggle, selection, increment/decrement and finite numeric set-value requests use the router's
+existing eligibility, activation, slider snapping and scroll-reveal helpers. Unsupported,
+obsolete, foreign and modal-excluded targets do nothing. Native AccessKit click requests map to
+press, including toggle and list selection; numeric set-value accepts either numeric data or a
+parseable finite numeric string. No second control-state owner is created.
+
+The opt-in viewer example opens a window only when launched explicitly with a caller-supplied
+TrueType `glyf` font. It contains a button, toggle, slider, live status and modal dialog:
+
+```sh
+cargo run -p worldrunner-scene-viewer --example accessibility -- /path/to/font.ttf
+```
+
+For the macOS VoiceOver check, enable VoiceOver, navigate the controls, activate the button,
+toggle sound, adjust volume, and open then close the dialog. Compare spoken focus with Tab
+navigation, confirm that background controls disappear during the dialog, and confirm that
+unchanged status text does not repeat. Resize on a scaled display and check hit targets and
+accessible bounds. This check requires a display and is separate from CPU tests. The example
+uses Escape to exit. The tests `ui_accessibility`, `ui_accessibility_edges` and retained
+`accessibility::tests` exercise trees, shared actions, live updates and platform translation
+without creating a display or requesting a graphics adapter.
+
+### Accessibility dependencies
+
+`scene-viewer` uses `accesskit` 0.24.0 (MIT OR Apache-2.0) and `accesskit_winit` 0.32.2
+(Apache-2.0).
+The adapter's declared winit requirement is 0.30.5, satisfied by the workspace's pinned 0.30.13.
+Its enabled features are `rwh_06`, `accesskit_unix` and `async-io`; the workspace already selects
+winit's window backends. macOS and Windows adapters are target dependencies. On Linux,
+`accesskit_unix` uses AT-SPI through the Rust `zbus` stack, with no `libdbus-sys` dependency.
+A working desktop accessibility bus is needed at runtime; no D-Bus C development package is
+introduced for compilation. See the [adapter API](https://docs.rs/accesskit_winit/0.32.2/accesskit_winit/struct.Adapter.html)
+for the window visibility order and activation contract.
+
 ## Text contract
 
 Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.
@@ -174,13 +253,52 @@ The supported character set is printable ASCII (U+0020..U+007E), Latin-1 U+00A0.
 
 With `HorizontalOverflow::Wrap`, a line that grows past the rectangle's width breaks before its last word and the space at the break is consumed; a word wider than the line breaks between characters (`ui/wrap.rs`). A single glyph wider than the rectangle occupies a line and is clipped at extraction. `HorizontalOverflow::Overflow` keeps each line whole. Font kerning applies within each line. Font size is pixels per em, converted to `ab_glyph`'s ascent-minus-descent scale through the font's units per em. `line_spacing` multiplies the font height plus gap. `line_height: Some(pixels)` overrides that baseline distance and must be finite and positive. `paragraph_spacing` adds finite nonnegative logical pixels after explicit newlines, including blank paragraphs. Wrapped continuations get only the baseline distance. Alignment applies to each line horizontally and to the entire visible block vertically. Empty strings produce zero content height and no lines, glyphs or texture bytes.
 
-`TextRun::spans` contains ordered, nonempty, disjoint `TextSpan` UTF-8 byte ranges. Each range must end on character boundaries inside `text`. Invalid ranges or colours return `InvalidText`. A span's linear RGBA colour multiplies the run colour and inherited group alpha; unstyled glyphs use white. The source ranges survive wrapping, consumed break spaces and CR/LF. `GlyphLayout::color` and `UiGlyphQuad::color` carry the span tint through extraction, and both presentation paths multiply it by the contribution tint. This structured API accepts no markup. There are no bundled font faces, so spans provide colour only, without simulated bold or italic weight. Underlines and focusable link spans are not implemented.
+`TextRun::spans` contains ordered, nonempty, disjoint `TextSpan` UTF-8 byte ranges. Each range must end on character boundaries inside `text`. Invalid ranges or colours return `InvalidText`. A span's linear RGBA colour multiplies the run colour and inherited group alpha; unstyled glyphs use white. The source ranges survive wrapping, consumed break spaces and CR/LF. `GlyphLayout::color` and `UiGlyphQuad::color` carry the span tint through extraction, and both presentation paths multiply it by the contribution tint. This structured API accepts no markup. There are no bundled font faces or simulated bold or italic weights. A span can carry `link: Some(UiLinkId(value))`; plain colour spans use `None`. Link identities are caller-chosen and must be unique within one run. Duplicate identities return `InvalidText`. Both cached glyph layouts and extracted glyph quads retain the link identity. Link spans also produce solid underline quads through `UiRenderPlan::graphics`, one per line segment, using the span colour multiplied by the run tint and inherited alpha. Their thickness is one sixteenth of the font size, with a minimum of one logical pixel; their upper edge is one thickness below the baseline. Underlines share glyph pixel snapping and rectangle, renderer and scroll clipping.
 
 Glyph output provides baseline origins and outward-rounded raster bounds separately. Local text coordinates start at the rectangle's bottom-left. `VerticalOverflow::Truncate` drops lines whose extent passes the rectangle's height; `VerticalOverflow::Overflow` lays them all out. `TextLayout::content_height` reports the full extent before truncation, including font height, baseline distances and paragraph spacing. Measure at the intended content width and use its rounded-up height in `UiSize::Fixed` or the content's `RectTransform` to size a `UiScrollView`; group content sizing does not measure text implicitly. Pixel-perfect snapping moves the glyph origins before extraction clips glyph geometry and matching UVs to the local rectangle, then intersects screen clip bounds with renderer and enclosing scroll clips. This also bounds rotated text at its local edges; an edge-clipped glyph's new corner can fall between pixels. With `rich_text` set, as by default, text containing `<` is rejected with `UnsupportedRichText`, because markup is not rendered. Rasterizer winding coverage is saturated to 1 before rounding to U8 and packed deterministically into a shelf atlas with a fixed configured row width. Atlas rows start at the top. Font storage, character count, atlas dimensions and atlas pixels are bounded. Render extraction applies character and pixel budgets across the complete frame as well as per text run.
 
 Keep a `FontBook` across frames. `FontBook::layout` returns an immutable `Arc<TextLayout>` from a bounded cache keyed by the complete text run and rectangle size. Width, height, alignment, font, size, spans and paragraph settings therefore invalidate the layout; unrelated world or control mutations do not. Cached entries share glyphs and `GlyphAtlas::alpha`, and extraction and `UiPresentation` share those coverage bytes through `CoverageTexture::bytes`. A cache hit allocates no new glyph layout or atlas. The cache retains at most `UiLimits::max_glyphs` input characters and `max_atlas_pixels` coverage pixels, evicting oldest entries when necessary; even empty entries consume one character slot. Caller-held results remain valid after eviction. `cache_stats().layouts` counts successful misses and `atlas_builds` counts misses with nonempty coverage. Failed requests publish neither a cache entry nor a counter increment. Renderer uploads still belong to the existing compositor: publish UI replacements when the plan changes, rather than submitting an identical replacement each frame. The built-player host already performs this comparison.
 
 `ui_text_flow` tests measure wrapping, paragraph height, alignment, source-range colours, typed glyph errors, scroll and rectangle clips, and shared layout/coverage pointers across 100 unrelated updates. The windowless scene-viewer paragraph test draws two coloured paragraphs, checks exact opaque RGBA regions on each line, and verifies unchanged scene pixels in the line gaps. A real-window reading check remains pending.
+
+## Interactive paragraph links
+
+Register the paragraph object with `UiControl::text()` and construct the router with
+`UiRouter::with_fonts(Arc<FontBook>)`. Register fonts before sharing the book; pass the
+same book to extraction. Routing measures linked text from the current run and rectangle
+using that book's bounded cache, so text edits and resizing update targets without a separate
+hit-region registration. A linked text control without a supplied book returns `MissingFont`.
+Missing text on a registered text control returns `MissingLayout`.
+
+Each link is one focus and capture target, even when it wraps. Its hit regions are its
+outlined glyph rectangles, with the same snapping and clipping as extraction. Unlinked
+glyphs, spaces without outlines and unused paragraph area do not consume hits. Scroll-clipped
+links remain keyboard targets; glyphs clipped entirely by the paragraph's own rectangle or
+removed by vertical truncation do not. CanvasGroup eligibility, draw order and modal blocking
+apply as they do to other controls.
+
+Tab and Shift-Tab traverse the links in span reading order at the paragraph's position in
+the ordinary control order. `focused()` returns its paragraph object; `focused_link()` also
+returns the typed link identity. Enter or Space activates on the first key-down. A primary
+press and release on any two regions of the same link activates once; release on another
+link does not. Both paths emit `UiAction::LinkActivated { control, link }`. Modal opener
+restoration preserves the individual link identity. Removing the span invalidates its focus
+and capture on the next event.
+
+Supply individual state tints in `router.link_styles[(control, link)]`, or use the paragraph's
+entry in `router.styles` for all its links. `style_plan` tints every glyph and underline of
+that link with the ordinary disabled, pressed, focused, hovered, selected, normal priority.
+Unlinked text keeps its authored colour. The engine supplies no link colour scheme.
+Keyboard focus reveals the link's glyph bounds through enclosing scroll viewports,
+innermost first. A link taller than a viewport reveals its reading start. Resolve and extract
+again after navigation changes an offset, as for list items.
+
+`ui_links` covers wrapped hits and state tints, activation edges, reading order, modal focus,
+affine snapping, text and nested scroll clips, renderer clips, underline geometry and cache
+identity changes. The windowless scene-viewer link test checks exact underline pixels through
+the existing overlay graphics path. A real-window reading check remains pending.
+
+## UI contributions
 
 `render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
 
@@ -201,7 +319,9 @@ measured in root-canvas coordinates and also applies to text on that object.
 Bounds round inward to whole-pixel scissors, which intersect the current render
 extent. This bounds rotated graphics even when CPU quad clipping keeps them whole.
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
-text and world-space graphics use the scene path. The live 2D path is unchanged.
+text and world-space graphics use the scene path. The live 2D text append includes
+its generated underline graphics through `append_graphics` before glyph quads;
+ordinary CanvasRenderer graphics retain their explicit extraction path.
 Built-player retained drivers use the same compositor. The loaded ABI image retains
 `UiPresentation` draws from `extract_ui` alongside its prepared scene frame, before
 UI is converted to the live 2D path's world-space quads. Typed copy-out preserves

@@ -357,3 +357,45 @@ fn contact_buffer(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Buffer {
         &[0u8; 48],
     )
 }
+
+#[test]
+fn terrain_storage_layouts_fit_the_supported_device_limits() {
+    use wgpu::{BindingType, BufferBindingType, ShaderStages};
+    for (cached, layered, expected) in [
+        (false, false, 1),
+        (true, false, 2),
+        (false, true, 4),
+        (true, true, 5),
+    ] {
+        let entries = super::terrain_entries(cached, layered);
+        let count = |stage| {
+            entries
+                .iter()
+                .filter(|entry| {
+                    entry.visibility.contains(stage)
+                        && matches!(
+                            entry.ty,
+                            BindingType::Buffer {
+                                ty: BufferBindingType::Storage { .. },
+                                ..
+                            }
+                        )
+                })
+                .count()
+        };
+        assert_eq!(count(ShaderStages::VERTEX), 1);
+        assert_eq!(count(ShaderStages::FRAGMENT), expected);
+        for limits in [wgpu::Limits::default(), wgpu::Limits::downlevel_defaults()] {
+            let fragment_limit = limits.max_storage_buffers_per_shader_stage as usize;
+            // The uncached layered draw fits four; its compute preparation independently needs five.
+            let layout_supported = !(cached && layered) || fragment_limit >= 5;
+            assert_eq!(expected <= fragment_limit, layout_supported);
+            assert!(count(ShaderStages::VERTEX) <= fragment_limit);
+            assert!(
+                entries
+                    .iter()
+                    .all(|entry| entry.binding < limits.max_bindings_per_bind_group)
+            );
+        }
+    }
+}

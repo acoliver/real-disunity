@@ -33,7 +33,13 @@ internal static class PlayerPipelineTests
     public sealed class Recorder : MonoBehaviour
     {
         public static RenderPipelineAsset? SeenAtAwake;
-        private void Awake() => SeenAtAwake = GraphicsSettings.defaultRenderPipeline;
+        public static RenderPipeline? PipelineSeenAtAwake;
+
+        private void Awake()
+        {
+            SeenAtAwake = GraphicsSettings.defaultRenderPipeline;
+            PipelineSeenAtAwake = RenderPipelineManager.currentPipeline;
+        }
     }
 
     private const string ScenePlan = """{"scene":"level0","assets":[],"sprites":[],"textures":[],"fonts":[],"axes":[],"differences":[],"objects":[{"name":"A","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[{"type":"Script","class":"PlayerPipelineTests/Recorder","assembly":"ASSEMBLY","enabled":true,"fields":{}}]}]}""";
@@ -144,9 +150,12 @@ internal static class PlayerPipelineTests
             Expect.Equal("Low", GraphicsSettings.currentRenderPipeline?.name, "the current level's asset wins");
             Expect.Equal(2, GraphicsSettings.allConfiguredRenderPipelines.Length, "both assets are configured");
             Recorder.SeenAtAwake = null;
+            Recorder.PipelineSeenAtAwake = null;
+            Expect.That(RenderPipelineManager.currentPipeline is TestPipeline, "applying the pipelines creates the active asset's pipeline without a step");
             var plan = ScenePlan.Replace("ASSEMBLY", AssemblyName);
             DisunityHost.LoadScene(plan, new SceneLoadOptions(typeof(PlayerPipelineTests).Assembly, _ => []) { Assemblies = _ => typeof(PlayerPipelineTests).Assembly });
             Expect.That(Recorder.SeenAtAwake == pipeline, "the first scene's Awake sees the pipeline");
+            Expect.That(Recorder.PipelineSeenAtAwake is TestPipeline, "and the first scene's Awake sees the created pipeline");
         });
     }
 

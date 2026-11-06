@@ -1,18 +1,12 @@
 //! The work a scriptable render context records: culling results, and the handles later records
 //! of the frame name them by. A handle is an id the script's side issues, nonzero and unused by
-//! any record of the frame; the world remembers which kind of record issued it and forgets it
-//! when the frame's work is taken or dropped.
+//! any record of the frame; the world remembers the ids it was given and forgets them when the
+//! frame's work is taken or dropped.
 use super::{GraphicsError, OffscreenWork, TargetRef};
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
 /// Most planes one culling result holds.
 pub const MAX_CULL_PLANES: usize = 10;
-
-/// What a handle of the frame names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum HandleKind {
-    Cull,
-}
 
 impl World {
     /// Checks a context record; other work is the offscreen list's own to check.
@@ -57,12 +51,12 @@ impl World {
     /// Remembers the handle a record issues.
     pub(super) fn note_handle(&mut self, work: &OffscreenWork) {
         if let OffscreenWork::Cull { id, .. } = work {
-            self.graphics.handles.insert(*id, HandleKind::Cull);
+            self.graphics.handles.insert(*id);
         }
     }
 
     fn check_new_handle(&self, id: u64) -> Result<(), WorldError> {
-        if id == 0 || self.graphics.handles.contains_key(&id) {
+        if id == 0 || self.graphics.handles.contains(&id) {
             Err(GraphicsError::InvalidOffscreen.into())
         } else {
             Ok(())

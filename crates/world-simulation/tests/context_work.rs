@@ -306,7 +306,11 @@ fn camera_setup_needs_a_live_camera_finite_matrices_and_a_live_target() {
 fn camera_setup_keeps_the_bits_of_its_matrices() {
     let mut world = world();
     let camera = camera(&mut world);
-    let odd: [f32; 16] = std::array::from_fn(|index| f32::from_bits(0x3f80_0001 + index as u32));
+    let mut next = 0x3f80_0001_u32;
+    let odd: [f32; 16] = std::array::from_fn(|_| {
+        next += 1;
+        f32::from_bits(next)
+    });
     let record = OffscreenWork::SetupCamera {
         camera,
         view: odd,

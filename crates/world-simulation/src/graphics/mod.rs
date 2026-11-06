@@ -194,7 +194,7 @@ pub(crate) struct GraphicsState {
     global: GlobalShaderState,
     offscreen: Vec<OffscreenWork>,
     /// The handles the frame's records issued, which later records of the frame may name.
-    handles: std::collections::BTreeMap<u64, context::HandleKind>,
+    handles: std::collections::BTreeSet<u64>,
     /// The pass immediate-mode draws use; not part of the snapshot.
     active_pass: Option<ActivePass>,
 }
@@ -216,7 +216,7 @@ impl GraphicsState {
             compute_bytes: 0,
             global: GlobalShaderState::new(),
             offscreen: Vec::new(),
-            handles: std::collections::BTreeMap::new(),
+            handles: std::collections::BTreeSet::new(),
             active_pass: None,
         }
     }

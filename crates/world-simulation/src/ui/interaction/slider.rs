@@ -40,6 +40,15 @@ impl UiSlider {
         slider.value = slider.snap(value);
         Ok(slider)
     }
+    pub fn min(self) -> f64 {
+        self.min
+    }
+    pub fn max(self) -> f64 {
+        self.max
+    }
+    pub fn step(self) -> Option<f64> {
+        self.step
+    }
     pub fn value(self) -> f64 {
         self.value
     }
@@ -110,7 +119,7 @@ impl UiRouter {
         };
         response.actions.extend(self.set_slider(object, value));
     }
-    fn set_slider(&mut self, object: ObjectHandle, value: f64) -> Option<UiAction> {
+    pub(super) fn set_slider(&mut self, object: ObjectHandle, value: f64) -> Option<UiAction> {
         let UiControlKind::Slider(slider) = &mut self.controls.get_mut(&object)?.kind else {
             return None;
         };

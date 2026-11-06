@@ -72,6 +72,8 @@ internal static unsafe class WorldGraphics
 
     internal static void WriteRenderQueue(Link material, int queue) => Check(NativeBindings.disunity_material_render_queue_write(material.World, material.Id, queue));
 
+    internal static void WriteActivePass(Link material, uint pass) => Check(NativeBindings.disunity_material_set_pass(material.World, material.Id, pass));
+
     internal static void WritePass(Link material, string pass, bool enabled)
     {
         var bytes = Encoding.UTF8.GetBytes(pass);

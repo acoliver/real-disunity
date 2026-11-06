@@ -99,8 +99,8 @@ fn lit() -> FrameUniform {
 fn the_block_matches_the_size_the_shader_declares() {
     // A mismatch here is not a compile error in either language; it silently
     // shifts every field after the first disagreement.
-    assert_eq!(FRAME_UNIFORM_BYTES, 320);
-    assert_eq!(lit().to_bytes().len(), 320);
+    assert_eq!(FRAME_UNIFORM_BYTES, 336);
+    assert_eq!(lit().to_bytes().len(), 336);
 }
 
 #[test]
@@ -409,11 +409,14 @@ fn atmospheric_packing_preserves_the_disabled_abi() {
 }
 
 #[test]
-fn lighting_extension_preserves_the_legacy_prefix_and_zero_default_tail() {
+fn lighting_extension_preserves_the_prefix_and_encodes_raster_viewport() {
     use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
     let frame = lit();
     let bytes = frame.to_bytes();
-    assert!(bytes[160..].iter().all(|byte| *byte == 0));
+    let mut expected = [0u8; 176];
+    expected[160..164].copy_from_slice(&1920.0_f32.to_le_bytes());
+    expected[164..168].copy_from_slice(&1080.0_f32.to_le_bytes());
+    assert_eq!(&bytes[160..], &expected);
     let mut sh_frame = frame;
     let mut coefficients = [[0; 3]; 9];
     coefficients[3] = [250_000, -500_000, 1_000_000];
@@ -461,7 +464,10 @@ fn explicit_sh9_does_not_derive_ambient_from_a_dome_texture() {
 fn fog_policies_and_sun_tint_have_distinct_uniform_lanes() {
     let mut frame = crate::sky::render_tests::test_frame(1.0);
     let neutral = frame.to_bytes();
-    assert_eq!(&neutral[160..320], &[0; 160]);
+    let mut expected = [0u8; 176];
+    expected[160..164].copy_from_slice(&1.0_f32.to_le_bytes());
+    expected[164..168].copy_from_slice(&1.0_f32.to_le_bytes());
+    assert_eq!(&neutral[160..], &expected);
     let mut fog =
         worldrunner_render_lighting::atmosphere::HeightFog::new(0.02, 0.03, 0.0, 25.0, Vec3::ZERO)
             .unwrap();

@@ -1,7 +1,9 @@
 use crate::{TimeSpan, World, WorldError};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 mod pointer;
+mod text;
 pub use pointer::{PointerButton, PointerEvent, PointerState, PointerWheel};
+pub use text::TextInput;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KeyCode(pub u16);
@@ -13,14 +15,15 @@ pub struct AxisBinding {
     pub positive: Vec<KeyCode>,
     pub invert: bool,
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum InputAction {
     Key(KeyCode, bool),
     Axis(AxisId, f32),
     Focus(bool),
     Pointer(PointerEvent),
+    Text(TextInput),
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct InputEvent {
     pub timestamp: TimeSpan,
     pub action: InputAction,
@@ -39,6 +42,7 @@ pub struct InputView {
     pub focused: bool,
     pub cutoff: TimeSpan,
     pub pointer: PointerState,
+    pub text: Vec<TextInput>,
     cursor: u64,
     device_axes: BTreeMap<AxisId, f32>,
     pub(crate) smoothed: BTreeMap<AxisId, f32>,
@@ -53,6 +57,7 @@ impl Default for InputView {
             focused: true,
             cutoff: TimeSpan::ZERO,
             pointer: PointerState::default(),
+            text: Vec::new(),
             cursor: 0,
             device_axes: BTreeMap::new(),
             smoothed: BTreeMap::new(),
@@ -64,14 +69,16 @@ impl InputView {
         self.down.clear();
         self.up.clear();
         self.pointer.begin();
-        for &(id, event) in events {
+        self.text.clear();
+        for (id, event) in events {
+            let id = *id;
             if id <= self.cursor {
                 continue;
             }
             if event.timestamp > cutoff {
                 break;
             }
-            match event.action {
+            match event.action.clone() {
                 InputAction::Focus(focused) => {
                     self.focused = focused;
                     if !focused {
@@ -79,11 +86,13 @@ impl InputView {
                         self.device_axes.clear();
                         self.smoothed.clear();
                         self.pointer.accept(PointerEvent::Cancel);
+                        self.text.push(TextInput::Cancel);
                     }
                 }
                 InputAction::Pointer(event) if self.focused || event == PointerEvent::Cancel => {
                     self.pointer.accept(event);
                 }
+                InputAction::Text(text) if self.focused => self.text.push(text),
                 InputAction::Key(key, pressed) if self.focused => {
                     if pressed {
                         if self.held.insert(key) {
@@ -96,7 +105,10 @@ impl InputView {
                 InputAction::Axis(axis, value) if self.focused => {
                     self.device_axes.insert(axis, value);
                 }
-                InputAction::Pointer(_) | InputAction::Key(_, _) | InputAction::Axis(_, _) => {}
+                InputAction::Text(_)
+                | InputAction::Pointer(_)
+                | InputAction::Key(_, _)
+                | InputAction::Axis(_, _) => {}
             }
             self.cursor = id;
         }
@@ -205,9 +217,14 @@ impl World {
             {
                 return Err(WorldError::InvalidInput);
             }
+            if let InputAction::Text(text) = &event.action
+                && !text.valid()
+            {
+                return Err(WorldError::InvalidInput);
+            }
             timestamp = event.timestamp;
         }
-        for &event in events {
+        for event in events.iter().cloned() {
             self.input.sequence += 1;
             self.input.queue.push_back((self.input.sequence, event));
         }

@@ -166,6 +166,66 @@ Both value controls share ordinary Tab order, CanvasGroup eligibility, modal res
 and caller-authored state tints with buttons and list items. The CPU tests in
 `crates/world-simulation/tests/ui_values.rs` cover these input and contribution contracts.
 
+## Display scale and text fields
+
+The retained host publishes `RetainedInput::DisplayChanged { scale_factor, physical_size }`
+at window creation, on `ScaleFactorChanged`, and before a changed `Resized` observation.
+The scale event carries the window's current physical extent; the following resize supplies
+its final extent if it differs. `RetainedHost::scale_factor()` and `size()` expose that state.
+Windowless sessions start at scale 1 and expose `set_display_scale` for deterministic tests;
+`resize` continues to accept physical pixels. Neither operation opens a window.
+
+Set `router.layout.display_scale` from the host observation and resolve `ui_layout_with` again.
+The rule multiplies screen Canvas scaling without rewriting authored components. Logical
+rectangle sizes, text size and menu rules then share the resulting physical transform.
+World-space canvases are unchanged. Pointer coordinates stay in physical pixels; dividing
+or multiplying them by display scale would misalign hit testing. `ui_layout` without rules
+continues to use scale 1. Viewport-matched Canvas scaling and explicit display scaling multiply,
+so applications whose reference-resolution policy already accounts for display density leave
+the rule at 1.
+
+Register `UiControl::text_field()` in `controls` and a `UiTextField` in `text_fields`, under the
+same existing object handle. Construct the field from a `TextRun`, a maximum character count
+and its `FontBook`. The field uses the active font, plain single-line left-aligned text and
+bounded character indices. Initial values and edits validate both supported shaping and
+actual glyph availability. `TextReject::MaxLength`, `Font(UiError)` and `InvalidPreedit` distinguish
+rejections; an edit is accepted whole or leaves the committed value unchanged. No character
+substitution or partial insertion is performed.
+
+`RetainedInput::Text(TextInput)` carries native `KeyEvent.text` commits and IME Enabled,
+Preedit, Commit and Disabled observations. Key names never supply inserted characters.
+Pressed key repeats deliver repeated commits, and releases deliver no commit. While composing,
+keyboard text is suppressed in favour of the IME commit. Nonprinting keyboard control text
+is handled through `UiKey` instead. `simulation_action` maps text to `InputAction::Text`;
+each `InputView::text` contains ordered observations for its phase and clears on the next
+projection. Focus loss cancels composition and unfocused simulation text is ignored.
+Route text directly to `router.text`, or from that projection, once per event.
+
+Map editing keys to `UiKey`: Left/Right, Home/End, Shift, Control/Alt, Backspace/Delete,
+SelectAll, Enter and Escape. Shift extends selection; Control or Alt moves/deletes by
+whitespace-delimited words. Map the platform's select-all shortcut to `SelectAll`.
+Repeated movement and deletion are accepted. Space inserts only through committed text.
+Enter emits `TextSubmitted`; Escape clears preedit and emits `TextCancelled` without reverting
+the committed value or removing focus. The caller decides whether to revert, leave focus or
+close its editor. `TextChanged` identifies accepted value changes; read `value`, `cursor` and
+`selection` on the field. Ordinary control eligibility, Tab traversal, modal restrictions and
+cancellation apply. Removing a registration disables its field's interaction.
+
+After routing and relayout, pass `router.text_input_area(world, layout, fonts)` to the retained
+host or event host's `set_text_input_area`. Do this after each focus, cursor, modal, layout or
+scale change. `Some` enables native IME and positions its cursor area in physical top-left
+pixels; `None` disables it. Focus loss disables it immediately. This explicit driver connection
+also works before window creation and in the CPU session tests, without a real window.
+
+Call `text_fields_plan` on a fresh extracted plan, before `style_plan`, with caller-authored
+caret and selection colours. Fields render on overlay canvases through the existing glyph
+and solid-quad contributions. Selection and caret share the field transform and clip, and
+horizontal scrolling keeps the cursor visible. Preedit replaces the selected span visually
+without changing `value`; commit inserts it once and cancellation discards it. Unsupported
+preedit has the same typed rejection as committed input. Pointer dragging and clipboard are
+not implemented. Native-window display migration and IME candidate-window placement remain
+unverified; the Metal windowless test checks exact caret and selection pixels.
+
 ## Native accessibility
 
 `UiRouter::semantic_tree(world, layout)` exposes a platform-free tree from the same freshly
@@ -182,8 +242,8 @@ Rectangle containers receive group roles. Enabled `TextRun` components provide t
 accessible names; descendant text also names its nearest registered control. Register
 `router.semantics[object] = UiSemantics::label("Start")` to override a control's name explicitly.
 `UiSemantics { label: None, live: true }` marks a text component as a polite status region.
-An explicit label can supply status content without a text component. There is no editable text
-control in this router, so the tree does not advertise text editing.
+An explicit label can supply status content without a text component. Text fields receive
+text roles and focus actions; the tree does not advertise assistive text editing.
 
 The tree reports router-owned toggle, slider and selection values, disabled state, supported
 actions and keyboard focus. A slider reports its value, minimum, maximum and optional step.

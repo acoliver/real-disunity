@@ -95,16 +95,13 @@ fn startup_handoff_uses_renderer_extent_until_a_real_resize() {
         resize(&mut content, &mut surface, later).unwrap();
         assert_eq!(surface.extent(), later);
         assert_eq!(content.host.size(), later);
-        assert_eq!(content.inputs, vec![RetainedInput::Resized(later)]);
+        assert_eq!(content.inputs, resize_inputs(later));
         assert_eq!(content.host.view().unwrap().is_none(), later.contains(&0));
         resize(&mut content, &mut surface, creation).unwrap();
         assert_eq!(content.host.size(), surface.extent());
         assert_eq!(
             content.inputs,
-            vec![
-                RetainedInput::Resized(later),
-                RetainedInput::Resized(creation)
-            ]
+            [resize_inputs(later), resize_inputs(creation)].concat()
         );
     }
 }
@@ -119,8 +116,15 @@ fn resume_adopts_the_new_platform_extent_in_both_owners() {
     resume(&mut content, &mut surface).unwrap();
     assert_eq!(surface.extent(), surface.platform);
     assert_eq!(content.host.size(), surface.extent());
-    assert_eq!(
-        content.inputs,
-        vec![RetainedInput::Resized(surface.extent())]
-    );
+    assert_eq!(content.inputs, resize_inputs(surface.extent()));
+}
+
+fn resize_inputs(physical_size: [u32; 2]) -> Vec<RetainedInput> {
+    vec![
+        RetainedInput::DisplayChanged {
+            scale_factor: 1.,
+            physical_size,
+        },
+        RetainedInput::Resized(physical_size),
+    ]
 }

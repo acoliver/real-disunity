@@ -331,6 +331,7 @@ pub struct SceneMaterialParts {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneMaterial {
+    pub(super) channels: super::SceneMaterialChannels,
     anisotropy: super::TextureAnisotropy,
     alpha_to_coverage: bool,
     fade_direction: super::SceneFadeDirection,
@@ -523,6 +524,7 @@ impl SceneMaterial {
         require_unit_range("material metalness_micro", u64::from(parts.metalness_micro))?;
         parts.alpha_mode.validate()?;
         Ok(Self {
+            channels: super::SceneMaterialChannels::default(),
             anisotropy: super::TextureAnisotropy::default(),
             alpha_to_coverage: false,
             fade_direction: super::SceneFadeDirection::Inclusive,
@@ -659,6 +661,9 @@ impl SceneResources {
 
 #[path = "resource_validation.rs"]
 mod validation;
+
+#[path = "resource_append.rs"]
+mod append;
 
 #[cfg(test)]
 #[path = "resource_tests.rs"]

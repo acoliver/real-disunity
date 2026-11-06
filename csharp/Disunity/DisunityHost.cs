@@ -37,7 +37,11 @@ public static partial class DisunityHost
         ResetScriptExceptions();
         ResetWorldSettings();
         _listenerDiagnostic = null;
-        try { InstallMainThreadContext(); }
+        try
+        {
+            InstallMainThreadContext();
+            Shader.SyncGlobalsToWorld();
+        }
         catch
         {
             NativeBindings.disunity_world_destroy(world);
@@ -81,7 +85,9 @@ public static partial class DisunityHost
 
     public static void Step(float deltaTime)
     {
+        UpdateRenderPipeline();
         Advance(deltaTime);
+        RenderFrame();
         ReportAudioListenerDiagnostic();
     }
 
@@ -195,9 +201,14 @@ public static partial class DisunityHost
     public static unsafe void UnloadWorld()
     {
         if (!IsLoaded) return;
+        var sceneRoots = LoadedScenes.SelectMany(RootsOf).ToArray();
         UnloadScene();
         try
         {
+            // The loaded scenes' objects go first and the DontDestroyOnLoad objects after them, the engine's choice, so a
+            // scene object's OnDestroy still finds the persistent objects it registered with.
+            foreach (var root in sceneRoots) root.Destroy();
+            if (!_faulted && sceneRoots.Length != 0) Advance(0);
             // Objects created by final callbacks are retired by another native cleanup advance.
             while (!_faulted && (Tracked.Any(o => !o.IsDestroyed) || Assets.Count != 0))
             {
@@ -211,12 +222,14 @@ public static partial class DisunityHost
             try { DisposeAllRoutines(); }
             finally
             {
+                DisposeRenderPipeline();
                 foreach (var value in Tracked) value.MarkDestroyed();
                 CurrentScene = null; LoadedScenes.Clear(); UnloadingScenes.Clear(); AxisDefinitions.Clear(); Tracked.Clear(); TrackedByHandle.Clear(); Scripts.Clear(); PendingComponents.Clear(); Pending.Clear(); NativeComponents.Clear(); Fonts.Clear(); Assets.Clear(); PhysicsMaterial2D.Clear(); ClearChangedMeshes();
                 var world = WorldHandle;
                 WorldHandle = 0;
                 _listenerDiagnostic = null;
                 UndrawnCalls.Reset();
+                RenderSettings.Reset();
                 RemoveMainThreadContext();
                 Resources?.Clear();
                 ThrowIfError(NativeBindings.disunity_world_destroy(world));

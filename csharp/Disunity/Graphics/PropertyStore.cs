@@ -18,19 +18,37 @@ internal sealed partial class PropertyStore
     /// <summary>Unity limits array properties to this many elements.</summary>
     internal const int MaxArray = 1023;
 
-    internal readonly Dictionary<int, float> Floats = new();
-    internal readonly Dictionary<int, int> Ints = new();
-    internal readonly Dictionary<int, Vector4> Vectors = new();
-    internal readonly Dictionary<int, Matrix4x4> Matrices = new();
-    internal readonly Dictionary<int, TextureBinding> Textures = new();
-    internal readonly Dictionary<int, Vector2> Offsets = new();
-    internal readonly Dictionary<int, Vector2> Scales = new();
+    internal readonly PropertyMap<float> Floats;
+    internal readonly PropertyMap<int> Ints;
+    internal readonly PropertyMap<Vector4> Vectors;
+    internal readonly PropertyMap<Matrix4x4> Matrices;
+    internal readonly PropertyMap<TextureBinding> Textures;
+    internal readonly PropertyMap<Vector2> Offsets;
+    internal readonly PropertyMap<Vector2> Scales;
     internal readonly Dictionary<int, float[]> FloatArrays = new();
     internal readonly Dictionary<int, Vector4[]> VectorArrays = new();
     internal readonly Dictionary<int, Color[]> ColorArrays = new();
     internal readonly Dictionary<int, Matrix4x4[]> MatrixArrays = new();
     internal readonly Dictionary<int, object?> Buffers = new();
     internal readonly Dictionary<int, ConstantBufferBinding> ConstantBuffers = new();
+
+    /// <summary>Called after a float, integer, vector, matrix or texture property is written, with the property's ID and kind. A
+    /// texture's offset and scale report as the texture. Arrays and buffers are not reported.</summary>
+    internal Action<int, PropertyKind>? Changed;
+
+    internal PropertyStore()
+    {
+        Floats = new(id => Changed?.Invoke(id, PropertyKind.Float));
+        Ints = new(id => Changed?.Invoke(id, PropertyKind.Int));
+        Vectors = new(id => Changed?.Invoke(id, PropertyKind.Vector));
+        Matrices = new(id => Changed?.Invoke(id, PropertyKind.Matrix));
+        Textures = new(id => Changed?.Invoke(id, PropertyKind.Texture));
+        Offsets = new(id => Changed?.Invoke(id, PropertyKind.Texture));
+        Scales = new(id => Changed?.Invoke(id, PropertyKind.Texture));
+    }
+
+    /// <summary>Called after <see cref="Clear"/> empties the store.</summary>
+    internal Action? Cleared;
 
     internal bool Has(int id) => Floats.ContainsKey(id) || Ints.ContainsKey(id) || Vectors.ContainsKey(id) || Matrices.ContainsKey(id)
         || Textures.ContainsKey(id) || Offsets.ContainsKey(id) || Scales.ContainsKey(id) || FloatArrays.ContainsKey(id)
@@ -44,6 +62,7 @@ internal sealed partial class PropertyStore
     {
         Floats.Clear(); Ints.Clear(); Vectors.Clear(); Matrices.Clear(); Textures.Clear(); Offsets.Clear(); Scales.Clear();
         FloatArrays.Clear(); VectorArrays.Clear(); ColorArrays.Clear(); MatrixArrays.Clear(); Buffers.Clear(); ConstantBuffers.Clear();
+        Cleared?.Invoke();
     }
 
     internal void CopyFrom(PropertyStore other)

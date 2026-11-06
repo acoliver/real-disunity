@@ -46,6 +46,7 @@ fn initialize(
 ) -> Result<(Session<'_>, Renderer), ViewerError> {
     host.picking.windowless = true;
     host.timers.freeze();
+    host.audio.null_device();
     let renderer = pollster::block_on(Renderer::windowless(&mut host));
     let mut session = Session::new(host, driver);
     match renderer {
@@ -75,7 +76,9 @@ impl WindowlessRetained<'_> {
             .host
             .timers
             .advance(elapsed)
-            .map_err(|error| ViewerError::Driver(error.to_string()))
+            .map_err(|error| ViewerError::Driver(error.to_string()))?;
+        self.session.host.audio.advance(elapsed);
+        Ok(())
     }
 
     /// Requests one update/submission through the same session as desktop mode.
@@ -131,6 +134,20 @@ impl WindowlessRetained<'_> {
             }
         }
     }
+    /// Deterministic display-scale transition without a native window. Size stays physical.
+    pub fn set_display_scale(&mut self, scale_factor: f64) -> Result<(), ViewerError> {
+        self.ensure_open()?;
+        if !scale_factor.is_finite() || scale_factor <= 0. || scale_factor > f64::from(f32::MAX) {
+            return Err(ViewerError::InvalidOptions("invalid display scale"));
+        }
+        self.session.input(super::RetainedInput::DisplayChanged {
+            scale_factor,
+            physical_size: self.session.host.size(),
+        });
+        let result = self.session.take_failure().map_or(Ok(()), Err);
+        self.finish(result)
+    }
+
     /// Explicit physical-pixel resize, delivered even when the surface is suspended.
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
         self.ensure_open()?;

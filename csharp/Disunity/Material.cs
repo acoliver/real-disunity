@@ -6,8 +6,12 @@ namespace UnityEngine;
 public enum BuiltinSpriteMaterial : uint { Unlit = 0, Lit = 1 }
 
 /// <summary>
-/// A shader and the values set for it, kept in managed memory; nothing draws with it yet except the two
-/// built-in sprite materials, which the native 2D pipeline draws; a sprite renderer with any other material draws
+/// A shader and the values set for it, kept in managed memory for reads and followed by a material in the native world:
+/// the world's material is what a host draws a mesh renderer, a blit or a camera's offscreen work with. A material
+/// has a world material once something needs one (a mesh renderer slot, <see cref="Graphics.Blit(Texture, RenderTexture, Material, int)"/>),
+/// is sent whole then, and every later change to its shader, queue, keywords, passes and float, integer, vector, color, matrix
+/// and texture properties is sent as it is made. Array and buffer properties stay in managed memory. The two
+/// built-in sprite materials are drawn by the native 2D pipeline; a sprite renderer with any other material draws
 /// as the unlit sprite material. A material made from a <see cref="Shader"/>
 /// or another material has no shader declarations to consult, so it knows only what was set on it: see
 /// <see cref="Material.HasProperty(string)"/>. Unity's convenience members map to fixed names, as it does for
@@ -37,6 +41,8 @@ public partial class Material : Object
     private readonly Dictionary<string, bool> _passEnabled = new();
     private readonly BuiltinSpriteMaterial? _sprite;
     private int _renderQueue = -1;
+    private Shader _shader = null!;
+    private WorldGraphics.Link _world;
 
     internal override string? DestroyRefusal =>
         ReferenceEquals(this, SpriteUnlit) || ReferenceEquals(this, SpriteLit)
@@ -89,11 +95,11 @@ public partial class Material : Object
 
     private void CopyStateFrom(Material source)
     {
+        var passesBefore = _passEnabled.Keys.ToArray();
         shader = source.shader;
         _properties.CopyFrom(source._properties);
-        _keywords.Clear();
-        _keywords.AddRange(source._keywords);
-        _renderQueue = source._renderQueue;
+        ReplaceKeywords(source._keywords.ToArray());
+        RenderQueueCore = source._renderQueue;
         globalIlluminationFlags = source.globalIlluminationFlags;
         enableInstancing = source.enableInstancing;
         doubleSidedGI = source.doubleSidedGI;
@@ -101,9 +107,19 @@ public partial class Material : Object
         foreach (var (tag, value) in source._overrideTags) _overrideTags[tag] = value;
         _passEnabled.Clear();
         foreach (var (pass, enabled) in source._passEnabled) _passEnabled[pass] = enabled;
+        if (!_world.IsCurrent) return;
+        foreach (var pass in passesBefore.Union(_passEnabled.Keys)) WorldGraphics.WritePass(_world, pass, GetShaderPassEnabled(pass));
     }
 
-    public Shader shader { get; set; } = null!;
+    public Shader shader
+    {
+        get => _shader;
+        set
+        {
+            _shader = value;
+            if (_world.IsCurrent && value is { } own && own) WorldGraphics.WriteMaterialShader(_world, own.WorldLink);
+        }
+    }
 
     public Color color { get => GetColor(ColorId); set => SetColor(ColorId, value); }
     public Texture? mainTexture { get => GetTexture(MainTexId); set => SetTexture(MainTexId, value!); }
@@ -114,7 +130,16 @@ public partial class Material : Object
     public int renderQueue
     {
         get => _renderQueue >= 0 ? _renderQueue : shader.renderQueue;
-        set => _renderQueue = value;
+        set => RenderQueueCore = value;
+    }
+
+    private int RenderQueueCore
+    {
+        set
+        {
+            _renderQueue = value;
+            if (_world.IsCurrent) WorldGraphics.WriteRenderQueue(_world, value);
+        }
     }
 
     /// <summary>The queue stored on the material, or -1 when it comes from the shader.</summary>
@@ -134,8 +159,7 @@ public partial class Material : Object
         set
         {
             ArgumentNullException.ThrowIfNull(value);
-            _keywords.Clear();
-            foreach (var keyword in value) EnableKeyword(keyword);
+            ReplaceKeywords(value);
         }
     }
 
@@ -145,8 +169,7 @@ public partial class Material : Object
         set
         {
             ArgumentNullException.ThrowIfNull(value);
-            _keywords.Clear();
-            foreach (var keyword in value) EnableKeyword(keyword.name);
+            ReplaceKeywords(value.Select(keyword => keyword.name).ToArray());
         }
     }
 
@@ -173,12 +196,22 @@ public partial class Material : Object
         ArgumentNullException.ThrowIfNull(keyword);
         if (enabled && !_keywords.Contains(keyword)) _keywords.Add(keyword);
         else if (!enabled) _keywords.Remove(keyword);
+        if (_world.IsCurrent) WorldGraphics.WriteKeyword(WorldGraphics.ScopeMaterial, _world, keyword, enabled);
+    }
+
+    /// <summary>Makes exactly <paramref name="keywords"/> the enabled ones, in the world too.</summary>
+    private void ReplaceKeywords(IReadOnlyCollection<string> keywords)
+    {
+        foreach (var keyword in keywords) ArgumentNullException.ThrowIfNull(keyword);
+        foreach (var keyword in _keywords.Where(held => !keywords.Contains(held)).ToArray()) SetKeyword(keyword, false);
+        foreach (var keyword in keywords) SetKeyword(keyword, true);
     }
 
     public void SetShaderPassEnabled(string passName, bool enabled)
     {
         ArgumentNullException.ThrowIfNull(passName);
         _passEnabled[passName] = enabled;
+        if (_world.IsCurrent) WorldGraphics.WritePass(_world, passName, enabled);
     }
 
     /// <summary>A pass is enabled until SetShaderPassEnabled turns it off, including a pass the shader does not have.</summary>
@@ -188,9 +221,29 @@ public partial class Material : Object
         return _passEnabled.GetValueOrDefault(passName, true);
     }
 
-    public string GetPassName(int pass) => throw Unsupported(nameof(GetPassName));
+    /// <summary>The name of a pass of the shader's first sub-shader, as a player's plan declares it (empty for an unnamed pass).
+    /// A pass outside 0 to <see cref="passCount"/> - 1 logs an error naming the material, the pass and the count and returns the
+    /// empty string (the engine's choice, as <see cref="SetPass"/> logs). A shader whose pass names are not declared throws
+    /// <see cref="NotSupportedException"/>.</summary>
+    public string GetPassName(int pass)
+    {
+        var names = shader.PassNames("Material.GetPassName");
+        if (pass >= 0 && pass < names.Count) return names[pass];
+        Debug.LogError($"Material.GetPassName: pass {pass} is out of range for material '{name}', whose shader has {names.Count} passes");
+        return "";
+    }
 
-    public int FindPass(string passName) => throw Unsupported(nameof(FindPass));
+    /// <summary>The index of the first pass of the shader's first sub-shader whose name equals <paramref name="passName"/>, ignoring
+    /// case (the engine's choice), or -1 when none does. A shader whose pass names are not declared throws
+    /// <see cref="NotSupportedException"/>.</summary>
+    public int FindPass(string passName)
+    {
+        ArgumentNullException.ThrowIfNull(passName);
+        var names = shader.PassNames("Material.FindPass");
+        for (var pass = 0; pass < names.Count; pass++)
+            if (string.Equals(names[pass], passName, StringComparison.OrdinalIgnoreCase)) return pass;
+        return -1;
+    }
 
     /// <summary>An empty value removes the override.</summary>
     public void SetOverrideTag(string tag, string val)
@@ -212,8 +265,22 @@ public partial class Material : Object
 
     public string GetTag(string tag, bool searchFallbacks) => GetTag(tag, searchFallbacks, "");
 
-    /// <summary>Binds the pass for drawing, which needs a GPU.</summary>
-    public bool SetPass(int pass) => throw Unsupported(nameof(SetPass));
+    /// <summary>Makes <paramref name="pass"/> the active pass of the immediate-mode draws that follow and records it in the
+    /// native world, making the material's world material on first use as a blit does. A pass outside 0 to <see cref="passCount"/> - 1 logs an error
+    /// and returns false (the engine's choice) and leaves the earlier active pass. A shader whose pass count is not declared
+    /// throws <see cref="NotSupportedException"/> from <see cref="Shader.passCount"/>. Immediate-mode draws are not supported
+    /// yet, so nothing draws with the active pass.</summary>
+    public bool SetPass(int pass)
+    {
+        var count = passCount;
+        if (pass < 0 || pass >= count)
+        {
+            Debug.LogError($"Material.SetPass: pass {pass} is out of range for material '{name}', whose shader has {count} passes");
+            return false;
+        }
+        WorldGraphics.WriteActivePass(WorldLink, (uint)pass);
+        return true;
+    }
 
     /// <summary>Copies the shader, every property, the keywords, the render queue and the other settings from <paramref name="mat"/>.</summary>
     public void CopyPropertiesFromMaterial(Material mat)
@@ -295,6 +362,46 @@ public partial class Material : Object
     private static string[] Names(IEnumerable<int> ids) => ids.Select(id => Shader.PropertyName(id) ?? "").ToArray();
 
     internal override Object CloneAsset() => Named(new Material(this));
+
+    /// <summary>The material's resource in the loaded world, made on first use and sent whole, then kept in step with every
+    /// change. A material made for a world that was unloaded is made again for the one loaded now.</summary>
+    internal WorldGraphics.Link WorldLink
+    {
+        get
+        {
+            if (_world.IsCurrent) return _world;
+            var link = WorldGraphics.CreateMaterial(shader.WorldLink);
+            try
+            {
+                if (_renderQueue >= 0) WorldGraphics.WriteRenderQueue(link, _renderQueue);
+                foreach (var keyword in _keywords) WorldGraphics.WriteKeyword(WorldGraphics.ScopeMaterial, link, keyword, true);
+                foreach (var (pass, enabled) in _passEnabled)
+                    if (!enabled) WorldGraphics.WritePass(link, pass, false);
+                WorldGraphics.SendAll(WorldGraphics.ScopeMaterial, link, _properties);
+            }
+            catch
+            {
+                WorldGraphics.DestroyMaterial(link);
+                throw;
+            }
+            _world = link;
+            _properties.Changed = SendProperty;
+            _properties.Cleared = () => { if (_world.IsCurrent) WorldGraphics.ClearProperties(WorldGraphics.ScopeMaterial, _world); };
+            return link;
+        }
+    }
+
+    private void SendProperty(int id, PropertyKind kind)
+    {
+        if (_world.IsCurrent) WorldGraphics.SendProperty(WorldGraphics.ScopeMaterial, _world, _properties, id, kind);
+    }
+
+    internal override void OnAssetDestroyed()
+    {
+        if (!_world.IsCurrent) return;
+        WorldGraphics.DestroyMaterial(_world);
+        _world = default;
+    }
 
     private static NotSupportedException Unsupported(string member) =>
         new($"Material.{member} is not supported yet: the engine has no shader declarations or GPU");

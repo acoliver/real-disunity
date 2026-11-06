@@ -64,6 +64,10 @@ public sealed partial class Camera
         return found.Length;
     }
 
+    /// <summary>The enabled cameras on active objects in the order a pipeline renders them: ascending <see cref="depth"/>,
+    /// cameras of equal depth in creation order.</summary>
+    internal static List<Camera> RenderOrder() => EnabledCameras().OrderBy(camera => camera.depth).ToList();
+
     private static IEnumerable<Camera> EnabledCameras() => DisunityHost.ActiveObjects()
         .SelectMany(owner => DisunityHost.Components(owner).OfType<Camera>())
         .Where(camera => camera.enabled);
@@ -99,12 +103,23 @@ public sealed partial class Camera
         if (!this) throw new InvalidOperationException("the camera was destroyed");
     }
 
-    /// <summary>Completes without drawing until the native draw surface exists (#171). As the engine's choice no render
-    /// pipeline callback runs and the target texture is left as it is. A destroyed camera throws.</summary>
+    /// <summary>With a <see cref="targetTexture"/> records the camera's render into it as offscreen work in the world, which the
+    /// host executes with the camera's culling mask, clear flags and pose as they are then; the texture is created if it is
+    /// not. A camera without a target texture is drawn by the frame itself, so the call completes without drawing and logs a
+    /// note. While a render pipeline is being called by the host, the call renders through it instead: the pipeline's Render
+    /// runs once with this camera alone and no <c>CameraRender</c> is recorded. Called from inside a pipeline's Render it
+    /// throws <see cref="InvalidOperationException"/>, the engine's choice. A destroyed camera throws.</summary>
     public void Render()
     {
         ThrowIfDestroyed();
-        UndrawnCalls.Note("Camera.Render");
+        if (DisunityHost.TryRenderThroughPipeline(this)) return;
+        if (targetTexture is not { } target)
+        {
+            UndrawnCalls.Note("Camera.Render");
+            return;
+        }
+        if (!target.IsCreated()) target.Create();
+        WorldGraphics.RecordCameraRender(Handle, target.WorldId);
     }
 
     /// <summary>Completes without drawing, as <see cref="Render"/> does. A null shader throws.</summary>
@@ -136,8 +151,22 @@ public sealed partial class Camera
     public void RemoveCommandBuffers(CameraEvent evt) => CommandBuffers.RemoveAll(evt, "Camera.RemoveCommandBuffers");
     public void RemoveAllCommandBuffers() => CommandBuffers.Clear();
     public CommandBuffer[] GetCommandBuffers(CameraEvent evt) => CommandBuffers.Get(evt, "Camera.GetCommandBuffers");
-    public bool TryGetCullingParameters(ref ScriptableCullingParameters cullingParameters) => throw Unsupported(nameof(TryGetCullingParameters));
-    public bool TryGetCullingParameters(bool stereoAware, ref ScriptableCullingParameters cullingParameters) => throw Unsupported(nameof(TryGetCullingParameters));
+    /// <summary>Fills the parameters from the camera: its culling mask, the six planes of its view volume, the product of its
+    /// projection and view matrices, its position, its level of detail parameters, the quality settings' shadow distance
+    /// (stopped at the far plane), its layer cull distances, and no culling options (the engine has no light, probe or occlusion
+    /// culling). Returns false, with the parameters left empty, for a camera whose view has no pixels or whose matrices are not
+    /// finite. A destroyed camera throws <see cref="InvalidOperationException"/>.</summary>
+    public bool TryGetCullingParameters(out ScriptableCullingParameters cullingParameters)
+    {
+        ThrowIfDestroyed();
+        return CullingParametersFilled(out cullingParameters);
+    }
+
+    /// <summary>The same as <see cref="TryGetCullingParameters(out ScriptableCullingParameters)"/>: the engine has no stereo
+    /// rendering, so <paramref name="stereoAware"/> changes nothing.</summary>
+    public bool TryGetCullingParameters(bool stereoAware, out ScriptableCullingParameters cullingParameters) =>
+        TryGetCullingParameters(out cullingParameters);
+
     public Matrix4x4 GetStereoNonJitteredProjectionMatrix(StereoscopicEye eye) => throw Unsupported(nameof(GetStereoNonJitteredProjectionMatrix));
     public Matrix4x4 GetStereoViewMatrix(StereoscopicEye eye) => throw Unsupported(nameof(GetStereoViewMatrix));
     public Matrix4x4 GetStereoProjectionMatrix(StereoscopicEye eye) => throw Unsupported(nameof(GetStereoProjectionMatrix));

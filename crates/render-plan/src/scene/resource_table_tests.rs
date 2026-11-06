@@ -35,12 +35,12 @@ fn textures() -> Vec<SceneTexture> {
         bytes: vec![1, 2, 3].into_boxed_slice(),
     });
     textures.push(SceneTexture::Texels {
-        format: TexelFormat::Rg8Unorm,
+        format: TexelFormat::Rgba8Unorm,
         color_space: TextureColorSpace::Linear,
         width: 2,
         height: 2,
         mips: 2,
-        bytes: vec![7; 10].into_boxed_slice(),
+        bytes: vec![7; 20].into_boxed_slice(),
     });
     textures.push(SceneTexture::Encoded {
         encoding: TextureEncoding::KtxContainer,

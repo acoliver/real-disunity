@@ -13,6 +13,8 @@ internal static class UnsupportedComponents
             throw new NotSupportedException($"3D physics components are not supported yet: {component.GetType().Name}");
         if (component is LightProbeProxyVolume)
             throw new NotSupportedException("LightProbeProxyVolume components are not supported yet: the engine has no probe lighting");
+        if (component is ReflectionProbe)
+            throw new NotSupportedException("ReflectionProbe components are not supported yet: the engine has no probe lighting");
         if (component is AudioSource)
             throw new NotSupportedException("AudioSource components are not supported yet: the engine has no audio output");
     }

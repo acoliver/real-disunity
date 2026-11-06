@@ -52,6 +52,14 @@ public sealed class Light : Behaviour
     public float shadowStrength { get => Read().shadow_strength; set => Update(l => { l.shadow_strength = value; return l; }); }
     public float shadowBias { get => Read().shadow_bias; set => Update(l => { l.shadow_bias = value; return l; }); }
     public float shadowNormalBias { get => Read().shadow_normal_bias; set => Update(l => { l.shadow_normal_bias = value; return l; }); }
+    /// <summary>The shadow map size level, or <see cref="UnityEngine.Rendering.LightShadowResolution.FromQualitySettings"/> to follow the
+    /// quality settings. A value that is not one of the five levels throws <see cref="DisunityException"/> and leaves the light as it was.</summary>
+    public UnityEngine.Rendering.LightShadowResolution shadowResolution
+    {
+        get => (UnityEngine.Rendering.LightShadowResolution)Read().shadow_resolution;
+        set => Update(l => { l.shadow_resolution = (int)value; return l; });
+    }
+
     public float shadowNearPlane { get => Read().shadow_near_plane; set => Update(l => { l.shadow_near_plane = value; return l; }); }
     public int cullingMask { get => unchecked((int)Read().culling_mask); set => Update(l => { l.culling_mask = unchecked((uint)value); return l; }); }
     public int renderingLayerMask { get => unchecked((int)Read().rendering_layer_mask); set => Update(l => { l.rendering_layer_mask = unchecked((uint)value); return l; }); }

@@ -1,5 +1,5 @@
 //! The fixed unlit-alpha path as it was before dynamic quads drew through the program runtime,
-//! with the clip rectangles the retained-UI overlay added to it.
+//! with the clip rectangles and triangles the retained-UI overlay added to it.
 
 use super::*;
 
@@ -18,6 +18,7 @@ struct LegacyDraw {
     instance: Buffer,
     tint: Buffer,
     count: u32,
+    index_count: u32,
     material: BindGroup,
     clip_rect: Option<[u32; 4]>,
 }
@@ -93,6 +94,7 @@ impl LegacyDraw {
             count: u32::try_from(group.len()).unwrap(),
             material: material_group(device, bindings.layout, &uniform, &bound, sampler, &heights),
             clip_rect: quad.clip_rect,
+            index_count: if quad.triangle_uv.is_some() { 3 } else { 6 },
         }
     }
 }
@@ -136,6 +138,7 @@ impl Legacy {
                 a.clip_rect == b.clip_rect
                     && a.texture == b.texture
                     && a.corners == b.corners
+                    && a.triangle_uv == b.triangle_uv
                     && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
                     && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
             })
@@ -204,7 +207,7 @@ impl Legacy {
             pass.set_vertex_buffer(0, draw.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.instance.slice(..));
             pass.set_vertex_buffer(2, draw.tint.slice(..));
-            pass.draw_indexed(0..6, 0, 0..draw.count);
+            pass.draw_indexed(0..draw.index_count, 0, 0..draw.count);
             count.draw(u64::from(draw.count));
         }
         count
@@ -252,6 +255,10 @@ fn pack_quad(quad: &DynamicQuad) -> Vec<u8> {
     .into_iter()
     .enumerate()
     {
+        if quad.triangle_uv.is_some() && index == 3 {
+            break;
+        }
+        let [u, v] = quad.triangle_uv.map_or([u, v], |uv| uv[index]);
         let position = quad.corners.map_or(Vec3::new(x, 0., z), |corners| {
             Vec3::from_array(corners[index])
         });

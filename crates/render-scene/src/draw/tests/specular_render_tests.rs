@@ -85,8 +85,8 @@ fn selected_mesh_terrain_and_card_draws_publish_environment_separately_from_dire
         let lit = render_with_environment(&context, &source, 1, &maps, &frame);
         frame.sun_irradiance = Vec3::ZERO;
         let ambient = render_with_environment(&context, &source, 1, &maps, &frame);
-        let env = channel(&context, lit.ssr.as_ref().unwrap().textures()[2], 0, 0);
-        let factor = channel(&context, lit.ssr.as_ref().unwrap().textures()[3], 0, 0);
+        let env = channel(&context, lit.ssr.as_ref().unwrap().textures()[1], 0, 0);
+        let factor = channel(&context, lit.ssr.as_ref().unwrap().textures()[2], 0, 0);
         let direct_color = channel(&context, lit.targets().scene().texture(), 0, 0);
         let ambient_color = channel(&context, ambient.targets().scene().texture(), 0, 0);
         let mut checked = 0;
@@ -201,7 +201,7 @@ fn selected_subfloor_water_environment_and_ssr_preserve_direct_specular() {
         }
         assert!(checked > 16);
         if !missing {
-            let confidence = channel(&context, lit.ssr.as_ref().unwrap().textures()[4], 0, 3);
+            let confidence = channel(&context, lit.ssr.as_ref().unwrap().textures()[3], 0, 3);
             assert!(
                 confidence.iter().any(|v| *v > 0.1),
                 "must exercise replacement hits"

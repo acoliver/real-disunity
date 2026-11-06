@@ -34,6 +34,7 @@ use worldrunner_render_plan::{
 mod alpha_coverage;
 mod alpha_factor;
 mod anisotropy;
+mod append;
 mod compaction;
 mod curved_wind;
 mod decal_mip_bias;
@@ -54,7 +55,9 @@ mod lod;
 mod lod_material;
 mod lod_scale;
 mod mask_mip_bias;
+mod material_channels;
 mod material_factors;
+mod merged_metadata;
 mod mip_bias;
 mod mip_end_to_end;
 mod mip_rig;

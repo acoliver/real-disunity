@@ -310,7 +310,8 @@ fn textures() -> Vec<SceneTexture> {
 
 /// Quads that cover the cases the material has: a whole atlas, a sub-rectangle of it with tint
 /// and alpha over it, an untextured sheared quad with an HDR tint, an overlay with a flipped
-/// coverage mask, and two adjacent quads that share one instanced draw.
+/// coverage mask, two adjacent quads that share one instanced draw, and a textured triangle
+/// between them and the overlay that draws three indices.
 fn quads() -> Vec<DynamicQuad> {
     vec![
         DynamicQuad {
@@ -356,6 +357,21 @@ fn quads() -> Vec<DynamicQuad> {
         DynamicQuad {
             position: [-0.8, 0.0, -1.0],
             tint: [0.0, 0.0, 1.0, 0.5],
+            ..DynamicQuad::default()
+        },
+        DynamicQuad {
+            position: [0.3, 0.0, 0.1],
+            scale: [1.5, 1.0, 1.5],
+            corners: Some([
+                [-0.5, 0.0, -0.5],
+                [0.6, 0.0, -0.4],
+                [0.0, 0.0, 0.6],
+                [0.0, 0.0, 0.0],
+            ]),
+            triangle_uv: Some([[0.0, 1.0], [1.0, 0.75], [0.5, 0.0]]),
+            texture: Some(0),
+            tint: [0.9, 1.0, 0.6, 0.75],
+            sorting_order: 2,
             ..DynamicQuad::default()
         },
     ]

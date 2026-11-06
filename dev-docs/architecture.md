@@ -50,6 +50,22 @@ The C# side and the Rust host load the same `disunity-ffi` dynamic library. `dis
 
 3D content bypasses the world: a game builds a `RenderScene` directly and gives it to the renderer.
 
+## Native short-clip audio
+
+`world-simulation::audio` owns bounded WAV decoding, typed commands and handles,
+voice state, gain/mute, linear resampling and hard-clipped f32 stereo mixing.
+Like the UI router, the mixer is a caller-owned session service in the existing
+simulation owner. No device or wall clock enters that crate.
+
+`scene-viewer` owns cpal device startup and shutdown, the mixer worker and a
+preallocated atomic sample ring. Retained host and event-host interfaces share
+one audio service. Device failures are readable statuses and driver events;
+natural voice endings use the same session event hook as work and timers.
+Physical device startup is explicit. Windowless execution selects a null sink
+and advances the mixer only with `advance_time`. See the
+[mixer contract](../crates/world-simulation/README.md#short-clip-audio) and
+[device/callback contract](../crates/scene-viewer/README.md#short-sounds).
+
 ## Invariants
 
 - **Memory safety.** The workspace lint table sets `unsafe_code = "forbid"`. Only `disunity-ffi` (the C ABI) and `disunity-runtime` (loading the .NET runtime and resolving its entry points) contain unsafe code, and they do not inherit the workspace lints. `script` also does not inherit them; it has no unsafe code of its own but links the vendored Lua C library through `mlua`. Keep new unsafe code inside those two crates.

@@ -246,11 +246,19 @@ impl ShadowedScene {
             suffix.extend(self.scheduler.capture_texture_keys(&term.textures())?);
         }
         let mut prefix = scene_keys;
-        let metadata = self.scheduler.capture_texture_keys(&[
+        // With reflections installed the prefix prepass also writes the reflection material.
+        let material = self
+            .scheduler
+            .ssr
+            .as_ref()
+            .map(|ssr| ssr.material_target().clone());
+        let mut written = vec![
             &input.metadata.normals,
             &input.metadata.depth,
             input.metadata.passes.depth_levels()[0],
-        ])?;
+        ];
+        written.extend(material.as_ref());
+        let metadata = self.scheduler.capture_texture_keys(&written)?;
         suffix.retain(|key| !metadata.contains(key));
         prefix.extend(metadata);
         prefix.push(key);

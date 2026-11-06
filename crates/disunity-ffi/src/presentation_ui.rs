@@ -10,16 +10,43 @@ use crate::{
 };
 use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind};
 
+fn draw_order(draw: &UiDraw) -> (i32, i32, usize, UiDrawKind) {
+    (
+        draw.sorting_layer,
+        draw.sorting_order,
+        draw.hierarchy_order,
+        draw.kind,
+    )
+}
+
+fn validate_draw(draw: &UiDraw, previous: Option<&UiDraw>) -> Result<(), crate::errors::AbiError> {
+    if previous.is_some_and(|before| draw_order(before) > draw_order(draw)) {
+        return Err("presentation UI draw order is descending".into());
+    }
+    let [x, y, width, height] = draw.clip_rect;
+    if x.checked_add(width).is_none() || y.checked_add(height).is_none() {
+        return Err("presentation UI clip bounds overflow".into());
+    }
+    Ok(())
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: image/solid graphic; 1: text sampling prepared R8 coverage.
+    /// 0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,
     pub clip_y: u32,
     pub clip_width: u32,
     pub clip_height: u32,
+    /// Top-row-origin UV pairs for kind 2, in corner order; zero for kinds 0 and 1.
+    pub triangle_u0: f32,
+    pub triangle_v0: f32,
+    pub triangle_u1: f32,
+    pub triangle_v1: f32,
+    pub triangle_u2: f32,
+    pub triangle_v2: f32,
 }
 
 /// # Safety
@@ -38,6 +65,9 @@ pub unsafe extern "C" fn disunity_presentation_ui_count(
             .ui_presentation
             .as_ref()
             .ok_or("presentation is not prepared")?;
+        for (index, draw) in ui.draws.iter().enumerate() {
+            validate_draw(draw, index.checked_sub(1).and_then(|i| ui.draws.get(i)))?;
+        }
         let count = u32::try_from(ui.draws.len()).map_err(|_| "UI draw count overflow")?;
         let coverage = u32::try_from(ui.coverage.len()).map_err(|_| "UI texture count overflow")?;
         unsafe {
@@ -63,23 +93,43 @@ pub unsafe extern "C" fn disunity_presentation_ui_draw(
         return DisunityResult::invalid_argument();
     }
     mutate(world, |s| {
-        let draw = s
+        let ui = s
             .ui_presentation
             .as_ref()
-            .and_then(|ui| ui.draws.get(index as usize))
+            .ok_or("presentation is not prepared")?;
+        let index = index as usize;
+        let draw = ui
+            .draws
+            .get(index)
             .ok_or("presentation UI draw index out of range")?;
+        validate_draw(draw, index.checked_sub(1).and_then(|i| ui.draws.get(i)))?;
         let [clip_x, clip_y, clip_width, clip_height] = draw.clip_rect;
+        let [
+            [triangle_u0, triangle_v0],
+            [triangle_u1, triangle_v1],
+            [triangle_u2, triangle_v2],
+        ] = draw.triangle_uv.unwrap_or([[0.; 2]; 3]);
         unsafe {
             *output = DisunityUiDraw {
-                kind: match draw.kind {
-                    UiDrawKind::Graphic => 0,
-                    UiDrawKind::Text => 1,
+                kind: if draw.triangle_uv.is_some() {
+                    2
+                } else {
+                    match draw.kind {
+                        UiDrawKind::Graphic => 0,
+                        UiDrawKind::Text => 1,
+                    }
                 },
                 hierarchy_order: draw.hierarchy_order as u64,
                 clip_x,
                 clip_y,
                 clip_width,
                 clip_height,
+                triangle_u0,
+                triangle_v0,
+                triangle_u1,
+                triangle_v1,
+                triangle_u2,
+                triangle_v2,
             };
             *quad = encode(draw);
         }

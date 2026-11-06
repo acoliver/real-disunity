@@ -48,6 +48,8 @@
 mod objects;
 pub(crate) mod overlay;
 mod pages;
+#[cfg(test)]
+pub(crate) use pages::test_sources as terrain_test_sources;
 mod specular;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
@@ -623,16 +625,11 @@ pub(crate) fn celestial_pipelines(
         false,
     )
 }
-pub(crate) fn celestial_specialization(
-    device: &Device,
-    scene: &ScenePipelines,
+pub(crate) fn celestial_source(
     composition: (bool, bool, bool),
-    options: ([u32; 7], FrontFace),
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
-) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
-    let mut constants = crate::sky::lighting::constants(options.0, lighting);
-    specular::raster_constants(&mut constants, options.1);
+) -> String {
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",
         "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
@@ -647,7 +644,19 @@ pub(crate) fn celestial_specialization(
     } else {
         crate::sky::meshes::VERTEX.to_owned()
     };
-    let source = format!("{source}\n{vertex}");
+    format!("{source}\n{vertex}")
+}
+pub(crate) fn celestial_specialization(
+    device: &Device,
+    scene: &ScenePipelines,
+    composition: (bool, bool, bool),
+    options: ([u32; 7], FrontFace),
+    lighting: worldrunner_render_plan::SceneCelestialLighting,
+    anchored: bool,
+) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
+    let mut constants = crate::sky::lighting::constants(options.0, lighting);
+    specular::raster_constants(&mut constants, options.1);
+    let source = celestial_source(composition, lighting, anchored);
     let module = scene_shader(device, "celestial mesh lighting", &source);
     let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("celestial meshes"),
@@ -717,6 +726,8 @@ fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTarget
         targets
     } else if source.contains("struct ReflectionOutput") {
         vec![color_targets(format)[0].clone(); 3]
+    } else if source.contains(crate::scene_metadata::MERGED_MARKER) {
+        vec![color_targets(format)[0].clone(); 2]
     } else {
         color_targets(format).to_vec()
     }

@@ -13,19 +13,22 @@ struct Encoded {
 
 #[test]
 fn overlapping_frames_keep_uniform_uploads_instances_and_captures_separate() {
+    overlapping_frames(&[64]);
+    overlapping_frames(&[64, 32]);
+}
+
+fn overlapping_frames(widths: &[u32]) {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut gpu =
         SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
-    let mut target = OffscreenTarget::new(
-        context.device(),
-        crate::Viewport {
-            width: 64,
-            height: 64,
-        },
-    )
-    .unwrap();
+    let mut targets: Vec<_> = widths
+        .iter()
+        .map(|&width| {
+            OffscreenTarget::new(context.device(), crate::Viewport { width, height: 64 }).unwrap()
+        })
+        .collect();
     let mut renderer = crate::compositor::FrameRenderer::new(context.device());
     let flight = FrameAdmission::new(2).unwrap();
     let admissions = [flight.try_acquire().unwrap(), flight.try_acquire().unwrap()];
@@ -37,17 +40,17 @@ fn overlapping_frames_keep_uniform_uploads_instances_and_captures_separate() {
                 &context,
                 (&mut gpu, &pipelines),
                 &mut renderer,
-                &mut target,
+                &mut targets[index % widths.len()],
                 index,
                 (admission, &flight),
             )
         })
         .collect();
     assert_ne!(frames[0].uniform_buffer, frames[1].uniform_buffer);
-    verify_frames(&context, &mut target, frames);
+    verify_frames(&context, &mut targets, frames);
 }
 
-fn verify_frames(context: &GpuContext, target: &mut OffscreenTarget, frames: Vec<Encoded>) {
+fn verify_frames(context: &GpuContext, targets: &mut [OffscreenTarget], frames: Vec<Encoded>) {
     let tickets: Vec<_> = frames
         .into_iter()
         .map(|frame| {
@@ -76,13 +79,16 @@ fn verify_frames(context: &GpuContext, target: &mut OffscreenTarget, frames: Vec
                 .unwrap(),
             bytes
         );
+        let index = slot % targets.len();
+        let target = &mut targets[index];
+        let [width, height] = target.color_attachment().size();
         assert_eq!(
             target
                 .read_encoded_slot(context, slot, ticket.submission())
                 .unwrap()
                 .pixels
                 .len(),
-            64 * 64 * 4
+            usize::try_from(width * height * 4).unwrap()
         );
     }
 }
@@ -109,8 +115,12 @@ fn encode_frame(
             gpu.add_instance(object, true).unwrap();
         }
     }
+    let size = target.color_attachment().size();
+    renderer.resize(context.device(), size).unwrap();
     let mut frame = frame_from(pose());
     frame.exposure = if index == 0 { 1.0 } else { 2.0 };
+    let mut expected_frame = frame;
+    expected_frame.raster_viewport = size;
     let mut encoder = context.submission().begin(context.device()).unwrap();
     crate::compositor::encode_scene(
         renderer,
@@ -136,7 +146,7 @@ fn encode_frame(
         instances,
         uniform,
         expected,
-        frame_bytes: frame.to_bytes().to_vec(),
+        frame_bytes: expected_frame.to_bytes().to_vec(),
         uniform_buffer: gpu.frame_buffer.clone(),
     }
 }

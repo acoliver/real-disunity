@@ -41,6 +41,8 @@ pub(crate) struct ManagedBridge {
     pub token_alloc: unsafe extern "system" fn() -> isize,
     pub token_free: unsafe extern "system" fn(isize),
     pub token_live: unsafe extern "system" fn() -> i32,
+    /// Renders the frame just advanced; a bridge without the export renders nothing.
+    pub render_frame: Option<unsafe extern "system" fn() -> i32>,
     configure: unsafe extern "system" fn(*const c_char) -> i32,
 }
 
@@ -74,6 +76,13 @@ impl ManagedBridge {
             token_alloc: bind!("TokenAlloc", unsafe extern "system" fn() -> isize),
             token_free: bind!("TokenFree", unsafe extern "system" fn(isize)),
             token_live: bind!("TokenLive", unsafe extern "system" fn() -> i32),
+            render_frame: loader
+                .get_function_with_unmanaged_callers_only::<unsafe extern "system" fn() -> i32>(
+                    &bridge_type,
+                    &pdcstring(OsStr::new("RenderFrame"))?,
+                )
+                .ok()
+                .map(|function| *function),
             configure: bind!(
                 "ConfigureNativeLibrary",
                 unsafe extern "system" fn(*const c_char) -> i32

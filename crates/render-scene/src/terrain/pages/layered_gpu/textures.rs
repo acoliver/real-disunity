@@ -92,6 +92,8 @@ fn validate_format(format: wgpu::TextureFormat) -> Result<(), LayeredError> {
             | wgpu::TextureFormat::Bc3RgbaUnormSrgb
             | wgpu::TextureFormat::Bc4RUnorm
             | wgpu::TextureFormat::Bc5RgUnorm
+            | wgpu::TextureFormat::Bc7RgbaUnorm
+            | wgpu::TextureFormat::Bc7RgbaUnormSrgb
     ) {
         return Err(LayeredError::Texture);
     }
@@ -333,4 +335,18 @@ pub(crate) fn draw_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
         count: None,
     }));
     entries
+}
+
+#[cfg(test)]
+mod format_tests {
+    #[test]
+    fn bc7_linear_and_srgb_are_admitted_for_layer_arrays() {
+        for format in [
+            wgpu::TextureFormat::Bc7RgbaUnorm,
+            wgpu::TextureFormat::Bc7RgbaUnormSrgb,
+        ] {
+            assert!(super::validate_format(format).is_ok());
+        }
+        assert!(super::validate_format(wgpu::TextureFormat::Bc6hRgbUfloat).is_err());
+    }
 }

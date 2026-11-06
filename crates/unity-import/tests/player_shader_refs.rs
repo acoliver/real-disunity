@@ -17,7 +17,7 @@ use worldrunner_unity_serialized::{
 
 #[path = "support/shader_bytes.rs"]
 mod shader_bytes;
-use shader_bytes::{lit, shader};
+use shader_bytes::{lit, named_shader, shader};
 
 fn ptr(file_id: i32, path_id: i64) -> PPtr {
     PPtr { file_id, path_id }
@@ -164,7 +164,11 @@ fn planned_resources() -> (tempfile::TempDir, ResourcesPlan) {
             object(
                 7,
                 ClassId::SHADER,
-                shader("Test/Late", Some(("Queue", "Geometry+200")), &[3, 1]),
+                named_shader(
+                    "Test/Late",
+                    Some(("Queue", "Geometry+200")),
+                    &[&["Forward", "", "ShadowCaster"], &["Other"]],
+                ),
             ),
             object(
                 8,
@@ -189,6 +193,7 @@ fn shader_asset(plan: &ResourcesPlan, index: usize) -> (&str, i32, usize, usize)
         render_queue,
         pass_count,
         subshader_count,
+        ..
     } = &plan.assets[index]
     else {
         panic!("asset {index} is a shader: {:?}", plan.assets[index])
@@ -217,10 +222,64 @@ fn plans_container_shaders_with_their_name_queue_and_counts() {
 }
 
 #[test]
+fn a_planned_shader_names_the_file_and_object_its_programs_live_in() {
+    let (_dir, plan) = planned_resources();
+    let source = |index: usize| match &plan.assets[index] {
+        ResourceAsset::Shader { file, path_id, .. } => (file.clone(), *path_id),
+        other => panic!("asset {index} is a shader: {other:?}"),
+    };
+    assert_eq!(source(0), ("resources.assets".to_owned(), 2));
+    assert_eq!(source(4), ("resources.assets".to_owned(), 5));
+}
+
+#[test]
+fn the_shader_plan_json_carries_file_and_path_id() {
+    let (_dir, plan) = planned_resources();
+    let planned = serde_json::to_value(&plan.assets[0]).unwrap();
+    assert_eq!(planned["type"], "Shader");
+    assert_eq!(planned["file"], "resources.assets");
+    assert_eq!(planned["path_id"], 2);
+}
+
+#[test]
 fn plans_a_referenced_shader_the_container_does_not_list_with_the_default_queue() {
     let (_dir, plan) = planned_resources();
     assert_eq!(shader_asset(&plan, 4), ("Test/Hidden", 2000, 1, 2));
     assert_eq!(shader_asset(&plan, 5), ("Test/Late", 2200, 3, 2));
+}
+
+fn pass_names(plan: &ResourcesPlan, index: usize) -> (Vec<String>, usize) {
+    let ResourceAsset::Shader {
+        pass_names,
+        pass_count,
+        ..
+    } = &plan.assets[index]
+    else {
+        panic!("asset {index} is a shader: {:?}", plan.assets[index])
+    };
+    (pass_names.clone(), *pass_count)
+}
+
+#[test]
+fn a_planned_shader_carries_the_pass_names_of_its_first_sub_shader_in_order() {
+    let (_dir, plan) = planned_resources();
+    let (names, count) = pass_names(&plan, 5);
+    assert_eq!(names, ["Forward", "", "ShadowCaster"]);
+    assert_eq!(count, names.len());
+    let (unnamed, count) = pass_names(&plan, 0);
+    assert_eq!(unnamed, ["", ""]);
+    assert_eq!(count, unnamed.len());
+}
+
+#[test]
+fn the_shader_plan_json_carries_the_pass_names() {
+    let (_dir, plan) = planned_resources();
+    let planned = serde_json::to_value(&plan.assets[5]).unwrap();
+    assert_eq!(
+        planned["pass_names"],
+        json!(["Forward", "", "ShadowCaster"])
+    );
+    assert_eq!(planned["pass_count"], 3);
 }
 
 #[test]
@@ -334,16 +393,21 @@ fn a_scene_script_field_plans_its_shader_as_a_scene_asset_shared_by_both_referen
             name,
             render_queue,
             pass_count,
+            pass_names,
             subshader_count,
+            file,
+            path_id,
         },
     ] = &plan.assets[..]
     else {
         panic!("the scene holds the one shader: {:?}", plan.assets)
     };
+    assert_eq!((file.as_str(), *path_id), ("sharedassets0.assets", 10));
     assert_eq!(
         (name.as_str(), *render_queue, *pass_count, *subshader_count),
         ("Test/Lit", 3000, 2, 1)
     );
+    assert_eq!(pass_names.len(), *pass_count);
     let [PlanComponent::Script { fields, .. }] = &plan.objects[0].components[..] else {
         panic!("the root has one script: {:?}", plan.objects[0].components)
     };

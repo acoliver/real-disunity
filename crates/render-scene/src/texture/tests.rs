@@ -118,17 +118,58 @@ fn a_disagreement_between_importer_and_container_is_reported() {
 }
 
 #[test]
+fn bc7_formats_preserve_blocks_and_color_space() {
+    for (code, space, format) in [
+        (
+            DXGI_BC7_UNORM,
+            TextureColorSpace::Linear,
+            TextureFormat::Bc7RgbaUnorm,
+        ),
+        (99, TextureColorSpace::Srgb, TextureFormat::Bc7RgbaUnormSrgb),
+    ] {
+        let texture = encoded_sized(code, space, 8, 8, 4, 112);
+        let prepared = prepare_texture(&texture).expect("BC7 blocks prepare without decoding");
+        assert_eq!(prepared.format(), format);
+        assert_eq!((prepared.width(), prepared.height()), (8, 8));
+        assert_eq!(
+            prepared
+                .mips()
+                .iter()
+                .map(|mip| mip.bytes.len())
+                .collect::<Vec<_>>(),
+            [64, 16, 16, 16]
+        );
+        assert_eq!(prepared.mips()[0].bytes_per_row, 32);
+        assert_eq!(prepared.mips()[0].rows, 2);
+        let SceneTexture::Encoded { bytes, .. } = &texture else {
+            unreachable!()
+        };
+        assert_eq!(prepared.mips()[0].bytes.as_ptr(), bytes[148..].as_ptr());
+        let wrong = encoded_sized(
+            code,
+            if space == TextureColorSpace::Linear {
+                TextureColorSpace::Srgb
+            } else {
+                TextureColorSpace::Linear
+            },
+            4,
+            4,
+            1,
+            16,
+        );
+        assert!(matches!(
+            prepare_texture(&wrong),
+            Err(TextureError::ColorSpaceDisagreement { .. })
+        ));
+    }
+}
+
+#[test]
 fn an_unmapped_block_format_is_rejected_rather_than_approximated() {
-    // BC7 is a plausible near-neighbour of BC1 and BC3 and decodes to the same
-    // channels, but its block layout differs, so substituting one for another
-    // yields noise rather than an approximation.
-    let texture = encoded(DXGI_BC7_UNORM, TextureColorSpace::Linear, 64);
-    let error = prepare_texture(&texture).expect_err("an unmapped DXGI format is reported");
+    let texture = encoded(97, TextureColorSpace::Linear, 64);
     assert_eq!(
-        error,
-        TextureError::UnsupportedDxgiFormat {
-            code: DXGI_BC7_UNORM
-        }
+        prepare_texture(&texture),
+        Err(TextureError::UnsupportedDxgiFormat { code: 97 })
     );
 }
 

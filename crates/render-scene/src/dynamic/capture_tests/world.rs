@@ -104,9 +104,11 @@ pub(super) fn glyph_frame() -> WorldSceneContribution {
             texture: Some(CoverageTexture {
                 width: 1,
                 height: 1,
-                bytes: vec![128].into_boxed_slice(),
+                bytes: vec![128].into(),
             }),
             quads: vec![UiGlyphQuad {
+                link: None,
+                color: [1.; 4],
                 corners: [
                     [0., 0., 0.],
                     [pixels, 0., 0.],

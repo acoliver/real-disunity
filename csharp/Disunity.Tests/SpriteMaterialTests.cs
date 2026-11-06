@@ -106,7 +106,7 @@ internal static class SpriteMaterialTests
         };
     }
 
-    private static JsonObject PlannedShader() => new() { ["type"] = "Shader", ["name"] = "Test/SpriteMaterial/Planned", ["render_queue"] = 3000, ["pass_count"] = 1, ["subshader_count"] = 1 };
+    private static JsonObject PlannedShader() => new() { ["type"] = "Shader", ["name"] = "Test/SpriteMaterial/Planned", ["render_queue"] = 3000, ["pass_count"] = 1, ["pass_names"] = new JsonArray(""), ["subshader_count"] = 1 };
 
     private static JsonObject PlannedMaterial() => new()
     {

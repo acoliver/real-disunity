@@ -53,6 +53,7 @@ public partial class Mesh
         fixed (uint* indexPointer = indexArray)
         fixed (DisunityMeshSubMesh* runPointer = runArray)
             DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_store(DisunityHost.WorldHandle, _identity, &info, vertexPointer, indexPointer, runPointer));
+        StoreChannelsForRenderer(data);
     }
 
     private static DisunityMeshVertex[] Vertices(MeshData data, out uint channels)

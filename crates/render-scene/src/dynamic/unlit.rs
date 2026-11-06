@@ -60,6 +60,8 @@ pub(super) struct QuadResources {
     pub(super) albedo_view: TextureView,
     pub(super) sampler: Sampler,
     pub(super) indices: Buffer,
+    /// Six indices over a quad's four corners, or three over a triangle's first three.
+    pub(super) index_count: u32,
 }
 
 /// The runtime that draws dynamic quads, made when the first quads are staged, and the programs
@@ -308,7 +310,7 @@ pub(super) fn prepare_quads(
                         buffer: resources.indices.clone(),
                         format: wgpu::IndexFormat::Uint32,
                         first: 0,
-                        count: 6,
+                        count: resources.index_count,
                         base_vertex: 0,
                     }),
                     instances: 0..instances,

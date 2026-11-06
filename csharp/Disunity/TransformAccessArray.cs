@@ -1,9 +1,9 @@
 namespace UnityEngine.Jobs;
 
 /// <summary>
-/// A list of transforms for jobs. The engine keeps the transforms managed-side and runs no transform jobs, so the
-/// array is only a list: <c>length</c>, <c>capacity</c>, <c>Add</c>, <c>RemoveAtSwapBack</c>, the indexer and
-/// <c>SetTransforms</c>. Copies of the struct share one list, and disposing any copy disposes it for all of them.
+/// A list of transforms for jobs. The engine keeps the transforms managed-side; an <see cref="IJobParallelForTransform"/>
+/// scheduled over the array runs at once and visits them in order. The array has <c>length</c>, <c>capacity</c>, <c>Add</c>,
+/// <c>RemoveAtSwapBack</c>, the indexer and <c>SetTransforms</c>. Copies of the struct share one list, and disposing any copy disposes it for all of them.
 /// Every member except <c>isCreated</c> and <c>Dispose</c> of a disposed or default array throws
 /// <see cref="InvalidOperationException"/>; disposing such an array throws as well.
 /// </summary>

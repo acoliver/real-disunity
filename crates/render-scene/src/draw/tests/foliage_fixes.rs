@@ -154,6 +154,24 @@ fn unused_contact_keeps_only_inactive_binding_with_reduced_terrain() {
 }
 
 #[test]
+fn enabled_contact_retains_reduced_samples_with_triangle_source() {
+    let context = context();
+    let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &reduced_contact_scene(true, 2),
+        &layouts,
+    )
+    .unwrap();
+    assert_eq!(gpu.retained.contact_heights.size(), 48);
+    assert_eq!(gpu.terrain.as_ref().unwrap().triangle_source.size(), 188);
+    let smallest = contact_scene(-500, true, false);
+    let source = crate::terrain::planes::HeightfieldPlanes::new(smallest.terrain().unwrap());
+    assert_eq!(source.bytes.len(), 80);
+}
+
+#[test]
 fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_binding() {
     let context = context();
     let (device, queue) =
@@ -166,17 +184,15 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
             ..Default::default()
         }))
         .unwrap();
+    assert_eq!(device.limits().max_storage_buffer_binding_size, 64);
     let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue);
     let layouts = ScenePipelines::new(&device, COLOR_FORMAT);
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let reduced = SceneGpu::upload(
-        &device,
-        &authority,
-        &reduced_contact_scene(true, 2),
-        &layouts,
-    )
-    .unwrap();
-    assert_eq!(reduced.retained.contact_heights.size(), 48);
+    // Even a 2x2 triangle source needs 80 bytes. Exercise admitted contact bindings
+    // independently; full terrain uploads are covered on the unrestricted device.
+    let reduced_scene = reduced_contact_scene(true, 2);
+    let reduced = upload_contact_materials(&device, &authority, &reduced_scene, &layouts).unwrap();
+    assert_eq!(reduced.size(), 48);
     let rejected = SceneGpu::upload(
         &device,
         &authority,
@@ -190,15 +206,35 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
             limit: 64
         })
     ));
-    let inactive = SceneGpu::upload(
-        &device,
-        &authority,
-        &reduced_contact_scene(false, 1),
-        &layouts,
-    )
-    .unwrap();
-    assert_eq!(inactive.retained.contact_heights.size(), 48);
+    let inactive_scene = reduced_contact_scene(false, 1);
+    let inactive =
+        upload_contact_materials(&device, &authority, &inactive_scene, &layouts).unwrap();
+    assert_eq!(inactive.size(), 48);
     assert!(pollster::block_on(scope.pop()).is_none());
+}
+
+fn upload_contact_materials(
+    device: &wgpu::Device,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+    scene: &RenderScene,
+    layouts: &ScenePipelines,
+) -> Result<wgpu::Buffer, DrawError> {
+    let prepared = super::super::PreparedScene::new(scene)?;
+    let heights =
+        super::super::contact::height_buffer(device, authority.queue(), &prepared.contact)?;
+    let (_textures, views) =
+        super::super::resources::upload_textures(device, authority, &prepared.textures)?;
+    let (_placeholder, view) = crate::upload::placeholder_with_view(device, authority.queue());
+    let (groups, _uniforms) = super::super::resources::scene_materials(
+        device,
+        authority.queue(),
+        scene,
+        layouts,
+        (&views, &view),
+        &heights,
+    );
+    assert_eq!(groups.len(), scene.resources().materials().len());
+    Ok(heights)
 }
 
 fn fitted_normal_scene(fit: bool) -> RenderScene {

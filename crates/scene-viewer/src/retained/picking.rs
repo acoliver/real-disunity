@@ -80,6 +80,14 @@ fn apply_edit(objects: &mut BTreeMap<ObjectId, SceneObject>, edit: SceneObjectEd
 }
 
 impl RetainedHost {
+    /// Camera of the last displayed/captured frame, matching retained picking.
+    pub fn presented_view(&self) -> Option<&ResolvedView> {
+        self.picking
+            .presented
+            .as_ref()
+            .map(|snapshot| &snapshot.view)
+    }
+
     /// Queries top-left physical window pixels against the last presented frame.
     /// Accepted or renderer-ready edits, resize and camera changes stay invisible
     /// until submission/presentation. Before that first frame, or outside its viewport,
@@ -153,6 +161,11 @@ impl RetainedHost {
     }
 }
 impl RetainedEventHost<'_> {
+    /// Immutable view used by the displayed frame, for annotation extraction.
+    pub fn presented_view(&self) -> Option<&ResolvedView> {
+        self.host.presented_view()
+    }
+
     /// Event-thread query with the same physical-pixel and presented-frame contract.
     pub fn pick(
         &self,

@@ -42,11 +42,23 @@ pub enum UiLayoutGroup {
     },
 }
 /// Rules are supplied at resolution time and never rewrite authored components.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct UiLayoutRules {
+    /// Physical pixels per logical UI unit. Pointer coordinates remain physical.
+    pub display_scale: f32,
     pub groups: BTreeMap<ObjectHandle, UiLayoutGroup>,
     pub sizes: BTreeMap<ObjectHandle, UiSize>,
     pub scrolls: BTreeMap<ObjectHandle, super::UiScrollView>,
+}
+impl Default for UiLayoutRules {
+    fn default() -> Self {
+        Self {
+            display_scale: 1.,
+            groups: BTreeMap::new(),
+            sizes: BTreeMap::new(),
+            scrolls: BTreeMap::new(),
+        }
+    }
 }
 impl UiLayoutRules {
     pub(super) fn prepare(

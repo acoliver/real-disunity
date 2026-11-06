@@ -291,6 +291,7 @@ pub fn append_ui_from(
     {
         return Err(worldrunner_camera::ViewError::InvalidWorldPoint);
     }
+    append_text_graphics(plan, ui.graphics)?;
     for text in ui.texts {
         let screen = text_screen(&ui.layout, &text, plan.camera.is_some());
         let overlay = text.overlay || screen.is_some();
@@ -316,7 +317,7 @@ pub fn append_ui_from(
                 overlay,
                 corners,
                 uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
-                color: text.color,
+                color: std::array::from_fn(|i| text.color[i] * glyph.color[i]),
                 texture: Some(id),
                 sorting_layer: text.sorting_layer,
                 sorting_order: text.sorting_order,
@@ -326,6 +327,19 @@ pub fn append_ui_from(
     plan.quads
         .sort_by_key(|q| (q.overlay, q.sorting_layer, q.sorting_order));
     Ok(())
+}
+
+#[cfg(feature = "ui")]
+fn append_text_graphics(
+    plan: &mut WorldRenderPlan,
+    graphics: Vec<crate::ui::contribution::UiGraphicContribution>,
+) -> Result<(), worldrunner_camera::ViewError> {
+    let decorations = graphics
+        .into_iter()
+        .filter(|g| g.link.is_some())
+        .map(|g| g.graphic)
+        .collect();
+    crate::ui::append_graphics(plan, decorations)
 }
 
 /// The map from a text's world points to screen pixels when the presentation draws it on the
@@ -386,7 +400,7 @@ fn glyph_texture(texture: &SceneTexture) -> SceneTexture {
             .iter()
             .flat_map(|&alpha| [255, 255, 255, alpha])
             .collect::<Vec<_>>()
-            .into_boxed_slice(),
+            .into(),
     }
 }
 

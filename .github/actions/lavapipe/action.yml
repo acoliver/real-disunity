@@ -4,6 +4,14 @@ description: Installs lavapipe and an isolated X11 display, installs .NET, and s
 runs:
   using: composite
   steps:
+    # The GPU profile's target directory outgrows the hosted runner's free disk. Remove
+    # preinstalled toolchains no job uses; .NET and Vulkan are kept.
+    - name: Free runner disk
+      shell: bash
+      run: |
+        sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell /usr/local/share/chromium /opt/microsoft/msedge /opt/google/chrome
+        sudo docker image prune --all --force > /dev/null
+        df -h /
     # The live-window tests send real X11 key and focus events with xdotool, take focus
     # with an xmessage window (x11-utils) and pin the keymap with setxkbmap (x11-xkb-utils).
     # The play-window test draws Pong's score in Liberation Sans (fonts-liberation), the

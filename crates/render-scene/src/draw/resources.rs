@@ -71,6 +71,62 @@ pub(super) struct MaterialBindings<'a> {
     pub(super) heights: &'a Buffer,
 }
 
+/// What one material bind group reads besides the material and its own uniform.
+pub(super) struct GroupInputs<'a> {
+    pub(super) layout: &'a BindGroupLayout,
+    pub(super) placeholder: &'a TextureView,
+    pub(super) heights: &'a Buffer,
+    /// The view of one scene texture. Views are reference counted, so a lookup is cheap.
+    pub(super) view: &'a dyn Fn(TextureHandle) -> TextureView,
+}
+
+/// Binds one material's maps, its uniform and the shared contact heights, filling absent maps
+/// with the placeholder.
+pub(super) fn material_group(
+    device: &Device,
+    inputs: &GroupInputs<'_>,
+    material: &worldrunner_render_plan::SceneMaterial,
+    uniform: &Buffer,
+    sampler: &Sampler,
+) -> BindGroup {
+    let optional = |handle: Option<TextureHandle>| {
+        handle.map_or_else(
+            || inputs.placeholder.clone(),
+            |handle| (inputs.view)(handle),
+        )
+    };
+    let bound = [
+        (inputs.view)(material.albedo()),
+        optional(material.normal()),
+        optional(material.roughness_metallic()),
+        optional(material.ambient_occlusion()),
+        optional(material.self_illumination()),
+    ];
+    let atlas = material.impostor();
+    let extra = [
+        optional(atlas.and_then(|a| a.relief().map(|v| v.0))),
+        optional(atlas.and_then(worldrunner_render_plan::SceneImpostor::borders)),
+        optional(
+            material
+                .features()
+                .and_then(|f| f.wind)
+                .and_then(worldrunner_render_plan::SceneWind::field)
+                .map(worldrunner_render_plan::ScenePlanarWindField::texture),
+        ),
+    ];
+    crate::upload::extended_material_group(
+        device,
+        inputs.layout,
+        uniform,
+        crate::upload::MaterialTextureBindings {
+            maps: [&bound[0], &bound[1], &bound[2], &bound[3], &bound[4]],
+            extra: [&extra[0], &extra[1], &extra[2]],
+        },
+        sampler,
+        inputs.heights,
+    )
+}
+
 /// Builds one bind group per material, filling absent maps with the placeholder.
 pub(super) fn upload_materials(
     device: &Device,
@@ -78,27 +134,18 @@ pub(super) fn upload_materials(
     scene: &RenderScene,
     bindings: &MaterialBindings<'_>,
 ) -> (Vec<BindGroup>, Vec<Buffer>) {
-    let MaterialBindings {
-        layout,
-        views,
-        placeholder,
-        heights,
-    } = *bindings;
+    let views = bindings.views;
+    let lookup = |handle: TextureHandle| views[table_index(handle)].clone();
+    let inputs = GroupInputs {
+        layout: bindings.layout,
+        placeholder: bindings.placeholder,
+        heights: bindings.heights,
+        view: &lookup,
+    };
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut groups = Vec::new();
     let mut uniforms = Vec::new();
     for material in scene.resources().materials() {
-        let sampler = samplers.get(device, material);
-        let optional = |handle: Option<TextureHandle>| {
-            handle.map_or(placeholder, |handle| &views[table_index(handle)])
-        };
-        let bound = [
-            &views[table_index(material.albedo())],
-            optional(material.normal()),
-            optional(material.roughness_metallic()),
-            optional(material.ambient_occlusion()),
-            optional(material.self_illumination()),
-        ];
         let uniform = upload_buffer(
             device,
             queue,
@@ -106,26 +153,8 @@ pub(super) fn upload_materials(
             BufferUsages::UNIFORM,
             &super::fade::uniform(scene, material),
         );
-        let atlas = material.impostor();
-        let extra = [
-            optional(atlas.and_then(|a| a.relief().map(|v| v.0))),
-            optional(atlas.and_then(worldrunner_render_plan::SceneImpostor::borders)),
-            optional(
-                material
-                    .features()
-                    .and_then(|f| f.wind)
-                    .and_then(worldrunner_render_plan::SceneWind::field)
-                    .map(worldrunner_render_plan::ScenePlanarWindField::texture),
-            ),
-        ];
-        groups.push(crate::upload::extended_material_group(
-            device,
-            layout,
-            &uniform,
-            crate::upload::MaterialTextureBindings { maps: bound, extra },
-            sampler,
-            heights,
-        ));
+        let sampler = samplers.get(device, material);
+        groups.push(material_group(device, &inputs, material, &uniform, sampler));
         uniforms.push(uniform);
     }
     (groups, uniforms)

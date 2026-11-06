@@ -37,8 +37,9 @@ pub(super) fn new_resident(
     profile: crate::FrameProfile,
     presentation: &mut Presentation,
 ) -> Result<Resident, ViewerError> {
-    let reservation = presentation.prepare_scene(context, scene)?;
-    let mut resident = Resident::new(context, scene, shadows, profile)?;
+    let prepared = worldrunner_render_scene::draw::PreparedScene::new(scene)?;
+    let reservation = presentation.prepare_scene(context, &prepared)?;
+    let mut resident = Resident::from_prepared(context, prepared, shadows, profile)?;
     resident
         .scene_mut()
         .retain_resource_reservation(reservation.resident);

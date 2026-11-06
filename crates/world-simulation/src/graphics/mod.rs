@@ -14,6 +14,7 @@
 mod active_pass;
 mod commands;
 mod compute;
+mod context;
 mod material;
 mod offscreen;
 mod properties;
@@ -24,6 +25,7 @@ pub mod snapshot_wire;
 
 pub use active_pass::ActivePass;
 pub use commands::{MAX_COLOR_TARGETS, TargetRef};
+pub use context::MAX_CULL_PLANES;
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
     WorldComputeBuffer, WorldComputeShader,
@@ -191,6 +193,8 @@ pub(crate) struct GraphicsState {
     compute_bytes: u64,
     global: GlobalShaderState,
     offscreen: Vec<OffscreenWork>,
+    /// The handles the frame's records issued, which later records of the frame may name.
+    handles: std::collections::BTreeMap<u64, context::HandleKind>,
     /// The pass immediate-mode draws use; not part of the snapshot.
     active_pass: Option<ActivePass>,
 }
@@ -199,6 +203,7 @@ impl GraphicsState {
     /// Drops the offscreen work of the previous frame that nobody took.
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
+        self.handles.clear();
     }
 
     pub(crate) const fn new() -> Self {
@@ -211,6 +216,7 @@ impl GraphicsState {
             compute_bytes: 0,
             global: GlobalShaderState::new(),
             offscreen: Vec::new(),
+            handles: std::collections::BTreeMap::new(),
             active_pass: None,
         }
     }

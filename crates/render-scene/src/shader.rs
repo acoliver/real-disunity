@@ -84,6 +84,15 @@ mod tests;
 pub(crate) mod gpu_math_tests;
 
 #[cfg(test)]
+mod terrain_footprint_tests;
+
+#[cfg(test)]
+mod terrain_plane_tests;
+
+#[cfg(test)]
+mod terrain_cell_tests;
+
+#[cfg(test)]
 mod foliage_tests;
 
 #[cfg(test)]
@@ -118,3 +127,6 @@ pub(crate) mod geometry_test_sources;
 
 #[cfg(test)]
 pub(crate) mod impostor_cost_tests;
+
+#[cfg(test)]
+mod terrain_determinism_tests;

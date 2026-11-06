@@ -45,6 +45,7 @@ fn upload_camera(context: &GpuContext, screen: &SceneMetadata) {
         animation_time_milliseconds: 0,
         temporal: None,
         material_mip_bias: 0.0,
+        raster_viewport: screen.size,
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let mut prepare = PrepareContext::new(context.device(), &mut encoder).unwrap();

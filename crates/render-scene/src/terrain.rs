@@ -2,6 +2,7 @@
 
 pub(crate) mod chunks;
 pub mod pages;
+pub(crate) mod planes;
 pub mod streaming;
 use glam::{DVec3, Vec3};
 use thiserror::Error;

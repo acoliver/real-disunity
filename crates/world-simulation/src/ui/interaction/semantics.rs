@@ -1,11 +1,40 @@
 //! Platform-free observations of the router's current layout and interaction state.
+use super::TargetId;
 use crate::ObjectHandle;
+use crate::ui::UiLinkId;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum UiNodeId {
     Window,
     Object(ObjectHandle),
+    Link {
+        object: ObjectHandle,
+        link: UiLinkId,
+    },
+}
+impl From<TargetId> for UiNodeId {
+    fn from(target: TargetId) -> Self {
+        match target.link {
+            Some(link) => Self::Link {
+                object: target.object,
+                link,
+            },
+            None => Self::Object(target.object),
+        }
+    }
+}
+impl UiNodeId {
+    pub(super) fn target(self) -> Option<TargetId> {
+        match self {
+            Self::Window => None,
+            Self::Object(object) => Some(object.into()),
+            Self::Link { object, link } => Some(TargetId {
+                object,
+                link: Some(link),
+            }),
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiRole {
@@ -18,6 +47,7 @@ pub enum UiRole {
     ListItem,
     Dialog,
     Text,
+    Link,
     Status,
 }
 /// Optional accessible name. Text components supply names automatically. Live names announce

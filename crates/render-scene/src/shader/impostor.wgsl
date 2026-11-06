@@ -226,17 +226,3 @@ fn scene_atlas_first(map: texture_2d<f32>, footprint: AtlasFootprint) -> vec4<f3
 fn scene_surface_channels(input: VertexOutput) -> vec2<f32> {
     if (material.texture_flags & FLAG_ROUGH_METAL) == 0u { return vec2<f32>(material.roughness, material.metalness); }
     let footprint = scene_atlas_footprint(rough_metal_texture, input);
-    if SCENE_IMPOSTOR {
-        if material.impostor_grid.w != 0.0 {
-            if scene_packed_atlas(input) { return scene_atlas_first(rough_metal_texture, footprint).rg; }
-        }
-    }
-    let sampled = scene_atlas_sample(rough_metal_texture, input, footprint);
-    return vec2<f32>(material.roughness * sampled.g, material.metalness * sampled.b);
-}
-
-fn scene_atlas_inset(dimensions: vec2<f32>) -> vec2<f32> {
-    let border = vec2<f32>(material.impostor_grid.z);
-    if (material.wind_clock.z & SCENE_ATLAS_MIP_FLAG) != 0u { return border; }
-    return max(border, 0.5 * material.impostor_grid.xy / dimensions);
-}

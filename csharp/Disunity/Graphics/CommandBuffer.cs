@@ -4,14 +4,18 @@ using UnityEngine.Experimental.Rendering;
 namespace UnityEngine.Rendering;
 
 /// <summary>
-/// A list of rendering commands. The engine does not record command buffers yet: every recording
-/// member throws <see cref="NotSupportedException"/> naming itself, and <see cref="Clear"/> has nothing
-/// to empty. After <see cref="Release"/> every member except <see cref="name"/> and Release throws
-/// <see cref="ObjectDisposedException"/>; releasing twice is allowed. The name starts empty, which is
-/// the engine's choice, and a null name becomes empty.
+/// A list of rendering commands. Recording a command appends it to the buffer's own list and touches no world state: nothing
+/// reaches the world until <see cref="Graphics.ExecuteCommandBuffer"/> or a <see cref="ScriptableRenderContext"/> sends the
+/// commands, in order. Sending does not empty the buffer, so a buffer sent twice delivers its commands twice; <see cref="Clear"/>
+/// empties it. The members that record are in CommandBufferTargets.cs, CommandBufferGlobals.cs and CommandBufferTemporaries.cs.
+/// The members that would draw (meshes, procedural geometry, renderer lists), set the viewport or the view and projection
+/// matrices, or open profiler samples have no record yet and throw <see cref="NotSupportedException"/> naming themselves.
+/// After <see cref="Release"/> every member except <see cref="name"/> and Release throws <see cref="ObjectDisposedException"/>;
+/// releasing twice is allowed. The name starts empty, which is the engine's choice, and a null name becomes empty.
 /// </summary>
-public sealed class CommandBuffer : IDisposable
+public sealed partial class CommandBuffer : IDisposable
 {
+    private readonly List<Action> _commands = new();
     private string _name = "";
     private bool _released;
 
@@ -21,53 +25,47 @@ public sealed class CommandBuffer : IDisposable
         set => _name = value ?? "";
     }
 
-    public void Clear() => ThrowIfReleased();
+    /// <summary>How many commands the buffer holds.</summary>
+    public int commandCount
+    {
+        get
+        {
+            ThrowIfReleased();
+            return _commands.Count;
+        }
+    }
+
+    public void Clear()
+    {
+        ThrowIfReleased();
+        _commands.Clear();
+    }
 
     public void Release() => _released = true;
 
     public void Dispose() => Release();
 
+    /// <summary>The commands in the order they were recorded; later records do not change the copy.</summary>
+    internal Action[] Commands()
+    {
+        ThrowIfReleased();
+        return _commands.ToArray();
+    }
+
+    /// <summary>Appends a command that sends one record to the world when the buffer is executed.</summary>
+    private void Record(Action send)
+    {
+        ThrowIfReleased();
+        _commands.Add(send);
+    }
+
     public void BeginSample(string name) => Fail(nameof(BeginSample));
     public void EndSample(string name) => Fail(nameof(EndSample));
-
-    public void Blit(Texture source, RenderTargetIdentifier dest) => Fail(nameof(Blit));
-    public void Blit(Texture source, RenderTargetIdentifier dest, Material mat) => Fail(nameof(Blit));
-    public void Blit(Texture source, RenderTargetIdentifier dest, Material mat, int pass) => Fail(nameof(Blit));
-    public void Blit(RenderTargetIdentifier source, RenderTargetIdentifier dest) => Fail(nameof(Blit));
-    public void Blit(RenderTargetIdentifier source, RenderTargetIdentifier dest, Material mat) => Fail(nameof(Blit));
-    public void Blit(RenderTargetIdentifier source, RenderTargetIdentifier dest, Material mat, int pass) => Fail(nameof(Blit));
-
-    public void ClearRenderTarget(bool clearDepth, bool clearColor, Color backgroundColor) => Fail(nameof(ClearRenderTarget));
-    public void ClearRenderTarget(bool clearDepth, bool clearColor, Color backgroundColor, float depth) => Fail(nameof(ClearRenderTarget));
-    public void ClearRenderTarget(RTClearFlags clearFlags, Color backgroundColor, float depth, uint stencil) => Fail(nameof(ClearRenderTarget));
-
-    public void CopyTexture(RenderTargetIdentifier src, int srcElement, int srcMip, RenderTargetIdentifier dst, int dstElement, int dstMip) =>
-        Fail(nameof(CopyTexture));
-
-    public void EnableShaderKeyword(string keyword) => Fail(nameof(EnableShaderKeyword));
-    public void DisableShaderKeyword(string keyword) => Fail(nameof(DisableShaderKeyword));
 
     public void DrawMesh(Mesh mesh, Matrix4x4 matrix, Material material, int submeshIndex, int shaderPass) => Fail(nameof(DrawMesh));
 
     public void DrawMeshInstancedIndirect(Mesh mesh, int submeshIndex, Material material, int shaderPass, ComputeBuffer bufferWithArgs,
         int argsOffset, MaterialPropertyBlock properties) => Fail(nameof(DrawMeshInstancedIndirect));
-
-    public void GetTemporaryRT(int nameID, int width, int height, int depthBuffer, FilterMode filter, RenderTextureFormat format,
-        RenderTextureReadWrite readWrite) => Fail(nameof(GetTemporaryRT));
-
-    public void ReleaseTemporaryRT(int nameID) => Fail(nameof(ReleaseTemporaryRT));
-
-    public void SetGlobalColor(int nameID, Color value) => Fail(nameof(SetGlobalColor));
-    public void SetGlobalColor(string name, Color value) => Fail(nameof(SetGlobalColor));
-    public void SetGlobalFloat(int nameID, float value) => Fail(nameof(SetGlobalFloat));
-    public void SetGlobalMatrix(int nameID, Matrix4x4 value) => Fail(nameof(SetGlobalMatrix));
-    public void SetGlobalTexture(int nameID, RenderTargetIdentifier value) => Fail(nameof(SetGlobalTexture));
-    public void SetGlobalTexture(string name, RenderTargetIdentifier value) => Fail(nameof(SetGlobalTexture));
-    public void SetGlobalVector(int nameID, Vector4 value) => Fail(nameof(SetGlobalVector));
-    public void SetGlobalVector(string name, Vector4 value) => Fail(nameof(SetGlobalVector));
-
-    public void SetRenderTarget(RenderTargetIdentifier rt) => Fail(nameof(SetRenderTarget));
-    public void SetRenderTarget(RenderTargetIdentifier[] colors, RenderTargetIdentifier depth) => Fail(nameof(SetRenderTarget));
 
     public void SetViewport(Rect pixelRect) => Fail(nameof(SetViewport));
     public void SetViewProjectionMatrices(Matrix4x4 view, Matrix4x4 proj) => Fail(nameof(SetViewProjectionMatrices));
@@ -78,6 +76,6 @@ public sealed class CommandBuffer : IDisposable
     private void Fail(string member)
     {
         ThrowIfReleased();
-        throw new NotSupportedException($"CommandBuffer.{member}: the engine does not record command buffers yet");
+        throw new NotSupportedException($"CommandBuffer.{member}: the engine cannot record this member yet");
     }
 }

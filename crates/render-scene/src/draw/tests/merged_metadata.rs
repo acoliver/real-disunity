@@ -312,3 +312,100 @@ fn prepass_declares_the_material_only_when_one_is_supplied() {
     assert_eq!(combined.depth, plain.depth);
     assert_eq!(combined_views, plain_views + 1);
 }
+
+#[path = "metadata_impostors.rs"]
+mod alpha_fixtures;
+#[path = "metadata_reference.rs"]
+mod reference;
+
+fn differential_frame(
+    context: &GpuContext,
+    shot: (&RenderScene, CameraPose),
+    config: (bool, u32, bool),
+) -> (Products, Vec<u8>) {
+    let (ssr, samples, reference) = config;
+    let scene = lit(shot.0, ssr);
+    let pipelines = if ssr {
+        ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
+    } else {
+        ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
+    }
+    .unwrap();
+    let mut renderer = FrameRenderer::hdr(
+        context,
+        SIZE,
+        COLOR_FORMAT,
+        samples,
+        ToneMap::Reinhard,
+        scene.effects(),
+    )
+    .unwrap();
+    if reference {
+        let metadata = renderer.ssao.as_mut().unwrap();
+        let output = if ssr {
+            MetadataOutput::Merged
+        } else {
+            MetadataOutput::Normal
+        };
+        let (pipelines, group) = reference::pipelines(context.device(), &metadata.uniform, output);
+        if ssr {
+            metadata.geometry.merged = Some(pipelines);
+        } else {
+            metadata.geometry.pipelines = pipelines;
+        }
+        metadata.geometry.group = group;
+    }
+    draw_with(context, &mut renderer, (&scene, shot.1), &pipelines);
+    let metadata = renderer.ssao.as_ref().unwrap();
+    let products = Products {
+        normals: read(context, &metadata.normals),
+        material: renderer
+            .ssr
+            .as_ref()
+            .map_or_else(Vec::new, |ssr| read(context, ssr.material_target())),
+        depth: alpha_fixtures::raw_depth(context, &metadata.depth),
+    };
+    (products, read(context, renderer.targets().texture()))
+}
+
+#[test]
+fn alpha_first_metadata_matches_frozen_shader_device_depth_normal_material_and_color_bytes() {
+    let context = context();
+    let mut covered = 0;
+    for (name, scene, pose) in alpha_fixtures::scenes().into_iter().chain(scenes()) {
+        for ssr in [false, true] {
+            for samples in [1, 4] {
+                let (old, old_color) =
+                    differential_frame(&context, (&scene, pose), (ssr, samples, true));
+                let (new, new_color) =
+                    differential_frame(&context, (&scene, pose), (ssr, samples, false));
+                let label = format!("{name}: ssr={ssr}, samples={samples}");
+                assert_eq!(old.depth, new.depth, "{label}: raw device depth");
+                assert_eq!(old.normals, new.normals, "{label}: normal");
+                assert_eq!(old.material, new.material, "{label}: material");
+                assert_eq!(old_color, new_color, "{label}: final color");
+                if name == alpha_fixtures::A2C_FIXTURE {
+                    alpha_fixtures::assert_surviving_cutout_edges(&new.depth, &new.normals);
+                }
+                covered += new
+                    .depth
+                    .chunks_exact(4)
+                    .filter(|v| *v != 1.0_f32.to_le_bytes())
+                    .count();
+            }
+        }
+    }
+    assert!(covered > 0, "fixture must exercise surviving lanes");
+    let (_, decorated, pose) = alpha_fixtures::scenes().remove(0);
+    let bare = decorated.with_decals(vec![]).unwrap();
+    let (decorated, _) = differential_frame(&context, (&decorated, pose), (true, 1, false));
+    let (bare, _) = differential_frame(&context, (&bare, pose), (true, 1, false));
+    assert_ne!(
+        decorated.normals, bare.normals,
+        "fixture must apply decal normals"
+    );
+    assert_ne!(
+        decorated.material, bare.material,
+        "fixture must apply decal material maps"
+    );
+}

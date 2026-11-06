@@ -122,6 +122,14 @@ impl UiPresentation {
             }
         }
         result.append_text(plan);
+        result.draws.sort_by_key(|draw| {
+            (
+                draw.sorting_layer,
+                draw.sorting_order,
+                draw.hierarchy_order,
+                draw.kind,
+            )
+        });
         result
     }
 

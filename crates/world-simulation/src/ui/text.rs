@@ -54,7 +54,7 @@ pub enum VerticalOverflow {
 }
 
 /// Caller-chosen identity, unique among the link spans of one text run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UiLinkId(pub u32);
 
 /// A styled UTF-8 byte range. Ranges must be ordered, disjoint and on character boundaries.

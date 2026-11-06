@@ -1,6 +1,6 @@
 use super::{
-    Targets, UiControlKind, UiKey, UiResponse, UiRouter, groups_by_object,
-    semantics::{UiAccessAction, UiAccessRequest, UiNodeId},
+    TargetId, Targets, UiControlKind, UiKey, UiResponse, UiRouter, groups_by_object,
+    semantics::{UiAccessAction, UiAccessRequest},
 };
 use crate::{World, WorldError, ui::UiLayout};
 
@@ -17,35 +17,36 @@ impl UiRouter {
         let targets = Targets::new(world, layout, self, &groups)?;
         self.modal_changed(targets.modal);
         self.retain_focus(|object| targets.interactable(object));
-        let UiNodeId::Object(object) = request.target else {
+        let Some(target) = request.target.target() else {
             return Ok(UiResponse::default());
         };
-        if !targets.interactable(object.into())
-            || !self.supports_access_action(object, request.action)
-        {
+        if !targets.interactable(target) || !self.supports_access_action(target, request.action) {
             return Ok(UiResponse::default());
         }
-        if self.focus != Some(object.into()) {
+        if self.focus != Some(target) {
             self.cancel_preedits();
         }
-        self.focus = Some(object.into());
+        self.focus = Some(target);
         let action = match request.action {
             UiAccessAction::Focus => None,
             UiAccessAction::Press | UiAccessAction::Toggle | UiAccessAction::Select => {
-                self.activate(object.into())
+                self.activate(target)
             }
             UiAccessAction::Increment => self.slider_key(UiKey::Right),
             UiAccessAction::Decrement => self.slider_key(UiKey::Left),
-            UiAccessAction::SetValue(value) => self.set_slider(object, value),
+            UiAccessAction::SetValue(value) => self.set_slider(target.object, value),
         };
-        self.layout.reveal(world, layout, object, None)?;
+        self.reveal_target(world, layout, target, &targets)?;
         Ok(UiResponse {
             consumed: true,
             actions: action.into_iter().collect(),
         })
     }
-    fn supports_access_action(&self, object: crate::ObjectHandle, action: UiAccessAction) -> bool {
-        let kind = self.controls[&object].kind;
+    fn supports_access_action(&self, target: TargetId, action: UiAccessAction) -> bool {
+        if target.link.is_some() {
+            return matches!(action, UiAccessAction::Focus | UiAccessAction::Press);
+        }
+        let kind = self.controls[&target.object].kind;
         match action {
             UiAccessAction::Focus => true,
             UiAccessAction::Press => !matches!(

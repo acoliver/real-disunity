@@ -352,10 +352,10 @@ fn a_count_over_the_cap_or_longer_than_the_input_is_refused() {
 #[test]
 fn an_unknown_work_kind_is_refused_by_name() {
     let mut tail = 1_u32.to_le_bytes().to_vec();
-    tail.push(9);
+    tail.push(200);
     assert_eq!(
         decode(&empty_until_work(&tail)),
-        Err(WireError::UnknownTag(9))
+        Err(WireError::UnknownTag(200))
     );
 }
 

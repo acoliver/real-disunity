@@ -287,8 +287,14 @@ resolved `UiLayout` used for input and rendering. Call it after routing input an
 again if scrolling changed. Nodes use `UiNodeId::Object(ObjectHandle)`, including the world's
 identity and slot generation, so renaming a label or changing a value preserves identity and
 replacing a destroyed object does not reuse it. `UiNodeId::Window` is the single host root.
-Children follow the router's rectangle order. Bounds are axis-aligned `[left, top, right,
-bottom]` in physical client pixels, derived from the rectangle's transformed screen corners.
+Linked paragraphs add `UiNodeId::Link { object, link }` children under their text node, using
+that same object identity and the run's `UiLinkId`. Re-layout preserves these identities;
+removing a span removes its node. Links follow span reading order, use the span text as their
+name and the union of their snapped, paragraph-clipped glyph bounds as their rectangle.
+Disabled or non-interactable paragraph links are absent. Paragraphs without links have no
+additional nodes. Other children follow the router's rectangle order. Bounds are axis-aligned
+`[left, top, right, bottom]` in physical client pixels, derived from the rectangle's transformed
+screen corners.
 Do not multiply by display scale. World-space rectangles have no screen target and are omitted.
 
 Buttons, checkboxes, sliders, lists and list items receive roles from registered controls.
@@ -329,7 +335,11 @@ toggle, selection, increment/decrement and finite numeric set-value requests use
 existing eligibility, activation, slider snapping and scroll-reveal helpers. Unsupported,
 obsolete, foreign and modal-excluded targets do nothing. Native AccessKit click requests map to
 press, including toggle and list selection; numeric set-value accepts either numeric data or a
-parseable finite numeric string. No second control-state owner is created.
+parseable finite numeric string. Link nodes publish AccessKit's Link role with Focus and Click
+actions. Assistive focus and Tab share `focused_link()`; semantic focus identifies that same
+span. Assistive Press, Enter and pointer release all emit the same `LinkActivated` action,
+and assistive focus reveals the link's glyph bounds through enclosing scroll viewports.
+No second control-state owner is created.
 
 The opt-in viewer example opens a window only when launched explicitly with a caller-supplied
 TrueType `glyf` font. It contains a button, toggle, slider, live status and modal dialog:
@@ -440,6 +450,12 @@ Built-player retained drivers use the same compositor. The loaded ABI image reta
 `UiPresentation` draws from `extract_ui` alongside its prepared scene frame, before
 UI is converted to the live 2D path's world-space quads. Typed copy-out preserves
 pixel coordinates, coverage, image identities, hierarchy order and clip bounds.
+The detached draw sequence interleaves graphics and glyphs in ascending canvas
+sorting layer, canvas sorting order and hierarchy preorder. Graphics precede text
+only on the same object; glyphs and mesh quads retain their original order within
+that object. Canvas creation order does not override its sorting values.
+The ABI rejects descending draw keys and clip extents whose unsigned endpoints
+overflow before copying metadata. Empty clip rectangles are valid and draw nothing.
 The driver refreshes image textures alongside mesh textures and replaces its UI
 only when the draws, image generations or physical viewport change. See the
 [host API](../../crates/scene-viewer/README.md#retained-screen-space-ui).

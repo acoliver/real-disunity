@@ -32,6 +32,7 @@ fn role(role: UiRole) -> Role {
         UiRole::ListItem => Role::ListItem,
         UiRole::Dialog => Role::Dialog,
         UiRole::Text => Role::Label,
+        UiRole::Link => Role::Link,
         UiRole::Status => Role::Status,
     }
 }

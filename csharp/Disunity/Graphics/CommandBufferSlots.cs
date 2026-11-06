@@ -5,9 +5,8 @@ namespace UnityEngine.Rendering;
 /// <summary>
 /// The command buffers attached to a camera or light, by event, in the order they were added.
 /// A buffer can be attached to several events and more than once to the same one; removing it
-/// from an event removes every attachment there. The engine records no commands into a buffer
-/// (each recording member throws), so every attached buffer is empty and the renderer has
-/// nothing to run at its event. Attachments belong to the component and are not copied by
+/// from an event removes every attachment there. The engine does not run an attached buffer at its
+/// event: a buffer is executed only by <c>Graphics.ExecuteCommandBuffer</c> or a render context. Attachments belong to the component and are not copied by
 /// <c>Instantiate</c>, which is the engine's choice: they are run-time additions, not settings.
 /// </summary>
 internal sealed class CommandBufferSlots<TEvent> where TEvent : struct, Enum

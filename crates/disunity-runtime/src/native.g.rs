@@ -852,6 +852,14 @@ pub struct DisunityRenderTexture {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityTargetRef {
+    pub kind: u32,
+    pub name_id: i32,
+    pub render: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityOffscreenWork {
     pub kind: u32,
     pub camera: u64,

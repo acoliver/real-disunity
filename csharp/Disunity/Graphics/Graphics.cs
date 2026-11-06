@@ -77,7 +77,14 @@ public static partial class Graphics
 
     public static void ClearRandomWriteTargets() => throw Unsupported(nameof(ClearRandomWriteTargets));
 
-    public static void ExecuteCommandBuffer(CommandBuffer buffer) => throw Unsupported(nameof(ExecuteCommandBuffer));
+    /// <summary>Sends the buffer's commands to the world, in the order they were recorded. The buffer keeps them, so executing it
+    /// again sends them again. A null buffer throws <see cref="ArgumentNullException"/> and a released one
+    /// <see cref="ObjectDisposedException"/>.</summary>
+    public static void ExecuteCommandBuffer(CommandBuffer buffer)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        foreach (var send in buffer.Commands()) send();
+    }
 
     public static void ExecuteCommandBufferAsync(CommandBuffer buffer, ComputeQueueType queueType) =>
         throw Unsupported(nameof(ExecuteCommandBufferAsync));

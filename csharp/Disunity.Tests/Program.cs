@@ -444,6 +444,7 @@ WebRequestTests.Run();
 JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();
+SubPassDescriptorTests.Run();
 ObjectModelTests.Run();
 TransformMemberTests.Run();
 HierarchyQueryTests.Run();

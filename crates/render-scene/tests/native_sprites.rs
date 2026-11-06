@@ -235,6 +235,7 @@ fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
                 bytes: vec![128].into(),
             }),
             quads: vec![UiGlyphQuad {
+                link: None,
                 color: [1.; 4],
                 corners: [
                     [0., 0., 0.],

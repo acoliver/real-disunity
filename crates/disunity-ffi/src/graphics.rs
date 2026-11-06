@@ -238,6 +238,54 @@ pub unsafe extern "C" fn disunity_material_pass_write(
     })
 }
 
+/// Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
+/// caller checks the pass against the shader's pass count; the world holds none.
+#[unsafe(no_mangle)]
+pub extern "C" fn disunity_material_set_pass(
+    world: u64,
+    material: u64,
+    pass: u32,
+) -> DisunityResult {
+    mutate(world, |s| {
+        s.native
+            .set_active_pass(MaterialId::from_bits(material), pass)?;
+        Ok(())
+    })
+}
+
+/// The active pass: `active` is 1 when a pass is active, and then `material` and `pass` name it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityActivePass {
+    pub material: u64,
+    pub pass: u32,
+    pub active: u32,
+}
+
+/// # Safety
+/// `output` is writable for one record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_active_pass_read(
+    world: u64,
+    output: *mut DisunityActivePass,
+) -> DisunityResult {
+    if output.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        let held = s
+            .native
+            .active_pass()
+            .map_or_else(DisunityActivePass::default, |pass| DisunityActivePass {
+                material: pass.material.to_bits(),
+                pass: pass.pass,
+                active: 1,
+            });
+        unsafe { *output = held };
+        Ok(())
+    })
+}
+
 /// What a material holds besides its properties. `generation` rises with every edit.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

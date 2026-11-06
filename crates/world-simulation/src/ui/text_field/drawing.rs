@@ -146,6 +146,7 @@ impl UiTextField {
         plan.graphics.push(UiGraphicContribution {
             hierarchy_order: rect.hierarchy_order,
             clip_rect: clip,
+            link: None,
             graphic: UiGraphic {
                 object: rect.object,
                 canvas: rect.canvas,

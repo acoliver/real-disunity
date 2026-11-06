@@ -15,3 +15,37 @@ Instantiation, reparenting and activation changes return world-local mutation ID
 `track_changes` turns on an opt-in change journal; it is off by default and costs one flag test per mutation while off. `drain_changes` returns the coalesced `WorldChanges` since the previous drain, in object handle order, and starts a new interval. It reports created objects, destroyed objects (when storage retires, which matches when a handle becomes stale), local transform changes, parent changes, name, tag, layer and active changes, and component additions, removals and changes by `ComponentKind`. An object created and destroyed within one interval reports nothing, repeated changes report once, and a destroyed object reports only its destruction. Changes made before `track_changes` are never reported.
 
 `apply_edits` and `step_with_edits` validate a batch, apply it in place and keep an undo log of the components it touched and a copy of the physics state. A failure restores component contents, arena slot identities, physics state and the journal, so no whole-world clone is needed.
+
+## Short-clip audio
+
+The caller-owned `audio::AudioMixer` holds typed clip and voice identities,
+commands, gains, mute and natural-ending notifications. It has no device,
+filesystem or clock dependency. The retained host supplies its device or session
+clock; this service does not create a second world.
+
+`load_wav` accepts at most 8 MiB of little-endian RIFF/WAVE bytes. Supported
+encodings are unsigned PCM8, signed PCM16/24 and IEEE float32, mono or stereo,
+at integer rates from 1 through 384000 Hz. RIFF size, chunk bounds and padding,
+a unique format and data chunk, format extension length, block alignment, byte
+rate and complete nonempty frames are validated before decoding. Unknown chunks
+are skipped. Extensible WAV, compression and big-endian RIFX return typed errors.
+Nonfinite float samples fail; finite floats outside [-1, 1] are clamped. Mono is
+duplicated to stereo. Clip storage is bounded to 64 clips and 64 MiB decoded;
+clips remain resident until the mixer is dropped. Host file readers should use
+`save::ByteFile` with `MAX_WAV_BYTES`, rather than an unbounded read.
+
+`render(&mut [[f32; 2]])` performs linear sample-rate conversion with an integer
+rational phase accumulator. It interpolates adjacent source frames and holds the
+last source sample until the clip duration expires. This is a short-sound
+approximation without an anti-alias filter; downsampling can alias frequencies
+above the destination Nyquist frequency. The known-tone regression pins exact
+upsampled values. Clip duration is rounded up to a whole output frame.
+
+Per-voice and master gains are finite in 0..=16. Voices sum in creation order;
+master gain follows the sum, then output hard-clips to [-1, 1]. Mute outputs zero
+while advancing voices. There are 32 shared voice/completion slots. Undrained
+endings still occupy slots, and excess admission returns `VoiceLimit`. Rendering
+uses caller storage and preallocated voice/completion queues. `take_finished`
+releases a slot. `stop` removes an active voice without producing an ending.
+Handles from another mixer cannot control this one. Output rate can only change
+when all voice/completion slots are empty.

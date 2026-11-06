@@ -1,6 +1,6 @@
-use super::{Targets, UiResponse, UiRouter, groups_by_object};
+use super::{TargetId, Targets, UiResponse, UiRouter, groups_by_object};
 use crate::ui::UiLayout;
-use crate::{ObjectHandle, PointerButton, PointerEvent, World, WorldError};
+use crate::{PointerButton, PointerEvent, World, WorldError};
 
 impl UiRouter {
     /// Route observations against a freshly resolved layout. Host positions stay in physical
@@ -53,7 +53,7 @@ impl UiRouter {
     fn primary_button(
         &mut self,
         targets: &Targets<'_>,
-        hit: Option<ObjectHandle>,
+        hit: Option<TargetId>,
         pressed: bool,
         response: &mut UiResponse,
     ) {

@@ -20,23 +20,25 @@ impl UiRouter {
         let UiNodeId::Object(object) = request.target else {
             return Ok(UiResponse::default());
         };
-        if !targets.interactable(object) || !self.supports_access_action(object, request.action) {
+        if !targets.interactable(object.into())
+            || !self.supports_access_action(object, request.action)
+        {
             return Ok(UiResponse::default());
         }
-        if self.focus != Some(object) {
+        if self.focus != Some(object.into()) {
             self.cancel_preedits();
         }
-        self.focus = Some(object);
+        self.focus = Some(object.into());
         let action = match request.action {
             UiAccessAction::Focus => None,
             UiAccessAction::Press | UiAccessAction::Toggle | UiAccessAction::Select => {
-                self.activate(object)
+                self.activate(object.into())
             }
             UiAccessAction::Increment => self.slider_key(UiKey::Right),
             UiAccessAction::Decrement => self.slider_key(UiKey::Left),
             UiAccessAction::SetValue(value) => self.set_slider(object, value),
         };
-        self.layout.reveal(world, layout, object)?;
+        self.layout.reveal(world, layout, object, None)?;
         Ok(UiResponse {
             consumed: true,
             actions: action.into_iter().collect(),
@@ -46,9 +48,10 @@ impl UiRouter {
         let kind = self.controls[&object].kind;
         match action {
             UiAccessAction::Focus => true,
-            UiAccessAction::Press => {
-                !matches!(kind, UiControlKind::TextField | UiControlKind::Slider(_))
-            }
+            UiAccessAction::Press => !matches!(
+                kind,
+                UiControlKind::Text | UiControlKind::TextField | UiControlKind::Slider(_)
+            ),
             UiAccessAction::Toggle => matches!(kind, UiControlKind::Toggle { .. }),
             UiAccessAction::Select => matches!(
                 kind,

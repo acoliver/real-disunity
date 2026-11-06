@@ -566,6 +566,10 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityShaderInfo>("has_source").ToInt32() != 16) throw new InvalidOperationException("DisunityShaderInfo.has_source offset");
         if (Marshal.OffsetOf<DisunityShaderInfo>("text_capacity").ToInt32() != 20) throw new InvalidOperationException("DisunityShaderInfo.text_capacity offset");
         if (Marshal.SizeOf<DisunityShaderInfo>() != 24 || typeof(DisunityShaderInfo).GetFields().Length != 5) throw new InvalidOperationException("DisunityShaderInfo layout");
+        if (Marshal.OffsetOf<DisunityActivePass>("material").ToInt32() != 0) throw new InvalidOperationException("DisunityActivePass.material offset");
+        if (Marshal.OffsetOf<DisunityActivePass>("pass").ToInt32() != 8) throw new InvalidOperationException("DisunityActivePass.pass offset");
+        if (Marshal.OffsetOf<DisunityActivePass>("active").ToInt32() != 12) throw new InvalidOperationException("DisunityActivePass.active offset");
+        if (Marshal.SizeOf<DisunityActivePass>() != 16 || typeof(DisunityActivePass).GetFields().Length != 3) throw new InvalidOperationException("DisunityActivePass layout");
         if (Marshal.OffsetOf<DisunityMaterialInfo>("shader").ToInt32() != 0) throw new InvalidOperationException("DisunityMaterialInfo.shader offset");
         if (Marshal.OffsetOf<DisunityMaterialInfo>("render_queue").ToInt32() != 8) throw new InvalidOperationException("DisunityMaterialInfo.render_queue offset");
         if (Marshal.OffsetOf<DisunityMaterialInfo>("keyword_count").ToInt32() != 12) throw new InvalidOperationException("DisunityMaterialInfo.keyword_count offset");

@@ -61,7 +61,9 @@ impl UiRouter {
         self.control_labels(world, &texts, &mut nodes)?;
         Ok(UiSemanticTree {
             nodes,
-            focus: self.focus.map_or(UiNodeId::Window, UiNodeId::Object),
+            focus: self
+                .focus
+                .map_or(UiNodeId::Window, |target| UiNodeId::Object(target.object)),
         })
     }
     pub fn semantic_update(
@@ -112,7 +114,7 @@ impl UiRouter {
             self.semantic_role(object, texts, lists)
         };
         let value = self.semantic_value(object);
-        let eligible = targets.interactable(object);
+        let eligible = targets.interactable(object.into());
         UiSemanticNode {
             id: UiNodeId::Object(object),
             role,
@@ -136,7 +138,7 @@ impl UiRouter {
         if let Some(control) = self.controls.get(&object) {
             return match control.kind {
                 UiControlKind::Button => UiRole::Button,
-                UiControlKind::TextField => UiRole::Text,
+                UiControlKind::Text | UiControlKind::TextField => UiRole::Text,
                 UiControlKind::Toggle { .. } => UiRole::Checkbox,
                 UiControlKind::Slider(_) => UiRole::Slider,
                 UiControlKind::ListItem { .. } | UiControlKind::Choice { .. } => UiRole::ListItem,

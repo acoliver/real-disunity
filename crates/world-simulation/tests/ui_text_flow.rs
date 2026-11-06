@@ -75,6 +75,7 @@ fn alignment_and_blank_paragraphs_keep_their_spacing() {
 fn styled_ranges_preserve_source_indices_across_consumed_spaces_and_newlines() {
     let (fonts, mut run) = fixture("AA AA\nA");
     run.spans = vec![TextSpan {
+        link: None,
         range: 3..7,
         color: [1., 0., 0., 1.],
     }];
@@ -98,10 +99,12 @@ fn styled_ranges_preserve_source_indices_across_consumed_spaces_and_newlines() {
     }
     run.spans = vec![
         TextSpan {
+            link: None,
             range: 0..3,
             color: [1.; 4],
         },
         TextSpan {
+            link: None,
             range: 2..4,
             color: [1.; 4],
         },
@@ -128,6 +131,7 @@ fn layout_and_atlas_reuse_storage_and_invalidate_each_layout_input() {
     let changed = fonts.layout(&run, size).unwrap();
     assert!(!Arc::ptr_eq(&first, &changed));
     run.spans.push(TextSpan {
+        link: None,
         range: 0..1,
         color: [0., 1., 0., 1.],
     });
@@ -175,6 +179,7 @@ fn rect(world: &mut World, parent: Option<ObjectHandle>, size: Vec2) -> ObjectHa
 fn extracted_span_colours_scroll_clips_and_unrelated_updates_share_the_atlas() {
     let (fonts, mut run) = fixture("AA\nAA");
     run.spans.push(TextSpan {
+        link: None,
         range: 3..5,
         color: [0., 1., 0., 1.],
     });

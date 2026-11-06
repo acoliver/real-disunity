@@ -53,12 +53,17 @@ pub enum VerticalOverflow {
     Overflow,
 }
 
+/// Caller-chosen identity, unique among the link spans of one text run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UiLinkId(pub u32);
+
 /// A styled UTF-8 byte range. Ranges must be ordered, disjoint and on character boundaries.
 /// Colour multiplies the run tint. No synthetic weight or font substitution is applied.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextSpan {
     pub range: Range<usize>,
     pub color: [f32; 4],
+    pub link: Option<UiLinkId>,
 }
 
 /// Text with word wrapping. `font_size` is pixels per em. Contributions clip to the rectangle;
@@ -133,11 +138,13 @@ impl TextRun {
     }
     fn validate_spans(&self) -> Result<(), UiError> {
         let mut end = 0;
+        let mut links = std::collections::BTreeSet::new();
         for span in &self.spans {
             if span.range.start < end
                 || span.range.start >= span.range.end
                 || self.text.get(span.range.clone()).is_none()
                 || span.color.iter().any(|v| !(0. ..=1.).contains(v))
+                || span.link.is_some_and(|id| !links.insert(id))
             {
                 return Err(UiError::InvalidText);
             }
@@ -145,12 +152,9 @@ impl TextRun {
         }
         Ok(())
     }
-    fn span_color(&self, byte: usize) -> [f32; 4] {
+    fn span(&self, byte: usize) -> Option<&TextSpan> {
         let index = self.spans.partition_point(|s| s.range.end <= byte);
-        self.spans
-            .get(index)
-            .filter(|s| s.range.contains(&byte))
-            .map_or([1.; 4], |s| s.color)
+        self.spans.get(index).filter(|s| s.range.contains(&byte))
     }
 }
 
@@ -158,6 +162,7 @@ impl TextRun {
 pub struct GlyphLayout {
     pub character: char,
     pub color: [f32; 4],
+    pub link: Option<UiLinkId>,
     pub glyph_id: u16,
     pub origin: Vec2,
     /// Local X-right/Y-up coordinates measured from rectangle bottom-left.
@@ -274,7 +279,10 @@ fn layout_line(
         if let Some(outlined) = font.font.outline_glyph(glyph)
             && let Some(mut glyph) = raster(atlas, &outlined, c, Vec2::new(x, extent.y))?
         {
-            glyph.color = run.span_color(byte);
+            if let Some(span) = run.span(byte) {
+                glyph.color = span.color;
+                glyph.link = span.link;
+            }
             glyphs.push(glyph);
         }
         x += font.h_advance(id);
@@ -299,6 +307,7 @@ fn raster(
     Ok(Some(GlyphLayout {
         character,
         color: [1.; 4],
+        link: None,
         origin,
         glyph_id: glyph.glyph().id.0,
         rect_min: Vec2::new(min.x, -max.y),

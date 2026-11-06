@@ -2,11 +2,11 @@ use super::*;
 use crate::retained::ui_font;
 use glam::Vec2;
 use worldrunner_world_simulation::ui::{
-    Canvas, FontBook, RectTransform, TextRun, TextSpan, UiLimits,
+    Canvas, FontBook, RectTransform, TextRun, TextSpan, UiLimits, UiLinkId,
 };
 use worldrunner_world_simulation::{ComponentDesc, ParentSpace};
 
-fn paragraph_plan() -> UiRenderPlan {
+fn paragraph_plan(link: Option<UiLinkId>) -> UiRenderPlan {
     let mut world = World::new(WorldSettings::default()).unwrap();
     let root = world.create_object(ObjectDesc::default()).unwrap();
     world
@@ -38,10 +38,12 @@ fn paragraph_plan() -> UiRenderPlan {
                 font_size: 10.,
                 spans: vec![
                     TextSpan {
+                        link,
                         range: 0..5,
                         color: [1., 0., 0., 1.],
                     },
                     TextSpan {
+                        link: None,
                         range: 6..11,
                         color: [0., 1., 0., 1.],
                     },
@@ -57,7 +59,7 @@ fn paragraph_plan() -> UiRenderPlan {
 
 #[test]
 fn paragraph_spans_draw_exact_regions_without_overlapping_lines() {
-    let plan = paragraph_plan();
+    let plan = paragraph_plan(None);
     assert_eq!(plan.texts[0].quads.len(), 8);
     let mut driver = Driver::default();
     let events = driver.events.clone();
@@ -86,6 +88,26 @@ fn paragraph_spans_draw_exact_regions_without_overlapping_lines() {
                     "line gap {x},{y}"
                 );
             }
+        }
+    }
+    run.shutdown().unwrap();
+}
+
+#[test]
+fn link_underlines_use_existing_overlay_graphics() {
+    let plan = paragraph_plan(Some(UiLinkId(7)));
+    assert_eq!(plan.graphics.len(), 1);
+    assert_eq!(plan.graphics[0].graphic.quads.len(), 2);
+    let mut driver = Driver::default();
+    let events = driver.events.clone();
+    let mut run = overlay_host().windowless(&mut driver).unwrap();
+    let baseline = capture(&mut run, &events).1;
+    apply(&mut run, plan);
+    let image = capture(&mut run, &events).1;
+    for y in [50, 36] {
+        for x in 18..29 {
+            assert_eq!(pixel(&image, x, y), [255, 0, 0, 255], "underline {x},{y}");
+            assert_eq!(pixel(&image, x, y - 1), pixel(&baseline, x, y - 1));
         }
     }
     run.shutdown().unwrap();

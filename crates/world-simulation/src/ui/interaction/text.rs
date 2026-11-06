@@ -10,14 +10,18 @@ impl UiRouter {
     ) -> Result<Option<ObjectHandle>, WorldError> {
         let groups = groups_by_object(world.published_components());
         let targets = Targets::new(world, layout, self, &groups)?;
-        Ok(self.focus.filter(|o| {
-            targets.interactable(*o)
-                && self
-                    .controls
-                    .get(o)
-                    .is_some_and(|c| c.kind == UiControlKind::TextField)
-                && self.text_fields.contains_key(o)
-        }))
+        Ok(self
+            .focus
+            .filter(|o| {
+                o.link.is_none()
+                    && targets.interactable(*o)
+                    && self
+                        .controls
+                        .get(&o.object)
+                        .is_some_and(|c| c.kind == UiControlKind::TextField)
+                    && self.text_fields.contains_key(&o.object)
+            })
+            .map(|o| o.object))
     }
     /// Route ordered committed/preedit input once, independently of held-key edges.
     pub fn text(
@@ -81,7 +85,10 @@ impl UiRouter {
         }
         let Some(control) = self
             .focus
-            .filter(|o| self.controls[o].kind == UiControlKind::TextField)
+            .filter(|o| {
+                o.link.is_none() && self.controls[&o.object].kind == UiControlKind::TextField
+            })
+            .map(|o| o.object)
         else {
             return false;
         };

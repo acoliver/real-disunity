@@ -27,6 +27,7 @@ public static class QualitySettings
     private static float _shadowDistance = 150f;
     private static ShadowQuality _shadows = ShadowQuality.All;
     private static ColorSpace _colorSpace = ColorSpace.Gamma;
+    private static bool _lodCrossFade = true;
 
     /// <summary>The multisample count: 0, 2, 4 or 8.</summary>
     public static int antiAliasing
@@ -74,6 +75,13 @@ public static class QualitySettings
             if (!float.IsFinite(value) || value <= 0) throw new ArgumentOutOfRangeException(nameof(value), value, "lodBias is finite and positive");
             lock (Gate) _lodBias = value;
         }
+    }
+
+    /// <summary>Whether LOD groups may cross-fade between levels; true by default. The engine draws no LOD groups, so it only stores the value.</summary>
+    public static bool enableLODCrossFade
+    {
+        get { lock (Gate) return _lodCrossFade; }
+        set { lock (Gate) _lodCrossFade = value; }
     }
 
     public static float shadowDistance
@@ -185,6 +193,7 @@ public static class QualitySettings
             (_names, _pipelines) = (["Default"], [null]);
             (_level, _antiAliasing, _mipmapLimit, _maximumLod, _queuedFrames, _vSync) = (0, 0, 0, 0, 2, 1);
             (_lodBias, _shadowDistance, _shadows, _colorSpace) = (1f, 150f, ShadowQuality.All, ColorSpace.Gamma);
+            _lodCrossFade = true;
         }
     }
 

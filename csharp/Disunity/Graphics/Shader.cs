@@ -22,6 +22,7 @@ public sealed partial class Shader : Object
     private static readonly List<string> EnabledKeywords = new();
 
     private int? _renderQueue, _passCount, _subshaderCount, _maximumLod;
+    private string[]? _passNames;
     private WorldGraphics.Link _world;
     private string? _sourceFile;
     private long _sourcePathId;
@@ -59,10 +60,24 @@ public sealed partial class Shader : Object
         return this;
     }
 
+    /// <summary>Records what a player's plan declares: the queue, the names of the first sub-shader's passes in order (whose
+    /// count is the pass count) and the number of sub-shaders.</summary>
+    internal Shader Declare(int renderQueue, IReadOnlyList<string> passNames, int subshaderCount)
+    {
+        _passNames = passNames.ToArray();
+        return Declare(renderQueue, passNames.Count, subshaderCount);
+    }
+
     /// <summary>Whether a declaration can stand beside what is declared: true when nothing is declared yet, or the queue
-    /// matches and each count that is known matches.</summary>
-    internal bool Agrees(int renderQueue, int passCount, int subshaderCount) =>
-        _renderQueue is null || (_renderQueue == renderQueue && (_passCount ?? passCount) == passCount && (_subshaderCount ?? subshaderCount) == subshaderCount);
+    /// matches and each count and each list of names that is known matches.</summary>
+    internal bool Agrees(int renderQueue, IReadOnlyList<string> passNames, int subshaderCount) =>
+        _renderQueue is null || (_renderQueue == renderQueue && (_passCount ?? passNames.Count) == passNames.Count
+            && (_subshaderCount ?? subshaderCount) == subshaderCount && (_passNames is null || _passNames.SequenceEqual(passNames)));
+
+    /// <summary>The names of the first sub-shader's passes in order. A shader whose names are not declared throws
+    /// <see cref="NotSupportedException"/> naming <paramref name="member"/>.</summary>
+    internal IReadOnlyList<string> PassNames(string member) =>
+        _passNames ?? throw new NotSupportedException($"{member} is not supported yet: the engine has no pass names for shader '{name}'");
 
     private int Declared(int? value, string member) =>
         value ?? throw new NotSupportedException($"Shader.{member} is not supported yet: the engine has no declaration for shader '{name}'");

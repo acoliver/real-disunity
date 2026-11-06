@@ -32,7 +32,6 @@ internal static class RenderEntryPointTests
         var list = new RendererListParams(default, drawing, filtering);
         Unsupported(() => context.SubmitForRenderPassValidation(), "SubmitForRenderPassValidation");
         Unsupported(() => context.ExecuteCommandBufferAsync(new CommandBuffer(), ComputeQueueType.Default), "ExecuteCommandBufferAsync");
-        Unsupported(() => context.SetupCameraProperties(null!), "SetupCameraProperties");
         Unsupported(() => context.DrawSkybox(null!), "DrawSkybox");
         Unsupported(() => context.DrawGizmos(null!, GizmoSubset.PreImageEffects), "DrawGizmos");
         Unsupported(() => context.DrawUIOverlay(null!), "DrawUIOverlay");

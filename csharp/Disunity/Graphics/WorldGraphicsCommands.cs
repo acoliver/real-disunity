@@ -74,6 +74,20 @@ internal static unsafe partial class WorldGraphics
 
     internal static void RecordReleaseTemporary(int nameId) => Check(NativeBindings.disunity_offscreen_release_temporary(World, nameId));
 
+    /// <summary>Records the camera's setup: its view and projection, column by column as the world holds them, and its target.</summary>
+    internal static void RecordSetupCamera(ulong camera, Matrix4x4 view, Matrix4x4 projection, CommandTarget target)
+    {
+        var matrices = stackalloc float[32];
+        for (var column = 0; column < 4; column++)
+            for (var row = 0; row < 4; row++)
+            {
+                matrices[column * 4 + row] = view[row, column];
+                matrices[16 + column * 4 + row] = projection[row, column];
+            }
+        var native = target.ToNative();
+        Check(NativeBindings.disunity_offscreen_setup_camera(World, camera, matrices, matrices + 16, &native));
+    }
+
     private static long _lastHandle;
 
     /// <summary>The next id for a culling result or a renderer list. Ids are never reused, so a handle from an earlier frame

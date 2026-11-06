@@ -48,6 +48,7 @@ internal static unsafe class CommandWireReader
             7 => $"Keyword {input.Text()}={input.Bool()}",
             8 => $"Allocate {input.I32()} {input.Texture()}",
             9 => $"Release {input.I32()}",
+            11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()}",
             10 => $"Cull id={input.U64()} camera={input.Component()} mask={input.U32()} planes=[{string.Join(",", input.List(() => input.Floats(4)))}] options={input.U32()}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };

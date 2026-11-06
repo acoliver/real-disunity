@@ -35,6 +35,14 @@ public sealed partial class Camera
         return true;
     }
 
+    /// <summary>The view, projection and target a context records when a pipeline sets the camera up. A destroyed camera throws
+    /// <see cref="InvalidOperationException"/>.</summary>
+    internal (Matrix4x4 View, Matrix4x4 Projection, CommandTarget Target) SetupValues()
+    {
+        ThrowIfDestroyed();
+        return (worldToCameraMatrix, projectionMatrix, CommandTarget.OfCamera(targetTexture));
+    }
+
     private static bool IsFinite(Matrix4x4 matrix)
     {
         for (var index = 0; index < 16; index++)

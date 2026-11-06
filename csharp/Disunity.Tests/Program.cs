@@ -291,6 +291,7 @@ CheckImport("disunity_offscreen_allocate_temporary", u64, typeof(int), renderTex
 CheckImport("disunity_offscreen_release_temporary", u64, typeof(int));
 CheckImport("disunity_offscreen_detail", u64, u32, bytes, u32, u32.MakePointerType());
 CheckImport("disunity_offscreen_cull", u64, u64, u64, u32, f32.MakePointerType(), u32, u32);
+CheckImport("disunity_offscreen_setup_camera", u64, u64, f32.MakePointerType(), f32.MakePointerType(), targetRef);
 var computeKernel = AbiType("DisunityComputeKernel");
 var computeShaderInfo = AbiType("DisunityComputeShaderInfo");
 var computeBufferInfo = AbiType("DisunityComputeBufferInfo");
@@ -431,6 +432,7 @@ GraphicsBufferTests.Run();
 BatchRendererGroupTests.Run();
 BatchCullingTests.Run();
 RenderSettingsTests.Run();
+SetupCameraTests.Run();
 JobTests.Run();
 CustomYieldTests.Run();
 RenderingLayerMaskTests.Run();

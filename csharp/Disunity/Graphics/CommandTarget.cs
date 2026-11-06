@@ -35,6 +35,10 @@ internal readonly record struct CommandTarget(uint Kind, int NameId, RenderTextu
         }
     }
 
+    /// <summary>The target of a camera: its target texture, or the camera target when it draws to the screen.</summary>
+    internal static CommandTarget OfCamera(RenderTexture? texture) =>
+        texture is null ? new(KindCamera, 0, null, 0, -1, -1) : new(KindRender, 0, texture, 0, -1, -1);
+
     private static string Describe(in RenderTargetIdentifier id) => id.m_Type switch
     {
         BuiltinRenderTextureType.BindableTexture => "BuiltinRenderTextureType.BindableTexture (a texture that is not a render texture)",

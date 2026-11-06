@@ -1,25 +1,18 @@
 #[test]
 fn sharpened_coverage_half_boundary_survives_derivative_clamping_and_rounding() {
     let context = context();
-    let geometry = include_str!("../../shader/geometry.wgsl");
-    let helper = geometry
-        .split("fn scene_coverage_alpha")
-        .nth(1)
-        .unwrap()
-        .split("fn scene_sampled_alpha")
-        .next()
-        .unwrap();
     for width in [0.0, 1e-12, 0.03125, 1.0, 1e10] {
         for bits in [0x3eff_ffff_u32, 0x3f00_0000, 0x3f00_0001] {
             let alpha = f32::from_bits(bits);
-            let shader = format!(
-                "fn scene_coverage_alpha{helper}\n@fragment fn fs_screen() -> @location(0) f32 {{ return scene_coverage_alpha(bitcast<f32>({bits}u), 0.5, {width:?}) + textureLoad(unused, vec2<i32>(0), 0).r * 0.0; }}"
+            let entry = format!(
+                "@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;\n@compute @workgroup_size(1) fn evaluate_math() {{ result[0] = vec4<f32>(scene_coverage_alpha(bitcast<f32>({bits}u), 0.5, {width:?}), 0.0, 0.0, 0.0); }}"
             );
-            let output = channel_view(
+            let output = crate::shader::gpu_math_tests::evaluate_source(
                 &context,
-                &crate::ssao::passes::texture(context.device(), [32, 32], TextureFormat::R32Float)
-                    .create_view(&TextureViewDescriptor::default()),
-                &format!("@group(0) @binding(0) var unused: texture_2d<f32>;\n{shader}"),
+                crate::shader::ENVIRONMENT_WGSL,
+                &entry,
+                None,
+                None,
             );
             assert_eq!(
                 output[0] >= 0.5,

@@ -13,6 +13,7 @@ mod environment;
 mod execution;
 mod live;
 mod readiness;
+mod resource_edit;
 mod retained;
 mod target;
 pub(crate) mod timing;
@@ -257,12 +258,13 @@ impl Renderer {
             .submit_prepared(ready, prepared, &self.context)?;
         if let Some(host) = host {
             host.present_pick(view.resolved_view());
+            let statistics = self.scene_statistics();
             self.streaming.captures.submitted(
                 host,
                 retained_capture,
                 ticket.clone(),
                 self.frame_time,
-                &self.resident.scene_mut().statistics(),
+                &statistics,
             )?;
         } else {
             self.streaming.captures.advance_frame();
@@ -444,6 +446,7 @@ impl Resident {
         }
     }
 
+    #[cfg(test)]
     fn new(
         context: &GpuContext,
         scene: &RenderScene,

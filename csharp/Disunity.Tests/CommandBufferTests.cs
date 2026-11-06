@@ -87,8 +87,6 @@ internal static class CommandBufferTests
         Ensure(new ComputeBuffer(2, 4).count == 2 && new ComputeBuffer(3, 4, ComputeBufferType.Raw).count == 3, "the other constructors");
         Throws<ArgumentException>(() => new ComputeBuffer(0, 4), "a zero count");
         Throws<ArgumentException>(() => new ComputeBuffer(4, 0), "a zero stride");
-        Throws<NotSupportedException>(() => buffer.GetData(new int[4]), "GetData", "ComputeBuffer.GetData");
-        Throws<NotSupportedException>(() => buffer.SetData(new int[4]), "SetData", "ComputeBuffer.SetData");
         buffer.Release();
         buffer.Release();
         buffer.Dispose();

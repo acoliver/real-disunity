@@ -65,6 +65,19 @@ pub enum ProgramError {
     },
     #[error("the allocation takes the runtime to {required} bytes, over its budget of {budget}")]
     OverBudget { required: u64, budget: u64 },
+    #[error("the runtime may hold {budget} bytes and the arena reserves {arena}")]
+    ArenaTooSmall { budget: u64, arena: u64 },
+    #[error(
+        "the runtime already holds {live} bytes allocated before any arena, which the arena's reservation would not cover"
+    )]
+    ArenaAfterAllocations { live: u64 },
+    #[error("the arena was opened by another runtime")]
+    ForeignArena,
+    #[error("the draws were prepared for {prepared:?} and the pass is {pass:?}")]
+    TargetMismatch {
+        prepared: crate::packet::TargetSignature,
+        pass: crate::packet::TargetSignature,
+    },
     #[error("the allocation is invalid: {0}")]
     InvalidAllocation(&'static str),
     #[error("writing {len} bytes at {offset} is not a multiple of four")]
@@ -74,6 +87,8 @@ pub enum ProgramError {
         expected: crate::module::StageKind,
         found: crate::module::StageKind,
     },
+    #[error(transparent)]
+    UnsupportedTarget(#[from] UnsupportedTarget),
     #[error(transparent)]
     TextureUpload(#[from] UploadError),
     /// The encoder is not one the submission authority handed out for the frame being recorded.
@@ -89,6 +104,19 @@ pub enum ProgramError {
     Gpu(String),
     #[error("reading back from the GPU failed: {0}")]
     Readback(String),
+}
+
+/// A pass the runtime does not draw into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum UnsupportedTarget {
+    #[error("the pass has {samples} samples per pixel; program draws are single-sample")]
+    Multisampled { samples: u32 },
+    #[error("the pass has {count} color attachments; program draws write exactly one")]
+    ColorAttachments { count: usize },
+    #[error("{format:?} has a stencil aspect; program draws do not use stencil")]
+    Stencil { format: wgpu::TextureFormat },
+    #[error("{format:?} has no depth aspect")]
+    NotDepth { format: wgpu::TextureFormat },
 }
 
 /// The authority's refusals keep their names here, so a caller sees device loss and a busy

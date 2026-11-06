@@ -183,7 +183,7 @@ impl Renderer {
         let ticket = self.execution.submit_capture(ready, prepared)?;
         let frame = self.streaming.captures.next_frame();
         self.streaming.captures.advance_frame();
-        let scene = self.resident.scene_mut().statistics();
+        let scene = self.scene_statistics();
         let active = self
             .streaming
             .captures

@@ -124,21 +124,23 @@ impl World {
         {
             return;
         }
-        if let Some(state) = self.lifecycle.scripts.get_mut(&script) {
+        if let Some(state) = self.lifecycle.scripts.get(&script) {
+            let (active, awake) = (state.active, state.awake);
             self.coroutines.cancel_script(script);
-            if state.active {
+            if active {
                 self.lifecycle.cleanup.push(LifecycleWork {
                     script,
                     message: ScriptMessage::OnDisable,
                 });
             }
-            if state.awake {
+            if awake {
                 self.lifecycle.cleanup.push(LifecycleWork {
                     script,
                     message: ScriptMessage::OnDestroy,
                 });
             }
-            state.active = false;
+            self.lifecycle
+                .edit_script(script, |state| state.active = false);
         }
     }
 
@@ -156,16 +158,21 @@ impl World {
         Ok(())
     }
 
+    /// Removes a stored component. A handle whose component is already gone only drops its
+    /// pending retirement mark: every other step reads the component by handle first, and the
+    /// arena removes only the slot's current occupant.
     pub(crate) fn retire_component(&mut self, component: ComponentHandle) {
         self.lifetime.components.remove(&component);
-        self.leave_script_type(component);
-        self.lifecycle.scripts.remove(&component);
+        self.lifecycle.remove_script(component);
         self.physics.targets.remove(&component);
         self.note_component_removed(component);
         if let Some(owner) = self.components.get(component.0).map(|c| c.object)
             && let Some(object) = self.objects.get_mut(owner.0)
         {
             object.components.retain(|owned| *owned != component);
+        }
+        if let Some(stored) = self.components.get(component.0) {
+            self.physics_population.note_retired(&stored.desc);
         }
         self.components.remove(component.0);
     }
@@ -181,9 +188,14 @@ impl World {
         owned
     }
 
+    /// Removes a stored object. A handle whose object is already gone only drops its pending
+    /// destruction marks, so the object that reused its slot is never taken.
     fn remove_object(&mut self, object: ObjectHandle) {
         self.lifetime.delayed.remove(&object);
         self.lifetime.objects.remove(&object);
+        if self.objects.get(object.0).is_none() {
+            return;
+        }
         self.note_object_removed(object);
         self.clear_follow_links(object);
         let parent = self.objects.get(object.0).and_then(|stored| stored.parent);
@@ -192,6 +204,8 @@ impl World {
         self.lifetime.removed += 1;
     }
 
+    /// Removes `root` and everything below it. Children are read only from live objects, and a
+    /// stale `root` removes nothing.
     pub(crate) fn retire_subtree(&mut self, root: ObjectHandle) {
         let mut nodes = Vec::new();
         let mut pending = vec![root];
@@ -218,5 +232,91 @@ impl World {
         for object in std::mem::take(&mut self.lifetime.objects) {
             self.remove_object(object);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        ComponentDesc, ComponentHandle, ObjectDesc, ObjectHandle, TimeSpan, World, WorldSettings,
+    };
+
+    struct Reuse {
+        world: World,
+        stale: (ObjectHandle, ComponentHandle),
+        current: (ObjectHandle, ComponentHandle),
+    }
+
+    fn scripted(world: &mut World) -> (ObjectHandle, ComponentHandle) {
+        let object = world.create_object(ObjectDesc::default()).unwrap();
+        let script = ComponentDesc::Script {
+            assembly: "Game".into(),
+            type_name: "Script".into(),
+        };
+        let component = world.add_component(object, script).unwrap();
+        (object, component)
+    }
+
+    /// A world where a scripted object was removed and a new one took its object and component
+    /// slots, so the first pair of handles is stale.
+    fn reused_slots() -> Reuse {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let stale = scripted(&mut world);
+        world.destroy_object(stale.0).unwrap();
+        let current = scripted(&mut world);
+        assert_eq!(current.0.0.slot, stale.0.0.slot);
+        assert_eq!(current.1.0.slot, stale.1.0.slot);
+        assert_ne!(current.0, stale.0);
+        Reuse {
+            world,
+            stale,
+            current,
+        }
+    }
+
+    fn assert_current_intact(reuse: &Reuse) {
+        let (object, component) = reuse.current;
+        assert!(reuse.world.object_alive(object));
+        assert!(reuse.world.component(component).is_ok());
+        assert_eq!(reuse.world.storage_counts(), (1, 2));
+    }
+
+    #[test]
+    fn retiring_a_stale_subtree_root_removes_nothing() {
+        let mut reuse = reused_slots();
+        let removed = reuse.world.removed_objects();
+        reuse.world.retire_subtree(reuse.stale.0);
+        assert_current_intact(&reuse);
+        assert_eq!(reuse.world.removed_objects(), removed);
+    }
+
+    #[test]
+    fn retiring_a_stale_component_removes_nothing() {
+        let mut reuse = reused_slots();
+        reuse.world.lifetime.components.insert(reuse.stale.1);
+        reuse.world.retire_component(reuse.stale.1);
+        assert_current_intact(&reuse);
+        assert!(reuse.world.lifetime.components.is_empty());
+        let owner = reuse.world.objects.get(reuse.current.0.0).unwrap();
+        assert!(owner.components.contains(&reuse.current.1));
+    }
+
+    #[test]
+    fn finishing_a_phase_skips_stale_marks() {
+        let mut reuse = reused_slots();
+        reuse.world.lifetime.objects.insert(reuse.stale.0);
+        reuse.world.lifetime.components.insert(reuse.stale.1);
+        reuse
+            .world
+            .lifetime
+            .delayed
+            .insert(reuse.stale.0, TimeSpan::ZERO);
+        let removed = reuse.world.removed_objects();
+        reuse.world.finish_phase();
+        assert_current_intact(&reuse);
+        assert_eq!(reuse.world.removed_objects(), removed);
+        assert!(reuse.world.lifetime.objects.is_empty());
+        assert!(reuse.world.lifetime.components.is_empty());
+        assert!(reuse.world.lifetime.delayed.is_empty());
     }
 }

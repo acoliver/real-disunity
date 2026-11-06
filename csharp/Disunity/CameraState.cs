@@ -99,12 +99,20 @@ public sealed partial class Camera
         if (!this) throw new InvalidOperationException("the camera was destroyed");
     }
 
-    /// <summary>Completes without drawing until the native draw surface exists (#171). As the engine's choice no render
-    /// pipeline callback runs and the target texture is left as it is. A destroyed camera throws.</summary>
+    /// <summary>With a <see cref="targetTexture"/> records the camera's render into it as offscreen work in the world, which the
+    /// host executes with the camera's culling mask, clear flags and pose as they are then; the texture is created if it is
+    /// not. A camera without a target texture is drawn by the frame itself, so the call completes without drawing and logs a
+    /// note. As the engine's choice no render pipeline callback runs. A destroyed camera throws.</summary>
     public void Render()
     {
         ThrowIfDestroyed();
-        UndrawnCalls.Note("Camera.Render");
+        if (targetTexture is not { } target)
+        {
+            UndrawnCalls.Note("Camera.Render");
+            return;
+        }
+        if (!target.IsCreated()) target.Create();
+        WorldGraphics.RecordCameraRender(Handle, target.WorldId);
     }
 
     /// <summary>Completes without drawing, as <see cref="Render"/> does. A null shader throws.</summary>

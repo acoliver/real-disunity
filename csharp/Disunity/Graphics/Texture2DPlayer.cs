@@ -10,6 +10,7 @@ internal readonly record struct PlayerTexture(int Width, int Height, int Format,
 public sealed partial class Texture2D
 {
     private ulong _identity;
+    private WorldGraphics.Link _stored;
 
     /// <summary>Zero for colour, data and coverage. After the font engine draws distance fields into an Alpha8 atlas, the
     /// spread in texels they were drawn with, which the renderer needs to turn the field back into coverage.</summary>
@@ -41,6 +42,20 @@ public sealed partial class Texture2D
         };
         fixed (byte* bytes = _data)
             DisunityHost.ThrowIfError(NativeBindings.disunity_texture_store(DisunityHost.WorldHandle, _identity, &info, bytes, info.length));
+        _stored = new WorldGraphics.Link(DisunityHost.WorldHandle, _identity);
+        WriteSampler();
+    }
+
+    private unsafe void WriteSampler()
+    {
+        var sampler = Sampler;
+        DisunityHost.ThrowIfError(NativeBindings.disunity_texture_sampler_write(DisunityHost.WorldHandle, _identity, &sampler));
+    }
+
+    /// <summary>Sends the sampler of a texture the host holds in the loaded world; one it does not hold yet sends it with its bytes.</summary>
+    internal override void SamplerChanged()
+    {
+        if (_stored.IsCurrent) WriteSampler();
     }
 
     /// <summary>Marks the texture as holding distance fields of this spread, storing it again for the renderer when the

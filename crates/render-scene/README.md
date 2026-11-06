@@ -148,9 +148,12 @@ atlas. Atlas footprints are computed in uniform control flow, before
 fragment-dependent branches or returns. Optional maps are sampled only when their
 material feature is enabled. A material-uniform gate skips atlas coordinates and
 derivatives entirely for ordinary materials, and relief depth is sampled only
-when relief is enabled. Sampling uses
-explicit gradients with the material mip bias, or explicit level zero according
-to the atlas policy. Clamped UVs and per-texture insets determine each footprint.
+when relief is enabled. Relief fragments reconstruct their position once and share
+it between depth output and surface shading in forward and metadata passes. Sampling
+uses mutually exclusive explicit-gradient and explicit-level-zero branches according
+to the atlas policy. Gradients include the material mip bias; clamped UVs and
+per-texture insets determine each footprint. CPU Naga-IR tests bound reconstruction
+calls and require blended level-zero samples to exclude the gradient branch.
 Coverage is resolved after shading, and relief depth before discard, so normal
 frames and atlas derivatives retain their complete fragment quad.
 

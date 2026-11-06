@@ -16,7 +16,7 @@ struct CelestialFragment {
     @builtin(frag_depth) depth:f32,
 }
 fn celestial_fragment(input:VertexOutput,front_facing:bool,masked:bool)->CelestialFragment {
-    let shaded=shade(input,front_facing);
+    let shaded=shade(input,front_facing,scene_relief_position(input));
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     let clip=frame.view_projection*vec4(input.world_position,1.0);
     // Clip in the original camera space, but retain distant background surfaces.

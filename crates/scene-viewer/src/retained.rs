@@ -6,6 +6,9 @@ use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 pub(crate) mod accessibility;
 mod audio;
+mod clipboard;
+#[cfg(test)]
+mod clipboard_tests;
 mod startup;
 pub use audio::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
@@ -234,6 +237,7 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    clipboard: clipboard::HostClipboard,
     pub(crate) accessibility: accessibility::Accessibility,
     picking: picking::Picking,
     work: work::WorkServices,

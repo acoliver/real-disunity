@@ -54,6 +54,11 @@ impl RetainedDriver for Driver {
                 .world
                 .ui_layout(host.size().into())
                 .map_err(|e| e.to_string())?;
+            if let Some(command) = host.clipboard_command(event) {
+                self.router
+                    .clipboard(&self.world, &layout, &self.fonts, command, host.clipboard())
+                    .map_err(|e| e.to_string())?;
+            }
             match event {
                 RetainedInput::Key { pressed: true, .. } => {
                     self.router
@@ -144,4 +149,42 @@ fn resize_observations_carry_the_current_display_scale() {
         scale_factor: 2.,
         physical_size: [640, 480]
     }));
+}
+
+#[test]
+fn platform_paste_reaches_the_field_without_inserting_shortcut_text() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let mut driver = Driver::new(events.clone());
+    let mut host = RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap();
+    host.clipboard().write_text("AB").unwrap();
+    let mut session = Session::new(host, &mut driver);
+    let primary = if cfg!(target_os = "macos") {
+        winit::keyboard::NamedKey::Super
+    } else {
+        winit::keyboard::NamedKey::Control
+    };
+    for (logical, physical) in [
+        (crate::LogicalKey::Named(primary), crate::KeyCode::SuperLeft),
+        (
+            crate::LogicalKey::Character("v".into()),
+            crate::KeyCode::KeyV,
+        ),
+    ] {
+        session.input(super::super::input::key_input(
+            &logical,
+            physical.into(),
+            winit::event::ElementState::Pressed,
+            false,
+        ));
+    }
+    session.committed_key_text(Some("v"), true);
+    assert!(
+        !events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, RetainedInput::Text(_)))
+    );
+    drop(session);
+    let object = driver.router.focused().unwrap();
+    assert_eq!(driver.router.text_fields[&object].value(), "AB");
 }

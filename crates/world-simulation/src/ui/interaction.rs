@@ -4,6 +4,7 @@ use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 mod accessibility;
+mod clipboard;
 mod keyboard;
 mod links;
 mod semantic_tree;
@@ -14,6 +15,7 @@ mod slider;
 mod style;
 mod targets;
 mod text;
+mod text_pointer;
 pub use slider::UiSlider;
 pub use style::UiStyle;
 use targets::Targets;
@@ -165,6 +167,7 @@ pub struct UiRouter {
     pub layout: UiLayoutRules,
     pub styles: BTreeMap<ObjectHandle, UiStyle>,
     pub text_fields: BTreeMap<ObjectHandle, super::UiTextField>,
+    text_clicks: text_pointer::TextClicks,
     pub link_styles: BTreeMap<(ObjectHandle, UiLinkId), UiStyle>,
     fonts: Option<Arc<FontBook>>,
     pub semantics: BTreeMap<ObjectHandle, UiSemantics>,
@@ -217,10 +220,12 @@ impl UiRouter {
             self.focus = None;
         }
         self.cancel_preedits();
+        self.text_clicks = text_pointer::TextClicks::default();
         self.capture = None;
     }
     fn cancel(&mut self) {
         self.cancel_preedits();
+        self.text_clicks = text_pointer::TextClicks::default();
         self.capture = None;
         self.primary_held = false;
         self.position = None;

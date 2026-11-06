@@ -55,23 +55,21 @@ impl UiRouter {
     }
 }
 impl UiTextField {
-    fn geometry(
-        &self,
-        fonts: &FontBook,
-        rect: &RectLayout,
-    ) -> Result<(super::TextRun, Vec<f32>, f32), UiError> {
+    fn geometry(&self, rect: &RectLayout) -> (super::TextRun, Vec<f32>, f32) {
         let (run, cursor) = self.displayed();
-        let positions = fonts.text_positions(&run)?;
-        let offset = (positions[cursor] + 1. - rect.size.x).max(0.);
-        Ok((run, positions, offset))
+        let positions = self.metrics.positions(&run.text);
+        let offset = self.metrics.reveal(&positions, cursor, rect.size.x);
+        (run, positions, offset)
     }
     pub(in crate::ui) fn caret_area(
         &self,
-        fonts: &FontBook,
         rect: &RectLayout,
         height: f32,
     ) -> Result<[f64; 4], UiError> {
-        let (_, positions, offset) = self.geometry(fonts, rect)?;
+        if !rect.on_screen() || rect.size.min_element() <= 0. {
+            return Err(UiError::InvalidRect);
+        }
+        let (_, positions, offset) = self.geometry(rect);
         let cursor = self.displayed().1;
         let local = Vec3::new(
             positions[cursor] - offset,
@@ -103,7 +101,7 @@ impl UiTextField {
         if rect.mode != crate::ui::CanvasMode::ScreenSpaceOverlay || rect.size.min_element() <= 0. {
             return Err(UiError::InvalidRect.into());
         }
-        let (run, positions, offset) = self.geometry(fonts, rect)?;
+        let (run, positions, offset) = self.geometry(rect);
         let canvas = world
             .published_components()
             .find_map(|c| match c.desc {

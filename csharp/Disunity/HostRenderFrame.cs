@@ -36,7 +36,6 @@ public static partial class DisunityHost
         {
             RunRender(pipeline, Camera.RenderOrder());
             _renderFailures.LastKey = null;
-            _renderFailures.Streak = 0;
         }
         catch (Exception error) when (IsGameException(error)) { NoteRenderFailure(pipeline, error); }
     }

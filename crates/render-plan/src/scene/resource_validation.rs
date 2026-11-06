@@ -71,6 +71,7 @@ impl SceneResources {
                 });
             }
         }
+        material.validate_scalar_channels(&self.textures)?;
         material.alpha_mode().validate()?;
         Ok(())
     }

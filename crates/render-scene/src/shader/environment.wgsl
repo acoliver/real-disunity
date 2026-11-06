@@ -18,11 +18,14 @@ fn scene_occlusion_sample(input: VertexOutput) -> vec2<f32> {
     let footprint = scene_atlas_footprint(ambient_occlusion_texture, input);
     if SCENE_IMPOSTOR {
         if material.impostor_grid.w != 0.0 {
-            if scene_packed_atlas(input) { return scene_atlas_first(ambient_occlusion_texture, footprint).gr; }
+            if scene_packed_atlas(input) {
+                let sampled = scene_atlas_first(ambient_occlusion_texture, footprint);
+                return vec2<f32>(sampled[material.packed_atlas_channels[2].x + 1], sampled[material.packed_atlas_channels[3].x + 0]);
+            }
         }
     }
     if (material.texture_flags & FLAG_AMBIENT_OCCLUSION) != 0u {
-        return vec2<f32>(scene_atlas_sample(ambient_occlusion_texture, input, footprint).r, 0.0);
+        return vec2<f32>(scene_atlas_sample(ambient_occlusion_texture, input, footprint)[material.scalar_channels[2].x + 0], 0.0);
     }
     return vec2<f32>(1.0, 0.0);
 }
@@ -30,7 +33,7 @@ fn scene_emission_sample(input: VertexOutput) -> f32 {
     if (material.texture_flags & FLAG_SELF_ILLUMINATION) == 0u { return 0.0; }
     let footprint = scene_atlas_footprint(self_illumination_texture, input);
     if scene_packed_atlas(input) { return 0.0; }
-    return scene_atlas_sample(self_illumination_texture, input, footprint).r;
+    return scene_atlas_sample(self_illumination_texture, input, footprint)[material.scalar_channels[3].x + 0];
 }
 fn scene_auxiliary_samples(input: VertexOutput) -> vec2<f32> {
     let occlusion = scene_occlusion_sample(input);

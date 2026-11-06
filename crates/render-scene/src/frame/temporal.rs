@@ -2,9 +2,8 @@
 //!
 //! # Where this data lives
 //!
-//! The 320-byte [`FrameUniform`](super::FrameUniform) block is a fixed ABI that every scene
-//! shader reads, and its padding lanes are already assigned. Temporal data is therefore not
-//! appended to it. [`TemporalView`] has its own 176-byte block, [`TemporalView::to_bytes`],
+//! Every scene shader reads the 336-byte [`FrameUniform`](super::FrameUniform) block.
+//! Temporal history uses a separate binding rather than extending that shared frame block. [`TemporalView`] has its own 176-byte block, [`TemporalView::to_bytes`],
 //! which only a temporal resolve binds. With jitter off the scene block is unchanged byte for
 //! byte; with jitter on only its first sixty-four bytes differ, because the clip-from-scene
 //! matrix carries the sub-pixel offset.

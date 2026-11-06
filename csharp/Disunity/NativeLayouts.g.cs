@@ -365,7 +365,8 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityLight>("use_color_temperature").ToInt32() != 84) throw new InvalidOperationException("DisunityLight.use_color_temperature offset");
         if (Marshal.OffsetOf<DisunityLight>("cookie_size").ToInt32() != 88) throw new InvalidOperationException("DisunityLight.cookie_size offset");
         if (Marshal.OffsetOf<DisunityLight>("lightmap_bake_type").ToInt32() != 92) throw new InvalidOperationException("DisunityLight.lightmap_bake_type offset");
-        if (Marshal.SizeOf<DisunityLight>() != 96 || typeof(DisunityLight).GetFields().Length != 23) throw new InvalidOperationException("DisunityLight layout");
+        if (Marshal.OffsetOf<DisunityLight>("shadow_resolution").ToInt32() != 96) throw new InvalidOperationException("DisunityLight.shadow_resolution offset");
+        if (Marshal.SizeOf<DisunityLight>() != 104 || typeof(DisunityLight).GetFields().Length != 24) throw new InvalidOperationException("DisunityLight layout");
         if (Marshal.OffsetOf<DisunityTextStyle>("font").ToInt32() != 0) throw new InvalidOperationException("DisunityTextStyle.font offset");
         if (Marshal.OffsetOf<DisunityTextStyle>("alignment").ToInt32() != 8) throw new InvalidOperationException("DisunityTextStyle.alignment offset");
         if (Marshal.OffsetOf<DisunityTextStyle>("horizontal_overflow").ToInt32() != 12) throw new InvalidOperationException("DisunityTextStyle.horizontal_overflow offset");

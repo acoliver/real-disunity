@@ -3,7 +3,8 @@ namespace UnityEngine.Rendering;
 /// <summary>
 /// The events a render pipeline raises, and the live pipeline. The host creates the pipeline from the active asset
 /// and raises <see cref="activeRenderPipelineCreated"/> and <see cref="activeRenderPipelineDisposed"/> around it. The
-/// engine does not render through the pipeline yet, so the rendering events are never raised.
+/// host raises <see cref="beginContextRendering"/> and <see cref="endContextRendering"/> around each call of the pipeline's
+/// Render; the camera and frame events are raised by the pipeline's own calls of the matching RenderPipeline helpers.
 /// </summary>
 public static class RenderPipelineManager
 {
@@ -34,6 +35,13 @@ public static class RenderPipelineManager
 
     /// <summary>Raises <see cref="activeRenderPipelineDisposed"/> after a pipeline was disposed.</summary>
     internal static void RaiseDisposed() => activeRenderPipelineDisposed?.Invoke();
+
+    internal static void RaiseBeginContext(ScriptableRenderContext context, List<Camera> cameras) => beginContextRendering?.Invoke(context, cameras);
+    internal static void RaiseEndContext(ScriptableRenderContext context, List<Camera> cameras) => endContextRendering?.Invoke(context, cameras);
+    internal static void RaiseBeginCamera(ScriptableRenderContext context, Camera camera) => beginCameraRendering?.Invoke(context, camera);
+    internal static void RaiseEndCamera(ScriptableRenderContext context, Camera camera) => endCameraRendering?.Invoke(context, camera);
+    internal static void RaiseBeginFrame(ScriptableRenderContext context, Camera[] cameras) => beginFrameRendering?.Invoke(context, cameras);
+    internal static void RaiseEndFrame(ScriptableRenderContext context, Camera[] cameras) => endFrameRendering?.Invoke(context, cameras);
 
     /// <summary>Whether any handler is added to the event, for tests that check add and remove.</summary>
     internal static bool HasHandlers =>

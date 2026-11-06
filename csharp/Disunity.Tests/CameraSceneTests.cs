@@ -136,10 +136,8 @@ internal static class CameraSceneTests
     {
         var camera = NewCamera();
         var matrix = Matrix4x4.identity;
-        var culling = new ScriptableCullingParameters();
         var members = new (string, Action)[]
         {
-            ("TryGetCullingParameters", () => camera.TryGetCullingParameters(ref culling)),
             ("GetStereoNonJitteredProjectionMatrix", () => camera.GetStereoNonJitteredProjectionMatrix(Camera.StereoscopicEye.Left)),
             ("GetStereoViewMatrix", () => camera.GetStereoViewMatrix(Camera.StereoscopicEye.Left)),
             ("GetStereoProjectionMatrix", () => camera.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left)),

@@ -723,6 +723,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_offscreen_cull",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_offscreen_detail",
       "since": "7.0.0",
       "rets": "DisunityResult"
@@ -749,6 +754,11 @@
     },
     {
       "name": "disunity_offscreen_set_render_target",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_setup_camera",
       "since": "7.0.0",
       "rets": "DisunityResult"
     },

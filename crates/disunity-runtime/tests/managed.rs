@@ -166,6 +166,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_failed_runs_drain(&mut host, &root);
     assert_lifecycle_soak(&mut host, &fixture);
     assert_managed_lighting(&mut host, &root);
+    assert_pipeline_renders_after_each_advance(&mut host, &root);
     assert_presentation_cameras(&mut host, &root);
     assert_player_textures(&mut host, &root);
     assert_player_meshes(&mut host, &root);
@@ -234,6 +235,33 @@ fn assert_cross_language_writes(host: &mut DisunityHost) {
         .find(|row| row.object == object)
         .unwrap();
     assert_eq!([native.x, native.y, native.z], [17.0, 23.0, 31.0]);
+}
+
+/// The x of the object the fixture's pipeline moves each time its Render runs.
+fn pipeline_probe_x(host: &DisunityHost) -> f32 {
+    let states = host.export_objects().unwrap();
+    let probes: Vec<_> = states
+        .iter()
+        .filter(|state| (state.y - 7.0).abs() < f32::EPSILON)
+        .collect();
+    assert_eq!(probes.len(), 1, "one probe object: {states:?}");
+    probes[0].x
+}
+
+fn assert_pipeline_renders_after_each_advance(host: &mut DisunityHost, root: &Path) {
+    host.run_slice(&root.join("csharp/PortableFixture/pipeline.fixture"))
+        .unwrap();
+    // The fixture's own first step rendered once, which put the probe at 100 + 10 * renders.
+    assert!((pipeline_probe_x(host) - 110.0).abs() < f32::EPSILON);
+    for renders in [2.0_f32, 3.0, 4.0] {
+        host.advance(1, 100).unwrap();
+        let expected = 10.0_f32.mul_add(renders, 100.0);
+        assert!(
+            (pipeline_probe_x(host) - expected).abs() < f32::EPSILON,
+            "each advance renders the frame once"
+        );
+    }
+    host.unload_slice().unwrap();
 }
 
 fn assert_managed_lighting(host: &mut DisunityHost, root: &Path) {

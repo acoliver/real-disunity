@@ -69,7 +69,11 @@ internal static class RenderPipelineLifecycleTests
         Expect.Throws<ArgumentNullException>(() => SupportedRenderingFeatures.active = null!, "the active set cannot be null");
         SupportedRenderingFeatures.active = new SupportedRenderingFeatures();
         var flags = typeof(SupportedRenderingFeatures).GetProperties().Where(p => p.PropertyType == typeof(bool) && !p.GetMethod!.IsStatic).ToArray();
-        Expect.That(flags.Length >= 20, "the flags a pipeline sets exist");
+        Expect.That(flags.Length >= 21, "the flags a pipeline sets exist");
+        var hdr = new SupportedRenderingFeatures();
+        Expect.That(hdr.supportsHDR, "HDR is supported until a pipeline says otherwise");
+        hdr.supportsHDR = false;
+        Expect.That(!hdr.supportsHDR && new SupportedRenderingFeatures().supportsHDR, "a pipeline's HDR flag is its own and does not change the defaults");
         foreach (var flag in flags)
         {
             var features = new SupportedRenderingFeatures();

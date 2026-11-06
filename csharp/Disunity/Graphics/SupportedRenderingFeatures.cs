@@ -29,6 +29,7 @@ public class SupportedRenderingFeatures
     public bool autoDefaultReflectionProbeBaking { get; set; } = true;
     public bool lightProbeProxyVolumes { get; set; } = true;
     public bool motionVectors { get; set; } = true;
+    public bool supportsHDR { get; set; } = true;
     public bool receiveShadows { get; set; } = true;
     public bool reflectionProbes { get; set; } = true;
     public bool reflectionProbesBlendDistance { get; set; } = true;

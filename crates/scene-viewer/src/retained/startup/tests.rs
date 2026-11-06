@@ -58,8 +58,14 @@ fn minimized_initial_extent_is_preserved_and_rendering_remains_suspended() {
                 .is_empty()
         );
         assert_eq!(
-            host.input(crate::RetainedInput::Resized([640, 480])).len(),
-            1
+            host.input(crate::RetainedInput::Resized([640, 480])),
+            vec![
+                crate::RetainedInput::DisplayChanged {
+                    scale_factor: 1.,
+                    physical_size: [640, 480]
+                },
+                crate::RetainedInput::Resized([640, 480])
+            ]
         );
         assert!(host.view().unwrap().is_some());
     }

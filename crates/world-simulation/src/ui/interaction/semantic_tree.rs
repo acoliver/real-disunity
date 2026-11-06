@@ -20,7 +20,7 @@ impl UiRouter {
         let groups = groups_by_object(world.published_components());
         let targets = Targets::new(world, layout, self, &groups)?;
         self.modal_changed(targets.modal);
-        self.focus = self.focus.filter(|object| targets.interactable(*object));
+        self.retain_focus(|object| targets.interactable(object));
         let texts: BTreeMap<_, _> = world
             .published_components()
             .filter_map(|c| match &c.desc {
@@ -125,7 +125,7 @@ impl UiRouter {
                 .unwrap_or_default(),
             bounds: bounds(rect, layout),
             children: Vec::new(),
-            actions: actions(value, eligible),
+            actions: actions(value, eligible, role),
             disabled: self.controls.contains_key(&object) && !eligible,
         }
     }
@@ -138,7 +138,7 @@ impl UiRouter {
         if let Some(control) = self.controls.get(&object) {
             return match control.kind {
                 UiControlKind::Button => UiRole::Button,
-                UiControlKind::Text => UiRole::Text,
+                UiControlKind::Text | UiControlKind::TextField => UiRole::Text,
                 UiControlKind::Toggle { .. } => UiRole::Checkbox,
                 UiControlKind::Slider(_) => UiRole::Slider,
                 UiControlKind::ListItem { .. } | UiControlKind::Choice { .. } => UiRole::ListItem,
@@ -202,10 +202,13 @@ impl UiRouter {
         Ok(())
     }
 }
-fn actions(value: UiSemanticValue, eligible: bool) -> Vec<UiAccessAction> {
+fn actions(value: UiSemanticValue, eligible: bool, role: UiRole) -> Vec<UiAccessAction> {
     use UiAccessAction::{Decrement, Focus, Increment, Press, Select, SetValue, Toggle};
     if !eligible {
         return Vec::new();
+    }
+    if role == UiRole::Text {
+        return vec![Focus];
     }
     match value {
         UiSemanticValue::Slider { value, .. } => vec![Focus, Increment, Decrement, SetValue(value)],

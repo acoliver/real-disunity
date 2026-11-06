@@ -6,12 +6,18 @@ use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 pub(crate) mod accessibility;
 mod audio;
+mod clipboard;
+#[cfg(test)]
+mod clipboard_tests;
 mod startup;
 pub use audio::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
     AudioUnavailable, ClipHandle, VoiceHandle,
 };
 mod timers;
+#[cfg(test)]
+#[path = "../../world-simulation/tests/ui_font/mod.rs"]
+mod ui_font;
 pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
 mod work;
 pub use work::{
@@ -40,6 +46,7 @@ pub use windowless::WindowlessRetained;
 #[cfg(test)]
 pub(crate) use windowless::tests::pages::layered_scene;
 mod input;
+pub use input::text::TextInput;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
     WheelDelta, WindowControlError,
@@ -139,6 +146,11 @@ pub enum SceneObjectEdit {
 /// Key names follow `LiveInputEvent`'s lowercase convention.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedInput {
+    Text(TextInput),
+    DisplayChanged {
+        scale_factor: f64,
+        physical_size: [u32; 2],
+    },
     Key {
         /// Lowercase name retained for held-key queries.
         key: String,
@@ -225,6 +237,7 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    clipboard: clipboard::HostClipboard,
     pub(crate) accessibility: accessibility::Accessibility,
     picking: picking::Picking,
     work: work::WorkServices,
@@ -449,8 +462,25 @@ impl RetainedHost {
             self.input_state.surface_extent = Some(*size);
         }
         let mut events = self.input_state.accept(&input);
+        if let RetainedInput::Resized(physical_size) = &input {
+            events.push(RetainedInput::DisplayChanged {
+                scale_factor: self.scale_factor(),
+                physical_size: *physical_size,
+            });
+        }
         match &input {
             RetainedInput::Resized(size) => self.size = *size,
+            RetainedInput::DisplayChanged {
+                scale_factor,
+                physical_size,
+            } => {
+                self.input_state.text.scale = *scale_factor;
+                self.size = *physical_size;
+            }
+            RetainedInput::Focused(false) => {
+                self.input_state.text.area = None;
+                self.apply_text_input_area();
+            }
             RetainedInput::Occluded(value) => self.occluded = *value,
             RetainedInput::CloseRequested => self.exit = true,
             _ => {}

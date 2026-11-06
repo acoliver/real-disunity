@@ -1,11 +1,10 @@
 use super::*;
+use crate::retained::ui_font;
 use glam::Vec2;
 use worldrunner_world_simulation::ui::{
     Canvas, FontBook, RectTransform, TextRun, TextSpan, UiLimits, UiLinkId,
 };
 use worldrunner_world_simulation::{ComponentDesc, ParentSpace};
-#[path = "../../../../../../world-simulation/tests/ui_font/mod.rs"]
-mod ui_font;
 
 fn paragraph_plan(link: Option<UiLinkId>) -> UiRenderPlan {
     let mut world = World::new(WorldSettings::default()).unwrap();

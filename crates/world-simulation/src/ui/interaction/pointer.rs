@@ -20,7 +20,7 @@ impl UiRouter {
         let groups = groups_by_object(world.published_components());
         let targets = Targets::new(world, layout, self, &groups)?;
         self.modal_changed(targets.modal);
-        self.focus = self.focus.filter(|o| targets.interactable(*o));
+        self.retain_focus(|o| targets.interactable(o));
         self.capture = self.capture.filter(|o| targets.interactable(*o));
         let hit = self.position.and_then(|position| targets.hit(position));
         let mut response = UiResponse {
@@ -29,7 +29,10 @@ impl UiRouter {
         };
         match event {
             PointerEvent::Cancel => self.cancel(),
-            PointerEvent::Moved(_) => self.drag_slider(layout, &mut response),
+            PointerEvent::Moved(_) => {
+                self.drag_slider(layout, &mut response);
+                self.pointer_field(layout, false);
+            }
             PointerEvent::Wheel(wheel) => {
                 if let Some(position) = self.position {
                     response.consumed |=
@@ -41,14 +44,27 @@ impl UiRouter {
                 button: PointerButton::Left,
                 pressed,
             } => {
-                self.primary_button(&targets, hit, pressed, &mut response);
-                if pressed {
-                    self.drag_slider(layout, &mut response);
-                }
+                self.control_press((&targets, hit), layout, pressed, &mut response);
             }
             PointerEvent::Button { .. } => {}
         }
         Ok(response)
+    }
+    fn control_press(
+        &mut self,
+        target: (&Targets<'_>, Option<TargetId>),
+        layout: &UiLayout,
+        pressed: bool,
+        response: &mut UiResponse,
+    ) {
+        let fresh = pressed && !self.primary_held;
+        self.primary_button(target.0, target.1, pressed, response);
+        if fresh {
+            self.pointer_field(layout, true);
+        }
+        if pressed {
+            self.drag_slider(layout, response);
+        }
     }
     fn primary_button(
         &mut self,
@@ -60,6 +76,9 @@ impl UiRouter {
         if pressed {
             if !self.primary_held {
                 self.capture = hit.filter(|object| targets.interactable(*object));
+                if self.focus != self.capture {
+                    self.cancel_preedits();
+                }
                 self.focus = self.capture;
             }
             self.primary_held = true;

@@ -1,5 +1,6 @@
 mod blend_tests;
 mod graphics;
+mod text_field;
 mod text_flow;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
     let width = image.viewport.width;

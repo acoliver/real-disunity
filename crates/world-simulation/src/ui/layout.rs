@@ -238,6 +238,16 @@ impl World {
             return Err(UiError::MissingLayout.into());
         }
         rules.prepare(self, &mut rects)?;
+        if !rules.display_scale.is_finite() || rules.display_scale <= 0. {
+            return Err(UiError::InvalidCanvas.into());
+        }
+        for canvas in canvases.values_mut() {
+            if canvas.mode != CanvasMode::WorldSpace {
+                canvas.scale = super::CanvasScale::Constant(
+                    canvas.scale.factor(viewport)? * rules.display_scale,
+                );
+            }
+        }
         let mut resolved = BTreeMap::new();
         for object in rects.keys().copied().collect::<Vec<_>>() {
             let mut chain = Vec::new();

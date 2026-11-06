@@ -1,9 +1,10 @@
 //! Typed native controls attached to existing world object identities.
-use super::{FontBook, UiLayoutRules, UiLinkId, group::groups_by_object};
+use super::{FontBook, TextReject, UiLayoutRules, UiLinkId, group::groups_by_object};
 use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 mod accessibility;
+mod clipboard;
 mod keyboard;
 mod links;
 mod semantic_tree;
@@ -13,6 +14,8 @@ mod pointer;
 mod slider;
 mod style;
 mod targets;
+mod text;
+mod text_pointer;
 pub use slider::UiSlider;
 pub use style::UiStyle;
 use targets::Targets;
@@ -21,6 +24,7 @@ pub(super) use targets::contains;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UiControlKind {
     Button,
+    TextField,
     Text,
     Slider(UiSlider),
     Toggle { on: bool },
@@ -33,6 +37,12 @@ pub struct UiControl {
     pub kind: UiControlKind,
 }
 impl UiControl {
+    pub fn text_field() -> Self {
+        Self {
+            enabled: true,
+            kind: UiControlKind::TextField,
+        }
+    }
     /// Exposes only the linked glyph spans, not the enclosing paragraph rectangle.
     pub fn text() -> Self {
         Self {
@@ -73,6 +83,19 @@ impl UiControl {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UiAction {
+    TextChanged {
+        control: ObjectHandle,
+    },
+    TextSubmitted {
+        control: ObjectHandle,
+    },
+    TextCancelled {
+        control: ObjectHandle,
+    },
+    TextRejected {
+        control: ObjectHandle,
+        reason: TextReject,
+    },
     LinkActivated {
         control: ObjectHandle,
         link: UiLinkId,
@@ -106,6 +129,12 @@ pub struct UiResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UiKey {
     Tab,
+    Control,
+    Alt,
+    SelectAll,
+    Backspace,
+    Delete,
+    Escape,
     Shift,
     Enter,
     Space,
@@ -137,6 +166,8 @@ pub struct UiRouter {
     pub modals: BTreeSet<ObjectHandle>,
     pub layout: UiLayoutRules,
     pub styles: BTreeMap<ObjectHandle, UiStyle>,
+    pub text_fields: BTreeMap<ObjectHandle, super::UiTextField>,
+    text_clicks: text_pointer::TextClicks,
     pub link_styles: BTreeMap<(ObjectHandle, UiLinkId), UiStyle>,
     fonts: Option<Arc<FontBook>>,
     pub semantics: BTreeMap<ObjectHandle, UiSemantics>,
@@ -151,6 +182,13 @@ pub struct UiRouter {
     modal_focus: Vec<(ObjectHandle, Option<TargetId>)>,
 }
 impl UiRouter {
+    fn retain_focus(&mut self, eligible: impl Fn(TargetId) -> bool) {
+        let old = self.focus;
+        self.focus = self.focus.filter(|o| eligible(*o));
+        if old != self.focus {
+            self.cancel_preedits();
+        }
+    }
     /// Shares the same cached text geometry used by UI extraction.
     pub fn with_fonts(fonts: Arc<FontBook>) -> Self {
         Self {
@@ -181,9 +219,13 @@ impl UiRouter {
             self.modal_focus.push((object, self.focus));
             self.focus = None;
         }
+        self.cancel_preedits();
+        self.text_clicks = text_pointer::TextClicks::default();
         self.capture = None;
     }
     fn cancel(&mut self) {
+        self.cancel_preedits();
+        self.text_clicks = text_pointer::TextClicks::default();
         self.capture = None;
         self.primary_held = false;
         self.position = None;
@@ -205,7 +247,9 @@ impl UiRouter {
             .expect("registered control")
             .kind;
         let action = match *kind {
-            UiControlKind::Text | UiControlKind::Slider(_) => return None,
+            UiControlKind::Text | UiControlKind::TextField | UiControlKind::Slider(_) => {
+                return None;
+            }
             UiControlKind::Toggle { on } => {
                 *kind = UiControlKind::Toggle { on: !on };
                 UiAction::Toggled {

@@ -16,11 +16,14 @@ impl UiRouter {
         let targets = Targets::new(world, layout, self, &groups)?;
         self.modal_changed(targets.modal);
         let order = targets.order();
-        self.focus = self.focus.filter(|o| order.contains(o));
+        self.retain_focus(|o| order.contains(&o));
         let mut response = UiResponse {
             consumed: self.focus.is_some() || targets.modal.is_some(),
             actions: Vec::new(),
         };
+        if self.field_key(key, pressed, repeat, &mut response) {
+            return Ok(response);
+        }
         if !pressed {
             self.keys.remove(&key);
             return Ok(response);
@@ -66,6 +69,7 @@ impl UiRouter {
             (None, true) => order.len() - 1,
             (None, false) => 0,
         };
+        self.cancel_preedits();
         self.focus = Some(order[next]);
     }
     fn navigate_list(&self, order: &[TargetId], key: UiKey) -> Option<ObjectHandle> {

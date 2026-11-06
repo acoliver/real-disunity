@@ -5,9 +5,15 @@ using UnityEngine.Rendering;
 /// <summary>A pipeline asset derives from the generic RenderPipelineAsset of its pipeline, as a render pipeline package's does.</summary>
 internal static class RenderPipelineAssetTests
 {
-    private sealed class Pipeline : RenderPipeline { }
+    private sealed class Pipeline : RenderPipeline
+    {
+        protected override void Render(ScriptableRenderContext context, List<Camera> cameras) { }
+    }
 
-    private sealed class Asset : RenderPipelineAsset<Pipeline> { }
+    private sealed class Asset : RenderPipelineAsset<Pipeline>
+    {
+        protected override RenderPipeline CreatePipeline() => new Pipeline();
+    }
 
     public static void Run()
     {

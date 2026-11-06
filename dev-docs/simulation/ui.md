@@ -521,6 +521,9 @@ shared dynamic upload uses three vertices and three indices for these draws, wit
 the existing per-draw scissor and straight-alpha composition after tone mapping.
 As with graphic quads, a triangle uses its first vertex's colour. ABI revision 8
 copies this topology and all three UV pairs through the generated UI records.
+Managed `CanvasRenderer` meshes follow this same path through presentation export
+and `DisunityHost::ui_presentation`, including draw order, texture identity and clip
+bounds. The portable managed triangle fixture tests that round trip without a GPU.
 The live 2D sprite path represents triangles as degenerate quads; arbitrary
 per-vertex UV mapping is carried by the retained UI presentation path.
 

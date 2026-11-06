@@ -484,6 +484,9 @@ namespace Disunity.Native
         public uint clip_y;
         public uint clip_width;
         public uint clip_height;
+        /// <summary>
+        ///  Top-row-origin UV pairs in corner order for triangles; zero for quad graphics and text.
+        /// </summary>
         public float triangle_u0;
         public float triangle_v0;
         public float triangle_u1;

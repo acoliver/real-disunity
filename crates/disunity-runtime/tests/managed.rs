@@ -171,6 +171,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_player_meshes(&mut host, &root);
     assert_player_distance_field_atlas(&mut host, &root);
     assert_managed_overlay_order_and_clipping(&mut host, &root);
+    assert_managed_triangle_round_trip(&mut host, &root);
     assert_gpu_flush(&mut host, &root);
     assert_graphics_snapshot(&mut host, &root);
     host.run_slice(&fixture).unwrap();
@@ -660,4 +661,42 @@ fn assert_managed_overlay_order_and_clipping(host: &mut DisunityHost, root: &Pat
     assert!(ui.coverage.contains_key(&ui.draws[2].texture.unwrap()));
     host.unload_slice().unwrap();
     assert!(matches!(host.ui_presentation(), Err(HostError::NoWorld)));
+}
+
+fn assert_managed_triangle_round_trip(host: &mut DisunityHost, root: &Path) {
+    use worldrunner_world_simulation::ui::presentation::UiDrawKind;
+    host.run_slice(&root.join("csharp/PortableFixture/ui-triangle.fixture"))
+        .unwrap();
+    host.export_presentation([64, 64], 8).unwrap();
+    let ui = host.ui_presentation().unwrap();
+    assert_eq!(ui.draws.len(), 1, "the mesh exports one triangle");
+    let draw = &ui.draws[0];
+    assert_eq!(draw.kind, UiDrawKind::Graphic);
+    assert!(!draw.depth_test);
+    assert_eq!(
+        draw.triangle_uv,
+        Some([[0.125, 0.75], [0.375, 0.5], [0.625, 0.25]]),
+        "all per-vertex UVs cross the ABI in top-row-origin coordinates"
+    );
+    assert_eq!(
+        draw.corners,
+        [
+            [24., 28., 0.],
+            [40., 28., 0.],
+            [32., 44., 0.],
+            [32., 44., 0.]
+        ]
+    );
+    assert_eq!(draw.color, [0.25, 0.5, 0.75, 1.]);
+    assert_eq!(draw.uv_rect, [0.; 4]);
+    assert_eq!((draw.sorting_layer, draw.sorting_order), (0, -3));
+    assert_eq!(draw.hierarchy_order, 1);
+    assert_eq!(draw.clip_rect, [24, 28, 16, 16]);
+    let texture = host
+        .player_texture(draw.texture.unwrap(), 0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(texture.bytes, [255; 4]);
+    assert!(ui.coverage.is_empty());
+    host.unload_slice().unwrap();
 }

@@ -40,6 +40,7 @@ pub struct DisunityUiDraw {
     pub clip_y: u32,
     pub clip_width: u32,
     pub clip_height: u32,
+    /// Top-row-origin UV pairs in corner order for triangles; zero for quad graphics and text.
     pub triangle_u0: f32,
     pub triangle_v0: f32,
     pub triangle_u1: f32,

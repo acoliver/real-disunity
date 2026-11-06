@@ -68,6 +68,18 @@ internal static class RenderPipelineLifecycleTests
         Expect.That(ReferenceEquals(SupportedRenderingFeatures.active, replacement), "a pipeline's features replace the active set");
         Expect.Throws<ArgumentNullException>(() => SupportedRenderingFeatures.active = null!, "the active set cannot be null");
         SupportedRenderingFeatures.active = original;
+        var flags = typeof(SupportedRenderingFeatures).GetProperties().Where(p => p.PropertyType == typeof(bool) && !p.GetMethod!.IsStatic).ToArray();
+        Expect.That(flags.Length >= 19, "the flags a pipeline sets exist");
+        foreach (var flag in flags)
+        {
+            var features = new SupportedRenderingFeatures();
+            var offByDefault = flag.Name.StartsWith("overrides", StringComparison.Ordinal) || flag.Name == "rendersUIOverlay";
+            Expect.That((bool)flag.GetValue(features)! != offByDefault, $"{flag.Name} defaults to {!offByDefault}");
+            var before = flags.Select(other => (bool)other.GetValue(features)!).ToArray();
+            flag.SetValue(features, !before[Array.IndexOf(flags, flag)]);
+            var after = flags.Select(other => (bool)other.GetValue(features)!).ToArray();
+            Expect.That(after.Where((value, index) => value != before[index]).Count() == 1 && after[Array.IndexOf(flags, flag)] != before[Array.IndexOf(flags, flag)], $"{flag.Name} stores its own value");
+        }
     }
 
     private static int _created;

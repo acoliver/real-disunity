@@ -170,6 +170,7 @@ pub struct DisunityLight {
     pub use_color_temperature: u32,
     pub cookie_size: f32,
     pub lightmap_bake_type: u32,
+    pub shadow_resolution: i32,
 }
 
 #[repr(C)]

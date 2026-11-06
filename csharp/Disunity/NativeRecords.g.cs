@@ -210,7 +210,8 @@ namespace Disunity.Native
     /// <summary>
     ///  A light's settings. `kind` uses the managed `LightType` values (0 Spot, 1 Directional,
     ///  2 Point, 3 Rectangle, 4 Disc, 5 Pyramid, 6 Box, 7 Tube), `shadows` is 0 None, 1 Hard or 2 Soft,
-    ///  and `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime. The masks have one bit per layer,
+    ///  `lightmap_bake_type` is 1 Mixed, 2 Baked or 4 Realtime, and `shadow_resolution` is -1 for the
+    ///  quality settings' resolution or 0 (low) to 3 (very high). The masks have one bit per layer,
     ///  `cookie_texture` is a managed texture's instance id (0 for none) and booleans are 0 or 1.
     ///  A write brings the spot angles and shadow strength into range, as world-simulation defines.
     /// </summary>
@@ -240,6 +241,7 @@ namespace Disunity.Native
         public uint use_color_temperature;
         public float cookie_size;
         public uint lightmap_bake_type;
+        public int shadow_resolution;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -113,7 +113,7 @@ public interface IRenderPipelineResources : IRenderPipelineGraphicsSettings
 [Serializable]
 public class RenderPipelineGraphicsSettingsCollection
 {
-    [SerializeReference] private List<IRenderPipelineGraphicsSettings> m_SettingsList = new();
+    [SerializeReference] private List<IRenderPipelineGraphicsSettings> m_List = new();
 
-    public List<IRenderPipelineGraphicsSettings> settingsList => m_SettingsList;
+    public List<IRenderPipelineGraphicsSettings> settingsList => m_List;
 }

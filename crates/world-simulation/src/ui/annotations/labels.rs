@@ -77,16 +77,16 @@ pub(super) fn extract(
     let shift = anchor - min - alignment * (max - min);
     let size = text.atlas.size.as_vec2();
     let identity = plan.coverage.len() as u64;
-    for glyph in text.glyphs {
+    for glyph in &text.glyphs {
         plan.draws
-            .push(glyph_draw(&glyph, shift, size, run.color, identity));
+            .push(glyph_draw(glyph, shift, size, run.color, identity));
     }
     plan.coverage.insert(
         identity,
         CoverageTexture {
             width: text.atlas.size.x,
             height: text.atlas.size.y,
-            bytes: text.atlas.alpha.into_boxed_slice(),
+            bytes: text.atlas.alpha.clone(),
         },
     );
     Ok(())

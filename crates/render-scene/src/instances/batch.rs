@@ -99,6 +99,13 @@ impl InstanceBatch {
         self.content
     }
 
+    /// Drops every slot's cached bounds after the batch's mesh changed, and counts it as an
+    /// edit so a cached view selection is not reused.
+    pub fn forget_bounds(&mut self) {
+        *self.bounds.get_mut() = SlotBounds::default();
+        self.edits += 1;
+    }
+
     /// Scans all allocated slots, excluding removed slots from selection and
     /// statistics while retaining their storage for reuse.
     pub fn placements(&self) -> impl Iterator<Item = (usize, SceneObject, bool)> + '_ {

@@ -279,6 +279,8 @@ mod pixel_perfect {
                 label,
                 ComponentDesc::Text(TextRun {
                     text: "AV".into(),
+                    // Keep the snapping probe away from the rectangle's clip edges.
+                    horizontal: worldrunner_world_simulation::ui::HorizontalAlign::Center,
                     ..TextRun::new(font)
                 }),
             )

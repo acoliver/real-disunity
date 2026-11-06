@@ -1,5 +1,7 @@
 mod annotations;
+mod blend_tests;
 mod graphics;
+mod text_flow;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
     let width = image.viewport.width;
     let height = image.viewport.height;
@@ -38,7 +40,7 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
             corner[0] += offset.x - 16.;
             corner[1] += offset.y - 16.;
         }
-        ui.texts[0].texture.as_mut().unwrap().bytes.fill(255);
+        std::sync::Arc::make_mut(&mut ui.texts[0].texture.as_mut().unwrap().bytes).fill(255);
         apply(&mut run, ui.clone());
         assert_eq!(pixel(&capture(&mut run, &events).1, x, y), [255, 0, 0, 255]);
         let mut front = ui.texts[0].clone();
@@ -46,9 +48,9 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
         front.sorting_order = 1;
         ui.texts.push(front);
         apply(&mut run, ui);
-        assert_eq!(
+        assert_blended_within_one(
             pixel(&capture(&mut run, &events).1, x, y),
-            [188, 188, 0, 255]
+            [188, 188, 0, 255],
         );
         run.shutdown().unwrap();
     }
@@ -78,10 +80,11 @@ fn plan(color: [f32; 4]) -> UiRenderPlan {
                 worldrunner_world_simulation::presentation::CoverageTexture {
                     width: 2,
                     height: 2,
-                    bytes: vec![255, 0, 0, 255].into_boxed_slice(),
+                    bytes: vec![255, 0, 0, 255].into(),
                 },
             ),
             quads: vec![UiGlyphQuad {
+                color: [1.; 4],
                 corners: [[8., 8., 0.], [24., 8., 0.], [24., 24., 0.], [8., 24., 0.]],
                 uv: [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],
             }],
@@ -98,6 +101,16 @@ fn apply(run: &mut WindowlessRetained<'_>, plan: UiRenderPlan) {
 fn pixel(image: &RgbaImage, x: u32, y: u32) -> &[u8] {
     let index = ((image.viewport.height - 1 - y) * image.viewport.width + x) as usize * 4;
     &image.pixels[index..index + 4]
+}
+fn assert_blended_within_one(actual: &[u8], expected: [u8; 4]) {
+    assert_eq!(actual.len(), expected.len());
+    // Metal and lavapipe can round straight-alpha blending one byte apart.
+    for (channel, (&actual, expected)) in actual.iter().zip(expected).enumerate() {
+        assert!(
+            actual.abs_diff(expected) <= 1,
+            "blended channel {channel}: {actual} versus {expected}"
+        );
+    }
 }
 fn region(image: &RgbaImage, expected: [u8; 4]) {
     for y in 20..24 {

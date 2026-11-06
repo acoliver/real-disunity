@@ -2,7 +2,7 @@
 //! renderer cannot see managed memory, so the host reads them from here.
 use std::collections::BTreeMap;
 
-use crate::{DisunityResult, callbacks::mutate};
+use crate::{DisunityResult, callbacks::mutate, mesh_channels::StoredChannels};
 
 /// Player meshes take renderer identities from here up, above the player textures (which count up
 /// from 2^40), so the two ranges meet only after 2^40 textures; this is the engine's choice.
@@ -11,9 +11,9 @@ pub const FIRST_PLAYER_MESH: u64 = 1 << 41;
 /// The most vertices one stored mesh holds.
 const MAX_VERTICES: u32 = 1 << 24;
 /// The most indices one stored mesh holds.
-const MAX_INDICES: u32 = 1 << 26;
+pub(crate) const MAX_INDICES: u32 = 1 << 26;
 /// The most sub-meshes one stored mesh holds.
-const MAX_SUBMESHES: u32 = 1 << 12;
+pub(crate) const MAX_SUBMESHES: u32 = 1 << 12;
 
 /// Which attribute channels a stored mesh holds besides positions.
 pub const CHANNEL_NORMALS: u32 = 1;
@@ -81,6 +81,19 @@ pub(crate) struct StoredMesh {
     vertices: Vec<DisunityMeshVertex>,
     indices: Vec<u32>,
     submeshes: Vec<DisunityMeshSubMesh>,
+    /// Every channel and sub-mesh, stored after the fixed mesh by `disunity_mesh_channels_store`
+    /// and dropped when the fixed mesh is stored again.
+    pub(crate) channels: Option<StoredChannels>,
+}
+
+impl StoredMesh {
+    pub(crate) fn generation(&self) -> u64 {
+        self.info.generation
+    }
+
+    pub(crate) fn vertex_count(&self) -> u32 {
+        self.info.vertex_count
+    }
 }
 
 /// The meshes of one session, by renderer identity.
@@ -131,7 +144,7 @@ fn finite(v: &DisunityMeshVertex) -> bool {
 ///
 /// # Safety
 /// `pointer` is readable for `count` records.
-unsafe fn records<'a, T>(pointer: *const T, count: u32) -> Option<&'a [T]> {
+pub(crate) unsafe fn records<'a, T>(pointer: *const T, count: u32) -> Option<&'a [T]> {
     if count == 0 {
         Some(&[])
     } else if pointer.is_null() {
@@ -192,6 +205,7 @@ pub unsafe extern "C" fn disunity_mesh_store(
                 vertices: vertices.to_vec(),
                 indices: indices.to_vec(),
                 submeshes: submeshes.to_vec(),
+                channels: None,
             },
         );
         Ok(())
@@ -282,7 +296,7 @@ unsafe fn copy_out(
 
 /// # Safety
 /// `target` is writable for `source.len()` records, or null when that is zero.
-unsafe fn copy_records<T: Copy>(source: &[T], target: *mut T) {
+pub(crate) unsafe fn copy_records<T: Copy>(source: &[T], target: *mut T) {
     if !source.is_empty() {
         unsafe { std::ptr::copy_nonoverlapping(source.as_ptr(), target, source.len()) };
     }

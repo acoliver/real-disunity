@@ -40,7 +40,8 @@ internal static class GraphicsTests
     }
 
     /// <summary>The render texture overloads of SetRenderTarget work, and Blit, BlitMultiTap and CopyTexture
-    /// complete without drawing; GraphicsTargetTests and GraphicsBlitTests cover them.</summary>
+    /// record offscreen work or throw naming the overload; GraphicsTargetTests, GraphicsBlitTests and
+    /// WorldGraphicsTests cover them.</summary>
     private static bool DrawsNothingButSetsTheActiveTexture(MethodInfo method) =>
         (method.Name == "SetRenderTarget" && method.GetParameters()[0].ParameterType == typeof(RenderTexture))
         || method.Name is "Blit" or "BlitMultiTap" or "CopyTexture";

@@ -660,6 +660,9 @@ impl SceneResources {
 #[path = "resource_validation.rs"]
 mod validation;
 
+#[path = "resource_append.rs"]
+mod append;
+
 #[cfg(test)]
 #[path = "resource_tests.rs"]
 mod tests;

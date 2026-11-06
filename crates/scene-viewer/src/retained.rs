@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+pub(crate) mod accessibility;
 mod startup;
 mod timers;
 pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
@@ -163,6 +164,8 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    /// Route through `UiRouter::accessibility_action`, then handle its ordinary `UiAction`s.
+    Accessibility(worldrunner_world_simulation::ui::UiAccessRequest),
     /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
     WorkReady,
     /// A host timer expired, including during presentation pauses.
@@ -211,6 +214,7 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    pub(crate) accessibility: accessibility::Accessibility,
     picking: picking::Picking,
     work: work::WorkServices,
     timers: timers::Timers,

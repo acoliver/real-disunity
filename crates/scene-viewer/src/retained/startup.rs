@@ -45,6 +45,7 @@ impl RetainedHost {
             None => 0,
         };
         let mut host = Self {
+            accessibility: super::accessibility::Accessibility::default(),
             picking: super::picking::Picking::default(),
             work: super::work::WorkServices::default(),
             timers: super::timers::Timers::default(),

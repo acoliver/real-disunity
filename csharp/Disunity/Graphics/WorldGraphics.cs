@@ -12,7 +12,7 @@ namespace UnityEngine;
 /// only after something needs one (a renderer slot, a blit, a camera target), is sent whole then, and follows every
 /// later change. A resource belongs to one world, so one made for a world that was unloaded is made again.
 /// </summary>
-internal static unsafe class WorldGraphics
+internal static unsafe partial class WorldGraphics
 {
     internal const uint ScopeMaterial = 0, ScopeGlobal = 1, ScopeBlock = 2;
     private const uint TextureNone = 0, TextureAsset = 1, TextureRender = 2;

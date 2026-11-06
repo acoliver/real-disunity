@@ -5,21 +5,56 @@ using UnityEngine.Rendering;
 /// <summary>GraphicsSettings defaults, round trips, pipeline assets and the settings registries.</summary>
 internal static class GraphicsSettingsTests
 {
-    private sealed class PipelineAsset : RenderPipelineAsset { }
+    private sealed class PipelineAsset : RenderPipelineAsset
+    {
+        protected override RenderPipeline CreatePipeline() => new Pipeline();
+    }
 
-    private sealed class OtherAsset : RenderPipelineAsset { }
+    private sealed class OtherAsset : RenderPipelineAsset
+    {
+        protected override RenderPipeline CreatePipeline() => new Pipeline();
+    }
 
     private sealed class GlobalSettings : RenderPipelineGlobalSettings { }
 
-    private sealed class Pipeline : RenderPipeline { }
+    private sealed class Pipeline : RenderPipeline
+    {
+        protected override void Render(ScriptableRenderContext context, List<Camera> cameras) { }
+    }
 
-    private sealed class TypedAsset : RenderPipelineAsset<Pipeline> { }
+    private sealed class TypedAsset : RenderPipelineAsset<Pipeline>
+    {
+        protected override RenderPipeline CreatePipeline() => new Pipeline();
+    }
 
     private sealed class HoldingSettings : RenderPipelineGlobalSettings
     {
         [SerializeField] private RenderPipelineGraphicsSettingsCollection m_Settings = new();
 
         public RenderPipelineGraphicsSettingsCollection Collection => m_Settings;
+    }
+
+    private sealed class SettingsContainer
+    {
+        [SerializeField] private int m_Unrelated = 3;
+        [SerializeField] private RenderPipelineGraphicsSettingsCollection m_RuntimeSettings = new();
+
+        public int Unrelated => m_Unrelated;
+        public RenderPipelineGraphicsSettingsCollection Runtime => m_RuntimeSettings;
+    }
+
+    private sealed class ContainedSettings : RenderPipelineGlobalSettings
+    {
+        [SerializeField] private string m_Name = "contained";
+        [SerializeField] private SettingsContainer m_Settings = new();
+
+        public string Label => m_Name;
+        public SettingsContainer Container => m_Settings;
+    }
+
+    private sealed class ContainedGroup : IRenderPipelineGraphicsSettings
+    {
+        public int version => 1;
     }
 
     private sealed class LightingSettings : IRenderPipelineGraphicsSettings
@@ -48,6 +83,7 @@ internal static class GraphicsSettingsTests
             Pipelines();
             Registries();
             CurrentGlobalSettings();
+            GroupsInASettingsContainerAreFound();
         }
         finally
         {
@@ -183,6 +219,21 @@ internal static class GraphicsSettingsTests
         DisunityHost.SetRenderPipeline(typed, null);
         GraphicsSettings.UnregisterRenderPipelineSettings<Pipeline>();
         Expect.That(!GraphicsSettings.TryGetCurrentRenderPipelineGlobalSettings(out _), "unregistering the settings clears the current ones");
+        DisunityHost.SetRenderPipeline(null, null);
+    }
+
+    private static void GroupsInASettingsContainerAreFound()
+    {
+        var typed = ScriptableObject.CreateInstance<TypedAsset>();
+        DisunityHost.SetRenderPipeline(typed, null);
+        var settings = ScriptableObject.CreateInstance<ContainedSettings>();
+        Expect.That(settings.Label == "contained" && settings.Container.Unrelated == 3, "the settings asset holds a container");
+        Expect.That(GraphicsSettings.TrySetCurrentRenderPipelineGlobalSettings(settings), "the settings are set for the current pipeline");
+        Expect.That(GraphicsSettings.GetRenderPipelineSettings<ContainedGroup>() == null, "a container without the group has none");
+        var group = new ContainedGroup();
+        settings.Container.Runtime.settingsList.Add(group);
+        Expect.That(GraphicsSettings.GetRenderPipelineSettings<ContainedGroup>() == group, "a group in a collection the settings asset's container holds is found");
+        GraphicsSettings.UnregisterRenderPipelineSettings<Pipeline>();
         DisunityHost.SetRenderPipeline(null, null);
     }
 }

@@ -66,7 +66,8 @@ impl<'a> Session<'a> {
     }
 
     fn committed_key_text(&mut self, text: Option<&str>, pressed: bool) {
-        if !self.host.input_state.text.composing
+        if !self.host.command_modifier_held()
+            && !self.host.input_state.text.composing
             && let Some(input) = super::input::text::keyboard_text(text, pressed)
         {
             self.input(input);
@@ -204,6 +205,7 @@ impl Content for Session<'_> {
         let size = window.inner_size();
         let scale_factor = window.scale_factor();
         self.set_window_controls(window);
+        self.host.native_clipboard();
         self.host.apply_text_input_area();
         self.input(RetainedInput::DisplayChanged {
             scale_factor,

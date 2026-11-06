@@ -1,4 +1,6 @@
 #![cfg(feature = "ui")]
+#[path = "ui_text_field/pointer_clipboard.rs"]
+mod pointer_clipboard;
 mod ui_font;
 use glam::Vec2;
 use worldrunner_world_simulation::ui::*;

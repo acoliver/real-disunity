@@ -1,8 +1,8 @@
 //! Shaders that script fields and the resource container reference, as plan assets, and the
 //! shaders and materials a scene references (see [`crate::player_materials`]).
 //!
-//! A shader plans as its declared name, render queue and the counts of sub-shaders and of
-//! passes in the first sub-shader, and the serialized file and path id of the shader object. Its
+//! A shader plans as its declared name, render queue, the count of sub-shaders and the names of
+//! the passes in the first sub-shader, and the serialized file and path id of the shader object. Its
 //! programs are not planned: a host that draws with them reads them from that object. A shader
 //! that does not decode, or
 //! declares a queue the engine cannot read, plans as an error entry and a reference to it
@@ -30,6 +30,9 @@ pub(crate) struct ShaderDecl {
     pub(crate) name: String,
     pub(crate) render_queue: i32,
     pub(crate) pass_count: usize,
+    /// The names of the first sub-shader's passes in order, the empty string for a pass with
+    /// none; as many as `pass_count`.
+    pub(crate) pass_names: Vec<String>,
     pub(crate) subshader_count: usize,
     /// The serialized file the shader object lives in, relative to the player's data directory
     /// with `/` separators, and the object's path id there.
@@ -43,6 +46,7 @@ impl ShaderDecl {
             name: self.name,
             render_queue: self.render_queue,
             pass_count: self.pass_count,
+            pass_names: self.pass_names,
             subshader_count: self.subshader_count,
             file: self.file,
             path_id: self.path_id,
@@ -115,10 +119,14 @@ pub(crate) fn decode_shader(
         ));
     }
     let first = shader.parsed.sub_shaders.first();
+    let pass_names: Vec<String> = first.map_or_else(Vec::new, |sub| {
+        sub.passes.iter().map(|pass| pass.name.clone()).collect()
+    });
     Ok(ShaderDecl {
         name,
         render_queue: first.map_or(Ok(GEOMETRY_QUEUE), |sub| render_queue(&sub.tags))?,
-        pass_count: first.map_or(0, |sub| sub.passes.len()),
+        pass_count: pass_names.len(),
+        pass_names,
         subshader_count: shader.parsed.sub_shaders.len(),
         file: file_name(&files.data_dir, file),
         path_id: *path_id,

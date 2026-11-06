@@ -3,10 +3,13 @@ use super::{FontBook, TextRun, UiError, UiKey};
 use crate::TextInput;
 use std::ops::Range;
 mod drawing;
+mod metrics;
+pub(super) mod pointer;
 pub use drawing::TextFieldStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextReject {
+    Clipboard(super::ClipboardError),
     MaxLength,
     Font(UiError),
     InvalidPreedit,
@@ -14,6 +17,7 @@ pub enum TextReject {
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiTextField {
     run: TextRun,
+    metrics: metrics::FieldMetrics,
     max: usize,
     cursor: usize,
     anchor: usize,
@@ -33,6 +37,7 @@ impl UiTextField {
         fonts.validate_single_line(&run).map_err(TextReject::Font)?;
         let cursor = run.text.len();
         Ok(Self {
+            metrics: metrics::FieldMetrics::new(fonts, &run).map_err(TextReject::Font)?,
             run,
             max,
             cursor,

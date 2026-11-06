@@ -94,22 +94,8 @@ impl FontBook {
         }
         Ok(())
     }
-    pub(super) fn text_positions(&self, run: &TextRun) -> Result<Vec<f32>, UiError> {
-        use ab_glyph::{Font, ScaleFont};
-        self.validate_single_line(run)?;
-        let font = &self.fonts[&run.font];
-        let scaled = font.as_scaled(super::text::scale(font, run.font_size)?);
-        let mut positions = vec![0.];
-        let mut previous = None;
-        let mut x = 0.;
-        for c in run.text.chars() {
-            let id = scaled.glyph_id(c);
-            x += previous.map_or(0., |p| scaled.kern(p, id));
-            x += scaled.h_advance(id);
-            positions.push(x);
-            previous = Some(id);
-        }
-        Ok(positions)
+    pub(super) fn field_font(&self, id: FontId) -> Result<FontArc, UiError> {
+        self.fonts.get(&id).cloned().ok_or(UiError::MissingFont(id))
     }
     pub fn cache_stats(&self) -> TextCacheStats {
         self.cache.lock().expect("text cache lock").stats

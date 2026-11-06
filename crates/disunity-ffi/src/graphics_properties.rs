@@ -68,7 +68,7 @@ pub(crate) fn texture_parts(texture: &TextureRef) -> (u32, u64) {
 }
 
 impl DisunityTextureSlot {
-    fn to_native(self) -> Result<TextureSlot, AbiError> {
+    pub(crate) fn to_native(self) -> Result<TextureSlot, AbiError> {
         Ok(TextureSlot {
             texture: texture_ref(self.kind, self.texture)?,
             scale: [self.scale_x, self.scale_y],

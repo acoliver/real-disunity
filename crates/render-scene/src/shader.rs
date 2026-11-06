@@ -13,19 +13,49 @@
 // material. concat! keeps this a compile-time constant, so nothing here can
 // reach the filesystem.
 
+// Expand shared evaluation tails without changing the forward shader source;
+// preparation wrappers change rendered bytes on Metal.
+macro_rules! environment_wgsl {
+    ($prefix:literal) => {
+        concat!(
+            include_str!(concat!($prefix, "normal_forward.wgsl")),
+            include_str!(concat!($prefix, "normal_sample.wgsl")),
+            include_str!(concat!($prefix, "environment.wgsl")),
+        )
+    };
+}
+macro_rules! decals_wgsl {
+    ($prefix:literal) => {
+        concat!(
+            include_str!(concat!($prefix, "decals.wgsl")),
+            include_str!(concat!($prefix, "decals_sample.wgsl")),
+        )
+    };
+}
+macro_rules! impostor_wgsl {
+    ($prefix:literal) => {
+        concat!(
+            include_str!(concat!($prefix, "impostor.wgsl")),
+            include_str!(concat!($prefix, "surface_sample.wgsl")),
+            include_str!(concat!($prefix, "impostor_end.wgsl")),
+        )
+    };
+}
+pub(crate) use {decals_wgsl, environment_wgsl, impostor_wgsl};
+
 /// WGSL source for governed environment geometry.
 pub const ENVIRONMENT_WGSL: &str = concat!(
     worldrunner_render_lighting::lighting_wgsl!(),
     worldrunner_render_post::post_wgsl!(),
     include_str!("shader/lighting.wgsl"),
     include_str!("shader/ambient_visibility.wgsl"),
-    include_str!("shader/decals.wgsl"),
+    decals_wgsl!("shader/"),
     include_str!("shader/camera_rays.wgsl"),
     include_str!("shader/unshadowed.wgsl"),
     include_str!("shader/geometry.wgsl"),
     include_str!("shader/foliage.wgsl"),
-    include_str!("shader/impostor.wgsl"),
-    include_str!("shader/environment.wgsl")
+    impostor_wgsl!("shader/"),
+    environment_wgsl!("shader/")
 );
 
 /// WGSL source for the per-fragment terrain splat blend.
@@ -34,7 +64,7 @@ pub const TERRAIN_WGSL: &str = concat!(
     worldrunner_render_post::post_wgsl!(),
     include_str!("shader/lighting.wgsl"),
     include_str!("shader/ambient_visibility.wgsl"),
-    include_str!("shader/decals.wgsl"),
+    decals_wgsl!("shader/"),
     include_str!("shader/camera_rays.wgsl"),
     include_str!("shader/unshadowed.wgsl"),
     include_str!("shader/terrain.wgsl")

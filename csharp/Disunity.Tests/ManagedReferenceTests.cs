@@ -46,7 +46,7 @@ internal static class ManagedReferenceTests
         PlanHarness.Asset[] assets =
         [
             new(typeof(Holder), "holder",
-                "{\"settings\": {\"m_SettingsList\": [" + Value(typeof(Group), "{\"size\": \"5\"}") + ", null, "
+                "{\"settings\": {\"m_List\": [" + Value(typeof(Group), "{\"size\": \"5\"}") + ", null, "
                 + Value(typeof(ResourceGroup), "{\"size\": \"7\", \"label\": \"r\"}") + "]}, \"single\": " + Value(typeof(ResourceGroup), "{}") + "}"),
             new(typeof(Holder), "abstract", "{\"single\": " + Value(typeof(AbstractGroup), "{}") + "}"),
             new(typeof(Holder), "unrelated", "{\"single\": " + Value(typeof(Unrelated), "{}") + "}"),

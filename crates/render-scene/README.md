@@ -168,8 +168,15 @@ uses mutually exclusive explicit-gradient and explicit-level-zero branches accor
 to the atlas policy. Gradients include the material mip bias; clamped UVs and
 per-texture insets determine each footprint. CPU Naga-IR tests bound reconstruction
 calls and require blended level-zero samples to exclude the gradient branch.
-Coverage is resolved after shading, and relief depth before discard, so normal
-frames and atlas derivatives retain their complete fragment quad.
+Forward coverage is resolved after shading. Metadata captures atlas footprints,
+normal frames and decal position gradients with the complete fragment quad, then
+samples albedo once and rejects alpha, distance-fade and invisible relief fragments.
+Only survivors sample normal and surface maps or traverse decal volumes. All samples
+after metadata rejection use explicit gradients or levels; relief depth is reconstructed
+before rejection and reused by shading and depth output. Normal, surface-channel
+and decal evaluation expand from shared source bodies. Preparation and prepared
+evaluation declarations belong only to metadata assembly; forward source bytes
+remain unchanged because preparation wrappers change rendered bytes on Metal.
 
 Surface and impostor materials specialize `SCENE_IMPOSTOR` independently of alpha
 coverage. Surface variants exclude atlas selection and relief sampling at compilation,

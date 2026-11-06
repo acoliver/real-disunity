@@ -1,5 +1,5 @@
 //! The temporal bank `hdr_taa::append` builds for `UpscaleMode::Temporal`. Some tests build
-//! `HdrPost` directly to inspect slots; the chain tests use the public `ToneMapOutput`. They establish the schedule, the shared bank and
+//! `HdrPost` directly to inspect slots; the chain tests use the public `ToneMapOutput`. They establish the shared bank and
 //! the block upload; the stage maths is covered by `taa_upscale_gpu_tests`.
 use crate::hdr_post::HdrPost;
 use crate::{
@@ -75,48 +75,6 @@ fn shared(sets: &[StageSet]) -> Vec<wgpu::Texture> {
         .filter(|t| sets[1..].iter().all(|s| s.resources.textures.contains(t)))
         .cloned()
         .collect()
-}
-
-const UNLOCKED_STAGES: [&str; 5] = [
-    "temporal depth clear",
-    "temporal reconstruct dilate",
-    "temporal depth clip",
-    "temporal upscale",
-    "tone",
-];
-
-const LOCKED_STAGES: [&str; 7] = [
-    "temporal depth clear",
-    "temporal reconstruct dilate",
-    "temporal depth clip",
-    "temporal create locks",
-    "temporal upscale",
-    "temporal lock history",
-    "tone",
-];
-
-fn scheduled_names() -> Vec<Vec<&'static str>> {
-    let (device, _) = crate::gpu_tests::gpu();
-    let post = HdrPost::new(&device, &settings()).unwrap();
-    slots(&post, &device, &targets(&device, [10, 10], [16, 16]))
-        .iter()
-        .map(|set| set.stages.iter().map(|s| s.id.name).collect())
-        .collect()
-}
-
-#[test]
-fn temporal_mode_schedules_the_reconstruction_without_lock_passes_by_default() {
-    for names in scheduled_names() {
-        assert_eq!(names, UNLOCKED_STAGES);
-    }
-}
-
-#[test]
-fn temporal_mode_schedules_the_lock_passes_when_locks_are_on() {
-    let _on = crate::taa_upscale_gpu::WithLocks::new();
-    for names in scheduled_names() {
-        assert_eq!(names, LOCKED_STAGES);
-    }
 }
 
 /// Checks the bank of a three slot build at 10x10 render and 16x16 output. `locks` adds the

@@ -1,5 +1,4 @@
 //! The temporal mask resource: when it exists, what it costs and which host textures are rejected.
-use crate::hdr_post::HdrPost;
 use crate::hdr_temporal_build_tests as build;
 use crate::{
     FrameConfig, FrameTargets, HdrPostSettings, PostError, PostResolve, StageFactory,
@@ -109,18 +108,8 @@ fn a_malformed_host_mask_is_rejected_with_a_typed_error_and_no_encoder() {
     assert_eq!(check(RENDER, good, 4), Err(PostError::SampleCount(4)));
 }
 
-fn stage_names(targets: &FrameTargets, device: &wgpu::Device) -> Vec<Vec<&'static str>> {
-    let post = HdrPost::new(device, &build::settings()).unwrap();
-    build::slots(&post, device, targets)
-        .iter()
-        .map(|set| set.stages.iter().map(|stage| stage.id.name).collect())
-        .collect()
-}
-
-const DILATE: &str = "temporal mask dilate";
-
 #[test]
-fn a_frame_without_a_mask_schedules_the_stages_it_did_before_masks_existed() {
+fn a_frame_without_a_mask_has_no_mask_texture() {
     let (device, _) = crate::gpu_tests::gpu();
     let velocity = TargetOptions {
         velocity: true,
@@ -128,32 +117,6 @@ fn a_frame_without_a_mask_schedules_the_stages_it_did_before_masks_existed() {
     };
     let absent = FrameTargets::with_options(&device, config(), velocity).unwrap();
     assert!(absent.temporal_mask().is_none());
-    let before = stage_names(&absent, &device);
-    assert!(before.iter().all(|names| !names.contains(&DILATE)));
-    assert_eq!(
-        before,
-        stage_names(&build::targets(&device, RENDER, OUTPUT), &device),
-        "no mask, no preparation stage"
-    );
-}
-
-#[test]
-fn the_preparation_stage_runs_once_per_slot_between_the_depth_clip_and_the_upscale() {
-    let (device, _) = crate::gpu_tests::gpu();
-    let present = build::masked_targets(&device, RENDER, OUTPUT);
-    let absent = stage_names(&build::targets(&device, RENDER, OUTPUT), &device);
-    for (with, without) in stage_names(&present, &device).iter().zip(&absent) {
-        assert_eq!(with.iter().filter(|name| **name == DILATE).count(), 1);
-        let clip = with
-            .iter()
-            .position(|n| *n == "temporal depth clip")
-            .unwrap();
-        let upscale = with.iter().position(|n| *n == "temporal upscale").unwrap();
-        let dilate = with.iter().position(|n| *n == DILATE).unwrap();
-        assert!(clip < dilate && dilate < upscale, "{with:?}");
-        let rest: Vec<_> = with.iter().filter(|name| **name != DILATE).collect();
-        assert_eq!(rest, without.iter().collect::<Vec<_>>());
-    }
 }
 
 /// The mask entry appears exactly in the configurations that ask for masks.

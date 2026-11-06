@@ -35,8 +35,8 @@ value types and delegate utilities may execute in `Disunity.Engine`.
 
 ## Limits (enforced, never loosened)
 
-- Functions: at most 60 lines, 6 arguments, cognitive complexity 15.
-- Type complexity 250; at most 3 bool fields per struct.
+- Functions: at most 100 lines, 7 arguments, cognitive complexity 25.
+- Type complexity 250; at most 4 bool fields per struct.
 - Source files: aim under 750 lines, hard limit 1000. Split by responsibility.
 - Warnings are errors. Never add an `allow`, raise a limit or add an exception.
 

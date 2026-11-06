@@ -105,6 +105,9 @@ fn zero_extent_and_restored_resize_are_delivered_without_frames() {
                 physical_size: [0, 0]
             }),
             RetainedEvent::Input(RetainedInput::Resized([0, 0])),
+            RetainedEvent::AudioStatusChanged {
+                status: crate::AudioStatus::Unavailable(crate::AudioUnavailable::NullDevice),
+            },
             RetainedEvent::Input(RetainedInput::DisplayChanged {
                 scale_factor: 1.,
                 physical_size: [32, 48]

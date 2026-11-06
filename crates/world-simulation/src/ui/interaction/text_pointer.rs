@@ -26,7 +26,10 @@ impl UiRouter {
     pub(super) fn pointer_field(&mut self, layout: &UiLayout, pressed: bool) {
         let Some(object) = self
             .capture
-            .filter(|o| self.controls[o].kind == UiControlKind::TextField)
+            .filter(|o| {
+                o.link.is_none() && self.controls[&o.object].kind == UiControlKind::TextField
+            })
+            .map(|o| o.object)
         else {
             if pressed {
                 self.text_clicks.last = None;

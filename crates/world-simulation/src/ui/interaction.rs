@@ -1,10 +1,12 @@
 //! Typed native controls attached to existing world object identities.
-use super::{TextReject, UiLayoutRules, group::groups_by_object};
+use super::{FontBook, TextReject, UiLayoutRules, UiLinkId, group::groups_by_object};
 use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 mod accessibility;
 mod clipboard;
 mod keyboard;
+mod links;
 mod semantic_tree;
 mod semantics;
 pub use semantics::*;
@@ -23,6 +25,7 @@ pub(super) use targets::contains;
 pub enum UiControlKind {
     Button,
     TextField,
+    Text,
     Slider(UiSlider),
     Toggle { on: bool },
     Choice { group: ObjectHandle, index: usize },
@@ -38,6 +41,13 @@ impl UiControl {
         Self {
             enabled: true,
             kind: UiControlKind::TextField,
+        }
+    }
+    /// Exposes only the linked glyph spans, not the enclosing paragraph rectangle.
+    pub fn text() -> Self {
+        Self {
+            enabled: true,
+            kind: UiControlKind::Text,
         }
     }
     pub fn slider(slider: UiSlider) -> Self {
@@ -86,6 +96,10 @@ pub enum UiAction {
         control: ObjectHandle,
         reason: TextReject,
     },
+    LinkActivated {
+        control: ObjectHandle,
+        link: UiLinkId,
+    },
     ValueChanged {
         control: ObjectHandle,
         value: f64,
@@ -132,6 +146,17 @@ pub enum UiKey {
     End,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct TargetId {
+    object: ObjectHandle,
+    link: Option<UiLinkId>,
+}
+impl From<ObjectHandle> for TargetId {
+    fn from(object: ObjectHandle) -> Self {
+        Self { object, link: None }
+    }
+}
+
 /// A caller-owned interaction session over one world's object handles. Controls and modal roots
 /// are explicit registrations; removing a registration disables its outstanding capture.
 #[derive(Default)]
@@ -143,27 +168,40 @@ pub struct UiRouter {
     pub styles: BTreeMap<ObjectHandle, UiStyle>,
     pub text_fields: BTreeMap<ObjectHandle, super::UiTextField>,
     text_clicks: text_pointer::TextClicks,
+    pub link_styles: BTreeMap<(ObjectHandle, UiLinkId), UiStyle>,
+    fonts: Option<Arc<FontBook>>,
     pub semantics: BTreeMap<ObjectHandle, UiSemantics>,
     semantic_previous: Option<UiSemanticTree>,
     semantic_live: BTreeMap<ObjectHandle, String>,
     position: Option<[f64; 2]>,
-    capture: Option<ObjectHandle>,
+    capture: Option<TargetId>,
     primary_held: bool,
-    focus: Option<ObjectHandle>,
+    focus: Option<TargetId>,
     keys: BTreeSet<UiKey>,
     choices: BTreeMap<ObjectHandle, usize>,
-    modal_focus: Vec<(ObjectHandle, Option<ObjectHandle>)>,
+    modal_focus: Vec<(ObjectHandle, Option<TargetId>)>,
 }
 impl UiRouter {
-    fn retain_focus(&mut self, eligible: impl Fn(ObjectHandle) -> bool) {
+    fn retain_focus(&mut self, eligible: impl Fn(TargetId) -> bool) {
         let old = self.focus;
         self.focus = self.focus.filter(|o| eligible(*o));
         if old != self.focus {
             self.cancel_preedits();
         }
     }
+    /// Shares the same cached text geometry used by UI extraction.
+    pub fn with_fonts(fonts: Arc<FontBook>) -> Self {
+        Self {
+            fonts: Some(fonts),
+            ..Self::default()
+        }
+    }
+    pub fn focused_link(&self) -> Option<(ObjectHandle, UiLinkId)> {
+        let target = self.focus?;
+        Some((target.object, target.link?))
+    }
     pub fn focused(&self) -> Option<ObjectHandle> {
-        self.focus
+        self.focus.map(|t| t.object)
     }
     pub fn selected(&self, group: ObjectHandle) -> Option<usize> {
         self.choices.get(&group).copied()
@@ -195,14 +233,23 @@ impl UiRouter {
         self.keys.clear();
         self.modal_focus.clear();
     }
-    fn activate(&mut self, object: ObjectHandle) -> Option<UiAction> {
+    fn activate(&mut self, target: TargetId) -> Option<UiAction> {
+        let object = target.object;
+        if let Some(link) = target.link {
+            return Some(UiAction::LinkActivated {
+                control: object,
+                link,
+            });
+        }
         let kind = &mut self
             .controls
             .get_mut(&object)
             .expect("registered control")
             .kind;
         let action = match *kind {
-            UiControlKind::Slider(_) | UiControlKind::TextField => return None,
+            UiControlKind::Text | UiControlKind::TextField | UiControlKind::Slider(_) => {
+                return None;
+            }
             UiControlKind::Toggle { on } => {
                 *kind = UiControlKind::Toggle { on: !on };
                 UiAction::Toggled {

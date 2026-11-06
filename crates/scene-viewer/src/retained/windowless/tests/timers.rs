@@ -16,7 +16,13 @@ fn timers_advance_deterministically_before_frames_and_during_zero_size_polls() {
         run.poll().unwrap();
     }
     assert_eq!(run.host().timer_now(), start);
-    assert!(events.borrow().is_empty());
+    assert_eq!(
+        *events.borrow(),
+        [RetainedEvent::AudioStatusChanged {
+            status: crate::AudioStatus::Unavailable(crate::AudioUnavailable::NullDevice),
+        }]
+    );
+    events.borrow_mut().clear();
     run.advance_time(Duration::from_millis(10)).unwrap();
     assert!(events.borrow().is_empty());
     assert!(run.frame().unwrap());

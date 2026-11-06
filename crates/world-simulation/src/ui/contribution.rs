@@ -3,18 +3,21 @@
 //! vertices are pixels, other vertices use the native world basis. Rendering
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
-mod clip;
+pub(super) mod clip;
 mod glyph;
+mod underline;
 
+use super::text_geometry::snap_offset;
 use crate::presentation::CoverageTexture as SceneTexture;
 use crate::presentation::extraction::{camera_admits, selected_camera};
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::ui::{Canvas, CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
-use glam::{Vec2, Vec3};
+use glam::Vec2;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiGlyphQuad {
+    pub link: Option<crate::ui::UiLinkId>,
     /// Bottom-left, bottom-right, top-right, top-left.
     pub corners: [[f32; 3]; 4],
     /// Normalized UVs in matching order; atlas rows start at the top.
@@ -41,6 +44,7 @@ pub struct UiTextContribution {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiGraphicContribution {
+    pub link: Option<crate::ui::UiLinkId>,
     pub graphic: crate::ui::UiGraphic,
     pub hierarchy_order: usize,
     /// Lower-left pixel clip bounds: x, y, width, height.
@@ -71,6 +75,7 @@ pub fn extract_ui_layout(
 ) -> Result<UiRenderPlan, WorldError> {
     let roots = super::graphics::root_canvases(world)?;
     let mut texts = Vec::new();
+    let mut underlines = Vec::new();
     let mut budget = FrameBudget::default();
     let groups = groups_by_object(world.published_components());
     let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
@@ -85,13 +90,7 @@ pub fn extract_ui_layout(
             validate_hidden_text(world, component.object)?;
             continue;
         };
-        let canvas = world
-            .published_components()
-            .find_map(|c| match c.desc {
-                ComponentDesc::Canvas(canvas) if c.object == rect.canvas => Some(canvas),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let canvas = super::text_geometry::canvas(world, rect.canvas);
         let overlay = rect.mode == CanvasMode::ScreenSpaceOverlay;
         if !overlay && !camera_admits(world, camera, component.object)? {
             continue;
@@ -104,12 +103,29 @@ pub fn extract_ui_layout(
         )?;
         let mut color = run.color;
         color[3] *= effective_alpha(world, &groups, component.object)?;
+        let clip = clip::text_clip(clip::screen_clip(world, &layout, rect, &roots), rect);
+        underlines.extend(underline::contributions(
+            rect,
+            &text,
+            snap_offset(&text, rect, canvas),
+            run.font_size,
+            color,
+            clip,
+        ));
         let mut text = contribution(rect, &text, overlay, color, canvas);
-        text.clip_rect = clip::text_clip(clip::screen_clip(world, &layout, rect, &roots), rect);
+        text.clip_rect = clip;
         texts.push(text);
     }
     texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.hierarchy_order));
-    let graphics = graphics(world, &layout, &roots)?;
+    let mut graphics = graphics(world, &layout, &roots)?;
+    graphics.extend(underlines);
+    graphics.sort_by_key(|c| {
+        (
+            c.graphic.sorting_layer,
+            c.graphic.sorting_order,
+            c.hierarchy_order,
+        )
+    });
     Ok(UiRenderPlan {
         layout,
         texts,
@@ -153,25 +169,6 @@ pub(super) fn contribution(
         texture,
         quads,
     }
-}
-
-/// Snap the first glyph's top-left before local clipping, keeping the shared offset from
-/// moving clipped edges outside a rotated rectangle.
-fn snap_offset(text: &TextLayout, rect: &RectLayout, canvas: Canvas) -> Vec2 {
-    let Some(pixels) = rect.pixels_from_world.filter(|_| canvas.pixel_perfect) else {
-        return Vec2::ZERO;
-    };
-    let Some(first) = text.glyphs.first() else {
-        return Vec2::ZERO;
-    };
-    let matrix = pixels * rect.local_to_world;
-    if matrix.determinant() == 0. {
-        return Vec2::ZERO;
-    }
-    let corner = Vec2::new(first.rect_min.x, first.rect_max.y) - rect.pivot * rect.size;
-    let screen = matrix.transform_point3(corner.extend(0.));
-    let offset = (screen.round() - screen) * Vec3::new(1., 1., 0.);
-    matrix.inverse().transform_vector3(offset).truncate()
 }
 
 fn validate_hidden_text(world: &World, object: ObjectHandle) -> Result<(), WorldError> {
@@ -232,6 +229,7 @@ fn graphics(
                 .rect(graphic.object)
                 .expect("extracted graphic rectangle");
             Ok(UiGraphicContribution {
+                link: None,
                 hierarchy_order: rect.draw_order().2,
                 clip_rect: clip::screen_clip(world, layout, rect, roots),
                 graphic,

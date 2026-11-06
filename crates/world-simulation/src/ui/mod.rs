@@ -33,6 +33,7 @@ mod sdf;
 mod text;
 mod text_cache;
 mod text_field;
+mod text_geometry;
 pub use text_cache::TextCacheStats;
 pub use text_field::{TextFieldStyle, TextReject, UiTextField};
 mod wrap;
@@ -51,7 +52,7 @@ pub use layout::{RectExtent, RectLayout, UiLayout};
 pub use renderer::{CanvasRenderer, CanvasRendererFlags, MAX_CANVAS_MATERIALS, inherited_alpha};
 pub use text::{
     GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun, TextSpan,
-    VerticalAlign, VerticalOverflow,
+    UiLinkId, VerticalAlign, VerticalOverflow,
 };
 
 pub use crate::{FontId, UiError};

@@ -502,7 +502,7 @@ internal static class ShaderMaterialTests
         Ensure(!material.GetShaderPassEnabled("ShadowCaster") && material.GetShaderPassEnabled("Other"), "a pass can be disabled");
         material.SetShaderPassEnabled("ShadowCaster", true);
         Ensure(material.GetShaderPassEnabled("ShadowCaster"), "and enabled again");
-        NotSupported(() => material.SetPass(0), "SetPass", "Material.SetPass");
+        NotSupported(() => material.SetPass(0), "SetPass of a shader without a pass count", "Shader.passCount");
         NotSupported(() => material.FindPass("Forward"), "FindPass", "Material.FindPass");
         NotSupported(() => material.GetPassName(0), "GetPassName", "Material.GetPassName");
         var obsolete = typeof(Material);

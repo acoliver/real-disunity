@@ -5,10 +5,15 @@ use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObjec
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 pub(crate) mod accessibility;
+mod audio;
 mod clipboard;
 #[cfg(test)]
 mod clipboard_tests;
 mod startup;
+pub use audio::{
+    AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
+    AudioUnavailable, ClipHandle, VoiceHandle,
+};
 mod timers;
 #[cfg(test)]
 #[path = "../../world-simulation/tests/ui_font/mod.rs"]
@@ -176,6 +181,12 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    AudioFinished {
+        voice: VoiceHandle,
+    },
+    AudioStatusChanged {
+        status: AudioStatus,
+    },
     /// Route through `UiRouter::accessibility_action`, then handle its ordinary `UiAction`s.
     Accessibility(worldrunner_world_simulation::ui::UiAccessRequest),
     /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
@@ -231,6 +242,7 @@ pub struct RetainedHost {
     picking: picking::Picking,
     work: work::WorkServices,
     timers: timers::Timers,
+    audio: AudioService,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,

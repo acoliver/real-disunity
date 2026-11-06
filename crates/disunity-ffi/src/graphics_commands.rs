@@ -52,7 +52,7 @@ pub struct DisunityTargetRef {
 }
 
 impl DisunityTargetRef {
-    fn to_native(self) -> Result<TargetRef, AbiError> {
+    pub(crate) fn to_native(self) -> Result<TargetRef, AbiError> {
         match (self.kind, self.name_id, self.render) {
             (TARGET_RENDER, 0, id) if id != 0 => {
                 Ok(TargetRef::Render(RenderTextureId::from_bits(id)))

@@ -3,7 +3,9 @@
 use worldrunner_disunity_ffi::{
     abi::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*, sprites::*,
 };
-use worldrunner_world_simulation::graphics::{OffscreenWork, snapshot_wire::decode_work};
+use worldrunner_world_simulation::graphics::{
+    OffscreenWork, TargetRef, snapshot_wire::decode_work,
+};
 
 fn new_world() -> u64 {
     let mut world = 0;
@@ -92,6 +94,134 @@ fn a_culling_result_is_forwarded_with_its_planes() {
         panic!("expected a culling result");
     };
     assert_eq!((*id, planes.len()), (6, 0));
+    unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
+}
+
+fn target(kind: u32, name_id: i32, render: u64) -> DisunityTargetRef {
+    DisunityTargetRef {
+        kind,
+        name_id,
+        render,
+    }
+}
+
+#[test]
+fn a_camera_setup_is_forwarded_with_its_matrices_and_target() {
+    let world = new_world();
+    let camera = camera(world);
+    let view: [f32; 16] = std::array::from_fn(|i| i as f32 - 3.5);
+    let projection: [f32; 16] = std::array::from_fn(|i| 0.25 * i as f32);
+    unsafe {
+        assert_eq!(
+            disunity_offscreen_setup_camera(
+                world,
+                camera,
+                view.as_ptr(),
+                projection.as_ptr(),
+                &target(1, -9, 0)
+            )
+            .code,
+            0
+        );
+        assert_eq!(
+            disunity_offscreen_setup_camera(
+                world,
+                camera,
+                view.as_ptr(),
+                projection.as_ptr(),
+                &target(2, 0, 0)
+            )
+            .code,
+            0
+        );
+    }
+    let taken = take(world);
+    assert_eq!(taken.len(), 2);
+    assert_eq!(taken[0].0.kind, KIND_SETUP_CAMERA);
+    assert_ne!(taken[0].0.bindings, 0);
+    let OffscreenWork::SetupCamera {
+        view: got_view,
+        projection: got_projection,
+        target: got_target,
+        ..
+    } = &taken[0].1
+    else {
+        panic!("expected a camera setup, got {:?}", taken[0].1);
+    };
+    assert_eq!((got_view, got_projection), (&view, &projection));
+    assert_eq!(*got_target, TargetRef::Temporary(-9));
+    assert!(matches!(
+        taken[1].1,
+        OffscreenWork::SetupCamera {
+            target: TargetRef::CameraTarget,
+            ..
+        }
+    ));
+    unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
+}
+
+#[test]
+fn a_camera_setup_with_bad_arguments_is_refused_and_records_nothing() {
+    let world = new_world();
+    let camera = camera(world);
+    let good = [0.0_f32; 16];
+    let mut nan = good;
+    nan[3] = f32::NAN;
+    let none = target(3, 0, 0);
+    unsafe {
+        rejected(
+            disunity_offscreen_setup_camera(world, camera, std::ptr::null(), good.as_ptr(), &none)
+                .code,
+        );
+        rejected(
+            disunity_offscreen_setup_camera(world, camera, good.as_ptr(), std::ptr::null(), &none)
+                .code,
+        );
+        rejected(
+            disunity_offscreen_setup_camera(
+                world,
+                camera,
+                good.as_ptr(),
+                good.as_ptr(),
+                std::ptr::null(),
+            )
+            .code,
+        );
+        rejected(
+            disunity_offscreen_setup_camera(
+                world,
+                camera + 999,
+                good.as_ptr(),
+                good.as_ptr(),
+                &none,
+            )
+            .code,
+        );
+        rejected(
+            disunity_offscreen_setup_camera(world, camera, nan.as_ptr(), good.as_ptr(), &none).code,
+        );
+        rejected(
+            disunity_offscreen_setup_camera(
+                world,
+                camera,
+                good.as_ptr(),
+                good.as_ptr(),
+                &target(9, 0, 0),
+            )
+            .code,
+        );
+        rejected(
+            disunity_offscreen_setup_camera(
+                world,
+                camera,
+                good.as_ptr(),
+                good.as_ptr(),
+                &target(0, 0, 77),
+            )
+            .code,
+        );
+    }
+    assert_eq!(take(world).len(), 0);
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }
 

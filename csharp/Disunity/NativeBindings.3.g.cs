@@ -126,6 +126,15 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_cull", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_cull(ulong world, ulong id, ulong camera, uint culling_mask, float* planes, uint plane_count, uint options);
         /// <summary>
+        ///  Records that draws from here use the view and projection of `camera` (16 floats each,
+        ///  column-major) and go to `target`.
+        ///
+        ///  # Safety
+        ///  `view` and `projection` are readable for 16 floats; `target` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_setup_camera", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_setup_camera(ulong world, ulong camera, float* view, float* projection, DisunityTargetRef* target);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety

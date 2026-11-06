@@ -77,7 +77,7 @@ pub(crate) fn snapshot_feature(
         return Ok((request, None));
     }
     let (config, frame, slot) = input;
-    if config.format != wgpu::TextureFormat::Rgba16Float {
+    if request.color && config.format != wgpu::TextureFormat::Rgba16Float {
         return Err(FrameError::UnsupportedEffect("snapshots require HDR"));
     }
     let (passes, views) = plan;

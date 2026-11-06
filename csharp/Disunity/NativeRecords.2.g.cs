@@ -484,6 +484,9 @@ namespace Disunity.Native
         public uint clip_y;
         public uint clip_width;
         public uint clip_height;
+        /// <summary>
+        ///  Top-row-origin UV pairs for kind 2, in corner order; zero for kinds 0 and 1.
+        /// </summary>
         public float triangle_u0;
         public float triangle_v0;
         public float triangle_u1;

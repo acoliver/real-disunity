@@ -36,8 +36,12 @@ fn triangle_copy_out_keeps_uvs_topology_clip_and_draw_order() {
     );
     assert_eq!(meta.kind, 2);
     assert_eq!(
-        [meta.triangle_u0.to_bits(), meta.triangle_v2.to_bits()],
-        [0.1f32.to_bits(), 0.6f32.to_bits()]
+        [
+            [meta.triangle_u0, meta.triangle_v0],
+            [meta.triangle_u1, meta.triangle_v1],
+            [meta.triangle_u2, meta.triangle_v2],
+        ],
+        [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
     );
     assert_eq!(
         (quad.sorting_layer, quad.sorting_order, meta.hierarchy_order),
@@ -105,6 +109,7 @@ fn ui_copy_out_requires_a_prepared_live_frame_and_valid_outputs() {
 fn snapshot_draw(order: i32, hierarchy: usize) -> UiDraw {
     UiDraw {
         kind: UiDrawKind::Graphic,
+        triangle_uv: None,
         corners: [[0.; 3]; 4],
         uv_rect: [0.; 4],
         color: [1.; 4],

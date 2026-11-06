@@ -17,6 +17,7 @@ internal static class UnityAttributeTests
         FormerlySerializedAsKeepsEveryOldName();
         SupportedOnRenderPipelineKeepsItsTypes();
         IsTypeSupportedOnRenderPipelineMatchesTheNamedPipelines();
+        IsSupportedOnCurrentPipelineFollowsTheActiveAsset();
         ResourcePathAttributesExpandTheirPaths();
         MovedFromKnowsWhetherTheAssemblyChanged();
         PropertyAttributesShareTheirBaseClass();
@@ -102,6 +103,35 @@ internal static class UnityAttributeTests
     private sealed class DerivedFromOnlyOnA : OnlyOnA { }
 
     private sealed class Unmarked { }
+
+    private sealed class ActiveAsset : RenderPipelineAsset
+    {
+        protected override RenderPipeline CreatePipeline() => throw new NotSupportedException("not created in this test");
+    }
+
+    private sealed class OtherActiveAsset : RenderPipelineAsset
+    {
+        protected override RenderPipeline CreatePipeline() => throw new NotSupportedException("not created in this test");
+    }
+
+    private static void IsSupportedOnCurrentPipelineFollowsTheActiveAsset()
+    {
+        var named = new SupportedOnRenderPipelineAttribute(typeof(ActiveAsset));
+        var several = new SupportedOnRenderPipelineAttribute(typeof(PipelineB), typeof(ActiveAsset));
+        var other = new SupportedOnRenderPipelineAttribute(typeof(OtherActiveAsset));
+        var none = new SupportedOnRenderPipelineAttribute();
+        var previous = GraphicsSettings.defaultRenderPipeline;
+        try
+        {
+            GraphicsSettings.defaultRenderPipeline = new ActiveAsset();
+            Expect.That(named.isSupportedOnCurrentPipeline, "an attribute naming the active asset's type is supported");
+            Expect.That(several.isSupportedOnCurrentPipeline, "so is one that names it among others");
+            Expect.That(!other.isSupportedOnCurrentPipeline, "one that names another asset type is not");
+            Expect.That(!none.isSupportedOnCurrentPipeline, "one that names none is supported on no active pipeline");
+        }
+        finally { GraphicsSettings.defaultRenderPipeline = previous; }
+        Expect.That(!named.isSupportedOnCurrentPipeline && none.isSupportedOnCurrentPipeline, "with no active asset only an attribute that names none is supported");
+    }
 
     private static void IsTypeSupportedOnRenderPipelineMatchesTheNamedPipelines()
     {

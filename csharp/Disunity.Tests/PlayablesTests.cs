@@ -62,7 +62,7 @@ internal static class PlayablesTests
             "UnityEngine.Playables.ScriptPlayableBinding", "UnityEngine.Playables.PlayableDirector",
             "UnityEngine.Playables.DirectorUpdateMode", "UnityEngine.Playables.PlayableBinding+DataStreamType",
             "UnityEngine.Playables.FrameData+EvaluationType", "UnityEngine.PropertyName", "UnityEngine.IExposedPropertyTable",
-            "UnityEngine.ExposedReference`1", "UnityEngine.Animations.AnimationPlayableOutput",
+            "UnityEngine.ExposedReference`1", "UnityEngine.Animations.AnimationPlayableOutput", "UnityEngine.Animations.AnimationMotionXToDeltaPlayable",
             "UnityEngine.LowLevel.PlayerLoopSystem", "UnityEngine.LowLevel.PlayerLoop",
         })
             Expect.That(ModuleFacades.Forwards(Engine, name), $"the module facades forward {name}");
@@ -132,6 +132,10 @@ internal static class PlayablesTests
         Expect.That(!default(PlayableGraph).IsValid(), "a default graph is not valid");
         Expect.That(ScriptPlayable<Counting>.Null.IsNull() && !ScriptPlayable<Counting>.Null.IsValid(), "the null script playable");
         Expect.That(ScriptPlayableOutput.Null.IsOutputNull() && AnimationPlayableOutput.Null.IsOutputNull(), "the null script and animation outputs");
+        Expect.That(AnimationMotionXToDeltaPlayable.Null.Equals(default(AnimationMotionXToDeltaPlayable)) && AnimationMotionXToDeltaPlayable.Null.GetHandle().IsNull(),
+            "the null motion playable");
+        Playable motion = AnimationMotionXToDeltaPlayable.Null;
+        Expect.That(motion.Equals(Playable.Null), "a null motion playable converts to the null playable");
         Playable converted = ScriptPlayable<Counting>.Null;
         Expect.That(converted.Equals(Playable.Null), "a null script playable converts to the null playable");
     }
@@ -158,6 +162,7 @@ internal static class PlayablesTests
         RequireNamed(() => _ = ScriptPlayableOutput.Create(graph, "out"), "ScriptPlayableOutput.Create");
         RequireNamed(() => _ = AnimationPlayableOutput.Create(graph, "anim", null!), "AnimationPlayableOutput.Create");
         RequireNamed(() => _ = Playable.Create(graph, 2), "Playable.Create");
+        RequireNamed(() => _ = AnimationMotionXToDeltaPlayable.Create(graph), "AnimationMotionXToDeltaPlayable.Create");
         RequireNamed(() => _ = Playable.Null.GetPlayableType(), "Playable.GetPlayableType");
         RequireNamed(() => _ = ScriptPlayable<Counting>.Null.GetBehaviour(), "ScriptPlayable.GetBehaviour");
         RequireNamed(() => _ = ScriptPlayableBinding.Create("track", null, typeof(GameObject)), "ScriptPlayableBinding.Create");

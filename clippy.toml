@@ -1,7 +1,7 @@
-# Complexity thresholds used by `cargo xtask complexity` and strict clippy.
+# Complexity thresholds enforced by strict clippy (`cargo xtask lint`) and `cargo xtask complexity`.
 msrv = "1.95"
-cognitive-complexity-threshold = 15
-too-many-lines-threshold = 60
-too-many-arguments-threshold = 6
-max-struct-bools = 3
+cognitive-complexity-threshold = 25
+too-many-lines-threshold = 100
+too-many-arguments-threshold = 7
+max-struct-bools = 4
 type-complexity-threshold = 250

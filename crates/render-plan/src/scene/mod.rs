@@ -91,6 +91,8 @@ mod foliage_wind_tests;
 mod geometry;
 mod scene_geometry;
 pub use scene_geometry::SceneGeometry;
+mod append;
+pub use append::SceneAppend;
 mod lod_material;
 pub use lod_material::SceneLodMaterialSlot;
 mod lod_policy;

@@ -3,7 +3,7 @@ use super::{SceneMesh, SceneObject, SceneValidationError};
 /// Mesh table plus ordered objects of one scene.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneGeometry {
-    pub(super) meshes: std::sync::Arc<[SceneMesh]>,
+    pub(super) meshes: std::sync::Arc<Vec<SceneMesh>>,
     pub(super) objects: Box<[SceneObject]>,
 }
 

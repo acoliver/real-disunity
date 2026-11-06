@@ -1,7 +1,7 @@
 //! CPU UI layout. Coordinates within a rectangle are X-right/Y-up; camera planes
 //! orient that basis into the engine world. Screen roots own their effective TRS,
-//! never rewriting the authored transform. Text supports printable ASCII and LF/CR
-//! only, with character wrapping and font kerning, without shaping or substitution.
+//! never rewriting the authored transform. Text supports printable ASCII, Latin-1 and LF/CR,
+//! with word wrapping, structured colour spans and font kerning, without shaping or substitution.
 
 mod atlas;
 mod clip;
@@ -17,13 +17,18 @@ mod layout;
 mod layout_groups;
 pub mod presentation;
 mod scroll;
-pub use interaction::UiStyle;
+pub use interaction::{
+    UiAccessAction, UiAccessRequest, UiAnnouncement, UiNodeId, UiRole, UiSemanticNode,
+    UiSemanticTree, UiSemanticUpdate, UiSemanticValue, UiSemantics, UiStyle,
+};
 pub use interaction::{UiAction, UiControl, UiControlKind, UiKey, UiResponse, UiRouter, UiSlider};
 pub use layout_groups::{UiAlign, UiAxis, UiGridFlow, UiLayoutGroup, UiLayoutRules, UiSize};
 pub use scroll::UiScrollView;
 mod renderer;
 mod sdf;
 mod text;
+mod text_cache;
+pub use text_cache::TextCacheStats;
 mod wrap;
 use crate::{ObjectHandle, WorldError};
 pub use atlas::GlyphAtlas;
@@ -39,7 +44,7 @@ pub use group::{CanvasGroup, CanvasGroupFlags};
 pub use layout::{RectExtent, RectLayout, UiLayout};
 pub use renderer::{CanvasRenderer, CanvasRendererFlags, MAX_CANVAS_MATERIALS, inherited_alpha};
 pub use text::{
-    GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun,
+    GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun, TextSpan,
     VerticalAlign, VerticalOverflow,
 };
 

@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+accesskit = "=0.24.0"
+accesskit_winit = { version = "=0.32.2", default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
 worldrunner-camera = { path = "../camera" }
 cpal.workspace = true
 worldrunner-render-post = { path = "../render-post" }

@@ -36,6 +36,10 @@ pub enum SerializedError {
     InvalidCompressedBlock { offset: usize, reason: &'static str },
     #[error("the shader module is invalid at byte {offset}: {reason}")]
     InvalidShaderModule { offset: usize, reason: &'static str },
+    #[error(
+        "the compute shader is not laid out as the reader understands, at byte {offset}: {reason}"
+    )]
+    InvalidComputeShader { offset: usize, reason: &'static str },
     #[error("the shader program data is invalid at byte {offset}: {reason}")]
     InvalidShaderProgram { offset: usize, reason: &'static str },
     #[error("shader platform {platform}, chunk {chunk} does not decompress: {source}")]

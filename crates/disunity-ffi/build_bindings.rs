@@ -22,6 +22,7 @@ pub fn generate(output: &Path) {
         .expect("generated namespace header");
     let mut generated = import_files(imports);
     generated.extend(record_files(header, records));
+    remove_stale_parts(output, &generated);
     for (name, contents) in &generated {
         assert!(
             contents.lines().count() < LIMIT,
@@ -36,6 +37,31 @@ pub fn generate(output: &Path) {
 
 /// Source files stay below this many lines.
 const LIMIT: usize = 750;
+
+/// Removes split parts an earlier build left in `output` that this build does not write. Cargo
+/// keeps the build directory across branches, and a leftover `NativeBindings.3.g.cs` from a
+/// branch with more exports would make the checked bindings look incomplete.
+fn remove_stale_parts(output: &Path, generated: &[(String, String)]) {
+    let entries = std::fs::read_dir(output).expect("read the build output directory");
+    for entry in entries {
+        let path = entry.expect("build output entry").path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if is_split_part(name) && !generated.iter().any(|(kept, _)| kept == name) {
+            std::fs::remove_file(&path).expect("remove a stale generated part");
+        }
+    }
+}
+
+/// Whether `name` is a numbered part such as `NativeBindings.2.g.cs` or `NativeRecords.3.g.cs`.
+fn is_split_part(name: &str) -> bool {
+    ["NativeBindings.", "NativeRecords."].iter().any(|prefix| {
+        name.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix(".g.cs"))
+            .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
 
 /// Packs the import declarations, in generated order, into as many files as stay below
 /// [`LIMIT`]: `NativeBindings.g.cs`, then `NativeBindings.2.g.cs` and so on. Each file holds

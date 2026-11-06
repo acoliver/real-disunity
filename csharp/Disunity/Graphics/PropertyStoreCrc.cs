@@ -25,7 +25,7 @@ internal sealed partial class PropertyStore
         WriteKind(output, 13, ConstantBuffers, (w, v) => { w.Write(Identity(v.Buffer)); w.Write(v.Offset); w.Write(v.Size); });
     }
 
-    private static void WriteKind<T>(BinaryWriter output, byte kind, Dictionary<int, T> values, Action<BinaryWriter, T> write)
+    private static void WriteKind<T>(BinaryWriter output, byte kind, IEnumerable<KeyValuePair<int, T>> values, Action<BinaryWriter, T> write)
     {
         foreach (var (name, value) in values.Select(pair => (Name: Shader.PropertyName(pair.Key) ?? $"#{pair.Key}", pair.Value))
             .OrderBy(entry => entry.Name, StringComparer.Ordinal))

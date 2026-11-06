@@ -11,9 +11,9 @@ use wgpu::{
 use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
 
 use crate::frame::{FRAME_UNIFORM_BYTES, FrameUniform};
-use crate::geometry::{GeometryError, pack_indices, pack_instance, pack_vertices};
+use crate::geometry::{GeometryError, pack_indices, pack_vertices};
 use crate::renderer::ScenePipelines;
-use crate::terrain::{TERRAIN_PLACEMENT, TerrainError, build_terrain_mesh};
+use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
@@ -21,6 +21,10 @@ use crate::upload::{
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
+mod append;
+pub use append::{
+    PreparedAppend, PreparedMeshReplacement, PreparedTextureReplacement, ResourceBase,
+};
 mod celestial;
 mod compaction;
 mod contact;
@@ -90,6 +94,14 @@ pub enum DrawError {
     /// The selected terrain contact samples cannot be sized in GPU address space.
     #[error("terrain contact height buffer byte size overflow")]
     ContactHeightSizeOverflow,
+    /// Exact triangle source exceeds the device's buffer or storage binding limit.
+    #[error("terrain triangle source needs {required} bytes, device limit is {limit}")]
+    TerrainPlaneLimit { required: u64, limit: u64 },
+    #[error("terrain instance buffer byte size overflow")]
+    TerrainInstanceSizeOverflow,
+    /// Terrain instances exceed the device's vertex buffer size limit.
+    #[error("terrain instances need {required} bytes, device buffer limit is {limit}")]
+    TerrainInstanceLimit { required: u64, limit: u64 },
     /// Contact samples exceed the device buffer or storage binding limit.
     #[error("terrain contact needs {required} bytes, device limit is {limit}")]
     ContactHeightLimit {
@@ -124,6 +136,17 @@ pub enum DrawError {
         /// The underlying packing failure.
         #[source]
         source: GeometryError,
+    },
+    /// An appended or replaced resource depends on state the whole resident scene shares, so
+    /// only a full replacement can take it.
+    #[error("{item} {index} needs the resident scene rebuilt: {reason}")]
+    NeedsRebuild {
+        /// Which kind of resource: texture, material, mesh or append.
+        item: &'static str,
+        /// Its table index.
+        index: usize,
+        /// What it depends on.
+        reason: &'static str,
     },
     /// The terrain heightfield could not be tessellated into its mesh.
     #[error("the scene terrain could not be tessellated: {source}")]
@@ -185,6 +208,8 @@ struct GpuTerrain {
     page_bounds: [f32; 4],
     page_elevation: [f32; 2],
     uniform: Buffer,
+    /// Exact f32 heightfield and chunk descriptors for analytic filtering.
+    triangle_source: Buffer,
     sampler: Sampler,
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
     retained: Vec<Texture>,
@@ -198,10 +223,6 @@ struct GpuTerrain {
 /// lifetime of a scene's GPU memory is visible in this type rather than
 /// implied by another crate's internals.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "held solely to own the memory the bind groups read"
-)]
 struct Retained {
     contact_heights: Buffer,
     textures: Vec<Texture>,

@@ -135,6 +135,7 @@ impl FrameRenderer {
     /// offset it twice. Without jitter the camera is unchanged. The material mip bias follows the
     /// configuration, not the jitter, so it is set on every frame.
     pub(crate) fn jitter_frame(&self, mut frame: FrameUniform) -> FrameUniform {
+        frame.raster_viewport = self.targets().config().size;
         frame.material_mip_bias = self
             .post_requested
             .material_mip_bias(self.targets().config());

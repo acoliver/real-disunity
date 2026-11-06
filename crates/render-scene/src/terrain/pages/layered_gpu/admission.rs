@@ -21,7 +21,7 @@ pub(crate) fn supported(limits: &wgpu::Limits) -> bool {
     limits.max_storage_buffers_per_shader_stage >= 5
         && limits.max_storage_buffer_binding_size >= 128
         && limits.max_buffer_size >= 128
-        && limits.max_bindings_per_bind_group >= 23
+        && limits.max_bindings_per_bind_group >= 24
         && limits.max_sampled_textures_per_shader_stage >= 16
         && limits.max_samplers_per_shader_stage >= 4
         && limits.max_compute_workgroup_size_x >= 64

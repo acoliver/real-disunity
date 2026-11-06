@@ -34,6 +34,7 @@ pub use timeline::{
 };
 mod components;
 mod edits;
+pub mod graphics;
 mod handles;
 mod journal;
 mod mesh_instance;
@@ -59,9 +60,11 @@ mod clone;
 mod construction;
 mod fields;
 mod follow;
+mod frame_rescan;
 mod hierarchy;
 mod lifecycle;
 mod lifetime;
+mod phase_index;
 mod script_messages;
 mod transform;
 mod unpublished;
@@ -86,6 +89,7 @@ pub enum LimitKind {
     Components,
     Generation,
     WorldIdentity,
+    Graphics,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -166,4 +170,6 @@ pub enum WorldError {
     InvalidSpatialArgument,
     #[error("physics: {0}")]
     Physics(#[from] physics2d::PhysicsError),
+    #[error("graphics: {0}")]
+    Graphics(#[from] graphics::GraphicsError),
 }

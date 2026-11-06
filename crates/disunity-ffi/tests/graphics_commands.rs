@@ -267,6 +267,8 @@ fn a_target_call_with_a_bad_argument_records_nothing() {
     let bad_kind = target(9, 0, 0);
     let stray = target(2, 5, 0);
     let zero_render = target(0, 0, 0);
+    let temporary_with_render = target(1, 3, id);
+    let render_with_name = target(0, 3, id);
     let nine = [target(3, 0, 0); 9];
     unsafe {
         rejected(
@@ -341,6 +343,20 @@ fn a_target_call_with_a_bad_argument_records_nothing() {
             )
             .code,
         );
+        for mixed in [temporary_with_render, render_with_name] {
+            rejected(
+                disunity_offscreen_set_render_target(
+                    world,
+                    [mixed].as_ptr(),
+                    1,
+                    std::ptr::null(),
+                    0,
+                    -1,
+                    -1,
+                )
+                .code,
+            );
+        }
         rejected(
             disunity_offscreen_set_render_target(world, [ok].as_ptr(), 1, &bad_kind, 0, -1, -1)
                 .code,

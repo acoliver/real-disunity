@@ -59,18 +59,21 @@ fn assert_missed(run: &mut WindowlessRetained<'_>, events: &RefCell<Vec<Retained
         .host_mut()
         .request_capture_recipe(generation, recipe)
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut watchdog =
+        CaptureWatchdog::new(run, format!("SSR capture {id} generation {generation}"));
     loop {
         run.frame().unwrap();
         run.poll().unwrap();
-        if let Some(products) = events.borrow().iter().find_map(|event| match event {
+        let products = events.borrow().iter().find_map(|event| match event {
             RetainedEvent::Capture {
                 id: actual,
                 outcome: RetainedCaptureOutcome::RecipeCompleted { products, .. },
                 ..
             } if *actual == id => Some(products.clone()),
             _ => None,
-        }) {
+        });
+        watchdog.check(run, products.is_some());
+        if let Some(products) = products {
             assert!(
                 products
                     .ssr_confidence
@@ -81,7 +84,6 @@ fn assert_missed(run: &mut WindowlessRetained<'_>, events: &RefCell<Vec<Retained
             );
             return;
         }
-        assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
 }

@@ -30,12 +30,16 @@ fn storage_and_allocation_limits_are_both_enforced() {
 fn layered_capability_requires_five_storage_bindings_and_compute_limits() {
     let limits = wgpu::Limits::default();
     assert!(supported(&limits));
+    assert!(supported(&wgpu::Limits {
+        max_bindings_per_bind_group: 24,
+        ..limits
+    }));
     assert!(!supported(&wgpu::Limits {
         max_storage_buffers_per_shader_stage: 4,
         ..limits
     }));
     assert!(!supported(&wgpu::Limits {
-        max_bindings_per_bind_group: 22,
+        max_bindings_per_bind_group: 23,
         ..limits
     }));
     assert!(!supported(&wgpu::Limits {

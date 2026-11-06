@@ -256,3 +256,62 @@ fn display_scale_keeps_drawn_button_and_physical_hits_aligned() {
         }
     }
 }
+
+#[test]
+fn semantic_field_focus_and_eligibility_share_composition_cancellation() {
+    let (w, mut r, fonts, object) = fixture(10);
+    text(
+        &w,
+        &mut r,
+        &fonts,
+        &TextInput::Preedit {
+            text: "A".into(),
+            cursor: Some((1, 1)),
+        },
+    );
+    let tree = r.semantic_tree(&w, &layout(&w, &r)).unwrap();
+    let node = &tree.nodes[&UiNodeId::Object(object)];
+    assert_eq!(node.role, UiRole::Text);
+    assert_eq!(node.actions, [UiAccessAction::Focus]);
+    assert_eq!(tree.focus, UiNodeId::Object(object));
+    assert_eq!(r.text_fields[&object].preedit(), "A");
+    r.controls.get_mut(&object).unwrap().enabled = false;
+    let tree = r.semantic_tree(&w, &layout(&w, &r)).unwrap();
+    assert_eq!(tree.focus, UiNodeId::Window);
+    assert!(tree.nodes[&UiNodeId::Object(object)].disabled);
+    assert!(r.text_fields[&object].preedit().is_empty());
+}
+
+#[test]
+fn assistive_focus_change_cancels_preedit_but_repeated_focus_preserves_it() {
+    let (w, mut r, fonts, object) = fixture(10);
+    text(
+        &w,
+        &mut r,
+        &fonts,
+        &TextInput::Preedit {
+            text: "A".into(),
+            cursor: Some((1, 1)),
+        },
+    );
+    let request = |target| UiAccessRequest {
+        target: UiNodeId::Object(target),
+        action: UiAccessAction::Focus,
+    };
+    r.accessibility_action(&w, &layout(&w, &r), request(object))
+        .unwrap();
+    assert_eq!(r.text_fields[&object].preedit(), "A");
+    let root = w.parent(object).unwrap().unwrap();
+    r.controls.insert(root, UiControl::button());
+    r.accessibility_action(&w, &layout(&w, &r), request(root))
+        .unwrap();
+    assert_eq!(r.focused(), Some(root));
+    assert!(r.text_fields[&object].preedit().is_empty());
+    r.accessibility_action(&w, &layout(&w, &r), request(object))
+        .unwrap();
+    assert_eq!(r.focused(), Some(object));
+    assert_eq!(
+        text(&w, &mut r, &fonts, &TextInput::Commit("B".into())).actions,
+        [UiAction::TextChanged { control: object }]
+    );
+}

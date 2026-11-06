@@ -1,6 +1,7 @@
 //! Which camera a frame presents, and the lens it gets: the screen camera is the enabled camera
 //! with the highest depth that draws to display 0 and not into a texture.
 use worldrunner_camera::CameraLens;
+use worldrunner_world_simulation::graphics::RenderTextureId;
 use worldrunner_world_simulation::presentation::extraction::{
     SpriteTextures, WorldRenderPlan, extract_world,
 };
@@ -50,7 +51,7 @@ fn perspective(depth: i32) -> Camera {
 #[test]
 fn a_camera_drawing_into_a_texture_is_not_the_screen_camera() {
     let into_texture = Camera {
-        target_texture: 7,
+        target_texture: Some(RenderTextureId::from_bits(7)),
         ..ortho(10, 9.)
     };
     let plan = plan(&[ortho(0, 3.), into_texture]).unwrap();
@@ -76,7 +77,7 @@ fn a_camera_on_another_display_is_not_the_screen_camera() {
 #[test]
 fn without_a_screen_camera_the_frame_has_no_camera() {
     let into_texture = Camera {
-        target_texture: 7,
+        target_texture: Some(RenderTextureId::from_bits(7)),
         ..Default::default()
     };
     let second_display = Camera {
@@ -200,7 +201,7 @@ fn an_overlay_camera_with_no_camera_below_it_is_the_base_and_clears_to_its_backg
 #[test]
 fn a_clearing_camera_into_a_texture_is_no_base_for_an_overlay() {
     let into_texture = Camera {
-        target_texture: 4,
+        target_texture: Some(RenderTextureId::from_bits(4)),
         background: [1., 0., 0., 1.],
         ..ortho(0, 3.)
     };

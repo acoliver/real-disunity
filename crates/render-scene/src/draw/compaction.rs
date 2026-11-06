@@ -281,9 +281,10 @@ impl SceneGpu {
         let key = self.compaction_key(shadow_matrix, frame);
         let compaction = &self.views[selection_reuse::view_index(shadow_matrix)].compaction;
         let mut count = DrawCount::default();
+        let mut state = super::lod_material::BoundState::default();
         let Some(resident) = compaction.usable(key) else {
             for range in ranges {
-                count.add(self.record_lod_range(pass, pipelines, range));
+                count.add(self.record_lod_range(pass, pipelines, range, &mut state));
             }
             return count;
         };
@@ -305,7 +306,7 @@ impl SceneGpu {
             pass.set_vertex_buffer(2, previous.slice(..));
         }
         for group in resident.groups.iter() {
-            count.add(self.record_lod_draws(pass, pipelines, group));
+            count.add(self.record_lod_draws(pass, pipelines, group, &mut state));
         }
         count
     }

@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 arboard = { version = "=3.7.0", default-features = false, features = ["wayland-data-control"] }
+accesskit = "=0.24.0"
+accesskit_winit = { version = "=0.32.2", default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
 worldrunner-camera = { path = "../camera" }
 worldrunner-render-post = { path = "../render-post" }
 worldrunner-render-gpu = { path = "../render-gpu" }

@@ -280,6 +280,85 @@ a supported data-control protocol. arboard attempts X11 if Wayland data-control 
 fails. Clipboard ownership and availability depend on the desktop session; CPU tests use
 memory and do not connect to either display server.
 
+## Native accessibility
+
+`UiRouter::semantic_tree(world, layout)` exposes a platform-free tree from the same freshly
+resolved `UiLayout` used for input and rendering. Call it after routing input and resolving
+again if scrolling changed. Nodes use `UiNodeId::Object(ObjectHandle)`, including the world's
+identity and slot generation, so renaming a label or changing a value preserves identity and
+replacing a destroyed object does not reuse it. `UiNodeId::Window` is the single host root.
+Children follow the router's rectangle order. Bounds are axis-aligned `[left, top, right,
+bottom]` in physical client pixels, derived from the rectangle's transformed screen corners.
+Do not multiply by display scale. World-space rectangles have no screen target and are omitted.
+
+Buttons, checkboxes, sliders, lists and list items receive roles from registered controls.
+Rectangle containers receive group roles. Enabled `TextRun` components provide text nodes and
+accessible names; descendant text also names its nearest registered control. Register
+`router.semantics[object] = UiSemantics::label("Start")` to override a control's name explicitly.
+`UiSemantics { label: None, live: true }` marks a text component as a polite status region.
+An explicit label can supply status content without a text component. Text fields receive
+text roles and focus actions; the tree does not advertise assistive text editing.
+
+The tree reports router-owned toggle, slider and selection values, disabled state, supported
+actions and keyboard focus. A slider reports its value, minimum, maximum and optional step.
+Opening a modal includes only the highest visible modal's subtree below the window root.
+Other controls are absent, including for assistive action requests. Tree extraction revalidates
+focus and modal opener history even without an intervening input event; closing the dialog
+restores its eligible opener under the same rules as keyboard and pointer routing.
+
+`semantic_update` returns changed nodes, removed identities, current focus, a focus-change flag
+and live announcements since that router's preceding update. Its first result is a full tree.
+Publish every result in order to one host; `semantic_tree` can be inspected independently and
+does not consume updates or announcements. Nonempty live text announces once when first
+observed and once per subsequent text change. Geometry, focus, unrelated labels and hiding then
+restoring unchanged live text do not repeat the announcement. Changes while hidden are observed
+when that status becomes navigable again. The application must not announce the same update
+through a second speech service.
+
+Retained drivers pass each result to `RetainedHost::set_accessibility` or the event host's same
+method. `accessibility_tree` exposes the current full tree without creating a window, GPU or
+platform adapter. Desktop startup creates the winit window invisible, attaches AccessKit, then
+shows the window. Native window events reach the adapter before the driver. A synchronized
+snapshot answers initial-tree requests with a full tree; ordinary publication sends incremental
+node updates and focus. These CPU services also operate during presentation pauses.
+
+AccessKit requests arrive as `RetainedEvent::Accessibility(UiAccessRequest)`. Route them through
+`router.accessibility_action(world, layout, request)` and process the returned `UiResponse`
+through the same application action handling as pointer and keyboard responses. Press, focus,
+toggle, selection, increment/decrement and finite numeric set-value requests use the router's
+existing eligibility, activation, slider snapping and scroll-reveal helpers. Unsupported,
+obsolete, foreign and modal-excluded targets do nothing. Native AccessKit click requests map to
+press, including toggle and list selection; numeric set-value accepts either numeric data or a
+parseable finite numeric string. No second control-state owner is created.
+
+The opt-in viewer example opens a window only when launched explicitly with a caller-supplied
+TrueType `glyf` font. It contains a button, toggle, slider, live status and modal dialog:
+
+```sh
+cargo run -p worldrunner-scene-viewer --example accessibility -- /path/to/font.ttf
+```
+
+For the macOS VoiceOver check, enable VoiceOver, navigate the controls, activate the button,
+toggle sound, adjust volume, and open then close the dialog. Compare spoken focus with Tab
+navigation, confirm that background controls disappear during the dialog, and confirm that
+unchanged status text does not repeat. Resize on a scaled display and check hit targets and
+accessible bounds. This check requires a display and is separate from CPU tests. The example
+uses Escape to exit. The tests `ui_accessibility`, `ui_accessibility_edges` and retained
+`accessibility::tests` exercise trees, shared actions, live updates and platform translation
+without creating a display or requesting a graphics adapter.
+
+### Accessibility dependencies
+
+`scene-viewer` uses `accesskit` 0.24.0 (MIT OR Apache-2.0) and `accesskit_winit` 0.32.2
+(Apache-2.0).
+The adapter's declared winit requirement is 0.30.5, satisfied by the workspace's pinned 0.30.13.
+Its enabled features are `rwh_06`, `accesskit_unix` and `async-io`; the workspace already selects
+winit's window backends. macOS and Windows adapters are target dependencies. On Linux,
+`accesskit_unix` uses AT-SPI through the Rust `zbus` stack, with no `libdbus-sys` dependency.
+A working desktop accessibility bus is needed at runtime; no D-Bus C development package is
+introduced for compilation. See the [adapter API](https://docs.rs/accesskit_winit/0.32.2/accesskit_winit/struct.Adapter.html)
+for the window visibility order and activation contract.
+
 ## Text contract
 
 Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.

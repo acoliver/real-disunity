@@ -55,7 +55,7 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
         },
     )
     .unwrap();
-    let scene = driver.tables.initial_scene().unwrap();
+    let scene = SceneTables::initial_scene().unwrap();
     let host = RetainedHost::new(scene, viewer_options(&driver.window)).unwrap();
     let mut run = host.windowless(&mut driver).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);

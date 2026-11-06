@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+pub(crate) mod accessibility;
 mod clipboard;
 #[cfg(test)]
 mod clipboard_tests;
@@ -33,6 +34,7 @@ mod decals;
 pub use decals::DecalUpdate;
 mod event_host;
 mod objects;
+pub(crate) mod resource_edits;
 pub use event_host::RetainedEventHost;
 mod windowless;
 pub use windowless::WindowlessRetained;
@@ -106,6 +108,24 @@ pub enum RetainedUpdate {
         resources: worldrunner_render_plan::SceneResources,
         meshes: Vec<worldrunner_render_plan::SceneMesh>,
     },
+    /// Adds textures, materials and meshes after the resident ones without rebuilding the scene.
+    /// The new items take the next handles in each table, and the new materials and later
+    /// objects may use old and new items alike. Validation covers only the new items; only
+    /// their bytes are prepared, admitted against the presentation budget and uploaded.
+    /// Items that depend on state shared by the whole scene (impostors, fade thresholds, terrain
+    /// contact, specular cubes) fail with `DrawError::NeedsRebuild` and change nothing.
+    AppendResources(worldrunner_render_plan::SceneAppend),
+    /// Gives one texture new contents. Handles, materials and objects stay as they are, and only
+    /// the materials that sample the texture are rebound.
+    ReplaceTexture {
+        handle: worldrunner_render_plan::TextureHandle,
+        texture: worldrunner_render_plan::SceneTexture,
+    },
+    /// Gives one mesh new contents. Handles and objects stay as they are.
+    ReplaceMesh {
+        handle: worldrunner_render_plan::MeshHandle,
+        mesh: worldrunner_render_plan::SceneMesh,
+    },
 }
 
 /// One object edit inside `RetainedUpdate::Objects`, with the semantics of the
@@ -156,6 +176,8 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    /// Route through `UiRouter::accessibility_action`, then handle its ordinary `UiAction`s.
+    Accessibility(worldrunner_world_simulation::ui::UiAccessRequest),
     /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
     WorkReady,
     /// A host timer expired, including during presentation pauses.
@@ -205,6 +227,7 @@ pub trait RetainedDriver {
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
     clipboard: clipboard::HostClipboard,
+    pub(crate) accessibility: accessibility::Accessibility,
     picking: picking::Picking,
     work: work::WorkServices,
     timers: timers::Timers,
@@ -259,6 +282,9 @@ impl RetainedHost {
             return Err(ViewerError::BackPressure {
                 limit: self.readiness.limit,
             });
+        }
+        if resource_edits::is_resource_edit(&update) {
+            return self.apply_resource_edit(update);
         }
         if let RetainedUpdate::Decal(edit) = &update {
             return self.apply_decal(edit.clone());
@@ -451,8 +477,14 @@ impl RetainedHost {
         events
     }
 
+    /// Whether a frame can be drawn now: a scene is staged and the surface is visible and
+    /// nonempty. This is the condition under which [`Self::view`] returns a view.
+    pub(crate) fn has_view_extent(&self) -> bool {
+        self.initial_scene.is_some() && !self.size.contains(&0) && !self.occluded
+    }
+
     pub fn view(&self) -> Result<Option<SceneView>, ViewerError> {
-        if self.initial_scene.is_none() || self.size.contains(&0) || self.occluded {
+        if !self.has_view_extent() {
             return Ok(None);
         }
         Ok(Some(SceneView::with_convention(

@@ -13,6 +13,7 @@ mod environment;
 mod execution;
 mod live;
 mod readiness;
+mod resource_edit;
 mod retained;
 mod target;
 pub(crate) mod timing;
@@ -60,6 +61,13 @@ struct PlainScene {
     pipelines: ScenePipelines,
     effects: Option<SceneEffects>,
     clear: Option<wgpu::Color>,
+}
+
+/// What an admitted frame draws. A retained host's view is resolved once, after admission and
+/// publication, so a frame that is not admitted resolves no camera.
+enum FrameSource<'a> {
+    View(&'a SceneView),
+    Retained(&'a mut crate::RetainedHost),
 }
 
 impl Renderer {
@@ -193,15 +201,16 @@ impl Renderer {
         view: &SceneView,
         update: &mut crate::SceneUpdate,
     ) -> Result<bool, ViewerError> {
-        Ok(self.render_admitted(view, update, None, None)?.is_some())
+        Ok(self
+            .render_admitted(FrameSource::View(view), update, None)?
+            .is_some())
     }
 
     fn render_admitted(
         &mut self,
-        view: &SceneView,
+        source: FrameSource<'_>,
         update: &mut crate::SceneUpdate,
         capture: Option<&mut live::Capture>,
-        mut host: Option<&mut crate::RetainedHost>,
     ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
         self.poll()?;
         let resident = &mut self.resident;
@@ -217,12 +226,13 @@ impl Renderer {
             return Ok(None);
         };
         let retained_view;
-        let view = if let Some(host) = host.as_deref_mut() {
-            self.publish_retained(host)?;
-            retained_view = host.view()?.expect("admitted retained extent");
-            &retained_view
-        } else {
-            view
+        let (view, mut host) = match source {
+            FrameSource::View(view) => (view, None),
+            FrameSource::Retained(host) => {
+                self.publish_retained(host)?;
+                retained_view = host.view()?.expect("admitted retained extent");
+                (&retained_view, Some(host))
+            }
         };
         self.prepare_frame(view, ready.admission.slot())?;
         let output = ready
@@ -248,12 +258,13 @@ impl Renderer {
             .submit_prepared(ready, prepared, &self.context)?;
         if let Some(host) = host {
             host.present_pick(view.resolved_view());
+            let statistics = self.scene_statistics();
             self.streaming.captures.submitted(
                 host,
                 retained_capture,
                 ticket.clone(),
                 self.frame_time,
-                &self.resident.scene_mut().statistics(),
+                &statistics,
             )?;
         } else {
             self.streaming.captures.advance_frame();
@@ -435,6 +446,7 @@ impl Resident {
         }
     }
 
+    #[cfg(test)]
     fn new(
         context: &GpuContext,
         scene: &RenderScene,

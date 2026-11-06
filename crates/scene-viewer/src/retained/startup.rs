@@ -46,6 +46,7 @@ impl RetainedHost {
         };
         let mut host = Self {
             clipboard: super::clipboard::HostClipboard::default(),
+            accessibility: super::accessibility::Accessibility::default(),
             picking: super::picking::Picking::default(),
             work: super::work::WorkServices::default(),
             timers: super::timers::Timers::default(),

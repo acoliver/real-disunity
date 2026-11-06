@@ -1,3 +1,4 @@
+using Disunity.Native;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
@@ -16,6 +17,9 @@ public abstract class Texture : Object
     private static int _globalMipmapLimit;
     private static AnisotropicFiltering _anisotropicFiltering = AnisotropicFiltering.Enable;
     private TextureWrapMode _wrapU, _wrapV, _wrapW;
+    private FilterMode _filterMode = FilterMode.Bilinear;
+    private int _anisoLevel = 1;
+    private float _mipMapBias;
 
     protected Texture() { }
 
@@ -87,15 +91,33 @@ public abstract class Texture : Object
     public TextureWrapMode wrapMode
     {
         get => _wrapU;
-        set => _wrapU = _wrapV = _wrapW = value;
+        set
+        {
+            _wrapU = _wrapV = _wrapW = value;
+            SamplerChanged();
+        }
     }
 
-    public TextureWrapMode wrapModeU { get => _wrapU; set => _wrapU = value; }
-    public TextureWrapMode wrapModeV { get => _wrapV; set => _wrapV = value; }
-    public TextureWrapMode wrapModeW { get => _wrapW; set => _wrapW = value; }
-    public FilterMode filterMode { get; set; } = FilterMode.Bilinear;
-    public int anisoLevel { get; set; } = 1;
-    public float mipMapBias { get; set; }
+    public TextureWrapMode wrapModeU { get => _wrapU; set { _wrapU = value; SamplerChanged(); } }
+    public TextureWrapMode wrapModeV { get => _wrapV; set { _wrapV = value; SamplerChanged(); } }
+    public TextureWrapMode wrapModeW { get => _wrapW; set { _wrapW = value; SamplerChanged(); } }
+    public FilterMode filterMode { get => _filterMode; set { _filterMode = value; SamplerChanged(); } }
+    public int anisoLevel { get => _anisoLevel; set { _anisoLevel = value; SamplerChanged(); } }
+    public float mipMapBias { get => _mipMapBias; set { _mipMapBias = value; SamplerChanged(); } }
+
+    /// <summary>Called after a sampling setting changes, so a texture the host holds can send it again.</summary>
+    internal virtual void SamplerChanged() { }
+
+    /// <summary>The sampling settings in the host's terms. The engine's choice for values the host cannot hold: a wrap
+    /// mode, filter or anisotropy level outside its range clamps to the nearest one, and a bias that is not a number is 0.</summary>
+    internal DisunitySampler Sampler => new()
+    {
+        wrap_u = Clamped((int)_wrapU, 3), wrap_v = Clamped((int)_wrapV, 3), wrap_w = Clamped((int)_wrapW, 3),
+        filter = Clamped((int)_filterMode, 2), aniso_level = Clamped(_anisoLevel, 16),
+        mip_bias = float.IsFinite(_mipMapBias) ? _mipMapBias : 0f,
+    };
+
+    private static uint Clamped(int value, int highest) => (uint)Math.Clamp(value, 0, highest);
 
     /// <summary>The number of times the contents changed, which a renderer compares to know when to upload.</summary>
     public uint updateCount { get; private set; }
@@ -117,8 +139,8 @@ public abstract class Texture : Object
         _wrapU = source._wrapU;
         _wrapV = source._wrapV;
         _wrapW = source._wrapW;
-        filterMode = source.filterMode;
-        anisoLevel = source.anisoLevel;
-        mipMapBias = source.mipMapBias;
+        _filterMode = source._filterMode;
+        _anisoLevel = source._anisoLevel;
+        _mipMapBias = source._mipMapBias;
     }
 }

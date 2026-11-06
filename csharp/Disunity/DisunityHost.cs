@@ -37,7 +37,11 @@ public static partial class DisunityHost
         ResetScriptExceptions();
         ResetWorldSettings();
         _listenerDiagnostic = null;
-        try { InstallMainThreadContext(); }
+        try
+        {
+            InstallMainThreadContext();
+            Shader.SyncGlobalsToWorld();
+        }
         catch
         {
             NativeBindings.disunity_world_destroy(world);

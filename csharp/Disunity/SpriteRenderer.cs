@@ -54,6 +54,8 @@ public sealed class SpriteRenderer : Renderer
         _other = value;
     }
 
+    internal override bool HoldsWorldMaterials => false;
+
     internal override IReadOnlyList<Material?> ReadShared() => [_material ?? Material.FromNative(Read().lighting)];
 
     /// <summary>The built-in sprite material the native sprite draws with.</summary>

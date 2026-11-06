@@ -115,6 +115,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_detail", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_detail(ulong world, uint token, byte* buffer, uint capacity, uint* length);
         /// <summary>
+        ///  Records a culling of the world's renderers for `camera` under the handle `id`, which later
+        ///  records of the frame name the result by. The host culls by the layers in `culling_mask`, the
+        ///  `plane_count` planes at `planes` (4 floats each: a unit normal and a distance) and the
+        ///  culling `options` flags.
+        ///
+        ///  # Safety
+        ///  `planes` is readable for `plane_count` planes of 4 floats, or null when the count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_cull", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_cull(ulong world, ulong id, ulong camera, uint culling_mask, float* planes, uint plane_count, uint options);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety

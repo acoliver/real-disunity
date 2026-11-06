@@ -10,6 +10,7 @@ use crate::{
     callbacks::mutate,
     errors::AbiError,
     graphics::{DisunityRenderTexture, text},
+    graphics_context::context_kind,
     graphics_properties::DisunityTextureSlot,
 };
 use worldrunner_world_simulation::graphics::{
@@ -260,7 +261,7 @@ pub(crate) fn command_kind(work: &OffscreenWork) -> Option<u32> {
         OffscreenWork::SetGlobalKeyword { .. } => Some(KIND_SET_GLOBAL_KEYWORD),
         OffscreenWork::AllocateTemporary { .. } => Some(KIND_ALLOCATE_TEMPORARY),
         OffscreenWork::ReleaseTemporary { .. } => Some(KIND_RELEASE_TEMPORARY),
-        _ => None,
+        other => context_kind(other),
     }
 }
 

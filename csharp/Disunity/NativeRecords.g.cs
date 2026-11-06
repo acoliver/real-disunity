@@ -27,8 +27,8 @@ namespace Disunity.Native
     ///  1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. `orthographic` is 1 for an orthographic lens and 0
     ///  for a perspective one with `field_of_view` degrees; both sizes are kept. `culling_mask` is one
     ///  bit per layer, the viewport is a normalized rectangle, `depth_texture_mode` and `camera_type`
-    ///  use Unity's flag values, and `target_texture` is a managed RenderTexture's instance id (0 for
-    ///  the screen). Custom matrices have their own calls. Boolean settings are 0 or 1.
+    ///  use Unity's flag values, and `target_texture` is the id of a world render texture (0 for the
+    ///  screen; see `disunity_render_texture_create`). The id is stored as given and may be stale. Custom matrices have their own calls. Boolean settings are 0 or 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityCamera
@@ -706,39 +706,28 @@ namespace Disunity.Native
     }
 
     /// <summary>
-    ///  A stored mesh's description, also the in/out record of a read. On a store, `generation`,
-    ///  `present`, `changed` and `copied` are ignored. On a read, `generation` is the generation the
-    ///  caller already holds and the three counts are the capacities of the buffers passed (all zero
-    ///  asks for sizes only); the call fills in everything. `channels` is a mask of
-    ///  [`CHANNEL_NORMALS`], [`CHANNEL_UV0`] and [`CHANNEL_COLORS`]; a channel outside it reads as
-    ///  zero in every vertex. `left_out` counts the sub-meshes that are not triangle lists, which the
-    ///  engine leaves out.
+    ///  How a texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat, 1 clamp,
+    ///  2 mirror, 3 mirror once) and `filter` its `FilterMode` (0 point, 1 bilinear, 2 trilinear);
+    ///  `aniso_level` is 0 to 16. On a write, `generation`, `present` and `changed` are ignored. On a
+    ///  read, `generation` is the generation the caller already holds; the call fills in everything,
+    ///  `present` is zero when the identity has no stored texture, and `changed` is nonzero when the
+    ///  stored sampler is newer than the generation passed.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
-    internal unsafe partial struct DisunityMeshInfo
+    internal unsafe partial struct DisunitySampler
     {
-        public ulong identity;
         /// <summary>
-        ///  Starts at 1 and rises by one each time the identity is stored again.
+        ///  Starts at 1 when the texture is first stored and rises each time a write changes a value.
         /// </summary>
         public ulong generation;
-        /// <summary>
-        ///  Zero when a read names an identity nothing stored.
-        /// </summary>
+        public uint wrap_u;
+        public uint wrap_v;
+        public uint wrap_w;
+        public uint filter;
+        public uint aniso_level;
         public uint present;
-        /// <summary>
-        ///  Nonzero when the stored generation is newer than the one the read passed.
-        /// </summary>
         public uint changed;
-        /// <summary>
-        ///  Nonzero when the read copied the buffers.
-        /// </summary>
-        public uint copied;
-        public uint channels;
-        public uint vertex_count;
-        public uint index_count;
-        public uint submesh_count;
-        public uint left_out;
+        public float mip_bias;
     }
 
 }

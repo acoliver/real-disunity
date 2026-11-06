@@ -100,7 +100,7 @@ fn append_record(record: &str, module: &str, managed: &mut String, native: &mut 
             .expect("scalar field");
         let kind = kind.trim().trim_end_matches(',');
         let size = match kind {
-            "u64" | "f64" => 8,
+            "u64" | "i64" | "f64" => 8,
             "u32" | "i32" | "f32" => 4,
             _ => panic!("unsupported C field {kind}"),
         };

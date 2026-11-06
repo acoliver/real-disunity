@@ -28,8 +28,9 @@ public static partial class DisunityHost
     /// message and top stack frame) and the next step calls Render again, so a fixed member shows at once; after
     /// <see cref="RenderFailureLimit"/> consecutive steps failing with the same exception the host stops calling this
     /// pipeline and says so, so a log does not fill with one exception per frame. A native error fails the step.
+    /// <see cref="Step"/> calls it after its advance; a host that advances the world itself calls it after each advance.
     /// </summary>
-    private static void RenderFrame()
+    public static void RenderFrame()
     {
         if (_faulted || RenderPipelineManager.currentPipeline is not { } pipeline || _renderFailures.Stopped) return;
         try

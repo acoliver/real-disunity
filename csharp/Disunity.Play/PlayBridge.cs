@@ -87,6 +87,14 @@ public static class PlayBridge
         }
     }
 
+    /// <summary>Renders the frame the host just advanced through the current pipeline, if there is one.</summary>
+    [UnmanagedCallersOnly]
+    public static int RenderFrame()
+    {
+        try { DisunityHost.RenderFrame(); return 0; }
+        catch (Exception error) { DisunityHost.ReportFault(); LastError = Describe(error); return -1; }
+    }
+
     [UnmanagedCallersOnly]
     public static ulong WorldHandle() => DisunityHost.WorldHandle;
 

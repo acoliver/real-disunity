@@ -245,8 +245,8 @@ public partial class Material : Object
 
     public string GetTag(string tag, bool searchFallbacks) => GetTag(tag, searchFallbacks, "");
 
-    /// <summary>Makes <paramref name="pass"/> the active pass of the immediate-mode draws that follow, and records it in the
-    /// native world once the material has a world material. A pass outside 0 to <see cref="passCount"/> - 1 logs an error
+    /// <summary>Makes <paramref name="pass"/> the active pass of the immediate-mode draws that follow and records it in the
+    /// native world, making the material's world material on first use as a blit does. A pass outside 0 to <see cref="passCount"/> - 1 logs an error
     /// and returns false (the engine's choice) and leaves the earlier active pass. A shader whose pass count is not declared
     /// throws <see cref="NotSupportedException"/> from <see cref="Shader.passCount"/>. Immediate-mode draws are not supported
     /// yet, so nothing draws with the active pass.</summary>
@@ -258,7 +258,7 @@ public partial class Material : Object
             Debug.LogError($"Material.SetPass: pass {pass} is out of range for material '{name}', whose shader has {count} passes");
             return false;
         }
-        if (_world.IsCurrent) WorldGraphics.WriteActivePass(_world, (uint)pass);
+        WorldGraphics.WriteActivePass(WorldLink, (uint)pass);
         return true;
     }
 

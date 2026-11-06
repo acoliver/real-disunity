@@ -18,8 +18,8 @@ internal static unsafe class MaterialSetPassTests
             Console.WriteLine("PASS: Material.SetPass with a pass out of range logs an error naming the material, pass and count, returns false and keeps the earlier pass");
             AnUndeclaredShaderThrows();
             Console.WriteLine("PASS: Material.SetPass on a shader without a declared pass count throws NotSupportedException and records nothing");
-            AMaterialWithoutAWorldMaterialStillValidates();
-            Console.WriteLine("PASS: Material.SetPass on a material with no world material validates the pass and records nothing");
+            AFreshMaterialIsMadeInTheWorld();
+            Console.WriteLine("PASS: Material.SetPass on a material that has no world material yet makes it and records its pass");
         }
         finally
         {
@@ -81,15 +81,17 @@ internal static unsafe class MaterialSetPassTests
         Expect.Equal(before, Active(), "nothing was recorded");
     }
 
-    private static void AMaterialWithoutAWorldMaterialStillValidates()
+    private static void AFreshMaterialIsMadeInTheWorld()
     {
         var kept = Declared("Test/SetPass/Kept", 1, "Kept");
         Expect.That(kept.SetPass(0), "an earlier pass is active");
-        var loose = new Material(DisunityHost.RegisterShader("Test/SetPass/Loose").Declare(2000, 3, 1));
-        Expect.That(loose.SetPass(2), "pass 2 of 3 is accepted");
+        var fresh = new Material(DisunityHost.RegisterShader("Test/SetPass/Fresh").Declare(2000, 3, 1));
         using (var log = new LogRecorder())
-            Expect.That(!loose.SetPass(3) && log.Messages.Count == 1, "pass 3 of 3 is refused and logged");
+            Expect.That(!fresh.SetPass(3) && log.Messages.Count == 1, "pass 3 of 3 is refused and logged");
+        Expect.That(Active().material == kept.WorldLink.Id, "a refused pass leaves the earlier active pass");
+        Expect.That(fresh.SetPass(2), "pass 2 of 3 is accepted");
         var held = Active();
-        Expect.That(held.active == 1 && held.material == kept.WorldLink.Id, "a material without a world material records nothing");
+        Expect.That(held.active == 1 && held.pass == 2 && held.material == fresh.WorldLink.Id,
+            "the fresh material was made in the world and holds pass 2");
     }
 }

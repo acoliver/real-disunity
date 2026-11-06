@@ -39,6 +39,7 @@ public sealed class CommandBuffer : IDisposable
 
     public void ClearRenderTarget(bool clearDepth, bool clearColor, Color backgroundColor) => Fail(nameof(ClearRenderTarget));
     public void ClearRenderTarget(bool clearDepth, bool clearColor, Color backgroundColor, float depth) => Fail(nameof(ClearRenderTarget));
+    public void ClearRenderTarget(RTClearFlags clearFlags, Color backgroundColor, float depth, uint stencil) => Fail(nameof(ClearRenderTarget));
 
     public void CopyTexture(RenderTargetIdentifier src, int srcElement, int srcMip, RenderTargetIdentifier dst, int dstElement, int dstMip) =>
         Fail(nameof(CopyTexture));

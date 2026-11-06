@@ -307,6 +307,17 @@ namespace UnityEngine.Rendering
         /// built-in renderer: a type named here is supported only when it names none.</summary>
         public bool isSupportedOnCurrentPipeline => renderPipelineTypes.Length == 0;
 
+        /// <summary>Whether <paramref name="type"/> is supported on <paramref name="renderPipeline"/>: true for a type with no
+        /// attribute (it names no restriction, and a derived type keeps its base type's attribute), otherwise true when the
+        /// pipeline is one of the named types or derives from one (the engine's choice).</summary>
+        public static bool IsTypeSupportedOnRenderPipeline(Type type, Type renderPipeline)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            ArgumentNullException.ThrowIfNull(renderPipeline);
+            return Attribute.GetCustomAttribute(type, typeof(SupportedOnRenderPipelineAttribute), true) is not SupportedOnRenderPipelineAttribute marked
+                || marked.renderPipelineTypes.Any(named => named.IsAssignableFrom(renderPipeline));
+        }
+
         public SupportedOnRenderPipelineAttribute(Type renderPipeline) { renderPipelineTypes = [renderPipeline]; }
         public SupportedOnRenderPipelineAttribute(params Type[] renderPipeline) { renderPipelineTypes = renderPipeline; }
     }

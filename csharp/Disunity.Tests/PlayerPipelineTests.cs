@@ -8,17 +8,24 @@ using UnityEngine.Rendering;
 /// that fails to build is logged by name and left null.</summary>
 internal static class PlayerPipelineTests
 {
-    public sealed class TestPipeline : RenderPipeline { }
+    public sealed class TestPipeline : RenderPipeline
+    {
+        protected override void Render(ScriptableRenderContext context, List<Camera> cameras) { }
+    }
 
     public sealed class HighAsset : RenderPipelineAsset<TestPipeline>
     {
         public int level = -1;
         public ComputeShader? compute = null;
+
+        protected override RenderPipeline CreatePipeline() => new TestPipeline();
     }
 
     public sealed class ThrowingAsset : RenderPipelineAsset
     {
         public ThrowingAsset() => throw new InvalidOperationException("constructor failed");
+
+        protected override RenderPipeline CreatePipeline() => throw new InvalidOperationException("never reached");
     }
 
     public sealed class GlobalAsset : RenderPipelineGlobalSettings { }
@@ -26,7 +33,13 @@ internal static class PlayerPipelineTests
     public sealed class Recorder : MonoBehaviour
     {
         public static RenderPipelineAsset? SeenAtAwake;
-        private void Awake() => SeenAtAwake = GraphicsSettings.defaultRenderPipeline;
+        public static RenderPipeline? PipelineSeenAtAwake;
+
+        private void Awake()
+        {
+            SeenAtAwake = GraphicsSettings.defaultRenderPipeline;
+            PipelineSeenAtAwake = RenderPipelineManager.currentPipeline;
+        }
     }
 
     private const string ScenePlan = """{"scene":"level0","assets":[],"sprites":[],"textures":[],"fonts":[],"axes":[],"differences":[],"objects":[{"name":"A","tag":"Untagged","layer":0,"active":true,"parent":null,"template":false,"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1],"rect":null,"components":[{"type":"Script","class":"PlayerPipelineTests/Recorder","assembly":"ASSEMBLY","enabled":true,"fields":{}}]}]}""";
@@ -75,7 +88,7 @@ internal static class PlayerPipelineTests
             File.WriteAllText(Path.Combine(directory, $"{i}.json"), classes[i].Item3);
             assets.Add(new JsonObject { ["type"] = "Script", ["class"] = classes[i].Item2, ["assembly"] = AssemblyName, ["name"] = classes[i].Item1, ["fields"] = $"{i}.json" });
         }
-        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = AlwaysIncluded, ["render_queue"] = 2450, ["pass_count"] = 2, ["subshader_count"] = 1 });
+        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = AlwaysIncluded, ["render_queue"] = 2450, ["pass_count"] = 2, ["pass_names"] = new JsonArray("", ""), ["subshader_count"] = 1 });
         var plan = new JsonObject { ["entries"] = new JsonArray(), ["assets"] = assets, ["differences"] = new JsonArray() };
         if (graphics is not null) plan["graphics"] = graphics;
         var path = Path.Combine(directory, "resources.json");
@@ -137,9 +150,12 @@ internal static class PlayerPipelineTests
             Expect.Equal("Low", GraphicsSettings.currentRenderPipeline?.name, "the current level's asset wins");
             Expect.Equal(2, GraphicsSettings.allConfiguredRenderPipelines.Length, "both assets are configured");
             Recorder.SeenAtAwake = null;
+            Recorder.PipelineSeenAtAwake = null;
+            Expect.That(RenderPipelineManager.currentPipeline is TestPipeline, "applying the pipelines creates the active asset's pipeline without a step");
             var plan = ScenePlan.Replace("ASSEMBLY", AssemblyName);
             DisunityHost.LoadScene(plan, new SceneLoadOptions(typeof(PlayerPipelineTests).Assembly, _ => []) { Assemblies = _ => typeof(PlayerPipelineTests).Assembly });
             Expect.That(Recorder.SeenAtAwake == pipeline, "the first scene's Awake sees the pipeline");
+            Expect.That(Recorder.PipelineSeenAtAwake is TestPipeline, "and the first scene's Awake sees the created pipeline");
         });
     }
 

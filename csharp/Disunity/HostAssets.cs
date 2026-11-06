@@ -22,9 +22,14 @@ public static partial class DisunityHost
     /// Builds the render pipeline assets the loaded resource plan names and sets them in
     /// <see cref="UnityEngine.Rendering.GraphicsSettings"/> and <see cref="UnityEngine.QualitySettings"/>, for a player
     /// to call before its first scene loads. An asset that cannot be built is reported to <paramref name="log"/> and
-    /// left null. Nothing is drawn through the assets.
+    /// left null. The active asset's pipeline is created here, so it exists when the first scene's components wake
+    /// (the engine's choice); nothing is drawn through it.
     /// </summary>
-    public static void ApplyRenderPipelines(Action<string> log) => Resources?.ApplyGraphics(log);
+    public static void ApplyRenderPipelines(Action<string> log)
+    {
+        Resources?.ApplyGraphics(log);
+        if (IsLoaded) UpdateRenderPipeline();
+    }
 
     /// <summary>
     /// Registers the input axes the loaded resource plan carries, which a player takes from its input manager, for a

@@ -1,6 +1,8 @@
 #![cfg(feature = "ui")]
 #[path = "ui_links/edges.rs"]
 mod edges;
+#[path = "ui_links/text_fields.rs"]
+mod text_fields;
 mod ui_font;
 use glam::{UVec2, Vec2};
 use std::sync::Arc;

@@ -77,6 +77,26 @@ impl FontBook {
         self.bytes = total;
         Ok(id)
     }
+    pub(super) fn validate_single_line(&self, run: &TextRun) -> Result<(), UiError> {
+        use ab_glyph::Font;
+        run.validate()?;
+        let font = self
+            .fonts
+            .get(&run.font)
+            .ok_or(UiError::MissingFont(run.font))?;
+        for c in run.text.chars() {
+            if !c.is_ascii() || c == '\n' || c == '\r' {
+                return Err(UiError::UnsupportedShaping(c));
+            }
+            if font.glyph_id(c).0 == 0 {
+                return Err(UiError::MissingGlyph(c));
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn field_font(&self, id: FontId) -> Result<FontArc, UiError> {
+        self.fonts.get(&id).cloned().ok_or(UiError::MissingFont(id))
+    }
     pub fn cache_stats(&self) -> TextCacheStats {
         self.cache.lock().expect("text cache lock").stats
     }

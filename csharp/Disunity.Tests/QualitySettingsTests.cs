@@ -29,6 +29,7 @@ internal static class QualitySettingsTests
         Expect.Equal(1, QualitySettings.vSyncCount, "vSyncCount");
         Expect.Equal(1f, QualitySettings.lodBias, "lodBias");
         Expect.Equal(150f, QualitySettings.shadowDistance, "shadowDistance");
+        Expect.That(QualitySettings.enableLODCrossFade, "enableLODCrossFade is on by default");
         Expect.Equal(ShadowQuality.All, QualitySettings.shadows, "shadows");
         Expect.Equal(ColorSpace.Gamma, QualitySettings.activeColorSpace, "activeColorSpace");
         Expect.Equal(0, QualitySettings.GetQualityLevel(), "GetQualityLevel");
@@ -45,6 +46,7 @@ internal static class QualitySettingsTests
         QualitySettings.lodBias = 2.5f;
         QualitySettings.shadowDistance = 40f;
         QualitySettings.shadows = ShadowQuality.HardOnly;
+        QualitySettings.enableLODCrossFade = false;
         Expect.Equal(4, QualitySettings.antiAliasing, "antiAliasing");
         Expect.Equal(2, QualitySettings.globalTextureMipmapLimit, "globalTextureMipmapLimit");
         Expect.Equal(1, QualitySettings.maximumLODLevel, "maximumLODLevel");
@@ -53,6 +55,7 @@ internal static class QualitySettingsTests
         Expect.Equal(2.5f, QualitySettings.lodBias, "lodBias");
         Expect.Equal(40f, QualitySettings.shadowDistance, "shadowDistance");
         Expect.Equal(ShadowQuality.HardOnly, QualitySettings.shadows, "shadows");
+        Expect.That(!QualitySettings.enableLODCrossFade, "enableLODCrossFade");
     }
 
     private static void Validation()
@@ -125,6 +128,7 @@ internal static class QualitySettingsTests
         QualitySettings.antiAliasing = 8;
         QualitySettings.vSyncCount = 4;
         QualitySettings.shadowDistance = 5f;
+        QualitySettings.enableLODCrossFade = false;
         DisunityHost.SetColorSpace(ColorSpace.Linear);
         DisunityHost.SetQualityLevels(["Low", "High"], 1);
         DisunityHost.LoadWorld();
@@ -133,6 +137,7 @@ internal static class QualitySettingsTests
             Expect.Equal(0, QualitySettings.antiAliasing, "antiAliasing reset");
             Expect.Equal(1, QualitySettings.vSyncCount, "vSyncCount reset");
             Expect.Equal(150f, QualitySettings.shadowDistance, "shadowDistance reset");
+            Expect.That(QualitySettings.enableLODCrossFade, "enableLODCrossFade reset");
             Expect.Equal(ColorSpace.Gamma, QualitySettings.activeColorSpace, "color space reset");
             Expect.Sequence(new[] { "Default" }, QualitySettings.names, "levels reset");
             Expect.Equal(0, QualitySettings.GetQualityLevel(), "level reset");

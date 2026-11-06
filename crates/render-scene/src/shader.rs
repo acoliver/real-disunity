@@ -130,3 +130,6 @@ pub(crate) mod impostor_cost_tests;
 
 #[cfg(test)]
 mod terrain_determinism_tests;
+
+#[cfg(test)]
+mod impostor_sampling_cost_tests;

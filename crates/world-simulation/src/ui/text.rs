@@ -186,7 +186,7 @@ pub struct TextLayout {
     pub atlas: GlyphAtlas,
 }
 /// Unity font sizes are pixels per em; `ab_glyph` scales by ascent minus descent.
-fn scale(font: &FontArc, font_size: f32) -> Result<PxScale, UiError> {
+pub(super) fn scale(font: &FontArc, font_size: f32) -> Result<PxScale, UiError> {
     let em = font.units_per_em().ok_or(UiError::InvalidFont)?;
     let scale = font_size * font.height_unscaled() / em;
     if !scale.is_finite() || scale <= 0. {

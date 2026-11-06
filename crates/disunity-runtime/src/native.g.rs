@@ -913,14 +913,14 @@ pub struct DisunityPropertyRead {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
+    /// Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,
     pub clip_y: u32,
     pub clip_width: u32,
     pub clip_height: u32,
-    /// Top-row-origin UV pairs for kind 2, in corner order; zero for kinds 0 and 1.
+    /// Top-row-origin UV pairs in corner order for triangles; zero for quad graphics and text.
     pub triangle_u0: f32,
     pub triangle_v0: f32,
     pub triangle_u1: f32,

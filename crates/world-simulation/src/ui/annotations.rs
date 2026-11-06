@@ -1,4 +1,5 @@
 //! Physical-pixel annotations projected with the caller's immutable presented view.
+mod depth;
 mod labels;
 mod shapes;
 use super::{
@@ -22,7 +23,7 @@ pub enum AnnotationPoint {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnnotationDepth {
     AlwaysVisible,
-    /// Unsupported by the display overlay, which has no scene-depth attachment.
+    /// World anchors are occluded by the retained scene depth.
     DepthTested,
 }
 #[derive(Clone, Debug, PartialEq)]
@@ -79,9 +80,10 @@ pub fn extract_annotations(
     let mut result = UiPresentation::default();
     let mut budget = labels::Budget::default();
     for annotation in annotations {
-        if annotation.depth != AnnotationDepth::AlwaysVisible {
-            return Err(UiError::UnsupportedAnnotationDepth);
-        }
+        let depth = (annotation.depth == AnnotationDepth::DepthTested)
+            .then(|| depth::Depth::new(&annotation.primitive, view))
+            .transpose()?
+            .flatten();
         let start = result.draws.len();
         match &annotation.primitive {
             AnnotationPrimitive::Label {
@@ -100,6 +102,9 @@ pub fn extract_annotations(
             primitive => shapes::extract(&mut result, &mut budget, primitive, view)?,
         }
         for draw in &mut result.draws[start..] {
+            if let Some(depth) = &depth {
+                depth.apply(draw);
+            }
             if draw.corners.iter().flatten().any(|v| !v.is_finite()) {
                 return Err(UiError::InvalidAnnotation);
             }
@@ -137,6 +142,7 @@ fn point(point: AnnotationPoint, view: &ResolvedView) -> Result<Option<Vec2>, Ui
 fn draw(corners: [[f32; 3]; 4], colour: [f32; 4]) -> UiDraw {
     UiDraw {
         kind: UiDrawKind::Graphic,
+        depth_test: false,
         corners,
         uv_rect: [0.; 4],
         color: colour,

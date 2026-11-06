@@ -40,11 +40,11 @@ internal static class GraphicsTests
     }
 
     /// <summary>The render texture overloads of SetRenderTarget work, and Blit, BlitMultiTap and CopyTexture
-    /// record offscreen work or throw naming the overload; GraphicsTargetTests, GraphicsBlitTests and
-    /// WorldGraphicsTests cover them.</summary>
+    /// record offscreen work or throw naming the overload, and ExecuteCommandBuffer sends a buffer's commands;
+    /// GraphicsTargetTests, GraphicsBlitTests, CommandBufferExecutionTests and WorldGraphicsTests cover them.</summary>
     private static bool DrawsNothingButSetsTheActiveTexture(MethodInfo method) =>
         (method.Name == "SetRenderTarget" && method.GetParameters()[0].ParameterType == typeof(RenderTexture))
-        || method.Name is "Blit" or "BlitMultiTap" or "CopyTexture";
+        || method.Name is "Blit" or "BlitMultiTap" or "CopyTexture" or "ExecuteCommandBuffer";
 
     private static void EveryOverloadIsCovered(List<(string Member, Action Call)> calls)
     {
@@ -107,7 +107,6 @@ internal static class GraphicsTests
             ("SetRandomWriteTarget", () => Graphics.SetRandomWriteTarget(1, cb)),
             ("SetRandomWriteTarget", () => Graphics.SetRandomWriteTarget(1, gb)),
             ("ClearRandomWriteTargets", () => Graphics.ClearRandomWriteTargets()),
-            ("ExecuteCommandBuffer", () => Graphics.ExecuteCommandBuffer(commands)),
             ("ExecuteCommandBufferAsync", () => Graphics.ExecuteCommandBufferAsync(commands, ComputeQueueType.Default)),
             ("CreateGraphicsFence", () => Graphics.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation)),
             ("CreateAsyncGraphicsFence", () => Graphics.CreateAsyncGraphicsFence()),

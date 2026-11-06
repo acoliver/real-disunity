@@ -590,6 +590,10 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityRenderTexture>("mip_bias").ToInt32() != 44) throw new InvalidOperationException("DisunityRenderTexture.mip_bias offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 48) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
         if (Marshal.SizeOf<DisunityRenderTexture>() != 56 || typeof(DisunityRenderTexture).GetFields().Length != 13) throw new InvalidOperationException("DisunityRenderTexture layout");
+        if (Marshal.OffsetOf<DisunityTargetRef>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTargetRef.kind offset");
+        if (Marshal.OffsetOf<DisunityTargetRef>("name_id").ToInt32() != 4) throw new InvalidOperationException("DisunityTargetRef.name_id offset");
+        if (Marshal.OffsetOf<DisunityTargetRef>("render").ToInt32() != 8) throw new InvalidOperationException("DisunityTargetRef.render offset");
+        if (Marshal.SizeOf<DisunityTargetRef>() != 16 || typeof(DisunityTargetRef).GetFields().Length != 3) throw new InvalidOperationException("DisunityTargetRef layout");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityOffscreenWork.kind offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("camera").ToInt32() != 8) throw new InvalidOperationException("DisunityOffscreenWork.camera offset");
         if (Marshal.OffsetOf<DisunityOffscreenWork>("target").ToInt32() != 16) throw new InvalidOperationException("DisunityOffscreenWork.target offset");

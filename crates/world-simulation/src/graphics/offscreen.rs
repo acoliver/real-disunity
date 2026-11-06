@@ -1,6 +1,7 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
 use super::{
-    ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, RenderTextureId, TextureRef,
+    ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue, RenderTextureId,
+    TargetRef, TextureRef, WorldRenderTexture,
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
@@ -43,6 +44,38 @@ pub enum OffscreenWork {
         groups: [u32; 3],
         bindings: ComputeBindings,
     },
+    /// Draws after this record go to these targets. `mip`, `face` (-1 for every face) and
+    /// `slice` (-1 for every slice) address the level of each target. A record names one to
+    /// eight color targets, or none when it names a depth target.
+    SetRenderTarget {
+        color: Vec<TargetRef>,
+        depth: Option<TargetRef>,
+        mip: u32,
+        face: i32,
+        slice: i32,
+    },
+    /// Clears the bound targets. The color is cleared to `value`, the depth to `depth_value` and
+    /// the stencil to `stencil_value`, for the parts that are set.
+    ClearRenderTarget {
+        color: bool,
+        depth: bool,
+        stencil: bool,
+        value: [f32; 4],
+        depth_value: f32,
+        stencil_value: u32,
+    },
+    /// Sets a global shader value when the host reaches this record.
+    SetGlobal(PropertyValue),
+    /// Turns a global shader keyword on or off when the host reaches this record.
+    SetGlobalKeyword { name: String, enabled: bool },
+    /// Creates a temporary render texture under a property name id. `desc.generation` is
+    /// ignored. The host frees it at the matching release, or when its frame ends.
+    AllocateTemporary {
+        name_id: i32,
+        desc: WorldRenderTexture,
+    },
+    /// Releases the temporary render texture of a name id.
+    ReleaseTemporary { name_id: i32 },
 }
 
 impl World {
@@ -114,6 +147,7 @@ impl World {
                 groups,
                 bindings,
             } => self.check_dispatch(*shader, *kernel, *groups, bindings),
+            _ => self.check_command(work),
         }
     }
 

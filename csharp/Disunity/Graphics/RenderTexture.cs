@@ -196,7 +196,7 @@ public partial class RenderTexture : Texture
     internal ulong WorldId => WorldLink.Id;
 
     /// <summary>The world's description: the depth bits are the texture's (0, 16, 24 or 32) and the mip count is that of the chain, at most 15.</summary>
-    private DisunityRenderTexture Describe() => new()
+    internal DisunityRenderTexture Describe() => new()
     {
         width = (uint)width, height = (uint)height, format = (uint)(int)_desc.graphicsFormat,
         depth_bits = (uint)Math.Max(depth, 0),

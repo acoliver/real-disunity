@@ -12,6 +12,7 @@
 //! that names a destroyed render texture stays in the list, and the host skips it when the id no
 //! longer resolves.
 mod active_pass;
+mod commands;
 mod compute;
 mod material;
 mod offscreen;
@@ -22,6 +23,7 @@ pub mod snapshot;
 pub mod snapshot_wire;
 
 pub use active_pass::ActivePass;
+pub use commands::{MAX_COLOR_TARGETS, TargetRef};
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
     WorldComputeBuffer, WorldComputeShader,

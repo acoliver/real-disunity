@@ -50,6 +50,71 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_mesh_renderer_materials_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_renderer_materials_read(ulong world, ulong handle, ulong* materials, uint capacity, uint* count);
         /// <summary>
+        ///  Records that draws from here go to `color_count` color targets and an optional `depth`
+        ///  target (null for none), at `mip`, cube `face` (-1 for every face) and depth `slice` (-1 for
+        ///  every slice).
+        ///
+        ///  # Safety
+        ///  `colors` is readable for `color_count` records, or null when the count is zero; `depth` is
+        ///  readable for one record, or null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_render_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_render_target(ulong world, DisunityTargetRef* colors, uint color_count, DisunityTargetRef* depth, uint mip, int face, int slice);
+        /// <summary>
+        ///  Records a clear of the bound targets. `flags` has 1 for the color, 2 for the depth and 4 for
+        ///  the stencil; `value` is 4 floats.
+        ///
+        ///  # Safety
+        ///  `value` is readable for 4 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_clear_render_target", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_clear_render_target(ulong world, uint flags, float* value, float depth_value, uint stencil_value);
+        /// <summary>
+        ///  Records a global shader value to set when the host reaches the record. `kind` is 0 for a
+        ///  float (`floats` holds 1), 1 for an integer (`int_value`), 2 for a vector (4 floats), 3 for a
+        ///  matrix (16 floats, column-major) and 4 for a texture (`slot`).
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `floats` is readable for the floats the kind needs;
+        ///  `slot` is readable for one record when the kind is 4.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_global(ulong world, uint kind, byte* name, uint length, float* floats, int int_value, DisunityTextureSlot* slot);
+        /// <summary>
+        ///  Records a global shader keyword to turn on (`enabled` 1) or off (0) when the host reaches
+        ///  the record.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_keyword", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_global_keyword(ulong world, byte* name, uint length, uint enabled);
+        /// <summary>
+        ///  Records that a temporary render texture of this description exists under `name_id` from
+        ///  here on.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_allocate_temporary", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_allocate_temporary(ulong world, int name_id, DisunityRenderTexture* desc);
+        /// <summary>
+        ///  Records the release of the temporary render texture under `name_id`.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_release_temporary", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_release_temporary(ulong world, int name_id);
+        /// <summary>
+        ///  Reads the encoded bytes of a command record by the token its take gave it (see
+        ///  `worldrunner_world_simulation::graphics::snapshot_wire::decode_work`). Writes the length to
+        ///  `length`; with a zero `capacity` that is all it does, and a smaller `capacity` is rejected.
+        ///
+        ///  # Safety
+        ///  `buffer` is writable for `capacity` bytes, or null when `capacity` is zero; `length` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_detail", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_detail(ulong world, uint token, byte* buffer, uint capacity, uint* length);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety

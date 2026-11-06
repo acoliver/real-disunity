@@ -205,6 +205,8 @@ impl RenderScene {
                 "material",
                 super::table_limit(self.resources.materials().len(), "materials")?,
             )?;
+            self.resources.materials()[decal.material.raw() as usize]
+                .require_default_channels("decal")?;
         }
         Ok(())
     }

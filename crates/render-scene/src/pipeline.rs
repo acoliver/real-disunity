@@ -1,5 +1,6 @@
 //! Material pipeline keys and GPU uniform encoding.
 use wgpu::Face;
+mod channels;
 use worldrunner_render_plan::{SceneAlphaMode, SceneMaterial};
 
 use crate::shader;
@@ -8,7 +9,7 @@ use crate::shader;
 const MICRO_SCALE: f32 = 1_000_000.0;
 
 /// Size in bytes of the shader's `Material` uniform block.
-pub const MATERIAL_UNIFORM_BYTES: usize = 448;
+pub const MATERIAL_UNIFORM_BYTES: usize = 576;
 
 /// The fixed-function and shader-program state one material requires.
 ///
@@ -158,6 +159,7 @@ impl PipelineKey {
 /// The per-material numbers the shader reads, as distinct from pipeline state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialUniform {
+    pub channels: worldrunner_render_plan::SceneMaterialChannels,
     pub fade_direction: worldrunner_render_plan::SceneFadeDirection,
     pub fade_coverage: worldrunner_render_plan::SceneFadeCoverage,
     pub fade_quantization: worldrunner_render_plan::SceneFadeQuantization,
@@ -209,6 +211,7 @@ impl MaterialUniform {
             texture_flags |= shader::FLAG_SELF_ILLUMINATION;
         }
         Self {
+            channels: material.channels(),
             fade_direction: material.fade_direction(),
             fade_coverage: material.fade_coverage(),
             fade_quantization: material.fade_quantization(),
@@ -266,6 +269,19 @@ impl MaterialUniform {
             self.fade_coverage,
             self.fade_quantization,
             self.fade_direction,
+        );
+        channels::encode(
+            &mut bytes[448..512],
+            self.channels,
+            worldrunner_render_plan::SceneMaterialChannels::default(),
+        );
+        channels::encode(
+            &mut bytes[512..576],
+            self.impostor.map_or(
+                worldrunner_render_plan::SceneMaterialChannels::PACKED_IMPOSTOR,
+                worldrunner_render_plan::SceneImpostor::material_channels,
+            ),
+            worldrunner_render_plan::SceneMaterialChannels::PACKED_IMPOSTOR,
         );
         bytes
     }

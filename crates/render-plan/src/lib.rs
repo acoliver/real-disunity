@@ -83,6 +83,7 @@ pub use scene::{
     SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy, TexelFormat,
     TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler, TextureWrap,
 };
+pub use scene::{SceneMaterialChannels, TextureChannel};
 pub use scene::{
     TerrainPagePolicy, TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts,
     TerrainStreamingPolicy,

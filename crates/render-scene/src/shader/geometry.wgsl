@@ -1,4 +1,4 @@
-// Metallic-roughness shading: roughness in green, metalness in blue.
+// Scalar maps use per-material integer component indices.
 // Normal maps select stored RGB or XY with reconstructed positive Z.
 
 
@@ -32,6 +32,8 @@ struct Material {
     alpha_factor_reserved: vec4<f32>,
     wind_modifiers: array<vec4<f32>,6>,
     fade_policy: vec4<u32>,
+    scalar_channels: array<vec4<i32>, 4>,
+    packed_atlas_channels: array<vec4<i32>, 4>,
 }
 
 const FLAG_NORMAL: u32 = 1u;

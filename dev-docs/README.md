@@ -83,7 +83,7 @@ When a behavior is an approximation (a fitted curve, a simplified lighting model
 
 These come from `.llxprt/skills/disunity-code-standards`. CI enforces the configured checks; reviewers also enforce the architecture, source-use and behavior requirements.
 
-- Functions at most 60 lines, 6 arguments and cognitive complexity 15; type complexity 250; at most 3 `bool` fields per struct; source files under 1000 lines (aim for 750). Never raise a limit or add an `allow`.
+- Functions at most 100 lines, 7 arguments and cognitive complexity 25; type complexity 250; at most 4 `bool` fields per struct; source files under 1000 lines (aim for 750). Never raise a limit or add an `allow`.
 - Warnings are errors. Run `cargo xtask ci-cpu`, and `ci-gpu` or `ci-managed` when you touch those areas, before pushing.
 - Write the test first and watch it fail. Never weaken an assertion, widen a tolerance, add a retry or ignore a test to make it pass.
 - When behavior changes, change it everywhere. No duplicate compatibility paths, `v1`/`v2` pairs, legacy twins or flags that select old behavior. `Disunity.Engine` owns thin C# compatibility, including managed values and delegate utilities.

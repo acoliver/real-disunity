@@ -19,3 +19,11 @@ csbindgen = "1.9.8"
 
 [dev-dependencies]
 serde_json.workspace = true
+
+# The CI profiles run no separate complexity pass, so strict lint enforces the clippy.toml limits.
+[lints.clippy]
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+too_many_arguments = "warn"
+type_complexity = "warn"
+struct_excessive_bools = "warn"

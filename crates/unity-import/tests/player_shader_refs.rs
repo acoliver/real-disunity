@@ -275,7 +275,10 @@ fn a_planned_shader_carries_the_pass_names_of_its_first_sub_shader_in_order() {
 fn the_shader_plan_json_carries_the_pass_names() {
     let (_dir, plan) = planned_resources();
     let planned = serde_json::to_value(&plan.assets[5]).unwrap();
-    assert_eq!(planned["pass_names"], json!(["Forward", "", "ShadowCaster"]));
+    assert_eq!(
+        planned["pass_names"],
+        json!(["Forward", "", "ShadowCaster"])
+    );
     assert_eq!(planned["pass_count"], 3);
 }
 

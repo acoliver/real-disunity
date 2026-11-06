@@ -35,7 +35,12 @@ fn write_pass(w: &mut ObjectWriter, name: &str) {
         write_empty_program(w);
     }
     w.u8(0).u8(0).align();
-    w.string("").unwrap().string(name).unwrap().string("").unwrap();
+    w.string("")
+        .unwrap()
+        .string(name)
+        .unwrap()
+        .string("")
+        .unwrap();
     w.i32(0);
 }
 

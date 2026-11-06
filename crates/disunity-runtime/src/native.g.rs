@@ -816,6 +816,14 @@ pub struct DisunityShaderInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityActivePass {
+    pub material: u64,
+    pub pass: u32,
+    pub active: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMaterialInfo {
     pub shader: u64,
     pub render_queue: i32,

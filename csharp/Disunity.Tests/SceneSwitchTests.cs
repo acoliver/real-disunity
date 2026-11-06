@@ -18,6 +18,13 @@ internal static class SceneSwitchTests
         private void OnDestroy() => Log.Add($"OnDestroy:{name}");
     }
 
+    /// <summary>A DontDestroyOnLoad object that reports its own OnDestroy.</summary>
+    private sealed class Persistent : MonoBehaviour
+    {
+        private void Awake() => DontDestroyOnLoad(gameObject);
+        private void OnDestroy() => Log.Add($"OnDestroy:{name}");
+    }
+
     private sealed class Unloadable : MonoBehaviour
     {
         public Unloadable() => throw new TypeLoadException("Could not load type 'Missing' from assembly 'Engine'.");
@@ -100,6 +107,8 @@ internal static class SceneSwitchTests
         AHeldAsyncLoadWaitsForActivation();
         ACoroutineResumesAfterTheLoad();
         AProjectRunHoldsOneScene();
+        UnloadingTheWorldDestroysSceneObjectsBeforePersistentOnes();
+        Console.WriteLine("PASS: unloading the world destroys the loaded scenes' objects before the DontDestroyOnLoad ones");
         Console.WriteLine("PASS: loading build scenes at run time by name, path and index, Single load, DontDestroyOnLoad, events and LoadSceneAsync");
         AnAdditiveLoadAddsAScene();
         SetActiveSceneMovesNewObjects();
@@ -110,6 +119,28 @@ internal static class SceneSwitchTests
         Console.WriteLine("PASS: a script whose class cannot load is left off its object and the scene still loads");
         AFailedScriptNamesItsCause();
         Console.WriteLine("PASS: a scene load error names the script's exception and each inner exception");
+    }
+
+    /// <summary>The persistent object and its script come first, so a teardown in creation order would destroy it first.</summary>
+    private static void UnloadingTheWorldDestroysSceneObjectsBeforePersistentOnes()
+    {
+        Log.Clear();
+        DisunityHost.LoadWorld();
+        try
+        {
+            DisunityHost.SetBuildScenes(Build, Options);
+            using var scene = DisunityHost.LoadScene(Plan("level0", ("Keeper", "Persistent"), ("OldA", "Probe")), Options);
+            DisunityHost.Step(0.01f);
+            Log.Clear();
+        }
+        finally
+        {
+            DisunityHost.UnloadWorld();
+            SceneManager.ClearHandlers();
+        }
+        var destroyed = Log.Where(entry => entry.StartsWith("OnDestroy:")).ToArray();
+        Expect.Equal("OnDestroy:OldA,OnDestroy:Keeper", string.Join(",", destroyed),
+            "the scene object is destroyed before the DontDestroyOnLoad object");
     }
 
     private static void TheBuildListNamesTheScenes() => InWorld(() =>

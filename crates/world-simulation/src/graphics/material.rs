@@ -162,13 +162,16 @@ impl World {
         }
     }
 
-    /// Removes a material. Renderers and offscreen work that name it keep the stale id.
+    /// Removes a material. Renderers and offscreen work that name it keep the stale id. The active
+    /// pass is cleared when it was the material's.
     pub fn destroy_material(&mut self, id: MaterialId) -> Result<(), WorldError> {
         self.graphics
             .materials
             .remove(id.0)
             .map(drop)
-            .ok_or(WorldError::Graphics(GraphicsError::StaleMaterial))
+            .ok_or(WorldError::Graphics(GraphicsError::StaleMaterial))?;
+        self.clear_active_pass_of(id);
+        Ok(())
     }
 
     pub fn material(&self, id: MaterialId) -> Result<&WorldMaterial, WorldError> {

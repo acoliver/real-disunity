@@ -199,9 +199,14 @@ public static partial class DisunityHost
     public static unsafe void UnloadWorld()
     {
         if (!IsLoaded) return;
+        var sceneRoots = LoadedScenes.SelectMany(RootsOf).ToArray();
         UnloadScene();
         try
         {
+            // The loaded scenes' objects go first and the DontDestroyOnLoad objects after them, the engine's choice, so a
+            // scene object's OnDestroy still finds the persistent objects it registered with.
+            foreach (var root in sceneRoots) root.Destroy();
+            if (!_faulted && sceneRoots.Length != 0) Advance(0);
             // Objects created by final callbacks are retired by another native cleanup advance.
             while (!_faulted && (Tracked.Any(o => !o.IsDestroyed) || Assets.Count != 0))
             {

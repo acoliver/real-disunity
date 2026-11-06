@@ -122,6 +122,7 @@ impl SceneGpu {
                                 .expect("source admitted")
                         })
                         .as_deref(),
+                    &terrain.triangle_source,
                 ),
                 Some((&view, table)),
             ));

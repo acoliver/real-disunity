@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod audio_tests;
+#[cfg(test)]
 pub(crate) mod drop_tests;
 #[cfg(test)]
 mod lifecycle_tests;
@@ -94,6 +96,14 @@ impl<'a> Session<'a> {
 }
 
 impl Content for Session<'_> {
+    fn accessibility(&mut self) -> Option<&mut super::accessibility::Accessibility> {
+        Some(&mut self.host.accessibility)
+    }
+    fn accessibility_action(&mut self, request: worldrunner_world_simulation::ui::UiAccessRequest) {
+        if let Err(error) = self.notify(&RetainedEvent::Accessibility(request)) {
+            self.failure = Some(error);
+        }
+    }
     fn set_work_waker(&mut self, waker: std::sync::Arc<dyn Fn() + Send + Sync>) {
         self.host.work.set_waker(waker);
     }
@@ -101,11 +111,22 @@ impl Content for Session<'_> {
         if self.host.exit {
             return None;
         }
-        self.host.timers.next_deadline()
+        self.host
+            .timers
+            .next_deadline()
+            .into_iter()
+            .chain(self.host.audio.next_wakeup())
+            .min()
     }
     fn host_ready(&mut self) -> Result<(), ViewerError> {
         if self.host.exit {
             return Ok(());
+        }
+        while let Some(event) = self.host.audio.take_event() {
+            self.notify(&event).map_err(ViewerError::Driver)?;
+            if self.host.exit {
+                return Ok(());
+            }
         }
         let now = self.host.timer_now();
         let due = self.host.timers.due(now);
@@ -141,6 +162,7 @@ impl Content for Session<'_> {
         self.closed = true;
         self.host.exit = true;
         self.host.timers.shutdown();
+        self.host.audio.shutdown();
         self.host.work.shutdown();
         self.host.captures.cancel();
         let mut failure = self.failure.take();

@@ -8,6 +8,7 @@ internal static class GraphicsFormatUtilityTests
     {
         Conversions();
         Facts();
+        FloatFacts();
         BlockSizes();
         Unsupported();
         Console.WriteLine("PASS: GraphicsFormatUtility converts texture, render texture and graphics formats and reports depth, stencil and sRGB facts");
@@ -69,6 +70,17 @@ internal static class GraphicsFormatUtilityTests
             Expect.That(GraphicsFormatUtility.IsCrunchFormat(crunched), $"{crunched} is Crunch");
         foreach (var plain in new[] { TextureFormat.DXT5, TextureFormat.RGBA32, TextureFormat.BC7 })
             Expect.That(!GraphicsFormatUtility.IsCrunchFormat(plain), $"{plain} is not Crunch");
+    }
+
+    private static void FloatFacts()
+    {
+        foreach (var half in new[] { GraphicsFormat.R16_SFloat, GraphicsFormat.R16G16_SFloat, GraphicsFormat.R16G16B16_SFloat, GraphicsFormat.R16G16B16A16_SFloat })
+            Expect.That(GraphicsFormatUtility.IsHalfFormat(half) && GraphicsFormatUtility.IsIEEE754Format(half), $"{half} is a half float format");
+        foreach (var single in new[] { GraphicsFormat.R32_SFloat, GraphicsFormat.R32G32B32A32_SFloat })
+            Expect.That(!GraphicsFormatUtility.IsHalfFormat(single) && GraphicsFormatUtility.IsIEEE754Format(single), $"{single} is a single float format, not half");
+        foreach (var other in new[] { GraphicsFormat.R16_UNorm, GraphicsFormat.R8G8B8A8_UNorm, GraphicsFormat.B10G11R11_UFloatPack32, GraphicsFormat.D32_SFloat,
+                     GraphicsFormat.D16_UNorm, GraphicsFormat.None })
+            Expect.That(!GraphicsFormatUtility.IsHalfFormat(other) && !GraphicsFormatUtility.IsIEEE754Format(other), $"{other} is neither half nor IEEE 754");
     }
 
     private static void BlockSizes()

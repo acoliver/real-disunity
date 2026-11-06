@@ -13,6 +13,14 @@ internal static partial class GraphicsFormatComponents
     [GeneratedRegex("[RGBA]")]
     private static partial Regex Channel();
 
+    [GeneratedRegex("^(?:[RGBA]16)+_SFloat$")]
+    private static partial Regex HalfFloat();
+
+    internal static bool IsHalf(GraphicsFormat format) => HalfFloat().IsMatch(format.ToString());
+
+    internal static bool IsIEEE754(GraphicsFormat format) =>
+        Letters(format).Any() && format.ToString().EndsWith("_SFloat", StringComparison.Ordinal);
+
     internal static uint Color(GraphicsFormat format) => (uint)Letters(format).Count(letter => letter != 'A');
 
     internal static uint Alpha(GraphicsFormat format) => (uint)Letters(format).Count(letter => letter == 'A');

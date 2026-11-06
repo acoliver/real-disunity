@@ -26,6 +26,13 @@ public static class GraphicsFormatUtility
 
     public static bool IsSRGBFormat(GraphicsFormat format) => GraphicsFormats.IsSrgb(format);
 
+    /// <summary>True for a color format whose channels are all 16-bit floats, such as <c>R16G16B16A16_SFloat</c>.</summary>
+    public static bool IsHalfFormat(GraphicsFormat format) => GraphicsFormatComponents.IsHalf(format);
+
+    /// <summary>True for a color format whose channels are IEEE 754 floats (16 or 32 bits); a packed float format and a depth
+    /// format are not (the engine's choice for the depth case).</summary>
+    public static bool IsIEEE754Format(GraphicsFormat format) => GraphicsFormatComponents.IsIEEE754(format);
+
     public static bool IsDepthFormat(GraphicsFormat format) => GraphicsFormats.DepthBits(format) > 0;
 
     public static bool IsStencilFormat(GraphicsFormat format) => GraphicsFormats.HasStencil(format);

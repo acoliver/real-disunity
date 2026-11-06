@@ -1,4 +1,8 @@
 //! Retained UI replacements only when the available draws, image generations or viewport change.
+#[cfg(test)]
+#[path = "player_ui_order_tests.rs"]
+mod tests;
+
 use crate::{PlayError, player_textures::PlayerTextures};
 use std::{
     collections::{BTreeMap, BTreeSet},

@@ -450,6 +450,12 @@ Built-player retained drivers use the same compositor. The loaded ABI image reta
 `UiPresentation` draws from `extract_ui` alongside its prepared scene frame, before
 UI is converted to the live 2D path's world-space quads. Typed copy-out preserves
 pixel coordinates, coverage, image identities, hierarchy order and clip bounds.
+The detached draw sequence interleaves graphics and glyphs in ascending canvas
+sorting layer, canvas sorting order and hierarchy preorder. Graphics precede text
+only on the same object; glyphs and mesh quads retain their original order within
+that object. Canvas creation order does not override its sorting values.
+The ABI rejects descending draw keys and clip extents whose unsigned endpoints
+overflow before copying metadata. Empty clip rectangles are valid and draw nothing.
 The driver refreshes image textures alongside mesh textures and replaces its UI
 only when the draws, image generations or physical viewport change. See the
 [host API](../../crates/scene-viewer/README.md#retained-screen-space-ui).

@@ -1,6 +1,62 @@
 #![cfg(feature = "ui")]
 
 #[test]
+fn annotation_labels_share_native_types_and_merge_coverage_without_collisions() {
+    use glam::{DVec3, Vec2};
+    use worldrunner_camera::{CameraLens, CameraPose, CameraState, ViewConvention, Viewport};
+    use worldrunner_render_plan::ui::{UiPresentation, annotations::*};
+    use worldrunner_world_simulation::ui::TextRun;
+    let view = worldrunner_camera::resolve(&CameraState {
+        pose: CameraPose {
+            eye_meters: DVec3::Z * 5.,
+            forward: -DVec3::Z,
+            up: DVec3::Y,
+        },
+        lens: CameraLens::Orthographic {
+            half_height_meters: 2.,
+            near_meters: 0.1,
+            far_meters: 10.,
+        },
+        viewport: Viewport {
+            width: 64,
+            height: 64,
+        },
+        convention: ViewConvention::RIGHT_HANDED,
+    })
+    .unwrap();
+    let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+    let font = fonts.register(test_font::font()).unwrap();
+    let annotation = Annotation {
+        primitive: AnnotationPrimitive::Label {
+            anchor: AnnotationPoint::World(glam::Vec3::ZERO),
+            run: TextRun {
+                text: "A".into(),
+                ..TextRun::new(font)
+            },
+            alignment: Vec2::ZERO,
+        },
+        draw_order: (1, 2, 3),
+        clip_rect: None,
+        depth: AnnotationDepth::AlwaysVisible,
+    };
+    let native: worldrunner_world_simulation::ui::presentation::UiPresentation =
+        extract_annotations(&[annotation], &fonts, &view).unwrap();
+    let mut frame = UiPresentation::default();
+    frame.append(native.clone()).unwrap();
+    frame.append(native).unwrap();
+    assert_eq!(frame.coverage.keys().copied().collect::<Vec<_>>(), [0, 1]);
+    assert_eq!(
+        frame.draws.iter().map(|d| d.texture).collect::<Vec<_>>(),
+        [Some(0), Some(1)]
+    );
+    let before = frame.clone();
+    let mut oversized = frame.clone();
+    oversized.draws = vec![frame.draws[0].clone(); 10923];
+    assert!(frame.append(oversized).is_err());
+    assert_eq!(frame, before);
+}
+
+#[test]
 fn ui_contribution_types_are_owned_by_world_simulation() {
     use std::any::TypeId;
     use worldrunner_render_plan::ui as plan;

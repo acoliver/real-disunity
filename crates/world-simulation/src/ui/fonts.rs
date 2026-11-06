@@ -77,6 +77,40 @@ impl FontBook {
         self.bytes = total;
         Ok(id)
     }
+    pub(super) fn validate_single_line(&self, run: &TextRun) -> Result<(), UiError> {
+        use ab_glyph::Font;
+        run.validate()?;
+        let font = self
+            .fonts
+            .get(&run.font)
+            .ok_or(UiError::MissingFont(run.font))?;
+        for c in run.text.chars() {
+            if !c.is_ascii() || c == '\n' || c == '\r' {
+                return Err(UiError::UnsupportedShaping(c));
+            }
+            if font.glyph_id(c).0 == 0 {
+                return Err(UiError::MissingGlyph(c));
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn text_positions(&self, run: &TextRun) -> Result<Vec<f32>, UiError> {
+        use ab_glyph::{Font, ScaleFont};
+        self.validate_single_line(run)?;
+        let font = &self.fonts[&run.font];
+        let scaled = font.as_scaled(super::text::scale(font, run.font_size)?);
+        let mut positions = vec![0.];
+        let mut previous = None;
+        let mut x = 0.;
+        for c in run.text.chars() {
+            let id = scaled.glyph_id(c);
+            x += previous.map_or(0., |p| scaled.kern(p, id));
+            x += scaled.h_advance(id);
+            positions.push(x);
+            previous = Some(id);
+        }
+        Ok(positions)
+    }
     pub fn cache_stats(&self) -> TextCacheStats {
         self.cache.lock().expect("text cache lock").stats
     }

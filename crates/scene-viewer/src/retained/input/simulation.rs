@@ -19,6 +19,7 @@ impl RetainedInput {
                 PointerEvent::Wheel(PointerWheel::Pixels(*delta))
             }
             Self::Focused(value) => return Some(InputAction::Focus(*value)),
+            Self::Text(text) => return Some(InputAction::Text(text.clone())),
             _ => return None,
         };
         Some(InputAction::Pointer(pointer))

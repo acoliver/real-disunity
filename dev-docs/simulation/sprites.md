@@ -14,6 +14,19 @@ Managed applications create immutable descriptors with `DisunityHost.CreateSprit
 
 Mixed hosts call `DisunityHost::export_presentation(viewport, next_texture)` on the same loaded native image. Pass the first unused texture identity above the application's texture table. The engine extracts active sprites, tiles, the selected camera and clear, and Canvas/Text glyphs using that world's own FontBook. Generated bounded copy-outs carry immutable quad observations and linear RGBA coverage. `render-plan::simulation::from_presentation` combines these observations with application texture bytes before ordinary scene preparation. A prepared native frame is replaced by the next extraction and released on world unload. The narrower `export_sprites` API remains available for callers that only need renderer descriptors and matrices.
 
+Retained managed hosts read `DisunityHost::ui_presentation()` after
+`export_presentation`. Both read the same prepared frame. The UI copy-out uses
+`DisunityQuad` for pixel corners, image identity, canvas sorting layer and order;
+`DisunityUiDraw` carries graphic/text kind, hierarchy preorder and lower-left
+pixel clip x/y/width/height. Text draws reference the separate R8 coverage table.
+The sequence sorts by layer, order, hierarchy and then kind, with graphics before
+text on a shared object. Signed canvas priorities and empty clips are valid;
+descending keys and overflowing clip endpoints return an ABI error without
+changing the output records. These records use ABI revision 7.
+`PlayerUi` converts the snapshot to the existing `UiOverlay` and retained UI update,
+which draws after scene tone mapping. World-space canvas draws remain in the
+ordinary scene presentation. See [UI composition](ui.md#text-contract).
+
 Managed Sprite content receives a native immutable identity. Assignment, repeated property reads, sharing between renderers and Instantiate resolve the same managed wrapper while a reference remains alive. Renderer tint and enabled state are independent of that identity. Serialized Color and Bounds fields retain their values, including in arrays and lists. Unsupported serialized types throw NotSupportedException before clone activation.
 
 ## Known limits

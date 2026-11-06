@@ -22,6 +22,13 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         }
     }
 
+    /// <summary>Drops the commands that were queued and not submitted. The host calls it when a pipeline's Render
+    /// returns, so work a pipeline forgot to submit does not run in a later frame (the engine's choice).</summary>
+    internal static void DiscardPending()
+    {
+        lock (Pending) Pending.Clear();
+    }
+
     public void Submit()
     {
         Action[] batch;

@@ -87,6 +87,7 @@ public static partial class DisunityHost
     {
         UpdateRenderPipeline();
         Advance(deltaTime);
+        RenderFrame();
         ReportAudioListenerDiagnostic();
     }
 

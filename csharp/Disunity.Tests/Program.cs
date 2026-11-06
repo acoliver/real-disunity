@@ -501,6 +501,7 @@ ColorUtilityTests.Run();
 EndOfFrameTests.Run();
 RenderPipelineAssetTests.Run();
 RenderPipelineLifecycleTests.Run();
+PipelineRenderTests.Run();
 LightmappingTests.Run();
 Hash128Tests.Run();
 FilteringAndStateTests.Run();

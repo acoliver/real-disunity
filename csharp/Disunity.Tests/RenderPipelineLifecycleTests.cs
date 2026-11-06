@@ -59,6 +59,17 @@ internal static class RenderPipelineLifecycleTests
         public void RenderArray(Camera[] cameras) => Render(default, cameras);
     }
 
+    private static void SupportedFeaturesAreHeldAndNeverNull()
+    {
+        var original = SupportedRenderingFeatures.active;
+        Expect.That(original is not null, "a default set of features is active at first");
+        var replacement = new SupportedRenderingFeatures();
+        SupportedRenderingFeatures.active = replacement;
+        Expect.That(ReferenceEquals(SupportedRenderingFeatures.active, replacement), "a pipeline's features replace the active set");
+        Expect.Throws<ArgumentNullException>(() => SupportedRenderingFeatures.active = null!, "the active set cannot be null");
+        SupportedRenderingFeatures.active = original;
+    }
+
     private static int _created;
     private static int _disposedEvents;
 
@@ -75,6 +86,7 @@ internal static class RenderPipelineLifecycleTests
             UnloadingTheWorldDisposesThePipeline();
             AFailingCreationIsReportedOnce();
             DisposeRunsOnceAndTheArrayFormRendersThroughTheListForm();
+            SupportedFeaturesAreHeldAndNeverNull();
         }
         finally
         {

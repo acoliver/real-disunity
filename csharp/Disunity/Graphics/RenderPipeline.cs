@@ -50,16 +50,17 @@ public abstract class RenderPipelineGlobalSettings : ScriptableObject
 }
 
 /// <summary>A render pipeline. The host creates it from the active <see cref="RenderPipelineAsset"/> and disposes it when
-/// the asset stops being active or the world unloads. The engine does not call <see cref="Render(ScriptableRenderContext, Camera[])"/> yet.</summary>
+/// the asset stops being active or the world unloads. The engine does not call <see cref="Render(ScriptableRenderContext, List{Camera})"/> yet.</summary>
 public abstract class RenderPipeline
 {
     public bool disposed { get; private set; }
 
-    /// <summary>Renders the cameras into the context; a pipeline implements it.</summary>
-    protected abstract void Render(ScriptableRenderContext context, Camera[] cameras);
+    /// <summary>Renders the cameras into the context; a pipeline implements it. The render pipeline package the
+    /// player bundles implements this form, so it is the abstract one.</summary>
+    protected abstract void Render(ScriptableRenderContext context, List<Camera> cameras);
 
-    /// <summary>Renders the cameras into the context; by default it calls the array form.</summary>
-    protected virtual void Render(ScriptableRenderContext context, List<Camera> cameras) => Render(context, cameras.ToArray());
+    /// <summary>The array form of <see cref="Render(ScriptableRenderContext, List{Camera})"/>; by default it calls the list form.</summary>
+    protected virtual void Render(ScriptableRenderContext context, Camera[] cameras) => Render(context, new List<Camera>(cameras));
 
     /// <summary>Releases the pipeline's resources. <see cref="Dispose()"/> calls it with true, once.</summary>
     protected virtual void Dispose(bool disposing) { }

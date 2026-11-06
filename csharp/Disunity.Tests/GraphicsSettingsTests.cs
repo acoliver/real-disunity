@@ -19,7 +19,7 @@ internal static class GraphicsSettingsTests
 
     private sealed class Pipeline : RenderPipeline
     {
-        protected override void Render(ScriptableRenderContext context, Camera[] cameras) { }
+        protected override void Render(ScriptableRenderContext context, List<Camera> cameras) { }
     }
 
     private sealed class TypedAsset : RenderPipelineAsset<Pipeline>

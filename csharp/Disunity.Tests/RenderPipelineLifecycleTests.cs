@@ -12,7 +12,7 @@ internal static class RenderPipelineLifecycleTests
         public bool DisposedAsFinalizer;
         public static int Renders;
 
-        protected override void Render(ScriptableRenderContext context, Camera[] cameras) => Renders++;
+        protected override void Render(ScriptableRenderContext context, List<Camera> cameras) => Renders++;
 
         protected override void Dispose(bool disposing)
         {
@@ -47,16 +47,16 @@ internal static class RenderPipelineLifecycleTests
 
     private sealed class ListPipeline : RenderPipeline
     {
-        public int ArrayCalls;
-        public int ArrayLength;
+        public int ListCalls;
+        public int ListLength;
 
-        protected override void Render(ScriptableRenderContext context, Camera[] cameras)
+        protected override void Render(ScriptableRenderContext context, List<Camera> cameras)
         {
-            ArrayCalls++;
-            ArrayLength = cameras.Length;
+            ListCalls++;
+            ListLength = cameras.Count;
         }
 
-        public void RenderList(List<Camera> cameras) => Render(default, cameras);
+        public void RenderArray(Camera[] cameras) => Render(default, cameras);
     }
 
     private static int _created;
@@ -74,7 +74,7 @@ internal static class RenderPipelineLifecycleTests
             ClearingTheAssetDisposesThePipeline();
             UnloadingTheWorldDisposesThePipeline();
             AFailingCreationIsReportedOnce();
-            DisposeRunsOnceAndTheListFormRendersThroughTheArrayForm();
+            DisposeRunsOnceAndTheArrayFormRendersThroughTheListForm();
         }
         finally
         {
@@ -191,14 +191,14 @@ internal static class RenderPipelineLifecycleTests
         DisunityHost.Step(0.016f);
     }
 
-    private static void DisposeRunsOnceAndTheListFormRendersThroughTheArrayForm()
+    private static void DisposeRunsOnceAndTheArrayFormRendersThroughTheListForm()
     {
         var pipeline = new Pipeline();
         pipeline.Dispose();
         pipeline.Dispose();
         Expect.That(pipeline.disposed && pipeline.Disposals == 1, "Dispose() runs Dispose(bool) once however often it is called");
         var listPipeline = new ListPipeline();
-        listPipeline.RenderList([null!, null!, null!]);
-        Expect.That(listPipeline.ArrayCalls == 1 && listPipeline.ArrayLength == 3, "the list form passes its cameras to the array form");
+        listPipeline.RenderArray([null!, null!, null!]);
+        Expect.That(listPipeline.ListCalls == 1 && listPipeline.ListLength == 3, "the array form passes its cameras to the list form");
     }
 }

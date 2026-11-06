@@ -10,7 +10,7 @@ internal static class PlayerPipelineTests
 {
     public sealed class TestPipeline : RenderPipeline
     {
-        protected override void Render(ScriptableRenderContext context, Camera[] cameras) { }
+        protected override void Render(ScriptableRenderContext context, List<Camera> cameras) { }
     }
 
     public sealed class HighAsset : RenderPipelineAsset<TestPipeline>

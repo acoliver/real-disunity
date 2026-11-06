@@ -1,6 +1,6 @@
 # Quality gates
 
-All checks operate on the current checkout, with no baseline of accepted exceptions. Cargo subprocesses that compile code are bounded to two jobs. Formatting is check-only. Dependency resolution is locked except for a disposable external facade-consumer probe, which resolves offline and writes only to a unique temporary directory.
+All checks operate on the current checkout, with no baseline of accepted exceptions. Cargo subprocesses that compile code are bounded to two jobs, except under the hub gate runner, which sets `HN_COMMIT` and holds the machine, where they use up to eight; `XTASK_JOBS` (1 to 64) overrides both. Formatting is check-only. Dependency resolution is locked except for a disposable external facade-consumer probe, which resolves offline and writes only to a unique temporary directory.
 
 ## Commands and runners
 

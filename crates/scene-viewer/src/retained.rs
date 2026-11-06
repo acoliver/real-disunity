@@ -447,8 +447,14 @@ impl RetainedHost {
         events
     }
 
+    /// Whether a frame can be drawn now: a scene is staged and the surface is visible and
+    /// nonempty. This is the condition under which [`Self::view`] returns a view.
+    pub(crate) fn has_view_extent(&self) -> bool {
+        self.initial_scene.is_some() && !self.size.contains(&0) && !self.occluded
+    }
+
     pub fn view(&self) -> Result<Option<SceneView>, ViewerError> {
-        if self.initial_scene.is_none() || self.size.contains(&0) || self.occluded {
+        if !self.has_view_extent() {
             return Ok(None);
         }
         Ok(Some(SceneView::with_convention(

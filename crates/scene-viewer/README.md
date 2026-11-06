@@ -4,6 +4,52 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+## Short sounds
+
+`RetainedHost::audio()` and `RetainedEventHost::audio()` expose the same
+`AudioService`. Call `start_device()` explicitly before playback; construction
+never opens a device. Load a bounded PCM WAV with `load_wav`, then use `play`
+with a clip handle and gain, `stop`, `set_master_gain` and `set_mute`, or typed
+`AudioCommand` controls. Natural endings deliver `RetainedEvent::AudioFinished`
+through the driver event hook, including while presentation is paused. Stop and
+shutdown cancel voices without a natural-ending notification.
+
+`status()` distinguishes `Ready`, `Closed` and `Unavailable` reasons: not started,
+null device, no device, open failure, unsupported configuration and device loss.
+Transitions deliver `AudioStatusChanged`; startup failures also provide
+`device_error()`. Physical playback is rejected unless the device is ready.
+The default mono/stereo device must provide f32, i16 or u16 output. Device errors
+stop the mixer and cancel pending voices. Drivers choose what to do next.
+
+Windowless initialization always selects the null device and refuses physical
+device startup. Its status remains `Unavailable(NullDevice)` even while simulated
+voices run. `advance_time` renders and discards samples at 48 kHz, carrying
+fractional frames between calls. `frame` or `poll` delivers the resulting endings;
+wall time alone cannot complete a simulated voice.
+
+A mixer worker fills a preallocated 2048-frame atomic stereo ring in 128-frame
+blocks. The cpal data callback only reads samples, converts to the output type
+and advances atomic cursors. It allocates nothing, takes no lock and calls no
+user hook. Underruns output silence without completing unconsumed audio. Endings
+are delivered only after the callback consumes their final block, which indicates
+handoff to the OS rather than audible speaker completion. Stop, gain and mute
+changes affect subsequent mixing; already queued samples can remain for up to
+2048 frames, in addition to device latency. The host polls device events at a
+5 ms wakeup interval independently of frame cadence. Shutdown stops the stream,
+joins the worker and closes admission before notifying the driver.
+
+The only direct audio dependency is `cpal` 0.15.3, licensed Apache-2.0,
+with default features disabled. Linux requires ALSA development libraries
+(`libasound2-dev` and `pkg-config` on Debian/Ubuntu). The repository's lavapipe
+package list does not install ALSA, and the hub's `rd-gate` image provisioning
+is outside this repository. Verify that image's packages before requesting its
+gate; changing protected CI configuration requires Andrew.
+
+For an explicit audible check later, run
+`cargo run --locked -p worldrunner-scene-viewer --example tone`. It plays one
+second of 440 Hz at gain 0.15. Tests never run this example or open a device.
+See [the mixer contract](../world-simulation/README.md#short-clip-audio).
+
 ## Native window focus
 
 Both `RetainedHost::focus_window()` and `RetainedEventHost::focus_window()`

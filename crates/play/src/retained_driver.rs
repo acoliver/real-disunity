@@ -385,6 +385,8 @@ impl RetainedDriver for PlayerRetainedDriver {
             RetainedEvent::Shutdown
             | RetainedEvent::WorkReady
             | RetainedEvent::Timer { .. }
+            | RetainedEvent::AudioFinished { .. }
+            | RetainedEvent::AudioStatusChanged { .. }
             | RetainedEvent::Accessibility(_) => {}
         }
         if self.finished() {

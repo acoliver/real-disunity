@@ -23,7 +23,10 @@ fn endpoint_budget_plan_matches_allocated_geometry() {
     use SceneWaterSeedCoordinates::{EndpointClamped, Repeat};
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let baseline = required(&configuration(seed_tests::body(Repeat)), &context) - 72;
-    assert_eq!(baseline + 72, 9500);
+    let pixels = 5 * 3;
+    let textures = pixels * (8 + 4 + 3 * 8 + 6 * 4 + 9 * 8) + 6 * 8 + 8;
+    let uniforms = 3 * (304 + 192 + STAGING_BYTES + UNIFORM_BYTES);
+    assert_eq!(baseline + 72, textures + uniforms + 72);
     for surface in [
         SceneWaterSurface::Rectangle,
         SceneWaterSurface::Mesh {

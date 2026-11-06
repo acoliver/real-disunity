@@ -5,8 +5,16 @@ use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObjec
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 pub(crate) mod accessibility;
+mod audio;
 mod startup;
+pub use audio::{
+    AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
+    AudioUnavailable, ClipHandle, VoiceHandle,
+};
 mod timers;
+#[cfg(test)]
+#[path = "../../world-simulation/tests/ui_font/mod.rs"]
+mod ui_font;
 pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
 mod work;
 pub use work::{
@@ -35,6 +43,7 @@ pub use windowless::WindowlessRetained;
 #[cfg(test)]
 pub(crate) use windowless::tests::pages::layered_scene;
 mod input;
+pub use input::text::TextInput;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
     WheelDelta, WindowControlError,
@@ -134,6 +143,11 @@ pub enum SceneObjectEdit {
 /// Key names follow `LiveInputEvent`'s lowercase convention.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedInput {
+    Text(TextInput),
+    DisplayChanged {
+        scale_factor: f64,
+        physical_size: [u32; 2],
+    },
     Key {
         /// Lowercase name retained for held-key queries.
         key: String,
@@ -164,6 +178,12 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    AudioFinished {
+        voice: VoiceHandle,
+    },
+    AudioStatusChanged {
+        status: AudioStatus,
+    },
     /// Route through `UiRouter::accessibility_action`, then handle its ordinary `UiAction`s.
     Accessibility(worldrunner_world_simulation::ui::UiAccessRequest),
     /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
@@ -218,6 +238,7 @@ pub struct RetainedHost {
     picking: picking::Picking,
     work: work::WorkServices,
     timers: timers::Timers,
+    audio: AudioService,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
@@ -437,8 +458,25 @@ impl RetainedHost {
             self.input_state.surface_extent = Some(*size);
         }
         let mut events = self.input_state.accept(&input);
+        if let RetainedInput::Resized(physical_size) = &input {
+            events.push(RetainedInput::DisplayChanged {
+                scale_factor: self.scale_factor(),
+                physical_size: *physical_size,
+            });
+        }
         match &input {
             RetainedInput::Resized(size) => self.size = *size,
+            RetainedInput::DisplayChanged {
+                scale_factor,
+                physical_size,
+            } => {
+                self.input_state.text.scale = *scale_factor;
+                self.size = *physical_size;
+            }
+            RetainedInput::Focused(false) => {
+                self.input_state.text.area = None;
+                self.apply_text_input_area();
+            }
             RetainedInput::Occluded(value) => self.occluded = *value,
             RetainedInput::CloseRequested => self.exit = true,
             _ => {}

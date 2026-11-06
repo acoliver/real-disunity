@@ -145,13 +145,15 @@ pub enum ResourceAsset {
         sprites: Vec<AssetRef>,
     },
     /// A shader, by the name its source declares, with the render queue of its first
-    /// sub-shader and the numbers of sub-shaders and of passes in the first one. The programs
+    /// sub-shader, the number of sub-shaders and the names of the passes in the first one
+    /// (`pass_count` of them, the empty string for an unnamed pass). The programs
     /// are not planned; `file` and `path_id` name the serialized shader object they are read
     /// from, `file` relative to the data directory.
     Shader {
         name: String,
         render_queue: i32,
         pass_count: usize,
+        pass_names: Vec<String>,
         subshader_count: usize,
         file: String,
         path_id: i64,
@@ -568,6 +570,7 @@ impl ResourcePlanner {
                 name: decl.name,
                 render_queue: decl.render_queue,
                 pass_count: decl.pass_count,
+                pass_names: decl.pass_names,
                 subshader_count: decl.subshader_count,
                 file: decl.file,
                 path_id: decl.path_id,

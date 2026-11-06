@@ -20,7 +20,7 @@ impl UiRouter {
         let groups = groups_by_object(world.published_components());
         let targets = Targets::new(world, layout, self, &groups)?;
         self.modal_changed(targets.modal);
-        self.focus = self.focus.filter(|o| targets.interactable(*o));
+        self.retain_focus(|o| targets.interactable(o));
         self.capture = self.capture.filter(|o| targets.interactable(*o));
         let hit = self.position.and_then(|position| targets.hit(position));
         let mut response = UiResponse {
@@ -60,6 +60,9 @@ impl UiRouter {
         if pressed {
             if !self.primary_held {
                 self.capture = hit.filter(|object| targets.interactable(*object));
+                if self.focus != self.capture {
+                    self.cancel_preedits();
+                }
                 self.focus = self.capture;
             }
             self.primary_held = true;

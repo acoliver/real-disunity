@@ -11,6 +11,7 @@ enum Call {
     Focus,
     Grab(CursorGrabMode),
     Visible(bool),
+    TextInputArea(Option<[f64; 4]>),
 }
 
 #[derive(Default)]
@@ -28,6 +29,14 @@ impl super::super::input::WindowControls for WindowControls {
 
     fn set_cursor_visible(&self, visible: bool) {
         self.0.lock().unwrap().push(Call::Visible(visible));
+    }
+
+    fn inner_size(&self) -> winit::dpi::PhysicalSize<u32> {
+        winit::dpi::PhysicalSize::new(640, 480)
+    }
+
+    fn set_text_input_area(&self, area: Option<[f64; 4]>) {
+        self.0.lock().unwrap().push(Call::TextInputArea(area));
     }
 }
 
@@ -160,4 +169,24 @@ fn focus_window_is_unsupported_in_windowless_startup_without_a_gpu() {
             },
         )
         .unwrap();
+}
+
+#[test]
+fn ime_area_and_focus_share_native_window_controls() {
+    let mut driver = Driver::default();
+    let mut session = Session::new(host(), &mut driver);
+    let window = Arc::new(WindowControls::default());
+    session.set_window_controls(window.clone());
+    let area = Some([12., 24., 3., 16.]);
+    session.host.set_text_input_area(area).unwrap();
+    session.host.focus_window().unwrap();
+    session.host.set_text_input_area(None).unwrap();
+    assert_eq!(
+        *window.0.lock().unwrap(),
+        [
+            Call::TextInputArea(area),
+            Call::Focus,
+            Call::TextInputArea(None)
+        ]
+    );
 }

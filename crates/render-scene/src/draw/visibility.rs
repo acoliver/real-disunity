@@ -28,7 +28,7 @@ pub(super) struct Bounds {
 }
 
 impl Bounds {
-    fn expanded(self, extent: Vec3) -> Self {
+    pub(super) fn expanded(self, extent: Vec3) -> Self {
         Self {
             min: self.min - extent,
             max: self.max + extent,
@@ -230,7 +230,7 @@ fn impostor_extent(extents: [f32; 2], transform: &SceneTransform, stretch: f32) 
 }
 
 // The longest ray per unit axial depth occurs at a frustum corner.
-fn relief_ray_stretch(matrix: Mat4) -> f32 {
+pub(super) fn relief_ray_stretch(matrix: Mat4) -> f32 {
     let rows = matrix.transpose();
     if rows.w_axis.truncate().length_squared() == 0.0 {
         return 1.0;
@@ -383,6 +383,34 @@ fn distance_squared(position: [i64; 3], eye: [i64; 3]) -> u128 {
 /// Extend only the toward-light depth end of the authored receiver volume.
 /// XY coverage and its far end stay fixed. Casters beyond the original near
 /// plane must also fit the depth projection, not merely survive CPU culling.
+/// Caster bounds of a visible shadow-casting placement, before any view's relief stretch.
+pub(super) fn caster_placement(
+    instances: &Instances,
+    meshes: &[MeshSelection],
+    handle: crate::instances::InstanceHandle,
+) -> Option<super::caster_edits::CasterBounds> {
+    let (key, slot) = instances.location(handle).ok()?;
+    let batch = &instances.batches[&key];
+    let (object, visible) = batch.get(slot);
+    if !visible || !object.casts_shadow() {
+        return None;
+    }
+    let mesh = &meshes[key.1];
+    let bounds =
+        BatchBounds::new(mesh, instances, key.2, batch).placement(slot, object.transform(), 0.0);
+    let relief = std::iter::once(key.2)
+        .chain(
+            mesh.material_slots
+                .iter()
+                .flatten()
+                .flatten()
+                .map(|slot| slot.material().raw() as usize),
+        )
+        .map(|material| instances.impostor_extents[material][1])
+        .fold(0.0, f32::max);
+    Some(super::caster_edits::CasterBounds { bounds, relief })
+}
+
 pub(super) fn caster_matrix(
     instances: &Instances,
     meshes: &[MeshSelection],

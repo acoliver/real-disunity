@@ -104,10 +104,12 @@ internal static class UnityAttributeTests
 
     private sealed class Unmarked { }
 
-    private sealed class ActiveAsset : RenderPipelineAsset
+    private class ActiveAsset : RenderPipelineAsset
     {
         protected override RenderPipeline CreatePipeline() => throw new NotSupportedException("not created in this test");
     }
+
+    private sealed class DerivedActiveAsset : ActiveAsset { }
 
     private sealed class OtherActiveAsset : RenderPipelineAsset
     {
@@ -128,6 +130,12 @@ internal static class UnityAttributeTests
             Expect.That(several.isSupportedOnCurrentPipeline, "so is one that names it among others");
             Expect.That(!other.isSupportedOnCurrentPipeline, "one that names another asset type is not");
             Expect.That(!none.isSupportedOnCurrentPipeline, "one that names none is supported on no active pipeline");
+        }
+        finally { GraphicsSettings.defaultRenderPipeline = previous; }
+        try
+        {
+            GraphicsSettings.defaultRenderPipeline = new DerivedActiveAsset();
+            Expect.That(named.isSupportedOnCurrentPipeline, "an attribute naming a base of the active asset's type is supported");
         }
         finally { GraphicsSettings.defaultRenderPipeline = previous; }
         Expect.That(!named.isSupportedOnCurrentPipeline && none.isSupportedOnCurrentPipeline, "with no active asset only an attribute that names none is supported");

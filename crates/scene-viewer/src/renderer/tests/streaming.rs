@@ -54,11 +54,10 @@ pub(super) fn streaming_present(event_loop: &EventLoop<()>, window: &Arc<Window>
     let prepared = worldrunner_render_scene::draw::PreparedScene::new(&scene).unwrap();
     send.send(Ok(prepared)).unwrap();
     present_retained(&mut renderer, &mut host);
-    assert_eq!(host.ready_generation(), 1);
-    assert_eq!(host.view().unwrap().unwrap().view_matrix(), before_view);
-    assert_eq!(renderer.streaming.retired.len(), 1);
-    present_retained(&mut renderer, &mut host);
+    // The prepared scene and the camera edit behind it are both ready, so both publish in the
+    // frame that shows them.
     assert_eq!(host.ready_generation(), 2);
+    assert_eq!(renderer.streaming.retired.len(), 1);
     assert_ne!(host.view().unwrap().unwrap().view_matrix(), before_view);
     assert_eq!(host.preparations_in_flight(), 0);
 }

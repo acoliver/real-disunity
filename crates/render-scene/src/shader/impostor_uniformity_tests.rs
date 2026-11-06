@@ -242,6 +242,21 @@ fn atlas_and_coverage_derivatives_precede_control_flow_in_all_passes() {
     for source in geometry_sources() {
         assert_eq!(uniform_atlas_paths(&source), Ok(()));
     }
+    // The merged prepass writes the normal and the reflection material from one evaluation, so
+    // its entries need the same guarantee as the single-output metadata pass.
+    let merged = crate::scene_metadata::MetadataOutput::Merged.object_fragment();
+    let base = geometry_sources()[1]
+        .split_once(&crate::scene_metadata::single_fragment(
+            "vec4<f32>(normal, 1.0)",
+        ))
+        .expect("metadata fixture")
+        .0
+        .to_owned();
+    let camera = include_str!("../ssao/camera.wgsl");
+    assert_eq!(
+        uniform_atlas_paths(&format!("{base}\n{camera}\n{merged}")),
+        Ok(())
+    );
 }
 
 #[test]

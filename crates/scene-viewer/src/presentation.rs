@@ -157,19 +157,21 @@ impl Presentation {
         })
     }
 
-    /// Admit pending work and scene storage without touching the active frame graph.
+    /// Admit pending work and the whole resident scene, its textures and meshes included, without
+    /// touching the active frame graph.
     pub(crate) fn prepare_scene(
         &mut self,
         context: &worldrunner_render_scene::device::GpuContext,
-        scene: &worldrunner_render_plan::RenderScene,
+        prepared: &worldrunner_render_scene::draw::PreparedScene,
     ) -> Result<SceneReservations, ViewerError> {
         use worldrunner_render_scene::draw::source_environment;
-        let transient = self
-            .scheduler
-            .reserve(context, source_environment::transient_allocations(scene)?)?;
+        let transient = self.scheduler.reserve(
+            context,
+            source_environment::transient_allocations(prepared.scene())?,
+        )?;
         let resident = self
             .scheduler
-            .reserve(context, source_environment::resident_allocations(scene))?;
+            .reserve(context, prepared.resident_allocations())?;
         Ok(SceneReservations {
             transient,
             resident,

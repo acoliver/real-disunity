@@ -85,6 +85,7 @@ fn plan(color: [f32; 4]) -> UiRenderPlan {
                 },
             ),
             quads: vec![UiGlyphQuad {
+                link: None,
                 color: [1.; 4],
                 corners: [[8., 8., 0.], [24., 8., 0.], [24., 24., 0.], [8., 24., 0.]],
                 uv: [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],

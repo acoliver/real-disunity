@@ -259,12 +259,15 @@ struct TerrainInstanceInput {
     @location(4) model_column_1: vec4<f32>,
     @location(5) model_column_2: vec4<f32>,
     @location(6) model_column_3: vec4<f32>,
+    @location(10) plane_index: vec4<f32>,
 }
 
 struct TerrainVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
+    @location(2) @interpolate(flat) plane_index: u32,
+    @location(3) skirt_axis: vec2<f32>,
 }
 
 // Terrain shares the environment's vertex and instance layout so that one
@@ -275,6 +278,7 @@ struct TerrainVertexOutput {
 fn vs_terrain(
     vertex: TerrainVertexInput,
     instance: TerrainInstanceInput,
+    @builtin(vertex_index) vertex_index: u32,
 ) -> TerrainVertexOutput {
     let model = mat4x4<f32>(
         instance.model_column_0,
@@ -287,24 +291,111 @@ fn vs_terrain(
     var out: TerrainVertexOutput;
     out.clip_position = frame.view_projection * vec4<f32>(world_position, 1.0);
     out.world_position = world_position;
+    out.plane_index = u32(instance.plane_index.x) | (u32(instance.plane_index.y) << 16u);
+    let descriptor = terrain_plane_data[3] + out.plane_index * 8u;
+    let width = terrain_plane_data[descriptor + 5u];
+    let height = terrain_plane_data[descriptor + 6u];
+    out.skirt_axis = vec2<f32>(0.0);
+    if vertex_index >= width * height {
+        let edge_vertex = vertex_index - width * height;
+        let south = 2u * (width - 1u);
+        let east = south + 2u * (height - 1u);
+        let north = east + south;
+        out.skirt_axis = select(vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0),
+            (edge_vertex >= south && edge_vertex < east) || edge_vertex >= north);
+    }
     out.world_normal = normalize(
         mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz) * vertex.normal,
     );
     return out;
 }
 
+// These are the CPU's final f32 coordinates, not a second conversion of the
+// integer heightfield. Axis positions include shortened cells and origin rounding.
+@group(1) @binding(23) var<storage, read> terrain_plane_data: array<u32>;
+
+fn terrain_sample_position(sample: vec2<u32>) -> vec3<f32> {
+    return vec3<f32>(
+        bitcast<f32>(terrain_plane_data[terrain_plane_data[0] + sample.x]),
+        bitcast<f32>(terrain_plane_data[terrain_plane_data[1] + sample.y]),
+        bitcast<f32>(terrain_plane_data[terrain_plane_data[2] + sample.y * terrain.dimensions_and_count.x + sample.x]),
+    );
+}
+
+// Origin subtraction and division can round across a stored mesh boundary.
+// Correct the candidate against selected samples; the outer edge stays in the last cell.
+fn terrain_axis_cell(world: f32, axis: u32, candidate: u32, window: vec3<u32>, cells: u32) -> u32 {
+    let offset = terrain_plane_data[axis];
+    var cell = candidate;
+    while cell > 0u && world < bitcast<f32>(terrain_plane_data[offset + window.x + cell * window.z]) {
+        cell -= 1u;
+    }
+    while cell + 1u < cells && world >= bitcast<f32>(terrain_plane_data[offset + min(window.x + (cell + 1u) * window.z, window.y)]) {
+        cell += 1u;
+    }
+    return cell;
+}
+
+fn terrain_cell(world_xy: vec2<f32>, descriptor: u32) -> vec2<u32> {
+    let minimum = vec2<u32>(terrain_plane_data[descriptor], terrain_plane_data[descriptor + 1u]);
+    let maximum = vec2<u32>(terrain_plane_data[descriptor + 2u], terrain_plane_data[descriptor + 3u]);
+    let stride = terrain_plane_data[descriptor + 4u];
+    let cells = vec2<u32>(terrain_plane_data[descriptor + 5u], terrain_plane_data[descriptor + 6u]) - 1u;
+    let grid = max(world_to_grid(world_xy.x, world_xy.y) - vec2<f32>(minimum), vec2<f32>(0.0));
+    let candidate = min(vec2<u32>(floor(grid / f32(stride))), cells - 1u);
+    return vec2<u32>(
+        terrain_axis_cell(world_xy.x, 0u, candidate.x, vec3<u32>(minimum.x, maximum.x, stride), cells.x),
+        terrain_axis_cell(world_xy.y, 1u, candidate.y, vec3<u32>(minimum.y, maximum.y, stride), cells.y),
+    );
+}
+
+fn terrain_face_normal(world_xy: vec2<f32>, plane_index: u32, skirt_axis: vec2<f32>) -> vec3<f32> {
+    if skirt_axis.x > 0.0 { return vec3<f32>(1.0, 0.0, 0.0); }
+    if skirt_axis.y > 0.0 { return vec3<f32>(0.0, 1.0, 0.0); }
+    let descriptor = terrain_plane_data[3] + plane_index * 8u;
+    let minimum = vec2<u32>(terrain_plane_data[descriptor], terrain_plane_data[descriptor + 1u]);
+    let maximum = vec2<u32>(terrain_plane_data[descriptor + 2u], terrain_plane_data[descriptor + 3u]);
+    let stride = terrain_plane_data[descriptor + 4u];
+    let cell = terrain_cell(world_xy, descriptor);
+    let lo = minimum + cell * stride;
+    let hi = min(lo + stride, maximum);
+    let a = terrain_sample_position(lo);
+    let c = terrain_sample_position(hi);
+    let fraction = (world_xy - a.xy) / (c.xy - a.xy);
+    if fraction.y <= fraction.x {
+        let b = terrain_sample_position(vec2<u32>(hi.x, lo.y));
+        return cross(b - a, c - a);
+    }
+    let d = terrain_sample_position(vec2<u32>(lo.x, hi.y));
+    return cross(c - a, d - a);
+}
+
+// Evaluate the same adjacent pixel pair on both lanes of a 2x2 quad. Solving
+// for displacement avoids subtracting two kilometre-scale world positions.
+fn terrain_quad_footprint(fragment: vec4<f32>, axis: vec2<f32>, normal: vec3<f32>) -> vec2<f32> {
+    let size = frame.raster_viewport.xy;
+    let lane = dot(vec2<f32>(vec2<u32>(fragment.xy) & vec2<u32>(1u)), axis);
+    let direction = 1.0 - 2.0 * lane;
+    let delta = axis * vec2<f32>(2.0 / size.x, -2.0 / size.y) * direction;
+    let ndc = vec2<f32>(fragment.x / size.x * 2.0 - 1.0, 1.0 - fragment.y / size.y * 2.0) + delta;
+    let rows = transpose(frame.view_projection);
+    let x = rows[0].xyz - ndc.x * rows[3].xyz;
+    let y = rows[1].xyz - ndc.y * rows[3].xyz;
+    let tangent_x = cross(y, normal);
+    let tangent_y = cross(normal, x);
+    let determinant = dot(x, tangent_x);
+    let floor = length(cross(x, y)) * length(normal) * 1e-5;
+    let safe = select(-1.0, 1.0, determinant >= 0.0) * max(abs(determinant), floor);
+    let displacement = (delta.x * tangent_x + delta.y * tangent_y) / (fragment.w * safe);
+    return clamp(displacement.xy * direction, vec2<f32>(-1e4), vec2<f32>(1e4));
+}
+
 @fragment
 fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
     let world_xy = input.world_position.xy;
-
-    // Both derivatives are taken here, at the top, in control flow every
-    // fragment in the quad reaches alike. Everything below this point is
-    // conditioned on which surfaces are present, and a derivative taken there
-    // would be reading neighbouring lanes that may have taken a different
-    // branch - undefined, and in practice a mip selection that flickers along
-    // exactly the boundaries this shader exists to smooth.
-    let world_xy_dx = dpdx(world_xy);
-    let world_xy_dy = dpdy(world_xy);
+    let footprint_normal = normalize(terrain_face_normal(input.world_position.xy, input.plane_index, input.skirt_axis));
+    let world_xy_dx = terrain_quad_footprint(input.clip_position, vec2<f32>(1.0, 0.0), footprint_normal);
+    let world_xy_dy = terrain_quad_footprint(input.clip_position, vec2<f32>(0.0, 1.0), footprint_normal);
 
     let grid = world_to_grid(world_xy.x, world_xy.y);
     let centre_surface = read_surface_at(i32(round(grid.x)), i32(round(grid.y)));

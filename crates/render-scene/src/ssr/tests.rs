@@ -78,6 +78,7 @@ fn frame() -> FrameUniform {
         animation_time_milliseconds: 0,
         temporal: None,
         material_mip_bias: 0.0,
+        raster_viewport: [65, 65],
     }
 }
 fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {

@@ -40,6 +40,15 @@ impl UiSlider {
         slider.value = slider.snap(value);
         Ok(slider)
     }
+    pub fn min(self) -> f64 {
+        self.min
+    }
+    pub fn max(self) -> f64 {
+        self.max
+    }
+    pub fn step(self) -> Option<f64> {
+        self.step
+    }
     pub fn value(self) -> f64 {
         self.value
     }
@@ -83,12 +92,19 @@ impl UiRouter {
         }
     }
     pub(super) fn slider_key(&mut self, key: UiKey) -> Option<UiAction> {
-        let object = self.focus?;
+        let target = self.focus?;
+        if target.link.is_some() {
+            return None;
+        }
+        let object = target.object;
         let value = self.slider(object)?.key_value(key)?;
         self.set_slider(object, value)
     }
     pub(super) fn drag_slider(&mut self, layout: &UiLayout, response: &mut UiResponse) {
-        let Some((object, slider)) = self.capture.and_then(|o| self.slider(o).map(|s| (o, s)))
+        let Some((object, slider)) = self
+            .capture
+            .filter(|t| t.link.is_none())
+            .and_then(|t| self.slider(t.object).map(|s| (t.object, s)))
         else {
             return;
         };
@@ -110,7 +126,7 @@ impl UiRouter {
         };
         response.actions.extend(self.set_slider(object, value));
     }
-    fn set_slider(&mut self, object: ObjectHandle, value: f64) -> Option<UiAction> {
+    pub(super) fn set_slider(&mut self, object: ObjectHandle, value: f64) -> Option<UiAction> {
         let UiControlKind::Slider(slider) = &mut self.controls.get_mut(&object)?.kind else {
             return None;
         };

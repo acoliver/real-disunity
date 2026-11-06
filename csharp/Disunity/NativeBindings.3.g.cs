@@ -11,6 +11,20 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Replaces a render texture's description and raises its generation.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_write(ulong world, ulong texture, DisunityRenderTexture* desc);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_read(ulong world, ulong texture, DisunityRenderTexture* output);
+        /// <summary>
         ///  Removes a render texture. Whatever names it goes stale.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_render_texture_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]

@@ -13,6 +13,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_active_pass_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_asset_activate",
       "since": "2.0.0",
       "rets": "DisunityResult"
@@ -609,6 +614,11 @@
     },
     {
       "name": "disunity_material_read",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_material_set_pass",
       "since": "7.0.0",
       "rets": "DisunityResult"
     },

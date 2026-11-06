@@ -48,6 +48,8 @@
 mod objects;
 pub(crate) mod overlay;
 mod pages;
+#[cfg(test)]
+pub(crate) use pages::test_sources as terrain_test_sources;
 mod specular;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;

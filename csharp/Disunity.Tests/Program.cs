@@ -437,6 +437,8 @@ ReflectionProbeTests.Run();
 GuiContentTests.Run();
 AsyncReadTypeTests.Run();
 GlTests.Run();
+TransformJobTests.Run();
+PipelineTypeTests.Run();
 JobTests.Run();
 CustomYieldTests.Run();
 RenderingLayerMaskTests.Run();

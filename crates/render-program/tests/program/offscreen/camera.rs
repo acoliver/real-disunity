@@ -4,10 +4,10 @@ use std::collections::BTreeMap;
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId, ShaderId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::offscreen::OffscreenError;
 use worldrunner_render_program::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, Renderer,
 };
+use worldrunner_render_program::offscreen::{CameraDraws, OffscreenError, UnmatchedPasses};
 use worldrunner_render_program::shader::{PassSelector, ProgramShader};
 
 use super::rig::{BLUE, CLEAR, QUAD, RED, Rig, layer, pixel, quad, texture};
@@ -380,4 +380,116 @@ fn the_pass_and_the_draws_are_listed_in_call_order_with_the_constants_upload_fir
         .map(|operation| operation.id.stage.name)
         .collect();
     assert_eq!(names, ["offscreen constants", "offscreen camera"]);
+}
+
+#[test]
+fn each_camera_render_reports_the_draws_it_recorded_and_the_ones_it_left_out() {
+    use worldrunner_render_program::synthetic::shaders::blit_passes;
+    let mut rig = Rig::new();
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    let drawn = |drawn, unmatched| {
+        vec![CameraDraws {
+            camera: CAMERA,
+            target: TARGET,
+            drawn,
+            unmatched,
+        }]
+    };
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(2, 0));
+    frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = 1 << LEFT;
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 0));
+    // The blit shader's passes carry no `LightMode` tag, so the second renderer is left out.
+    frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = (1 << LEFT) | (1 << RIGHT);
+    let blit = blit_passes("_MainTex");
+    rig.state.add_shader(
+        ShaderId(2),
+        ProgramShader::new(blit.shader, blit.chunks).unwrap(),
+    );
+    frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 1));
+}
+
+#[test]
+fn draws_left_out_are_counted_by_the_tags_the_shaders_passes_have_against_the_ones_selected() {
+    use worldrunner_render_program::synthetic::shaders::blit_passes;
+    let mut rig = Rig::new();
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {
+        key: "LightMode".to_owned(),
+        values: vec!["Missing".to_owned(), "Other".to_owned()],
+    };
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(
+        operations.unmatched_passes(),
+        vec![UnmatchedPasses {
+            key: "LightMode".to_owned(),
+            selected: vec!["Missing".to_owned(), "Other".to_owned()],
+            tags: vec!["Alpha".to_owned(), "Gamma".to_owned()],
+            passes: 2,
+            draws: 2,
+        }]
+    );
+    drop(operations);
+    // The blit shader has passes and none with the key.
+    let blit = blit_passes("_MainTex");
+    let passes = blit.shader.parsed.sub_shaders[0].passes.len();
+    rig.state.add_shader(
+        ShaderId(2),
+        ProgramShader::new(blit.shader, blit.chunks).unwrap(),
+    );
+    frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
+    let found = rig.build(&frame).unwrap().unmatched_passes();
+    assert_eq!(found.len(), 2, "one entry for each kind of shader");
+    let untagged = found.iter().find(|entry| entry.tags.is_empty()).unwrap();
+    assert_eq!((untagged.passes, untagged.draws), (passes, 1));
+}
+
+/// The camera fixture with the shader's `LightMode` tags removed from every pass.
+fn untagged(rig: &mut Rig, mask: u32) -> OffscreenFrame {
+    let mut synthetic = camera_passes();
+    for pass in &mut synthetic.shader.parsed.sub_shaders[0].passes {
+        pass.tags.clear();
+        pass.state.tags.clear();
+    }
+    let frame = halves(rig, mask);
+    rig.state.add_shader(
+        SHADER,
+        ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap(),
+    );
+    frame
+}
+
+fn counting_untagged_as(values: &[&str], untagged: &str) -> PassSelector {
+    PassSelector::TagWithUntagged {
+        key: "LightMode".to_owned(),
+        values: values.iter().map(|&value| value.to_owned()).collect(),
+        untagged: untagged.to_owned(),
+    }
+}
+
+#[test]
+fn a_pass_without_the_tag_is_left_out_when_the_camera_gives_untagged_passes_no_value() {
+    let mut rig = Rig::new();
+    let frame = untagged(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.unmatched_draws(), 2);
+}
+
+#[test]
+fn a_pass_without_the_tag_counts_as_the_value_the_camera_gives_untagged_passes() {
+    let mut rig = Rig::new();
+    let mut frame = untagged(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    frame.cameras.get_mut(&CAMERA).unwrap().pass =
+        counting_untagged_as(&["Other", "Alpha"], "Alpha");
+    assert_eq!(rig.build(&frame).unwrap().unmatched_draws(), 0);
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (1, 3)), RED, "the left renderer is drawn");
+    assert_eq!(
+        pixel(&image, 8, (6, 3)),
+        BLUE,
+        "the right renderer is drawn"
+    );
+    // A value the camera does not select leaves the untagged passes out again.
+    frame.cameras.get_mut(&CAMERA).unwrap().pass = counting_untagged_as(&["Other"], "Alpha");
+    assert_eq!(rig.build(&frame).unwrap().unmatched_draws(), 2);
 }

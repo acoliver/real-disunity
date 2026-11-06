@@ -31,7 +31,7 @@ use worldrunner_render_post::{StageId, TimingState};
 use crate::arena::ProgramArena;
 use crate::budget::Reservation;
 use crate::error::ProgramError;
-use crate::ids::{MeshId, ShaderId, TextureId};
+use crate::ids::{CameraId, MeshId, ShaderId, TextureId};
 use crate::resources::{BufferHandle, Pins, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
@@ -188,8 +188,7 @@ impl OffscreenState {
             reads,
             shares,
             missing: missing.into_iter().collect(),
-            unmatched: counts.unmatched,
-            partial_mips: counts.partial_mips,
+            counts,
         })
     }
 
@@ -296,8 +295,49 @@ pub struct OffscreenOperations {
     reads: Vec<ResourceUse>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
-    unmatched: usize,
-    partial_mips: usize,
+    counts: DrawCounts,
+}
+
+/// Texture reads that bound only the levels written with the base level, counted for one
+/// texture property, one set of levels and one pass.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PartialMipReads {
+    /// The shader property the texture was bound under.
+    pub texture: String,
+    /// The levels bound and the levels the texture has.
+    pub written: u32,
+    pub total: u32,
+    /// The tag key the drawing pass was selected by, or `index`.
+    pub key: String,
+    /// The value of the key on the pass drawn, or its index for `index`.
+    pub tag: Option<String>,
+    pub reads: usize,
+}
+
+/// What one camera render recorded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CameraDraws {
+    pub camera: CameraId,
+    pub target: TextureId,
+    /// The draws recorded into the target.
+    pub drawn: usize,
+    /// The draws left out because the shader has no pass the camera selects.
+    pub unmatched: usize,
+}
+
+/// Camera draws left out for want of a pass, counted for the shaders whose passes carry the same
+/// tag values.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnmatchedPasses {
+    /// The tag key the camera selects by, or `index` when it selects a pass by position.
+    pub key: String,
+    /// The values the camera selects, in order of preference.
+    pub selected: Vec<String>,
+    /// The values of the key that the shader's passes have, in pass order.
+    pub tags: Vec<String>,
+    /// The passes of the shader's first sub-shader.
+    pub passes: usize,
+    pub draws: usize,
 }
 
 impl OffscreenOperations {
@@ -306,13 +346,32 @@ impl OffscreenOperations {
     /// that matches nothing from passing as an empty image.
     #[must_use]
     pub fn unmatched_draws(&self) -> usize {
-        self.unmatched
+        self.counts.unmatched
+    }
+
+    /// What each camera render recorded and left out, in call order.
+    #[must_use]
+    pub fn camera_draws(&self) -> Vec<CameraDraws> {
+        self.counts.cameras.clone()
+    }
+
+    /// The camera draws left out for want of a pass, by the tags the shader's passes have
+    /// against the ones the camera selected.
+    #[must_use]
+    pub fn unmatched_passes(&self) -> Vec<UnmatchedPasses> {
+        self.counts.unmatched_passes.clone()
+    }
+
+    /// The reads counted by `partial_mip_reads`, by texture property, levels and drawing pass.
+    #[must_use]
+    pub fn partial_mip_reads_by_pass(&self) -> Vec<PartialMipReads> {
+        self.counts.partial_reads.clone()
     }
 
     /// The texture reads that bound only the levels written at the same point as the base level.
     #[must_use]
     pub fn partial_mip_reads(&self) -> usize {
-        self.partial_mips
+        self.counts.partial_mips
     }
 
     /// The operations, in call order. The constants upload comes first when any draw has constants.

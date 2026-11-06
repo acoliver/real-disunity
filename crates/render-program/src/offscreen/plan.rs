@@ -35,6 +35,8 @@ use super::tracker::Tracker;
 pub(super) struct ProgramEntry {
     pub(super) program: GraphicsProgram,
     pub(super) variant: Arc<Variant>,
+    /// The pass of the first sub-shader the program is.
+    pass: usize,
     constants: Vec<ConstantBufferTarget>,
     textures: Vec<TextureTarget>,
     /// The sampler binding split from the texture at a set and binding.
@@ -125,6 +127,12 @@ pub(super) struct DrawCounts {
     pub(super) unmatched: usize,
     /// Texture reads that bound fewer levels than the texture has.
     pub(super) partial_mips: usize,
+    /// What each camera render recorded, in call order.
+    pub(super) cameras: Vec<super::CameraDraws>,
+    /// The draws left out, by what the shader's passes have against what the camera selected.
+    pub(super) unmatched_passes: Vec<super::UnmatchedPasses>,
+    /// The partial texture reads, by what read them.
+    pub(super) partial_reads: Vec<super::PartialMipReads>,
 }
 
 /// The parts of the state a draw is planned from, borrowed from it together.
@@ -192,7 +200,7 @@ impl Services<'_> {
         let entry = if let Some(entry) = self.programs.get(&key) {
             entry.clone()
         } else {
-            let entry = Arc::new(self.runtime_program(&resolved.variant)?);
+            let entry = Arc::new(self.runtime_program(&resolved.variant, resolved.pass)?);
             self.programs.insert(key, entry.clone());
             entry
         };
@@ -201,7 +209,11 @@ impl Services<'_> {
         Ok((entry, state.state))
     }
 
-    fn runtime_program(&self, variant: &Arc<Variant>) -> Result<ProgramEntry, OffscreenError> {
+    fn runtime_program(
+        &self,
+        variant: &Arc<Variant>,
+        pass: usize,
+    ) -> Result<ProgramEntry, OffscreenError> {
         let program = self
             .runtime
             .graphics_program(&variant.vertex, &variant.fragment)?;
@@ -213,6 +225,7 @@ impl Services<'_> {
         Ok(ProgramEntry {
             program,
             variant: variant.clone(),
+            pass,
             constants,
             textures,
             samplers,
@@ -291,7 +304,10 @@ impl Services<'_> {
             })?;
         let (imported, own) = self.import(input.texture)?;
         let (version, mips) = self.tracker.sampled_levels(input.texture, imported)?;
-        self.counts.partial_mips += usize::from(mips < imported.mips);
+        if mips < imported.mips {
+            self.counts.partial_mips += 1;
+            self.note_partial_read(spec, entry, (name, mips, imported.mips));
+        }
         let view = self
             .tracker
             .whole_view(imported, mips, view_dimension, version)?;
@@ -316,6 +332,42 @@ impl Services<'_> {
             },
         ));
         Ok(state)
+    }
+
+    /// Counts a read of `texture` (property, levels bound, levels it has) by the pass that made it.
+    fn note_partial_read(
+        &mut self,
+        spec: &DrawSpec<'_>,
+        entry: &ProgramEntry,
+        (texture, written, total): (&str, u32, u32),
+    ) {
+        let (key, tag) = match &spec.selector {
+            PassSelector::Index(index) => ("index".to_owned(), Some(index.to_string())),
+            PassSelector::Tag { key, .. } | PassSelector::TagWithUntagged { key, .. } => (
+                key.clone(),
+                self.shaders
+                    .get(&spec.shader)
+                    .and_then(|shader| shader.pass_tag(entry.pass, key)),
+            ),
+        };
+        let found = self.counts.partial_reads.iter_mut().find(|read| {
+            read.texture == texture
+                && (read.written, read.total) == (written, total)
+                && read.key == key
+                && read.tag == tag
+        });
+        if let Some(read) = found {
+            read.reads += 1;
+        } else {
+            self.counts.partial_reads.push(super::PartialMipReads {
+                texture: texture.to_owned(),
+                written,
+                total,
+                key,
+                tag,
+                reads: 1,
+            });
+        }
     }
 
     fn bind_sampler(

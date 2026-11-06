@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
+use worldrunner_render_program::offscreen::PartialMipReads;
 use worldrunner_render_program::offscreen::frame::{Material, OffscreenFrame, Record};
 use worldrunner_render_program::shader::ProgramShader;
 use worldrunner_render_program::synthetic::shaders::blit_passes;
@@ -83,4 +84,21 @@ fn a_render_texture_nothing_has_written_is_read_whole_and_counts_nothing() {
     // Only the blit remains, so every level of its source is still at its first version.
     frame.records.remove(0);
     assert_eq!(rig.build(&frame).unwrap().partial_mip_reads(), 0);
+}
+
+#[test]
+fn partial_reads_are_listed_by_the_texture_property_the_levels_and_the_pass_that_read_them() {
+    let mut rig = Rig::new();
+    let frame = camera_then_blit(&mut rig, 3);
+    assert_eq!(
+        rig.build(&frame).unwrap().partial_mip_reads_by_pass(),
+        vec![PartialMipReads {
+            texture: "_MainTex".to_owned(),
+            written: 1,
+            total: 3,
+            key: "index".to_owned(),
+            tag: Some("0".to_owned()),
+            reads: 1,
+        }]
+    );
 }

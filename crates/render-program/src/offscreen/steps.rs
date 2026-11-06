@@ -7,7 +7,7 @@ use worldrunner_render_post::contracts::{
 };
 use worldrunner_render_post::{AttachmentLoad, StageId};
 
-use crate::ids::{CameraId, MaterialId, MeshId, TextureId};
+use crate::ids::{CameraId, MaterialId, MeshId, ShaderId, TextureId};
 use crate::layers::{Layers, PropertyLayer, TextureInput};
 use crate::packet::TargetSignature;
 use crate::properties::PropertyValue;
@@ -17,6 +17,7 @@ use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::textures::TextureInfo;
+use super::{CameraDraws, UnmatchedPasses};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
@@ -90,41 +91,18 @@ fn camera_step(
     require_render_texture(svc, target)?;
     let signature = svc.signature(target)?;
     let mut draws = Vec::new();
-    for (material_id, renderer_id, slot) in visible_draws(svc, frame, camera)? {
-        let renderer = &frame.renderers[&renderer_id];
-        let material = &frame.materials[&material_id];
-        let shader = material
-            .shader
-            .ok_or(OffscreenError::NoShader(material_id))?;
-        let layers = [
-            &renderer.per_draw,
-            &camera.values,
-            &renderer.block,
-            &material.properties,
-            &frame.globals,
-        ];
-        let spec = DrawSpec {
-            shader,
-            keywords: keywords(material, frame),
-            selector: camera.pass.clone(),
-            layers: Layers::new(&layers),
-        };
-        let sub = svc.meshes.get(renderer.mesh)?.sub_meshes[slot];
-        if sub.count == 0 {
-            continue;
-        }
-        match camera_draw(
-            svc,
-            &spec,
-            renderer.mesh,
-            sub,
-            (signature, camera.front_face),
-        ) {
-            Ok(draw) => draws.push(draw),
-            Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => svc.counts.unmatched += 1,
-            Err(error) => return Err(error),
+    let unmatched_before = svc.counts.unmatched;
+    for visible in visible_draws(svc, frame, camera)? {
+        if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+            draws.push(draw);
         }
     }
+    svc.counts.cameras.push(CameraDraws {
+        camera: camera_id,
+        target,
+        drawn: draws.len(),
+        unmatched: svc.counts.unmatched - unmatched_before,
+    });
     let pass = camera_pass(
         svc,
         raster_id("offscreen camera", index),
@@ -137,6 +115,84 @@ fn camera_step(
         pass,
         draws,
     })
+}
+
+/// Plans one sub-mesh the camera sees as (material, renderer, slot). A sub-mesh with no
+/// indices and a draw whose shader has no pass the camera selects give none; the latter is counted.
+fn planned_draw(
+    svc: &mut Services<'_>,
+    frame: &OffscreenFrame,
+    (camera, signature): (&Camera, TargetSignature),
+    (material_id, renderer_id, slot): (MaterialId, crate::ids::RendererId, usize),
+) -> Result<Option<CameraDraw>, OffscreenError> {
+    let renderer = &frame.renderers[&renderer_id];
+    let material = &frame.materials[&material_id];
+    let shader = material
+        .shader
+        .ok_or(OffscreenError::NoShader(material_id))?;
+    let layers = [
+        &renderer.per_draw,
+        &camera.values,
+        &renderer.block,
+        &material.properties,
+        &frame.globals,
+    ];
+    let spec = DrawSpec {
+        shader,
+        keywords: keywords(material, frame),
+        selector: camera.pass.clone(),
+        layers: Layers::new(&layers),
+    };
+    let sub = svc.meshes.get(renderer.mesh)?.sub_meshes[slot];
+    if sub.count == 0 {
+        return Ok(None);
+    }
+    match camera_draw(
+        svc,
+        &spec,
+        renderer.mesh,
+        sub,
+        (signature, camera.front_face),
+    ) {
+        Ok(draw) => Ok(Some(draw)),
+        Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
+            svc.counts.unmatched += 1;
+            left_out(svc, spec.shader, &camera.pass);
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Counts a draw left out because `shader` has no pass `selector` selects.
+fn left_out(svc: &mut Services<'_>, shader: ShaderId, selector: &PassSelector) {
+    let (key, selected) = match selector {
+        PassSelector::Tag { key, values } | PassSelector::TagWithUntagged { key, values, .. } => {
+            (key.clone(), values.clone())
+        }
+        PassSelector::Index(index) => ("index".to_owned(), vec![index.to_string()]),
+    };
+    let (passes, tags) = svc
+        .shaders
+        .get(&shader)
+        .map_or((0, Vec::new()), |shader| shader.pass_tags(&key));
+    let found = svc.counts.unmatched_passes.iter_mut().find(|entry| {
+        entry.key == key
+            && entry.selected == selected
+            && entry.tags == tags
+            && entry.passes == passes
+    });
+    if let Some(entry) = found {
+        entry.draws += 1;
+    } else {
+        svc.counts.unmatched_passes.push(UnmatchedPasses {
+            key,
+            selected,
+            tags,
+            passes,
+            draws: 1,
+        });
+    }
 }
 
 /// The material and renderer of every sub-mesh the camera sees, as (material, renderer, slot), in

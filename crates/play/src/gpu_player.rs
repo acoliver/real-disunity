@@ -28,7 +28,7 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    ComputeAdapter, OffscreenAdapter, OffscreenHost, PlayerKernels, Report, Settings,
+    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Report, Settings,
 };
 
 /// Bytes of GPU storage the program runtime may hold.
@@ -42,6 +42,9 @@ const LIGHT_MODES: [&str; 5] = [
     "ForwardBase",
     "Always",
 ];
+
+/// The most dispatch traces a report keeps.
+const MAX_TRACES: usize = 32;
 
 /// What the offscreen work of a run did.
 #[derive(Debug, Default)]
@@ -69,6 +72,18 @@ pub struct GpuWorkReport {
     pub peak_live_bytes: u64,
     /// Why a frame's work or a flush failed, by message.
     pub errors: BTreeMap<String, usize>,
+    /// How the first dispatches were bound and what came of them.
+    pub traces: Vec<DispatchTrace>,
+    /// Camera renders, the draws they recorded and the draws left out for want of a pass.
+    pub camera_renders: usize,
+    pub camera_draws: usize,
+    pub camera_unmatched: usize,
+    /// The draws left out for want of a pass and the partial texture reads, by description of
+    /// the passes concerned.
+    pub unmatched_passes: BTreeMap<String, usize>,
+    pub partial_reads: BTreeMap<String, usize>,
+    /// The texture properties that named no texture the frame can read, by `name: reason`.
+    pub unresolved_textures: BTreeMap<String, usize>,
     /// Time spent in the frame path and in flushes.
     pub frame_time: Duration,
     pub flush_time: Duration,
@@ -99,6 +114,32 @@ impl GpuWorkReport {
                 .entry(cause.clone())
                 .or_insert_with(|| example.clone());
         }
+        let room = MAX_TRACES.saturating_sub(self.traces.len());
+        self.traces.extend(report.traces.iter().take(room).cloned());
+        self.camera_renders += report.camera_draws.len();
+        self.camera_draws += report.camera_draws.iter().map(|c| c.drawn).sum::<usize>();
+        self.camera_unmatched += report
+            .camera_draws
+            .iter()
+            .map(|c| c.unmatched)
+            .sum::<usize>();
+        for (name, count) in &report.unresolved_textures {
+            *self.unresolved_textures.entry(name.clone()).or_default() += count;
+        }
+        for entry in &report.unmatched_passes {
+            let name = format!(
+                "{} selected {:?}, the shader's {} passes have {:?}",
+                entry.key, entry.selected, entry.passes, entry.tags
+            );
+            *self.unmatched_passes.entry(name).or_default() += entry.draws;
+        }
+        for entry in &report.partial_reads {
+            let name = format!(
+                "{} {} of {} levels, read by the pass with {} {:?}",
+                entry.texture, entry.written, entry.total, entry.key, entry.tag
+            );
+            *self.partial_reads.entry(name).or_default() += entry.reads;
+        }
     }
 
     /// Writes the counts, one line each, to standard error.
@@ -120,6 +161,27 @@ impl GpuWorkReport {
         }
         for (cause, example) in &self.examples {
             eprintln!("[gpu] example of {cause}: {example}");
+        }
+        eprintln!(
+            "[gpu] camera renders {}, draws recorded {}, draws left out for want of a pass {}",
+            self.camera_renders, self.camera_draws, self.camera_unmatched
+        );
+        for (title, counts) in [
+            ("draws without a pass", &self.unmatched_passes),
+            ("partial texture reads", &self.partial_reads),
+            (
+                "texture properties without a texture",
+                &self.unresolved_textures,
+            ),
+        ] {
+            for (name, count) in counts {
+                eprintln!("[gpu] {title}: {name}: {count}");
+            }
+        }
+        for trace in &self.traces {
+            for line in trace.lines() {
+                eprintln!("[gpu] {line}");
+            }
         }
         eprintln!(
             "[gpu] compute buffers written {}, non-zero values {}",
@@ -197,6 +259,10 @@ impl PlayerGpu {
             .map_err(|error| format!("no arena: {error}"))?;
         let settings = Settings {
             light_modes: LIGHT_MODES.map(str::to_owned).to_vec(),
+            // Most of the player's shaders have no `LightMode`, and counting such a pass as
+            // drawable reaches draws whose unset textures the renderer does not default yet; the
+            // records that hold them are then dropped whole, which is worse than drawing none.
+            untagged_light_mode: None,
         };
         let offscreen = OffscreenHost::new(
             runtime,

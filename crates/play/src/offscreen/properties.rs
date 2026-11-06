@@ -25,6 +25,8 @@ pub struct Textures<'a> {
     render: &'a BTreeMap<RenderTextureId, WorldRenderTexture>,
     stored: &'a BTreeSet<u64>,
     used: BTreeSet<RenderTextureId>,
+    /// Properties that named no texture the frame can read, by `name: reason`.
+    unresolved: BTreeMap<String, usize>,
 }
 
 impl<'a> Textures<'a> {
@@ -39,6 +41,7 @@ impl<'a> Textures<'a> {
             render,
             stored,
             used: BTreeSet::new(),
+            unresolved: BTreeMap::new(),
         }
     }
 
@@ -63,6 +66,25 @@ impl<'a> Textures<'a> {
                 .flatten()
                 .map(|id| (id, None)),
         }
+    }
+
+    /// Why `texture` resolves to nothing.
+    fn why_unresolved(texture: &TextureRef) -> &'static str {
+        match texture {
+            TextureRef::None => "no texture set",
+            TextureRef::Global(_) => "a global the host does not resolve",
+            TextureRef::Render(_) => "a render texture that no longer exists",
+            TextureRef::Asset(identity) if ids::stored_texture(*identity).is_none() => {
+                "an identity a render texture would share"
+            }
+            TextureRef::Asset(_) => "asset not readable by the host",
+        }
+    }
+
+    /// The properties that named no texture the frame can read, by `name: reason`.
+    #[must_use]
+    pub fn unresolved(&self) -> &BTreeMap<String, usize> {
+        &self.unresolved
     }
 
     /// The render textures named so far.
@@ -103,6 +125,12 @@ pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> Prop
             layer
                 .textures
                 .insert(name.clone(), TextureInput { texture, sampler });
+        } else {
+            let reason = Textures::why_unresolved(&slot.texture);
+            *textures
+                .unresolved
+                .entry(format!("{name}: {reason}"))
+                .or_default() += 1;
         }
     }
     layer

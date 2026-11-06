@@ -1,5 +1,6 @@
 //! Loading a shader from a synthetic player data directory.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use worldrunner_unity_serialized::{
@@ -207,4 +208,10 @@ fn the_census_counts_shaders_programs_passes_and_failures_by_name() {
     assert_eq!((census.shaders, census.loaded, census.passes), (3, 2, 5));
     assert_eq!(census.failed.get("NoVulkanPlatform"), Some(&1));
     assert_eq!(census.failed.len(), 1);
+    // The synthetic passes carry no tags at all.
+    assert_eq!(
+        census.light_modes,
+        BTreeMap::from([("(none)".to_owned(), 5)])
+    );
+    assert_eq!(census.shaders_without_light_mode, 2);
 }

@@ -60,6 +60,36 @@ fn decode(directory: &Path, source: &ShaderSource) -> Result<Rc<ComputeShader>, 
 }
 
 impl ComputeSupply for PlayerKernels {
+    fn describe(&mut self, shader: &WorldComputeShader, kernel: u32) -> String {
+        let Ok(decoded) = self.shader(&shader.source) else {
+            return String::new();
+        };
+        let found = decoded
+            .platform(SPIRV_RENDERER)
+            .and_then(|platform| platform.kernels.get(kernel as usize));
+        let Some(found) = found else {
+            return String::new();
+        };
+        match found.variant_for(&[]) {
+            Some(variant) => {
+                let index = found
+                    .variants
+                    .iter()
+                    .position(|held| std::ptr::eq(held, variant))
+                    .unwrap_or_default();
+                format!(
+                    "variant {index} of {} for no keywords, thread group size {:?}",
+                    found.variants.len(),
+                    variant.thread_group_size
+                )
+            }
+            None => format!(
+                "none of {} variants is for no keywords",
+                found.variants.len()
+            ),
+        }
+    }
+
     fn load(
         &mut self,
         shader: &WorldComputeShader,

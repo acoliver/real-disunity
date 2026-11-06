@@ -12,6 +12,9 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
 };
+use worldrunner_render_program::offscreen::{
+    CameraDraws, OffscreenOperations, PartialMipReads, UnmatchedPasses,
+};
 use worldrunner_render_program::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
@@ -21,6 +24,7 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::builtins::{camera_layer, draw_layer};
+use super::compute::DispatchTrace;
 use super::ids;
 use super::properties::{Textures, layer};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
@@ -37,6 +41,8 @@ pub struct Settings {
     /// The passes a camera draws: the first of these `LightMode` values that any pass of a
     /// shader has selects the pass.
     pub light_modes: Vec<String>,
+    /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
+    pub untagged_light_mode: Option<String>,
 }
 
 /// What the shader of a material offers.
@@ -100,9 +106,65 @@ pub struct Report {
     /// `texture:Program/Layout/UnsupportedParameter`, and the first message of each chain.
     pub causes: BTreeMap<String, usize>,
     pub examples: BTreeMap<String, String>,
+    /// How each dispatch was bound and what came of it, in call order.
+    pub traces: Vec<DispatchTrace>,
+    /// What each camera render recorded and left out.
+    pub camera_draws: Vec<CameraDraws>,
+    /// The camera draws left out for want of a pass, and the texture reads that bound only the
+    /// levels written with the base level, each counted by the tags of the pass concerned.
+    pub unmatched_passes: Vec<UnmatchedPasses>,
+    pub partial_reads: Vec<PartialMipReads>,
+    /// The texture properties that named no texture the frame can read, by `name: reason`.
+    pub unresolved_textures: BTreeMap<String, usize>,
 }
 
 impl Report {
+    /// Takes what `operations` counted of the draws it holds.
+    pub fn absorb_draws(&mut self, operations: &OffscreenOperations) {
+        self.camera_draws.extend(operations.camera_draws());
+        for entry in operations.unmatched_passes() {
+            self.add_unmatched(entry);
+        }
+        for entry in operations.partial_mip_reads_by_pass() {
+            self.add_partial(entry);
+        }
+    }
+
+    fn add_unmatched(&mut self, entry: UnmatchedPasses) {
+        let same = |held: &&mut UnmatchedPasses| {
+            (&held.key, &held.selected, &held.tags, held.passes)
+                == (&entry.key, &entry.selected, &entry.tags, entry.passes)
+        };
+        if let Some(held) = self.unmatched_passes.iter_mut().find(|held| same(held)) {
+            held.draws += entry.draws;
+        } else {
+            self.unmatched_passes.push(entry);
+        }
+    }
+
+    fn add_partial(&mut self, entry: PartialMipReads) {
+        let same = |held: &&mut PartialMipReads| {
+            (
+                &held.texture,
+                held.written,
+                held.total,
+                &held.key,
+                &held.tag,
+            ) == (
+                &entry.texture,
+                entry.written,
+                entry.total,
+                &entry.key,
+                &entry.tag,
+            )
+        };
+        if let Some(held) = self.partial_reads.iter_mut().find(|held| same(held)) {
+            held.reads += entry.reads;
+        } else {
+            self.partial_reads.push(entry);
+        }
+    }
+
     /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it.
     pub fn fail(&mut self, kind: &str, error: &(impl Debug + Display)) {
         let name = format!("{kind}:{}", variant_name(error));
@@ -138,6 +200,16 @@ impl Report {
         }
         for (cause, example) in other.examples {
             self.examples.entry(cause).or_insert(example);
+        }
+        for (name, count) in other.unresolved_textures {
+            *self.unresolved_textures.entry(name).or_default() += count;
+        }
+        self.camera_draws.extend(other.camera_draws);
+        for entry in other.unmatched_passes {
+            self.add_unmatched(entry);
+        }
+        for entry in other.partial_reads {
+            self.add_partial(entry);
         }
     }
 }
@@ -391,6 +463,19 @@ impl<'a> Mapper<'a> {
         Ok(Record::CameraRender { camera: id, target })
     }
 
+    /// The passes a camera draws.
+    fn pass_selector(&self) -> PassSelector {
+        let (key, values) = (PASS_TAG.to_owned(), self.settings.light_modes.clone());
+        match &self.settings.untagged_light_mode {
+            Some(untagged) => PassSelector::TagWithUntagged {
+                key,
+                values,
+                untagged: untagged.clone(),
+            },
+            None => PassSelector::Tag { key, values },
+        }
+    }
+
     /// What the camera clears, from its clear flags, and what it draws.
     fn camera(&self, view: &CameraView, size: [u32; 2]) -> Camera {
         let (clear_color, clear_depth) = match view.settings.clear {
@@ -402,10 +487,7 @@ impl<'a> Mapper<'a> {
             culling_mask: view.settings.culling_mask,
             clear_color,
             clear_depth,
-            pass: PassSelector::Tag {
-                key: PASS_TAG.to_owned(),
-                values: self.settings.light_modes.clone(),
-            },
+            pass: self.pass_selector(),
             values: camera_layer(view, texels(size[0]) / texels(size[1])),
             // Unity winds front faces clockwise as seen with up up. The image is the other way up
             // (see `camera::clip_from_gl`), which reverses a winding.
@@ -588,6 +670,7 @@ impl<'a> Mapper<'a> {
                 generation: texture.generation,
             });
         }
+        self.report.unresolved_textures = self.textures.unresolved().clone();
         Adapted {
             frame: self.frame,
             report: self.report,

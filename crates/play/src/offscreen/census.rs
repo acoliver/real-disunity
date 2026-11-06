@@ -22,7 +22,14 @@ pub struct ShaderCensus {
     pub failed: BTreeMap<&'static str, usize>,
     /// Passes of the first sub-shader, summed over the loaded shaders.
     pub passes: usize,
+    /// Those passes by the value of their `LightMode` tag, `(none)` for a pass without one.
+    pub light_modes: BTreeMap<String, usize>,
+    /// Loaded shaders none of whose passes has a `LightMode` tag.
+    pub shaders_without_light_mode: usize,
 }
+
+/// The tag a pass is selected by.
+const LIGHT_MODE: &str = "LightMode";
 
 /// # Errors
 /// Fails when the data directory or one of its serialized files cannot be read as a file.
@@ -58,6 +65,16 @@ pub fn shader_census(data_directory: &Path) -> Result<ShaderCensus, PlayerError>
                 Ok(program) => {
                     census.loaded += 1;
                     census.passes += program.passes;
+                    let mut tagged = false;
+                    for pass in 0..program.passes {
+                        let mode = program.program.pass_tag(pass, LIGHT_MODE);
+                        tagged |= mode.is_some();
+                        *census
+                            .light_modes
+                            .entry(mode.unwrap_or_else(|| "(none)".to_owned()))
+                            .or_default() += 1;
+                    }
+                    census.shaders_without_light_mode += usize::from(!tagged);
                 }
                 Err(error) => *census.failed.entry(error.name()).or_default() += 1,
             }

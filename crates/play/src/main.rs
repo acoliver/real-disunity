@@ -238,6 +238,10 @@ fn shader_census(directory: &str) -> ExitCode {
                 "{} shader objects, {} loaded with {} passes, failed by error: {:?}",
                 census.shaders, census.loaded, census.passes, census.failed
             );
+            println!(
+                "{} loaded shaders have no pass with a LightMode tag; passes by LightMode: {:?}",
+                census.shaders_without_light_mode, census.light_modes
+            );
             ExitCode::SUCCESS
         }
         Err(error) => {

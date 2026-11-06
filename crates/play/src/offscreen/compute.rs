@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use worldrunner_render_program::constants::pack_layout;
+use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::module::StageProgram;
 use worldrunner_render_program::offscreen::OffscreenState;
 use worldrunner_render_program::runtime::{
@@ -26,6 +27,112 @@ use worldrunner_world_simulation::graphics::{
 
 use super::ids;
 use super::properties::values;
+
+/// How a dispatch was bound and what came of it, for the report.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DispatchTrace {
+    /// The compute shader's name and the kernel's.
+    pub shader: String,
+    pub kernel: String,
+    /// The variant of the kernel that runs, as the supply describes it.
+    pub variant: String,
+    pub groups: [u32; 3],
+    /// The thread group size the world holds for the kernel.
+    pub thread_group: Option<[u32; 3]>,
+    /// The numeric values the dispatch sets, as `name=value`.
+    pub constants: Vec<String>,
+    /// The members of the kernel's constant buffers that no value was set for.
+    pub constants_missing: Vec<String>,
+    /// The textures the kernel declares, in the order it declares them.
+    pub textures: Vec<TextureTrace>,
+    /// The names of the textures the dispatch sets, whether or not the kernel declares them.
+    pub textures_set: Vec<String>,
+    /// The buffers the kernel declares.
+    pub buffers: Vec<BufferTrace>,
+    /// `bound` once everything was bound, `ran` once its submission completed, else the name of
+    /// the reason the dispatch was left out.
+    pub outcome: String,
+    /// Whether the buffers were read back after the dispatch.
+    pub read_back: bool,
+}
+
+impl DispatchTrace {
+    /// The trace as report lines: the dispatch, then what it set and bound.
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        let mut lines = vec![format!(
+            "dispatch {}.{} ({}) groups {:?}, world thread group {:?}: {}, read back {}",
+            self.shader,
+            self.kernel,
+            self.variant,
+            self.groups,
+            self.thread_group,
+            self.outcome,
+            self.read_back
+        )];
+        lines.push(format!(
+            "  constants set [{}], without a value [{}]",
+            self.constants.join(", "),
+            self.constants_missing.join(", ")
+        ));
+        lines.push(format!("  textures set [{}]", self.textures_set.join(", ")));
+        for texture in &self.textures {
+            lines.push(format!(
+                "  texture {} from {}, on the GPU {}, camera renders before {} drew {} left out {}",
+                texture.name,
+                texture.source,
+                texture.resolved,
+                texture.camera_renders,
+                texture.camera_draws,
+                texture.camera_unmatched
+            ));
+        }
+        for buffer in &self.buffers {
+            lines.push(format!(
+                "  buffer {} {} bytes, non-zero words {} before, {:?} after",
+                buffer.name, buffer.bytes, buffer.nonzero_before, buffer.nonzero_after
+            ));
+        }
+        lines
+    }
+}
+
+/// A texture a kernel declares and what the dispatch bound to it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TextureTrace {
+    pub name: String,
+    /// `render`, `asset`, `global`, `none` for a reference to nothing, or `unset` when the
+    /// dispatch sets no texture of that name.
+    pub source: String,
+    /// Whether the texture is on the GPU to bind.
+    pub resolved: bool,
+    pub texture: Option<TextureId>,
+    /// The camera renders into the texture before the dispatch, the draws they recorded and the
+    /// draws they left out for want of a pass.
+    pub camera_renders: usize,
+    pub camera_draws: usize,
+    pub camera_unmatched: usize,
+}
+
+/// A buffer a kernel declares and what the dispatch bound to it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BufferTrace {
+    pub name: String,
+    pub id: Option<ComputeBufferId>,
+    pub bytes: usize,
+    /// Four-byte words that are not zero when the buffer was uploaded and after the flush.
+    pub nonzero_before: usize,
+    pub nonzero_after: Option<usize>,
+}
+
+/// The four-byte words of `bytes` that are not zero.
+#[must_use]
+pub fn nonzero_words(bytes: &[u8]) -> usize {
+    bytes
+        .chunks_exact(4)
+        .filter(|word| word.iter().any(|byte| *byte != 0))
+        .count()
+}
 
 /// Why a kernel could not be loaded.
 #[derive(Clone, Debug, thiserror::Error)]
@@ -68,6 +175,11 @@ pub trait ComputeSupply {
         shader: &WorldComputeShader,
         kernel: u32,
     ) -> Result<StageProgram, ComputeLoadError>;
+
+    /// Which variant of the kernel `load` builds, in words for a report.
+    fn describe(&mut self, _shader: &WorldComputeShader, _kernel: u32) -> String {
+        String::new()
+    }
 }
 
 /// A supply that has no compiled kernels: every dispatch is left out as `NoCompiledCode`.
@@ -165,7 +277,7 @@ impl GpuBuffers {
         &mut self,
         kernel: &Kernel,
         (runtime, snapshot): (&mut ProgramRuntime, &GraphicsSnapshot),
-        bindings: &ComputeBindings,
+        (bindings, trace): (&ComputeBindings, &mut DispatchTrace),
     ) -> Result<Vec<BoundResource>, String> {
         let mut bound = Vec::new();
         for target in &kernel.buffers {
@@ -173,6 +285,10 @@ impl GpuBuffers {
                 .name
                 .resolve(&[])
                 .map_err(|_| "BufferName".to_owned())?;
+            trace.buffers.push(BufferTrace {
+                name: name.to_owned(),
+                ..BufferTrace::default()
+            });
             let (_, buffer) = bindings
                 .buffers
                 .iter()
@@ -181,6 +297,13 @@ impl GpuBuffers {
             let handle = self
                 .upload(runtime, snapshot, *buffer)
                 .map_err(str::to_owned)?;
+            if let Some((_, original)) = self.held.get(buffer)
+                && let Some(entry) = trace.buffers.last_mut()
+            {
+                entry.id = Some(*buffer);
+                entry.bytes = original.len();
+                entry.nonzero_before = nonzero_words(original);
+            }
             bound.push(BoundResource::buffer(target.set, target.binding, handle));
         }
         Ok(bound)
@@ -191,7 +314,7 @@ impl GpuBuffers {
 fn textures(
     kernel: &Kernel,
     state: &OffscreenState,
-    bindings: &ComputeBindings,
+    (bindings, trace): (&ComputeBindings, &mut DispatchTrace),
 ) -> Result<Vec<BoundResource>, String> {
     let mut bound = Vec::new();
     for target in &kernel.textures {
@@ -199,25 +322,62 @@ fn textures(
             .name
             .resolve(&[])
             .map_err(|_| "TextureName".to_owned())?;
+        let mut entry = TextureTrace {
+            name: name.to_owned(),
+            source: "unset".to_owned(),
+            ..TextureTrace::default()
+        };
         let texture = bindings
             .properties
             .textures
             .iter()
             .find(|(property, _)| property == name)
-            .map(|(_, slot)| &slot.texture)
-            .ok_or_else(|| "MissingTexture".to_owned())?;
+            .map(|(_, slot)| &slot.texture);
+        let Some(texture) = texture else {
+            trace.textures.push(entry);
+            return Err("MissingTexture".to_owned());
+        };
         let id = match texture {
             TextureRef::Render(id) => Some(ids::render_texture(*id)),
             TextureRef::Asset(identity) => ids::stored_texture(*identity),
             TextureRef::None | TextureRef::Global(_) => None,
-        }
-        .ok_or_else(|| "MissingTexture".to_owned())?;
-        let handle = state
-            .texture_handle(id)
-            .ok_or_else(|| "TextureUnavailable".to_owned())?;
+        };
+        texture_source(texture).clone_into(&mut entry.source);
+        entry.texture = id;
+        let Some(id) = id else {
+            trace.textures.push(entry);
+            return Err("MissingTexture".to_owned());
+        };
+        let handle = state.texture_handle(id);
+        entry.resolved = handle.is_some();
+        trace.textures.push(entry);
+        let handle = handle.ok_or_else(|| "TextureUnavailable".to_owned())?;
         bound.push(BoundResource::texture(target.set, target.binding, handle));
     }
     Ok(bound)
+}
+
+/// What kind of texture a reference names, for the trace.
+fn texture_source(texture: &TextureRef) -> &'static str {
+    match texture {
+        TextureRef::Render(_) => "render",
+        TextureRef::Asset(_) => "asset",
+        TextureRef::Global(_) => "global",
+        TextureRef::None => "none",
+    }
+}
+
+/// The numeric values a dispatch sets, as `name=value` in name order within each kind.
+fn constant_values(bindings: &ComputeBindings) -> Vec<String> {
+    let properties = &bindings.properties;
+    let floats = properties.floats.iter().map(|(n, v)| format!("{n}={v}"));
+    let ints = properties.ints.iter().map(|(n, v)| format!("{n}={v}"));
+    let vectors = properties.vectors.iter().map(|(n, v)| format!("{n}={v:?}"));
+    let matrices = properties
+        .matrices
+        .iter()
+        .map(|(n, _)| format!("{n}=matrix"));
+    floats.chain(ints).chain(vectors).chain(matrices).collect()
 }
 
 impl ComputeAdapter {
@@ -291,12 +451,27 @@ impl ComputeAdapter {
         snapshot: &GraphicsSnapshot,
         buffers: &mut GpuBuffers,
         dispatch: (ComputeShaderId, u32, [u32; 3], &ComputeBindings),
+        trace: &mut DispatchTrace,
     ) -> Result<Prepared, String> {
         let (id, index, groups, bindings) = dispatch;
+        trace.groups = groups;
+        trace.constants = constant_values(bindings);
+        trace.textures_set = bindings
+            .properties
+            .textures
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
         let shader = snapshot
             .compute_shaders
             .get(&id)
             .ok_or_else(|| "StaleShader".to_owned())?;
+        shader.name.clone_into(&mut trace.shader);
+        if let Some(listed) = shader.kernels.get(index as usize) {
+            listed.name.clone_into(&mut trace.kernel);
+            trace.thread_group = listed.thread_group_size;
+        }
+        trace.variant = self.supply.describe(shader, index);
         let kernel = self.kernel(runtime, id, shader, index)?;
         let mut bound = Vec::new();
         let set = values(&bindings.properties);
@@ -310,14 +485,18 @@ impl ComputeAdapter {
                 });
             let packed = pack_layout(&target.buffer, &[], &[&set], slot)
                 .map_err(|_| "Constants".to_owned())?;
+            trace
+                .constants_missing
+                .extend(packed.missing.iter().cloned());
             let handle = runtime
                 .create_buffer("compute constants", &packed.bytes)
                 .map_err(|_| "BufferUpload".to_owned())?;
             buffers.constants.push(handle);
             bound.push(BoundResource::buffer(target.set, target.binding, handle));
         }
-        bound.extend(textures(&kernel, state, bindings)?);
-        bound.extend(buffers.bind(&kernel, (runtime, snapshot), bindings)?);
+        bound.extend(textures(&kernel, state, (bindings, trace))?);
+        bound.extend(buffers.bind(&kernel, (runtime, snapshot), (bindings, trace))?);
+        "bound".clone_into(&mut trace.outcome);
         Ok(Prepared {
             kernel,
             bindings: bound,

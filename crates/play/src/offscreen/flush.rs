@@ -25,7 +25,7 @@ use worldrunner_world_simulation::graphics::{ComputeBufferId, GraphicsSnapshot, 
 
 use super::adapter::{OffscreenAdapter, build};
 use super::assets::Assets;
-use super::compute::{ComputeAdapter, GpuBuffers, Prepared};
+use super::compute::{ComputeAdapter, DispatchTrace, GpuBuffers, Prepared, nonzero_words};
 use super::frame::{Adapted, Report};
 
 /// Why a flush stopped. The world logs it once and the read that asked for the flush returns the
@@ -215,9 +215,14 @@ impl OffscreenHost {
                 self.prepare(snapshot, placed.work, buffers, &mut adapted.report)
             });
             self.submit(operations, prepared.as_ref())?;
+            if prepared.is_some()
+                && let Some(trace) = adapted.report.traces.last_mut()
+            {
+                "ran".clone_into(&mut trace.outcome);
+            }
         }
         adapted.report.built = built;
-        self.read_back(buffers)
+        self.read_back(buffers, &mut adapted.report.traces)
     }
 
     fn build_segment(
@@ -255,18 +260,35 @@ impl OffscreenHost {
         else {
             return None;
         };
-        match self.compute.prepare(
+        let mut trace = DispatchTrace::default();
+        let prepared = self.compute.prepare(
             (&mut self.runtime, &self.state),
             snapshot,
             buffers,
             (*shader, *kernel, *groups, bindings),
-        ) {
+            &mut trace,
+        );
+        for texture in &mut trace.textures {
+            for camera in report
+                .camera_draws
+                .iter()
+                .filter(|camera| Some(camera.target) == texture.texture)
+            {
+                texture.camera_renders += 1;
+                texture.camera_draws += camera.drawn;
+                texture.camera_unmatched += camera.unmatched;
+            }
+        }
+        let outcome = match prepared {
             Ok(prepared) => Some(prepared),
             Err(name) => {
                 report.count(&format!("dispatch:{name}"));
+                name.clone_into(&mut trace.outcome);
                 None
             }
-        }
+        };
+        report.traces.push(trace);
+        outcome
     }
 
     /// Records the operations and then the dispatch into one frame and submits it.
@@ -299,7 +321,11 @@ impl OffscreenHost {
 
     /// Copies every bound compute buffer back with one more submission, waits for it alone and
     /// returns the buffers whose bytes changed.
-    fn read_back(&mut self, buffers: &GpuBuffers) -> Result<Vec<BufferWrite>, FlushError> {
+    fn read_back(
+        &mut self,
+        buffers: &GpuBuffers,
+        traces: &mut [DispatchTrace],
+    ) -> Result<Vec<BufferWrite>, FlushError> {
         let bound: Vec<_> = buffers.bound().collect();
         if bound.is_empty() {
             return Ok(Vec::new());
@@ -319,6 +345,16 @@ impl OffscreenHost {
         let mut writes = Vec::new();
         for (id, original, read) in pending {
             let bytes = read.resolve(submission.clone())?;
+            for trace in traces.iter_mut().filter(|trace| trace.outcome == "ran") {
+                for buffer in trace
+                    .buffers
+                    .iter_mut()
+                    .filter(|buffer| buffer.id == Some(id))
+                {
+                    buffer.nonzero_after = Some(nonzero_words(&bytes));
+                    trace.read_back = true;
+                }
+            }
             if bytes != original {
                 writes.push(BufferWrite { id, bytes });
             }

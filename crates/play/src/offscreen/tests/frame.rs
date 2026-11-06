@@ -1,6 +1,7 @@
 //! The mapping of a snapshot onto an offscreen frame.
 
 use glam::{Quat, Vec3};
+use std::collections::BTreeMap;
 use worldrunner_render_program::ids::{CameraId, MeshId, RendererId, ShaderId, TextureId};
 use worldrunner_render_program::offscreen::frame::Record;
 use worldrunner_render_program::properties::PropertyValue;
@@ -25,6 +26,7 @@ const MESH: u64 = (1 << 41) + 3;
 fn settings() -> Settings {
     Settings {
         light_modes: vec!["Alpha".to_owned(), "Fallback".to_owned()],
+        untagged_light_mode: None,
     }
 }
 
@@ -405,6 +407,28 @@ fn a_camera_maps_its_clear_flags_mask_pass_list_and_front_face() {
 }
 
 #[test]
+fn a_camera_counts_passes_without_a_light_mode_as_the_setting_says() {
+    let mut world = world();
+    let target = render_texture(&mut world, [4, 4]);
+    let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    draw(&mut world, camera, target);
+    let snapshot = snapshot(&mut world);
+    let settings = Settings {
+        untagged_light_mode: Some("Fallback".to_owned()),
+        ..settings()
+    };
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings);
+    assert_eq!(
+        adapted.frame.cameras[&CameraId(0)].pass,
+        PassSelector::TagWithUntagged {
+            key: "LightMode".to_owned(),
+            values: vec!["Alpha".to_owned(), "Fallback".to_owned()],
+            untagged: "Fallback".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn one_camera_drawing_into_targets_of_two_shapes_is_two_cameras_of_the_frame() {
     let mut world = world();
     let square = render_texture(&mut world, [8, 8]);
@@ -617,6 +641,41 @@ fn a_stored_texture_the_host_can_read_is_named_by_its_identity() {
         panic!("a blit");
     };
     assert_eq!(*source, TextureId(1 << 40));
+}
+
+#[test]
+fn a_texture_property_that_names_no_texture_the_frame_can_read_is_counted_by_name_and_reason() {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    let shader = shader(&mut world, "Blit");
+    let material = material(&mut world, shader);
+    for (name, texture) in [
+        ("_NotUploaded", TextureRef::Asset(1 << 40)),
+        ("_Uploaded", TextureRef::Asset(1 << 41)),
+        ("_Nothing", TextureRef::None),
+    ] {
+        set(
+            &mut world,
+            material,
+            WorldValue::Texture(name.into(), texture_slot(texture)),
+        );
+    }
+    blit(
+        &mut world,
+        TextureRef::Render(target),
+        target,
+        Some(material),
+        0,
+    );
+    let snapshot = snapshot(&mut world);
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[1 << 41]), &settings());
+    assert_eq!(
+        adapted.report.unresolved_textures,
+        BTreeMap::from([
+            ("_NotUploaded: asset not readable by the host".to_owned(), 1),
+            ("_Nothing: no texture set".to_owned(), 1),
+        ])
+    );
 }
 
 #[test]

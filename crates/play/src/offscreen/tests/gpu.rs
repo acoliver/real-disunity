@@ -46,6 +46,14 @@ impl ShaderSupply for Synthetic {
     fn load(&mut self, source: &ShaderSource) -> Result<LoadedShader, ShaderLoadError> {
         let synthetic = match source.file.as_str() {
             "camera" => camera_passes(),
+            "untagged" => {
+                let mut synthetic = camera_passes();
+                for pass in &mut synthetic.shader.parsed.sub_shaders[0].passes {
+                    pass.tags.clear();
+                    pass.state.tags.clear();
+                }
+                synthetic
+            }
             "blit" => blit_passes("_MainTex"),
             _ => return Err(ShaderLoadError::NoVulkanPlatform),
         };
@@ -162,6 +170,7 @@ impl Rig {
         let state = OffscreenState::new(&runtime);
         let settings = Settings {
             light_modes: vec!["Alpha".to_owned()],
+            ..Settings::default()
         };
         Self {
             device,

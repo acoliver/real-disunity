@@ -337,6 +337,7 @@ pub fn build(
         "draw:SampledWrittenLevelsOnly",
         operations.partial_mip_reads(),
     );
+    adapted.report.absorb_draws(&operations);
     Ok(operations)
 }
 

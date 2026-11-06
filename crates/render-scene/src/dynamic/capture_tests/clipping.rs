@@ -133,7 +133,9 @@ fn draw_both(
         let ours = render(context, target, |pass| {
             bind_screen(pass);
             pass.set_bind_group(0, legacy.frame_group(), &[]);
-            counts.0 = staged.draw_overlay(pass, legacy.pipeline(), [SIZE, SIZE]);
+            counts.0 = staged
+                .draw_overlay(pass, legacy.pipeline(), [SIZE, SIZE], None)
+                .0;
         });
         let reference = render(context, target, |pass| {
             bind_screen(pass);

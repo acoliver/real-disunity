@@ -476,7 +476,7 @@ namespace Disunity.Native
     internal unsafe partial struct DisunityUiDraw
     {
         /// <summary>
-        ///  0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
+        ///  Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
         /// </summary>
         public uint kind;
         public ulong hierarchy_order;
@@ -485,7 +485,7 @@ namespace Disunity.Native
         public uint clip_width;
         public uint clip_height;
         /// <summary>
-        ///  Top-row-origin UV pairs for kind 2, in corner order; zero for kinds 0 and 1.
+        ///  Top-row-origin UV pairs in corner order for triangles; zero for quad graphics and text.
         /// </summary>
         public float triangle_u0;
         public float triangle_v0;

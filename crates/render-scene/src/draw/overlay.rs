@@ -8,6 +8,7 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub(crate) struct OverlayGpu {
     pub geometry: DynamicGpu,
+    pub depth_test: bool,
     pub layout: wgpu::BindGroupLayout,
 }
 impl SceneGpu {
@@ -31,7 +32,11 @@ impl SceneGpu {
             },
             &overlay.quads,
         )?;
-        self.overlay = Some(Rc::new(OverlayGpu { geometry, layout }));
+        self.overlay = Some(Rc::new(OverlayGpu {
+            geometry,
+            layout,
+            depth_test: overlay.quads.iter().any(|q| q.depth_test),
+        }));
         Ok(())
     }
 }

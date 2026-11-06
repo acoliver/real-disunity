@@ -170,6 +170,7 @@ fn explicit_bridge_exports_transforms_and_drains_for_one_hundred_cycles() {
     assert_player_textures(&mut host, &root);
     assert_player_meshes(&mut host, &root);
     assert_player_distance_field_atlas(&mut host, &root);
+    assert_managed_overlay_order_and_clipping(&mut host, &root);
     assert_gpu_flush(&mut host, &root);
     assert_graphics_snapshot(&mut host, &root);
     host.run_slice(&fixture).unwrap();
@@ -618,4 +619,45 @@ fn assert_gpu_flush_failure(host: &mut DisunityHost, fixture: &Path) {
         "a failing flush does not throw; the call goes on and fails only for the group size nobody stated: {failed:?}"
     );
     assert_eq!(host.store_statistics().0, 0);
+}
+
+fn assert_managed_overlay_order_and_clipping(host: &mut DisunityHost, root: &Path) {
+    use worldrunner_world_simulation::ui::presentation::UiDrawKind;
+    host.run_slice(&root.join("csharp/PortableFixture/retained-ui.fixture"))
+        .unwrap();
+    let scene = host.export_presentation([64, 64], 8).unwrap();
+    assert!(
+        scene.quads.iter().any(|quad| !quad.overlay),
+        "world canvas stays in the scene"
+    );
+    let ui = host.ui_presentation().unwrap();
+    assert_eq!(ui.draws.len(), 7, "world canvas is absent from the overlay");
+    let kinds = ui
+        .draws
+        .iter()
+        .map(|draw| (draw.sorting_order, draw.kind))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            (-3, UiDrawKind::Graphic),
+            (7, UiDrawKind::Graphic),
+            (7, UiDrawKind::Text),
+            (7, UiDrawKind::Graphic),
+            (7, UiDrawKind::Graphic),
+            (7, UiDrawKind::Graphic),
+            (7, UiDrawKind::Graphic)
+        ]
+    );
+    assert!(
+        ui.draws[1..]
+            .windows(2)
+            .all(|pair| pair[0].hierarchy_order < pair[1].hierarchy_order)
+    );
+    assert_eq!(ui.draws[3].clip_rect, [24, 24, 8, 8]);
+    assert_eq!(ui.draws[0].clip_rect, [0, 0, 64, 64]);
+    assert_eq!(ui.coverage.len(), 1);
+    assert!(ui.coverage.contains_key(&ui.draws[2].texture.unwrap()));
+    host.unload_slice().unwrap();
+    assert!(matches!(host.ui_presentation(), Err(HostError::NoWorld)));
 }

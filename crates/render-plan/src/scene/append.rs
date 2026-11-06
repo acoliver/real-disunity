@@ -83,7 +83,11 @@ impl RenderScene {
         let limit = table_limit(self.resources.textures().len(), "textures")?;
         require_handle("texture replacement", handle.raw(), "texture", limit)?;
         let index = usize::try_from(handle.raw()).expect("u32 table index fits usize");
-        self.resources.replace_texture(index, texture)
+        let mut proposed = self.clone();
+        proposed.resources.replace_texture(index, texture)?;
+        proposed.validate_mesh_scalar_channels()?;
+        self.resources = proposed.resources;
+        Ok(())
     }
 
     /// Replaces one mesh. Every handle keeps its meaning.
@@ -104,7 +108,10 @@ impl RenderScene {
         let materials = table_limit(self.resources.materials().len(), "materials")?;
         mesh_materials(&mesh, materials)?;
         let index = usize::try_from(handle.raw()).expect("u32 table index fits usize");
-        Arc::make_mut(&mut self.geometry.meshes)[index] = mesh;
+        let mut proposed = self.clone();
+        Arc::make_mut(&mut proposed.geometry.meshes)[index] = mesh;
+        proposed.validate_mesh_scalar_channels()?;
+        self.geometry = proposed.geometry;
         Ok(())
     }
 }

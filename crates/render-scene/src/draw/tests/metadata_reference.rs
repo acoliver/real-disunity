@@ -252,16 +252,29 @@ pub(super) fn pipelines(
 fn forward_helpers_preserve_pre_change_source_exactly() {
     let (shadowed, terrain) = crate::shadows::capture_sources(true);
     for source in [crate::shader::ENVIRONMENT_WGSL, shadowed] {
-        for helper in [NORMAL, DECALS, SURFACE] {
+        for helper in [NORMAL, DECALS] {
             assert!(source.contains(helper), "forward helper source changed");
         }
+    }
+    let selected_surface = SURFACE
+        .replace(
+            "if scene_packed_atlas(input) { return scene_atlas_first(rough_metal_texture, footprint).rg; }",
+            "if scene_packed_atlas(input) {\n                let sampled = scene_atlas_first(rough_metal_texture, footprint);\n                return vec2<f32>(sampled[material.packed_atlas_channels[0].x + 0], sampled[material.packed_atlas_channels[1].x + 1]);\n            }",
+        )
+        .replace("sampled.g", "sampled[material.scalar_channels[0].x + 1]")
+        .replace("sampled.b", "sampled[material.scalar_channels[1].x + 2]");
+    for source in [crate::shader::ENVIRONMENT_WGSL, shadowed] {
+        assert!(
+            source.contains(&selected_surface),
+            "forward surface source changed"
+        );
     }
     for source in [crate::shader::TERRAIN_WGSL, terrain] {
         assert!(source.contains(DECALS), "terrain decal source changed");
     }
 }
 
-// Full-source FNV-1a/128 and byte lengths from assemblies at 08ea8958f3bfd353ed99a458c7f7434bb21c0df3.
+// Fingerprints refreshed from production assemblies for material channel selectors (Hubnot 494ab80b0dd2).
 // Hash every byte, including unreachable declarations, to detect changes shared by both GPU runs.
 fn source_fingerprint(source: &str) -> (usize, u128) {
     let hash = source.bytes().fold(
@@ -277,7 +290,7 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (83_470, 0x94b1_a540_a58e_aa8b_fedb_b952_72ff_ac67),
+            (84_013, 0xd1af_d967_3bb4_7cb4_7421_c870_a8c8_51db),
         ),
         (
             crate::shader::TERRAIN_WGSL,
@@ -285,7 +298,7 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
         ),
         (
             shadowed,
-            (93_881, 0x79fc_4860_e843_5213_3522_4274_8210_44df),
+            (94_424, 0x74c5_ef71_2625_de54_3436_f4c6_0f40_f633),
         ),
         (
             shadowed_terrain,
@@ -300,11 +313,11 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (83_684, 0xea41_83b2_0055_e32c_b745_72fe_8a68_3eef),
+            (84_227, 0x7ca0_8a0a_0505_8a21_f12e_494c_6776_f22d),
         ),
         (
             shadowed,
-            (94_095, 0x299a_6e3f_7da8_05c5_51bb_06bc_b820_c8c7),
+            (94_638, 0xaec2_1497_76cd_9dd9_b1f4_088d_b100_dc45),
         ),
     ] {
         assert_eq!(
@@ -316,28 +329,28 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
 
 const CELESTIAL_SOURCES: [[(usize, u128); 4]; 4] = [
     [
-        (85_069, 0xe4dd_ef90_3ea5_2c5b_bca1_9ef7_57f7_aa58),
-        (85_043, 0xe236_9752_3bc6_c249_e368_9b44_62ce_728e),
-        (85_283, 0x5dee_602b_66d1_602e_bb20_0585_c1c1_8034),
-        (85_257, 0xf0d4_a9d0_7bf7_8fb6_cf6e_ad79_77e3_b27a),
+        (85_612, 0xcb23_cc22_8930_2916_0ccf_ee53_552a_f0d0),
+        (85_586, 0x3f65_eae4_59f6_8993_ab28_37d6_f24c_17c6),
+        (85_826, 0xf147_8ebe_958d_aee8_a7bc_9f45_e9f0_ce0a),
+        (85_800, 0x4a67_c800_7865_a392_7b12_2460_cd04_816c),
     ],
     [
-        (85_013, 0xd831_e33f_625f_383e_c9e9_fcd9_f299_0d35),
-        (84_987, 0x880d_d038_a86b_6279_9af0_ba1d_51a3_b32f),
-        (85_227, 0x0717_0afe_cb1a_9b3c_b654_1fc7_3a4c_b1bd),
-        (85_201, 0xcd41_5fce_4502_de8d_922d_c6af_c08a_e3b7),
+        (85_556, 0xfcca_e825_260b_f01c_b843_cc6e_c285_c37d),
+        (85_530, 0xed71_f89c_14f1_8522_83d0_6475_cf5c_95f7),
+        (85_770, 0xdb7a_98ee_652b_6dc0_6f39_804f_1cac_da03),
+        (85_744, 0x2c19_27b8_a413_de25_d4c7_ee66_65d8_c7a1),
     ],
     [
-        (85_082, 0x8325_31c9_7044_67dd_b6fa_4c83_4797_27e8),
-        (85_056, 0x2648_d015_ac7a_d7fa_b2a1_1928_660e_d5fe),
-        (85_296, 0xe88e_882b_4bea_7b0b_de01_2f7a_bfeb_752a),
-        (85_270, 0x98d0_a877_70dc_dc3b_3a51_0641_0522_3c4c),
+        (85_625, 0xb208_cc05_49dc_52c0_6d37_5817_8dda_d040),
+        (85_599, 0x530e_1f42_35a8_24b7_85eb_5062_6560_5056),
+        (85_839, 0xe128_b5fc_6f90_6ede_99de_53a2_2f47_a870),
+        (85_813, 0xabfb_5505_c019_8c89_1081_8148_7300_7aa6),
     ],
     [
-        (85_053, 0x4e7b_ec03_11d2_a661_4994_8c9a_fbad_da93),
-        (85_027, 0x0151_2411_6f78_2a7f_0eb6_3f12_eb7a_a191),
-        (85_267, 0x7f6c_742e_a6e2_df98_dd7e_e27b_1cf9_edfb),
-        (85_241, 0x2ac5_c085_756c_1942_d131_a520_cc54_a2f9),
+        (85_596, 0x3a80_3892_71a6_153e_b00d_9458_6a40_745b),
+        (85_570, 0x5be9_cd29_1f82_7b30_2a73_b5b6_f1c5_a519),
+        (85_810, 0x2ceb_76ed_6260_4470_dc97_2653_5ae5_7eb1),
+        (85_784, 0xd47f_4520_f5e8_a986_6c30_0fbd_e08a_e56b),
     ],
 ];
 

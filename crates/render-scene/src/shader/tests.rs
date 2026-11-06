@@ -320,3 +320,53 @@ fn named_raster_extent_has_exact_frame_offsets_in_both_shaders() {
         );
     }
 }
+
+#[test]
+fn material_prefix_and_integer_selector_tails_match_the_encoder_layout() {
+    let module = validate();
+    let (_, material) = module
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("Material"))
+        .unwrap();
+    let naga::TypeInner::Struct { members, span } = &material.inner else {
+        panic!("Material must be a uniform struct");
+    };
+    assert_eq!(*span, 576);
+    assert_eq!(*span as usize, crate::pipeline::MATERIAL_UNIFORM_BYTES);
+    for (name, offset) in [
+        ("alpha_cutoff", 0),
+        ("roughness", 4),
+        ("metalness", 8),
+        ("texture_flags", 12),
+        ("fade_policy", 432),
+        ("scalar_channels", 448),
+        ("packed_atlas_channels", 512),
+    ] {
+        let member = members
+            .iter()
+            .find(|m| m.name.as_deref() == Some(name))
+            .unwrap();
+        assert_eq!(member.offset, offset, "{name}");
+    }
+    for name in ["scalar_channels", "packed_atlas_channels"] {
+        let member = members
+            .iter()
+            .find(|m| m.name.as_deref() == Some(name))
+            .unwrap();
+        let naga::TypeInner::Array { base, stride, .. } = module.types[member.ty].inner else {
+            panic!("selector slots must be arrays");
+        };
+        assert_eq!(stride, 16);
+        assert!(matches!(
+            module.types[base].inner,
+            naga::TypeInner::Vector {
+                size: naga::VectorSize::Quad,
+                scalar: naga::Scalar {
+                    kind: naga::ScalarKind::Sint,
+                    width: 4
+                }
+            }
+        ));
+    }
+}

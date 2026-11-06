@@ -405,3 +405,80 @@ fn clones_of_an_appended_scene_compare_equal_and_diverge_independently() {
     assert_eq!(second, full);
     assert_eq!(scene, full);
 }
+
+fn packed_scene(format: TexelFormat, billboard: bool) -> RenderScene {
+    use crate::scene::{
+        BillboardPolicy, SceneImpostor, SceneImpostorChannels, SceneImpostorLayout,
+    };
+    let mut material = SceneMaterial::new(SceneMaterialParts {
+        albedo: TextureHandle::from_raw(0),
+        normal: None,
+        roughness_metallic: Some(TextureHandle::from_raw(1)),
+        ambient_occlusion: Some(TextureHandle::from_raw(1)),
+        self_illumination: None,
+        roughness_micro: 500_000,
+        metalness_micro: 0,
+        alpha_mode: SceneAlphaMode::Opaque,
+        double_sided: false,
+    })
+    .unwrap();
+    material = material.with_impostor(
+        SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false)
+            .unwrap()
+            .with_channels(SceneImpostorChannels::RoughTranslucencyEmissionOcclusion),
+    );
+    let level = SceneMeshLod::new(
+        0,
+        lod(None).vertices().to_vec(),
+        vec![0, 1, 2],
+        billboard.then_some(BillboardPolicy::YawLocked),
+    )
+    .unwrap();
+    build(
+        vec![texture(255), scalar_texture(format)],
+        vec![material],
+        vec![SceneMesh::new(vec![level]).unwrap()],
+    )
+}
+
+fn scalar_texture(format: TexelFormat) -> SceneTexture {
+    SceneTexture::Texels {
+        format,
+        color_space: TextureColorSpace::Linear,
+        width: 1,
+        height: 1,
+        mips: 1,
+        bytes: vec![128; usize::try_from(format.bytes_per_texel()).unwrap()].into(),
+    }
+}
+
+#[test]
+fn replacing_a_billboard_with_a_fixed_mesh_checks_surface_channels_atomically() {
+    let mut scene = packed_scene(TexelFormat::Rg8Unorm, true);
+    let before = scene.clone();
+    assert!(matches!(
+        scene.replace_mesh(MeshHandle::from_raw(0), mesh()),
+        Err(SceneValidationError::MissingTextureChannel {
+            part: "material metalness",
+            channel: crate::scene::TextureChannel::B
+        })
+    ));
+    assert_eq!(scene, before);
+}
+
+#[test]
+fn replacing_packed_rt_rechecks_fixed_mesh_surface_channels_atomically() {
+    let mut scene = packed_scene(TexelFormat::Rgba8Unorm, false);
+    let before = scene.clone();
+    assert!(matches!(
+        scene.replace_texture(
+            TextureHandle::from_raw(1),
+            scalar_texture(TexelFormat::Rg8Unorm)
+        ),
+        Err(SceneValidationError::MissingTextureChannel {
+            part: "material metalness",
+            channel: crate::scene::TextureChannel::B
+        })
+    ));
+    assert_eq!(scene, before);
+}

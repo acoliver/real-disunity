@@ -11,6 +11,17 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SceneValidationError {
+    #[error("texture channel index {observed} is outside 0..4")]
+    InvalidTextureChannel { observed: u32 },
+    #[error("{part} does not support custom material scalar channels")]
+    UnsupportedMaterialChannels { part: &'static str },
+    #[error("{part} selects {channel:?}, which its texture format does not store")]
+    MissingTextureChannel {
+        part: &'static str,
+        channel: super::TextureChannel,
+    },
+    #[error("{part} requires a valid DX10 DDS texture format")]
+    InvalidMaterialTextureFormat { part: &'static str },
     /// An entry added with `RenderScene::append_resources` failed validation.
     #[error("appended {table} {index}: {source}")]
     AppendedEntry {

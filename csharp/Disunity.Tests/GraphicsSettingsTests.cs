@@ -5,15 +5,27 @@ using UnityEngine.Rendering;
 /// <summary>GraphicsSettings defaults, round trips, pipeline assets and the settings registries.</summary>
 internal static class GraphicsSettingsTests
 {
-    private sealed class PipelineAsset : RenderPipelineAsset { }
+    private sealed class PipelineAsset : RenderPipelineAsset
+    {
+        protected override RenderPipeline CreatePipeline() => new Pipeline();
+    }
 
-    private sealed class OtherAsset : RenderPipelineAsset { }
+    private sealed class OtherAsset : RenderPipelineAsset
+    {
+        protected override RenderPipeline CreatePipeline() => new Pipeline();
+    }
 
     private sealed class GlobalSettings : RenderPipelineGlobalSettings { }
 
-    private sealed class Pipeline : RenderPipeline { }
+    private sealed class Pipeline : RenderPipeline
+    {
+        protected override void Render(ScriptableRenderContext context, Camera[] cameras) { }
+    }
 
-    private sealed class TypedAsset : RenderPipelineAsset<Pipeline> { }
+    private sealed class TypedAsset : RenderPipelineAsset<Pipeline>
+    {
+        protected override RenderPipeline CreatePipeline() => new Pipeline();
+    }
 
     private sealed class HoldingSettings : RenderPipelineGlobalSettings
     {

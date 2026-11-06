@@ -2,10 +2,17 @@ using Disunity.Hosting;
 
 namespace UnityEngine.Rendering;
 
-/// <summary>A render pipeline asset. Only what <see cref="GraphicsSettings"/> needs exists so far; the asset
-/// members a pipeline overrides come with the slice that loads the player's pipeline.</summary>
+/// <summary>A render pipeline asset. A pipeline package's asset overrides <see cref="CreatePipeline"/>, which the host
+/// calls once for the active asset to build the live pipeline (see <see cref="RenderPipelineManager.currentPipeline"/>).</summary>
 public abstract class RenderPipelineAsset : ScriptableObject
 {
+    /// <summary>Builds the render pipeline this asset describes. The host calls it on the first frame step where the
+    /// asset is the active one, and again only after the asset has stopped being active and become active anew.</summary>
+    protected abstract RenderPipeline CreatePipeline();
+
+    /// <summary>Lets the host call <see cref="CreatePipeline"/>.</summary>
+    internal RenderPipeline InvokeCreatePipeline() => CreatePipeline();
+
     /// <summary>Called when the asset is disabled; a pipeline asset overrides it and calls this base.</summary>
     protected virtual void OnDisable() { }
 
@@ -42,12 +49,29 @@ public abstract class RenderPipelineGlobalSettings : ScriptableObject
             .OfType<IRenderPipelineGraphicsSettings>();
 }
 
-/// <summary>A render pipeline. Its rendering members come with the slice that loads the player's pipeline.</summary>
+/// <summary>A render pipeline. The host creates it from the active <see cref="RenderPipelineAsset"/> and disposes it when
+/// the asset stops being active or the world unloads. The engine does not call <see cref="Render(ScriptableRenderContext, Camera[])"/> yet.</summary>
 public abstract class RenderPipeline
 {
     public bool disposed { get; private set; }
 
-    public void Dispose() => disposed = true;
+    /// <summary>Renders the cameras into the context; a pipeline implements it.</summary>
+    protected abstract void Render(ScriptableRenderContext context, Camera[] cameras);
+
+    /// <summary>Renders the cameras into the context; by default it calls the array form.</summary>
+    protected virtual void Render(ScriptableRenderContext context, List<Camera> cameras) => Render(context, cameras.ToArray());
+
+    /// <summary>Releases the pipeline's resources. <see cref="Dispose()"/> calls it with true, once.</summary>
+    protected virtual void Dispose(bool disposing) { }
+
+    /// <summary>Disposes the pipeline; a second call does nothing.</summary>
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true;
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
 }
 
 /// <summary>A group of settings stored in a pipeline's global settings. Unity's interface requires all three

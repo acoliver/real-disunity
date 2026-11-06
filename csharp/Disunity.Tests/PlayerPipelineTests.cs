@@ -8,17 +8,24 @@ using UnityEngine.Rendering;
 /// that fails to build is logged by name and left null.</summary>
 internal static class PlayerPipelineTests
 {
-    public sealed class TestPipeline : RenderPipeline { }
+    public sealed class TestPipeline : RenderPipeline
+    {
+        protected override void Render(ScriptableRenderContext context, Camera[] cameras) { }
+    }
 
     public sealed class HighAsset : RenderPipelineAsset<TestPipeline>
     {
         public int level = -1;
         public ComputeShader? compute = null;
+
+        protected override RenderPipeline CreatePipeline() => new TestPipeline();
     }
 
     public sealed class ThrowingAsset : RenderPipelineAsset
     {
         public ThrowingAsset() => throw new InvalidOperationException("constructor failed");
+
+        protected override RenderPipeline CreatePipeline() => throw new InvalidOperationException("never reached");
     }
 
     public sealed class GlobalAsset : RenderPipelineGlobalSettings { }

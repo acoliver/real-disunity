@@ -490,6 +490,7 @@ UIElementsPanelTests.Run();
 ColorUtilityTests.Run();
 EndOfFrameTests.Run();
 RenderPipelineAssetTests.Run();
+RenderPipelineLifecycleTests.Run();
 Hash128Tests.Run();
 FilteringAndStateTests.Run();
 CullingDataTests.Run();

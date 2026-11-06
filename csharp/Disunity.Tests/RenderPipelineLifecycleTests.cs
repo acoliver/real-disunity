@@ -67,7 +67,7 @@ internal static class RenderPipelineLifecycleTests
         SupportedRenderingFeatures.active = replacement;
         Expect.That(ReferenceEquals(SupportedRenderingFeatures.active, replacement), "a pipeline's features replace the active set");
         Expect.Throws<ArgumentNullException>(() => SupportedRenderingFeatures.active = null!, "the active set cannot be null");
-        SupportedRenderingFeatures.active = original;
+        SupportedRenderingFeatures.active = new SupportedRenderingFeatures();
         var flags = typeof(SupportedRenderingFeatures).GetProperties().Where(p => p.PropertyType == typeof(bool) && !p.GetMethod!.IsStatic).ToArray();
         Expect.That(flags.Length >= 20, "the flags a pipeline sets exist");
         foreach (var flag in flags)

@@ -38,15 +38,31 @@ public abstract class RenderPipelineAsset<TRenderPipeline> : RenderPipelineAsset
 /// <summary>The settings asset of one render pipeline type.</summary>
 public abstract class RenderPipelineGlobalSettings : ScriptableObject
 {
+    /// <summary>How many container objects deep a <see cref="RenderPipelineGraphicsSettingsCollection"/> is looked for.</summary>
+    private const int MaxContainerDepth = 3;
+
     /// <summary>The settings groups the asset holds: the entries of every <see cref="RenderPipelineGraphicsSettingsCollection"/>
-    /// in its serialized fields, in field order.</summary>
+    /// in its serialized fields, or in the serialized fields of a settings container object those fields hold (a pipeline
+    /// package keeps its collections in a container), in field order.</summary>
     internal IEnumerable<IRenderPipelineGraphicsSettings> GraphicsSettingsGroups() =>
-        DisunityHost.SerializedFields(GetType())
-            .Where(field => field.FieldType == typeof(RenderPipelineGraphicsSettingsCollection))
-            .Select(field => (RenderPipelineGraphicsSettingsCollection?)field.GetValue(this))
-            .OfType<RenderPipelineGraphicsSettingsCollection>()
+        CollectionsIn(this, 0)
             .SelectMany(collection => collection.settingsList)
             .OfType<IRenderPipelineGraphicsSettings>();
+
+    private static IEnumerable<RenderPipelineGraphicsSettingsCollection> CollectionsIn(object owner, int depth)
+    {
+        foreach (var field in DisunityHost.SerializedFields(owner.GetType()))
+        {
+            var value = field.GetValue(owner);
+            if (value is RenderPipelineGraphicsSettingsCollection collection) yield return collection;
+            else if (depth < MaxContainerDepth && IsContainer(value))
+                foreach (var inner in CollectionsIn(value, depth + 1)) yield return inner;
+        }
+    }
+
+    private static bool IsContainer([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] object? value) =>
+        value is not null and not UnityEngine.Object and not string and not System.Collections.IEnumerable
+        && !value.GetType().IsPrimitive && !value.GetType().IsEnum;
 }
 
 /// <summary>A render pipeline. The host creates it from the active <see cref="RenderPipelineAsset"/> and disposes it when

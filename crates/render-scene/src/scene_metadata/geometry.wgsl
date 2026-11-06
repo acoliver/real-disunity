@@ -1,6 +1,6 @@
-fn reflection_metadata(original: VertexOutput, front: bool, masked: bool) -> METADATA_TYPE {
+fn reflection_metadata(original: VertexOutput, front: bool, masked: bool, position: vec3<f32>) -> METADATA_TYPE {
     var input = original;
-    input.world_position = scene_relief_position(original);
+    input.world_position = position;
     let footprint = scene_atlas_footprint(albedo_texture, input);
     var albedo = scene_albedo(scene_atlas_sample(albedo_texture, input, footprint), input.tint);
     let surface = scene_surface_channels(input);

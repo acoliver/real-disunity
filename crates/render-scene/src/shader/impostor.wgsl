@@ -111,9 +111,11 @@ fn scene_atlas_sample(map: texture_2d<f32>, input: VertexOutput, footprint: Atla
     var value = vec4<f32>(0.0);
     for (var i = 0u; i < 4u; i++) {
         if selected.weights[i] > 0.0 {
-            var sampled = textureSampleLevel(map, material_sampler, footprint.uv[i], 0.0);
+            var sampled: vec4<f32>;
             if (material.wind_clock.z & SCENE_ATLAS_MIP_FLAG) != 0u {
                 sampled = textureSampleGrad(map, material_sampler, footprint.uv[i], footprint.dx[i], footprint.dy[i]);
+            } else {
+                sampled = textureSampleLevel(map, material_sampler, footprint.uv[i], 0.0);
             }
             value += sampled * selected.weights[i];
         }
@@ -158,9 +160,11 @@ fn scene_relief_normal(input: VertexOutput, footprint: AtlasFootprint) -> vec3<f
     var normal = vec3<f32>(0.0);
     for (var i=0u; i<4u; i++) {
         if selected.weights[i] > 0.0 {
-            var sampled = textureSampleLevel(normal_texture, material_sampler, footprint.uv[i], 0.0);
+            var sampled: vec4<f32>;
             if (material.wind_clock.z & SCENE_ATLAS_MIP_FLAG) != 0u {
                 sampled = textureSampleGrad(normal_texture, material_sampler, footprint.uv[i], footprint.dx[i], footprint.dy[i]);
+            } else {
+                sampled = textureSampleLevel(normal_texture, material_sampler, footprint.uv[i], 0.0);
             }
             normal += scene_relief_decode(sampled.rg) * selected.weights[i];
         }
@@ -178,12 +182,12 @@ fn scene_relief_position(input: VertexOutput) -> vec3<f32> {
     let depth = scene_atlas_sample(impostor_depth, input, footprint).r;
     return scene_relief_offset(input.world_position, depth * material.impostor_relief.x);
 }
-struct SceneReliefDepth { value: f32, visible: bool, }
+struct SceneReliefDepth { value: f32, visible: bool, position: vec3<f32>, }
 fn scene_relief_depth(input: VertexOutput) -> SceneReliefDepth {
     let position = scene_relief_position(input);
-    if input.atlas_eye.w == 0.0 || material.impostor_relief.x == 0.0 { return SceneReliefDepth(input.clip_position.z, true); }
+    if input.atlas_eye.w == 0.0 || material.impostor_relief.x == 0.0 { return SceneReliefDepth(input.clip_position.z, true, position); }
     let clip = frame.view_projection * vec4<f32>(position,1.0);
-    return SceneReliefDepth(clip.z / clip.w, clip.w > 0.0);
+    return SceneReliefDepth(clip.z / clip.w, clip.w > 0.0, position);
 }
 struct SceneSurfaceOutput { @location(0) colour: vec4<f32>, @builtin(frag_depth) depth: f32, }
 

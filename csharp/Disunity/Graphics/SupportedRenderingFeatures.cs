@@ -23,6 +23,7 @@ public class SupportedRenderingFeatures
     public bool overridesLightProbeSystem { get; set; }
     public bool overridesShadowmask { get; set; }
     public bool rendersUIOverlay { get; set; }
+    public bool skyOcclusion { get; set; }
     public bool editableMaterialRenderQueue { get; set; } = true;
     public bool autoAmbientProbeBaking { get; set; } = true;
     public bool autoDefaultReflectionProbeBaking { get; set; } = true;

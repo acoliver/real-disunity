@@ -20,7 +20,7 @@ internal static class PlayerMaterials
     {
         var shader = plan.GetProperty("shader") is { ValueKind: JsonValueKind.Number } index
             ? (Shader)resolve(index.GetInt32())
-            : DisunityHost.DeclareShader(FallbackShader, FallbackQueue, 1, 1, _ => { });
+            : DisunityHost.DeclareShader(FallbackShader, FallbackQueue, [""], 1, _ => { });
         var material = new Material(shader) { name = plan.Str("name"), renderQueue = plan.Int("render_queue") };
         foreach (var keyword in plan.GetProperty("keywords").EnumerateArray()) material.EnableKeyword(keyword.GetString()!);
         foreach (var tag in plan.GetProperty("tags").EnumerateArray()) material.SetOverrideTag(tag[0].GetString()!, tag[1].GetString()!);

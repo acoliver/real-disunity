@@ -37,9 +37,10 @@ internal static class PlayerShaderTests
         ScenePlansBuildTheirShaders();
     }
 
-    private static JsonObject Declared(string name, int queue, int passes, int subshaders) => new()
+    private static JsonObject Declared(string name, int queue, string[] passNames, int subshaders) => new()
     {
-        ["type"] = "Shader", ["name"] = name, ["render_queue"] = queue, ["pass_count"] = passes, ["subshader_count"] = subshaders,
+        ["type"] = "Shader", ["name"] = name, ["render_queue"] = queue, ["pass_count"] = passNames.Length,
+        ["pass_names"] = new JsonArray(passNames.Select(pass => (JsonNode)pass).ToArray()), ["subshader_count"] = subshaders,
     };
 
     private static string WritePlan(string directory)
@@ -47,21 +48,22 @@ internal static class PlayerShaderTests
         File.WriteAllText(Path.Combine(directory, "holder.json"), """{"first":{"$asset":0},"second":{"$asset":0},"failed":null}""");
         var assets = new JsonArray
         {
-            Declared(Lit, 3000, 2, 1),
+            Declared(Lit, 3000, ["Forward", "Shadow"], 1),
             new JsonObject { ["type"] = "UnplannedShader", ["error"] = "shader object 3 of resources.assets: the declarations are truncated" },
             new JsonObject
             {
                 ["type"] = "Script", ["class"] = "PlayerShaderTests/Holder", ["assembly"] = typeof(PlayerShaderTests).Assembly.GetName().Name,
                 ["name"] = "holder", ["fields"] = "holder.json",
             },
-            Declared(Lit, 2000, 1, 1),
-            Declared("Sprites/Default", 3000, 1, 1),
-            Declared(Lit, 3500, 2, 1),
-            Declared(Lit, 3000, 3, 1),
-            Declared(Lit, 3000, 2, 1),
+            Declared(Lit, 2000, [""], 1),
+            Declared("Sprites/Default", 3000, [""], 1),
+            Declared(Lit, 3500, ["Forward", "Shadow"], 1),
+            Declared(Lit, 3000, ["Forward", "Shadow", "Meta"], 1),
+            Declared(Lit, 3000, ["Forward", "Shadow"], 1),
+            Declared(Lit, 3000, ["Forward", "Depth"], 1),
         };
-        string[] paths = ["shaders/lit", "shaders/broken", "config/holder", "shaders/clash", "shaders/sprites", "shaders/queue", "shaders/passes", "shaders/same"];
-        string[] classes = ["Shader", "Shader", "MonoBehaviour", "Shader", "Shader", "Shader", "Shader", "Shader"];
+        string[] paths = ["shaders/lit", "shaders/broken", "config/holder", "shaders/clash", "shaders/sprites", "shaders/queue", "shaders/passes", "shaders/same", "shaders/renamed"];
+        string[] classes = ["Shader", "Shader", "MonoBehaviour", "Shader", "Shader", "Shader", "Shader", "Shader", "Shader"];
         var entries = new JsonArray(paths.Select((path, i) => (JsonNode)new JsonObject { ["path"] = path, ["class"] = classes[i], ["asset"] = i }).ToArray());
         return PlanHarness.WriteJson(directory, entries, assets);
     }
@@ -101,10 +103,13 @@ internal static class PlayerShaderTests
         var first = Shader.Find(Lit)!;
         var clash = Resources.Load<Shader>("shaders/clash")!;
         Expect.That(ReferenceEquals(clash, first) && first.renderQueue == 3000 && first.passCount == 2, "a second declaration of a name returns the first shader with its first values");
-        foreach (var path in new[] { "shaders/queue", "shaders/passes", "shaders/same", "shaders/sprites" })
+        foreach (var path in new[] { "shaders/queue", "shaders/passes", "shaders/same", "shaders/sprites", "shaders/renamed" })
             Expect.That(ReferenceEquals(Resources.Load<Shader>(path), path == "shaders/sprites" ? Material.SpriteUnlit.shader : first), $"{path} is the shader of its name");
         var differences = DisunityHost.Resources!.Differences;
-        Expect.That(differences.Count == 3 && differences.All(line => line.Contains("first stays")), $"each disagreeing declaration is noted once and an agreeing one is not, got {string.Join("; ", differences)}");
+        Expect.That(differences.Count == 4 && differences.All(line => line.Contains("first stays")), $"each disagreeing declaration is noted once and an agreeing one is not, got {string.Join("; ", differences)}");
+        Expect.That(differences.Any(line => line.Contains("Forward, Depth")), "a declaration that differs only in a pass name is noted with the names it declares");
+        var material = new Material(first);
+        Expect.That(material.FindPass("Depth") == -1 && material.GetPassName(1) == "Shadow", "the first declaration's pass names stay");
         Expect.That(differences.Any(line => line.Contains("queue 3500")) && differences.Any(line => line.Contains("3 passes")) && differences.Any(line => line.Contains("queue 2000")), "the notes name the declared values");
         Console.WriteLine("PASS: a disagreeing second declaration keeps the first and adds a difference");
     }
@@ -113,7 +118,7 @@ internal static class PlayerShaderTests
     {
         ["scene"] = "level0", ["sprites"] = new JsonArray(), ["textures"] = new JsonArray(), ["fonts"] = new JsonArray(), ["axes"] = new JsonArray(),
         ["differences"] = new JsonArray(),
-        ["assets"] = new JsonArray { Declared("Test/PlayerShaders/SceneLit", 2200, 3, 2), Declared("Test/PlayerShaders/SceneLit", 3000, 1, 1) },
+        ["assets"] = new JsonArray { Declared("Test/PlayerShaders/SceneLit", 2200, ["A", "B", "C"], 2), Declared("Test/PlayerShaders/SceneLit", 3000, [""], 1) },
         ["objects"] = new JsonArray
         {
             new JsonObject
@@ -149,6 +154,7 @@ internal static class PlayerShaderTests
                 var seen = SceneHolder.Seen!;
                 Expect.That(seen.shader is not null && ReferenceEquals(seen.shader, seen.same), "two scene references to one shader are one object");
                 Expect.That(seen.shader!.renderQueue == 2200 && seen.shader.passCount == 3 && seen.shader.subshaderCount == 2, "the scene shader has its declared values");
+                Expect.That(new Material(seen.shader).GetPassName(2) == "C", "the scene shader has its declared pass names");
                 Expect.That(ReferenceEquals(seen.other, seen.shader) && ReferenceEquals(Shader.Find("Test/PlayerShaders/SceneLit"), seen.shader), "a second asset of one name is the first shader, and Shader.Find finds it");
                 Expect.That(scene.Differences.Count == 1 && scene.Differences[0].Contains("SceneLit"), $"the disagreement is a scene difference, got {string.Join("; ", scene.Differences)}");
             }

@@ -509,6 +509,7 @@ CameraRenderTests.Run();
 GraphicsBlitTests.Run();
 WorldGraphicsTests.Run();
 MaterialSetPassTests.Run();
+MaterialPassNameTests.Run();
 ComputeShaderTests.Run();
 ComputeBufferTests.Run();
 ComputeDispatchTests.Run();

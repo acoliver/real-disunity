@@ -7,52 +7,71 @@ impl SceneResources {
     ///
     /// Returns [`SceneValidationError`] on the first violated invariant.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
-        for texture in self.textures.iter() {
+        self.validate_from(0, 0)
+    }
+
+    /// Validates the textures from `first_texture` and the materials from `first_material`
+    /// on, each against the whole tables. Earlier entries are assumed valid.
+    pub(super) fn validate_from(
+        &self,
+        first_texture: usize,
+        first_material: usize,
+    ) -> Result<(), SceneValidationError> {
+        for texture in &self.textures[first_texture..] {
             texture.validate()?;
         }
-        for material in self.materials.iter() {
-            validate_auxiliary_textures(material, &self.textures)?;
-            require_texture("material albedo", material.albedo(), &self.textures)?;
-            if let Some(atlas) = material.impostor() {
-                atlas.validate_channels(material)?;
-                if let Some((depth, _)) = atlas.relief() {
-                    require_texture("impostor depth", depth, &self.textures)?;
-                }
-                if let Some(border) = atlas.borders() {
-                    require_texture("impostor borders", border, &self.textures)?;
-                }
-            }
-            for (part, handle) in [
-                ("material normal", material.normal()),
-                ("material roughness_metallic", material.roughness_metallic()),
-                ("material ambient_occlusion", material.ambient_occlusion()),
-                ("material self_illumination", material.self_illumination()),
-            ] {
-                if let Some(handle) = handle {
-                    require_texture(part, handle, &self.textures)?;
-                }
-            }
-            if let Some(layer) = material.features().and_then(|features| features.layer) {
-                let count = self.materials.len() as u64;
-                if u64::from(layer.material().raw()) >= count {
-                    return Err(SceneValidationError::HandleOutOfRange {
-                        part: "material layer",
-                        resource: "material",
-                        handle: layer.material().raw(),
-                        limit: count,
-                    });
-                }
-                if self.materials[layer.material().raw() as usize]
-                    .features()
-                    .is_some_and(|features| features.layer.is_some())
-                {
-                    return Err(SceneValidationError::UnsupportedInput {
-                        part: "nested material layers",
-                    });
-                }
-            }
-            material.alpha_mode().validate()?;
+        for material in &self.materials[first_material..] {
+            self.validate_material(material)?;
         }
+        Ok(())
+    }
+
+    /// Validates one material's texture and material references against the whole tables.
+    pub(super) fn validate_material(
+        &self,
+        material: &SceneMaterial,
+    ) -> Result<(), SceneValidationError> {
+        validate_auxiliary_textures(material, &self.textures)?;
+        require_texture("material albedo", material.albedo(), &self.textures)?;
+        if let Some(atlas) = material.impostor() {
+            atlas.validate_channels(material)?;
+            if let Some((depth, _)) = atlas.relief() {
+                require_texture("impostor depth", depth, &self.textures)?;
+            }
+            if let Some(border) = atlas.borders() {
+                require_texture("impostor borders", border, &self.textures)?;
+            }
+        }
+        for (part, handle) in [
+            ("material normal", material.normal()),
+            ("material roughness_metallic", material.roughness_metallic()),
+            ("material ambient_occlusion", material.ambient_occlusion()),
+            ("material self_illumination", material.self_illumination()),
+        ] {
+            if let Some(handle) = handle {
+                require_texture(part, handle, &self.textures)?;
+            }
+        }
+        if let Some(layer) = material.features().and_then(|features| features.layer) {
+            let count = self.materials.len() as u64;
+            if u64::from(layer.material().raw()) >= count {
+                return Err(SceneValidationError::HandleOutOfRange {
+                    part: "material layer",
+                    resource: "material",
+                    handle: layer.material().raw(),
+                    limit: count,
+                });
+            }
+            if self.materials[layer.material().raw() as usize]
+                .features()
+                .is_some_and(|features| features.layer.is_some())
+            {
+                return Err(SceneValidationError::UnsupportedInput {
+                    part: "nested material layers",
+                });
+            }
+        }
+        material.alpha_mode().validate()?;
         Ok(())
     }
 }

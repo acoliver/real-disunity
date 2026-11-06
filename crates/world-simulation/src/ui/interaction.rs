@@ -7,6 +7,7 @@ mod accessibility;
 mod clipboard;
 mod keyboard;
 mod links;
+mod semantic_links;
 mod semantic_tree;
 mod semantics;
 pub use semantics::*;

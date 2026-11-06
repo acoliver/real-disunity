@@ -385,6 +385,19 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  A target. `kind` is 0 for a render texture (`render` is its id), 1 for a temporary render
+    ///  texture (`name_id` is the property name id it was allocated under), 2 for the camera's
+    ///  target and 3 for none. Fields a kind does not use must be 0.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTargetRef
+    {
+        public uint kind;
+        public int name_id;
+        public ulong render;
+    }
+
+    /// <summary>
     ///  One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
     ///  component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
     ///  compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
@@ -394,7 +407,9 @@ namespace Disunity.Native
     ///  groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
     ///  it ran with by, valid until the next take. A dispatch is recorded by
     ///  `disunity_compute_dispatch`, never by [`disunity_offscreen_record`], and only taking returns
-    ///  one. Fields a kind does not use are ignored.
+    ///  one. The commands of `graphics_commands` take kinds 4 to 9 and a `bindings` token for
+    ///  `disunity_offscreen_detail`, which reads the record's encoded bytes; they are recorded by
+    ///  their own calls. Fields a kind does not use are ignored.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityOffscreenWork

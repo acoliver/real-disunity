@@ -10,6 +10,26 @@ use crate::{
 };
 use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind};
 
+fn draw_order(draw: &UiDraw) -> (i32, i32, usize, UiDrawKind) {
+    (
+        draw.sorting_layer,
+        draw.sorting_order,
+        draw.hierarchy_order,
+        draw.kind,
+    )
+}
+
+fn validate_draw(draw: &UiDraw, previous: Option<&UiDraw>) -> Result<(), crate::errors::AbiError> {
+    if previous.is_some_and(|before| draw_order(before) > draw_order(draw)) {
+        return Err("presentation UI draw order is descending".into());
+    }
+    let [x, y, width, height] = draw.clip_rect;
+    if x.checked_add(width).is_none() || y.checked_add(height).is_none() {
+        return Err("presentation UI clip bounds overflow".into());
+    }
+    Ok(())
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
@@ -44,6 +64,9 @@ pub unsafe extern "C" fn disunity_presentation_ui_count(
             .ui_presentation
             .as_ref()
             .ok_or("presentation is not prepared")?;
+        for (index, draw) in ui.draws.iter().enumerate() {
+            validate_draw(draw, index.checked_sub(1).and_then(|i| ui.draws.get(i)))?;
+        }
         let count = u32::try_from(ui.draws.len()).map_err(|_| "UI draw count overflow")?;
         let coverage = u32::try_from(ui.coverage.len()).map_err(|_| "UI texture count overflow")?;
         unsafe {
@@ -69,11 +92,16 @@ pub unsafe extern "C" fn disunity_presentation_ui_draw(
         return DisunityResult::invalid_argument();
     }
     mutate(world, |s| {
-        let draw = s
+        let ui = s
             .ui_presentation
             .as_ref()
-            .and_then(|ui| ui.draws.get(index as usize))
+            .ok_or("presentation is not prepared")?;
+        let index = index as usize;
+        let draw = ui
+            .draws
+            .get(index)
             .ok_or("presentation UI draw index out of range")?;
+        validate_draw(draw, index.checked_sub(1).and_then(|i| ui.draws.get(i)))?;
         let [clip_x, clip_y, clip_width, clip_height] = draw.clip_rect;
         let [
             [triangle_u0, triangle_v0],

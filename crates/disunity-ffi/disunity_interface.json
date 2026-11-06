@@ -713,7 +713,42 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_offscreen_allocate_temporary",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_clear_render_target",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_detail",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_offscreen_record",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_release_temporary",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_set_global",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_set_global_keyword",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_set_render_target",
       "since": "7.0.0",
       "rets": "DisunityResult"
     },

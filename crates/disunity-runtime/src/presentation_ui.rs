@@ -1,4 +1,8 @@
 //! Copies detached UI from the prepared frame in the host's loaded engine image.
+#[cfg(test)]
+#[path = "presentation_ui_tests.rs"]
+mod tests;
+
 use crate::{
     DisunityHost, HostError, native,
     presentation::{Coverage, decode_quad, read_coverage},

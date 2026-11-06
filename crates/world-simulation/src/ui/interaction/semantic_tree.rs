@@ -9,6 +9,29 @@ use crate::ui::{RectLayout, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use std::collections::{BTreeMap, BTreeSet};
 
+fn attach_rects(
+    world: &World,
+    targets: &Targets<'_>,
+    nodes: &mut BTreeMap<UiNodeId, UiSemanticNode>,
+) -> Result<(), WorldError> {
+    for rect in &targets.rects {
+        let parent = world
+            .ancestry(rect.object)?
+            .into_iter()
+            .rev()
+            .skip(1)
+            .map(UiNodeId::Object)
+            .find(|id| nodes.contains_key(id))
+            .unwrap_or(UiNodeId::Window);
+        nodes
+            .get_mut(&parent)
+            .expect("tree parent")
+            .children
+            .push(UiNodeId::Object(rect.object));
+    }
+    Ok(())
+}
+
 impl UiRouter {
     /// Resolve against the same fresh physical-pixel layout passed to input and rendering.
     /// This also revalidates focus and modal history when no input event has occurred.
@@ -43,27 +66,12 @@ impl UiRouter {
             let node = self.semantic_node(rect, &targets, &texts, &lists, layout);
             nodes.insert(node.id, node);
         }
-        for rect in &targets.rects {
-            let parent = world
-                .ancestry(rect.object)?
-                .into_iter()
-                .rev()
-                .skip(1)
-                .map(UiNodeId::Object)
-                .find(|id| nodes.contains_key(id))
-                .unwrap_or(UiNodeId::Window);
-            nodes
-                .get_mut(&parent)
-                .expect("tree parent")
-                .children
-                .push(UiNodeId::Object(rect.object));
-        }
+        attach_rects(world, &targets, &mut nodes)?;
         self.control_labels(world, &texts, &mut nodes)?;
+        super::semantic_links::append(world, layout, &targets, &mut nodes);
         Ok(UiSemanticTree {
             nodes,
-            focus: self
-                .focus
-                .map_or(UiNodeId::Window, |target| UiNodeId::Object(target.object)),
+            focus: self.focus.map_or(UiNodeId::Window, UiNodeId::from),
         })
     }
     pub fn semantic_update(

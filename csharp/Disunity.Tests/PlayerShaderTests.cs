@@ -33,6 +33,7 @@ internal static class PlayerShaderTests
             AShaderLoadsThroughResourcesAndFeedsMaterial();
             AShaderThatDidNotPlanFailsNamingTheCause();
             ADisagreeingDeclarationKeepsTheFirstAndNotesIt();
+            APlanWhosePassCountDisagreesWithItsNamesIsRefused();
         });
         ScenePlansBuildTheirShaders();
     }
@@ -42,6 +43,13 @@ internal static class PlayerShaderTests
         ["type"] = "Shader", ["name"] = name, ["render_queue"] = queue, ["pass_count"] = passNames.Length,
         ["pass_names"] = new JsonArray(passNames.Select(pass => (JsonNode)pass).ToArray()), ["subshader_count"] = subshaders,
     };
+
+    private static JsonObject Inconsistent()
+    {
+        var shader = Declared("Test/PlayerShaders/Inconsistent", 2000, ["Forward", "Shadow"], 1);
+        shader["pass_count"] = 3;
+        return shader;
+    }
 
     private static string WritePlan(string directory)
     {
@@ -61,9 +69,10 @@ internal static class PlayerShaderTests
             Declared(Lit, 3000, ["Forward", "Shadow", "Meta"], 1),
             Declared(Lit, 3000, ["Forward", "Shadow"], 1),
             Declared(Lit, 3000, ["Forward", "Depth"], 1),
+            Inconsistent(),
         };
-        string[] paths = ["shaders/lit", "shaders/broken", "config/holder", "shaders/clash", "shaders/sprites", "shaders/queue", "shaders/passes", "shaders/same", "shaders/renamed"];
-        string[] classes = ["Shader", "Shader", "MonoBehaviour", "Shader", "Shader", "Shader", "Shader", "Shader", "Shader"];
+        string[] paths = ["shaders/lit", "shaders/broken", "config/holder", "shaders/clash", "shaders/sprites", "shaders/queue", "shaders/passes", "shaders/same", "shaders/renamed", "shaders/inconsistent"];
+        string[] classes = ["Shader", "Shader", "MonoBehaviour", "Shader", "Shader", "Shader", "Shader", "Shader", "Shader", "Shader"];
         var entries = new JsonArray(paths.Select((path, i) => (JsonNode)new JsonObject { ["path"] = path, ["class"] = classes[i], ["asset"] = i }).ToArray());
         return PlanHarness.WriteJson(directory, entries, assets);
     }
@@ -112,6 +121,14 @@ internal static class PlayerShaderTests
         Expect.That(material.FindPass("Depth") == -1 && material.GetPassName(1) == "Shadow", "the first declaration's pass names stay");
         Expect.That(differences.Any(line => line.Contains("queue 3500")) && differences.Any(line => line.Contains("3 passes")) && differences.Any(line => line.Contains("queue 2000")), "the notes name the declared values");
         Console.WriteLine("PASS: a disagreeing second declaration keeps the first and adds a difference");
+    }
+
+    private static void APlanWhosePassCountDisagreesWithItsNamesIsRefused()
+    {
+        var error = Expect.Catch<InvalidOperationException>(() => Resources.Load<Shader>("shaders/inconsistent"), "loading a shader whose plan counts 3 passes and names 2");
+        Expect.That(error.Message.Contains("3 passes") && error.Message.Contains("names 2"), $"the failure names both numbers, got {error.Message}");
+        Expect.That(Shader.Find("Test/PlayerShaders/Inconsistent") is null, "a refused declaration registers nothing");
+        Console.WriteLine("PASS: a shader plan whose pass count disagrees with its pass names is refused");
     }
 
     private static string ScenePlan() => new JsonObject

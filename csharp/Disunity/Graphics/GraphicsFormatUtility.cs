@@ -30,6 +30,10 @@ public static class GraphicsFormatUtility
 
     public static bool IsStencilFormat(GraphicsFormat format) => GraphicsFormats.HasStencil(format);
 
+    /// <summary>True for a format a depth buffer or a depth-stencil attachment uses: one with depth bits, stencil, or both
+    /// (the engine's choice for a stencil-only format).</summary>
+    public static bool IsDepthStencilFormat(GraphicsFormat format) => IsDepthFormat(format) || IsStencilFormat(format);
+
     public static uint GetDepthBits(GraphicsFormat format) => (uint)GraphicsFormats.DepthBits(format);
 
     public static uint GetStencilBits(GraphicsFormat format) => GraphicsFormats.HasStencil(format) ? 8u : 0u;

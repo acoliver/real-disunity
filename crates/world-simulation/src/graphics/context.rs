@@ -2,7 +2,7 @@
 //! of the frame name them by. A handle is an id the script's side issues, nonzero and unused by
 //! any record of the frame; the world remembers which kind of record issued it and forgets it
 //! when the frame's work is taken or dropped.
-use super::{GraphicsError, OffscreenWork};
+use super::{GraphicsError, OffscreenWork, TargetRef};
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
 /// Most planes one culling result holds.
@@ -30,6 +30,25 @@ impl World {
                     return Err(GraphicsError::NotFinite.into());
                 }
                 Ok(())
+            }
+            OffscreenWork::SetupCamera {
+                camera,
+                view,
+                projection,
+                target,
+            } => {
+                self.check_camera(*camera)?;
+                if view
+                    .iter()
+                    .chain(projection)
+                    .any(|value| !value.is_finite())
+                {
+                    return Err(GraphicsError::NotFinite.into());
+                }
+                match target {
+                    TargetRef::Render(id) => self.render_texture(*id).map(drop),
+                    TargetRef::Temporary(_) | TargetRef::CameraTarget | TargetRef::None => Ok(()),
+                }
             }
             _ => Ok(()),
         }

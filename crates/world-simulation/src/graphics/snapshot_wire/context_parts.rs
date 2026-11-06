@@ -4,6 +4,7 @@ use super::codec::{Reader, Wire, Writer};
 use crate::graphics::{MAX_CULL_PLANES, OffscreenWork};
 
 pub(super) const WORK_CULL: u8 = 10;
+const WORK_SETUP_CAMERA: u8 = 11;
 
 /// The most planes a decoder accepts for one culling result.
 fn plane_limit() -> u32 {
@@ -30,6 +31,18 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             }
             options.write(out)
         }
+        OffscreenWork::SetupCamera {
+            camera,
+            view,
+            projection,
+            target,
+        } => {
+            WORK_SETUP_CAMERA.write(out)?;
+            camera.write(out)?;
+            view.write(out)?;
+            projection.write(out)?;
+            target.write(out)
+        }
         _ => Err(WireError::UnknownTag(u32::MAX)),
     }
 }
@@ -54,6 +67,12 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
                 options: Wire::read(input)?,
             })
         }
+        WORK_SETUP_CAMERA => Ok(OffscreenWork::SetupCamera {
+            camera: Wire::read(input)?,
+            view: Wire::read(input)?,
+            projection: Wire::read(input)?,
+            target: Wire::read(input)?,
+        }),
         other => Err(WireError::UnknownTag(u32::from(other))),
     }
 }

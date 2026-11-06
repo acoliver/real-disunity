@@ -4,7 +4,8 @@ use worldrunner_world_simulation::graphics::snapshot_wire::{
     WIRE_VERSION, WireError, decode, decode_work, encode, encode_work,
 };
 use worldrunner_world_simulation::graphics::{
-    GraphicsError, GraphicsSnapshot, MAX_CULL_PLANES, OffscreenWork, TargetRef,
+    GraphicsError, GraphicsSnapshot, MAX_CULL_PLANES, OffscreenWork, RenderTextureId, TargetRef,
+    WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
@@ -20,6 +21,34 @@ fn camera(world: &mut World) -> ComponentHandle {
     world
         .add_component(object, ComponentDesc::Camera(Camera::default()))
         .unwrap()
+}
+
+fn texture(world: &mut World) -> RenderTextureId {
+    world
+        .create_render_texture(WorldRenderTexture {
+            width: 64,
+            height: 32,
+            format: 8,
+            depth_bits: 24,
+            mip_count: 1,
+            srgb: false,
+            sampler: WorldSampler::default(),
+            generation: 0,
+        })
+        .unwrap()
+}
+
+fn matrix(seed: f32) -> [f32; 16] {
+    std::array::from_fn(|index| seed + 0.25 * f32::from(u8::try_from(index).unwrap()))
+}
+
+fn setup(camera: ComponentHandle, target: TargetRef) -> OffscreenWork {
+    OffscreenWork::SetupCamera {
+        camera,
+        view: matrix(-1.0),
+        projection: matrix(0.5),
+        target,
+    }
 }
 
 fn graphics_error(result: Result<(), WorldError>) -> GraphicsError {
@@ -48,16 +77,22 @@ fn cull(id: u64, camera: ComponentHandle, planes: Vec<[f32; 4]>) -> OffscreenWor
     }
 }
 
-/// One record of each context kind for a world that holds a camera.
-fn every_context_record(camera: ComponentHandle) -> Vec<OffscreenWork> {
-    vec![cull(1, camera, planes(6)), cull(2, camera, Vec::new())]
+/// One record of each context kind for a world that holds a camera and a render texture.
+fn every_context_record(camera: ComponentHandle, id: RenderTextureId) -> Vec<OffscreenWork> {
+    vec![
+        setup(camera, TargetRef::CameraTarget),
+        setup(camera, TargetRef::Render(id)),
+        cull(1, camera, planes(6)),
+        cull(2, camera, Vec::new()),
+    ]
 }
 
 #[test]
 fn a_culling_result_is_recorded_and_taken_in_call_order() {
     let mut world = world();
     let camera = camera(&mut world);
-    let records = every_context_record(camera);
+    let id = texture(&mut world);
+    let records = every_context_record(camera, id);
     for record in records.clone() {
         world.record_offscreen(record).unwrap();
     }
@@ -142,7 +177,8 @@ fn the_wire_version_is_three_and_every_context_record_round_trips() {
     assert_eq!(WIRE_VERSION, 3);
     let mut world = world();
     let camera = camera(&mut world);
-    let records = every_context_record(camera);
+    let id = texture(&mut world);
+    let records = every_context_record(camera, id);
     let snapshot = snapshot_of(&records, &mut world);
     assert_eq!(snapshot.work, records);
     let back = decode(&encode(&snapshot).unwrap()).unwrap();
@@ -174,7 +210,8 @@ fn a_culling_result_keeps_the_bits_of_its_planes() {
 fn one_context_record_round_trips_without_a_snapshot_around_it() {
     let mut world = world();
     let camera = camera(&mut world);
-    for record in every_context_record(camera) {
+    let id = texture(&mut world);
+    for record in every_context_record(camera, id) {
         let bytes = encode_work(&record).unwrap();
         assert_eq!(decode_work(&bytes).unwrap(), record);
         assert_eq!(
@@ -220,4 +257,69 @@ fn context_records_share_the_frame_with_other_work() {
     assert!(matches!(work[0], OffscreenWork::SetRenderTarget { .. }));
     assert!(matches!(work[1], OffscreenWork::Cull { id: 1, .. }));
     assert!(matches!(work[2], OffscreenWork::ReleaseTemporary { .. }));
+}
+
+#[test]
+fn camera_setup_needs_a_live_camera_finite_matrices_and_a_live_target() {
+    let mut world = world();
+    let camera = camera(&mut world);
+    let object = world.create_object(ObjectDesc::default()).unwrap();
+    let listener = world
+        .add_component(object, ComponentDesc::AudioListener { enabled: true })
+        .unwrap();
+    assert_eq!(
+        graphics_error(world.record_offscreen(setup(listener, TargetRef::CameraTarget))),
+        GraphicsError::NotCamera
+    );
+    let mut bad_view = setup(camera, TargetRef::None);
+    let OffscreenWork::SetupCamera { view, .. } = &mut bad_view else {
+        unreachable!()
+    };
+    view[5] = f32::NAN;
+    assert_eq!(
+        graphics_error(world.record_offscreen(bad_view)),
+        GraphicsError::NotFinite
+    );
+    let mut bad_projection = setup(camera, TargetRef::None);
+    let OffscreenWork::SetupCamera { projection, .. } = &mut bad_projection else {
+        unreachable!()
+    };
+    projection[15] = f32::INFINITY;
+    assert_eq!(
+        graphics_error(world.record_offscreen(bad_projection)),
+        GraphicsError::NotFinite
+    );
+    let dead = texture(&mut world);
+    world.destroy_render_texture(dead).unwrap();
+    let stale = world.record_offscreen(setup(camera, TargetRef::Render(dead)));
+    assert!(matches!(
+        stale,
+        Err(WorldError::Graphics(GraphicsError::StaleRenderTexture))
+    ));
+    world
+        .record_offscreen(setup(camera, TargetRef::Temporary(-3)))
+        .unwrap();
+    assert_eq!(world.offscreen_work().len(), 1);
+}
+
+#[test]
+fn camera_setup_keeps_the_bits_of_its_matrices() {
+    let mut world = world();
+    let camera = camera(&mut world);
+    let odd: [f32; 16] = std::array::from_fn(|index| f32::from_bits(0x3f80_0001 + index as u32));
+    let record = OffscreenWork::SetupCamera {
+        camera,
+        view: odd,
+        projection: odd.map(|v| -v),
+        target: TargetRef::CameraTarget,
+    };
+    let back = decode_work(&encode_work(&record).unwrap()).unwrap();
+    let OffscreenWork::SetupCamera {
+        view, projection, ..
+    } = back
+    else {
+        panic!("expected a camera setup");
+    };
+    assert_eq!(view.map(f32::to_bits), odd.map(f32::to_bits));
+    assert_eq!(projection.map(|v| (-v).to_bits()), odd.map(f32::to_bits));
 }

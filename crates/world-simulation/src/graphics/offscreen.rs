@@ -76,6 +76,15 @@ pub enum OffscreenWork {
     },
     /// Releases the temporary render texture of a name id.
     ReleaseTemporary { name_id: i32 },
+    /// Draws after this record use the camera's view and projection (column-major, as the world
+    /// holds them) and go to `target`, as the script's setup of the camera properties asked. The
+    /// camera supplies the viewport and clear settings when the host executes the record.
+    SetupCamera {
+        camera: ComponentHandle,
+        view: [f32; 16],
+        projection: [f32; 16],
+        target: TargetRef,
+    },
     /// A culling of the world's renderers for a camera. `id` names the result for later records of
     /// the frame (see [`World::record_offscreen`]); the host culls with the camera's `culling_mask`
     /// (layers), the `planes` of the view volume (each a unit normal and a distance, up to
@@ -162,7 +171,9 @@ impl World {
                 groups,
                 bindings,
             } => self.check_dispatch(*shader, *kernel, *groups, bindings),
-            _ => self.check_command(work).and_then(|()| self.check_context(work)),
+            _ => self
+                .check_command(work)
+                .and_then(|()| self.check_context(work)),
         }
     }
 

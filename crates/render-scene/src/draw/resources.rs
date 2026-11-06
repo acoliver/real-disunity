@@ -1,9 +1,8 @@
 use super::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
     BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES, GpuLod, GpuMesh, GpuTerrain, Queue,
-    RenderScene, Sampler, TERRAIN_PLACEMENT, TerrainUniformState, Texture, TextureHandle,
-    TextureView, TextureViewDescriptor, pack_instance, upload_buffer, upload_palette_array,
-    upload_texture, upload_type_grid,
+    RenderScene, Sampler, TerrainUniformState, Texture, TextureHandle, TextureView,
+    TextureViewDescriptor, upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
 pub(super) fn allocate_frame_slots(
@@ -72,6 +71,62 @@ pub(super) struct MaterialBindings<'a> {
     pub(super) heights: &'a Buffer,
 }
 
+/// What one material bind group reads besides the material and its own uniform.
+pub(super) struct GroupInputs<'a> {
+    pub(super) layout: &'a BindGroupLayout,
+    pub(super) placeholder: &'a TextureView,
+    pub(super) heights: &'a Buffer,
+    /// The view of one scene texture. Views are reference counted, so a lookup is cheap.
+    pub(super) view: &'a dyn Fn(TextureHandle) -> TextureView,
+}
+
+/// Binds one material's maps, its uniform and the shared contact heights, filling absent maps
+/// with the placeholder.
+pub(super) fn material_group(
+    device: &Device,
+    inputs: &GroupInputs<'_>,
+    material: &worldrunner_render_plan::SceneMaterial,
+    uniform: &Buffer,
+    sampler: &Sampler,
+) -> BindGroup {
+    let optional = |handle: Option<TextureHandle>| {
+        handle.map_or_else(
+            || inputs.placeholder.clone(),
+            |handle| (inputs.view)(handle),
+        )
+    };
+    let bound = [
+        (inputs.view)(material.albedo()),
+        optional(material.normal()),
+        optional(material.roughness_metallic()),
+        optional(material.ambient_occlusion()),
+        optional(material.self_illumination()),
+    ];
+    let atlas = material.impostor();
+    let extra = [
+        optional(atlas.and_then(|a| a.relief().map(|v| v.0))),
+        optional(atlas.and_then(worldrunner_render_plan::SceneImpostor::borders)),
+        optional(
+            material
+                .features()
+                .and_then(|f| f.wind)
+                .and_then(worldrunner_render_plan::SceneWind::field)
+                .map(worldrunner_render_plan::ScenePlanarWindField::texture),
+        ),
+    ];
+    crate::upload::extended_material_group(
+        device,
+        inputs.layout,
+        uniform,
+        crate::upload::MaterialTextureBindings {
+            maps: [&bound[0], &bound[1], &bound[2], &bound[3], &bound[4]],
+            extra: [&extra[0], &extra[1], &extra[2]],
+        },
+        sampler,
+        inputs.heights,
+    )
+}
+
 /// Builds one bind group per material, filling absent maps with the placeholder.
 pub(super) fn upload_materials(
     device: &Device,
@@ -79,27 +134,18 @@ pub(super) fn upload_materials(
     scene: &RenderScene,
     bindings: &MaterialBindings<'_>,
 ) -> (Vec<BindGroup>, Vec<Buffer>) {
-    let MaterialBindings {
-        layout,
-        views,
-        placeholder,
-        heights,
-    } = *bindings;
+    let views = bindings.views;
+    let lookup = |handle: TextureHandle| views[table_index(handle)].clone();
+    let inputs = GroupInputs {
+        layout: bindings.layout,
+        placeholder: bindings.placeholder,
+        heights: bindings.heights,
+        view: &lookup,
+    };
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut groups = Vec::new();
     let mut uniforms = Vec::new();
     for material in scene.resources().materials() {
-        let sampler = samplers.get(device, material);
-        let optional = |handle: Option<TextureHandle>| {
-            handle.map_or(placeholder, |handle| &views[table_index(handle)])
-        };
-        let bound = [
-            &views[table_index(material.albedo())],
-            optional(material.normal()),
-            optional(material.roughness_metallic()),
-            optional(material.ambient_occlusion()),
-            optional(material.self_illumination()),
-        ];
         let uniform = upload_buffer(
             device,
             queue,
@@ -107,26 +153,8 @@ pub(super) fn upload_materials(
             BufferUsages::UNIFORM,
             &super::fade::uniform(scene, material),
         );
-        let atlas = material.impostor();
-        let extra = [
-            optional(atlas.and_then(|a| a.relief().map(|v| v.0))),
-            optional(atlas.and_then(worldrunner_render_plan::SceneImpostor::borders)),
-            optional(
-                material
-                    .features()
-                    .and_then(|f| f.wind)
-                    .and_then(worldrunner_render_plan::SceneWind::field)
-                    .map(worldrunner_render_plan::ScenePlanarWindField::texture),
-            ),
-        ];
-        groups.push(crate::upload::extended_material_group(
-            device,
-            layout,
-            &uniform,
-            crate::upload::MaterialTextureBindings { maps: bound, extra },
-            sampler,
-            heights,
-        ));
+        let sampler = samplers.get(device, material);
+        groups.push(material_group(device, &inputs, material, &uniform, sampler));
         uniforms.push(uniform);
     }
     (groups, uniforms)
@@ -222,6 +250,9 @@ pub(super) fn upload_terrain(
     // that helper takes only the resources it wires together, and so the
     // buffer's lifetime is visibly the caller's.
     let uniform_buffer = terrain_uniform_buffer(device, queue, uniform);
+    let source_planes = crate::terrain::planes::HeightfieldPlanes::new(terrain);
+    let instances = terrain_instances(device, queue, &source_planes.chunks)?;
+    let planes = crate::terrain::planes::upload(device, queue, &source_planes.bytes)?;
     let layered = prepared
         .layered
         .as_ref()
@@ -231,16 +262,48 @@ pub(super) fn upload_terrain(
         device,
         layout,
         sampler,
-        (&uniform_buffer, &grid, &palettes, layered.as_deref()),
+        (
+            &uniform_buffer,
+            &grid,
+            &palettes,
+            layered.as_deref(),
+            &planes,
+        ),
         None,
     );
     let mut retained = palettes;
     retained.push(grid);
+    let (lod, streaming) = terrain_geometry(device, authority, scene, mesh, previous);
+    Ok(Some(GpuTerrain {
+        page_bounds: page_bounds(terrain),
+        page_elevation: prepared.elevation,
+        uniform: uniform_buffer,
+        triangle_source: planes,
+        sampler: sampler.clone(),
+        pages: None,
+        bounds: prepared.bounds,
+        lod,
+        streaming,
+        instances,
+        bind_group,
+        retained,
+        layered: prepared.layered.clone(),
+    }))
+}
+fn terrain_geometry(
+    device: &Device,
+    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+    scene: &RenderScene,
+    mesh: &crate::terrain::TerrainMesh,
+    previous: Option<&super::SceneGpu>,
+) -> (Option<GpuLod>, Option<super::streaming::Streaming>) {
+    let terrain = scene.terrain().expect("terrain");
+    let queue = authority.queue();
     let reused = previous
         .and_then(|gpu| gpu.terrain.as_ref())
         .and_then(|gpu| gpu.streaming.as_ref())
         .and_then(|old| super::streaming::Streaming::replacement(scene.clone(), old));
-    let (lod, streaming) = if let Some(streaming) = reused {
+    if let Some(streaming) = reused {
         (None, Some(streaming))
     } else {
         let lod = terrain_lod(device, queue, mesh);
@@ -248,22 +311,9 @@ pub(super) fn upload_terrain(
             .streaming_policy()
             .map(|_| super::streaming::Streaming::new(scene.clone(), lod.clone(), authority));
         (streaming.is_none().then_some(lod), streaming)
-    };
-    Ok(Some(GpuTerrain {
-        page_bounds: page_bounds(terrain),
-        page_elevation: prepared.elevation,
-        uniform: uniform_buffer,
-        sampler: sampler.clone(),
-        pages: None,
-        bounds: prepared.bounds,
-        lod,
-        streaming,
-        instances: terrain_instances(device, queue),
-        bind_group,
-        retained,
-        layered: prepared.layered.clone(),
-    }))
+    }
 }
+
 /// Binds the terrain uniform, the type grid, the three palette arrays and the
 /// sampler into the one group the terrain shader reads.
 ///
@@ -281,10 +331,11 @@ pub(super) fn terrain_bind_group(
         &Texture,
         &[Texture],
         Option<&crate::terrain::pages::layered_gpu::ResidentSource>,
+        &Buffer,
     ),
     pages: Option<(&TextureView, &Buffer)>,
 ) -> BindGroup {
-    let (uniform_buffer, grid, palettes, layered) = resources;
+    let (uniform_buffer, grid, palettes, layered, planes) = resources;
     let grid_view = grid.create_view(&TextureViewDescriptor::default());
     // The dimension has to be stated. A one-layer array defaults to a plain 2D
     // view, so a palette that happens to hold a single surface would fail
@@ -309,6 +360,10 @@ pub(super) fn terrain_bind_group(
             resource: BindingResource::TextureView(&grid_view),
         },
     ];
+    entries.push(BindGroupEntry {
+        binding: crate::terrain::planes::BINDING,
+        resource: planes.as_entire_binding(),
+    });
     if pages.is_some() {
         entries.retain(|entry| entry.binding != 1);
     }
@@ -476,14 +531,26 @@ fn terrain_lod(device: &Device, queue: &Queue, mesh: &crate::terrain::TerrainMes
     }
 }
 
-fn terrain_instances(device: &Device, queue: &Queue) -> Buffer {
-    upload_buffer(
+fn terrain_instances(
+    device: &Device,
+    queue: &Queue,
+    chunks: &std::collections::BTreeMap<crate::terrain::streaming::TerrainChunk, u32>,
+) -> Result<Buffer, DrawError> {
+    let size = crate::terrain::planes::instance_size(chunks.len(), &device.limits())?;
+    let mut bytes = vec![0; size];
+    for index in chunks.values() {
+        let offset =
+            usize::try_from(*index).expect("chunk index") * crate::geometry::INSTANCE_BYTES;
+        bytes[offset..offset + crate::geometry::INSTANCE_BYTES]
+            .copy_from_slice(&crate::terrain::planes::instance_bytes(*index));
+    }
+    Ok(upload_buffer(
         device,
         queue,
         "terrain instance",
         BufferUsages::VERTEX,
-        &pack_instance(&TERRAIN_PLACEMENT),
-    )
+        &bytes,
+    ))
 }
 
 fn layered_entries(

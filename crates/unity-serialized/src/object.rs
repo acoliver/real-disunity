@@ -235,6 +235,19 @@ impl<'a> ObjectReader<'a> {
         self.cursor.u8().map(|byte| i8::from_ne_bytes([byte]))
     }
 
+    /// Reads an entry count, rejecting one whose entries of at least `min_entry` bytes cannot
+    /// fit in the rest of the object.
+    ///
+    /// # Errors
+    /// Fails when the data ends early or the count does not fit.
+    pub fn count(
+        &mut self,
+        what: &'static str,
+        min_entry: usize,
+    ) -> Result<usize, SerializedError> {
+        self.cursor.count(what, min_entry)
+    }
+
     /// A length-prefixed array padded to four bytes, each element read by `read`.
     /// `min_entry` is the fewest bytes one element can take, which bounds the count.
     ///

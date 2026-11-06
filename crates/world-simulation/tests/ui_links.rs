@@ -280,3 +280,21 @@ fn viewport_clips_glyph_hits_and_focus_reveals_the_link_not_the_paragraph() {
         }]
     );
 }
+
+#[test]
+fn semantic_tree_keeps_containers_and_preserves_link_keyboard_focus() {
+    let (w, mut r, _, root, text) = fixture();
+    key(&w, &mut r, UiKey::Tab);
+    let tree = r.semantic_tree(&w, &layout(&w, &r)).unwrap();
+    assert_eq!(tree.nodes[&UiNodeId::Object(root)].role, UiRole::Group);
+    assert_eq!(tree.nodes[&UiNodeId::Object(text)].role, UiRole::Text);
+    assert_eq!(tree.focus, UiNodeId::Object(text));
+    assert_eq!(r.focused_link(), Some((text, UiLinkId(7))));
+    assert_eq!(
+        key(&w, &mut r, UiKey::Enter).actions,
+        [UiAction::LinkActivated {
+            control: text,
+            link: UiLinkId(7),
+        }]
+    );
+}

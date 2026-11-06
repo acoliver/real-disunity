@@ -48,6 +48,8 @@
 mod objects;
 pub(crate) mod overlay;
 mod pages;
+#[cfg(test)]
+pub(crate) use pages::test_sources as terrain_test_sources;
 mod specular;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
@@ -699,6 +701,8 @@ fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTarget
         targets
     } else if source.contains("struct ReflectionOutput") {
         vec![color_targets(format)[0].clone(); 3]
+    } else if source.contains(crate::scene_metadata::MERGED_MARKER) {
+        vec![color_targets(format)[0].clone(); 2]
     } else {
         color_targets(format).to_vec()
     }

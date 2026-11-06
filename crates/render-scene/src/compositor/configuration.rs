@@ -335,13 +335,6 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
             [1, 1],
             1,
         );
-        set.texture(
-            "reflection depth",
-            [w, h, 1],
-            wgpu::TextureFormat::Depth32Float,
-            [1, 1],
-            1,
-        );
         radiance_allocations(settings.frame, &ssr, set);
         reflection_depth_allocations([w, h], crate::ssr::depth_level_count(&ssr, [w, h]), set);
         set.buffer("reflection uniform", 192, 1);

@@ -3,8 +3,12 @@ use super::{FontBook, UiLayoutRules, UiLinkId, group::groups_by_object};
 use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+mod accessibility;
 mod keyboard;
 mod links;
+mod semantic_tree;
+mod semantics;
+pub use semantics::*;
 mod pointer;
 mod slider;
 mod style;
@@ -135,6 +139,9 @@ pub struct UiRouter {
     pub styles: BTreeMap<ObjectHandle, UiStyle>,
     pub link_styles: BTreeMap<(ObjectHandle, UiLinkId), UiStyle>,
     fonts: Option<Arc<FontBook>>,
+    pub semantics: BTreeMap<ObjectHandle, UiSemantics>,
+    semantic_previous: Option<UiSemanticTree>,
+    semantic_live: BTreeMap<ObjectHandle, String>,
     position: Option<[f64; 2]>,
     capture: Option<TargetId>,
     primary_held: bool,

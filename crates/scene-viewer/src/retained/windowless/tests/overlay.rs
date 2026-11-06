@@ -1,3 +1,4 @@
+mod blend_tests;
 mod graphics;
 mod text_flow;
 fn geometry_pixel(image: &RgbaImage) -> [u32; 2] {
@@ -46,9 +47,9 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
         front.sorting_order = 1;
         ui.texts.push(front);
         apply(&mut run, ui);
-        assert_eq!(
+        assert_blended_within_one(
             pixel(&capture(&mut run, &events).1, x, y),
-            [188, 188, 0, 255]
+            [188, 188, 0, 255],
         );
         run.shutdown().unwrap();
     }
@@ -100,6 +101,16 @@ fn apply(run: &mut WindowlessRetained<'_>, plan: UiRenderPlan) {
 fn pixel(image: &RgbaImage, x: u32, y: u32) -> &[u8] {
     let index = ((image.viewport.height - 1 - y) * image.viewport.width + x) as usize * 4;
     &image.pixels[index..index + 4]
+}
+fn assert_blended_within_one(actual: &[u8], expected: [u8; 4]) {
+    assert_eq!(actual.len(), expected.len());
+    // Metal and lavapipe can round straight-alpha blending one byte apart.
+    for (channel, (&actual, expected)) in actual.iter().zip(expected).enumerate() {
+        assert!(
+            actual.abs_diff(expected) <= 1,
+            "blended channel {channel}: {actual} versus {expected}"
+        );
+    }
 }
 fn region(image: &RgbaImage, expected: [u8; 4]) {
     for y in 20..24 {

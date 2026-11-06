@@ -101,7 +101,11 @@ public partial class Mesh
         Changed();
     }
 
-    private void StoreTangents(IReadOnlyList<Vector4>? values) => _tangents = Validated("tangents", Map(values, value => value));
+    private void StoreTangents(IReadOnlyList<Vector4>? values)
+    {
+        _tangents = Validated("tangents", Map(values, value => value));
+        Changed();
+    }
 
     private void StoreColors(string channel, IReadOnlyList<Color>? values)
     {
@@ -114,7 +118,7 @@ public partial class Mesh
         CheckUvChannel(channel);
         _uvs[channel] = Validated(UvName(channel), values);
         _uvDimensions[channel] = values.Length == 0 ? 0 : dimension;
-        if (channel == 0) Changed();
+        Changed();
     }
 
     private void DropMismatchedChannels(int newCount)

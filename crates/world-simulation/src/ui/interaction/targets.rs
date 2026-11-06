@@ -13,6 +13,7 @@ pub(super) struct Target<'a> {
     pub blocking: bool,
 }
 pub(super) struct Targets<'a> {
+    pub rects: Vec<&'a RectLayout>,
     pub entries: Vec<Target<'a>>,
     pub modal: Option<ObjectHandle>,
     height: f64,
@@ -41,6 +42,7 @@ impl<'a> Targets<'a> {
             .map(|(_, _, r)| r.object);
         let mut result = Self {
             entries: Vec::new(),
+            rects: Vec::new(),
             modal,
             height: f64::from(layout.viewport.y),
         };
@@ -48,6 +50,7 @@ impl<'a> Targets<'a> {
             if modal.is_some_and(|m| !path.contains(&m)) {
                 continue;
             }
+            result.rects.push(rect);
             let Some(control) = router.controls.get(&rect.object) else {
                 continue;
             };

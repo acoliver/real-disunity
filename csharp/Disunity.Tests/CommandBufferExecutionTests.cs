@@ -228,7 +228,7 @@ internal static class CommandBufferExecutionTests
         buffer.SetGlobalVector("_V", new Vector4(1, 2, 3, 4));
         buffer.SetGlobalColor("_C", new Color(0.1f, 0.2f, 0.3f, 0.4f));
         buffer.SetGlobalColor(Shader.PropertyToID("_C2"), new Color(1, 0, 0, 1));
-        buffer.SetGlobalMatrix("_M", Matrix4x4.Translate(new Vector3(5, 6, 7)));
+        buffer.SetGlobalMatrix("_M", new Matrix4x4(new Vector4(1, 2, 3, 4), new Vector4(5, 6, 7, 8), new Vector4(9, 10, 11, 12), new Vector4(13, 14, 15, 16)));
         buffer.SetGlobalTexture("_T", texture);
         buffer.SetGlobalTexture(Shader.PropertyToID("_T2"), BuiltinRenderTextureType.None);
         var keyword = new GlobalKeyword("GLOBAL_FOG");
@@ -248,7 +248,7 @@ internal static class CommandBufferExecutionTests
             "SetGlobal _V=vector (1 2 3 4)",
             "SetGlobal _C=vector (0.1 0.2 0.3 0.4)",
             "SetGlobal _C2=vector (1 0 0 1)",
-            "SetGlobal _M=matrix (1 0 0 0 0 1 0 0 0 0 1 0 5 6 7 1)",
+            "SetGlobal _M=matrix (1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)",
             $"SetGlobal _T=texture render:{texture.WorldId} scale=(1 1) offset=(0 0)",
             "SetGlobal _T2=texture none scale=(1 1) offset=(0 0)",
             "Keyword GLOBAL_FOG=True",
@@ -302,6 +302,8 @@ internal static class CommandBufferExecutionTests
     private static void BlitAndCopyRecordRenderTextures()
     {
         var (a, b) = (Target(), Target());
+        var mipped = new RenderTexture(16, 16, 0, RenderTextureFormat.ARGB32, 3);
+        mipped.Create();
         var plain = new Texture2D(4, 4);
         var material = new Material(Material.SpriteLit);
         var buffer = new CommandBuffer();
@@ -310,15 +312,17 @@ internal static class CommandBufferExecutionTests
         buffer.Blit(plain, b, material, 1);
         buffer.Blit(new RenderTargetIdentifier(a), new RenderTargetIdentifier(b), material, 0);
         buffer.CopyTexture(a, 0, 0, b, 0, 0);
+        buffer.CopyTexture(mipped, 1, 2, b, 3, 0);
         Graphics.ExecuteCommandBuffer(buffer);
         var (ida, idb, mat) = (a.WorldId, b.WorldId, material.WorldLink.Id);
         var taken = Taken();
-        Expect.Equal(5, taken.Length, "five records");
+        Expect.Equal(6, taken.Length, "six records");
         Expect.That(taken[0] == $"Blit source=2:{ida} target={idb} material=0 pass=-1", $"plain blit, got {taken[0]}");
         Expect.That(taken[1] == $"Blit source=2:{ida} target={idb} material={mat} pass=-1", $"blit with material, got {taken[1]}");
         Expect.That(taken[2] == $"Blit source=1:{plain.RendererIdentity} target={idb} material={mat} pass=1", $"blit of a player texture, got {taken[2]}");
         Expect.That(taken[3] == $"Blit source=2:{ida} target={idb} material={mat} pass=0", $"blit by identifier, got {taken[3]}");
         Expect.That(taken[4] == $"Copy source=2:{ida}[0,0] target={idb}[0,0]", $"copy, got {taken[4]}");
+        Expect.That(taken[5] == $"Copy source=2:{mipped.WorldId}[1,2] target={idb}[3,0]", $"copy of elements and mip levels, got {taken[5]}");
         Throws<NotSupportedException>(() => buffer.Blit(a, BuiltinRenderTextureType.CameraTarget), "a blit to the camera target", "CommandBuffer.Blit", "render texture");
         Throws<NotSupportedException>(() => buffer.Blit(new RenderTargetIdentifier("_Tmp"), b), "a blit from a temporary", "temporary render texture");
         Throws<NotSupportedException>(() => buffer.CopyTexture(a, 0, 0, "_Tmp", 0, 0), "a copy to a temporary", "CommandBuffer.CopyTexture");

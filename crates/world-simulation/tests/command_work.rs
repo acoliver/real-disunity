@@ -76,6 +76,7 @@ fn every_command(id: RenderTextureId) -> Vec<OffscreenWork> {
                 TargetRef::Render(id),
                 TargetRef::Temporary(-4_000),
                 TargetRef::CameraTarget,
+                TargetRef::None,
             ],
             depth: Some(TargetRef::Temporary(12)),
             mip: 2,

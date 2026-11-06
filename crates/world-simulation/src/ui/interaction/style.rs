@@ -90,7 +90,10 @@ impl UiRouter {
             UiControlKind::Choice { group, index } => self.selected(group) == Some(index),
             UiControlKind::ListItem { list, index } => self.selected(list) == Some(index),
             UiControlKind::Toggle { on } => on,
-            UiControlKind::Text | UiControlKind::Button | UiControlKind::Slider(_) => false,
+            UiControlKind::Text
+            | UiControlKind::Button
+            | UiControlKind::Slider(_)
+            | UiControlKind::TextField => false,
         };
         Some(if !targets.interactable(id) {
             style.disabled

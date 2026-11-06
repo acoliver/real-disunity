@@ -16,7 +16,7 @@ impl UiRouter {
         let groups = groups_by_object(world.published_components());
         let targets = Targets::new(world, layout, self, &groups)?;
         self.modal_changed(targets.modal);
-        self.focus = self.focus.filter(|object| targets.interactable(*object));
+        self.retain_focus(|object| targets.interactable(object));
         let UiNodeId::Object(object) = request.target else {
             return Ok(UiResponse::default());
         };
@@ -24,6 +24,9 @@ impl UiRouter {
             || !self.supports_access_action(object, request.action)
         {
             return Ok(UiResponse::default());
+        }
+        if self.focus != Some(object.into()) {
+            self.cancel_preedits();
         }
         self.focus = Some(object.into());
         let action = match request.action {
@@ -45,9 +48,10 @@ impl UiRouter {
         let kind = self.controls[&object].kind;
         match action {
             UiAccessAction::Focus => true,
-            UiAccessAction::Press => {
-                !matches!(kind, UiControlKind::Text | UiControlKind::Slider(_))
-            }
+            UiAccessAction::Press => !matches!(
+                kind,
+                UiControlKind::Text | UiControlKind::TextField | UiControlKind::Slider(_)
+            ),
             UiAccessAction::Toggle => matches!(kind, UiControlKind::Toggle { .. }),
             UiAccessAction::Select => matches!(
                 kind,

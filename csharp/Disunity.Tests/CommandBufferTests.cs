@@ -56,6 +56,7 @@ internal static class CommandBufferTests
             ("Blit", () => buffer.Blit(texture, target, material, 1)),
             ("ClearRenderTarget", () => buffer.ClearRenderTarget(true, true, Color.black)),
             ("ClearRenderTarget", () => buffer.ClearRenderTarget(true, true, Color.black, 1f)),
+            ("ClearRenderTarget", () => buffer.ClearRenderTarget(RTClearFlags.All, Color.black, 1f, 0)),
             ("CopyTexture", () => buffer.CopyTexture(target, 0, 0, target, 0, 0)),
             ("EnableShaderKeyword", () => buffer.EnableShaderKeyword("K")),
             ("DisableShaderKeyword", () => buffer.DisableShaderKeyword("K")),

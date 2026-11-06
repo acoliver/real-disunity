@@ -61,7 +61,8 @@ fn retained_recipe_reservation_fits_issue_sized_water_msaa_inventory() {
     let options = crate::tests::options();
     let reserved = synthetic_inventory(size, &options).unwrap();
     assert_eq!(reserved, expected_water_inventory(size));
-    assert_eq!(reserved, 707_714_400);
+    // Texture, capture, snapshot and recipe storage, plus layout-dependent water frames.
+    assert_eq!(reserved, 707_708_496 + water_frame_storage());
     let ordinary = reserved - 256 * 1024 * 1024;
     assert!(ordinary + reserved > fixed_budget(&options));
     assert!(reserved < fixed_budget(&options));
@@ -96,9 +97,15 @@ fn expected_water_inventory(size: Viewport) -> u64 {
     // nine 4x HDR water receivers; three staging slots and one padded CPU read.
     let targets = pixels * (8 + 4 * 8 + 4 * 4);
     let snapshots = pixels * (3 * 8 + 6 * 4) + 3 * (304 + 192);
-    let water = pixels * 9 * 4 * 8 + 6 * 8 + 8 + 3 * (880 + 1088) + 6 * 12;
+    let water = pixels * 9 * 4 * 8 + 6 * 8 + 8 + water_frame_storage() + 6 * 12;
     let padded = (u64::from(size.width) * 4).next_multiple_of(256) * u64::from(size.height);
     targets + snapshots + water + 4 * padded + 3 * pixels * 4 + 256 * 1024 * 1024
+}
+
+fn water_frame_storage() -> u64 {
+    let frame = u64::try_from(worldrunner_render_scene::frame::FRAME_UNIFORM_BYTES).unwrap();
+    // Each of three slots owns staging and body blocks, both ending in the scene frame.
+    3 * ((560 + frame) + (768 + frame))
 }
 
 #[test]

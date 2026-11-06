@@ -49,7 +49,13 @@ fn supplied_initial_extent_is_not_delivered_again_but_later_resize_is() {
     session.surface_size(later);
     assert_eq!(
         *events.borrow(),
-        vec![RetainedEvent::Input(RetainedInput::Resized(later))]
+        vec![
+            RetainedEvent::Input(RetainedInput::DisplayChanged {
+                scale_factor: 1.,
+                physical_size: later
+            }),
+            RetainedEvent::Input(RetainedInput::Resized(later)),
+        ]
     );
 }
 
@@ -73,7 +79,7 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
     session.input(RetainedInput::SurfaceRecreated);
     assert_eq!(session.host.size(), [640, 480]);
     let events = events.borrow();
-    assert_eq!(events.len(), 7);
+    assert_eq!(events.len(), 9);
     assert_eq!(
         events[1],
         RetainedEvent::Input(RetainedInput::PointerCancelled)
@@ -93,7 +99,11 @@ fn lifecycle_and_focus_events_reach_the_consumer_without_a_window() {
         RetainedEvent::Input(RetainedInput::Focused(false))
     );
     assert_eq!(
-        events[6],
+        events[4..8],
+        [resize_events([0, 0]), resize_events([640, 480])].concat()
+    );
+    assert_eq!(
+        events[8],
         RetainedEvent::Input(RetainedInput::SurfaceRecreated)
     );
 }
@@ -155,4 +165,14 @@ fn shutdown_delivers_cancellation_for_waiting_and_dispatched_requests() {
             }
         );
     }
+}
+
+fn resize_events(physical_size: [u32; 2]) -> Vec<RetainedEvent> {
+    vec![
+        RetainedEvent::Input(RetainedInput::DisplayChanged {
+            scale_factor: 1.,
+            physical_size,
+        }),
+        RetainedEvent::Input(RetainedInput::Resized(physical_size)),
+    ]
 }

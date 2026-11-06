@@ -22,6 +22,8 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
     let plan = UiPresentation {
         draws: vec![UiDraw {
             kind: UiDrawKind::Graphic,
+            depth_test: false,
+            triangle_uv: None,
             corners: [[0., 0., 0.], [8., 0., 0.], [8., 8., 0.], [0., 8., 0.]],
             uv_rect: [0., 0., 1., 1.],
             color: [1.; 4],

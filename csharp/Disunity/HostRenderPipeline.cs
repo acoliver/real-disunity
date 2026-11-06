@@ -28,6 +28,7 @@ public static partial class DisunityHost
     private static void CreateRenderPipeline(RenderPipelineAsset asset)
     {
         _pipelineAsset = asset;
+        _renderFailures = new RenderFailures();
         try { RenderPipelineManager.Activate(asset.InvokeCreatePipeline()); }
         catch (Exception error) when (IsGameException(error)) { ReportScriptException(error, asset); }
     }
@@ -37,6 +38,7 @@ public static partial class DisunityHost
     private static void DisposeRenderPipeline()
     {
         _pipelineAsset = null;
+        _renderFailures = new RenderFailures();
         var pipeline = RenderPipelineManager.Deactivate();
         if (pipeline is null) return;
         try

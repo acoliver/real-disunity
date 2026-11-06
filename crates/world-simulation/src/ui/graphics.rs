@@ -31,8 +31,8 @@ pub struct UiGraphic {
     /// The renderer identity of the texture the quads sample, or none for plain colour.
     pub texture: Option<u64>,
     pub quads: Vec<UiGraphicQuad>,
-    /// Triangles of the mesh that make no quad and are not drawn.
-    pub left_out_triangles: usize,
+    /// Unpaired triangle-list vertices in the same drawn space as quads.
+    pub triangles: Vec<[super::UiVertex; 3]>,
 }
 
 /// The graphics of every canvas renderer that is drawn, in hierarchy order: depth first, siblings
@@ -117,7 +117,17 @@ fn graphic(
         sorting_order: rect.sorting_order,
         texture: (renderer.graphic_texture != 0).then_some(renderer.graphic_texture),
         quads,
-        left_out_triangles: found.left_out_triangles,
+        triangles: found
+            .triangles
+            .into_iter()
+            .map(|vertices| {
+                vertices.map(|mut v| {
+                    v.position = rect.drawn_point(glam::Vec3::from(v.position)).to_array();
+                    v.color = std::array::from_fn(|i| tint[i] * v.color[i]);
+                    v
+                })
+            })
+            .collect(),
     })
 }
 
@@ -168,7 +178,15 @@ pub fn append_graphics(
     plan: &mut WorldRenderPlan,
     graphics: Vec<UiGraphic>,
 ) -> Result<(), worldrunner_camera::ViewError> {
-    for graphic in graphics {
+    for mut graphic in graphics {
+        for triangle in &graphic.triangles {
+            let [a, b, c] = *triangle;
+            graphic.quads.push(UiGraphicQuad {
+                corners: [a.position, b.position, c.position, c.position],
+                uv_rect: [a.uv[0], 1. - c.uv[1], c.uv[0], 1. - a.uv[1]],
+                color: a.color,
+            });
+        }
         for quad in graphic.quads {
             plan.quads.push(SpriteQuad {
                 lighting: SpriteLighting::Unlit,

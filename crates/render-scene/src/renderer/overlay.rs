@@ -3,19 +3,30 @@ pub(crate) fn build(
     format: wgpu::TextureFormat,
     size: [u32; 2],
     material: &wgpu::BindGroupLayout,
+    depth: bool,
 ) -> wgpu::RenderPipeline {
+    let depth_layout = depth.then(|| depth_layout(device));
+    let source = include_str!("../shader/overlay.wgsl")
+        .replace(
+            "UI_DEPTH_BINDINGS",
+            if depth {
+                include_str!("../shader/overlay_depth.wgsl")
+            } else {
+                ""
+            },
+        )
+        .replace(
+            "UI_DEPTH_TEST",
+            if depth { "test_ui_depth(input);" } else { "" },
+        );
     let module = super::scene_shader(
         device,
         "native UI overlay",
-        &format!(
-            "{}\n{}",
-            crate::shader::ENVIRONMENT_WGSL,
-            include_str!("../shader/overlay.wgsl")
-        ),
+        &format!("{}\n{}", crate::shader::ENVIRONMENT_WGSL, source),
     );
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("native UI overlay"),
-        bind_group_layouts: &[None, Some(material)],
+        bind_group_layouts: &[depth_layout.as_ref(), Some(material)],
         immediate_size: 0,
     });
     let vertices = crate::geometry::vertex_attributes();
@@ -27,13 +38,23 @@ pub(crate) fn build(
         shader_location: 9,
     }];
     let buffers = super::unlit::alpha_buffers(&buffers, &tint);
+    pipeline(device, &module, &layout, &buffers, format, size)
+}
+fn pipeline(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+    format: wgpu::TextureFormat,
+    size: [u32; 2],
+) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("native UI overlay"),
-        layout: Some(&layout),
+        layout: Some(layout),
         vertex: wgpu::VertexState {
-            module: &module,
+            module,
             entry_point: Some("vs_ui_overlay"),
-            buffers: &buffers,
+            buffers,
             compilation_options: wgpu::PipelineCompilationOptions {
                 constants: &[
                     ("UI_WIDTH", f64::from(size[0])),
@@ -43,7 +64,7 @@ pub(crate) fn build(
             },
         },
         fragment: Some(wgpu::FragmentState {
-            module: &module,
+            module,
             entry_point: Some("fs_ui_overlay"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
@@ -60,5 +81,33 @@ pub(crate) fn build(
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
+    })
+}
+
+pub(crate) fn depth_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("annotation scene depth"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+        ],
     })
 }

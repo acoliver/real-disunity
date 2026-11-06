@@ -8,3 +8,5 @@ pub use worldrunner_world_simulation::ui::contribution::{
     extract_ui_layout,
 };
 pub use worldrunner_world_simulation::ui::presentation::{UiDraw, UiDrawKind, UiPresentation};
+
+pub use worldrunner_world_simulation::ui::annotations;

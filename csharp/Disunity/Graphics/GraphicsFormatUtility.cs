@@ -44,6 +44,17 @@ public static class GraphicsFormatUtility
     /// <see cref="ArgumentException"/>.</summary>
     public static GraphicsFormat GetDepthStencilFormat(int depthBits, int stencilBits) => GraphicsFormats.DepthStencilFormat(depthBits, stencilBits);
 
+    /// <summary>How many red, green and blue channels the format holds, read from its name; 0 for a depth or stencil format.</summary>
+    public static uint GetColorComponentCount(GraphicsFormat format) => GraphicsFormatComponents.Color(format);
+
+    /// <summary>1 when the format holds an alpha channel, else 0.</summary>
+    public static uint GetAlphaComponentCount(GraphicsFormat format) => GraphicsFormatComponents.Alpha(format);
+
+    /// <summary>The color channels plus the alpha channel.</summary>
+    public static uint GetComponentCount(GraphicsFormat format) => GetColorComponentCount(format) + GetAlphaComponentCount(format);
+
+    public static bool HasAlphaChannel(GraphicsFormat format) => GetAlphaComponentCount(format) > 0;
+
     public static uint GetBlockSize(GraphicsFormat format) => GraphicsFormatBlocks.Bytes(format);
 
     public static uint GetBlockWidth(GraphicsFormat format) => GraphicsFormatBlocks.Width(format);

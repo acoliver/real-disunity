@@ -47,14 +47,20 @@ impl DisunityHost {
 }
 
 fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<UiDraw, HostError> {
-    let kind = match meta.kind {
-        0 => UiDrawKind::Graphic,
+    let kind = match meta.kind & !4 {
+        0 | 2 => UiDrawKind::Graphic,
         1 => UiDrawKind::Text,
         kind => return Err(HostError::Managed(format!("unknown UI draw kind {kind}"))),
     };
     let quad = decode_quad(quad);
     Ok(UiDraw {
         kind,
+        depth_test: meta.kind & 4 != 0,
+        triangle_uv: (meta.kind & !4 == 2).then_some([
+            [meta.triangle_u0, meta.triangle_v0],
+            [meta.triangle_u1, meta.triangle_v1],
+            [meta.triangle_u2, meta.triangle_v2],
+        ]),
         corners: quad.corners,
         uv_rect: quad.uv_rect,
         color: quad.color,

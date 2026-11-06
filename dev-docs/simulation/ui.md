@@ -429,7 +429,7 @@ the existing overlay graphics path. A real-window reading check remains pending.
 Retained 3D hosts accept overlay text and screen-space graphics through
 `render_scene::simulation::UiOverlay` and `scene_viewer::RetainedUpdate::Ui`.
 `UiRenderPlan::graphics` wraps the existing `extract_graphics` output with its
-hierarchy key and clip bounds. Solid and translucent quads need no texture;
+hierarchy key and clip bounds. Solid and translucent quads and triangles need no texture;
 `UiOverlay::with_textures` resolves image texture identities from an explicitly
 supplied `SceneTexture` map. Unresolved identities return an error.
 
@@ -463,3 +463,118 @@ only when the draws, image generations or physical viewport change. See the
 ## Font dependencies and fixtures
 
 The optional rasterizer is `ab_glyph` 0.2.32, licensed Apache-2.0. Its font stack uses Apache-2.0 `ab_glyph_rasterizer` and `owned_ttf_parser`, and MIT OR Apache-2.0 `ttf-parser`. Tests generate a small SFNT font from synthetic triangle outlines and fixed metrics in Rust. No external font data or distribution notices are bundled.
+
+
+## Scene annotations
+
+`worldrunner_world_simulation::ui::annotations` (also re-exported through
+`worldrunner_render_plan::ui::annotations`) supplies
+`AnnotationPrimitive::{Line, Arrow, Circle, Label}`. Each `Annotation` carries the
+same ascending `(layer, order, hierarchy)` tuple as ordinary UI and an optional
+lower-left physical-pixel `[x, y, width, height]` scissor. `Circle` uses `None`
+thickness for a filled disc, or positive inward thickness for a ring. Widths,
+radii, arrowhead dimensions and text size are physical pixels, independent of
+camera distance and viewport scale. A head longer than its arrow uses the whole
+arrow length; ring thickness at least the radius fills the centre. Zero-length
+screen-projected lines/arrows and nonfinite or nonpositive dimensions return
+`UiError::InvalidAnnotation`. Colours are finite linear RGBA in 0..=1.
+
+An `AnnotationPoint` is either lower-left `Screen` pixels or `World` metres in the
+supplied view's basis. Retained 3D scenes use Z-up metres. Extraction does not
+swizzle these coordinates. Supply `RetainedHost::presented_view()` (also available
+on `RetainedEventHost`) to `extract_annotations`; it is absent before the first
+presentation or windowless capture and remains unchanged by merely accepted
+camera edits. Re-extract after an orbit or presented viewport change. World
+anchors outside any of the six homogeneous clip planes, including behind the
+camera, suppress the primitive. A line/arrow requires both endpoints in the
+frustum; this API does not truncate a world segment at the near or side planes.
+Screen geometry crossing the viewport is clipped by the existing draw scissor.
+
+Labels reuse `TextRun` and `FontBook`. They use unwrapped lines and a normalized
+`alignment` pivot over the rasterized glyph bounds: `(0,0)` is bottom-left,
+`(0.5,0.5)` is centred. Run font, size, colour, line spacing, enabled state and text
+validation apply. Run rectangle alignment and overflow settings are replaced by
+this explicit anchor/pivot contract. No camera scaling changes glyph dimensions.
+Character and atlas limits are shared across labels in an extraction.
+
+`extract_annotations` returns the existing `UiPresentation`. Append it to
+`UiPresentation::from_plan(&ui)` with `UiPresentation::append`, which remaps text
+coverage identities without changing graphic image identities. Then submit it via
+`UiOverlay::from_presentation` and `RetainedUpdate::Ui`. Extraction and append
+return errors atomically. There is no separate recorder or rendering path.
+
+Each circle accepts 3..=256 segments. A filled circle emits three vertices per
+segment; a ring emits six. The inscribed polygon's maximum outer-radius deficit
+is `radius * (1 - cos(pi / segments))`. The windowless Metal test bounds the
+rasterized area error to five percent at radius 12 pixels and 128 segments and
+checks interior/exterior pixels away from the half-pixel boundary band. An entire
+extraction or appended UI frame accepts at most 65,536 expanded triangle-list
+vertices, counting six for each glyph/graphic quad. Exceeding a segment or CPU
+frame budget returns `UiError::AnnotationLimit`; overlay construction independently
+rejects oversized presentations with `DynamicError::DeviceLimit`. These bounds
+also apply when contributions are combined outside `append`.
+
+`UiGeometry::quads` retains unpaired triangles, including their positions and UVs,
+in `GeometryQuads::triangles`. Graphic extraction transforms them alongside quads;
+`UiDraw::triangle_uv` marks a three-index draw using its first three corners. The
+shared dynamic upload uses three vertices and three indices for these draws, with
+the existing per-draw scissor and straight-alpha composition after tone mapping.
+As with graphic quads, a triangle uses its first vertex's colour. ABI revision 8
+copies this topology and all three UV pairs through the generated UI records.
+Managed `CanvasRenderer` meshes follow this same path through presentation export
+and `DisunityHost::ui_presentation`, including draw order, texture identity and clip
+bounds. The portable managed triangle fixture tests that round trip without a GPU.
+The live 2D sprite path represents triangles as degenerate quads; arbitrary
+per-vertex UV mapping is carried by the retained UI presentation path.
+
+### Scene-depth testing
+
+`AlwaysVisible` draws over the display output after tone mapping. `DepthTested`
+requires world anchors at both line/arrow endpoints, or at the circle/label anchor.
+Screen-only and mixed screen/world depth-tested primitives return
+`UiError::UnsupportedAnnotationDepth`. Frustum clipping is identical for both
+policies. Ordinary screen UI and `AlwaysVisible` draws have no depth binding,
+texture read or depth snapshot request.
+
+Depth-tested annotations use the existing overlay stage in the same retained
+frame. Extraction preserves non-reversed 0..1 projected depth in `UiDraw::corners`
+Z and marks `depth_test`. Raster depth interpolates across line shafts and
+arrowheads in screen space; circles and labels retain their anchor depth. The
+compositor reconstructs view-space metres with that frame's inverse projection
+and compares against the existing single-sample `post-water depth` product. This
+product reads the scene's actual depth attachment, including depth-writing water,
+after transparent geometry. Transparent surfaces without depth writes do not
+occlude annotations.
+
+The snapshot uses the minimum source depth across MSAA samples, then reconstructs
+positive view-space metres into `R32Float`. Depth-tested UI requests this existing
+resolve once when water/reflections have not already requested it, including on
+the LDR path. It never introduces a second resolve or annotation renderer. The
+executor declares the source-depth read and retains the per-slot snapshot through
+output composition. Output pixel centres map to scene-depth pixels by normalized
+coordinates and nearest loads, including when scene and output extents differ.
+This conservative resolve can occlude a complete output pixel when only one scene
+sample is covered at a silhouette.
+
+An annotation fragment remains visible when its view depth is at most scene depth
+plus **0.001 metres**. This one-millimetre bias avoids surface flicker caused by
+projection roundoff. It intentionally admits fragments less than one millimetre
+behind a surface; it cannot recover precision already lost in a distant 32-bit
+raster-depth value. Windowless Metal tests check exact annotation and occluder
+RGBA bytes, coplanar visibility, the bias boundary, and both depth policies in
+LDR, single-sample HDR and four-sample HDR.
+
+For a budgeted low-level host, set `RendererConfiguration::ui_depth` when a UI
+contribution needs depth. `UiOverlay::needs_depth()` reports that demand. The
+retained viewer updates this reservation through its existing frame configuration
+path before replacing UI; scene meshes and textures are unchanged. With no depth
+consumer, no depth snapshot is allocated or resolved. Statistics publish all
+issued annotation draws in `SceneStatistics::passes.ui` and the depth-tested
+subset in `passes.ui_depth_tested`; fully clipped draws are excluded. Capture
+observations use the same submitted counters. Rejected or abandoned output does
+not publish new counts.
+
+As with other world-anchored annotations, re-extract against the presented view
+after camera or viewport changes. Extraction and composition must describe the
+same view; the host does not reproject stale pixel geometry. A real-window
+annotation check remains pending.

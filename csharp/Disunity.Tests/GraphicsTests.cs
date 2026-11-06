@@ -130,6 +130,18 @@ internal static class GraphicsTests
         calls.AddRange(new (string, Action)[]
         {
             ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0, cam)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0, cam, 1)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0, cam, 1, block)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0, cam, 1, block, true)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0, cam, 1, block, true, false)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0, cam, 1)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0, cam, 1, block)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0, cam, 1, block, true)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0, cam, 1, block, true, false)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0, cam, 0, block, true, true, true)),
+            ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0, cam, 0, block, true, true, true)),
             ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0, cam)),
             ("DrawMesh", () => Graphics.DrawMesh(mesh, pos, rot, m, 0, cam, 0, block, ShadowCastingMode.On)),
             ("DrawMesh", () => Graphics.DrawMesh(mesh, matrix, m, 0, cam, 0, block, ShadowCastingMode.On)),

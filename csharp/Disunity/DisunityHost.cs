@@ -87,6 +87,7 @@ public static partial class DisunityHost
     {
         UpdateRenderPipeline();
         Advance(deltaTime);
+        RenderFrame();
         ReportAudioListenerDiagnostic();
     }
 
@@ -228,6 +229,7 @@ public static partial class DisunityHost
                 WorldHandle = 0;
                 _listenerDiagnostic = null;
                 UndrawnCalls.Reset();
+                RenderSettings.Reset();
                 RemoveMainThreadContext();
                 Resources?.Clear();
                 ThrowIfError(NativeBindings.disunity_world_destroy(world));

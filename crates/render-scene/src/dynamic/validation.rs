@@ -34,6 +34,7 @@ pub(crate) fn validate_quad(
     index: usize,
     texture_count: usize,
 ) -> Result<(), DynamicError> {
+    validate_overlay_depth(quad, index)?;
     let invalid = |field| DynamicError::InvalidQuad { index, field };
     if !quad.position.into_iter().all(f32::is_finite) {
         return Err(invalid("position"));
@@ -57,7 +58,11 @@ pub(crate) fn validate_quad(
     {
         return Err(invalid("rect"));
     }
-    if !quad.uv_rect.into_iter().all(f32::is_finite) {
+    if !quad.uv_rect.into_iter().all(f32::is_finite)
+        || quad
+            .triangle_uv
+            .is_some_and(|uv| uv.into_iter().flatten().any(|v| !v.is_finite()))
+    {
         return Err(invalid("uv_rect"));
     }
     if !quad
@@ -71,6 +76,15 @@ pub(crate) fn validate_quad(
     if quad.texture.is_some_and(|texture| texture >= texture_count) {
         return Err(invalid("texture"));
     }
+    validate_transform(quad, index, rotation)
+}
+
+fn validate_transform(
+    quad: &DynamicQuad,
+    index: usize,
+    rotation: Quat,
+) -> Result<(), DynamicError> {
+    let invalid = |field| DynamicError::InvalidQuad { index, field };
     let model = Mat4::from_scale_rotation_translation(
         Vec3::from_array(quad.scale),
         rotation.normalize(),
@@ -89,6 +103,23 @@ pub(crate) fn validate_quad(
         if !model.transform_point3(position).is_finite() {
             return Err(invalid("transformed rect"));
         }
+    }
+    Ok(())
+}
+
+fn validate_overlay_depth(quad: &DynamicQuad, index: usize) -> Result<(), DynamicError> {
+    if quad.depth_test
+        && (!quad.overlay
+            || quad.corners.is_none_or(|corners| {
+                corners
+                    .iter()
+                    .any(|corner| !(0. ..=1.).contains(&corner[2]))
+            }))
+    {
+        return Err(DynamicError::InvalidQuad {
+            index,
+            field: "overlay raster depth",
+        });
     }
     Ok(())
 }

@@ -13,6 +13,10 @@ pub struct UiOverlay {
     pub(crate) quads: Vec<DynamicQuad>,
 }
 impl UiOverlay {
+    pub fn needs_depth(&self) -> bool {
+        self.quads.iter().any(|quad| quad.depth_test)
+    }
+
     /// Builds text and untextured graphics; unresolved image identities are rejected.
     pub fn new(plan: UiRenderPlan) -> Result<Self, DynamicError> {
         Self::with_textures(plan, &BTreeMap::new())
@@ -40,6 +44,14 @@ impl UiOverlay {
         plan: &UiPresentation,
         textures: &BTreeMap<u64, SceneTexture>,
     ) -> Result<Self, DynamicError> {
+        let vertices: usize = plan
+            .draws
+            .iter()
+            .map(|d| if d.triangle_uv.is_some() { 3 } else { 6 })
+            .sum();
+        if vertices > worldrunner_render_plan::ui::annotations::MAX_ANNOTATION_VERTICES {
+            return Err(DynamicError::DeviceLimit("UI frame vertex budget (65536)"));
+        }
         let mut result = Self {
             textures: vec![],
             quads: vec![],
@@ -77,6 +89,8 @@ impl UiOverlay {
 fn dynamic_quad(draw: &UiDraw, texture: Option<usize>) -> DynamicQuad {
     DynamicQuad {
         overlay: true,
+        depth_test: draw.depth_test,
+        triangle_uv: draw.triangle_uv,
         corners: Some(draw.corners),
         uv_rect: draw.uv_rect,
         tint: draw.color,

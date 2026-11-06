@@ -81,3 +81,83 @@ fn windowless_text_field_draws_caret_selection_and_delivers_scale_changes() {
     assert!(run.set_display_scale(0.).is_err());
     run.shutdown().unwrap();
 }
+
+#[test]
+fn text_field_and_annotations_share_overlay_contributions_without_a_gpu() {
+    use worldrunner_camera::{CameraLens, CameraPose, CameraState, ViewConvention, Viewport};
+    use worldrunner_world_simulation::ui::annotations::*;
+    use worldrunner_world_simulation::ui::presentation::{UiDrawKind, UiPresentation};
+
+    let plan = field_plan();
+    assert!(plan.graphics[0].graphic.triangles.is_empty());
+    let mut presentation = UiPresentation::from_plan(&plan);
+    let field_draws = presentation.draws.clone();
+    assert_eq!(field_draws.len(), 4);
+    assert_eq!(presentation.coverage.len(), 1);
+    let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+    let mut run = TextRun::new(fonts.register(ui_font::font()).unwrap());
+    run.text = "AB".into();
+    let view = worldrunner_camera::resolve(&CameraState {
+        pose: CameraPose {
+            eye_meters: glam::DVec3::Z * 5.,
+            forward: -glam::DVec3::Z,
+            up: glam::DVec3::Y,
+        },
+        lens: CameraLens::Perspective {
+            vertical_fov_radians: 1.,
+            near_meters: 0.1,
+            far_meters: 100.,
+        },
+        viewport: Viewport {
+            width: 64,
+            height: 64,
+        },
+        convention: ViewConvention::RIGHT_HANDED,
+    })
+    .unwrap();
+    let annotation = Annotation {
+        primitive: AnnotationPrimitive::Arrow {
+            from: AnnotationPoint::Screen(glam::Vec2::new(8., 16.)),
+            to: AnnotationPoint::Screen(glam::Vec2::new(40., 16.)),
+            width: 4.,
+            head_length: 12.,
+            head_width: 16.,
+            colour: [1., 0., 0., 1.],
+        },
+        draw_order: (1, 0, 0),
+        clip_rect: None,
+        depth: AnnotationDepth::AlwaysVisible,
+    };
+    let label = Annotation {
+        primitive: AnnotationPrimitive::Label {
+            anchor: AnnotationPoint::Screen(glam::Vec2::splat(32.)),
+            run,
+            alignment: glam::Vec2::ZERO,
+        },
+        ..annotation.clone()
+    };
+    presentation
+        .append(extract_annotations(&[annotation, label], &fonts, &view).unwrap())
+        .unwrap();
+    assert_eq!(&presentation.draws[..field_draws.len()], &field_draws);
+    assert_eq!(presentation.coverage.len(), 2);
+    assert_eq!(presentation.draws.len(), 9);
+    assert_eq!(
+        presentation
+            .draws
+            .iter()
+            .filter(|d| d.triangle_uv.is_some())
+            .count(),
+        3
+    );
+    let text_ids: std::collections::BTreeSet<_> = presentation
+        .draws
+        .iter()
+        .filter(|d| d.kind == UiDrawKind::Text)
+        .map(|d| d.texture.unwrap())
+        .collect();
+    assert_eq!(text_ids, [0, 1].into());
+    assert!(
+        UiOverlay::from_presentation(&presentation, &std::collections::BTreeMap::new()).is_ok()
+    );
+}

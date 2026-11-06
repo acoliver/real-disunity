@@ -23,11 +23,22 @@ public static partial class DisunityHost
     /// <see cref="UnityEngine.Rendering.GraphicsSettings"/> and <see cref="UnityEngine.QualitySettings"/>, for a player
     /// to call before its first scene loads. An asset that cannot be built is reported to <paramref name="log"/> and
     /// left null. The active asset's pipeline is created here, so it exists when the first scene's components wake
-    /// (the engine's choice); nothing is drawn through it.
+    /// (the engine's choice). A player that runs startup hooks which reset the pipeline package's static state calls
+    /// <see cref="ApplyRenderPipelineAssets"/> before them and <see cref="StartRenderPipeline"/> after them instead.
     /// </summary>
     public static void ApplyRenderPipelines(Action<string> log)
     {
-        Resources?.ApplyGraphics(log);
+        ApplyRenderPipelineAssets(log);
+        StartRenderPipeline();
+    }
+
+    /// <summary>Sets the assets as <see cref="ApplyRenderPipelines"/> does and creates no pipeline.</summary>
+    public static void ApplyRenderPipelineAssets(Action<string> log) => Resources?.ApplyGraphics(log);
+
+    /// <summary>Creates the active asset's pipeline now if it has none, as a frame step would, so it exists when the first
+    /// scene's components wake. A pipeline that exists is kept.</summary>
+    public static void StartRenderPipeline()
+    {
         if (IsLoaded) UpdateRenderPipeline();
     }
 

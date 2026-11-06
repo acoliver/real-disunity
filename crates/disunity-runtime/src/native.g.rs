@@ -170,6 +170,7 @@ pub struct DisunityLight {
     pub use_color_temperature: u32,
     pub cookie_size: f32,
     pub lightmap_bake_type: u32,
+    pub shadow_resolution: i32,
 }
 
 #[repr(C)]
@@ -912,17 +913,24 @@ pub struct DisunityPropertyRead {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: image/solid graphic; 1: text sampling prepared R8 coverage.
+    /// Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,
     pub clip_y: u32,
     pub clip_width: u32,
     pub clip_height: u32,
+    /// Top-row-origin UV pairs in corner order for triangles; zero for quad graphics and text.
+    pub triangle_u0: f32,
+    pub triangle_v0: f32,
+    pub triangle_u1: f32,
+    pub triangle_v1: f32,
+    pub triangle_u2: f32,
+    pub triangle_v2: f32,
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 7;
+pub const DISUNITY_ABI_VERSION: u32 = 8;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

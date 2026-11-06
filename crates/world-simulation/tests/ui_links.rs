@@ -1,4 +1,6 @@
 #![cfg(feature = "ui")]
+#[path = "ui_links/accessibility.rs"]
+mod accessibility;
 #[path = "ui_links/edges.rs"]
 mod edges;
 #[path = "ui_links/text_fields.rs"]
@@ -290,7 +292,13 @@ fn semantic_tree_keeps_containers_and_preserves_link_keyboard_focus() {
     let tree = r.semantic_tree(&w, &layout(&w, &r)).unwrap();
     assert_eq!(tree.nodes[&UiNodeId::Object(root)].role, UiRole::Group);
     assert_eq!(tree.nodes[&UiNodeId::Object(text)].role, UiRole::Text);
-    assert_eq!(tree.focus, UiNodeId::Object(text));
+    assert_eq!(
+        tree.focus,
+        UiNodeId::Link {
+            object: text,
+            link: UiLinkId(7)
+        }
+    );
     assert_eq!(r.focused_link(), Some((text, UiLinkId(7))));
     assert_eq!(
         key(&w, &mut r, UiKey::Enter).actions,

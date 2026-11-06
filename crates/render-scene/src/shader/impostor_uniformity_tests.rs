@@ -2,8 +2,9 @@
 //!
 //! Naga 30 disables fragment uniformity enforcement. This guard requires the
 //! derivative-sensitive call chain to precede divergent control flow in each caller. It
-//! permits branches proven to depend only on uniforms, and does not analyze unrelated
-//! lighting/decal derivatives or prove value uniformity throughout the module.
+//! permits branches proven to depend only on uniforms. Metadata rejection additionally
+//! checks all transitive derivatives and implicit samples, including decal gradients.
+//! This does not prove value uniformity throughout the module.
 #[path = "uniformity_values.rs"]
 mod values;
 
@@ -49,12 +50,12 @@ fn calls_sensitive(block: &naga::Block, sensitive: &HashSet<Handle<Function>>) -
     })
 }
 
-fn sensitive_functions(module: &Module) -> HashSet<Handle<Function>> {
+fn sensitive_functions(module: &Module, all: bool) -> HashSet<Handle<Function>> {
     let mut sensitive: HashSet<_> = module
         .functions
         .iter()
         .filter(|(_, function)| {
-            scoped(function)
+            (all || scoped(function))
                 && function
                     .expressions
                     .iter()
@@ -109,6 +110,7 @@ fn terminating_functions(module: &Module) -> HashSet<Handle<Function>> {
 }
 
 struct Guard<'a> {
+    all_derivatives: bool,
     module: &'a Module,
     sensitive: HashSet<Handle<Function>>,
     terminating: HashSet<Handle<Function>>,
@@ -118,7 +120,7 @@ impl Guard<'_> {
     fn check_block(&self, function: &Function, block: &naga::Block, mut divergent: bool) -> bool {
         for statement in block {
             let needs_quad = match statement {
-                Statement::Emit(range) if scoped(function) => range
+                Statement::Emit(range) if self.all_derivatives || scoped(function) => range
                     .clone()
                     .any(|handle| derivative_expression(&function.expressions[handle])),
                 Statement::Call { function, .. } => self.sensitive.contains(function),
@@ -221,7 +223,8 @@ fn uniform_atlas_paths(source: &str) -> Result<(), String> {
     let module = naga::front::wgsl::parse_str(source).unwrap();
     let guard = Guard {
         module: &module,
-        sensitive: sensitive_functions(&module),
+        all_derivatives: false,
+        sensitive: sensitive_functions(&module, false),
         terminating: terminating_functions(&module),
     };
     let functions = module
@@ -293,4 +296,96 @@ fn uniform_gates_do_not_hide_nested_divergent_returns_or_discards() {
     assert!(uniform_atlas_paths(source).is_err());
     let source = "@group(0) @binding(0) var<uniform> flag: u32; fn kill(value: f32) { if value == 0.0 { discard; } } fn scene_atlas_bad(value: f32) -> f32 { if flag != 0u { kill(value); } return dpdx(value); }";
     assert!(uniform_atlas_paths(source).is_err());
+}
+
+#[test]
+fn metadata_rejects_before_normal_surface_and_decal_evaluation() {
+    for source in &geometry_sources()[1..3] {
+        let module = naga::front::wgsl::parse_str(source).unwrap();
+        let function = module
+            .functions
+            .iter()
+            .find(|(_, f)| f.name.as_deref() == Some("reflection_metadata"))
+            .unwrap()
+            .1;
+        let mut rejected = false;
+        let mut deferred = 0;
+        for statement in &function.body {
+            if let Statement::If { accept, reject, .. } = statement {
+                rejected |= block_kills(accept) || block_kills(reject);
+            }
+            if let Statement::Call { function, .. } = statement {
+                let name = module.functions[*function].name.as_deref().unwrap();
+                if matches!(
+                    name,
+                    "sample_normal"
+                        | "scene_surface_channels"
+                        | "scene_project_decals"
+                        | "sample_normal_prepared"
+                        | "scene_surface_channels_prepared"
+                        | "scene_project_decals_prepared"
+                ) {
+                    assert!(rejected, "{name} executes before metadata rejection");
+                    deferred += 1;
+                }
+            }
+        }
+        assert_eq!(deferred, 3);
+    }
+}
+
+fn metadata_derivatives_before_rejection(source: &str) -> bool {
+    let module = naga::front::wgsl::parse_str(source).unwrap();
+    let guard = Guard {
+        module: &module,
+        all_derivatives: true,
+        sensitive: sensitive_functions(&module, true),
+        terminating: terminating_functions(&module),
+    };
+    let metadata = module
+        .functions
+        .iter()
+        .map(|(_, f)| f)
+        .filter(|f| f.name.as_deref() == Some("reflection_metadata"))
+        .chain(
+            module
+                .entry_points
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e.name.as_str(),
+                        "fs_opaque" | "fs_masked" | "fs_relief_opaque" | "fs_relief_masked"
+                    )
+                })
+                .map(|e| &e.function),
+        );
+    metadata
+        .into_iter()
+        .all(|f| guard.check_block(f, &f.body, false))
+}
+
+#[test]
+fn metadata_rejection_has_no_reachable_derivatives_or_implicit_samples_after_it() {
+    for output in [
+        crate::scene_metadata::MetadataOutput::Normal,
+        crate::scene_metadata::MetadataOutput::Merged,
+    ] {
+        let base = geometry_sources()[1]
+            .split_once(&crate::scene_metadata::single_fragment(
+                "vec4<f32>(normal, 1.0)",
+            ))
+            .unwrap()
+            .0
+            .to_owned();
+        let source = format!(
+            "{base}\n{}\n{}",
+            include_str!("../ssao/camera.wgsl"),
+            output.object_fragment()
+        );
+        assert!(metadata_derivatives_before_rejection(&source));
+    }
+    let indirect = "fn reject(v: f32) { if v == 0.0 { discard; } } fn decal(v: f32) -> f32 { return dpdx(v); } @fragment fn fs_masked(@location(0) v: f32) -> @location(0) f32 { reject(v); return decal(v); }";
+    assert!(!metadata_derivatives_before_rejection(indirect));
+    let implicit = "@group(0) @binding(0) var tex: texture_2d<f32>; @group(0) @binding(1) var smp: sampler; fn normal(uv: vec2<f32>) -> vec4<f32> { return textureSample(tex, smp, uv); } @fragment fn fs_masked(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> { if uv.x == 0.0 { discard; } return normal(uv); }";
+    assert!(!metadata_derivatives_before_rejection(implicit));
 }

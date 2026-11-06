@@ -30,6 +30,14 @@ const TERRAIN_SIGNATURE: &str =
     "fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>";
 const MERGED_FIELDS: &str = "{ @location(0) normal: vec4<f32>, @location(1) material: vec4<f32>, }";
 
+const PREPARATION: &str = concat!(
+    include_str!("normal_prepared.wgsl"),
+    include_str!("../shader/normal_sample.wgsl"),
+    include_str!("surface_prepared.wgsl"),
+    include_str!("../shader/surface_sample.wgsl"),
+    include_str!("decals_prepared.wgsl"),
+    include_str!("../shader/decals_sample.wgsl"),
+);
 const GEOMETRY: &str = include_str!("geometry.wgsl");
 const ENTRIES: &str = include_str!("entries.wgsl");
 const MERGED_ENTRIES: &str = include_str!("merged_entries.wgsl");
@@ -38,7 +46,7 @@ fn fragment(kind: &str, expression: &str, entries: &str) -> String {
     let body = GEOMETRY
         .replace("METADATA_TYPE", kind)
         .replace("METADATA_OUTPUT", expression);
-    format!("{body}\n{entries}")
+    format!("{PREPARATION}\n{body}\n{entries}")
 }
 
 /// The object fragment stage with a single colour output computed by `expression`.

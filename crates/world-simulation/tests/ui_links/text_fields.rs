@@ -81,7 +81,13 @@ fn leaving_field_for_link_cancels_preedit_and_keeps_link_activation() {
             .is_none()
     );
     let tree = r.semantic_tree(&w, &layout(&w, &r)).unwrap();
-    assert_eq!(tree.focus, UiNodeId::Object(text));
+    assert_eq!(
+        tree.focus,
+        UiNodeId::Link {
+            object: text,
+            link: UiLinkId(7)
+        }
+    );
     assert_eq!(
         key(&w, &mut r, UiKey::Enter).actions,
         [UiAction::LinkActivated {

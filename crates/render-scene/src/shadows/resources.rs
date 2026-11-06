@@ -18,13 +18,13 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     worldrunner_render_post::post_wgsl!(),
     include_str!("../shader/lighting.wgsl"),
     include_str!("../shader/ambient_visibility.wgsl"),
-    include_str!("../shader/decals.wgsl"),
+    crate::shader::decals_wgsl!("../shader/"),
     include_str!("../shader/camera_rays.wgsl"),
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/geometry.wgsl"),
     include_str!("../shader/foliage.wgsl"),
-    include_str!("../shader/impostor.wgsl"),
-    include_str!("../shader/environment.wgsl")
+    crate::shader::impostor_wgsl!("../shader/"),
+    crate::shader::environment_wgsl!("../shader/")
 );
 
 pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
@@ -33,7 +33,7 @@ pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
     worldrunner_render_post::post_wgsl!(),
     include_str!("../shader/lighting.wgsl"),
     include_str!("../shader/ambient_visibility.wgsl"),
-    include_str!("../shader/decals.wgsl"),
+    crate::shader::decals_wgsl!("../shader/"),
     include_str!("../shader/camera_rays.wgsl"),
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/terrain.wgsl")
@@ -388,7 +388,7 @@ pub(super) fn receiver_pipelines(
 }
 
 /// The shadow receiver object and terrain sources for the enabled screen-space features.
-fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> (String, String) {
+pub(crate) fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> (String, String) {
     if reflection {
         return crate::ssr::forward::velocity_sources(
             (SHADOWED_WGSL, SHADOWED_TERRAIN_WGSL),

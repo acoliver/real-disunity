@@ -16,10 +16,34 @@ internal static partial class GraphicsFormatComponents
     [GeneratedRegex("^(?:[RGBA]16)+_SFloat$")]
     private static partial Regex HalfFloat();
 
+    [GeneratedRegex("_(UNorm|SNorm|UInt|SInt|SFloat|UFloat|SRGB)(?:Pack\\d+)?$")]
+    private static partial Regex NumericSuffix();
+
+    /// <summary>How a color format stores each channel, read from the end of its name; sRGB channels are unsigned normalized.
+    /// A depth, stencil or empty format has no kind.</summary>
+    internal enum Numeric
+    {
+        None, UNorm, SNorm, UInt, SInt, SFloat, UFloat,
+    }
+
+    internal static Numeric Kind(GraphicsFormat format)
+    {
+        if (format == GraphicsFormat.None || GraphicsFormats.DepthBits(format) > 0 || GraphicsFormats.HasStencil(format)) return Numeric.None;
+        return NumericSuffix().Match(format.ToString()).Groups[1].Value switch
+        {
+            "UNorm" or "SRGB" => Numeric.UNorm,
+            "SNorm" => Numeric.SNorm,
+            "UInt" => Numeric.UInt,
+            "SInt" => Numeric.SInt,
+            "SFloat" => Numeric.SFloat,
+            "UFloat" => Numeric.UFloat,
+            _ => Numeric.None,
+        };
+    }
+
     internal static bool IsHalf(GraphicsFormat format) => HalfFloat().IsMatch(format.ToString());
 
-    internal static bool IsIEEE754(GraphicsFormat format) =>
-        Letters(format).Any() && format.ToString().EndsWith("_SFloat", StringComparison.Ordinal);
+    internal static bool IsIEEE754(GraphicsFormat format) => Kind(format) == Numeric.SFloat;
 
     internal static uint Color(GraphicsFormat format) => (uint)Letters(format).Count(letter => letter != 'A');
 

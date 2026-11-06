@@ -9,6 +9,7 @@ internal static class GraphicsFormatUtilityTests
         Conversions();
         Facts();
         FloatFacts();
+        NumericKinds();
         BlockSizes();
         Unsupported();
         Console.WriteLine("PASS: GraphicsFormatUtility converts texture, render texture and graphics formats and reports depth, stencil and sRGB facts");
@@ -81,6 +82,37 @@ internal static class GraphicsFormatUtilityTests
         foreach (var other in new[] { GraphicsFormat.R16_UNorm, GraphicsFormat.R8G8B8A8_UNorm, GraphicsFormat.B10G11R11_UFloatPack32, GraphicsFormat.D32_SFloat,
                      GraphicsFormat.D16_UNorm, GraphicsFormat.None })
             Expect.That(!GraphicsFormatUtility.IsHalfFormat(other) && !GraphicsFormatUtility.IsIEEE754Format(other), $"{other} is neither half nor IEEE 754");
+    }
+
+    private static void NumericKinds()
+    {
+        (GraphicsFormat Format, bool Float, bool Unsigned, bool Norm, bool UNorm, bool Integer, bool UInt)[] kinds =
+        [
+            (GraphicsFormat.R8G8B8A8_UNorm, false, true, true, true, false, false),
+            (GraphicsFormat.R8G8B8A8_SRGB, false, true, true, true, false, false),
+            (GraphicsFormat.R8G8B8A8_SNorm, false, false, true, false, false, false),
+            (GraphicsFormat.R8G8B8A8_UInt, false, true, false, false, true, true),
+            (GraphicsFormat.R8G8B8A8_SInt, false, false, false, false, true, false),
+            (GraphicsFormat.R16G16B16A16_SFloat, true, false, false, false, false, false),
+            (GraphicsFormat.B10G11R11_UFloatPack32, true, true, false, false, false, false),
+            (GraphicsFormat.R5G6B5_UNormPack16, false, true, true, true, false, false),
+            (GraphicsFormat.RGBA_DXT5_UNorm, false, true, true, true, false, false),
+            (GraphicsFormat.D32_SFloat, false, false, false, false, false, false),
+            (GraphicsFormat.None, false, false, false, false, false, false),
+        ];
+        foreach (var (format, isFloat, isUnsigned, isNorm, isUNorm, isInteger, isUInt) in kinds)
+        {
+            Expect.Equal(isFloat, GraphicsFormatUtility.IsFloatFormat(format), $"IsFloatFormat({format})");
+            Expect.Equal(isUnsigned, GraphicsFormatUtility.IsUnsignedFormat(format), $"IsUnsignedFormat({format})");
+            Expect.Equal(isNorm, GraphicsFormatUtility.IsNormFormat(format), $"IsNormFormat({format})");
+            Expect.Equal(isUNorm, GraphicsFormatUtility.IsUNormFormat(format), $"IsUNormFormat({format})");
+            Expect.Equal(isInteger, GraphicsFormatUtility.IsIntegerFormat(format), $"IsIntegerFormat({format})");
+            Expect.Equal(isUInt, GraphicsFormatUtility.IsUIntFormat(format), $"IsUIntFormat({format})");
+        }
+        Expect.That(GraphicsFormatUtility.IsSignedFormat(GraphicsFormat.R8_SNorm) && GraphicsFormatUtility.IsSignedFormat(GraphicsFormat.R32_SFloat)
+            && GraphicsFormatUtility.IsSignedFormat(GraphicsFormat.R8_SInt) && !GraphicsFormatUtility.IsSignedFormat(GraphicsFormat.R8_UNorm), "signed formats");
+        Expect.That(GraphicsFormatUtility.IsSNormFormat(GraphicsFormat.R8_SNorm) && !GraphicsFormatUtility.IsSNormFormat(GraphicsFormat.R8_UNorm), "SNorm formats");
+        Expect.That(GraphicsFormatUtility.IsSIntFormat(GraphicsFormat.R8_SInt) && !GraphicsFormatUtility.IsSIntFormat(GraphicsFormat.R8_UInt), "SInt formats");
     }
 
     private static void BlockSizes()

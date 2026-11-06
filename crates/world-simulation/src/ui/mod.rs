@@ -3,6 +3,10 @@
 //! never rewriting the authored transform. Text supports printable ASCII, Latin-1 and LF/CR,
 //! with word wrapping, structured colour spans and font kerning, without shaping or substitution.
 
+mod clipboard;
+pub use clipboard::{
+    Clipboard, ClipboardCommand, ClipboardError, MemoryClipboard, ShortcutPlatform,
+};
 mod atlas;
 mod clip;
 mod faces;

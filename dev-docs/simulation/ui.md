@@ -222,9 +222,63 @@ caret and selection colours. Fields render on overlay canvases through the exist
 and solid-quad contributions. Selection and caret share the field transform and clip, and
 horizontal scrolling keeps the cursor visible. Preedit replaces the selected span visually
 without changing `value`; commit inserts it once and cancellation discards it. Unsupported
-preedit has the same typed rejection as committed input. Pointer dragging and clipboard are
-not implemented. Native-window display migration and IME candidate-window placement remain
-unverified; the Metal windowless test checks exact caret and selection pixels.
+preedit has the same typed rejection as committed input. Native-window display migration and
+IME candidate-window placement remain unverified; the Metal windowless test checks exact
+caret and selection pixels.
+
+### Pointer editing
+
+A primary press places the caret at the nearest character boundary. Shift+click preserves
+the selection anchor. Captured pointer movement extends the selection, including outside the
+field, and movement past either horizontal edge advances the scroll toward that edge. Each
+movement advances by its distance outside the field, bounded to one field width. A host can
+route its current outside position on update ticks to continue scrolling while stationary.
+Release ends capture even outside; cancellation, lost eligibility and modal changes cancel it.
+Moving over a field without capture does not edit it. Text and caret drawing, IME placement
+and pointer mapping use the field's cached font advances and kerning with one persistent
+horizontal scroll offset. The affine screen transform already includes display scale.
+
+Use `router.pointer_at(world, layout, event, timestamp)` with monotonic host timestamps to
+recognize double-clicks: two primary presses on the same field within 500 ms and four physical
+pixels select the whitespace-delimited word under the caret. Clicking whitespace selects that
+contiguous whitespace span. `pointer` without a timestamp supports placement and dragging but
+does not infer double-clicks. Both routes use the same capture; choose one route per event.
+Pointer editing cancels preedit before mapping committed character indices.
+
+### Host clipboard
+
+`RetainedHost::clipboard()` and `RetainedEventHost::clipboard()` expose the same mutable
+`ui::Clipboard` service to update and event drivers. Before native window creation and in
+windowless sessions this is `MemoryClipboard`, with no OS access. Window creation installs
+arboard's native clipboard once. Initialization failure remains `ClipboardError::Unavailable`;
+read and write failures return `ReadFailed` and `WriteFailed`. There is no memory fallback for
+native failures and no clipboard operation panics on an unavailable service.
+
+For each retained key event, call `host.clipboard_command(input)`. It maps Command+C/X/V on
+macOS and Control+C/X/V elsewhere to `ClipboardCommand::{Copy,Cut,Paste}`. Alt chords, the wrong
+platform modifier, releases and repeats have no command. Pass a returned command and
+`host.clipboard()` to `router.clipboard(world, layout, fonts, command, service)`; a focused,
+eligible field consumes it. The native session suppresses committed key text while Control or
+Command is held, so a shortcut cannot also insert its letter. Other key bindings remain
+caller policy.
+
+Copy publishes the selected committed span. Cut publishes successfully before deleting;
+unavailable clipboard errors leave the value and selection intact. Empty selections do not
+access the clipboard. Paste replaces the selected span through ordinary whole-edit validation.
+CR and LF are rejected as `TextReject::Font(UiError::UnsupportedShaping(character))`, matching
+the single-line typed-input policy; they are never stripped. Maximum length, unsupported
+shaping and missing glyph rejections leave the value and selection unchanged. Clipboard
+failures emit `TextRejected` with `TextReject::Clipboard(ClipboardError)`.
+
+The host uses arboard 3.7.0 (MIT OR Apache-2.0), with default image features disabled and
+`wayland-data-control` enabled. Its Linux text backends are X11 through x11rb and Wayland
+through wl-clipboard-rs. This feature set adds no Linux system-library build dependency and
+requires no new gate package: x11rb uses Rust protocol bindings, and the workspace's existing
+Wayland `dlopen` feature skips native library probing/linking. Wayland use at runtime needs
+`libwayland-client.so.0` (Debian/Ubuntu package `libwayland-client0`) and a compositor exposing
+a supported data-control protocol. arboard attempts X11 if Wayland data-control initialization
+fails. Clipboard ownership and availability depend on the desktop session; CPU tests use
+memory and do not connect to either display server.
 
 ## Native accessibility
 

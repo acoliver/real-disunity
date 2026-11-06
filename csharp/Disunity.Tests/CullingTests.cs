@@ -144,7 +144,7 @@ internal static class CullingTests
         var a = context.Cull(ref one);
         var b = context.Cull(ref one);
         var c = context.Cull(ref two);
-        Expect.That(a != b && b != c && a != c && a == a, "each Cull returns its own handle");
+        Expect.That(a != b && b != c && a != c && a.Equals(a), "each Cull returns its own handle");
         Expect.That(default(CullingResults) != a, "a handle is not the empty result");
         Expect.Equal(0, a.visibleLights.Length, "the engine has no light culling, so no lights are visible");
         Expect.Equal(0, a.visibleReflectionProbes.Length, "and no probes");

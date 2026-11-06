@@ -6,8 +6,8 @@ internal static class HdrOutputTests
 {
     public static void Run()
     {
-        var main = HDROutputSettings.main;
-        Expect.That(main is not null && ReferenceEquals(main, HDROutputSettings.main), "main is the one display's settings");
+        var main = HDROutputSettings.main!;
+        Expect.That(ReferenceEquals(main, HDROutputSettings.main), "main is the one display's settings");
         Expect.Equal(1, HDROutputSettings.displays.Length, "one display");
         Expect.That(ReferenceEquals(HDROutputSettings.displays[0], main), "the display array holds main");
         Expect.That(!main.available && !main.active, "no HDR output is available or active");

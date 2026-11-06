@@ -14,3 +14,11 @@ serde_json.workspace = true
 thiserror.workspace = true
 lua-resume = { git = "https://github.com/acoliver/lua-resume", rev = "885e4791a97d1c16f6aa6aca8b79c39a8df3fad6" }
 lua-resume-debug = { git = "https://github.com/acoliver/lua-resume", rev = "885e4791a97d1c16f6aa6aca8b79c39a8df3fad6" }
+
+# The CI profiles run no separate complexity pass, so strict lint enforces the clippy.toml limits.
+[lints.clippy]
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+too_many_arguments = "warn"
+type_complexity = "warn"
+struct_excessive_bools = "warn"

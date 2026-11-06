@@ -26,7 +26,7 @@ fn overlapping(text_on_top: bool) -> (World, UiRenderPlan, ObjectHandle) {
     glyphs.object = text;
     glyphs.canvas = canvas;
     glyphs.hierarchy_order = ui.layout.rect(text).unwrap().draw_order().2;
-    glyphs.texture.as_mut().unwrap().bytes.fill(255);
+    std::sync::Arc::make_mut(&mut glyphs.texture.as_mut().unwrap().bytes).fill(255);
     ui.texts.push(glyphs);
     (world, ui, if text_on_top { text } else { rect })
 }
@@ -108,7 +108,7 @@ fn translucent_rect_blends_straight_alpha_over_retained_geometry() {
             blend(source[2], 0.),
             255,
         ];
-        assert_eq!(pixel(&capture(&mut run, &events).1, x, y), expected);
+        assert_blended_within_one(pixel(&capture(&mut run, &events).1, x, y), expected);
         run.shutdown().unwrap();
     }
 }

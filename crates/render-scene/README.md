@@ -516,6 +516,13 @@ automatically. One-shot `capture_scene_shadowed` starts with fresh resources.
 The procedural viewer accepts `--shadows --staggered-shadows` for the example
 policy above. `ViewerOptions::shadows` also accepts an explicit refresh policy.
 
+The ignored `cascade_refresh_gpu_timing_comparison` test is an informational
+probe, run serially with `--include-ignored --nocapture`. It reports a comparison
+only when every sampled pass has a resolvable timestamp pair. Missing timestamp
+capability or an unavailable sampled pair prints `SKIP` and omits the comparison;
+an unavailable pair is never counted as zero or dropped from a partial total.
+Device acquisition, encoding and readback errors still fail the probe.
+
 ## Submitted geometry statistics
 
 `SceneGpu::statistics()` reads the last submitted main-camera mesh/impostor draw

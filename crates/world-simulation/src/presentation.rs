@@ -116,7 +116,7 @@ pub mod extraction;
 pub struct CoverageTexture {
     pub width: u32,
     pub height: u32,
-    pub bytes: Box<[u8]>,
+    pub bytes: std::sync::Arc<[u8]>,
 }
 
 pub fn allocate_sprite_identity() -> Result<u64, WorldError> {

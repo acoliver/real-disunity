@@ -86,11 +86,12 @@ fn products(
         .host_mut()
         .request_capture_recipe(generation, recipe())
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut watchdog =
+        CaptureWatchdog::new(run, format!("camera capture {id} generation {generation}"));
     loop {
         run.frame().unwrap();
         run.poll().unwrap();
-        if let Some(products) = events.borrow().iter().find_map(|event| match event {
+        let products = events.borrow().iter().find_map(|event| match event {
             RetainedEvent::Capture {
                 id: actual,
                 generation: actual_generation,
@@ -100,10 +101,11 @@ fn products(
                 Some(products.clone())
             }
             _ => None,
-        }) {
+        });
+        watchdog.check(run, products.is_some());
+        if let Some(products) = products {
             return *products;
         }
-        assert!(Instant::now() < deadline, "camera capture timed out");
         std::thread::yield_now();
     }
 }

@@ -79,7 +79,9 @@ fn check_deferred(check_presentation: bool) {
     let before = presentation.scheduler.resident_bytes(&limits).unwrap();
     streaming.collect(u64::MAX);
     let after = presentation.scheduler.resident_bytes(&limits).unwrap();
-    let old_bytes = worldrunner_render_scene::draw::source_environment::resident_allocations(&old)
+    let old_bytes = PreparedScene::new(&old)
+        .unwrap()
+        .resident_allocations()
         .validate(&limits)
         .unwrap();
     assert_eq!(before - after, old_bytes);
@@ -94,7 +96,15 @@ fn assert_pending_bytes(
     let pending = worldrunner_render_scene::draw::source_environment::allocations(next)
         .unwrap()
         .validate(&context.device().limits())
-        .unwrap();
+        .unwrap()
+        + PreparedScene::new(next)
+            .unwrap()
+            .resident_allocations()
+            .validate(&context.device().limits())
+            .unwrap()
+        - worldrunner_render_scene::draw::source_environment::resident_allocations(next)
+            .validate(&context.device().limits())
+            .unwrap();
     assert_eq!(
         presentation
             .scheduler

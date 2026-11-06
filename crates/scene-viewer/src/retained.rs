@@ -28,6 +28,7 @@ mod decals;
 pub use decals::DecalUpdate;
 mod event_host;
 mod objects;
+pub(crate) mod resource_edits;
 pub use event_host::RetainedEventHost;
 mod windowless;
 pub use windowless::WindowlessRetained;
@@ -99,6 +100,24 @@ pub enum RetainedUpdate {
     Resources {
         resources: worldrunner_render_plan::SceneResources,
         meshes: Vec<worldrunner_render_plan::SceneMesh>,
+    },
+    /// Adds textures, materials and meshes after the resident ones without rebuilding the scene.
+    /// The new items take the next handles in each table, and the new materials and later
+    /// objects may use old and new items alike. Validation covers only the new items; only
+    /// their bytes are prepared, admitted against the presentation budget and uploaded.
+    /// Items that depend on state shared by the whole scene (impostors, fade thresholds, terrain
+    /// contact, specular cubes) fail with `DrawError::NeedsRebuild` and change nothing.
+    AppendResources(worldrunner_render_plan::SceneAppend),
+    /// Gives one texture new contents. Handles, materials and objects stay as they are, and only
+    /// the materials that sample the texture are rebound.
+    ReplaceTexture {
+        handle: worldrunner_render_plan::TextureHandle,
+        texture: worldrunner_render_plan::SceneTexture,
+    },
+    /// Gives one mesh new contents. Handles and objects stay as they are.
+    ReplaceMesh {
+        handle: worldrunner_render_plan::MeshHandle,
+        mesh: worldrunner_render_plan::SceneMesh,
     },
 }
 
@@ -250,6 +269,9 @@ impl RetainedHost {
             return Err(ViewerError::BackPressure {
                 limit: self.readiness.limit,
             });
+        }
+        if resource_edits::is_resource_edit(&update) {
+            return self.apply_resource_edit(update);
         }
         if let RetainedUpdate::Decal(edit) = &update {
             return self.apply_decal(edit.clone());

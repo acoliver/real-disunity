@@ -4,6 +4,7 @@
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
 mod clip;
+mod glyph;
 
 use crate::presentation::CoverageTexture as SceneTexture;
 use crate::presentation::extraction::{camera_admits, selected_camera};
@@ -18,6 +19,8 @@ pub struct UiGlyphQuad {
     pub corners: [[f32; 3]; 4],
     /// Normalized UVs in matching order; atlas rows start at the top.
     pub uv: [[f32; 2]; 4],
+    /// Span tint, multiplied by the contribution tint at presentation.
+    pub color: [f32; 4],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -101,9 +104,8 @@ pub fn extract_ui_layout(
         )?;
         let mut color = run.color;
         color[3] *= effective_alpha(world, &groups, component.object)?;
-        let mut text = contribution(rect, text, overlay, color);
-        text.clip_rect = clip::screen_clip(world, &layout, rect, &roots);
-        snap_to_pixels(&mut text, rect, canvas);
+        let mut text = contribution(rect, &text, overlay, color, canvas);
+        text.clip_rect = clip::text_clip(clip::screen_clip(world, &layout, rect, &roots), rect);
         texts.push(text);
     }
     texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.hierarchy_order));
@@ -117,39 +119,26 @@ pub fn extract_ui_layout(
 
 fn contribution(
     rect: &RectLayout,
-    text: TextLayout,
+    text: &TextLayout,
     overlay: bool,
     color: [f32; 4],
+    canvas: Canvas,
 ) -> UiTextContribution {
     let (sorting_layer, sorting_order, hierarchy_order) = rect.draw_order();
     let atlas_size = text.atlas.size.as_vec2();
-    let mut quads = Vec::new();
-    for glyph in text.glyphs {
-        let min = glyph.rect_min - rect.pivot * rect.size;
-        let max = glyph.rect_max - rect.pivot * rect.size;
-        let positions = [min, [max.x, min.y].into(), max, [min.x, max.y].into()];
-        let corners = positions.map(|p| {
-            rect.local_to_world
-                .transform_point3(p.extend(0.))
-                .to_array()
-        });
-        let uv_min = glyph.atlas_min.as_vec2() / atlas_size;
-        let uv_max = (glyph.atlas_min + glyph.atlas_size).as_vec2() / atlas_size;
-        let uv = [
-            [uv_min.x, uv_max.y],
-            [uv_max.x, uv_max.y],
-            [uv_max.x, uv_min.y],
-            [uv_min.x, uv_min.y],
-        ];
-        quads.push(UiGlyphQuad { corners, uv });
-    }
+    let shift = snap_offset(text, rect, canvas);
+    let quads = text
+        .glyphs
+        .iter()
+        .filter_map(|g| glyph::quad(rect, g, atlas_size, shift))
+        .collect();
     let texture = if text.atlas.alpha.is_empty() {
         None
     } else {
         Some(SceneTexture {
             width: text.atlas.size.x,
             height: text.atlas.size.y,
-            bytes: text.atlas.alpha.into_boxed_slice(),
+            bytes: text.atlas.alpha.clone(),
         })
     };
     UiTextContribution {
@@ -166,24 +155,23 @@ fn contribution(
     }
 }
 
-/// Unity's `Text` on a pixel-perfect canvas: the first vertex (the first glyph's top-left
-/// corner) moves to the nearest whole screen pixel, and every glyph moves with it, so glyphs
-/// keep their subpixel spacing.
-fn snap_to_pixels(text: &mut UiTextContribution, rect: &RectLayout, canvas: Canvas) {
+/// Snap the first glyph's top-left before local clipping, keeping the shared offset from
+/// moving clipped edges outside a rotated rectangle.
+fn snap_offset(text: &TextLayout, rect: &RectLayout, canvas: Canvas) -> Vec2 {
     let Some(pixels) = rect.pixels_from_world.filter(|_| canvas.pixel_perfect) else {
-        return;
+        return Vec2::ZERO;
     };
-    let Some(first) = text.quads.first().map(|quad| Vec3::from(quad.corners[3])) else {
-        return;
+    let Some(first) = text.glyphs.first() else {
+        return Vec2::ZERO;
     };
-    let screen = pixels.transform_point3(first);
-    let offset = (screen.round() - screen) * Vec3::new(1., 1., 0.);
-    let shift = pixels.inverse().transform_vector3(offset);
-    for quad in &mut text.quads {
-        for corner in &mut quad.corners {
-            *corner = (Vec3::from(*corner) + shift).to_array();
-        }
+    let matrix = pixels * rect.local_to_world;
+    if matrix.determinant() == 0. {
+        return Vec2::ZERO;
     }
+    let corner = Vec2::new(first.rect_min.x, first.rect_max.y) - rect.pivot * rect.size;
+    let screen = matrix.transform_point3(corner.extend(0.));
+    let offset = (screen.round() - screen) * Vec3::new(1., 1., 0.);
+    matrix.inverse().transform_vector3(offset).truncate()
 }
 
 fn validate_hidden_text(world: &World, object: ObjectHandle) -> Result<(), WorldError> {

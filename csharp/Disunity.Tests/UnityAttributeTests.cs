@@ -113,7 +113,8 @@ internal static class UnityAttributeTests
         Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), typeof(DerivedPipelineA)), "a pipeline derived from a named one supports the type (the engine's choice)");
         Expect.That(!SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), typeof(object)), "a base of a named pipeline does not");
         Expect.That(!SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnNone), typeof(PipelineA)), "an attribute that names no pipeline supports none");
-        Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(DerivedFromOnlyOnA), typeof(PipelineA)), "a derived type keeps the attribute of its base");
+        Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(DerivedFromOnlyOnA), typeof(PipelineA))
+            && !SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(DerivedFromOnlyOnA), typeof(PipelineC)), "a derived type keeps the attribute of its base");
         Expect.Throws<ArgumentNullException>(() => SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(null!, typeof(PipelineA)), "a null type");
         Expect.Throws<ArgumentNullException>(() => SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), null!), "a null pipeline");
     }

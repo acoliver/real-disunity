@@ -136,6 +136,7 @@ internal static class RenderTypeTests
         using var plain = new ScriptHandler();
         using var buffered = new ScriptHandler(new byte[16]);
         Expect.That(plain.data == null && buffered.text == null, "no content arrives");
+        Expect.Throws<ArgumentNullException>(() => _ = new ScriptHandler(null!), "a null preallocated buffer");
         RequireNamed(() => plain.CallReceiveData(), "DownloadHandlerScript.ReceiveData");
         RequireNamed(() => plain.CallReceiveContentLength(), "DownloadHandlerScript.ReceiveContentLengthHeader");
     }

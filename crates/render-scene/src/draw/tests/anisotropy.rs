@@ -3,6 +3,8 @@ use super::*;
 use crate::sampling::tests::checker;
 use worldrunner_render_plan::TextureAnisotropy;
 
+mod probe;
+
 fn horizontal_energy(pixels: &[u8]) -> u64 {
     (12..52)
         .flat_map(|y| (12..51).map(move |x| (y * 64 + x) * 4))
@@ -77,11 +79,14 @@ fn check_channel(context: &GpuContext, channel: usize) {
     );
     let low = horizontal_energy(&one);
     let high = horizontal_energy(&sixteen);
+    // A device that ignores anisotropy for explicit gradients (llvmpipe) renders 16x as 1x. The
+    // engine's sampler descriptors still carry the level; sampling::tests checks that directly.
     if context
         .adapter()
         .get_downlevel_capabilities()
         .flags
         .contains(wgpu::DownlevelFlags::ANISOTROPIC_FILTERING)
+        && probe::explicit_gradients_filter_anisotropically(context)
     {
         assert!(
             high > low + 10_000,

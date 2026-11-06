@@ -45,10 +45,10 @@ fn completion_while_paused_exits_through_poll_without_another_update() {
         } else {
             run.host_mut().input(crate::RetainedInput::Occluded(true));
         }
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut watchdog = CaptureWatchdog::new(&run, format!("capture {id} exit"));
         while !run.closed {
             run.poll().unwrap();
-            assert!(Instant::now() < deadline, "capture exit timed out");
+            watchdog.check(&run, run.closed);
             std::thread::yield_now();
         }
         assert_eq!(*updates.borrow(), 1);

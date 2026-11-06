@@ -128,8 +128,17 @@ impl<T> Arena<T> {
             .as_mut()
     }
 
+    /// Empties the slot when `id` names its current occupant. A handle from an earlier
+    /// generation, or one past the last slot, removes nothing.
     pub fn remove(&mut self, id: Identity) {
-        if self.slots[id.slot as usize].value.take().is_some() {
+        let Some(slot) = self
+            .slots
+            .get_mut(id.slot as usize)
+            .filter(|slot| slot.generation == id.generation)
+        else {
+            return;
+        };
+        if slot.value.take().is_some() {
             self.free.insert(id.slot);
         }
     }
@@ -248,5 +257,25 @@ mod tests {
         );
         assert_eq!(arena.slots[0].generation, u32::MAX);
         assert!(arena.slots[0].value.is_none());
+    }
+
+    #[test]
+    fn removing_by_a_stale_or_out_of_range_identity_leaves_the_occupant() {
+        let mut arena = Arena::<u8>::new(4, LimitKind::Objects);
+        let first = arena.vacancy(1).unwrap();
+        arena.insert(first, 1);
+        arena.remove(first);
+        let second = arena.vacancy(1).unwrap();
+        assert_eq!((second.slot, second.generation), (first.slot, 2));
+        arena.insert(second, 2);
+
+        arena.remove(first);
+        arena.remove(Identity { slot: 3, ..second });
+
+        assert_eq!(arena.get(second), Some(&2));
+        assert!(!arena.free.contains(&second.slot));
+        assert_eq!(arena.vacancy(1).unwrap().slot, 1);
+        arena.remove(second);
+        assert!(arena.get(second).is_none() && arena.free.contains(&second.slot));
     }
 }

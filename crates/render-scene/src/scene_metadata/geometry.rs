@@ -1,10 +1,10 @@
+use super::output::MetadataOutput;
 use crate::renderer::ScenePipelines;
 
-pub(crate) fn pipelines(
+fn camera_group(
     device: &wgpu::Device,
     uniform: &wgpu::Buffer,
-    material: bool,
-) -> (ScenePipelines, wgpu::BindGroup) {
+) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("reflection prepass camera"),
         entries: &[wgpu::BindGroupLayoutEntry {
@@ -26,32 +26,25 @@ pub(crate) fn pipelines(
             resource: uniform.as_entire_binding(),
         }],
     });
+    (layout, group)
+}
+
+pub(crate) fn pipelines(
+    device: &wgpu::Device,
+    uniform: &wgpu::Buffer,
+    output: MetadataOutput,
+) -> (ScenePipelines, wgpu::BindGroup) {
+    let (layout, group) = camera_group(device, uniform);
     let camera = include_str!("../ssao/camera.wgsl");
     let object_source = crate::shader::ENVIRONMENT_WGSL
         .replace("fn fs_relief_opaque(", "fn unused_relief_opaque(")
         .replace("fn fs_relief_masked(", "fn unused_relief_masked(")
         .replace("fn fs_opaque(", "fn unused_opaque(")
         .replace("fn fs_masked(", "fn unused_masked(");
-    let output = if material {
-        "vec4<f32>(scene_material_f0(albedo.rgb, metalness, DIELECTRIC_F0), roughness)"
-    } else {
-        "vec4<f32>(scene_metadata_direction((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0)"
-    };
-    let object = format!(
-        "{object_source}\n{camera}\n{}",
-        include_str!("geometry.wgsl").replace("METADATA_OUTPUT", output)
-    );
-    let terrain_output = if material {
-        "vec4<f32>(scene_material_f0(projected.albedo, projected.properties.y, DIELECTRIC_F0), projected.properties.x)"
-    } else {
-        "vec4<f32>(normalize((screen.view * vec4<f32>(projected.normal, 0.0)).xyz), 1.0)"
-    };
-    let marker =
-        "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);";
-    assert_eq!(crate::shader::TERRAIN_WGSL.matches(marker).count(), 1);
+    let object = format!("{object_source}\n{camera}\n{}", output.object_fragment());
     let terrain = format!(
         "{}\n{camera}",
-        crate::shader::TERRAIN_WGSL.replace(marker, &format!("return {terrain_output};"))
+        output.terrain_source(crate::shader::TERRAIN_WGSL)
     );
     (
         ScenePipelines::with_screen_space(

@@ -88,6 +88,7 @@ pub struct WorldSnapshot {
 }
 
 /// The sole owner of live object and component state for a simulation session.
+#[cfg_attr(test, derive(Clone))]
 pub struct World {
     pub(crate) assets: crate::assets::Assets,
     pub(crate) assets_limit: u32,
@@ -96,6 +97,7 @@ pub struct World {
     pub(crate) coroutines: crate::coroutines::Coroutines,
     pub(crate) scheduler: crate::timeline::Scheduler,
     pub(crate) physics: crate::physics2d::Physics,
+    pub(crate) physics_population: crate::physics2d::population::Population,
     pub(crate) identity: u64,
     pub(crate) objects: Arena<Object>,
     pub(crate) lifetime: crate::lifetime::Lifetime,
@@ -104,6 +106,7 @@ pub struct World {
     pub(crate) journal: crate::journal::Journal,
     pub(crate) spatial: Option<crate::spatial::SpatialIndex>,
     pub(crate) staging: Option<crate::edits::Staging>,
+    pub(crate) graphics: crate::graphics::GraphicsState,
 }
 
 impl World {
@@ -116,6 +119,7 @@ impl World {
             coroutines: crate::coroutines::Coroutines::default(),
             scheduler: crate::timeline::Scheduler::default(),
             physics: crate::physics2d::Physics::default(),
+            physics_population: crate::physics2d::population::Population::default(),
             identity: next_world()?,
             lifetime: crate::lifetime::Lifetime::default(),
             lifecycle: crate::lifecycle::Lifecycle::default(),
@@ -124,6 +128,7 @@ impl World {
             journal: crate::journal::Journal::default(),
             spatial: None,
             staging: None,
+            graphics: crate::graphics::GraphicsState::new(),
         })
     }
 
@@ -310,6 +315,7 @@ impl World {
                 .mesh_instance = Some(handle);
         }
         let script = matches!(desc, ComponentDesc::Script { .. });
+        self.physics_population.note_stored(&desc);
         self.objects
             .get_mut(object.0)
             .expect("validated object")
@@ -335,14 +341,9 @@ impl World {
         script: bool,
     ) {
         if script {
-            let messages = self.enroll_script_type(handle);
-            self.lifecycle.register(
-                handle,
-                crate::lifecycle::ScriptState {
-                    messages,
-                    ..Default::default()
-                },
-            );
+            self.mark_unsettled(object);
+            self.lifecycle
+                .register(handle, crate::lifecycle::ScriptState::default());
         }
         if self.lifetime.objects.contains(&object) {
             self.lifetime.components.insert(handle);

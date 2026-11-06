@@ -11,17 +11,11 @@ pub(crate) fn geometry_sources() -> [String; 4] {
     ] {
         base = base.replace(&format!("fn {entry}("), &format!("fn unused_{entry}("));
     }
-    let geometry = include_str!("../scene_metadata/geometry.wgsl");
+    let fragment = crate::scene_metadata::single_fragment;
     [
         forward.clone(),
-        format!(
-            "{base}\n{}",
-            geometry.replace("METADATA_OUTPUT", "vec4<f32>(normal, 1.0)")
-        ),
-        format!(
-            "{base}\n{}",
-            geometry.replace("METADATA_OUTPUT", "vec4<f32>(normal, roughness)")
-        ),
+        format!("{base}\n{}", fragment("vec4<f32>(normal, 1.0)")),
+        format!("{base}\n{}", fragment("vec4<f32>(normal, roughness)")),
         format!("{forward}\n{}", include_str!("shadow_depth.wgsl")),
     ]
 }

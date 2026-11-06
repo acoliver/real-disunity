@@ -286,3 +286,37 @@ fn terrain_and_environment_share_one_reflectance_model() {
         "the reflectance model must be defined exactly once per module"
     );
 }
+
+#[test]
+fn named_raster_extent_has_exact_frame_offsets_in_both_shaders() {
+    for module in [validate(), validate_terrain()] {
+        let (_, frame) = module
+            .types
+            .iter()
+            .find(|(_, ty)| ty.name.as_deref() == Some("Frame"))
+            .unwrap();
+        let naga::TypeInner::Struct { members, span } = &frame.inner else {
+            panic!("Frame must remain a uniform struct");
+        };
+        assert_eq!(*span as usize, crate::frame::FRAME_UNIFORM_BYTES);
+        let offsets: Vec<_> = members
+            .iter()
+            .map(|member| (member.name.as_deref().unwrap(), member.offset))
+            .collect();
+        assert_eq!(
+            offsets,
+            [
+                ("view_projection", 0),
+                ("camera_position", 64),
+                ("sun_direction", 80),
+                ("sun_irradiance", 96),
+                ("ambient_sky", 112),
+                ("ambient_ground", 128),
+                ("grading", 144),
+                ("diffuse_sh", 160),
+                ("lighting_options", 304),
+                ("raster_viewport", 320),
+            ]
+        );
+    }
+}

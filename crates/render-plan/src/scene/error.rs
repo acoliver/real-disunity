@@ -11,6 +11,17 @@ use thiserror::Error;
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SceneValidationError {
+    /// An entry added with `RenderScene::append_resources` failed validation.
+    #[error("appended {table} {index}: {source}")]
+    AppendedEntry {
+        /// The table the entry was added to: texture, material or mesh.
+        table: &'static str,
+        /// The position of the entry in the table after the append.
+        index: usize,
+        /// The violated invariant.
+        #[source]
+        source: Box<SceneValidationError>,
+    },
     #[error("environment specular intensity {observed} exceeds 64000000 millionths")]
     EnvironmentIntensity { observed: u32 },
     #[error("unsupported scene input: {part}")]

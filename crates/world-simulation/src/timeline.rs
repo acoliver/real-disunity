@@ -193,6 +193,7 @@ impl World {
     }
     pub fn advance(&mut self, elapsed: TimeSpan) -> Result<Advance, WorldError> {
         self.require_idle()?;
+        self.graphics.begin_frame();
         let (clock, phases) = self.clock.plan(elapsed)?;
         self.scheduler.fixed_steps = u32::try_from(phases.len()).expect("bounded steps");
         self.scheduler.frame_delta = clock.delta;

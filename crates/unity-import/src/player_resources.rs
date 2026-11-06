@@ -32,6 +32,10 @@ use crate::{
     PlayerError,
     input::InputAxis,
     player_animators::{PlanClipOverride, plan_animation_asset},
+    player_compute::{
+        ComputeDecl, PlanKernel, decode_compute_shader, plan_compute_shader,
+        unplanned_reference as unplanned_compute_shader,
+    },
     player_files::PlayerFiles,
     player_input::plan_player_axes,
     player_materials::{
@@ -141,16 +145,30 @@ pub enum ResourceAsset {
         sprites: Vec<AssetRef>,
     },
     /// A shader, by the name its source declares, with the render queue of its first
-    /// sub-shader and the numbers of sub-shaders and of passes in the first one. Programs are
-    /// not planned.
+    /// sub-shader and the numbers of sub-shaders and of passes in the first one. The programs
+    /// are not planned; `file` and `path_id` name the serialized shader object they are read
+    /// from, `file` relative to the data directory.
     Shader {
         name: String,
         render_queue: i32,
         pass_count: usize,
         subshader_count: usize,
+        file: String,
+        path_id: i64,
     },
     /// A shader the planner could not decode, with the reason loading it reports.
     UnplannedShader { error: String },
+    /// A compute shader, by the name its data declares, with the serialized file and object its
+    /// compiled kernels are read from (`file` relative to the data directory) and its kernels in
+    /// index order. A kernel's thread group size is `null` when the data states none.
+    ComputeShader {
+        name: String,
+        file: String,
+        path_id: i64,
+        kernels: Vec<PlanKernel>,
+    },
+    /// A compute shader the planner could not decode, with the reason loading it reports.
+    UnplannedComputeShader { error: String },
     /// A material, with its shader and textures as asset indexes.
     Material {
         #[serde(flatten)]
@@ -287,6 +305,7 @@ fn referenced_on_demand(class: ClassId) -> bool {
         || class == ClassId::SPRITE
         || class == ClassId::SPRITE_ATLAS
         || class == ClassId::SHADER
+        || class == ClassId::COMPUTE_SHADER
         || class == ClassId::MATERIAL
         || class == ClassId::MESH
         || class == ClassId::RENDER_TEXTURE
@@ -325,6 +344,8 @@ pub(crate) struct Registry {
     rejected: BTreeSet<ObjectKey>,
     /// Each admitted shader as decoded, or why it did not.
     shaders: BTreeMap<ObjectKey, Result<ShaderDecl, String>>,
+    /// Each admitted compute shader as decoded, or why it did not.
+    compute_shaders: BTreeMap<ObjectKey, Result<ComputeDecl, String>>,
     /// Each admitted material as decoded, or why it did not.
     materials: BTreeMap<ObjectKey, Result<Material, String>>,
     /// Each admitted mesh as decoded, until its asset is planned.
@@ -343,6 +364,7 @@ impl Registry {
             queue: Vec::new(),
             rejected: BTreeSet::new(),
             shaders: BTreeMap::new(),
+            compute_shaders: BTreeMap::new(),
             materials: BTreeMap::new(),
             meshes: BTreeMap::new(),
             render_textures: BTreeMap::new(),
@@ -388,6 +410,10 @@ impl Registry {
         if class == ClassId::SHADER {
             let decoded = decode_shader(&mut self.files, key);
             self.shaders.insert(key.clone(), decoded);
+        }
+        if class == ClassId::COMPUTE_SHADER {
+            let decoded = decode_compute_shader(&mut self.files, key);
+            self.compute_shaders.insert(key.clone(), decoded);
         }
         if class == ClassId::MATERIAL {
             let decoded = decode_material(&mut self.files, key);
@@ -465,6 +491,9 @@ impl Registry {
         if let Some(Err(cause)) = self.render_textures.get(key) {
             return Err(unplanned_render_texture(pptr, cause));
         }
+        if let Some(Err(cause)) = self.compute_shaders.get(key) {
+            return Err(unplanned_compute_shader(pptr, cause));
+        }
         match (self.shaders.get(key), self.materials.get(key)) {
             (Some(Err(cause)), _) => Err(unplanned_reference(pptr, cause)),
             (_, Some(Err(cause))) => Err(unplanned_material(pptr, cause)),
@@ -516,6 +545,7 @@ impl ResourcePlanner {
             ClassId::SPRITE_ATLAS => player_sprites::plan_atlas(&mut self.registry, key),
             ClassId::GAME_OBJECT => self.prefab(key, layouts),
             ClassId::SHADER => Ok(self.shader(key)),
+            ClassId::COMPUTE_SHADER => Ok(self.compute_shader(key)),
             ClassId::MATERIAL => Ok(self.material(key)),
             ClassId::MESH => plan_mesh(&mut self.registry, key, &self.output, index),
             ClassId::RENDER_TEXTURE => Ok(self.render_texture(key)),
@@ -539,6 +569,8 @@ impl ResourcePlanner {
                 render_queue: decl.render_queue,
                 pass_count: decl.pass_count,
                 subshader_count: decl.subshader_count,
+                file: decl.file,
+                path_id: decl.path_id,
             },
             Err(error) => {
                 let (file, path_id) = key;
@@ -548,6 +580,14 @@ impl ResourcePlanner {
                 ResourceAsset::UnplannedShader { error }
             }
         }
+    }
+
+    /// The compute shader `key` as admitted: its kernels, or an error entry that names why it
+    /// did not decode.
+    fn compute_shader(&mut self, key: &ObjectKey) -> ResourceAsset {
+        let decoded = (self.registry.compute_shaders.get(key).cloned())
+            .unwrap_or_else(|| Err("it was not admitted".to_owned()));
+        plan_compute_shader(key, decoded, &mut self.differences)
     }
 
     /// The render texture `key` as admitted: its settings, or an error entry that names why it

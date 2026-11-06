@@ -29,10 +29,53 @@ pub struct DisunityTextureInfo {
     pub distance_spread: u32,
 }
 
+/// How a texture is sampled. `wrap_*` are the engine's `TextureWrapMode` (0 repeat, 1 clamp,
+/// 2 mirror, 3 mirror once) and `filter` its `FilterMode` (0 point, 1 bilinear, 2 trilinear);
+/// `aniso_level` is 0 to 16. On a write, `generation`, `present` and `changed` are ignored. On a
+/// read, `generation` is the generation the caller already holds; the call fills in everything,
+/// `present` is zero when the identity has no stored texture, and `changed` is nonzero when the
+/// stored sampler is newer than the generation passed.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunitySampler {
+    /// Starts at 1 when the texture is first stored and rises each time a write changes a value.
+    pub generation: u64,
+    pub wrap_u: u32,
+    pub wrap_v: u32,
+    pub wrap_w: u32,
+    pub filter: u32,
+    pub aniso_level: u32,
+    pub present: u32,
+    pub changed: u32,
+    pub mip_bias: f32,
+}
+
+/// The engine's choice of sampler for a texture nothing has configured: repeat, bilinear, no
+/// anisotropy beyond one and no bias.
+const DEFAULT_SAMPLER: DisunitySampler = DisunitySampler {
+    generation: 1,
+    wrap_u: 0,
+    wrap_v: 0,
+    wrap_w: 0,
+    filter: 1,
+    aniso_level: 1,
+    present: 1,
+    changed: 0,
+    mip_bias: 0.0,
+};
+
+/// The highest wrap mode value.
+const MAX_WRAP: u32 = 3;
+/// The highest filter mode value.
+const MAX_FILTER: u32 = 2;
+/// The highest anisotropy level.
+const MAX_ANISO: u32 = 16;
+
 /// One texture of a world's session, kept until the world is unloaded.
 pub(crate) struct StoredTexture {
     info: DisunityTextureInfo,
     bytes: Vec<u8>,
+    sampler: DisunitySampler,
 }
 
 /// The textures of one session, by renderer identity.
@@ -78,10 +121,9 @@ pub unsafe extern "C" fn disunity_texture_store(
         } else {
             unsafe { std::slice::from_raw_parts(bytes, length as usize) }.to_vec()
         };
-        let generation = s
-            .textures
-            .get(&identity)
-            .map_or(1, |held| held.info.generation + 1);
+        let held = s.textures.get(&identity);
+        let generation = held.map_or(1, |held| held.info.generation + 1);
+        let sampler = held.map_or(DEFAULT_SAMPLER, |held| held.sampler);
         let info = DisunityTextureInfo {
             generation,
             present: 1,
@@ -92,6 +134,7 @@ pub unsafe extern "C" fn disunity_texture_store(
             StoredTexture {
                 info,
                 bytes: payload,
+                sampler,
             },
         );
         Ok(())
@@ -133,6 +176,84 @@ pub unsafe extern "C" fn disunity_texture_read(
             return Err("texture copy capacity is too small".into());
         }
         unsafe { std::ptr::copy_nonoverlapping(held.bytes.as_ptr(), bytes, held.bytes.len()) };
+        Ok(())
+    })
+}
+
+fn check_sampler(sampler: &DisunitySampler) -> Result<(), &'static str> {
+    let wraps = [sampler.wrap_u, sampler.wrap_v, sampler.wrap_w];
+    if wraps.iter().any(|wrap| *wrap > MAX_WRAP) {
+        return Err("a texture wrap mode is not one of the engine's four");
+    }
+    if sampler.filter > MAX_FILTER {
+        return Err("a texture filter mode is not one of the engine's three");
+    }
+    if sampler.aniso_level > MAX_ANISO {
+        return Err("a texture anisotropy level is above 16");
+    }
+    if !sampler.mip_bias.is_finite() {
+        return Err("a texture mip bias is not finite");
+    }
+    Ok(())
+}
+
+/// Sets the sampler of a stored texture, raising its generation when a value changes.
+///
+/// # Safety
+/// `sampler` is readable for one record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_texture_sampler_write(
+    world: u64,
+    identity: u64,
+    sampler: *const DisunitySampler,
+) -> DisunityResult {
+    if sampler.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let sampler = unsafe { *sampler };
+    mutate(world, |s| {
+        check_sampler(&sampler)?;
+        let held = s
+            .textures
+            .get_mut(&identity)
+            .ok_or("a sampler needs a texture stored under the same identity")?;
+        let next = DisunitySampler {
+            generation: held.sampler.generation,
+            present: 1,
+            changed: 0,
+            ..sampler
+        };
+        if next != held.sampler {
+            held.sampler = DisunitySampler {
+                generation: held.sampler.generation + 1,
+                ..next
+            };
+        }
+        Ok(())
+    })
+}
+
+/// Reports the sampler of a stored texture. An identity nothing stored reports `present` zero
+/// and is not an error.
+///
+/// # Safety
+/// `out` is readable and writable for one record.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_texture_sampler_read(
+    world: u64,
+    identity: u64,
+    out: *mut DisunitySampler,
+) -> DisunityResult {
+    if out.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let known = unsafe { (*out).generation };
+    mutate(world, |s| {
+        let sampler = s.textures.get(&identity).map(|held| DisunitySampler {
+            changed: u32::from(held.sampler.generation > known),
+            ..held.sampler
+        });
+        unsafe { *out = sampler.unwrap_or_default() };
         Ok(())
     })
 }

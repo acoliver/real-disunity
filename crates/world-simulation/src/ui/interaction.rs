@@ -2,7 +2,11 @@
 use super::{TextReject, UiLayoutRules, group::groups_by_object};
 use crate::ObjectHandle;
 use std::collections::{BTreeMap, BTreeSet};
+mod accessibility;
 mod keyboard;
+mod semantic_tree;
+mod semantics;
+pub use semantics::*;
 mod pointer;
 mod slider;
 mod style;
@@ -136,6 +140,9 @@ pub struct UiRouter {
     pub layout: UiLayoutRules,
     pub styles: BTreeMap<ObjectHandle, UiStyle>,
     pub text_fields: BTreeMap<ObjectHandle, super::UiTextField>,
+    pub semantics: BTreeMap<ObjectHandle, UiSemantics>,
+    semantic_previous: Option<UiSemanticTree>,
+    semantic_live: BTreeMap<ObjectHandle, String>,
     position: Option<[f64; 2]>,
     capture: Option<ObjectHandle>,
     primary_held: bool,

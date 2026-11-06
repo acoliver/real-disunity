@@ -5,11 +5,13 @@ fn source_preparation_cancellation_releases_only_pending_storage() {
     let mut presentation = fixed(&context, &source(128));
     let limits = context.device().limits();
     let baseline = presentation.scheduler.resident_bytes(&limits).unwrap();
-    let reservation = presentation.prepare_scene(&context, &source(128)).unwrap();
-    let output =
-        worldrunner_render_scene::draw::source_environment::resident_allocations(&source(128))
-            .validate(&limits)
-            .unwrap();
+    let reservation = presentation
+        .prepare_scene(&context, &prepared(&source(128)))
+        .unwrap();
+    let output = prepared(&source(128))
+        .resident_allocations()
+        .validate(&limits)
+        .unwrap();
     assert!(presentation.scheduler.resident_bytes(&limits).unwrap() > baseline + output);
     drop(reservation.transient);
     assert_eq!(
@@ -54,6 +56,10 @@ pub(crate) fn source(size: u32) -> RenderScene {
         .unwrap()
 }
 
+fn prepared(scene: &RenderScene) -> worldrunner_render_scene::draw::PreparedScene {
+    worldrunner_render_scene::draw::PreparedScene::new(scene).unwrap()
+}
+
 #[test]
 fn source_preparation_admission_preserves_presentation() {
     let context =
@@ -68,7 +74,9 @@ fn source_preparation_admission_preserves_presentation() {
     );
     let generation = presentation.scheduler.generation();
     let color = presentation.targets.color.texture().clone();
-    let _reservation = presentation.prepare_scene(&context, &source(4)).unwrap();
+    let _reservation = presentation
+        .prepare_scene(&context, &prepared(&source(4)))
+        .unwrap();
     assert_eq!(presentation.scheduler.generation(), generation);
     assert_eq!(presentation.targets.color.texture(), &color);
 }
@@ -87,6 +95,14 @@ pub(crate) fn fixed(
     peak.extend(planning::additional(size, None));
     peak.extend(planning::additional(size, None));
     peak.extend(worldrunner_render_scene::draw::source_environment::allocations(scene).unwrap());
+    let limits = context.device().limits();
+    let cubes = worldrunner_render_scene::draw::source_environment::resident_allocations(scene);
+    let stored = prepared(scene)
+        .resident_allocations()
+        .validate(&limits)
+        .unwrap()
+        - cubes.validate(&limits).unwrap();
+    peak.buffer("scene textures and meshes", stored, 1);
     let bytes = peak.validate(&context.device().limits()).unwrap();
     Presentation::with_settings(
         context,
@@ -147,7 +163,9 @@ fn resident(
     scene: &RenderScene,
     presentation: &mut Presentation,
 ) -> worldrunner_render_scene::draw::SceneGpu {
-    let reservation = presentation.prepare_scene(context, scene).unwrap();
+    let reservation = presentation
+        .prepare_scene(context, &prepared(scene))
+        .unwrap();
     let pipelines =
         worldrunner_render_scene::renderer::ScenePipelines::new(context.device(), COLOR);
     let mut gpu = worldrunner_render_scene::draw::SceneGpu::upload(

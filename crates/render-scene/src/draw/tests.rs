@@ -55,6 +55,7 @@ mod lod;
 mod lod_material;
 mod lod_scale;
 mod mask_mip_bias;
+mod material_channels;
 mod material_factors;
 mod merged_metadata;
 mod mip_bias;

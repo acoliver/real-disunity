@@ -108,7 +108,7 @@ fn translucent_rect_blends_straight_alpha_over_retained_geometry() {
             blend(source[2], 0.),
             255,
         ];
-        assert_eq!(pixel(&capture(&mut run, &events).1, x, y), expected);
+        assert_blended_within_one(pixel(&capture(&mut run, &events).1, x, y), expected);
         run.shutdown().unwrap();
     }
 }

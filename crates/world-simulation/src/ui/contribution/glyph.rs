@@ -28,6 +28,7 @@ pub(super) fn quad(
     let max = high - rect.pivot * rect.size;
     let positions = [min, Vec2::new(max.x, min.y), max, Vec2::new(min.x, max.y)];
     Some(UiGlyphQuad {
+        link: glyph.link,
         corners: positions.map(|p| {
             rect.local_to_world
                 .transform_point3(p.extend(0.))

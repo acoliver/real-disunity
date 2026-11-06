@@ -253,13 +253,52 @@ The supported character set is printable ASCII (U+0020..U+007E), Latin-1 U+00A0.
 
 With `HorizontalOverflow::Wrap`, a line that grows past the rectangle's width breaks before its last word and the space at the break is consumed; a word wider than the line breaks between characters (`ui/wrap.rs`). A single glyph wider than the rectangle occupies a line and is clipped at extraction. `HorizontalOverflow::Overflow` keeps each line whole. Font kerning applies within each line. Font size is pixels per em, converted to `ab_glyph`'s ascent-minus-descent scale through the font's units per em. `line_spacing` multiplies the font height plus gap. `line_height: Some(pixels)` overrides that baseline distance and must be finite and positive. `paragraph_spacing` adds finite nonnegative logical pixels after explicit newlines, including blank paragraphs. Wrapped continuations get only the baseline distance. Alignment applies to each line horizontally and to the entire visible block vertically. Empty strings produce zero content height and no lines, glyphs or texture bytes.
 
-`TextRun::spans` contains ordered, nonempty, disjoint `TextSpan` UTF-8 byte ranges. Each range must end on character boundaries inside `text`. Invalid ranges or colours return `InvalidText`. A span's linear RGBA colour multiplies the run colour and inherited group alpha; unstyled glyphs use white. The source ranges survive wrapping, consumed break spaces and CR/LF. `GlyphLayout::color` and `UiGlyphQuad::color` carry the span tint through extraction, and both presentation paths multiply it by the contribution tint. This structured API accepts no markup. There are no bundled font faces, so spans provide colour only, without simulated bold or italic weight. Underlines and focusable link spans are not implemented.
+`TextRun::spans` contains ordered, nonempty, disjoint `TextSpan` UTF-8 byte ranges. Each range must end on character boundaries inside `text`. Invalid ranges or colours return `InvalidText`. A span's linear RGBA colour multiplies the run colour and inherited group alpha; unstyled glyphs use white. The source ranges survive wrapping, consumed break spaces and CR/LF. `GlyphLayout::color` and `UiGlyphQuad::color` carry the span tint through extraction, and both presentation paths multiply it by the contribution tint. This structured API accepts no markup. There are no bundled font faces or simulated bold or italic weights. A span can carry `link: Some(UiLinkId(value))`; plain colour spans use `None`. Link identities are caller-chosen and must be unique within one run. Duplicate identities return `InvalidText`. Both cached glyph layouts and extracted glyph quads retain the link identity. Link spans also produce solid underline quads through `UiRenderPlan::graphics`, one per line segment, using the span colour multiplied by the run tint and inherited alpha. Their thickness is one sixteenth of the font size, with a minimum of one logical pixel; their upper edge is one thickness below the baseline. Underlines share glyph pixel snapping and rectangle, renderer and scroll clipping.
 
 Glyph output provides baseline origins and outward-rounded raster bounds separately. Local text coordinates start at the rectangle's bottom-left. `VerticalOverflow::Truncate` drops lines whose extent passes the rectangle's height; `VerticalOverflow::Overflow` lays them all out. `TextLayout::content_height` reports the full extent before truncation, including font height, baseline distances and paragraph spacing. Measure at the intended content width and use its rounded-up height in `UiSize::Fixed` or the content's `RectTransform` to size a `UiScrollView`; group content sizing does not measure text implicitly. Pixel-perfect snapping moves the glyph origins before extraction clips glyph geometry and matching UVs to the local rectangle, then intersects screen clip bounds with renderer and enclosing scroll clips. This also bounds rotated text at its local edges; an edge-clipped glyph's new corner can fall between pixels. With `rich_text` set, as by default, text containing `<` is rejected with `UnsupportedRichText`, because markup is not rendered. Rasterizer winding coverage is saturated to 1 before rounding to U8 and packed deterministically into a shelf atlas with a fixed configured row width. Atlas rows start at the top. Font storage, character count, atlas dimensions and atlas pixels are bounded. Render extraction applies character and pixel budgets across the complete frame as well as per text run.
 
 Keep a `FontBook` across frames. `FontBook::layout` returns an immutable `Arc<TextLayout>` from a bounded cache keyed by the complete text run and rectangle size. Width, height, alignment, font, size, spans and paragraph settings therefore invalidate the layout; unrelated world or control mutations do not. Cached entries share glyphs and `GlyphAtlas::alpha`, and extraction and `UiPresentation` share those coverage bytes through `CoverageTexture::bytes`. A cache hit allocates no new glyph layout or atlas. The cache retains at most `UiLimits::max_glyphs` input characters and `max_atlas_pixels` coverage pixels, evicting oldest entries when necessary; even empty entries consume one character slot. Caller-held results remain valid after eviction. `cache_stats().layouts` counts successful misses and `atlas_builds` counts misses with nonempty coverage. Failed requests publish neither a cache entry nor a counter increment. Renderer uploads still belong to the existing compositor: publish UI replacements when the plan changes, rather than submitting an identical replacement each frame. The built-player host already performs this comparison.
 
 `ui_text_flow` tests measure wrapping, paragraph height, alignment, source-range colours, typed glyph errors, scroll and rectangle clips, and shared layout/coverage pointers across 100 unrelated updates. The windowless scene-viewer paragraph test draws two coloured paragraphs, checks exact opaque RGBA regions on each line, and verifies unchanged scene pixels in the line gaps. A real-window reading check remains pending.
+
+## Interactive paragraph links
+
+Register the paragraph object with `UiControl::text()` and construct the router with
+`UiRouter::with_fonts(Arc<FontBook>)`. Register fonts before sharing the book; pass the
+same book to extraction. Routing measures linked text from the current run and rectangle
+using that book's bounded cache, so text edits and resizing update targets without a separate
+hit-region registration. A linked text control without a supplied book returns `MissingFont`.
+Missing text on a registered text control returns `MissingLayout`.
+
+Each link is one focus and capture target, even when it wraps. Its hit regions are its
+outlined glyph rectangles, with the same snapping and clipping as extraction. Unlinked
+glyphs, spaces without outlines and unused paragraph area do not consume hits. Scroll-clipped
+links remain keyboard targets; glyphs clipped entirely by the paragraph's own rectangle or
+removed by vertical truncation do not. CanvasGroup eligibility, draw order and modal blocking
+apply as they do to other controls.
+
+Tab and Shift-Tab traverse the links in span reading order at the paragraph's position in
+the ordinary control order. `focused()` returns its paragraph object; `focused_link()` also
+returns the typed link identity. Enter or Space activates on the first key-down. A primary
+press and release on any two regions of the same link activates once; release on another
+link does not. Both paths emit `UiAction::LinkActivated { control, link }`. Modal opener
+restoration preserves the individual link identity. Removing the span invalidates its focus
+and capture on the next event.
+
+Supply individual state tints in `router.link_styles[(control, link)]`, or use the paragraph's
+entry in `router.styles` for all its links. `style_plan` tints every glyph and underline of
+that link with the ordinary disabled, pressed, focused, hovered, selected, normal priority.
+Unlinked text keeps its authored colour. The engine supplies no link colour scheme.
+Keyboard focus reveals the link's glyph bounds through enclosing scroll viewports,
+innermost first. A link taller than a viewport reveals its reading start. Resolve and extract
+again after navigation changes an offset, as for list items.
+
+`ui_links` covers wrapped hits and state tints, activation edges, reading order, modal focus,
+affine snapping, text and nested scroll clips, renderer clips, underline geometry and cache
+identity changes. The windowless scene-viewer link test checks exact underline pixels through
+the existing overlay graphics path. A real-window reading check remains pending.
+
+## UI contributions
 
 `render_plan::ui::extract_ui` returns typed glyph quads and `CoverageTexture` values using linear R8 coverage. Quads carry matched UV orientation, tint, Canvas identity and sorting values. Text and graphic contributions carry the sorting layer, order and hierarchy preorder from `RectLayout::draw_order()`. Each list is sorted by that tuple; the retained compositor interleaves both lists using the same tuple. Overlay positions are viewport pixels; other modes produce native world positions. GPU upload, alpha sampling, composition and resource lifetime belong to the existing scene renderer, not this module.
 
@@ -280,7 +319,9 @@ measured in root-canvas coordinates and also applies to text on that object.
 Bounds round inward to whole-pixel scissors, which intersect the current render
 extent. This bounds rotated graphics even when CPU quad clipping keeps them whole.
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
-text and world-space graphics use the scene path. The live 2D path is unchanged.
+text and world-space graphics use the scene path. The live 2D text append includes
+its generated underline graphics through `append_graphics` before glyph quads;
+ordinary CanvasRenderer graphics retain their explicit extraction path.
 Built-player retained drivers use the same compositor. The loaded ABI image retains
 `UiPresentation` draws from `extract_ui` alongside its prepared scene frame, before
 UI is converted to the live 2D path's world-space quads. Typed copy-out preserves

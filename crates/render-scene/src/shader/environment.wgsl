@@ -90,9 +90,9 @@ struct SceneShadingSurface {
 
 // Shades one fragment. Both entry points funnel here so that the masked and
 // opaque pipelines cannot drift apart in anything except the cutout test.
-fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
+fn shade(original: VertexOutput, front_facing: bool, position: vec3<f32>) -> vec4<f32> {
     var input = original;
-    input.world_position = scene_relief_position(original);
+    input.world_position = position;
     let albedo_footprint = scene_atlas_footprint(albedo_texture, input);
     var albedo_sample = scene_albedo(scene_atlas_sample(albedo_texture, input, albedo_footprint), input.tint);
     let surface = scene_surface_channels(input);
@@ -175,7 +175,7 @@ fn scene_finish_shading(input: VertexOutput, geometric_normal: vec3<f32>, surfac
 @fragment
 fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let depth = scene_relief_depth(input);
-    let shaded = shade(input, front_facing);
+    let shaded = shade(input, front_facing, depth.position);
     scene_apply_coverage(input);
     if !depth.visible { discard; }
     return SceneSurfaceOutput(vec4<f32>(shaded.rgb, 1.0), depth.value);
@@ -185,7 +185,7 @@ fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bo
 @fragment
 fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let depth = scene_relief_depth(input);
-    let shaded = shade(input, front_facing);
+    let shaded = shade(input, front_facing, depth.position);
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a, input) || !depth.visible {
         discard;
@@ -202,13 +202,13 @@ fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
-    let shaded = shade(input,front_facing);
+    let shaded = shade(input,front_facing,scene_relief_position(input));
     scene_apply_coverage(input);
     return vec4<f32>(shaded.rgb,1.0);
 }
 @fragment
 fn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
-    let shaded = shade(input,front_facing);
+    let shaded = shade(input,front_facing,scene_relief_position(input));
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a,input) { discard; }
     return vec4<f32>(shaded.rgb,coverage_alpha);

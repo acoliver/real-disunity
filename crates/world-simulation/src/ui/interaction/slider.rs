@@ -92,12 +92,19 @@ impl UiRouter {
         }
     }
     pub(super) fn slider_key(&mut self, key: UiKey) -> Option<UiAction> {
-        let object = self.focus?;
+        let target = self.focus?;
+        if target.link.is_some() {
+            return None;
+        }
+        let object = target.object;
         let value = self.slider(object)?.key_value(key)?;
         self.set_slider(object, value)
     }
     pub(super) fn drag_slider(&mut self, layout: &UiLayout, response: &mut UiResponse) {
-        let Some((object, slider)) = self.capture.and_then(|o| self.slider(o).map(|s| (o, s)))
+        let Some((object, slider)) = self
+            .capture
+            .filter(|t| t.link.is_none())
+            .and_then(|t| self.slider(t.object).map(|s| (t.object, s)))
         else {
             return;
         };

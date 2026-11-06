@@ -683,6 +683,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_script_messages",
+      "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_script_register",
       "since": "2.0.0",
       "rets": "DisunityResult"
@@ -695,11 +700,6 @@
     {
       "name": "disunity_script_set_enabled",
       "since": "2.0.0",
-      "rets": "DisunityResult"
-    },
-    {
-      "name": "disunity_script_type_messages",
-      "since": "7.0.0",
       "rets": "DisunityResult"
     },
     {

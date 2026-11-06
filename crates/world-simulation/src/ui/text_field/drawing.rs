@@ -102,8 +102,15 @@ impl UiTextField {
             return Err(UiError::InvalidRect.into());
         }
         let (run, positions, offset) = self.geometry(rect);
-        let mut text =
-            contribution::contribution(rect, fonts.layout(&run, rect.size)?, true, run.color);
+        let canvas = world
+            .published_components()
+            .find_map(|c| match c.desc {
+                crate::ComponentDesc::Canvas(canvas) if c.object == rect.canvas => Some(canvas),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let layout = fonts.layout(&run, rect.size)?;
+        let mut text = contribution::contribution(rect, &layout, true, run.color, canvas);
         let clip = field_clip(world, &plan.layout, rect)?;
         text.clip_rect = clip;
         let shift = rect

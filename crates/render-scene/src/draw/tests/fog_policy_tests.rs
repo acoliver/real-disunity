@@ -66,8 +66,8 @@ fn check_water(
     );
     let color = channel(context, fogged.targets().scene().texture(), sample, 0);
     let reflected = channel(context, hit.targets().scene().texture(), sample, 0);
-    let trace = channel(context, hit.ssr.as_ref().unwrap().textures()[4], sample, 0);
-    let confidence = channel(context, hit.ssr.as_ref().unwrap().textures()[4], sample, 3);
+    let trace = channel(context, hit.ssr.as_ref().unwrap().textures()[3], sample, 0);
+    let confidence = channel(context, hit.ssr.as_ref().unwrap().textures()[3], sample, 3);
     let coefficients =
         worldrunner_render_lighting::ibl::brdf_integral(0.5, 0.5, 64).map(rounded_half);
     let factor = rounded_half(0.02037) * coefficients[0] + coefficients[1];
@@ -116,10 +116,10 @@ fn full_ray_forward_publication_matches_fogged_colour_at_every_supported_sample_
         for sample in 0..samples {
             let a = baseline.ssr.as_ref().unwrap().textures();
             let b = fogged.ssr.as_ref().unwrap().textures();
-            let base = channel(&context, a[2], sample, 0);
-            let env = channel(&context, b[2], sample, 0);
-            let factor = channel(&context, b[3], sample, 0);
-            let base_factor = channel(&context, a[3], sample, 0);
+            let base = channel(&context, a[1], sample, 0);
+            let env = channel(&context, b[1], sample, 0);
+            let factor = channel(&context, b[2], sample, 0);
+            let base_factor = channel(&context, a[2], sample, 0);
             let color = channel(&context, fogged.targets().scene().texture(), sample, 0);
             let base_color = channel(&context, baseline.targets().scene().texture(), sample, 0);
             let mut checked = 0;

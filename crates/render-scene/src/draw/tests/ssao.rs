@@ -214,8 +214,11 @@ pub(super) fn capture_metadata(
     .unwrap();
     if material {
         let metadata = renderer.ssao.as_mut().unwrap();
-        (metadata.geometry.pipelines, metadata.geometry.group) =
-            crate::scene_metadata::pipelines(context.device(), &metadata.uniform, true);
+        (metadata.geometry.pipelines, metadata.geometry.group) = crate::scene_metadata::pipelines(
+            context.device(),
+            &metadata.uniform,
+            crate::scene_metadata::MetadataOutput::Material,
+        );
     }
     let pipelines =
         ScenePipelines::with_ssao(context.device(), wgpu::TextureFormat::Rgba16Float, samples)
@@ -326,7 +329,11 @@ fn gpu_ssao_uniform_alpha_mask_prepass_uses_colour_cutoff() {
     }
 }
 
-fn read_texture(context: &GpuContext, size: [u32; 2], texture: &wgpu::Texture) -> Vec<u8> {
+pub(super) fn read_texture(
+    context: &GpuContext,
+    size: [u32; 2],
+    texture: &wgpu::Texture,
+) -> Vec<u8> {
     Readback::new(
         context.device(),
         FrameConfig::new(size, texture.format(), 1),
@@ -393,7 +400,7 @@ fn gpu_scalable_shared_coverage_at_every_supported_sample_count() {
     }
 }
 
-fn metadata_view(size: [u32; 2]) -> SceneView {
+pub(super) fn metadata_view(size: [u32; 2]) -> SceneView {
     SceneView::new(
         pose(),
         camera(),

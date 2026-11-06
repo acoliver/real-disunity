@@ -29,7 +29,7 @@ fn rotated_graphic_and_text_cannot_paint_outside_renderer_clip_after_resize() {
     assert_eq!(ui.graphics[0].clip_rect, [12, 16, 8, 8]);
     let mut text = plan([0., 1., 0., 1.]).texts.remove(0);
     text.clip_rect = ui.graphics[0].clip_rect;
-    text.texture.as_mut().unwrap().bytes.fill(255);
+    std::sync::Arc::make_mut(&mut text.texture.as_mut().unwrap().bytes).fill(255);
     text.hierarchy_order = ui.graphics[0].hierarchy_order + 1;
     ui.texts.push(text);
     let mut driver = Driver::default();

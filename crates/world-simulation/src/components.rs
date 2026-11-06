@@ -137,7 +137,7 @@ impl ComponentDesc {
 }
 
 /// Checks that a script type's assembly and type name are 1 to 1024 bytes each.
-pub(crate) fn validate_script_name(assembly: &str, type_name: &str) -> Result<(), WorldError> {
+fn validate_script_name(assembly: &str, type_name: &str) -> Result<(), WorldError> {
     if assembly.is_empty()
         || type_name.is_empty()
         || assembly.len() > 1024

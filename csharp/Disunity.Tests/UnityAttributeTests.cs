@@ -16,6 +16,7 @@ internal static class UnityAttributeTests
         MenuAttributesKeepTheirArguments();
         FormerlySerializedAsKeepsEveryOldName();
         SupportedOnRenderPipelineKeepsItsTypes();
+        IsTypeSupportedOnRenderPipelineMatchesTheNamedPipelines();
         ResourcePathAttributesExpandTheirPaths();
         MovedFromKnowsWhetherTheAssemblyChanged();
         PropertyAttributesShareTheirBaseClass();
@@ -82,6 +83,39 @@ internal static class UnityAttributeTests
         Expect.Sequence(new[] { typeof(Decorated), typeof(RenderingLayerMask) }, two.renderPipelineTypes, "several pipeline types");
         Expect.That(!one.isSupportedOnCurrentPipeline, "a type that names a pipeline is not supported when no pipeline asset is active");
         Expect.That(new SupportedOnRenderPipelineAttribute().isSupportedOnCurrentPipeline, "an attribute that names no pipeline is supported everywhere");
+    }
+
+    private class PipelineA { }
+    private sealed class DerivedPipelineA : PipelineA { }
+    private sealed class PipelineB { }
+    private sealed class PipelineC { }
+
+    [SupportedOnRenderPipeline(typeof(PipelineA))]
+    private class OnlyOnA { }
+
+    [SupportedOnRenderPipeline(typeof(PipelineA), typeof(PipelineB))]
+    private sealed class OnAOrB { }
+
+    [SupportedOnRenderPipeline]
+    private sealed class OnNone { }
+
+    private sealed class DerivedFromOnlyOnA : OnlyOnA { }
+
+    private sealed class Unmarked { }
+
+    private static void IsTypeSupportedOnRenderPipelineMatchesTheNamedPipelines()
+    {
+        Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(Unmarked), typeof(PipelineC)), "a type with no attribute is supported on every pipeline");
+        Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), typeof(PipelineA)), "a type is supported on the pipeline its attribute names");
+        Expect.That(!SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), typeof(PipelineB)), "a type is not supported on a pipeline its attribute does not name");
+        Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnAOrB), typeof(PipelineB)), "any of several named pipelines supports the type");
+        Expect.That(!SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnAOrB), typeof(PipelineC)), "an unnamed pipeline does not");
+        Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), typeof(DerivedPipelineA)), "a pipeline derived from a named one supports the type (the engine's choice)");
+        Expect.That(!SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), typeof(object)), "a base of a named pipeline does not");
+        Expect.That(!SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnNone), typeof(PipelineA)), "an attribute that names no pipeline supports none");
+        Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(DerivedFromOnlyOnA), typeof(PipelineA)), "a derived type keeps the attribute of its base");
+        Expect.Throws<ArgumentNullException>(() => SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(null!, typeof(PipelineA)), "a null type");
+        Expect.Throws<ArgumentNullException>(() => SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), null!), "a null pipeline");
     }
 
     private static void ResourcePathAttributesExpandTheirPaths()

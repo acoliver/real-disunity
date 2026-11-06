@@ -17,6 +17,9 @@ concurrency:
 
 env:
   CARGO_BUILD_JOBS: 2
+  # Line tables keep backtraces readable at a fraction of full debug info's disk use.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
   classify:
@@ -137,16 +140,17 @@ jobs:
         run: python3 .github/scripts/ci_changes.py markdown-inputs --target target/validation --root .
 
   gpu-tests:
-    name: gpu tests (${{ matrix.shard }}/8)
+    name: gpu tests (${{ matrix.shard }}/12)
     needs: classify
     if: needs.classify.outputs.scope == 'full'
     runs-on: ubuntu-latest
-    # Shards are dealt by test name, not duration, so one can draw several slow tests.
-    timeout-minutes: 30
+    # Eight shards took 11.6 to 27.5 minutes on 4 and 5 November and two hit the old
+    # 30 minute limit; twelve shards leave each well inside this one.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -160,11 +164,11 @@ jobs:
         with:
           shared-key: lavapipe
           save-if: false
-      - name: Required GPU tests, one eighth of the full suite
+      - name: Required GPU tests, one twelfth of the full suite
         env:
           WGPU_BACKEND: vulkan
           WGPU_ADAPTER_NAME: llvmpipe
-        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu-shard ${{ matrix.shard }}/8
+        run: xvfb-run --auto-servernum --server-args="-screen 0 8192x8192x24 -nolisten tcp" cargo xtask ci-gpu-shard ${{ matrix.shard }}/12
 
   gpu-csharp:
     name: gpu tests of C# consumers

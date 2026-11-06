@@ -126,6 +126,10 @@ fn preflight(root: &Path) -> Result<(), String> {
     run_command(root, "cargo", &["fmt", "--all", "--check"])
 }
 
+/// Strict lint enforces the complexity limits and type-checks every target, so the CI profiles
+/// run no separate complexity or check pass.
+const CI_STEPS: [&str; 4] = ["lint", "build", "test", "doc"];
+
 const GPU_REQUIRED_NOTICE: &str = "GPU required mode: all selected tests, including ignored tests, run without name filters; missing adapters are errors";
 
 /// Every `ci-gpu` check except the test run, which `ci-gpu-shard` splits across runners.
@@ -134,7 +138,7 @@ pub fn ci_gpu_static(root: &Path) -> Result<(), String> {
     let data = metadata::read(root, &["--locked", "--all-features"])?;
     let selected = selection(&data, Profile::Gpu)?;
     eprintln!("{GPU_REQUIRED_NOTICE}");
-    for command in ["lint", "complexity", "check", "build", "doc"] {
+    for command in CI_STEPS.into_iter().filter(|command| *command != "test") {
         execute(root, command, &selected, true)?;
     }
     Ok(())
@@ -176,7 +180,7 @@ pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
     if gpu {
         eprintln!("{GPU_REQUIRED_NOTICE}");
     }
-    for command in ["lint", "complexity", "check", "build", "test", "doc"] {
+    for command in CI_STEPS {
         execute(root, command, &selected, gpu)?;
         if profile == Profile::Cpu {
             execute(

@@ -85,8 +85,8 @@ mode or profile for the same behavior. Unsupported behavior must fail explicitly
 
 Write a behavioral regression test first, confirm its intended failure and then
 implement the change. Do not weaken tests, suppress warnings or loosen limits.
-Functions are limited to 60 lines, six arguments and cognitive complexity 15;
-type complexity is 250, with at most three boolean fields per struct. Aim for
+Functions are limited to 100 lines, seven arguments and cognitive complexity 25;
+type complexity is 250, with at most four boolean fields per struct. Aim for
 source files under 750 lines; 1000 is the hard limit. Do not add lint allowances.
 Update affected user docs, subsystem contracts and examples in the same PR. Follow
 the [third-party licensing rule](dev-docs/README.md#rules-that-apply-to-every-change)

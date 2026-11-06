@@ -11,6 +11,7 @@
 //! render texture reads as [`TextureRef::None`] through [`World::live_texture`]. Offscreen work
 //! that names a destroyed render texture stays in the list, and the host skips it when the id no
 //! longer resolves.
+mod active_pass;
 mod compute;
 mod material;
 mod offscreen;
@@ -20,6 +21,7 @@ mod slab;
 pub mod snapshot;
 pub mod snapshot_wire;
 
+pub use active_pass::ActivePass;
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
     WorldComputeBuffer, WorldComputeShader,
@@ -187,6 +189,8 @@ pub(crate) struct GraphicsState {
     compute_bytes: u64,
     global: GlobalShaderState,
     offscreen: Vec<OffscreenWork>,
+    /// The pass immediate-mode draws use; not part of the snapshot.
+    active_pass: Option<ActivePass>,
 }
 
 impl GraphicsState {
@@ -205,6 +209,7 @@ impl GraphicsState {
             compute_bytes: 0,
             global: GlobalShaderState::new(),
             offscreen: Vec::new(),
+            active_pass: None,
         }
     }
 }

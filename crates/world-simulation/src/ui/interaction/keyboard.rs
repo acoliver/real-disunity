@@ -1,4 +1,4 @@
-use super::{Targets, UiControlKind, UiKey, UiResponse, UiRouter, groups_by_object};
+use super::{TargetId, Targets, UiControlKind, UiKey, UiResponse, UiRouter, groups_by_object};
 use crate::ui::UiLayout;
 use crate::{ObjectHandle, World, WorldError};
 
@@ -15,12 +15,7 @@ impl UiRouter {
         let groups = groups_by_object(world.published_components());
         let targets = Targets::new(world, layout, self, &groups)?;
         self.modal_changed(targets.modal);
-        let order: Vec<_> = targets
-            .rects
-            .iter()
-            .map(|r| r.object)
-            .filter(|o| targets.interactable(*o))
-            .collect();
+        let order = targets.order();
         self.focus = self.focus.filter(|o| order.contains(o));
         let mut response = UiResponse {
             consumed: self.focus.is_some() || targets.modal.is_some(),
@@ -51,18 +46,18 @@ impl UiRouter {
             _ if navigation => {
                 response.actions.extend(self.slider_key(key));
                 if let Some(object) = self.navigate_list(&order, key) {
-                    self.focus = Some(object);
-                    response.actions.extend(self.activate(object));
+                    self.focus = Some(object.into());
+                    response.actions.extend(self.activate(object.into()));
                 }
             }
             _ => {}
         }
         if let Some(object) = self.focus {
-            self.layout.reveal(world, layout, object)?;
+            self.reveal_target(world, layout, object, &targets)?;
         }
         Ok(response)
     }
-    fn tab(&mut self, order: &[ObjectHandle]) {
+    fn tab(&mut self, order: &[TargetId]) {
         let reverse = self.keys.contains(&UiKey::Shift);
         let current = self.focus.and_then(|o| order.iter().position(|v| *v == o));
         let next = match (current, reverse) {
@@ -73,18 +68,26 @@ impl UiRouter {
         };
         self.focus = Some(order[next]);
     }
-    fn navigate_list(&self, order: &[ObjectHandle], key: UiKey) -> Option<ObjectHandle> {
+    fn navigate_list(&self, order: &[TargetId], key: UiKey) -> Option<ObjectHandle> {
         let focus = self.focus?;
+        if focus.link.is_some() {
+            return None;
+        }
+        let focus = focus.object;
         let UiControlKind::ListItem { list, .. } = self.controls[&focus].kind else {
             return None;
         };
         let mut items: Vec<_> = order
             .iter()
-            .filter_map(|&object| match self.controls[&object].kind {
-                UiControlKind::ListItem { list: owner, index } if list == owner => {
-                    Some((index, object))
+            .filter(|target| target.link.is_none())
+            .filter_map(|target| {
+                let object = target.object;
+                match self.controls[&object].kind {
+                    UiControlKind::ListItem { list: owner, index } if list == owner => {
+                        Some((index, object))
+                    }
+                    _ => None,
                 }
-                _ => None,
             })
             .collect();
         items.sort_by_key(|entry| entry.0);

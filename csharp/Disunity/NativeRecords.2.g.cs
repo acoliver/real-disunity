@@ -338,6 +338,17 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  The active pass: `active` is 1 when a pass is active, and then `material` and `pass` name it.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityActivePass
+    {
+        public ulong material;
+        public uint pass;
+        public uint active;
+    }
+
+    /// <summary>
     ///  What a material holds besides its properties. `generation` rises with every edit.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]

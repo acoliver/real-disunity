@@ -47,6 +47,7 @@ fn glyphs(object: worldrunner_world_simulation::ObjectHandle, viewport: [u32; 2]
                 bytes: vec![0, 128].into(),
             }),
             quads: vec![UiGlyphQuad {
+                link: None,
                 color: [1., 0.5, 0.25, 0.5],
                 corners: [[0., 0., 0.], [20., 0., 0.], [20., 10., 0.], [0., 10., 0.]],
                 uv: [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],

@@ -1,3 +1,4 @@
+mod annotations;
 mod blend_tests;
 mod graphics;
 mod text_field;

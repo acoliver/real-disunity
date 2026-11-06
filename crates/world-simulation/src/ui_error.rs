@@ -4,6 +4,12 @@ pub struct FontId(pub(crate) u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum UiError {
+    #[error("invalid annotation geometry or alignment")]
+    InvalidAnnotation,
+    #[error("annotation segment or frame vertex budget exceeded")]
+    AnnotationLimit,
+    #[error("depth-tested annotations require scene depth unavailable in the display overlay")]
+    UnsupportedAnnotationDepth,
     #[error("invalid rectangle")]
     InvalidRect,
     #[error("invalid Canvas or scaler")]

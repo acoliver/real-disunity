@@ -34,6 +34,8 @@ pub struct DynamicQuad {
     pub position: [f32; 3],
     /// Optional local vertices preserving full affine contributions, including shear.
     pub corners: Option<[[f32; 3]; 4]>,
+    /// Triangle-list UVs, using the first three corners and three indices only.
+    pub triangle_uv: Option<[[f32; 2]; 3]>,
     /// Screen overlays follow all world quads, then use their own layer/order keys.
     pub overlay: bool,
     /// Canonical unit quaternion, x/y/z/w.
@@ -63,6 +65,7 @@ impl Default for DynamicQuad {
         Self {
             position: [0.0; 3],
             corners: None,
+            triangle_uv: None,
             overlay: false,
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0; 3],

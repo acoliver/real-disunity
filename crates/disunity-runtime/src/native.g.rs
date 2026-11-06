@@ -912,17 +912,24 @@ pub struct DisunityPropertyRead {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
-    /// 0: image/solid graphic; 1: text sampling prepared R8 coverage.
+    /// 0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
     pub kind: u32,
     pub hierarchy_order: u64,
     pub clip_x: u32,
     pub clip_y: u32,
     pub clip_width: u32,
     pub clip_height: u32,
+    /// Top-row-origin UV pairs for kind 2, in corner order; zero for kinds 0 and 1.
+    pub triangle_u0: f32,
+    pub triangle_v0: f32,
+    pub triangle_u1: f32,
+    pub triangle_v1: f32,
+    pub triangle_u2: f32,
+    pub triangle_v2: f32,
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 7;
+pub const DISUNITY_ABI_VERSION: u32 = 8;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

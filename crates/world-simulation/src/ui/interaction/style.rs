@@ -36,6 +36,9 @@ impl UiRouter {
                 link: graphic.link,
             };
             if let Some(tint) = self.tint(id, hover, &targets) {
+                for vertex in graphic.graphic.triangles.iter_mut().flatten() {
+                    multiply(&mut vertex.color, tint);
+                }
                 for quad in &mut graphic.graphic.quads {
                     multiply(&mut quad.color, tint);
                 }

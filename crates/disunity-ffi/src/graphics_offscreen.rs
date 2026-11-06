@@ -4,6 +4,7 @@ use crate::{
     DisunityResult,
     callbacks::mutate,
     errors::AbiError,
+    graphics_commands::{command_kind, detail_of},
     graphics_properties::{texture_parts, texture_ref},
     physics::{component, identity},
     store::Session,
@@ -24,7 +25,9 @@ const WORK_DISPATCH: u32 = 3;
 /// groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
 /// it ran with by, valid until the next take. A dispatch is recorded by
 /// `disunity_compute_dispatch`, never by [`disunity_offscreen_record`], and only taking returns
-/// one. Fields a kind does not use are ignored.
+/// one. The commands of `graphics_commands` take kinds 4 to 9 and a `bindings` token for
+/// `disunity_offscreen_detail`, which reads the record's encoded bytes; they are recorded by
+/// their own calls. Fields a kind does not use are ignored.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityOffscreenWork {
@@ -72,7 +75,7 @@ impl DisunityOffscreenWork {
             WORK_DISPATCH => {
                 Err("a compute dispatch is recorded by disunity_compute_dispatch".into())
             }
-            _ => Err("offscreen work is a camera render (0), a blit (1) or a copy (2)".into()),
+            _ => Err("offscreen work is a camera render (0), a blit (1) or a copy (2); commands have their own calls".into()),
         }
     }
 
@@ -99,6 +102,11 @@ impl DisunityOffscreenWork {
                 groups_x: groups[0],
                 groups_y: groups[1],
                 groups_z: groups[2],
+                bindings: token,
+                ..Self::default()
+            },
+            command => Self {
+                kind: command_kind(command).unwrap_or_default(),
                 bindings: token,
                 ..Self::default()
             },
@@ -200,11 +208,16 @@ pub unsafe extern "C" fn disunity_offscreen_take(
         }
         let drained = s.native.take_offscreen();
         s.dispatch_bindings.clear();
+        s.work_details.clear();
         for (index, work) in drained.iter().enumerate() {
             let token = match work {
                 OffscreenWork::Dispatch { bindings, .. } => {
                     s.dispatch_bindings.push(bindings.clone());
                     u32::try_from(s.dispatch_bindings.len()).map_err(|_| "work count overflow")?
+                }
+                other if command_kind(other).is_some() => {
+                    s.work_details.push(detail_of(other)?);
+                    u32::try_from(s.work_details.len()).map_err(|_| "work count overflow")?
                 }
                 _ => 0,
             };

@@ -346,7 +346,7 @@ pub struct DisunityRenderTexture {
 }
 
 impl DisunityRenderTexture {
-    fn to_native(self) -> Result<WorldRenderTexture, AbiError> {
+    pub(crate) fn to_native(self) -> Result<WorldRenderTexture, AbiError> {
         if self.srgb > 1 {
             return Err("a render texture's sRGB flag is 0 or 1".into());
         }

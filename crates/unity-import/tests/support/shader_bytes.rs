@@ -29,7 +29,7 @@ fn write_empty_program(w: &mut ObjectWriter) {
     w.i32(1).u16(0).align();
 }
 
-fn write_pass(w: &mut ObjectWriter) {
+fn write_pass(w: &mut ObjectWriter, name: &str) {
     w.i32(0).i32(0);
     write_state(w);
     w.u32(0);
@@ -39,15 +39,15 @@ fn write_pass(w: &mut ObjectWriter) {
     w.u8(0).u8(0).align();
     w.string("")
         .unwrap()
-        .string("")
+        .string(name)
         .unwrap()
         .string("")
         .unwrap();
     w.i32(0);
 }
 
-/// A shader declared as `name` whose sub-shaders hold `passes` passes each, tagged with the
-/// queue `queue` when there is one.
+/// A shader declared as `name` whose sub-shaders hold `passes` unnamed passes each, tagged with
+/// the queue `queue` when there is one.
 pub fn shader(name: &str, queue: Option<(&str, &str)>, passes: &[usize]) -> Vec<u8> {
     shader_with_platforms(name, queue, passes, &[])
 }
@@ -59,13 +59,31 @@ pub fn shader_with_platforms(
     passes: &[usize],
     platforms: &[u32],
 ) -> Vec<u8> {
+    let names: Vec<Vec<&str>> = passes.iter().map(|&count| vec![""; count]).collect();
+    let names: Vec<&[&str]> = names.iter().map(Vec::as_slice).collect();
+    named_shader_with_platforms(name, queue, &names, platforms)
+}
+
+/// A shader declared as `name` with one sub-shader per entry of `sub_shaders`, whose passes
+/// carry the names listed, tagged with the queue `queue` when there is one.
+pub fn named_shader(name: &str, queue: Option<(&str, &str)>, sub_shaders: &[&[&str]]) -> Vec<u8> {
+    named_shader_with_platforms(name, queue, sub_shaders, &[])
+}
+
+/// A shader as [`named_shader`] writes it, compiled for `platforms`, each with no chunks.
+pub fn named_shader_with_platforms(
+    name: &str,
+    queue: Option<(&str, &str)>,
+    sub_shaders: &[&[&str]],
+    platforms: &[u32],
+) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string("").unwrap().i32(0);
-    w.i32(i32::try_from(passes.len()).unwrap());
-    for &count in passes {
-        w.i32(i32::try_from(count).unwrap());
-        for _ in 0..count {
-            write_pass(&mut w);
+    w.i32(i32::try_from(sub_shaders.len()).unwrap());
+    for &pass_names in sub_shaders {
+        w.i32(i32::try_from(pass_names.len()).unwrap());
+        for &pass_name in pass_names {
+            write_pass(&mut w, pass_name);
         }
         match queue {
             Some((key, value)) => {

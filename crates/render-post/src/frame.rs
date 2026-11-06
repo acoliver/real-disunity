@@ -7,7 +7,6 @@ use crate::FrameTargets;
 pub enum PassSlot {
     ShadowCasters(u32),
     DepthNormalPrepass,
-    ReflectionMaterial,
     DepthPyramid(u32),
     OcclusionMetadata(u32),
     Ssao,
@@ -446,6 +445,23 @@ impl<'a> PrepareContext<'a> {
     pub fn copy_buffer(&mut self, source: &wgpu::Buffer, destination: &wgpu::Buffer, bytes: u64) {
         self.copies
             .push((source.clone(), 0, destination.clone(), 0, bytes));
+    }
+    /// Stages a copy of `bytes` bytes between buffer offsets, encoded after the copies staged
+    /// before it. A gather that reads bytes uploaded in this context therefore sees them.
+    /// Offsets and `bytes` must be multiples of `wgpu::COPY_BUFFER_ALIGNMENT`.
+    pub fn copy_buffer_region(
+        &mut self,
+        source: (&wgpu::Buffer, u64),
+        destination: (&wgpu::Buffer, u64),
+        bytes: u64,
+    ) {
+        self.copies.push((
+            source.0.clone(),
+            source.1,
+            destination.0.clone(),
+            destination.1,
+            bytes,
+        ));
     }
     pub fn upload_buffer(&mut self, destination: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
         use wgpu::util::DeviceExt;

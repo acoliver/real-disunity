@@ -1,8 +1,8 @@
 //! Constant buffers packed from a player variant's layout: members are named in place, so a
 //! property is found by the member's name, and the member's byte offset places it.
 
-use worldrunner_render_program::constants::{ConstantError, pack_variant_buffer};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
+use worldrunner_render_program::unity::constants::{ConstantError, pack_variant_buffer};
 use worldrunner_unity_serialized::shader_parameters::{BufferMember, ConstantBuffer, StructLayout};
 
 const FLOAT: i32 = 0;

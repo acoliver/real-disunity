@@ -1,3 +1,5 @@
+override SCENE_IMPOSTOR: bool = true;
+const SCENE_ATLAS_MIP_FLAG: u32 = 4u;
 struct AtlasFrames {
     cells: array<vec2<f32>, 4>,
     weights: vec4<f32>,
@@ -61,29 +63,60 @@ fn scene_atlas_plane_uv(cell: vec2<f32>, grid: vec2<f32>, eye: vec3<f32>, point:
     return vec2<f32>(1.0 - uv.x, uv.y);
 }
 
-fn scene_atlas_sample(map: texture_2d<f32>, input: VertexOutput) -> vec4<f32> {
-    let stock = textureSampleBias(map, material_sampler, input.texcoord, frame.lighting_options.w);
-    if input.atlas_eye.w == 0.0 {
-        return stock;
-    }
-    let grid = material.impostor_grid.xy;
-    let octahedral = material.impostor_grid.w == 2.0;
+// Capture all clamped footprints before any fragment-dependent control flow.
+// Material-uniform gates can skip footprints; explicit samples can branch per fragment.
+struct AtlasFootprint {
+    uv: array<vec2<f32>, 4>,
+    dx: array<vec2<f32>, 4>,
+    dy: array<vec2<f32>, 4>,
+    stock_dx: vec2<f32>,
+    stock_dy: vec2<f32>,
+}
+fn scene_atlas_coordinates(map: texture_2d<f32>, input: VertexOutput) -> array<vec2<f32>, 4> {
     let selected = scene_atlas_selection(input);
-    let dimensions = vec2<f32>(textureDimensions(map));
-    let inset = scene_atlas_inset(dimensions);
+    let inset = scene_atlas_inset(vec2<f32>(textureDimensions(map)));
+    let planes = array<vec2<f32>, 4>(input.atlas_uv01.xy, input.atlas_uv01.zw, input.atlas_uv23.xy, input.atlas_uv23.zw);
+    var coordinates: array<vec2<f32>, 4>;
+    for (var i = 0u; i < 4u; i++) {
+        let uv = select(input.texcoord, planes[i], material.impostor_grid.w == 2.0);
+        coordinates[i] = scene_atlas_uv(uv, selected.cells[i], material.impostor_grid.xy, inset);
+    }
+    return coordinates;
+}
+fn scene_atlas_footprint(map: texture_2d<f32>, input: VertexOutput) -> AtlasFootprint {
+    let bias = exp2(frame.lighting_options.w);
+    var footprint: AtlasFootprint;
+    footprint.stock_dx = dpdx(input.texcoord) * bias;
+    footprint.stock_dy = dpdy(input.texcoord) * bias;
+    if !SCENE_IMPOSTOR { return footprint; }
+    if material.impostor_grid.w != 0.0 {
+        let uv = scene_atlas_coordinates(map, input);
+        footprint.uv = uv;
+        if (material.wind_clock.z & SCENE_ATLAS_MIP_FLAG) != 0u {
+            footprint.dx = array<vec2<f32>, 4>(dpdx(uv[0]) * bias, dpdx(uv[1]) * bias, dpdx(uv[2]) * bias, dpdx(uv[3]) * bias);
+            footprint.dy = array<vec2<f32>, 4>(dpdy(uv[0]) * bias, dpdy(uv[1]) * bias, dpdy(uv[2]) * bias, dpdy(uv[3]) * bias);
+        }
+    }
+    return footprint;
+}
+fn scene_atlas_sample(map: texture_2d<f32>, input: VertexOutput, footprint: AtlasFootprint) -> vec4<f32> {
+    if !SCENE_IMPOSTOR { return textureSampleGrad(map, material_sampler, input.texcoord, footprint.stock_dx, footprint.stock_dy); }
+    if material.impostor_grid.w == 0.0 {
+        return textureSampleGrad(map, material_sampler, input.texcoord, footprint.stock_dx, footprint.stock_dy);
+    }
+    if input.atlas_eye.w == 0.0 {
+        return textureSampleGrad(map, material_sampler, input.texcoord, footprint.stock_dx, footprint.stock_dy);
+    }
+    let selected = scene_atlas_selection(input);
     var value = vec4<f32>(0.0);
     for (var i = 0u; i < 4u; i++) {
-        var uv = input.texcoord;
-        if octahedral {
-            let coordinates = array<vec2<f32>, 4>(input.atlas_uv01.xy, input.atlas_uv01.zw, input.atlas_uv23.xy, input.atlas_uv23.zw);
-            uv = coordinates[i];
-        }
-        let atlas_uv = scene_atlas_uv(uv, selected.cells[i], grid, inset);
-        let dx = dpdx(atlas_uv) * exp2(frame.lighting_options.w);
-        let dy = dpdy(atlas_uv) * exp2(frame.lighting_options.w);
         if selected.weights[i] > 0.0 {
-            var sampled = textureSampleLevel(map, material_sampler, atlas_uv, 0.0);
-            if (material.wind_clock.z & 4u) != 0u { sampled = textureSampleGrad(map, material_sampler, atlas_uv, dx, dy); }
+            var sampled: vec4<f32>;
+            if (material.wind_clock.z & SCENE_ATLAS_MIP_FLAG) != 0u {
+                sampled = textureSampleGrad(map, material_sampler, footprint.uv[i], footprint.dx[i], footprint.dy[i]);
+            } else {
+                sampled = textureSampleLevel(map, material_sampler, footprint.uv[i], 0.0);
+            }
             value += sampled * selected.weights[i];
         }
     }
@@ -122,19 +155,17 @@ fn scene_relief_decode(encoded: vec2<f32>) -> vec3<f32> {
     let z = 1.0 - dot(ab, ab);
     return vec3<f32>(ab * sqrt(max(0.0, 1.0 + z)), z);
 }
-fn scene_relief_normal(input: VertexOutput) -> vec3<f32> {
+fn scene_relief_normal(input: VertexOutput, footprint: AtlasFootprint) -> vec3<f32> {
     let selected = scene_atlas_selection(input);
-    let grid = material.impostor_grid.xy;
-    let inset = scene_atlas_inset(vec2<f32>(textureDimensions(normal_texture)));
-    let coordinates = array<vec2<f32>,4>(input.atlas_uv01.xy,input.atlas_uv01.zw,input.atlas_uv23.xy,input.atlas_uv23.zw);
     var normal = vec3<f32>(0.0);
     for (var i=0u; i<4u; i++) {
-        let uv = scene_atlas_uv(coordinates[i],selected.cells[i],grid,inset);
-        let dx = dpdx(uv) * exp2(frame.lighting_options.w);
-        let dy = dpdy(uv) * exp2(frame.lighting_options.w);
         if selected.weights[i] > 0.0 {
-            var sampled = textureSampleLevel(normal_texture,material_sampler,uv,0.0);
-            if (material.wind_clock.z & 4u) != 0u { sampled = textureSampleGrad(normal_texture,material_sampler,uv,dx,dy); }
+            var sampled: vec4<f32>;
+            if (material.wind_clock.z & SCENE_ATLAS_MIP_FLAG) != 0u {
+                sampled = textureSampleGrad(normal_texture, material_sampler, footprint.uv[i], footprint.dx[i], footprint.dy[i]);
+            } else {
+                sampled = textureSampleLevel(normal_texture, material_sampler, footprint.uv[i], 0.0);
+            }
             normal += scene_relief_decode(sampled.rg) * selected.weights[i];
         }
     }
@@ -143,15 +174,20 @@ fn scene_relief_normal(input: VertexOutput) -> vec3<f32> {
     return normalize(transpose(capture) * n);
 }
 fn scene_relief_position(input: VertexOutput) -> vec3<f32> {
-    if input.atlas_eye.w == 0.0 || material.impostor_relief.x == 0.0 { return input.world_position; }
-    let depth = scene_atlas_sample(impostor_depth,input).r;
+    if !SCENE_IMPOSTOR { return input.world_position; }
+    if material.impostor_grid.w == 0.0 { return input.world_position; }
+    if material.impostor_relief.x == 0.0 { return input.world_position; }
+    let footprint = scene_atlas_footprint(impostor_depth, input);
+    if input.atlas_eye.w == 0.0 { return input.world_position; }
+    let depth = scene_atlas_sample(impostor_depth, input, footprint).r;
     return scene_relief_offset(input.world_position, depth * material.impostor_relief.x);
 }
-fn scene_relief_depth(input: VertexOutput) -> f32 {
-    if input.atlas_eye.w == 0.0 || material.impostor_relief.x == 0.0 { return input.clip_position.z; }
-    let clip = frame.view_projection * vec4<f32>(scene_relief_position(input),1.0);
-    if clip.w <= 0.0 { discard; }
-    return clip.z/clip.w;
+struct SceneReliefDepth { value: f32, visible: bool, position: vec3<f32>, }
+fn scene_relief_depth(input: VertexOutput) -> SceneReliefDepth {
+    let position = scene_relief_position(input);
+    if input.atlas_eye.w == 0.0 || material.impostor_relief.x == 0.0 { return SceneReliefDepth(input.clip_position.z, true, position); }
+    let clip = frame.view_projection * vec4<f32>(position,1.0);
+    return SceneReliefDepth(clip.z / clip.w, clip.w > 0.0, position);
 }
 struct SceneSurfaceOutput { @location(0) colour: vec4<f32>, @builtin(frag_depth) depth: f32, }
 
@@ -181,24 +217,12 @@ fn scene_relief_raster(clip: vec4<f32>, amount: f32) -> vec4<f32> {
 fn scene_packed_atlas(input: VertexOutput) -> bool {
     return input.atlas_eye.w != 0.0 && (material.wind_clock.z & 2u) != 0u;
 }
-fn scene_atlas_first(map: texture_2d<f32>, input: VertexOutput) -> vec4<f32> {
-    let selected = scene_atlas_selection(input);
-    var uv = input.texcoord;
-    if material.impostor_grid.w == 2.0 { uv = input.atlas_uv01.xy; }
-    let grid = material.impostor_grid.xy;
-    let inset = scene_atlas_inset(vec2<f32>(textureDimensions(map)));
-    let coord = scene_atlas_uv(uv, selected.cells[0], grid, inset);
-    let sampled = textureSampleBias(map, material_sampler, coord, frame.lighting_options.w);
-    if (material.wind_clock.z & 4u) != 0u { return sampled; }
-    return textureSampleLevel(map, material_sampler, coord, 0.0);
+fn scene_atlas_first(map: texture_2d<f32>, footprint: AtlasFootprint) -> vec4<f32> {
+    if (material.wind_clock.z & SCENE_ATLAS_MIP_FLAG) != 0u {
+        return textureSampleGrad(map, material_sampler, footprint.uv[0], footprint.dx[0], footprint.dy[0]);
+    }
+    return textureSampleLevel(map, material_sampler, footprint.uv[0], 0.0);
 }
-fn scene_surface_channels(input: VertexOutput, sampled: vec4<f32>) -> vec2<f32> {
-    if scene_packed_atlas(input) { return scene_atlas_first(rough_metal_texture, input).rg; }
-    return vec2<f32>(material.roughness * sampled.g, material.metalness * sampled.b);
-}
-
-fn scene_atlas_inset(dimensions: vec2<f32>) -> vec2<f32> {
-    let border = vec2<f32>(material.impostor_grid.z);
-    if (material.wind_clock.z & 4u) != 0u { return border; }
-    return max(border, 0.5 * material.impostor_grid.xy / dimensions);
-}
+fn scene_surface_channels(input: VertexOutput) -> vec2<f32> {
+    if (material.texture_flags & FLAG_ROUGH_METAL) == 0u { return vec2<f32>(material.roughness, material.metalness); }
+    let footprint = scene_atlas_footprint(rough_metal_texture, input);

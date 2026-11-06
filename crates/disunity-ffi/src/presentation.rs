@@ -44,10 +44,11 @@ pub unsafe extern "C" fn disunity_world_export_sprites(
             worldrunner_world_simulation::presentation::lighting::GlobalLighting::from_world(
                 &s.native,
             )?;
-        for component in s.native.snapshot().components {
-            let ComponentDesc::Sprite(mut renderer) = component.desc else {
+        for component in s.native.published_components() {
+            let ComponentDesc::Sprite(renderer) = &component.desc else {
                 continue;
             };
+            let mut renderer = renderer.clone();
             if !s
                 .native
                 .active_in_hierarchy(component.object)
@@ -179,11 +180,12 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             .map_err(crate::errors::AbiError::from)?;
         let ui = extract_ui(&s.native, &s.fonts, [width, height])
             .map_err(crate::errors::AbiError::from)?;
+        let ui_presentation =
+            worldrunner_world_simulation::ui::presentation::UiPresentation::from_plan(&ui);
         let graphics =
             extract_graphics(&s.native, &ui.layout).map_err(crate::errors::AbiError::from)?;
         let mesh_objects =
             extract_mesh_objects(&s.native).map_err(crate::errors::AbiError::from)?;
-        note_left_out_triangles(s, &graphics);
         // Graphics go in first, so the engine's own text of the same sorting key draws over them.
         append_graphics(&mut plan, graphics)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
@@ -212,6 +214,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             write_lens(&mut header, state.lens);
         }
         s.presentation = Some(plan);
+        s.ui_presentation = Some(ui_presentation);
         s.mesh_objects = mesh_objects;
         unsafe {
             *output = header;
@@ -235,21 +238,6 @@ fn next_glyph_texture(
         .map_or(Some(floor), |n| n.checked_add(1).map(|n| n.max(floor)))
 }
 
-/// Names, once per renderer, the triangles of a mesh that make no quad, which are not drawn.
-fn note_left_out_triangles(
-    session: &mut crate::store::Session,
-    graphics: &[worldrunner_world_simulation::ui::UiGraphic],
-) {
-    for graphic in graphics {
-        if graphic.left_out_triangles > 0 && session.left_out_noted.insert(graphic.object) {
-            eprintln!(
-                "canvas renderer on {:?}: {} triangles make no quad and are left out",
-                graphic.object, graphic.left_out_triangles
-            );
-        }
-    }
-}
-/// Fills the lens fields; the fields of the other lens kind stay zero.
 fn write_lens(header: &mut DisunityPresentation, lens: worldrunner_camera::CameraLens) {
     use worldrunner_camera::CameraLens;
     match lens {
@@ -346,29 +334,36 @@ pub unsafe extern "C" fn disunity_presentation_coverage(
             .as_ref()
             .and_then(|p| p.textures.iter().nth(index as usize))
             .ok_or("presentation texture index out of range")?;
-        let width = texture.width;
-        let height = texture.height;
-        let data = &texture.bytes;
-        let length = u32::try_from(data.len()).map_err(|_| "coverage length overflow")?;
-        unsafe {
-            *output = DisunityCoverage {
-                identity: *identity,
-                width,
-                height,
-                length,
-            };
-        }
-        if capacity == 0 {
-            return Ok(());
-        }
-        if capacity < length {
-            return Err("coverage copy capacity is too small".into());
-        }
-        unsafe {
-            std::ptr::copy_nonoverlapping(data.as_ptr(), bytes, data.len());
-        }
-        Ok(())
+        unsafe { copy_coverage(*identity, texture, output, bytes, capacity) }
     })
+}
+
+pub(crate) unsafe fn copy_coverage(
+    identity: u64,
+    texture: &worldrunner_world_simulation::presentation::CoverageTexture,
+    output: *mut DisunityCoverage,
+    bytes: *mut u8,
+    capacity: u32,
+) -> Result<(), crate::errors::AbiError> {
+    let length = u32::try_from(texture.bytes.len()).map_err(|_| "coverage length overflow")?;
+    unsafe {
+        *output = DisunityCoverage {
+            identity,
+            width: texture.width,
+            height: texture.height,
+            length,
+        };
+    }
+    if capacity == 0 {
+        return Ok(());
+    }
+    if capacity < length {
+        return Err("coverage copy capacity is too small".into());
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(texture.bytes.as_ptr(), bytes, texture.bytes.len());
+    }
+    Ok(())
 }
 
 /// One mesh renderer of the last prepared frame. `mesh` is the renderer identity of the mesh

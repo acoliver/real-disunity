@@ -1,5 +1,12 @@
 use super::{Device, DrawError, RenderScene, SceneGpu, ScenePipelines};
 
+fn dynamic_refused(error: &crate::dynamic::DynamicError) -> worldrunner_render_post::FrameError {
+    worldrunner_render_post::FrameError::FeaturePreparation {
+        feature: "dynamic quads",
+        reason: error.to_string(),
+    }
+}
+
 impl SceneGpu {
     /// An empty resident scene for runtime contributions.
     pub fn empty(
@@ -18,7 +25,8 @@ impl SceneGpu {
         .expect("empty scene");
         Self::upload(device, authority, &scene, pipelines)
     }
-    /// Atomically replaces the runtime quad contribution.
+    /// Atomically replaces the runtime quad contribution. The quads are prepared for the pass
+    /// `pipelines` describe, which is the pass the frames that draw them must open.
     pub fn set_dynamic_quads(
         &mut self,
         device: &Device,
@@ -30,9 +38,18 @@ impl SceneGpu {
             device,
             authority.queue(),
             crate::dynamic::DynamicBindings {
-                pipelines,
                 placeholder: &self.retained.placeholder,
                 sampler: &self.retained.sampler,
+                target: crate::dynamic::QuadTarget::Scene(crate::dynamic::SceneStaging {
+                    pipelines,
+                    frames: self
+                        .frame_slots
+                        .iter()
+                        .map(|(frame, _)| frame.clone())
+                        .collect(),
+                    runtime: &mut self.unlit,
+                    authority,
+                }),
             },
             quads,
         )
@@ -53,14 +70,55 @@ impl SceneGpu {
             device,
             authority.queue(),
             crate::dynamic::DynamicBindings {
-                pipelines,
                 placeholder: &self.retained.placeholder,
                 sampler: &self.retained.sampler,
+                target: crate::dynamic::QuadTarget::Scene(crate::dynamic::SceneStaging {
+                    pipelines,
+                    frames: self
+                        .frame_slots
+                        .iter()
+                        .map(|(frame, _)| frame.clone())
+                        .collect(),
+                    runtime: &mut self.unlit,
+                    authority,
+                }),
             },
             quads,
         )?;
         self.dynamic = staged;
         Ok(())
+    }
+
+    /// Prepares the resident quads for the pass `pipelines` describe, when staging did not, and
+    /// makes the frame `encoder` records hold their draws until the GPU has completed it. A
+    /// frame that draws the quads calls this before it opens its pass, where a failure is still
+    /// an error rather than a lost draw.
+    pub(crate) fn prepare_dynamic(
+        &mut self,
+        encoder: &wgpu::CommandEncoder,
+        pipelines: &ScenePipelines,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        self.dynamic
+            .prepare_for(&mut self.unlit, pipelines)
+            .map_err(|error| dynamic_refused(&error))?;
+        self.retain_dynamic(encoder, pipelines)
+    }
+
+    /// Makes the frame `encoder` records hold the resident quads' draws for the pass `pipelines`
+    /// describe, or refuses by name when they were staged for another pass.
+    pub(crate) fn retain_dynamic(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+        pipelines: &ScenePipelines,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        self.dynamic
+            .retain(encoder, pipelines)
+            .map_err(|error| dynamic_refused(&error))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn dynamic_probes(&self) -> Vec<std::sync::Weak<dyn std::any::Any + Send + Sync>> {
+        self.dynamic.probes()
     }
 
     /// Releases every runtime texture, draw buffer and retained quad index buffer on unload.

@@ -5,6 +5,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll, Waker};
 
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
@@ -13,13 +15,24 @@ use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
 use crate::budget::{Ledger, Reservation};
 use crate::error::ProgramError;
 use crate::module::StageProgram;
-use crate::resources::Store;
+use crate::registry::Registry;
+use crate::resources::{Pins, Store};
 
+pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
+pub use crate::import::{
+    Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource, ImportedTexture,
+    ImportedVertexInput,
+};
+pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
+pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
 pub use crate::program::{ComputeProgram, GraphicsProgram};
 pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
-pub use crate::resources::{BoundResource, BufferHandle, Resource, TargetHandle, TextureHandle};
+pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
+pub use crate::resources::{
+    BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,
+};
 
 /// Shares the caller's wgpu device and `SubmissionAuthority`, owns the resources it creates by
 /// handle, and caches shader modules and pipelines keyed by their content.
@@ -36,14 +49,19 @@ pub struct ProgramRuntime {
     pub(crate) device: wgpu::Device,
     pub(crate) authority: SubmissionAuthority,
     pub(crate) store: Store,
-    ledger: Ledger,
-    budget: AllocationBudget,
+    /// Registered programs and the materials made from them.
+    pub(crate) registry: Registry,
+    pub(crate) ledger: Ledger,
+    pub(crate) budget: AllocationBudget,
     /// The one sampler every sampler binding gets: linear filtering, clamped to the edge.
     pub(crate) sampler: wgpu::Sampler,
     modules: HashMap<blake3::Hash, wgpu::ShaderModule>,
     pub(crate) render_pipelines: HashMap<blake3::Hash, wgpu::RenderPipeline>,
     pub(crate) compute_pipelines: HashMap<blake3::Hash, wgpu::ComputePipeline>,
 }
+
+/// Gives each runtime its own number, so a handle from another runtime is refused.
+static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(1);
 
 impl ProgramRuntime {
     #[must_use]
@@ -62,6 +80,7 @@ impl ProgramRuntime {
             device,
             authority,
             store: Store::default(),
+            registry: Registry::new(NEXT_RUNTIME.fetch_add(1, Ordering::Relaxed)),
             ledger: Ledger::default(),
             budget,
             sampler,
@@ -88,8 +107,8 @@ impl ProgramRuntime {
     }
 
     /// Descriptor bytes held now: live resources, released resources that submitted work may
-    /// still use until [`collect`](Self::collect) sees that work complete, and unresolved
-    /// readbacks.
+    /// still use until [`collect`](Self::collect) sees that work complete, and the staging of
+    /// readbacks and writes until their frames are cancelled, dropped or completed.
     #[must_use]
     pub fn live_bytes(&self) -> u64 {
         self.ledger.live_bytes()
@@ -118,6 +137,22 @@ impl ProgramRuntime {
         self.authority.check_device()?;
         Publications::for_encoder(encoder)?;
         Ok(())
+    }
+
+    /// Makes the frame `encoder` records hold `shares`, the reservations of the resources a call
+    /// reads or writes, until the frame is cancelled, dropped or completed on the GPU, whatever
+    /// happens to the runtime meanwhile. Every entry point that records into a frame does this
+    /// once its call is valid, so they share one retention rule.
+    ///
+    /// # Errors
+    /// Fails with `ForeignAuthority` when `encoder` belongs to another authority and when it is
+    /// not a frame being recorded.
+    pub(crate) fn hold_for_frame(
+        &self,
+        encoder: &wgpu::CommandEncoder,
+        shares: Vec<Arc<Reservation>>,
+    ) -> Result<(), ProgramError> {
+        Pins::new(&self.authority, shares).retain(encoder)
     }
 
     /// Shader modules compiled so far; stages with the same content share one.

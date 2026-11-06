@@ -1,6 +1,11 @@
+mod observations;
 mod replacement;
+mod residents;
+#[cfg(test)]
+pub(in crate::draw) mod schedule_tests;
 use super::{GpuLod, SceneGpu};
 use crate::terrain::streaming::{TerrainChunk, select_with_retired};
+use residents::insert;
 use std::{cell::RefCell, rc::Rc};
 use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
 use worldrunner_render_plan::RenderScene;
@@ -10,6 +15,7 @@ type Residents = Vec<(TerrainChunk, GpuLod)>;
 #[derive(Debug)]
 pub(super) struct Streaming {
     scene: RenderScene,
+    plane_chunks: std::collections::BTreeMap<TerrainChunk, u32>,
     identity: Rc<()>,
     pub(super) committed: Rc<RefCell<Residents>>,
     drawing: RefCell<Option<Prepared>>,
@@ -24,6 +30,7 @@ struct Prepared {
     matrix: glam::Mat4,
     viewport: [u32; 2],
     residents: Residents,
+    observation: crate::terrain::streaming::TerrainSelectionObservation,
     #[cfg(test)]
     uploads: usize,
 }
@@ -32,6 +39,7 @@ impl Streaming {
         let terrain = scene.terrain().expect("terrain");
         let chunk = TerrainChunk::root(terrain, terrain.streaming_policy().expect("policy"));
         Self {
+            plane_chunks: crate::terrain::planes::chunk_indices(terrain),
             scene,
             identity: Rc::new(()),
             committed: Rc::new(RefCell::new(vec![(chunk, root)])),
@@ -78,6 +86,7 @@ impl Streaming {
         completed: u64,
     ) -> Result<(), FrameError> {
         if self.frozen.get() {
+            self.prepare_frozen(context, frame, viewport);
             return Ok(());
         }
         assert!(
@@ -119,13 +128,15 @@ impl Streaming {
             if !selection.leaves.contains(&chunk) {
                 continue;
             }
-            residents.push((chunk, upload_chunk(context, terrain, chunk)?));
+            let lod = upload_chunk(context, terrain, chunk)?;
+            insert(&mut residents, chunk, lod);
         }
         *self.drawing.borrow_mut() = Some(Prepared {
             owner,
             matrix: frame.selection_view_projection(),
             viewport,
             residents: residents.clone(),
+            observation: selection.observation,
             #[cfg(test)]
             uploads,
         });
@@ -238,8 +249,12 @@ impl Streaming {
                     .is_some_and(|current| current.same_transaction(&prepared.owner))
             })
             .map_or(&*committed, |prepared| &prepared.residents);
-        pass.set_vertex_buffer(1, instances.slice(..));
-        for (_, lod) in residents {
+        for (chunk, lod) in residents {
+            let offset = u64::from(self.plane_chunks[chunk]) * crate::geometry::INSTANCE_STRIDE;
+            pass.set_vertex_buffer(
+                1,
+                instances.slice(offset..offset + crate::geometry::INSTANCE_STRIDE),
+            );
             pass.set_vertex_buffer(0, lod.vertices.slice(..));
             pass.set_index_buffer(lod.indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..lod.index_count, 0, 0..1);

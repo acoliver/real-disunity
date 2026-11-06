@@ -45,6 +45,8 @@ pub struct SceneStatistics {
     pub passes: super::PassDrawStatistics,
     pub effects: super::EffectStatistics,
     pub terrain_pages: TerrainPageStatistics,
+    /// None before an owning terrain draw, or in a submitted frame without terrain.
+    pub terrain_geometry: Option<super::TerrainGeometryStatistics>,
     pub meshes: DrawCount,
     pub impostors: DrawCount,
     pub textures: ResourceStatistics,
@@ -57,30 +59,50 @@ pub struct SceneStatistics {
 #[derive(Debug)]
 pub(super) struct ResourceCounters {
     pub reservation: Option<worldrunner_render_gpu::configuration::AllocationReservation>,
+    /// Storage admitted for appended and replaced resources, kept until this resident retires.
+    pub appended: Vec<worldrunner_render_gpu::configuration::AllocationReservation>,
     pub textures: u64,
     pub meshes: u64,
+    /// Payload bytes of each texture and mesh, so a replacement adjusts the totals.
+    pub texture_sizes: Vec<u64>,
+    pub mesh_sizes: Vec<u64>,
+    /// Bytes uploaded by appends and replacements since the previous `take_statistics`.
+    pub fresh_textures: u64,
+    pub fresh_meshes: u64,
     pub uploaded: bool,
     pub impostors: Vec<bool>,
 }
 impl ResourceCounters {
     pub fn new(prepared: &super::PreparedScene) -> Self {
+        let texture_sizes: Vec<u64> = prepared
+            .textures
+            .iter()
+            .map(|texture| texture.as_prepared().payload_bytes())
+            .collect();
+        let mesh_sizes: Vec<u64> = prepared
+            .meshes
+            .iter()
+            .map(|mesh| {
+                mesh.lods
+                    .iter()
+                    .map(|lod| {
+                        (lod.vertices.len()
+                            + lod.indices.len()
+                            + lod.transition.as_ref().map_or(0, Vec::len))
+                            as u64
+                    })
+                    .sum()
+            })
+            .collect();
         Self {
             reservation: None,
-            textures: prepared
-                .textures
-                .iter()
-                .map(|texture| texture.as_prepared().payload_bytes())
-                .sum(),
-            meshes: prepared
-                .meshes
-                .iter()
-                .flat_map(|mesh| &mesh.lods)
-                .map(|lod| {
-                    (lod.vertices.len()
-                        + lod.indices.len()
-                        + lod.transition.as_ref().map_or(0, Vec::len)) as u64
-                })
-                .sum(),
+            appended: Vec::new(),
+            textures: texture_sizes.iter().sum(),
+            meshes: mesh_sizes.iter().sum(),
+            texture_sizes,
+            mesh_sizes,
+            fresh_textures: 0,
+            fresh_meshes: 0,
             uploaded: true,
             impostors: prepared
                 .scene
@@ -103,17 +125,22 @@ impl SceneGpu {
 
     /// Reads submitted mesh draws and prepared decal counts without polling or allocation.
     pub fn statistics(&self) -> SceneStatistics {
-        let selection = self.camera_selection.borrow();
+        let selection = self.views[super::selection_reuse::CAMERA]
+            .published
+            .borrow();
         let mut stats = SceneStatistics {
             passes: self.pass_counters.snapshot(),
             effects: self.effect_statistics.get(),
+            terrain_geometry: self.pass_counters.geometry.get(),
             textures: resource(
                 self.resource_counters.textures,
                 self.resource_counters.uploaded,
+                self.resource_counters.fresh_textures,
             ),
             mesh_buffers: resource(
                 self.resource_counters.meshes,
                 self.resource_counters.uploaded,
+                self.resource_counters.fresh_meshes,
             ),
             terrain_pages: self
                 .terrain
@@ -142,6 +169,8 @@ impl SceneGpu {
     pub fn take_statistics(&mut self) -> SceneStatistics {
         let stats = self.statistics();
         self.resource_counters.uploaded = false;
+        self.resource_counters.fresh_textures = 0;
+        self.resource_counters.fresh_meshes = 0;
         stats
     }
 
@@ -167,9 +196,32 @@ impl SceneGpu {
         count.instances += instances;
     }
 }
-fn resource(bytes: u64, uploaded: bool) -> ResourceStatistics {
+fn resource(bytes: u64, uploaded: bool, fresh: u64) -> ResourceStatistics {
     ResourceStatistics {
         resident_bytes: bytes,
-        uploaded_bytes: if uploaded { bytes } else { 0 },
+        uploaded_bytes: if uploaded { bytes } else { fresh },
+    }
+}
+
+impl ResourceCounters {
+    pub fn append(&mut self, textures: &[u64], meshes: &[u64]) {
+        self.texture_sizes.extend_from_slice(textures);
+        self.mesh_sizes.extend_from_slice(meshes);
+        self.textures += textures.iter().sum::<u64>();
+        self.meshes += meshes.iter().sum::<u64>();
+        self.fresh_textures += textures.iter().sum::<u64>();
+        self.fresh_meshes += meshes.iter().sum::<u64>();
+    }
+
+    pub fn replace_texture(&mut self, index: usize, bytes: u64) {
+        let old = std::mem::replace(&mut self.texture_sizes[index], bytes);
+        self.textures = self.textures - old + bytes;
+        self.fresh_textures += bytes;
+    }
+
+    pub fn replace_mesh(&mut self, index: usize, bytes: u64) {
+        let old = std::mem::replace(&mut self.mesh_sizes[index], bytes);
+        self.meshes = self.meshes - old + bytes;
+        self.fresh_meshes += bytes;
     }
 }

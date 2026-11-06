@@ -27,7 +27,7 @@ The layer of each crate is declared in `crates/xtask/src/layers.rs`, and `cargo 
 | Foundation | `core-types` (identifiers, units, hashes), `asset-id`, `catalog`, `package` (content-addressed packages), `texture`, `mesh`, `material`, `import-schema`, `camera` (CPU camera math), `script` (sandboxed Lua 5.4), `unity-serialized` (Unity's binary serialized file format), `world-simulation`, `disunity-ffi` |
 | World | `world-schema` (world documents), `world-model` (semantic world documents), `world-runtime` (capability negotiation over documents), `world-generation` (deterministic seed-based generation), `save` |
 | Bridge | `render-plan` |
-| Graphics | `render-gpu`, `render-lighting`, `render-shadow`, `render-post`, `render-scene` |
+| Graphics | `render-gpu`, `render-lighting`, `render-shadow`, `render-post`, `render-program` (Unity player shader programs; `render-scene` draws them), `render-scene` |
 | Host | `scene-viewer` |
 | Managed | `disunity-runtime` |
 | Tool | `unity-import`, `content-tool`, `original-games` (public game sources fetched read-only at pinned revisions), `play` (runs a game's scene or built player in a window), `xtask` |
@@ -49,6 +49,22 @@ For C# scripts, step 2 is driven through the ABI. `DisunityHost::advance` calls 
 The C# side and the Rust host load the same `disunity-ffi` dynamic library. `disunity-runtime` never links the FFI crate statically, so both sides see one object table.
 
 3D content bypasses the world: a game builds a `RenderScene` directly and gives it to the renderer.
+
+## Native short-clip audio
+
+`world-simulation::audio` owns bounded WAV decoding, typed commands and handles,
+voice state, gain/mute, linear resampling and hard-clipped f32 stereo mixing.
+Like the UI router, the mixer is a caller-owned session service in the existing
+simulation owner. No device or wall clock enters that crate.
+
+`scene-viewer` owns cpal device startup and shutdown, the mixer worker and a
+preallocated atomic sample ring. Retained host and event-host interfaces share
+one audio service. Device failures are readable statuses and driver events;
+natural voice endings use the same session event hook as work and timers.
+Physical device startup is explicit. Windowless execution selects a null sink
+and advances the mixer only with `advance_time`. See the
+[mixer contract](../crates/world-simulation/README.md#short-clip-audio) and
+[device/callback contract](../crates/scene-viewer/README.md#short-sounds).
 
 ## Invariants
 

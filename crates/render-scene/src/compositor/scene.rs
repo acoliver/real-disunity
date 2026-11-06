@@ -10,6 +10,9 @@ pub(crate) struct SceneFeature<'a> {
     pub pipelines: &'a crate::renderer::ScenePipelines,
     pub frame: crate::frame::FrameUniform,
     pub screen: Option<crate::scene_metadata::Geometry>,
+    /// Admitted player program draws, recorded after the stock opaque draw. Present only
+    /// without screen-space passes, so the early returns below never skip them.
+    pub programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
 }
 impl SceneFeature<'_> {
     pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
@@ -37,6 +40,7 @@ impl PreparedFeature for SceneFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.gpu.prepare_view_compaction(context, None, &self.frame);
     }
     fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
         self.publications.publish(context, self.gpu);
@@ -53,19 +57,11 @@ impl PreparedFeature for SceneFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
-            if context.slot == PassSlot::ReflectionMaterial {
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.reflection.as_ref().expect("reflection metadata"),
-                    &screen.group,
-                ));
-                return;
-            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
                 self.publications.record(self.gpu.draw_prepass(
                     pass,
-                    &screen.pipelines,
+                    screen.prepass_pipelines(),
                     &screen.group,
                 ));
                 return;
@@ -80,6 +76,13 @@ impl PreparedFeature for SceneFeature<'_> {
         }
         self.publications
             .record_color(self.gpu, self.gpu.draw_color(pass, self.pipelines, None));
+        if let Some(programs) = self
+            .programs
+            .as_ref()
+            .filter(|_| context.slot == PassSlot::Opaque)
+        {
+            programs.record(pass);
+        }
     }
 }
 
@@ -99,6 +102,19 @@ pub(crate) fn declare_velocity(
     Ok(())
 }
 
+/// Checks the effects the scene asks for against the renderer's configuration, before anything
+/// is declared. The water inputs are already bound by `prepare_scene_inputs`.
+fn validate_effects(
+    renderer: &mut FrameRenderer,
+    gpu: &crate::draw::SceneGpu,
+    pipelines: &crate::renderer::ScenePipelines,
+) -> Result<(), FrameError> {
+    renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
+    renderer.validate_water(&gpu.water)?;
+    renderer.validate_ssr(gpu.ssr.as_ref())?;
+    renderer.validate_post(gpu.post)
+}
+
 /// Encodes a resident unshadowed scene through the feature boundary.
 /// Checked attachments retain their selected mip, array layer and view format.
 /// The submission and abandonment rules of [`FrameRenderer`] apply.
@@ -111,15 +127,15 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    renderer.prepare_scene_inputs(device, gpu);
     renderer.validate_taa_depth(attachments.1)?;
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
-    renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
-    renderer.validate_water(&gpu.water)?;
-    renderer.bind_water_inputs(&gpu.water_inputs, gpu.pass_counters.water.clone());
-    renderer.validate_ssr(gpu.ssr.as_ref())?;
-    renderer.validate_post(gpu.post)?;
+    validate_effects(renderer, gpu, pipelines)?;
+    let programs =
+        super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
@@ -133,9 +149,6 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if renderer.ssao.is_some() {
         crate::ssao::passes::geometry_declaration(&mut declaration);
-        if renderer.ssr.is_some() {
-            crate::ssr::geometry_declaration(&mut declaration);
-        }
     }
     let mut views = vec![
         color.with_resource(color_id)?,
@@ -153,6 +166,7 @@ pub fn encode_scene(
     let mut feature = SceneFeature {
         publications: crate::draw::DrawPublications::default(),
         screen: renderer.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
+        programs,
         gpu,
         pipelines,
         frame,

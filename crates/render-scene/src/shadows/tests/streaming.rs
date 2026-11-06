@@ -235,7 +235,7 @@ fn streamed_ssao_ssr_prepass_depth_equals_forward_depth_in_shadowed_frame() {
         depth_bytes(&context, &depth),
         depth_bytes(&context, &frame.ssao.as_ref().unwrap().depth)
     );
-    assert!(frame.ssao.as_ref().unwrap().geometry.reflection.is_some());
+    assert!(frame.ssao.as_ref().unwrap().geometry.merged.is_some());
 }
 
 fn depth_bytes(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {

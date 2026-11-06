@@ -358,6 +358,23 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_texture_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_texture_read(ulong world, ulong identity, DisunityTextureInfo* @out, byte* bytes, uint capacity);
         /// <summary>
+        ///  Sets the sampler of a stored texture, raising its generation when a value changes.
+        ///
+        ///  # Safety
+        ///  `sampler` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_sampler_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_sampler_write(ulong world, ulong identity, DisunitySampler* sampler);
+        /// <summary>
+        ///  Reports the sampler of a stored texture. An identity nothing stored reports `present` zero
+        ///  and is not an error.
+        ///
+        ///  # Safety
+        ///  `out` is readable and writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_texture_sampler_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_texture_sampler_read(ulong world, ulong identity, DisunitySampler* @out);
+        /// <summary>
         ///  Keeps a mesh's contents for the host and raises its generation.
         ///
         ///  # Safety
@@ -377,6 +394,27 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_mesh_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_mesh_read(ulong world, ulong identity, DisunityMeshInfo* info, DisunityMeshVertex* vertices, uint* indices, DisunityMeshSubMesh* submeshes);
+        /// <summary>
+        ///  Keeps a mesh's channels, every sub-mesh and all its indices beside the fixed mesh stored under
+        ///  the same identity. Storing the fixed mesh again drops the channels, so store them after it.
+        ///
+        ///  # Safety
+        ///  `info` is readable for one record. `channels`, `data`, `indices` and `ranges` are readable for
+        ///  the counts in the record, or null when that count is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_channels_store", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_channels_store(ulong world, DisunityMeshChannelsInfo* info, DisunityMeshChannel* channels, float* data, uint* indices, DisunityMeshRange* ranges);
+        /// <summary>
+        ///  Reports a mesh's stored channels and copies them when they are newer than `info.generation`
+        ///  and the capacities in `info` hold them. Capacities of zero everywhere copy nothing and report
+        ///  the sizes. An identity with no stored channels reports `present` zero and is not an error.
+        ///
+        ///  # Safety
+        ///  `info` is readable and writable for one record; the buffers are writable for the capacities
+        ///  in it, or null when that capacity is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_mesh_channels_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_mesh_channels_read(ulong world, DisunityMeshChannelsInfo* info, DisunityMeshChannel* channels, float* data, uint* indices, DisunityMeshRange* ranges);
         /// <summary>
         ///  Loads face `face_index` of the font file at `point_size` and writes its id.
         ///
@@ -439,5 +477,270 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_face_pairs", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_face_pairs(ulong world, ulong face, uint* glyphs, uint glyph_count, DisunityGlyphPair* records, uint* count);
+        /// <summary>
+        ///  Registers a compute shader and writes its id.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `text` spans `text_length` readable bytes; `kernels` is
+        ///  readable for `desc.kernel_count` records, or null when that is zero; `output` is writable for
+        ///  one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_shader_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_shader_create(ulong world, DisunityComputeShaderDesc* desc, byte* text, uint text_length, DisunityComputeKernel* kernels, ulong* output);
+        /// <summary>
+        ///  Removes a compute shader. Dispatches already recorded stay and the host skips them.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_shader_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_shader_destroy(ulong world, ulong shader);
+        /// <summary>
+        ///  Reads a compute shader. With null `kernels` and `text` only `info` is filled in, to size the
+        ///  arrays; otherwise the capacities in `info` must hold what the shader has, and the arrays are
+        ///  filled: the text is the name, the file and then the kernel names.
+        ///
+        ///  # Safety
+        ///  `info` is readable and writable for one record; `kernels` is writable for the capacity
+        ///  `info` states and `text` for its text capacity, or both are null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_shader_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_shader_read(ulong world, ulong shader, DisunityComputeShaderInfo* info, DisunityComputeKernel* kernels, byte* text);
+        /// <summary>
+        ///  Records the thread group size of a kernel whose size the shader's data did not state.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_kernel_size_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_kernel_size_write(ulong world, ulong shader, uint kernel, uint x, uint y, uint z);
+        /// <summary>
+        ///  Creates a compute buffer with zeroed contents and writes its id.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_buffer_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_buffer_create(ulong world, DisunityComputeBufferDesc* desc, ulong* output);
+        /// <summary>
+        ///  Removes a compute buffer and frees its contents.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_buffer_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_buffer_destroy(ulong world, ulong buffer);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_buffer_info", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_buffer_info(ulong world, ulong buffer, DisunityComputeBufferInfo* output);
+        /// <summary>
+        ///  Writes `length` bytes into a compute buffer at `byte_offset`. The range must lie inside the
+        ///  buffer; a rejected call changes nothing.
+        ///
+        ///  # Safety
+        ///  `data` is readable for `length` bytes, or null when `length` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_buffer_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_buffer_write(ulong world, ulong buffer, ulong byte_offset, byte* data, uint length);
+        /// <summary>
+        ///  Reads `length` bytes of a compute buffer from `byte_offset`. The range must lie inside the
+        ///  buffer.
+        ///
+        ///  # Safety
+        ///  `output` is writable for `length` bytes, or null when `length` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_buffer_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_buffer_read(ulong world, ulong buffer, ulong byte_offset, byte* output, uint length);
+        /// <summary>
+        ///  Sets a float on one kernel, or on the whole shader when `kernel` is -1.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_float_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_float_write(ulong world, ulong shader, int kernel, byte* name, uint length, float value);
+        /// <summary>
+        ///  Sets an integer on one kernel, or on the whole shader when `kernel` is -1.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_int_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_int_write(ulong world, ulong shader, int kernel, byte* name, uint length, int value);
+        /// <summary>
+        ///  Sets a vector from 4 floats.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for 4 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_vector_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_vector_write(ulong world, ulong shader, int kernel, byte* name, uint length, float* values);
+        /// <summary>
+        ///  Sets a matrix from 16 floats in column-major order.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_matrix_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_matrix_write(ulong world, ulong shader, int kernel, byte* name, uint length, float* values);
+        /// <summary>
+        ///  Sets a texture of a kernel by what a texture property names: none, a player texture or a
+        ///  render texture.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `slot` is readable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_texture_write(ulong world, ulong shader, int kernel, byte* name, uint length, DisunityTextureSlot* slot);
+        /// <summary>
+        ///  Sets a texture of a kernel to the global texture of the given name, with scale one and offset
+        ///  zero. `names` holds the texture property's name, then the global texture's name, with the
+        ///  lengths in `lengths`.
+        ///
+        ///  # Safety
+        ///  `lengths` is readable for one record; `names` spans the two lengths together.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_texture_global_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_texture_global_write(ulong world, ulong shader, int kernel, DisunityComputeGlobalTexture* lengths, byte* names);
+        /// <summary>
+        ///  Binds a live compute buffer to a name of one kernel.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_buffer_bind", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_buffer_bind(ulong world, ulong shader, uint kernel, byte* name, uint length, ulong buffer);
+        /// <summary>
+        ///  Records a dispatch of a kernel over a number of thread groups, with a snapshot of the values
+        ///  bound to the kernel now.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_dispatch", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_dispatch(ulong world, ulong shader, uint kernel, uint groups_x, uint groups_y, uint groups_z);
+        /// <summary>
+        ///  Reads the values of a dispatch record by its token. With null `entries` only `info` is filled
+        ///  in, to size the arrays; otherwise the capacities in `info` must hold what the bindings have,
+        ///  and the arrays are filled. `floats` and `text` may be null when the bindings have none of
+        ///  them.
+        ///
+        ///  # Safety
+        ///  `info` is readable and writable for one record; `entries`, `floats` and `text` are writable
+        ///  for the capacities `info` states, or null as described.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_compute_bindings_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_compute_bindings_read(ulong world, uint token, DisunityComputeBindingsInfo* info, DisunityComputeBinding* entries, float* floats, byte* text);
+        /// <summary>
+        ///  Registers the callback a flush of `world` calls, replacing the one registered before; a null
+        ///  callback removes it. `user` is handed back to the callback unchanged. The callback and what
+        ///  `user` names must stay valid until it is replaced or removed or the world is destroyed.
+        ///
+        ///  # Safety
+        ///  A non-null `callback` is a function with the signature of [`DisunityGpuFlushCallback`] that
+        ///  may be called from any thread that flushes the world, and `user` is whatever it needs.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_gpu_flush_register", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_gpu_flush_register(ulong world, delegate* unmanaged[Cdecl]<ulong, ulong, byte*, uint, uint*, DisunityResult> callback, ulong user);
+        /// <summary>
+        ///  Registers the callback that every world created from now on starts with, replacing the default
+        ///  registered before; a null callback removes the default. Worlds that exist already keep what
+        ///  they have. A host that cannot register on a world before managed code runs in it, because the
+        ///  managed side creates the world, registers the default first.
+        ///
+        ///  # Safety
+        ///  A non-null `callback` is a function with the signature of [`DisunityGpuFlushCallback`] that
+        ///  may be called from any thread that flushes a world, and `user` is whatever it needs. Both stay
+        ///  valid until the default is replaced or removed and every world that started with it is gone.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_gpu_flush_register_default", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_gpu_flush_register_default(delegate* unmanaged[Cdecl]<ulong, ulong, byte*, uint, uint*, DisunityResult> callback, ulong user);
+        /// <summary>
+        ///  Runs the registered callback, if any, so that all pending offscreen work has executed when
+        ///  this returns. Without a callback nothing happens and the compute buffers keep the contents
+        ///  the CPU wrote.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_gpu_flush", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_gpu_flush(ulong world);
+        /// <summary>
+        ///  Registers a shader by name and writes its id. A shader starts without a source.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_create(ulong world, byte* name, uint length, ulong* output);
+        /// <summary>
+        ///  Sets where a shader's programs are: the serialized file the shader object lives in and its
+        ///  path id there. A zero `length` removes the source.
+        ///
+        ///  # Safety
+        ///  `file` spans `length` readable bytes when `length` is not zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_source_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_source_write(ulong world, ulong shader, byte* file, uint length, long path_id);
+        /// <summary>
+        ///  Reads a shader. With null `text` only `info` is filled in, to size the text; otherwise the
+        ///  capacity in `info` must hold the name and then the file, which are written to `text`.
+        ///
+        ///  # Safety
+        ///  `info` is readable and writable for one record; `text` is writable for the capacity `info`
+        ///  states, or null.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_read(ulong world, ulong shader, DisunityShaderInfo* info, byte* text);
+        /// <summary>
+        ///  Removes a shader. Materials that name it keep the stale id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_destroy(ulong world, ulong shader);
+        /// <summary>
+        ///  Creates a material of a live shader and writes its id.
+        ///
+        ///  # Safety
+        ///  `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_create(ulong world, ulong shader, ulong* output);
+        /// <summary>
+        ///  Removes a material. Renderer slots that name it read as having none.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_destroy", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_destroy(ulong world, ulong material);
+        /// <summary>
+        ///  Points a material at another live shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_shader_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_shader_write(ulong world, ulong material, ulong shader);
+        /// <summary>
+        ///  Sets the queue a material renders in; -1 leaves the choice to the shader.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_render_queue_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_render_queue_write(ulong world, ulong material, int queue);
+        /// <summary>
+        ///  Switches a pass, named by its `LightMode`, on (`enabled` 1) or off (0).
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_pass_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_pass_write(ulong world, ulong material, byte* name, uint length, uint enabled);
+        /// <summary>
+        ///  Makes `pass` of a material the active pass for the immediate-mode draws that follow. The
+        ///  caller checks the pass against the shader's pass count; the world holds none.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_active_pass_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_active_pass_read(ulong world, DisunityActivePass* output);
+        /// <summary>
+        ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_read(ulong world, ulong material, DisunityMaterialInfo* output);
+        /// <summary>
+        ///  Creates a render texture and writes its id.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_create(ulong world, DisunityRenderTexture* desc, ulong* output);
     }
 }

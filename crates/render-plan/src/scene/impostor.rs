@@ -29,6 +29,7 @@ pub enum SceneImpostorLayout {
 /// Optional border maps hold left, right, top and bottom crop fractions per frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SceneImpostor {
+    material_channels: super::SceneMaterialChannels,
     cutoffs_micro: Option<[u32; 2]>,
     channels: SceneImpostorChannels,
     sampling: SceneAtlasSampling,
@@ -60,6 +61,20 @@ pub enum SceneAtlasSampling {
 }
 
 impl SceneImpostor {
+    /// Scalar lanes for the packed RT and emission/occlusion atlases only.
+    /// Material-mode sampling and mesh LODs use the material's own selectors.
+    pub fn with_material_channels(
+        mut self,
+        channels: super::SceneMaterialChannels,
+    ) -> Result<Self, SceneValidationError> {
+        self.material_channels = channels;
+        Ok(self)
+    }
+
+    pub const fn material_channels(self) -> super::SceneMaterialChannels {
+        self.material_channels
+    }
+
     pub(super) fn validate_channels(
         self,
         material: &super::SceneMaterial,
@@ -137,6 +152,7 @@ impl SceneImpostor {
         }
         bounded("impostor border", border_micro, 499_999)?;
         Ok(Self {
+            material_channels: super::SceneMaterialChannels::PACKED_IMPOSTOR,
             cutoffs_micro: None,
             channels: SceneImpostorChannels::Material,
             sampling: SceneAtlasSampling::MipZero,

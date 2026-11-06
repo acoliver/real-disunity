@@ -19,11 +19,13 @@ pub enum ObjectEdit {
 
 /// Undo log for an in-progress transaction. Only what the transaction touches is recorded, so
 /// the cost follows the size of the batch and the bodies the step moves, not the world.
+#[cfg_attr(test, derive(Clone))]
 pub(crate) struct Staging {
     undo: Vec<Undo>,
     physics: Option<Physics>,
 }
 
+#[cfg_attr(test, derive(Clone))]
 enum Undo {
     Replaced(ComponentHandle, Box<ComponentDesc>),
     Added(ComponentHandle),
@@ -95,6 +97,19 @@ impl World {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn stage_for_test(&mut self) {
+        self.staging = Some(Staging {
+            undo: Vec::new(),
+            physics: None,
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn roll_back_for_test(&mut self) {
+        self.roll_back();
+    }
+
     fn restore_component(&mut self, handle: ComponentHandle, desc: ComponentDesc) {
         let Some(slot) = self.components.get_mut(handle.0) else {
             return;
@@ -124,7 +139,8 @@ impl World {
         if let Some(object) = self.objects.get_mut(owner.0) {
             object.components.retain(|owned| *owned != handle);
         }
-        self.lifecycle.scripts.remove(&handle);
+        self.physics_population.note_retired(&component.desc);
+        self.lifecycle.remove_script(handle);
         self.lifetime.components.remove(&handle);
         self.components.unwind_insert(handle.0);
     }
@@ -237,5 +253,36 @@ impl World {
             }
         }
         self.components.check_additional(renderers.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ObjectDesc, WorldSettings};
+
+    #[test]
+    fn rolling_back_staged_scripts_leaves_the_phase_index_as_it_was() {
+        let mut world = World::new(WorldSettings::default()).unwrap();
+        let object = world.create_object(ObjectDesc::default()).unwrap();
+        let kept = world.add_component(object, script_desc()).unwrap();
+        world.set_script_enabled(kept, true).unwrap();
+        world.staging = Some(Staging {
+            undo: Vec::new(),
+            physics: None,
+        });
+        let staged = world.add_component(object, script_desc()).unwrap();
+        world.set_script_enabled(staged, true).unwrap();
+        world.roll_back();
+        crate::phase_index::reference::assert_phases_match(&mut world);
+        world.lifecycle.assert_index_matches_scripts();
+        assert!(!world.lifecycle.scripts.contains_key(&staged));
+    }
+
+    fn script_desc() -> ComponentDesc {
+        ComponentDesc::Script {
+            assembly: "Example".into(),
+            type_name: "Actor".into(),
+        }
     }
 }

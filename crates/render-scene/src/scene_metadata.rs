@@ -1,8 +1,12 @@
 //! Shared pixel-centre geometry metadata preparation for AO, depth statistics
 //! and reflections. Forward MSAA coverage is deliberately a separate domain.
 mod geometry;
+mod output;
 use crate::{frame::FrameUniform, renderer::ScenePipelines};
 pub(crate) use geometry::pipelines;
+#[cfg(test)]
+pub(crate) use output::single_fragment;
+pub(crate) use output::{MERGED_MARKER, MetadataOutput};
 use worldrunner_render_plan::SceneSsao;
 use worldrunner_render_post::{FrameError, PrepareContext};
 
@@ -11,7 +15,9 @@ pub(crate) struct Geometry {
     pub pipelines: ScenePipelines,
     pub group: wgpu::BindGroup,
     pub ambient: wgpu::BindGroup,
-    pub reflection: Option<ScenePipelines>,
+    /// Pipelines that write the prepass normal and the reflection material in one draw, present
+    /// when reflections are installed.
+    pub merged: Option<ScenePipelines>,
     pub forward: Option<(ScenePipelines, wgpu::BindGroup)>,
 }
 
@@ -24,6 +30,13 @@ pub(crate) struct SceneMetadata {
     pub geometry: Geometry,
     pub passes: crate::ssao::passes::ScreenPasses,
     pub(crate) uniform: wgpu::Buffer,
+}
+
+impl Geometry {
+    /// The pipelines the depth and normal prepass draws with.
+    pub fn prepass_pipelines(&self) -> &ScenePipelines {
+        self.merged.as_ref().unwrap_or(&self.pipelines)
+    }
 }
 
 impl SceneMetadata {
@@ -39,7 +52,7 @@ impl SceneMetadata {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let (pipelines, group) = geometry::pipelines(device, &uniform, false);
+        let (pipelines, group) = geometry::pipelines(device, &uniform, MetadataOutput::Normal);
         let (normals, depth) = source_textures(device, size)?;
         let passes = crate::ssao::passes::ScreenPasses::new(
             device, size, &uniform, &depth, &normals, settings,
@@ -55,7 +68,7 @@ impl SceneMetadata {
                 pipelines,
                 group,
                 ambient,
-                reflection: None,
+                merged: None,
                 forward: None,
             },
             passes,

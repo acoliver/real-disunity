@@ -1,6 +1,82 @@
 #![cfg(feature = "ui")]
 
 #[test]
+fn annotation_labels_share_native_types_and_merge_coverage_without_collisions() {
+    use glam::{DVec3, Vec2};
+    use worldrunner_camera::{CameraLens, CameraPose, CameraState, ViewConvention, Viewport};
+    use worldrunner_render_plan::ui::{UiPresentation, annotations::*};
+    use worldrunner_world_simulation::ui::TextRun;
+    let view = worldrunner_camera::resolve(&CameraState {
+        pose: CameraPose {
+            eye_meters: DVec3::Z * 5.,
+            forward: -DVec3::Z,
+            up: DVec3::Y,
+        },
+        lens: CameraLens::Orthographic {
+            half_height_meters: 2.,
+            near_meters: 0.1,
+            far_meters: 10.,
+        },
+        viewport: Viewport {
+            width: 64,
+            height: 64,
+        },
+        convention: ViewConvention::RIGHT_HANDED,
+    })
+    .unwrap();
+    let mut fonts = FontBook::new(UiLimits::default()).unwrap();
+    let font = fonts.register(test_font::font()).unwrap();
+    let annotation = Annotation {
+        primitive: AnnotationPrimitive::Label {
+            anchor: AnnotationPoint::World(glam::Vec3::ZERO),
+            run: TextRun {
+                text: "A".into(),
+                ..TextRun::new(font)
+            },
+            alignment: Vec2::ZERO,
+        },
+        draw_order: (1, 2, 3),
+        clip_rect: None,
+        depth: AnnotationDepth::AlwaysVisible,
+    };
+    let native: worldrunner_world_simulation::ui::presentation::UiPresentation =
+        extract_annotations(&[annotation], &fonts, &view).unwrap();
+    let mut frame = UiPresentation::default();
+    frame.append(native.clone()).unwrap();
+    frame.append(native).unwrap();
+    assert_eq!(frame.coverage.keys().copied().collect::<Vec<_>>(), [0, 1]);
+    assert_eq!(
+        frame.draws.iter().map(|d| d.texture).collect::<Vec<_>>(),
+        [Some(0), Some(1)]
+    );
+    let before = frame.clone();
+    let mut oversized = frame.clone();
+    oversized.draws = vec![frame.draws[0].clone(); 10923];
+    assert!(frame.append(oversized).is_err());
+    assert_eq!(frame, before);
+}
+
+#[test]
+fn ui_contribution_types_are_owned_by_world_simulation() {
+    use std::any::TypeId;
+    use worldrunner_render_plan::ui as plan;
+    use worldrunner_world_simulation::ui::contribution as native;
+
+    assert_eq!(
+        TypeId::of::<plan::UiGlyphQuad>(),
+        TypeId::of::<native::UiGlyphQuad>()
+    );
+    assert_eq!(
+        TypeId::of::<plan::UiTextContribution>(),
+        TypeId::of::<native::UiTextContribution>()
+    );
+    assert_eq!(
+        TypeId::of::<plan::UiRenderPlan>(),
+        TypeId::of::<native::UiRenderPlan>()
+    );
+}
+
+#[test]
 fn missing_canvas_fails_and_frame_glyph_budget_is_shared() {
     use worldrunner_world_simulation::ParentSpace;
     use worldrunner_world_simulation::ui::{TextRun, UiError};
@@ -63,8 +139,7 @@ fn missing_canvas_fails_and_frame_glyph_budget_is_shared() {
 mod test_font;
 
 #[test]
-fn glyph_contributions_reuse_scene_texture_and_preserve_alpha_and_order() {
-    use worldrunner_render_plan::{SceneTexture, TexelFormat};
+fn glyph_contributions_use_coverage_texture_and_preserve_alpha_and_order() {
     use worldrunner_world_simulation::ui::{TextRun, UiError};
     let mut world = World::new(WorldSettings::default()).unwrap();
     let root = world.create_object(ObjectDesc::default()).unwrap();
@@ -96,10 +171,12 @@ fn glyph_contributions_reuse_scene_texture_and_preserve_alpha_and_order() {
     );
     assert_eq!(output.quads.len(), 1);
     let texture = output.texture.as_ref().unwrap();
-    texture.validate().unwrap();
-    assert!(
-        matches!(texture, SceneTexture::Texels { format: TexelFormat::R8Unorm, bytes, .. } if bytes.contains(&255))
+    assert!(texture.width > 0 && texture.height > 0);
+    assert_eq!(
+        u64::try_from(texture.bytes.len()).unwrap(),
+        u64::from(texture.width) * u64::from(texture.height)
     );
+    assert!(texture.bytes.contains(&255));
     assert_eq!(plan, extract_ui(&world, &fonts, [800, 600]).unwrap());
     let empty = FontBook::new(UiLimits::default()).unwrap();
     assert_eq!(
@@ -202,6 +279,8 @@ mod pixel_perfect {
                 label,
                 ComponentDesc::Text(TextRun {
                     text: "AV".into(),
+                    // Keep the snapping probe away from the rectangle's clip edges.
+                    horizontal: worldrunner_world_simulation::ui::HorizontalAlign::Center,
                     ..TextRun::new(font)
                 }),
             )

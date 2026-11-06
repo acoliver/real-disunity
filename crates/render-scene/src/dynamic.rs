@@ -24,8 +24,10 @@
 
 mod gpu;
 mod sampling;
-mod validation;
-pub(crate) use gpu::{DynamicBindings, DynamicGpu};
+mod unlit;
+pub(crate) mod validation;
+pub(crate) use gpu::{DynamicBindings, DynamicGpu, QuadTarget, SceneStaging};
+pub(crate) use unlit::UnlitRuntime;
 
 /// One unlit alpha-blended quad in canonical Z-up scene space.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -34,6 +36,8 @@ pub struct DynamicQuad {
     pub position: [f32; 3],
     /// Optional local vertices preserving full affine contributions, including shear.
     pub corners: Option<[[f32; 3]; 4]>,
+    /// Triangle-list UVs, using the first three corners and three indices only.
+    pub triangle_uv: Option<[[f32; 2]; 3]>,
     /// Screen overlays follow all world quads, then use their own layer/order keys.
     pub overlay: bool,
     /// Canonical unit quaternion, x/y/z/w.
@@ -52,6 +56,10 @@ pub struct DynamicQuad {
     pub sorting_layer: i32,
     /// Ascending painter order within a layer. Equal keys retain submission order.
     pub sorting_order: i32,
+    /// UI hierarchy preorder within equal layer/order keys.
+    pub hierarchy_order: usize,
+    /// Lower-left pixel clip bounds for the post-processing UI overlay stage.
+    pub clip_rect: Option<[u32; 4]>,
 }
 
 impl Default for DynamicQuad {
@@ -59,6 +67,7 @@ impl Default for DynamicQuad {
         Self {
             position: [0.0; 3],
             corners: None,
+            triangle_uv: None,
             overlay: false,
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0; 3],
@@ -68,6 +77,8 @@ impl Default for DynamicQuad {
             texture: None,
             sorting_layer: 0,
             sorting_order: 0,
+            hierarchy_order: 0,
+            clip_rect: None,
         }
     }
 }
@@ -98,6 +109,12 @@ pub enum DynamicError {
     /// A contribution exceeds an enabled device capability or resource limit.
     #[error("dynamic contribution exceeds device support: {0}")]
     DeviceLimit(&'static str),
+    /// The program runtime refused to prepare the quads' draw for the pass.
+    #[error("dynamic quads could not be prepared for the pass: {0}")]
+    Program(#[from] worldrunner_render_program::error::ProgramError),
+    /// The quads were staged for a pass other than the one the frame draws into.
+    #[error("dynamic quads were not prepared for the pass they would draw into")]
+    NotPrepared,
     /// A texture could not be prepared for upload.
     #[error("dynamic texture {index} could not be prepared: {source}")]
     Texture {
@@ -109,5 +126,9 @@ pub enum DynamicError {
     },
 }
 
+#[cfg(test)]
+mod capture_tests;
+#[cfg(test)]
+mod lifetime_tests;
 #[cfg(test)]
 mod tests;

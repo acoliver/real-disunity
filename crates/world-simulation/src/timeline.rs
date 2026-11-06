@@ -3,7 +3,7 @@ use crate::{
     Clock, ComponentHandle, DestroyWhen, InputPhase, LifecycleWork, MutationId, ScriptMessage,
     TimeError, TimeSpan, WaitCondition, World, WorldError,
 };
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScriptFailure {
@@ -93,8 +93,8 @@ struct Scope {
 #[derive(Clone, Default)]
 pub(crate) struct Scheduler {
     scopes: Vec<Scope>,
-    /// Set at the start of a frame: the next look at new scripts revisits every script.
-    rescan_scripts: bool,
+    /// Set at the start of a frame: the next look at new scripts also revisits unsettled objects.
+    pub(crate) frame_start: bool,
     sequence: u64,
     fixed_steps: u32,
     frame_delta: TimeSpan,
@@ -193,11 +193,12 @@ impl World {
     }
     pub fn advance(&mut self, elapsed: TimeSpan) -> Result<Advance, WorldError> {
         self.require_idle()?;
+        self.graphics.begin_frame();
         let (clock, phases) = self.clock.plan(elapsed)?;
         self.scheduler.fixed_steps = u32::try_from(phases.len()).expect("bounded steps");
         self.scheduler.frame_delta = clock.delta;
         self.scheduler.frame_unscaled_delta = clock.unscaled_delta;
-        self.scheduler.rescan_scripts = true;
+        self.scheduler.frame_start = true;
         self.clock = clock;
         self.expire_destruction()?;
         let mut tasks = VecDeque::from([Task::Phase(ScriptMessage::Start)]);
@@ -256,7 +257,7 @@ impl World {
     pub(crate) fn open_lifecycle(&mut self, mutation: MutationId) -> Result<Advance, WorldError> {
         if self.scheduler.scopes.is_empty() {
             self.lifecycle.added.clear();
-            self.scheduler.rescan_scripts = false;
+            self.scheduler.frame_start = false;
         }
         let tasks = self
             .take_lifecycle_work(mutation)?
@@ -332,25 +333,16 @@ impl World {
         }
         self.poll_scheduler()
     }
-    /// Runs the lifecycle of objects whose scripts were registered since the last look, or of
-    /// every scripted object at the start of a frame. Only the new registrations are read
-    /// otherwise, so a callback's resume does not cost a pass over every script.
-    fn initialize_scripts(&mut self) -> Result<(), WorldError> {
+    /// Runs the lifecycle of objects whose scripts were registered since the last look, and at the
+    /// start of a frame also of the objects noted as unsettled since the last frame. A callback's
+    /// resume reads only the new registrations, so it does not cost a pass over every script.
+    pub(crate) fn initialize_scripts(&mut self) -> Result<(), WorldError> {
         let added = std::mem::take(&mut self.lifecycle.added);
-        let candidates: Vec<_> = if std::mem::take(&mut self.scheduler.rescan_scripts) {
-            self.lifecycle.scripts.keys().copied().collect()
-        } else {
-            added
-        };
-        let nodes: BTreeSet<_> = candidates
-            .into_iter()
-            .filter(|script| self.lifecycle.scripts.contains_key(script))
-            .filter_map(|script| self.component(script).ok().map(|c| c.object))
-            .filter(|&object| !self.is_unpublished(object))
-            .collect();
+        let frame_start = std::mem::take(&mut self.scheduler.frame_start);
+        let nodes = self.refresh_candidates(added, frame_start);
         if !nodes.is_empty() {
             let mutation = self.reserve_mutation()?;
-            self.refresh_lifecycle(&nodes.into_iter().collect::<Vec<_>>(), mutation);
+            self.refresh_lifecycle(&nodes, mutation);
         }
         Ok(())
     }
@@ -383,10 +375,15 @@ impl World {
     fn eligible(&self, script: ComponentHandle) -> bool {
         self.script_ready(script).unwrap_or(false)
     }
-    fn phase_tasks(&mut self, message: ScriptMessage) -> Vec<Task> {
-        let scripts: Vec<_> = self.lifecycle.scripts.keys().copied().collect();
+    pub(crate) fn phase_tasks(&mut self, message: ScriptMessage) -> Vec<Task> {
+        let scripts = self.lifecycle.phase_candidates(message);
         let mut tasks = Vec::new();
         for script in scripts {
+            let state = &self.lifecycle.scripts[&script];
+            let starting = state.start == crate::lifecycle::StartState::Pending;
+            if !starting && (message == ScriptMessage::Start || !state.messages.wants(message)) {
+                continue;
+            }
             if !self.eligible(script) {
                 continue;
             }
@@ -401,7 +398,7 @@ impl World {
                     message: ScriptMessage::Start,
                 }));
             }
-            if message != ScriptMessage::Start {
+            if message != ScriptMessage::Start && state.messages.wants(message) {
                 tasks.push(Task::Work(LifecycleWork { script, message }));
             }
         }
@@ -467,12 +464,7 @@ impl World {
             lifecycle: false,
         });
         self.lifecycle.mutations.clear();
-        let objects: Vec<_> = self
-            .snapshot()
-            .objects
-            .into_iter()
-            .map(|o| o.handle)
-            .collect();
+        let objects: Vec<_> = self.published_objects().collect();
         for object in objects {
             self.destroy(object, DestroyWhen::EndOfFrame)?;
         }
@@ -502,7 +494,8 @@ impl World {
                 return None;
             }
             if !active {
-                state.awake = false;
+                self.lifecycle
+                    .edit_script(work.script, |state| state.awake = false);
                 return None;
             }
             state.entered = EnteredState::Awake;
@@ -557,11 +550,7 @@ impl World {
             return Ok(None);
         }
         if work.message == ScriptMessage::Start {
-            self.lifecycle
-                .scripts
-                .get_mut(&work.script)
-                .expect("ready script")
-                .start = crate::lifecycle::StartState::Started;
+            self.lifecycle.mark_started(work.script);
         }
         self.issue_callback(work)
     }

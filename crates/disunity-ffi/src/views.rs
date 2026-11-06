@@ -62,12 +62,11 @@ pub fn with_world<T>(
 ) -> Result<T, crate::errors::AbiError> {
     let store = lock_store();
     let session = store.session(handle)?;
-    let snapshot = session.native.snapshot();
     let view = DisunityWorld {
-        objects: snapshot
-            .objects
-            .iter()
-            .map(|object| observe(session, object.handle).map(Some))
+        objects: session
+            .native
+            .published_objects()
+            .map(|object| observe(session, object).map(Some))
             .collect::<Result<_, _>>()?,
         last_error: session.last_error.clone(),
     };

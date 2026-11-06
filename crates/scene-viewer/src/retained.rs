@@ -4,7 +4,26 @@ use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
+pub(crate) mod accessibility;
+mod audio;
+mod clipboard;
+#[cfg(test)]
+mod clipboard_tests;
 mod startup;
+pub use audio::{
+    AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
+    AudioUnavailable, ClipHandle, VoiceHandle,
+};
+mod timers;
+#[cfg(test)]
+#[path = "../../world-simulation/tests/ui_font/mod.rs"]
+mod ui_font;
+pub use timers::{MAX_HOST_TIMERS, TimerError, TimerHandle};
+mod work;
+pub use work::{
+    CancelToken, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
+    WorkTicket,
+};
 mod timing;
 pub use timing::{
     FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
@@ -13,21 +32,24 @@ mod statistics;
 pub use statistics::{
     DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainPageStatistics,
+    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
+    TerrainPageStatistics, TerrainStreamingStatistics,
 };
 mod decals;
 pub use decals::DecalUpdate;
 mod event_host;
 mod objects;
+pub(crate) mod resource_edits;
 pub use event_host::RetainedEventHost;
 mod windowless;
 pub use windowless::WindowlessRetained;
 #[cfg(test)]
 pub(crate) use windowless::tests::pages::layered_scene;
 mod input;
+pub use input::text::TextInput;
 pub use input::{
     CursorError, CursorGrabMode, KeyCode, LogicalKey, MouseButton, NativeKeyCode, PhysicalKey,
-    WheelDelta,
+    WheelDelta, WindowControlError,
 };
 mod capture;
 pub use capture::{
@@ -46,13 +68,15 @@ mod terrain_tests;
 
 #[cfg(test)]
 mod batch_tests;
-/// Caller-selected identity. Initial objects have IDs 0 through `object_count - 1`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ObjectId(pub u64);
+pub use worldrunner_render_plan::{ObjectId, PickHit};
+mod picking;
+pub use picking::RetainedPickHit;
 
 /// Ordered edits reference the latest accepted mesh and material tables.
 #[derive(Clone, Debug)]
 pub enum RetainedUpdate {
+    /// Replaces screen-space text without rebuilding scene resources. Empty plans clear it.
+    Ui(std::sync::Arc<worldrunner_render_scene::simulation::UiOverlay>),
     Decal(DecalUpdate),
     Add {
         id: ObjectId,
@@ -89,6 +113,24 @@ pub enum RetainedUpdate {
         resources: worldrunner_render_plan::SceneResources,
         meshes: Vec<worldrunner_render_plan::SceneMesh>,
     },
+    /// Adds textures, materials and meshes after the resident ones without rebuilding the scene.
+    /// The new items take the next handles in each table, and the new materials and later
+    /// objects may use old and new items alike. Validation covers only the new items; only
+    /// their bytes are prepared, admitted against the presentation budget and uploaded.
+    /// Items that depend on state shared by the whole scene (impostors, fade thresholds, terrain
+    /// contact, specular cubes) fail with `DrawError::NeedsRebuild` and change nothing.
+    AppendResources(worldrunner_render_plan::SceneAppend),
+    /// Gives one texture new contents. Handles, materials and objects stay as they are, and only
+    /// the materials that sample the texture are rebound.
+    ReplaceTexture {
+        handle: worldrunner_render_plan::TextureHandle,
+        texture: worldrunner_render_plan::SceneTexture,
+    },
+    /// Gives one mesh new contents. Handles and objects stay as they are.
+    ReplaceMesh {
+        handle: worldrunner_render_plan::MeshHandle,
+        mesh: worldrunner_render_plan::SceneMesh,
+    },
 }
 
 /// One object edit inside `RetainedUpdate::Objects`, with the semantics of the
@@ -104,6 +146,11 @@ pub enum SceneObjectEdit {
 /// Key names follow `LiveInputEvent`'s lowercase convention.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedInput {
+    Text(TextInput),
+    DisplayChanged {
+        scale_factor: f64,
+        physical_size: [u32; 2],
+    },
     Key {
         /// Lowercase name retained for held-key queries.
         key: String,
@@ -115,6 +162,8 @@ pub enum RetainedInput {
     },
     /// Position in physical window pixels.
     PointerMoved([f64; 2]),
+    /// Cancels active gestures before focus-loss releases are delivered.
+    PointerCancelled,
     Button {
         button: MouseButton,
         pressed: bool,
@@ -132,6 +181,20 @@ pub enum RetainedInput {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RetainedEvent {
+    AudioFinished {
+        voice: VoiceHandle,
+    },
+    AudioStatusChanged {
+        status: AudioStatus,
+    },
+    /// Route through `UiRouter::accessibility_action`, then handle its ordinary `UiAction`s.
+    Accessibility(worldrunner_world_simulation::ui::UiAccessRequest),
+    /// CPU results are available. Drain caller-owned queues, even during presentation pauses.
+    WorkReady,
+    /// A host timer expired, including during presentation pauses.
+    Timer {
+        handle: TimerHandle,
+    },
     /// Final notification, after every outstanding capture has been cancelled.
     Shutdown,
     Input(RetainedInput),
@@ -174,6 +237,12 @@ pub trait RetainedDriver {
 /// in generation order on admitted frames. CPU preparation never waits on the event
 /// thread; GPU allocation/upload uses the existing renderer at publication.
 pub struct RetainedHost {
+    clipboard: clipboard::HostClipboard,
+    pub(crate) accessibility: accessibility::Accessibility,
+    picking: picking::Picking,
+    work: work::WorkServices,
+    timers: timers::Timers,
+    audio: AudioService,
     pub(crate) gpu_timing: GpuTiming,
     pub(crate) statistics: Option<RetainedFrameStatistics>,
     pub(crate) captures: capture::Captures,
@@ -226,6 +295,9 @@ impl RetainedHost {
                 limit: self.readiness.limit,
             });
         }
+        if resource_edits::is_resource_edit(&update) {
+            return self.apply_resource_edit(update);
+        }
         if let RetainedUpdate::Decal(edit) = &update {
             return self.apply_decal(edit.clone());
         }
@@ -251,6 +323,10 @@ impl RetainedHost {
             crate::validate(&scene, &self.options)?;
             self.scene = Some(scene);
             self.enqueue(update, true);
+            return Ok(());
+        }
+        if matches!(&update, RetainedUpdate::Ui(_)) {
+            self.enqueue(update, false);
             return Ok(());
         }
         self.apply_scene_update(update)
@@ -375,13 +451,36 @@ impl RetainedHost {
         Ok(())
     }
 
-    /// Returns transitions to deliver in order. Focus loss first releases keys in
-    /// physical-key order, then buttons in button order, before the focus event.
+    /// Returns transitions to deliver in order. Focus loss first cancels gestures, then
+    /// releases keys in physical-key order and buttons in button order before the focus event.
     /// Repeated focus loss never repeats a release.
     pub fn input(&mut self, input: RetainedInput) -> Vec<RetainedInput> {
+        if let RetainedInput::Resized(size) = &input {
+            if self.input_state.surface_extent == Some(*size) {
+                return Vec::new();
+            }
+            self.input_state.surface_extent = Some(*size);
+        }
         let mut events = self.input_state.accept(&input);
+        if let RetainedInput::Resized(physical_size) = &input {
+            events.push(RetainedInput::DisplayChanged {
+                scale_factor: self.scale_factor(),
+                physical_size: *physical_size,
+            });
+        }
         match &input {
             RetainedInput::Resized(size) => self.size = *size,
+            RetainedInput::DisplayChanged {
+                scale_factor,
+                physical_size,
+            } => {
+                self.input_state.text.scale = *scale_factor;
+                self.size = *physical_size;
+            }
+            RetainedInput::Focused(false) => {
+                self.input_state.text.area = None;
+                self.apply_text_input_area();
+            }
             RetainedInput::Occluded(value) => self.occluded = *value,
             RetainedInput::CloseRequested => self.exit = true,
             _ => {}
@@ -390,8 +489,14 @@ impl RetainedHost {
         events
     }
 
+    /// Whether a frame can be drawn now: a scene is staged and the surface is visible and
+    /// nonempty. This is the condition under which [`Self::view`] returns a view.
+    pub(crate) fn has_view_extent(&self) -> bool {
+        self.initial_scene.is_some() && !self.size.contains(&0) && !self.occluded
+    }
+
     pub fn view(&self) -> Result<Option<SceneView>, ViewerError> {
-        if self.initial_scene.is_none() || self.size.contains(&0) || self.occluded {
+        if !self.has_view_extent() {
             return Ok(None);
         }
         Ok(Some(SceneView::with_convention(

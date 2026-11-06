@@ -11,33 +11,44 @@ use wgpu::{
 use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
 
 use crate::frame::{FRAME_UNIFORM_BYTES, FrameUniform};
-use crate::geometry::{GeometryError, pack_indices, pack_instance, pack_vertices};
+use crate::geometry::{GeometryError, pack_indices, pack_vertices};
 use crate::renderer::ScenePipelines;
-use crate::terrain::{TERRAIN_PLACEMENT, TerrainError, build_terrain_mesh};
+use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, MATERIAL_GROUP, TERRAIN_GROUP, material_sampler, placeholder_texture,
+    FRAME_GROUP, MATERIAL_GROUP, TERRAIN_GROUP, material_sampler, placeholder_with_view,
     upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
 };
 
+mod append;
+pub use append::{
+    PreparedAppend, PreparedMeshReplacement, PreparedTextureReplacement, ResourceBase,
+};
 mod celestial;
+mod compaction;
 mod contact;
 pub(crate) mod decals;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
 mod lod_material;
+pub(crate) mod overlay;
 mod pages;
 pub(crate) mod pass_statistics;
+mod programs;
 mod publication;
 mod retained;
 pub use retained::reflections_enabled;
 mod effect_statistics;
+pub(crate) mod geometry_statistics;
 mod statistics;
 pub use effect_statistics::{
     EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
     ReceiverBindings, ShadowStatistics, SsaoStatistics,
+};
+pub use geometry_statistics::{
+    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
 };
 pub use pass_statistics::PassDrawStatistics;
 mod streaming;
@@ -48,8 +59,8 @@ mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use resources::prepared_terrain;
+use visibility::MeshSelection;
 pub use visibility::ViewStats;
-use visibility::{MeshSelection, Selection};
 
 #[cfg(test)]
 pub(crate) struct StreamingPreparation {
@@ -83,6 +94,14 @@ pub enum DrawError {
     /// The selected terrain contact samples cannot be sized in GPU address space.
     #[error("terrain contact height buffer byte size overflow")]
     ContactHeightSizeOverflow,
+    /// Exact triangle source exceeds the device's buffer or storage binding limit.
+    #[error("terrain triangle source needs {required} bytes, device limit is {limit}")]
+    TerrainPlaneLimit { required: u64, limit: u64 },
+    #[error("terrain instance buffer byte size overflow")]
+    TerrainInstanceSizeOverflow,
+    /// Terrain instances exceed the device's vertex buffer size limit.
+    #[error("terrain instances need {required} bytes, device buffer limit is {limit}")]
+    TerrainInstanceLimit { required: u64, limit: u64 },
     /// Contact samples exceed the device buffer or storage binding limit.
     #[error("terrain contact needs {required} bytes, device limit is {limit}")]
     ContactHeightLimit {
@@ -117,6 +136,17 @@ pub enum DrawError {
         /// The underlying packing failure.
         #[source]
         source: GeometryError,
+    },
+    /// An appended or replaced resource depends on state the whole resident scene shares, so
+    /// only a full replacement can take it.
+    #[error("{item} {index} needs the resident scene rebuilt: {reason}")]
+    NeedsRebuild {
+        /// Which kind of resource: texture, material, mesh or append.
+        item: &'static str,
+        /// Its table index.
+        index: usize,
+        /// What it depends on.
+        reason: &'static str,
     },
     /// The terrain heightfield could not be tessellated into its mesh.
     #[error("the scene terrain could not be tessellated: {source}")]
@@ -178,6 +208,8 @@ struct GpuTerrain {
     page_bounds: [f32; 4],
     page_elevation: [f32; 2],
     uniform: Buffer,
+    /// Exact f32 heightfield and chunk descriptors for analytic filtering.
+    triangle_source: Buffer,
     sampler: Sampler,
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
     retained: Vec<Texture>,
@@ -191,10 +223,6 @@ struct GpuTerrain {
 /// lifetime of a scene's GPU memory is visible in this type rather than
 /// implied by another crate's internals.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "held solely to own the memory the bind groups read"
-)]
 struct Retained {
     contact_heights: Buffer,
     textures: Vec<Texture>,
@@ -222,7 +250,8 @@ pub struct SceneGpu {
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
-    committed_frame_group: std::rc::Rc<RefCell<BindGroup>>,
+    /// The committed frame group and the frame slot whose uniform it binds.
+    committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
@@ -234,10 +263,13 @@ pub struct SceneGpu {
             FrameUniform,
         )>,
     >,
-    camera_selection: std::rc::Rc<RefCell<Selection>>,
-    shadow_selection: [std::rc::Rc<RefCell<Selection>>; 4],
+    views: [selection_reuse::View; 5],
+    caster_fits: selection_reuse::CasterFits,
     terrain: Option<GpuTerrain>,
+    pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
+    unlit: crate::dynamic::UnlitRuntime,
+    programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
     retained: Retained,
 }
 
@@ -289,12 +321,10 @@ impl SceneGpu {
     ) -> Result<Self, DrawError> {
         let scene = &prepared.scene;
         let queue = authority.queue();
-        validate_profile(scene, pipelines)?;
         prepared.validate_device(device, pipelines)?;
         let contact_heights = contact::height_buffer(device, queue, &prepared.contact)?;
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
-        let placeholder = placeholder_texture(device, queue);
-        let placeholder_view = placeholder.create_view(&TextureViewDescriptor::default());
+        let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
         let (materials, material_uniforms) = resources::scene_materials(
             device,
@@ -309,7 +339,6 @@ impl SceneGpu {
             prepared_terrain(device, authority, &prepared, pipelines, &sampler, previous)?;
         let (decals, frame_slots) =
             decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
-        let (frame_buffer, frame_group) = frame_slots[0].clone();
         let gpu = Self {
             pass_counters: pass_statistics::PassCounters::default(),
             effect_statistics: std::rc::Rc::default(),
@@ -324,20 +353,23 @@ impl SceneGpu {
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             water: water_bodies(scene),
             water_inputs: crate::water::surface::inputs(scene, &views),
-            committed_frame_group: std::rc::Rc::new(RefCell::new(frame_group.clone())),
+            committed_frame_group: std::rc::Rc::new(RefCell::new((frame_slots[0].1.clone(), 0))),
+            frame_buffer: frame_slots[0].0.clone(),
+            frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            frame_buffer,
-            frame_group,
             materials,
             meshes,
             mesh_selection: prepared.selection,
             instances: Instances::new(scene).tracking_previous(pipelines.writes_velocity()),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
-            camera_selection: std::rc::Rc::default(),
-            shadow_selection: std::array::from_fn(|_| std::rc::Rc::default()),
+            views: Default::default(),
+            caster_fits: selection_reuse::CasterFits::default(),
             terrain,
+            overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
+            unlit: crate::dynamic::UnlitRuntime::default(),
+            programs: None,
             retained: Retained {
                 contact_heights,
                 textures,
@@ -355,7 +387,7 @@ impl SceneGpu {
         self.decal_counts
             .set([decals::selected_count(&bytes), self.decals.count()]);
         self.frame.set(Some(frame));
-        *self.committed_frame_group.borrow_mut() = self.decals.group();
+        *self.committed_frame_group.borrow_mut() = (self.decals.group(), self.decals.slot);
         *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
         queue.write_buffer(
@@ -385,7 +417,11 @@ impl SceneGpu {
     /// [`crate::compositor::encode_resident`] to schedule their internal visibility pass.
     ///
     /// # Panics
-    /// Panics when celestial meshes are present, before recording any draws.
+    /// Panics when celestial meshes are present, before recording any draws, and when resident
+    /// dynamic quads were staged with pipelines for a pass other than the one `pipelines`
+    /// describe: staging prepares their draws for the pass of the pipelines it is given. The
+    /// frame entry points ([`crate::compositor::encode_scene`] and the shadowed scene) prepare
+    /// them for their own pass instead.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
         assert!(
             self.celestial.is_none(),
@@ -451,22 +487,6 @@ impl SceneGpu {
             .expect("set frame before drawing")
     }
 
-    fn drawing_frame_group(&self) -> BindGroup {
-        let transaction_frame = self
-            .drawing_frame
-            .borrow()
-            .as_ref()
-            .is_some_and(|(owner, _)| {
-                worldrunner_render_gpu::submission::Publications::current()
-                    .is_some_and(|current| current.same_transaction(owner))
-            });
-        if transaction_frame {
-            self.decals.group()
-        } else {
-            self.committed_frame_group.borrow().clone()
-        }
-    }
-
     fn draw_color_pass(
         &self,
         pass: &mut RenderPass<'_>,
@@ -498,7 +518,8 @@ impl SceneGpu {
                     .bind_background(pass, &frame_group);
                 meshes.draw(pass, pipelines.sky_targets());
             }
-            self.dynamic.draw(pass, &frame_group, pipelines);
+            self.dynamic
+                .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
             selection,
@@ -616,24 +637,13 @@ impl SceneGpu {
             })
             .or_else(|| self.frame.get())
             .expect("set a frame before drawing");
-        let published = if let Some((index, _)) = shadow_matrix {
-            self.shadow_selection[index as usize].clone()
-        } else {
-            self.camera_selection.clone()
-        };
-        let mut selection = published.borrow().clone();
-        selection.casters_only = shadow_matrix.is_some();
-        selection.rebuild(
-            &self.instances,
-            &self.mesh_selection,
-            shadow_matrix.map_or(frame.selection_view_projection(), |(_, matrix)| matrix),
-            frame.camera_position_millimeters,
-        );
+        let published = self.views[selection_reuse::view_index(shadow_matrix)]
+            .published
+            .clone();
+        let selection = self.select_objects(shadow_matrix, &frame);
         pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
-        let mut count = DrawCount::default();
-        for range in &selection.ranges {
-            count.add(self.record_lod_range(pass, pipelines, range));
-        }
+        let count =
+            self.record_selection(pass, pipelines, (shadow_matrix, &frame), &selection.ranges);
         if let Some((index, _)) = shadow_matrix {
             self.pass_counters.shadows[index as usize].record(count);
         }
@@ -645,7 +655,11 @@ impl SceneGpu {
 
     /// Owned statistics from the most recently submitted main-camera pass.
     pub fn view_stats(&self) -> ViewStats {
-        self.camera_selection.borrow().stats.clone()
+        self.views[selection_reuse::CAMERA]
+            .published
+            .borrow()
+            .stats
+            .clone()
     }
 
     /// Owned statistics from the most recently submitted shadow cascade zero.
@@ -655,16 +669,7 @@ impl SceneGpu {
 
     /// Owned statistics for one of the four supported shadow view indices.
     pub fn cascade_view_stats(&self, index: usize) -> ViewStats {
-        self.shadow_selection[index].borrow().stats.clone()
-    }
-
-    pub(crate) fn caster_matrix(&self, receiver: glam::Mat4) -> glam::Mat4 {
-        visibility::caster_matrix(
-            &self.instances,
-            &self.mesh_selection,
-            self.terrain.as_ref().map(|terrain| terrain.bounds),
-            receiver,
-        )
+        self.views[index + 1].published.borrow().stats.clone()
     }
 
     /// Returns live mesh/material batch counts per pipeline variant.
@@ -685,6 +690,7 @@ use resources::{upload_meshes, upload_textures};
 mod environment;
 mod prepared;
 mod resources;
+mod selection_reuse;
 pub mod source_environment;
 pub use prepared::PreparedScene;
 

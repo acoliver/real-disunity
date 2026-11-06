@@ -79,13 +79,15 @@ fn finish(
     events: &RefCell<Vec<RetainedEvent>>,
     id: u64,
 ) -> (u64, RgbaImage) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut watchdog = CaptureWatchdog::new(run, format!("page capture {id}"));
     loop {
         let first_ready = pages_ready(run).then_some(run.session.frame);
         run.frame().unwrap();
         run.renderer.drain().unwrap();
         run.poll().unwrap();
-        if let Some(result) = completed(events, id) {
+        let result = completed(events, id);
+        watchdog.check(run, result.is_some());
+        if let Some(result) = result {
             assert_eq!(
                 Some(result.0),
                 first_ready,
@@ -94,7 +96,6 @@ fn finish(
             return result;
         }
         assert!(first_ready.is_none(), "resident frame was not captured");
-        assert!(Instant::now() < deadline, "page capture did not complete");
     }
 }
 
@@ -227,17 +228,18 @@ fn recipes_share_page_dependency_admission_and_accumulation_waits_for_residency(
         .unwrap()
         .with_page_dependency();
         let id = run.host_mut().request_capture_recipe(0, recipe).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut watchdog = CaptureWatchdog::new(&run, format!("page recipe capture {id}"));
         loop {
             run.frame().unwrap();
             run.renderer.drain().unwrap();
             run.poll().unwrap();
-            if events.borrow().iter().any(|event| matches!(event,
+            let delivered = events.borrow().iter().any(|event| matches!(event,
                 RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { products, .. }, .. }
-                    if *actual == id && products.srgb8.as_ref().unwrap().viewport.width == 64)) {
+                    if *actual == id && products.srgb8.as_ref().unwrap().viewport.width == 64));
+            watchdog.check(&run, delivered);
+            if delivered {
                 break;
             }
-            assert!(Instant::now() < deadline);
         }
         run.shutdown().unwrap();
     }
@@ -291,11 +293,15 @@ fn streamed_accumulation_combines_geometry_and_page_dependencies() {
     .with_page_dependency()
     .with_geometry_dependency();
     let id = run.host_mut().request_capture_recipe(0, recipe).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !events.borrow().iter().any(|event| matches!(event,
-        RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { .. }, .. }
-            if *actual == id)) {
-        assert!(Instant::now() < deadline);
+    let mut watchdog = CaptureWatchdog::new(&run, format!("streamed recipe capture {id}"));
+    loop {
+        let delivered = events.borrow().iter().any(|event| matches!(event,
+            RetainedEvent::Capture { id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { .. }, .. }
+                if *actual == id));
+        watchdog.check(&run, delivered);
+        if delivered {
+            break;
+        }
         run.frame().unwrap();
         run.renderer.drain().unwrap();
         run.poll().unwrap();

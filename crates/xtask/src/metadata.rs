@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -18,6 +19,9 @@ pub struct Package {
     pub manifest_path: PathBuf,
     pub dependencies: Vec<Dependency>,
     pub targets: Vec<Target>,
+    /// The package's `[features]` table: each feature and what it enables.
+    #[serde(default)]
+    pub features: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +34,21 @@ pub struct Target {
 pub struct Dependency {
     pub name: String,
     pub path: Option<PathBuf>,
+    /// The name the manifest gives the dependency when it differs from the package's.
+    #[serde(default)]
+    pub rename: Option<String>,
+    /// `None` for a normal dependency, otherwise `dev` or `build`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// The features the manifest lists, after workspace inheritance.
+    #[serde(default)]
+    pub features: Vec<String>,
+    #[serde(default = "default_features")]
+    pub uses_default_features: bool,
+}
+
+fn default_features() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]

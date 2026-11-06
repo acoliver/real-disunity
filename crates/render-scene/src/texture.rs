@@ -386,6 +386,8 @@ const fn dxgi_format(code: u32) -> Option<(TextureFormat, u32, TextureColorSpace
         78 => Some((TextureFormat::Bc3RgbaUnormSrgb, 16, TextureColorSpace::Srgb)),
         80 => Some((TextureFormat::Bc4RUnorm, 8, TextureColorSpace::Linear)),
         83 => Some((TextureFormat::Bc5RgUnorm, 16, TextureColorSpace::Linear)),
+        98 => Some((TextureFormat::Bc7RgbaUnorm, 16, TextureColorSpace::Linear)),
+        99 => Some((TextureFormat::Bc7RgbaUnormSrgb, 16, TextureColorSpace::Srgb)),
         _ => None,
     }
 }

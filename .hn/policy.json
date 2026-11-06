@@ -12,6 +12,7 @@
       "fcdf4df0532c555e146fd4adb7abe6104f395c6116ed94742bf3b1b79ac9c4fa",
       "c66a329b7165d6adc0e745e619325de40a59bb0de733160a00083238c4340a2c",
       "d43c8010250e35d962e4e145e77ebedf74110e5bbed9096700c095c50d7a33b5",
+      "4903ed719a2e75c232e361dc641963f842299377cbf04c02e47e8eeafc4e7031",
       "478149c3b4829558ffddddfbcca1b5f989d92bffcb3ab2697d2fedb4890ac232"
     ],
     "allowAuthorApproval": false
@@ -27,7 +28,8 @@
         "14c5c4022b23fe9add0670b80112e9e6b4ff0687b77647fb1b5b8478117ff879",
         "fcdf4df0532c555e146fd4adb7abe6104f395c6116ed94742bf3b1b79ac9c4fa",
         "c66a329b7165d6adc0e745e619325de40a59bb0de733160a00083238c4340a2c",
-        "d43c8010250e35d962e4e145e77ebedf74110e5bbed9096700c095c50d7a33b5"
+        "d43c8010250e35d962e4e145e77ebedf74110e5bbed9096700c095c50d7a33b5",
+        "4903ed719a2e75c232e361dc641963f842299377cbf04c02e47e8eeafc4e7031"
       ]
     }
   },
@@ -61,14 +63,16 @@
           "14c5c4022b23fe9add0670b80112e9e6b4ff0687b77647fb1b5b8478117ff879",
           "fcdf4df0532c555e146fd4adb7abe6104f395c6116ed94742bf3b1b79ac9c4fa",
           "c66a329b7165d6adc0e745e619325de40a59bb0de733160a00083238c4340a2c",
-          "d43c8010250e35d962e4e145e77ebedf74110e5bbed9096700c095c50d7a33b5"
+          "d43c8010250e35d962e4e145e77ebedf74110e5bbed9096700c095c50d7a33b5",
+          "4903ed719a2e75c232e361dc641963f842299377cbf04c02e47e8eeafc4e7031"
         ],
         "authors": [
           "2766b72ba5c7ba35dca9ac19aa15c84d84a3584100f1c256f0bb2c6e722df79b",
           "14c5c4022b23fe9add0670b80112e9e6b4ff0687b77647fb1b5b8478117ff879",
           "fcdf4df0532c555e146fd4adb7abe6104f395c6116ed94742bf3b1b79ac9c4fa",
           "c66a329b7165d6adc0e745e619325de40a59bb0de733160a00083238c4340a2c",
-          "d43c8010250e35d962e4e145e77ebedf74110e5bbed9096700c095c50d7a33b5"
+          "d43c8010250e35d962e4e145e77ebedf74110e5bbed9096700c095c50d7a33b5",
+          "4903ed719a2e75c232e361dc641963f842299377cbf04c02e47e8eeafc4e7031"
         ],
         "paths": [
           "crates/asset-id/",
@@ -88,6 +92,7 @@
           "crates/render-lighting/",
           "crates/render-plan/",
           "crates/render-post/",
+          "crates/render-program/",
           "crates/render-scene/",
           "crates/render-shadow/",
           "crates/save/",

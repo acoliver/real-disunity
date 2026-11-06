@@ -2,8 +2,8 @@ use super::{RetainedDriver, RetainedHost, Session};
 use crate::{ViewerError, app::Content, renderer::Renderer};
 
 /// Request-driven retained execution without a window or event loop.
-/// No work is scheduled between calls. Call `frame` again if admission is busy,
-/// and `poll` to deliver asynchronous capture completions without advancing time.
+/// No frames are scheduled between calls. Call `frame` again if admission is busy,
+/// and `poll` to deliver CPU work and capture completions without advancing time.
 pub struct WindowlessRetained<'a> {
     session: Session<'a>,
     renderer: Renderer,
@@ -29,12 +29,13 @@ impl RetainedHost {
     }
 
     pub(crate) fn start_windowless_with_activity<'a, G, T>(
-        self,
+        mut self,
         driver: &'a mut dyn RetainedDriver,
         begin: impl FnOnce(&str) -> G,
         start: impl FnOnce(Self, &'a mut dyn RetainedDriver) -> Result<T, ViewerError>,
     ) -> Result<(T, G), ViewerError> {
         let activity = begin(self.options.activity_reason.as_ref());
+        self.input_state.window = super::input::WindowControlTarget::Windowless;
         Ok((start(self, driver)?, activity))
     }
 }
@@ -43,6 +44,9 @@ fn initialize(
     mut host: RetainedHost,
     driver: &mut dyn RetainedDriver,
 ) -> Result<(Session<'_>, Renderer), ViewerError> {
+    host.picking.windowless = true;
+    host.timers.freeze();
+    host.audio.null_device();
     let renderer = pollster::block_on(Renderer::windowless(&mut host));
     let mut session = Session::new(host, driver);
     match renderer {
@@ -64,12 +68,23 @@ impl WindowlessRetained<'_> {
         &mut self.session.host
     }
 
+    /// Advances the session's monotonic clock without dispatching or rendering.
+    /// Timers and update ticks observe this time on the next `frame` or `poll`.
+    pub fn advance_time(&mut self, elapsed: std::time::Duration) -> Result<(), ViewerError> {
+        self.ensure_open()?;
+        self.session
+            .host
+            .timers
+            .advance(elapsed)
+            .map_err(|error| ViewerError::Driver(error.to_string()))?;
+        self.session.host.audio.advance(elapsed);
+        Ok(())
+    }
+
     /// Requests one update/submission through the same session as desktop mode.
     /// Returns false if no ordinary frame is submitted, including capture-only subframes.
     pub fn frame(&mut self) -> Result<bool, ViewerError> {
-        self.ensure_open()?;
-        if self.session.host.exit {
-            self.shutdown()?;
+        if !self.begin()? {
             return Ok(false);
         }
         if self.renderer.viewport.is_none() {
@@ -85,9 +100,7 @@ impl WindowlessRetained<'_> {
     }
     /// Completes existing work and delivers notifications, without requesting a frame.
     pub fn poll(&mut self) -> Result<bool, ViewerError> {
-        self.ensure_open()?;
-        if self.session.host.exit {
-            self.shutdown()?;
+        if !self.begin()? {
             return Ok(false);
         }
         let result = self
@@ -101,6 +114,17 @@ impl WindowlessRetained<'_> {
         }
         Ok(pending)
     }
+    fn begin(&mut self) -> Result<bool, ViewerError> {
+        self.ensure_open()?;
+        let result = self.session.host_ready();
+        self.finish(result)?;
+        if self.session.host.exit {
+            self.shutdown()?;
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     fn finish<T>(&mut self, result: Result<T, ViewerError>) -> Result<T, ViewerError> {
         match result {
             Ok(value) => Ok(value),
@@ -110,6 +134,20 @@ impl WindowlessRetained<'_> {
             }
         }
     }
+    /// Deterministic display-scale transition without a native window. Size stays physical.
+    pub fn set_display_scale(&mut self, scale_factor: f64) -> Result<(), ViewerError> {
+        self.ensure_open()?;
+        if !scale_factor.is_finite() || scale_factor <= 0. || scale_factor > f64::from(f32::MAX) {
+            return Err(ViewerError::InvalidOptions("invalid display scale"));
+        }
+        self.session.input(super::RetainedInput::DisplayChanged {
+            scale_factor,
+            physical_size: self.session.host.size(),
+        });
+        let result = self.session.take_failure().map_or(Ok(()), Err);
+        self.finish(result)
+    }
+
     /// Explicit physical-pixel resize, delivered even when the surface is suspended.
     pub fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
         self.ensure_open()?;

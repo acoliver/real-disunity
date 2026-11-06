@@ -3,8 +3,10 @@
 use worldrunner_render_gpu::submission::{LeaseError, SubmitError, TransactionError};
 use worldrunner_render_gpu::texture::UploadError;
 
+use crate::constants::ConstantError;
 use crate::layout::LayoutError;
 use crate::module::ModuleError;
+use crate::variant::VariantError;
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ProgramError {
@@ -12,6 +14,44 @@ pub enum ProgramError {
     Module(#[from] ModuleError),
     #[error(transparent)]
     Layout(#[from] LayoutError),
+    #[error(transparent)]
+    Constants(#[from] ConstantError),
+    #[error(transparent)]
+    Variant(#[from] VariantError),
+    #[error("program {program} has no variants")]
+    NoVariants { program: String },
+    #[error("program {program} has no property {property}")]
+    UnknownProperty { program: String, property: String },
+    #[error("property {property} takes {expected} and was given {found}")]
+    WrongPropertyKind {
+        property: String,
+        expected: String,
+        found: String,
+    },
+    #[error("program {program} uses property {property} as two different kinds of value")]
+    PropertyConflict { program: String, property: String },
+    #[error("property {property} has no value for set {set} binding {binding}")]
+    MissingProperty {
+        property: String,
+        set: u32,
+        binding: u32,
+    },
+    #[error("the state describes {states} colour targets and the pass has {targets}")]
+    ColorStates { states: usize, targets: usize },
+    #[error(
+        "set {set} binding {binding} imports {semantic}, and the draw imports nothing of that name"
+    )]
+    MissingImport {
+        semantic: String,
+        set: u32,
+        binding: u32,
+    },
+    #[error("the draw imports {semantic}, which no binding of the program takes")]
+    UnusedImport { semantic: String },
+    #[error("the draw imports {semantic} more than once")]
+    DuplicateImport { semantic: String },
+    #[error("the instance range {start}..{end} ends before it starts")]
+    InstanceRange { start: u32, end: u32 },
     #[error("the {kind} handle is not a live resource of this runtime")]
     UnknownHandle { kind: &'static str },
     #[error("set {set} binding {binding} has no resource")]
@@ -38,6 +78,8 @@ pub enum ProgramError {
     UnsupportedSampler { set: u32, binding: u32 },
     #[error("the program uses bind group {set}, above the device's limit of {limit}")]
     TooManyGroups { set: u32, limit: u32 },
+    #[error("the state asks for {what}, which this renderer does not draw")]
+    UnsupportedState { what: &'static str },
     #[error("the target has no depth attachment but a depth clear or test was requested")]
     NoDepth,
     #[error("the pixel data is {given} bytes and the {size:?} {format:?} texture needs {needed}")]
@@ -65,6 +107,19 @@ pub enum ProgramError {
     },
     #[error("the allocation takes the runtime to {required} bytes, over its budget of {budget}")]
     OverBudget { required: u64, budget: u64 },
+    #[error("the runtime may hold {budget} bytes and the arena reserves {arena}")]
+    ArenaTooSmall { budget: u64, arena: u64 },
+    #[error(
+        "the runtime already holds {live} bytes allocated before any arena, which the arena's reservation would not cover"
+    )]
+    ArenaAfterAllocations { live: u64 },
+    #[error("the arena was opened by another runtime")]
+    ForeignArena,
+    #[error("the draws were prepared for {prepared:?} and the pass is {pass:?}")]
+    TargetMismatch {
+        prepared: crate::packet::TargetSignature,
+        pass: crate::packet::TargetSignature,
+    },
     #[error("the allocation is invalid: {0}")]
     InvalidAllocation(&'static str),
     #[error("writing {len} bytes at {offset} is not a multiple of four")]
@@ -74,6 +129,8 @@ pub enum ProgramError {
         expected: crate::module::StageKind,
         found: crate::module::StageKind,
     },
+    #[error(transparent)]
+    UnsupportedTarget(#[from] UnsupportedTarget),
     #[error(transparent)]
     TextureUpload(#[from] UploadError),
     /// The encoder is not one the submission authority handed out for the frame being recorded.
@@ -89,6 +146,21 @@ pub enum ProgramError {
     Gpu(String),
     #[error("reading back from the GPU failed: {0}")]
     Readback(String),
+}
+
+/// A pass the runtime does not draw into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum UnsupportedTarget {
+    #[error("the pass has {samples} samples per pixel; program draws are single-sample")]
+    Multisampled { samples: u32 },
+    #[error("the pass has {samples} samples per pixel; draws support 1, 2, 4, 8 or 16")]
+    SampleCount { samples: u32 },
+    #[error("the pass has {count} color attachments, which the signature constructor refuses")]
+    ColorAttachments { count: usize },
+    #[error("{format:?} has a stencil aspect; program draws do not use stencil")]
+    Stencil { format: wgpu::TextureFormat },
+    #[error("{format:?} has no depth aspect")]
+    NotDepth { format: wgpu::TextureFormat },
 }
 
 /// The authority's refusals keep their names here, so a caller sees device loss and a busy

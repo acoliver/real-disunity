@@ -101,6 +101,8 @@ pub struct LightSettings {
     /// Instance id of the managed cookie texture; zero for none.
     pub cookie_texture: u64,
     pub bake_type: LightBakeType,
+    /// -1 for the quality settings' resolution, otherwise 0 (low) to 3 (very high).
+    pub shadow_resolution: i32,
 }
 impl Default for LightSettings {
     fn default() -> Self {
@@ -124,13 +126,15 @@ impl Default for LightSettings {
             cookie_size: 10.,
             cookie_texture: 0,
             bake_type: LightBakeType::Realtime,
+            shadow_resolution: -1,
         }
     }
 }
 impl LightSettings {
     /// Rejects what the settings cannot hold: a negative or non-finite intensity, range, bounce
     /// intensity or cookie size, a color temperature that is not above zero, a non-finite color or
-    /// shadow bias, an angle outside its range and a shadow strength outside 0 to 1.
+    /// shadow bias, an angle outside its range, a shadow strength outside 0 to 1 and a shadow
+    /// resolution outside -1 to 3.
     pub fn validate(self) -> Result<(), WorldError> {
         let non_negative = [
             self.intensity,
@@ -154,7 +158,8 @@ impl LightSettings {
             && (0. ..=self.spot_angle).contains(&self.inner_spot_angle);
         let temperature = self.color_temperature.is_finite() && self.color_temperature > 0.;
         let strength = (0. ..=1.).contains(&self.shadow_strength);
-        if non_negative && finite && angles && temperature && strength {
+        let resolution = (-1..=3).contains(&self.shadow_resolution);
+        if non_negative && finite && angles && temperature && strength && resolution {
             Ok(())
         } else {
             Err(invalid())

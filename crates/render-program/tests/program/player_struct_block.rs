@@ -5,10 +5,10 @@
 //! so a struct is 96 bytes (80 plus 16, already a multiple of 16) and the array's stride is 96.
 //! The block is 288 bytes. The same shape is how a player stores its struct arrays.
 
-use worldrunner_render_program::constants::{PackedConstants, pack_layout};
-use worldrunner_render_program::module::{StageKind, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::runtime::{BoundResource, DispatchRequest};
+use worldrunner_render_program::unity::constants::{PackedConstants, pack_layout};
+use worldrunner_render_program::unity::module::{StageKind, StageProgram};
+use worldrunner_render_program::unity::runtime::{BoundResource, DispatchRequest};
 use worldrunner_unity_serialized::shader_parameters::{
     BufferMember, ConstantBuffer, ResourceKind, StructLayout, VariantParameters,
 };
@@ -156,7 +156,7 @@ fn material() -> PropertySet {
 }
 
 fn pack(min_len: usize) -> PackedConstants {
-    let layout = worldrunner_render_program::buffers::BufferLayout::from_variant(&items());
+    let layout = worldrunner_render_program::unity::buffers::BufferLayout::from_variant(&items());
     pack_layout(&layout, &[], &[&material()], min_len).unwrap()
 }
 

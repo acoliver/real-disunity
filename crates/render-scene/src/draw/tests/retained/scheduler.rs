@@ -108,6 +108,60 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
 }
 
 #[test]
+fn published_slots_leave_the_dirty_set() {
+    let context = context();
+    let source = scene(SceneAlphaMode::Opaque, false, 4);
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let target = OffscreenTarget::new(
+        context.device(),
+        crate::Viewport {
+            width: 64,
+            height: 64,
+        },
+    )
+    .unwrap();
+    let mut renderer = crate::compositor::FrameRenderer::new(context.device());
+    let mut publish = |gpu: &mut SceneGpu| {
+        let mut encoder = context.submission().begin(context.device()).unwrap();
+        crate::compositor::encode_scene(
+            &mut renderer,
+            context.device(),
+            &mut encoder,
+            (gpu, &pipelines),
+            (&target.color_attachment(), &target.depth_attachment()),
+            frame_from(pose()),
+        )
+        .unwrap();
+        encoder.finish().submit().unwrap();
+    };
+    let handles: Vec<_> = gpu.instance_handles().collect();
+    for handle in &handles {
+        gpu.set_instance_transform(*handle, moved(500)).unwrap();
+    }
+    publish(&mut gpu);
+    publish(&mut gpu);
+    let batch = gpu.instances.batches.values().next().unwrap();
+    assert_eq!(batch.dirty_count(), 0);
+    gpu.set_instance_transform(handles[2], moved(900)).unwrap();
+    let batch = gpu.instances.batches.values().next().unwrap();
+    assert_eq!(batch.pending_ranges(), vec![2..3]);
+    publish(&mut gpu);
+    publish(&mut gpu);
+    let batch = gpu.instances.batches.values().next().unwrap();
+    assert_eq!(batch.dirty_count(), 0);
+    assert_eq!(
+        buffer_bytes(
+            &context,
+            batch.buffer.as_ref().unwrap(),
+            batch.bytes.len() as u64
+        ),
+        batch.bytes
+    );
+}
+
+#[test]
 fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 1);

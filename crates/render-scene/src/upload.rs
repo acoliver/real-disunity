@@ -2,7 +2,7 @@ use crate::texture::PreparedTexture;
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Device,
     FilterMode, Queue, Sampler, SamplerDescriptor, ShaderStages, Texture, TextureFormat,
-    TextureSampleType, TextureUsages, TextureViewDimension,
+    TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
 };
 use worldrunner_render_gpu::texture::{
     TextureKind, TextureLayer, TextureUpload, UploadError, packed_mips,
@@ -178,6 +178,13 @@ pub fn terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
 }
 
 pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> BindGroupLayout {
+    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: Some("terrain"),
+        entries: &terrain_entries(cached, layered),
+    })
+}
+
+pub(crate) fn terrain_entries(cached: bool, layered: bool) -> Vec<BindGroupLayoutEntry> {
     let mut entries = vec![BindGroupLayoutEntry {
         binding: 0,
         visibility: ShaderStages::VERTEX_FRAGMENT,
@@ -198,6 +205,7 @@ pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> Bi
         },
         count: None,
     });
+    entries.push(terrain_plane_entry());
     if !layered {
         entries.extend((2..=4).map(decal_texture_entry));
     }
@@ -225,10 +233,20 @@ pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> Bi
     if cached {
         install_cached_entries(&mut entries);
     }
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("terrain"),
-        entries: &entries,
-    })
+    entries
+}
+
+fn terrain_plane_entry() -> BindGroupLayoutEntry {
+    BindGroupLayoutEntry {
+        binding: crate::terrain::planes::BINDING,
+        visibility: ShaderStages::VERTEX_FRAGMENT,
+        ty: BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only: true },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
 }
 
 /// Uploads the terrain material-index grid as an unfilterable `uint` texture.
@@ -323,6 +341,13 @@ pub fn upload_texture(
         "material-texture",
         TextureUsages::empty(),
     )
+}
+
+/// The placeholder with its default view, which is how scene upload binds it.
+pub(crate) fn placeholder_with_view(device: &Device, queue: &Queue) -> (Texture, TextureView) {
+    let texture = placeholder_texture(device, queue);
+    let view = texture.create_view(&TextureViewDescriptor::default());
+    (texture, view)
 }
 
 /// Creates the neutral texture bound where a material omits an optional map.

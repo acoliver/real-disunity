@@ -17,7 +17,9 @@ pub struct DispatchRequest<'a> {
 
 impl ProgramRuntime {
     /// Records the kernel's dispatch into `encoder`; the caller submits the frame and reads
-    /// results back with `read_buffer`.
+    /// results back with `read_buffer`. The frame retains the reservations of the buffers and
+    /// textures the kernel binds, so their bytes stay counted until the frame is cancelled,
+    /// dropped or completed on the GPU, even when the runtime is dropped first.
     ///
     /// # Errors
     /// Fails on a binding that does not fit the program, an encoder that is not the
@@ -30,6 +32,7 @@ impl ProgramRuntime {
         self.recording(encoder)?;
         let pipeline = self.compute_pipeline(request.program)?;
         let groups = self.bind_groups(&request.program.gpu, request.bindings)?;
+        self.hold_for_frame(encoder, self.binding_shares(request.bindings)?)?;
         self.guarded(|| {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             pass.set_pipeline(&pipeline);

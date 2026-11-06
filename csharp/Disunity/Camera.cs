@@ -24,7 +24,7 @@ public sealed partial class Camera : Behaviour
     private const float MinClipDistance = 0.01f;
 
     private static readonly object TargetLock = new();
-    private static readonly Dictionary<int, WeakReference<RenderTexture>> TargetTextures = new();
+    private static readonly Dictionary<ulong, WeakReference<RenderTexture>> TargetTextures = new();
 
     public enum GateFitMode { Vertical = 1, Horizontal = 2, Fill = 3, Overscan = 4, None = 0 }
 
@@ -118,7 +118,8 @@ public sealed partial class Camera : Behaviour
     private (int Width, int Height) TargetSize() =>
         targetTexture is { } texture ? (texture.width, texture.height) : ScreenSize();
 
-    /// <summary>The texture the camera draws into, or null for the screen. A frame cannot present a target texture yet.</summary>
+    /// <summary>The texture the camera draws into, or null for the screen. The camera holds the id of the texture's render
+    /// texture in the world. A frame does not present a camera with a target texture; <see cref="Render"/> records its offscreen work.</summary>
     public RenderTexture? targetTexture
     {
         get
@@ -127,15 +128,15 @@ public sealed partial class Camera : Behaviour
             if (id == 0) return null;
             lock (TargetLock)
             {
-                if (!TargetTextures.TryGetValue(unchecked((int)(uint)id), out var weak) || !weak.TryGetTarget(out var texture)) return null;
+                if (!TargetTextures.TryGetValue(id, out var weak) || !weak.TryGetTarget(out var texture)) return null;
                 return texture ? texture : null;
             }
         }
         set
         {
             if (value is not null && !value) throw new ArgumentException("the target texture was destroyed", nameof(value));
-            var id = value is null ? 0ul : unchecked((ulong)(uint)value.GetInstanceID());
-            if (value is not null) lock (TargetLock) TargetTextures[value.GetInstanceID()] = new WeakReference<RenderTexture>(value);
+            var id = value is null ? 0ul : value.WorldId;
+            if (value is not null) lock (TargetLock) TargetTextures[id] = new WeakReference<RenderTexture>(value);
             Update(c => { c.target_texture = id; return c; });
         }
     }

@@ -10,6 +10,7 @@
 //! ```
 
 mod assets;
+pub mod audio;
 mod camera_layers;
 mod clock;
 mod coroutines;
@@ -23,13 +24,17 @@ mod ratio;
 mod timeline;
 pub use clock::Clock;
 pub use coroutines::{CoroutineId, WaitCondition};
-pub use input::{AxisBinding, AxisId, InputAction, InputEvent, InputPhase, InputView, KeyCode};
+pub use input::{
+    AxisBinding, AxisId, InputAction, InputEvent, InputPhase, InputView, KeyCode, PointerButton,
+    PointerEvent, PointerState, PointerWheel, TextInput,
+};
 pub use ratio::{TimeError, TimeSpan};
 pub use timeline::{
     Advance, CallbackOutcome, CallbackTicket, CallbackWork, FrameSummary, ScriptFailure,
 };
 mod components;
 mod edits;
+pub mod graphics;
 mod handles;
 mod journal;
 mod mesh_instance;
@@ -55,9 +60,12 @@ mod clone;
 mod construction;
 mod fields;
 mod follow;
+mod frame_rescan;
 mod hierarchy;
 mod lifecycle;
 mod lifetime;
+mod phase_index;
+mod script_messages;
 mod transform;
 mod unpublished;
 mod world;
@@ -67,6 +75,7 @@ pub use fields::FieldValue;
 pub use hierarchy::ParentSpace;
 pub use lifecycle::{LifecycleWork, MutationId, ScriptMessage};
 pub use lifetime::DestroyWhen;
+pub use script_messages::ScriptMessages;
 
 pub use components::{ComponentDesc, LocalTransform};
 pub use handles::{ComponentHandle, ObjectHandle};
@@ -80,6 +89,7 @@ pub enum LimitKind {
     Components,
     Generation,
     WorldIdentity,
+    Graphics,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
@@ -160,4 +170,6 @@ pub enum WorldError {
     InvalidSpatialArgument,
     #[error("physics: {0}")]
     Physics(#[from] physics2d::PhysicsError),
+    #[error("graphics: {0}")]
+    Graphics(#[from] graphics::GraphicsError),
 }

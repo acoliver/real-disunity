@@ -12,3 +12,8 @@ public interface IPointerEvent
 public interface IRuntimePanelComponent
 {
 }
+
+/// <summary>The base of the pointer events (down, up, move and so on). The engine raises none; the type has no members until a player calls one.</summary>
+public abstract class PointerEventBase<T> : IPointerEvent where T : PointerEventBase<T>, new()
+{
+}

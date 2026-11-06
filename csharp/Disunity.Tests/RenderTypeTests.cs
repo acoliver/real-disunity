@@ -37,6 +37,7 @@ internal static class RenderTypeTests
             "UnityEngine.Rendering.GPUDrivenMeshLodInfo", "UnityEngine.Rendering.GPUDrivenPackedMaterialData",
             "UnityEngine.Rendering.GPUDrivenRendererGroupData", "UnityEngine.Rendering.GPUDrivenRendererMeshLodData",
             "UnityEngine.U2D.Light2DBase", "UnityEngine.UIElements.IPointerEvent", "UnityEngine.UIElements.IRuntimePanelComponent",
+            "UnityEngine.UIElements.PointerEventBase`1",
             "UnityEngine.Networking.DownloadHandlerScript",
         })
             Expect.That(ModuleFacades.Forwards(Engine, name), $"the module facades forward {name}");
@@ -64,6 +65,8 @@ internal static class RenderTypeTests
         infos.Dispose();
     }
 
+    private sealed class PointerSample : PointerEventBase<PointerSample> { }
+
     private sealed class PackageLight : Light2DBase { }
 
     private static void Light2DBaseIsAScript()
@@ -77,6 +80,10 @@ internal static class RenderTypeTests
     {
         Expect.That(typeof(IPointerEvent).IsInterface && typeof(IPointerEvent).IsPublic, "IPointerEvent");
         Expect.That(typeof(IRuntimePanelComponent).IsInterface && typeof(IRuntimePanelComponent).IsPublic, "IRuntimePanelComponent");
+        var events = typeof(PointerEventBase<>);
+        Expect.That(events.IsAbstract && events.IsGenericTypeDefinition && events.IsPublic, "PointerEventBase is a public abstract generic");
+        Expect.That(typeof(IPointerEvent).IsAssignableFrom(events), "and a pointer event");
+        Expect.That(typeof(PointerSample).BaseType == typeof(PointerEventBase<PointerSample>), "a game event derives from it with itself as the argument");
     }
 
     private static void RequireNamed(Action call, string member)

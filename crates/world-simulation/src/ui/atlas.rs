@@ -4,13 +4,14 @@ use glam::{UVec2, Vec2};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GlyphAtlas {
-    /// Alpha coverage, row-major, top row first. No color encoding is applied.
-    pub alpha: Vec<u8>,
+    /// Shared alpha coverage, row-major, top row first. No color encoding is applied.
+    pub alpha: std::sync::Arc<[u8]>,
     pub size: UVec2,
 }
 
 pub(super) struct AtlasBuilder {
     atlas: GlyphAtlas,
+    pixels: Vec<u8>,
     cursor: UVec2,
     row_height: u32,
     limits: UiLimits,
@@ -19,6 +20,7 @@ impl AtlasBuilder {
     pub fn new(limits: UiLimits) -> Self {
         Self {
             atlas: GlyphAtlas::default(),
+            pixels: Vec::new(),
             cursor: UVec2::ZERO,
             row_height: 0,
             limits,
@@ -51,8 +53,7 @@ impl AtlasBuilder {
         if end.y > stride || count > self.limits.max_atlas_pixels as u64 {
             return Err(UiError::AtlasLimit);
         }
-        self.atlas
-            .alpha
+        self.pixels
             .resize(usize::try_from(count).map_err(|_| UiError::AtlasLimit)?, 0);
         self.atlas.size = UVec2::new(stride, height);
         let start = self.cursor;
@@ -69,7 +70,7 @@ impl AtlasBuilder {
                 let px = Vec2::new(dx, dy).as_uvec2().x + start.x;
                 let py = Vec2::new(dx, dy).as_uvec2().y + start.y;
                 let index = u64::from(py) * u64::from(stride) + u64::from(px);
-                self.atlas.alpha[usize::try_from(index).expect("bounded atlas index")] =
+                self.pixels[usize::try_from(index).expect("bounded atlas index")] =
                     u8::try_from(Vec2::splat((coverage.min(1.) * 255.).round()).as_uvec2().x)
                         .expect("coverage in 0..255");
             }
@@ -78,7 +79,8 @@ impl AtlasBuilder {
         self.row_height = self.row_height.max(size.y);
         Ok((start, size))
     }
-    pub fn finish(self) -> GlyphAtlas {
+    pub fn finish(mut self) -> GlyphAtlas {
+        self.atlas.alpha = self.pixels.into();
         self.atlas
     }
 }

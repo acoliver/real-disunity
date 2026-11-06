@@ -78,7 +78,7 @@ impl UiPresentation {
                     kind: UiDrawKind::Text,
                     corners: glyph.corners,
                     uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],
-                    color: text.color,
+                    color: std::array::from_fn(|i| text.color[i] * glyph.color[i]),
                     texture: text.texture.as_ref().map(|_| identity),
                     sorting_layer: text.sorting_layer,
                     sorting_order: text.sorting_order,

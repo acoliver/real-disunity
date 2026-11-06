@@ -33,8 +33,10 @@ fn cascade_refresh_gpu_timing_comparison() {
         &scene(&casters, 600_000, None),
         SceneShadowCascades::new(vec![1_000, 2_000, 3_000, 4_000], 0).unwrap(),
     );
-    let default = measure(&context, &source, CascadeRefreshPolicy::default());
-    let staggered = measure(
+    let Some(default) = measure(&context, &source, CascadeRefreshPolicy::default()) else {
+        return;
+    };
+    let Some(staggered) = measure(
         &context,
         &source,
         CascadeRefreshPolicy {
@@ -44,7 +46,9 @@ fn cascade_refresh_gpu_timing_comparison() {
             light_delta_radians: 0.01,
             projection_delta_texels: 2.0,
         },
-    );
+    ) else {
+        return;
+    };
     print_comparison(&context, &default, &staggered);
     assert!(default.refreshed_layers.iter().all(|&count| count == 4));
     assert!(staggered.refreshed_layers.iter().all(|&count| count == 2));
@@ -54,7 +58,11 @@ fn cascade_refresh_gpu_timing_comparison() {
     );
 }
 
-fn measure(context: &GpuContext, source: &RenderScene, policy: CascadeRefreshPolicy) -> Samples {
+fn measure(
+    context: &GpuContext,
+    source: &RenderScene,
+    policy: CascadeRefreshPolicy,
+) -> Option<Samples> {
     let mut renderer = ShadowedScene::new(
         context,
         source,
@@ -80,7 +88,16 @@ fn measure(context: &GpuContext, source: &RenderScene, policy: CascadeRefreshPol
         if frame < WARMUP_FRAMES {
             continue;
         }
-        let (caster, total) = durations(&timing);
+        let (caster, total) = match durations(&timing) {
+            Ok(durations) => durations,
+            Err(pass) => {
+                eprintln!(
+                    "SKIP cascade refresh timing: adapter {} returned an unavailable timestamp pair for frame {frame}, pass {pass:?}; no comparison reported",
+                    context.adapter().get_info().name,
+                );
+                return None;
+            }
+        };
         samples.caster_ns.push(caster);
         samples.total_ns.push(total);
         samples.refreshed_layers.push(
@@ -91,7 +108,7 @@ fn measure(context: &GpuContext, source: &RenderScene, policy: CascadeRefreshPol
                 .count(),
         );
     }
-    samples
+    Some(samples)
 }
 
 pub(super) fn timed_frame(
@@ -127,17 +144,49 @@ pub(super) fn timed_frame(
     timing
 }
 
-fn durations(timing: &FrameTiming) -> (f64, f64) {
+fn durations(timing: &FrameTiming) -> Result<(f64, f64), PassId> {
     let mut caster = 0.0;
     let mut total = 0.0;
     for pass in &timing.passes {
-        let ns = pass.duration_ns.expect("unavailable GPU timestamp pair");
+        let ns = pass.duration_ns.ok_or(pass.pass_id)?;
         total += ns;
         if matches!(pass.pass_id, PassId::Geometry(PassSlot::ShadowCasters(_))) {
             caster += ns;
         }
     }
-    (caster, total)
+    Ok((caster, total))
+}
+
+#[test]
+fn available_durations_sum_casters_and_total_including_zero_intervals() {
+    assert_eq!(durations(&sample_timing()), Ok((8.0, 15.0)));
+}
+
+#[test]
+fn unavailable_duration_rejects_the_entire_sample_with_its_pass_id() {
+    let timing = sample_timing();
+    for index in 0..timing.passes.len() {
+        let mut incomplete = timing.clone();
+        incomplete.passes[index].duration_ns = None;
+        assert_eq!(durations(&incomplete), Err(timing.passes[index].pass_id));
+    }
+}
+
+fn sample_timing() -> FrameTiming {
+    FrameTiming {
+        frame_id: 8,
+        passes: [
+            (PassId::Geometry(PassSlot::ShadowCasters(0)), 3.0),
+            (PassId::Geometry(PassSlot::ShadowCasters(1)), 5.0),
+            (PassId::Geometry(PassSlot::Opaque), 7.0),
+            (PassId::Resolve, 0.0),
+        ]
+        .map(|(pass_id, duration)| worldrunner_render_post::PassTiming {
+            pass_id,
+            duration_ns: Some(duration),
+        })
+        .to_vec(),
+    }
 }
 
 fn statistics_ns(samples: &[f64]) -> (f64, f64) {

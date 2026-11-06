@@ -60,7 +60,7 @@ fn a_new_camera_has_unitys_defaults_for_the_added_settings() {
     assert!(camera.flags.contains(CameraFlags::MSAA));
     assert!(camera.flags.contains(CameraFlags::OCCLUSION_CULLING));
     assert!(!camera.flags.contains(CameraFlags::DYNAMIC_RESOLUTION));
-    assert_eq!((camera.target_display, camera.target_texture), (0, 0));
+    assert_eq!((camera.target_display, camera.target_texture), (0, None));
     assert_eq!(
         (camera.projection_matrix, camera.world_to_camera),
         (None, None)

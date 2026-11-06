@@ -189,6 +189,7 @@ fn shader_asset(plan: &ResourcesPlan, index: usize) -> (&str, i32, usize, usize)
         render_queue,
         pass_count,
         subshader_count,
+        ..
     } = &plan.assets[index]
     else {
         panic!("asset {index} is a shader: {:?}", plan.assets[index])
@@ -214,6 +215,26 @@ fn plans_container_shaders_with_their_name_queue_and_counts() {
         ]
     );
     assert_eq!(shader_asset(&plan, 0), ("Test/Lit", 3000, 2, 1));
+}
+
+#[test]
+fn a_planned_shader_names_the_file_and_object_its_programs_live_in() {
+    let (_dir, plan) = planned_resources();
+    let source = |index: usize| match &plan.assets[index] {
+        ResourceAsset::Shader { file, path_id, .. } => (file.clone(), *path_id),
+        other => panic!("asset {index} is a shader: {other:?}"),
+    };
+    assert_eq!(source(0), ("resources.assets".to_owned(), 2));
+    assert_eq!(source(4), ("resources.assets".to_owned(), 5));
+}
+
+#[test]
+fn the_shader_plan_json_carries_file_and_path_id() {
+    let (_dir, plan) = planned_resources();
+    let planned = serde_json::to_value(&plan.assets[0]).unwrap();
+    assert_eq!(planned["type"], "Shader");
+    assert_eq!(planned["file"], "resources.assets");
+    assert_eq!(planned["path_id"], 2);
 }
 
 #[test]
@@ -335,11 +356,14 @@ fn a_scene_script_field_plans_its_shader_as_a_scene_asset_shared_by_both_referen
             render_queue,
             pass_count,
             subshader_count,
+            file,
+            path_id,
         },
     ] = &plan.assets[..]
     else {
         panic!("the scene holds the one shader: {:?}", plan.assets)
     };
+    assert_eq!((file.as_str(), *path_id), ("sharedassets0.assets", 10));
     assert_eq!(
         (name.as_str(), *render_queue, *pass_count, *subshader_count),
         ("Test/Lit", 3000, 2, 1)

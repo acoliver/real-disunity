@@ -3,16 +3,44 @@ using Unity.Collections;
 namespace UnityEngine.Rendering;
 
 /// <summary>
-/// The handle a render pipeline schedules its work through. The members are declared so a pipeline loads and
-/// links, but the engine does not render through a context yet: every member that would cull, record, draw or
-/// submit throws <see cref="NotSupportedException"/> naming the member. The struct holds no data, so all values
-/// are equal.
+/// The handle a render pipeline schedules its work through. <see cref="ExecuteCommandBuffer"/> copies a buffer's
+/// commands onto the pending list and <see cref="Submit"/> sends the pending commands to the world in order and empties
+/// the list. The list is the engine's single one, so every copy of a context shares it, and the struct holds no data:
+/// all values are equal. The other members are declared so a pipeline loads and links, but the engine does not cull,
+/// draw or validate render passes through a context yet: they throw <see cref="NotSupportedException"/> naming the member.
 /// </summary>
 public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
 {
-    public void Submit() => throw Unsupported("Submit");
+    private static readonly List<Action> Pending = new();
+
+    /// <summary>How many commands wait for <see cref="Submit"/>.</summary>
+    internal static int PendingCount
+    {
+        get
+        {
+            lock (Pending) return Pending.Count;
+        }
+    }
+
+    public void Submit()
+    {
+        Action[] batch;
+        lock (Pending)
+        {
+            batch = Pending.ToArray();
+            Pending.Clear();
+        }
+        foreach (var send in batch) send();
+    }
+
     public readonly bool SubmitForRenderPassValidation() => throw Unsupported("SubmitForRenderPassValidation");
-    public void ExecuteCommandBuffer(CommandBuffer commandBuffer) => throw Unsupported("ExecuteCommandBuffer");
+    public void ExecuteCommandBuffer(CommandBuffer commandBuffer)
+    {
+        ArgumentNullException.ThrowIfNull(commandBuffer);
+        var commands = commandBuffer.Commands();
+        lock (Pending) Pending.AddRange(commands);
+    }
+
     public void ExecuteCommandBufferAsync(CommandBuffer commandBuffer, ComputeQueueType queueType) => throw Unsupported("ExecuteCommandBufferAsync");
     public CullingResults Cull(ref ScriptableCullingParameters parameters) => throw Unsupported("Cull");
     public void SetupCameraProperties(Camera camera, bool stereoSetup = false) => throw Unsupported("SetupCameraProperties");

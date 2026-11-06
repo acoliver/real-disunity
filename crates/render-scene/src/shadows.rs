@@ -37,6 +37,8 @@ mod cascades;
 mod compaction;
 mod refresh;
 mod resources;
+#[cfg(test)]
+pub(crate) use resources::receiver_sources;
 mod schedule;
 mod settings;
 

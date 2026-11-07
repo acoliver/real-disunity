@@ -59,6 +59,7 @@ fn assert_close(actual: [f64; 2], expected: [f64; 2]) {
 
 #[test]
 fn an_identity_camera_reprojects_every_pixel_onto_itself() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let camera = projection() * Mat4::from_translation(Vec3::new(0.0, 0.0, -1.0));
     let block = uniform(&view_of(camera, camera, true));
     for world in [Vec3::new(0.0, 0.0, -4.0), Vec3::new(1.0, -0.5, -3.0)] {
@@ -78,6 +79,7 @@ fn an_identity_camera_reprojects_every_pixel_onto_itself() {
 
 #[test]
 fn a_camera_translation_moves_a_known_point_to_its_previous_uv() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let current = projection();
     // The previous camera stood one metre to the right: the point (0, 0, -4) sat at ndc x -0.25.
     let previous = projection() * Mat4::from_translation(Vec3::new(-1.0, 0.0, 0.0));
@@ -90,6 +92,7 @@ fn a_camera_translation_moves_a_known_point_to_its_previous_uv() {
 
 #[test]
 fn a_camera_rotation_moves_a_known_point_to_its_previous_uv() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let current = projection();
     // The previous camera had yawed so the point straight ahead sat at ndc x = tan(yaw) = 0.5.
     let yaw = 0.5_f32.atan();
@@ -103,6 +106,7 @@ fn a_camera_rotation_moves_a_known_point_to_its_previous_uv() {
 
 #[test]
 fn a_perspective_camera_supplies_the_linear_depth_terms_of_its_clip_planes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (near, far) = (0.1_f64, 100.0_f64);
     let rotated = Mat4::from_rotation_y(0.7) * Mat4::from_translation(Vec3::new(3.0, -2.0, -1.0));
     for camera in [projection() * rotated, projection()] {
@@ -116,6 +120,7 @@ fn a_perspective_camera_supplies_the_linear_depth_terms_of_its_clip_planes() {
 
 #[test]
 fn an_orthographic_camera_disables_the_depth_terms() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let ortho = glam::camera::rh::proj::directx::orthographic(-4.0, 4.0, -3.0, 3.0, 0.1, 100.0);
     let camera = ortho * Mat4::from_rotation_y(0.4);
     let terms = uniform(&view_of(camera, camera, true)).depth_terms;
@@ -126,6 +131,7 @@ fn an_orthographic_camera_disables_the_depth_terms() {
 /// is off, while the reprojection, the history validity and the colour clip stay in force.
 #[test]
 fn an_orthographic_camera_keeps_history_and_reprojection_without_the_depth_test() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let ortho = glam::camera::rh::proj::directx::orthographic(-4.0, 4.0, -3.0, 3.0, 0.1, 100.0);
     let current = ortho * Mat4::from_rotation_y(0.4);
     let previous = ortho * Mat4::from_translation(Vec3::new(0.5, 0.0, 0.0));
@@ -141,6 +147,7 @@ fn an_orthographic_camera_keeps_history_and_reprojection_without_the_depth_test(
 
 #[test]
 fn a_frame_without_valid_history_marks_the_block_invalid() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let camera = projection();
     let block = uniform(&view_of(camera, camera, false));
     assert!(!block.history_valid);
@@ -149,13 +156,14 @@ fn a_frame_without_valid_history_marks_the_block_invalid() {
 
 #[test]
 fn a_singular_camera_gives_an_identity_block_without_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let block = uniform(&view_of(Mat4::ZERO, projection(), true));
     assert!(!block.history_valid);
     assert_eq!(block.reprojection, DMat4::IDENTITY.to_cols_array_2d());
 }
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request()).unwrap()
+    GpuContext::shared_for_test().unwrap()
 }
 
 fn taa_renderer(context: &GpuContext) -> FrameRenderer {
@@ -226,6 +234,7 @@ fn valid(renderer: &FrameRenderer) -> bool {
 
 #[test]
 fn a_taa_renderer_builds_with_jitter_selected_automatically() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let renderer = taa_renderer(&context);
     assert_eq!(
@@ -236,6 +245,7 @@ fn a_taa_renderer_builds_with_jitter_selected_automatically() {
 
 #[test]
 fn the_first_frame_uploads_a_block_without_history_and_the_next_one_with() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = taa_renderer(&context);
     assert_eq!(renderer.taa_block(), None);
@@ -247,6 +257,7 @@ fn the_first_frame_uploads_a_block_without_history_and_the_next_one_with() {
 
 #[test]
 fn history_is_invalid_after_a_reset_a_resize_a_jitter_change_and_a_cancelled_first_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = taa_renderer(&context);
     let warm = |renderer: &mut FrameRenderer| {
@@ -284,6 +295,7 @@ fn history_is_invalid_after_a_reset_a_resize_a_jitter_change_and_a_cancelled_fir
 
 #[test]
 fn a_frame_without_temporal_data_clears_the_pending_block() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = taa_renderer(&context);
     submit(&context, &mut renderer, 0);
@@ -309,6 +321,7 @@ fn a_frame_without_temporal_data_clears_the_pending_block() {
 fn encode_frame_without_encode_output_leaves_the_last_block_pending() {
     // The block belongs to the last encode_frame and is uploaded by the next encode_output;
     // a host that never calls encode_output uploads nothing and the next frame overwrites it.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = taa_renderer(&context);
     submit(&context, &mut renderer, 0);
@@ -323,6 +336,7 @@ fn encode_frame_without_encode_output_leaves_the_last_block_pending() {
 
 #[test]
 fn a_renderer_without_taa_keeps_no_block_and_uploads_nothing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer =
         FrameRenderer::hdr(&context, SIZE, OUTPUT, 1, ToneMap::Reinhard, None).unwrap();

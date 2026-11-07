@@ -104,6 +104,7 @@ fn prepare(
             vertex_inputs: &[rectangle(gpu, area)],
             bindings: &[],
             imports: &[],
+            sets: &[],
             geometry: &ImportedGeometry::Vertices { first: 0, count: 6 },
             instances: 0..1,
             owners: &[],

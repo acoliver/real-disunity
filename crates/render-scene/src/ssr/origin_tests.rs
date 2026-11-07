@@ -137,6 +137,7 @@ fn probe(
 }
 #[test]
 fn gpu_water_origin_preserves_sample_coordinates_at_both_trace_scales_and_projections() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for scale in [500_000, 1_000_000] {
@@ -200,6 +201,7 @@ fn probe_views(
 
 #[test]
 fn gpu_orthographic_water_uses_parallel_incident_rays() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for scale in [500_000, 1_000_000] {

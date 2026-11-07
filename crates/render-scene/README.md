@@ -121,6 +121,18 @@ The scene's pass does not clip: `DynamicQuad::clip_rect` splits draws there and 
 
 `src/dynamic/capture_tests.rs` draws quads, sprites and glyphs with this path and with a test-only copy of the former fixed pipeline and material bind group, on one device, under each target set above with the auxiliary attachments pre-filled, and requires every attachment to match byte for byte. It prints a hash per attachment, which was identical before and after the change on the Radeon 780M and on llvmpipe.
 
+## Player offscreen operations
+
+`SceneGpu::admit_offscreen` carries an `AdmittedOffscreen` from `worldrunner-render-program` into the next frame encoded with this scene: camera renders into render textures, `Graphics.Blit` material passes and texture copies, already checked by the render-post executor's contract as `TypedOperation`s. `compositor::encode_scene` takes them after it has checked the admitted draws and before it declares the stock passes, so they are the first commands the frame records in the same encoder and so the same submission. They are encoded through the frame's pass timer, so with timing configured each one is a `PassId::Operation` at the head of `FrameTiming::passes`, ahead of the stock opaque pass. No second scheduler was added: the scene's only change is where it calls `AdmittedOffscreen::encode`.
+
+A draw admitted with `admit_programs` can sample a render texture that the offscreen operations write, in the stock opaque pass. The host names that read when it builds the offscreen frame (`OffscreenFrame::later_reads`), and the executor checks it as a sampled read of the version the frame leaves, so a read before any write or of a range a later operation overwrites fails at admission by name, before anything is recorded.
+
+- The resident path (`encode_resident`) and the shadowed path refuse a scene that holds admitted offscreen operations by name, as they do for admitted draws.
+- The offscreen operations are taken whether or not the frame is accepted, so a refused frame leaves none for the next. An arena that retired or belongs to another submission authority fails the frame by name.
+- A cancelled frame submits nothing; the render textures keep what they held and the arena can retire.
+
+The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).
+
 ## Material sampling
 
 Mesh and impostor scalar selectors use direct component indexing with uniform integers,
@@ -490,7 +502,13 @@ The previous camera advances only when the frame's transaction is submitted, lik
 history. A cancelled or failed preparation changes nothing. The first frame, `reset_temporal_history`
 (call it on a camera cut), a resize, a reconfigure, and a change of jitter settings each discard
 the previous camera and restart the sequence; a frame prepared before a reset cannot republish
-after it.
+after it. `projection_jitter_index()` reads the next sequence position without advancing it.
+The explicit reset also discards pending native TAA and temporal-reconstruction blocks.
+For retained instance draws, pair the reset with `SceneGpu::reset_velocity_history()`:
+previous transforms then initialize from current placements at the next submission,
+including when a preparation was cancelled. `ShadowedScene::reset_camera_history()`
+also discards depth-fitting evidence, contraction filters and retained cascade maps.
+Exposure adaptation has its separate `reset_exposure()` operation.
 
 Velocity. `ScenePipelines::with_taa_velocity` builds pipelines whose object and terrain draws also
 write the wind residual to the `Rg16Float` velocity attachment that `FrameTargets` allocates only

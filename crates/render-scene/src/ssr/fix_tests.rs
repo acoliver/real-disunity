@@ -4,6 +4,7 @@ const PACKED_EXTENT_ERROR: &str = "sample-packed radiance extent exceeds device 
 
 #[test]
 fn radiance_limit_boundaries_include_sample_packing_and_odd_half_extents() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits {
         max_texture_dimension_2d: 8192,
         ..Default::default()
@@ -40,6 +41,7 @@ fn radiance_limit_boundaries_include_sample_packing_and_odd_half_extents() {
 
 #[test]
 fn frame_wider_than_the_device_limit_divided_by_samples_fails_before_ssr_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let limit = context.device().limits().max_texture_dimension_2d;
     let effects = crate::post_fxaa_tests::effects(None)
@@ -91,6 +93,7 @@ fn frame_wider_than_the_device_limit_divided_by_samples_fails_before_ssr_allocat
 
 #[test]
 fn water_origin_uses_the_published_forward_sample_offset() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert!(include_str!("../water/water.wgsl").contains("var f0 = 0.02037;"));
     let source = gpu::trace_source(4, true);
     assert!(source.contains("origin_uv = (vec2<f32>(p) + water_surface.rg) / camera.size.xy"));
@@ -101,6 +104,7 @@ fn water_origin_uses_the_published_forward_sample_offset() {
 }
 #[test]
 fn target_ownership_does_not_infer_a_plane_from_shading_normals() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = gpu::trace_source(4, true);
     assert!(!source.contains("let plane = dot(centre, normal)"));
     assert!(source.contains("textureLoad(opaque_forward_depth, pixel, 0)"));
@@ -108,6 +112,7 @@ fn target_ownership_does_not_infer_a_plane_from_shading_normals() {
 }
 #[test]
 fn packed_extents_are_checked_before_ssr_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = include_str!("../ssr.rs");
     let constructor = source.split("pub fn new(").nth(1).unwrap();
     assert!(
@@ -119,6 +124,7 @@ fn packed_extents_are_checked_before_ssr_allocation() {
 }
 #[test]
 fn water_trace_and_resolve_explicitly_handle_orthographic_projection() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for source in [
         gpu::trace_source(4, true),
         gpu::sampled_resolve_source(3, 4, true),

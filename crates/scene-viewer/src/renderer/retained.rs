@@ -39,7 +39,7 @@ impl Objects {
                     }
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
-                RetainedUpdate::Camera { .. } => {}
+                RetainedUpdate::Camera { .. } | RetainedUpdate::CameraWithContinuity { .. } => {}
                 RetainedUpdate::Ui(_) => unreachable!("UI updates publish through readiness"),
                 RetainedUpdate::Resources { .. }
                 | RetainedUpdate::AppendResources(_)
@@ -86,6 +86,25 @@ fn apply_edit(
 }
 
 impl Renderer {
+    pub(crate) fn temporal_history_reset(&self) -> crate::TemporalHistoryReset {
+        self.streaming.temporal_history_reset
+    }
+
+    pub(super) fn prepare_camera_history(&mut self, host: &RetainedHost) {
+        host.readiness.camera_history.prepare(|| {
+            self.presentation.scheduler.reset_temporal_history();
+            match &mut self.resident {
+                Resident::Shadowed(scene) => scene.reset_camera_history(),
+                Resident::Plain(scene) => scene.gpu.reset_velocity_history(),
+            }
+        });
+    }
+
+    pub(super) fn submitted_camera_history(&mut self, host: &mut RetainedHost) {
+        self.streaming.temporal_history_reset = host.readiness.camera_history.reset_reason();
+        host.readiness.camera_history.submitted();
+    }
+
     pub(crate) fn submitted_frame(&self) -> u64 {
         self.streaming
             .captures

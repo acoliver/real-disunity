@@ -10,11 +10,11 @@ public static partial class DisunityHost
     internal static ulong ScriptIdentity(MonoBehaviour owner) =>
         Scripts.TryKeyOf(owner, out var identity) ? identity : throw new InvalidOperationException($"the script {owner.GetType().Name} is not registered with the world");
 
-    internal static unsafe Coroutine StartCoroutine(MonoBehaviour owner, IEnumerator iterator)
+    internal static unsafe Coroutine? StartCoroutine(MonoBehaviour owner, IEnumerator iterator)
     {
         ArgumentNullException.ThrowIfNull(iterator);
         var script = ScriptIdentity(owner);
-        ThrowIfError(NativeBindings.disunity_coroutine_ready(WorldHandle, script));
+        if (!CoroutineAdmitted(owner, script)) return null;
         var routine = new Coroutine(owner, iterator);
         try
         {
@@ -28,6 +28,26 @@ public static partial class DisunityHost
         }
         catch { DisposeRoutine(routine); throw; }
     }
+
+    /// <summary>Whether the world admits a coroutine for the script. A script that is inactive or being torn down is
+    /// refused with one logged error, and its iterator never runs; any other native error propagates.</summary>
+    private static bool CoroutineAdmitted(MonoBehaviour owner, ulong script)
+    {
+        try
+        {
+            ThrowIfError(NativeBindings.disunity_coroutine_ready(WorldHandle, script));
+            return true;
+        }
+        catch (DisunityException error) when (RefusesCoroutine(error))
+        {
+            Debug.LogError($"Coroutine couldn't be started because the script {owner.GetType().Name} on '{owner.gameObject.name}' is inactive or being torn down", owner);
+            return false;
+        }
+    }
+
+    /// <summary>Whether a native error from admitting a coroutine is the world's refusal for an inactive or torn-down
+    /// script, which is logged, rather than a failure that propagates.</summary>
+    internal static bool RefusesCoroutine(DisunityException error) => error.Reason == DisunityErrorReason.NotReady;
 
     internal static void StopCoroutine(MonoBehaviour owner, Coroutine routine)
     {

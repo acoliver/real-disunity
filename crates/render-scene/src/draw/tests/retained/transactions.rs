@@ -25,6 +25,7 @@ fn prepare(
 
 #[test]
 fn cancelling_resident_uploads_preserves_pending_edits_until_submission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -122,6 +123,7 @@ fn pending_ranges(gpu: &SceneGpu) -> Vec<std::ops::Range<u32>> {
 
 #[test]
 fn cancelled_camera_does_not_change_a_later_resident_draw() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -160,6 +162,7 @@ fn cancelled_camera_does_not_change_a_later_resident_draw() {
 
 #[test]
 fn cancelled_growth_with_empty_sparse_receipt_reinitializes_the_buffer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -201,6 +204,7 @@ fn cancelled_growth_with_empty_sparse_receipt_reinitializes_the_buffer() {
 
 #[test]
 fn owned_statistics_can_be_retained_across_publication() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -220,6 +224,7 @@ fn owned_statistics_can_be_retained_across_publication() {
 #[test]
 fn resident_upload_rejects_standalone_and_foreign_encoders() {
     use worldrunner_render_gpu::submission::TransactionError;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -251,6 +256,7 @@ fn resident_upload_rejects_standalone_and_foreign_encoders() {
 
 #[test]
 fn abandoned_standalone_draw_does_not_publish_selection() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -281,6 +287,7 @@ fn abandoned_standalone_draw_does_not_publish_selection() {
 
 #[test]
 fn foreign_raw_draw_does_not_publish_with_another_encoders_submission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);

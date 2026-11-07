@@ -64,7 +64,8 @@ fn retain_evidence(image: &RgbaImage) {
 
 #[test]
 fn required_gpu_landmarks_match_camera_queries_and_resize() {
-    let context = pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
         .expect("required headless landmark test needs an admitted GPU adapter");
     eprintln!("resolved camera GPU: {:?}", context.adapter().get_info());
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
@@ -121,7 +122,8 @@ fn shared_view(
 fn required_gpu_shared_resolver_matches_pixels_for_lenses_and_handedness() {
     use worldrunner_camera::{CameraLens, ViewHandedness};
 
-    let context = pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
         .expect("required shared-camera test needs an admitted GPU adapter");
     eprintln!("shared resolver GPU: {:?}", context.adapter().get_info());
     let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);

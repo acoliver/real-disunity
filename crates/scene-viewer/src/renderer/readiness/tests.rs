@@ -1,7 +1,7 @@
 #[test]
 fn baked_effect_edits_prepare_then_publish_through_the_shared_renderer() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let source = super::super::retained_tests::source();
     let size = Viewport {
         width: 64,
@@ -57,8 +57,8 @@ fn baked_effect_edits_prepare_then_publish_through_the_shared_renderer() {
 
 #[test]
 fn ssr_parameter_settings_publish_without_a_rebuild() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let effects = baked_effects()[1].clone();
     let base = super::super::retained_tests::source();
     let source = base
@@ -209,6 +209,7 @@ pub(super) fn draw(
 
 #[test]
 fn pending_preparation_keeps_rendering_then_publishes_whole_generations() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context =
         pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let source = super::super::retained_tests::source();
@@ -337,6 +338,7 @@ fn assert_configured(presentation: &Presentation, effects: &SceneEffects) {
 
 #[test]
 fn asynchronous_rebuilds_complete_in_reverse_but_publish_in_order() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context =
         pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let source = super::super::retained_tests::source();

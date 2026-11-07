@@ -262,6 +262,217 @@ Every buffer, texture and render target is counted against the budget you gave `
 
 A frame from another submission authority is refused with `ProgramError::Lease`, and an encoder that is not a frame is `ProgramError::Transaction`.
 
+## Sets the pass owner binds
+
+A renderer that opens a pass often binds a group of its own once, such as a frame uniform, and wants every program drawn in the pass to read it. A program can lend such a set instead of declaring it. The runtime then uses the renderer's `wgpu::BindGroupLayout` as it is, builds no group for the set and does not bind it when a draw records.
+
+`ExternalSet` carries the set number, the layout and `bindings`, a `ResourceLayout` that says what the shader reads from the set. `graphics_program_in` checks the shader against `bindings` and builds the program's pipeline layout with the lent layout at that set:
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
+# };
+# use worldrunner_render_program::module::StageProgram;
+# use worldrunner_render_program::runtime::{ExternalSet, ProgramRuntime};
+# fn lend(
+#     runtime: &ProgramRuntime,
+#     device: &wgpu::Device,
+#     vertex: &StageProgram,
+#     fragment: &StageProgram,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// The layout the renderer builds its per-pass group against.
+let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: Some("frame"),
+    entries: &[wgpu::BindGroupLayoutEntry {
+        binding: 0,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }],
+});
+let frame = ExternalSet {
+    set: 0,
+    layout,
+    bindings: ResourceLayout::new(vec![ResourceBinding {
+        at: BindingAddress { set: 0, binding: 0 },
+        source: BindingSource::Engine(EngineSemantic::named("scene.frame")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Uniform { min_size: 16 },
+    }]),
+};
+let program = runtime.graphics_program_in(vertex, fragment, &[frame])?;
+assert_eq!(program.external_sets(), [0]);
+# Ok(())
+# }
+```
+
+- **What is checked.** Each resource a stage uses at a lent set must be listed in `bindings` at its address with the same class: the buffer kind and access, the texture dimension, multisampling and sample type, or the sampler class. The filterable flag of a float texture is ignored, because WGSL cannot say it: the renderer's layout can declare an unfilterable float texture that the shader reads with `textureLoad`. A used resource that is not listed is a `LayoutError::UndeclaredResource` that names the shader's variable, and one listed as another class is a `LayoutError::Mismatch`. A listed binding the shader does not use is allowed, so one declaration serves every program that reads part of the set. A stage's own declarations at a lent set are ignored.
+- **What wgpu checks.** Visibility, minimum buffer sizes and the rest of the match between the shader and the layout are wgpu's to check when it creates the pipeline. The failure comes back from the draw's preparation as `ProgramError::Gpu`.
+- **Pipelines.** The pipeline cache key includes the identity of each lent layout. Programs that lend one layout, cloned from one `wgpu::BindGroupLayout`, share the group the renderer binds. Two layouts with equal entries are still two layouts, and their programs do not share a pipeline, because a group built against one does not fit the other.
+- **Recording.** `PreparedProgramDraw::external_sets()` lists the sets the pass owner must bind before the draw records, and `GraphicsProgram::external_sets()` lists them for the program. The pass binds each once, and every draw of the pass leaves it bound.
+- **Conflicts.** A draw may not give resources to a lent set. A `BoundResource` at a lent set, an import of an engine semantic that a lent binding names and a set lent twice are each `ProgramError::ExternalSetConflict` naming the set.
+
+The draw side is `prepare_imported_draw`, described in the [crate README](../crates/render-program/README.md#lending-a-renderers-resources). A program with no lent set behaves as `graphics_program` always has: `graphics_program_in` with an empty slice builds the same program and shares its pipelines.
+
+### Counting what the runtime builds
+
+`ProgramRuntime::stats()` returns a `RuntimeStats` with the number of shader modules, pipelines, bind groups and draws the runtime has built since it was made. Each count only rises, so a cost test takes a snapshot, runs a frame and compares:
+
+```rust,no_run
+# use worldrunner_render_program::runtime::{ImportedDraw, ProgramRuntime, TargetSignature};
+# fn steady_state(
+#     runtime: &mut ProgramRuntime,
+#     draw: &ImportedDraw<'_>,
+#     signature: TargetSignature,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+let before = runtime.stats();
+let _prepared = runtime.prepare_imported_draw(draw, signature)?;
+let after = runtime.stats();
+// A cache hit builds no module or pipeline, and a draw over lent sets builds a group only for
+// the sets the program owns.
+assert_eq!(after.modules_built, before.modules_built);
+assert_eq!(after.pipelines_built, before.pipelines_built);
+assert_eq!(after.draws_prepared, before.draws_prepared + 1);
+# Ok(())
+# }
+```
+
+A call that is refused before it creates an object does not count it, and a cache hit counts nothing. `sets_prepared` counts the sets `prepare_set` builds, described next; each also adds its group to `bind_groups_built`, and a draw that binds a prepared set adds neither.
+
+## Sets built once for many draws
+
+A material's own resources are the same for every draw that uses the material, so the runtime should build their bind group once. `prepare_set` does: it fills the bindings of one set of a program from an `ImportTable`, a map from engine semantic to imported resource, and returns a `PreparedSet` that any number of draws bind through `ImportedDraw::sets`. A draw given a prepared set for a set builds no group for it.
+
+```rust,no_run
+# use worldrunner_render_program::binding::EngineSemantic;
+# use worldrunner_render_program::runtime::{
+#     GraphicsProgram, Import, ImportTable, ImportedDraw, ProgramRuntime, TargetSignature,
+# };
+# fn share(
+#     runtime: &mut ProgramRuntime,
+#     program: &GraphicsProgram,
+#     block: wgpu::Buffer,
+#     palette: (wgpu::Texture, wgpu::TextureView),
+#     draw: ImportedDraw<'_>,
+#     signature: TargetSignature,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// Everything any variant of the material reads. Entries a program does not use are ignored.
+let table = ImportTable::new()
+    .with(Import::buffer(EngineSemantic::named("terrain.block"), block))
+    .with(Import::texture_array(
+        EngineSemantic::named("terrain.palette"),
+        palette.0,
+        palette.1,
+    ));
+let set = runtime.prepare_set(program, 1, &table, Vec::new())?;
+
+let before = runtime.stats();
+let first = runtime.prepare_imported_draw(&ImportedDraw { sets: &[&set], ..draw.clone() }, signature)?;
+let second = runtime.prepare_imported_draw(&ImportedDraw { sets: &[&set], ..draw }, signature)?;
+// Neither draw built a bind group.
+assert_eq!(runtime.stats().bind_groups_built, before.bind_groups_built);
+# let _ = (first, second);
+# Ok(())
+# }
+```
+
+- **What the table must hold.** A binding the program uses and the table lacks is `ProgramError::MissingImport`, which names the semantic, the set and the binding. Entries for bindings the program does not use are ignored, so one table serves every variant of a material. A sampler binding that names no engine semantic gets the runtime's sampler. A buffer or texture binding that does not come from an engine semantic has nothing to fill it and is `MissingBinding`.
+- **Sharing.** The runtime keeps one `wgpu::BindGroupLayout` for each distinct list of slots at a set, so programs whose slots at a set are equal share a layout object (`GraphicsProgram::set_layout` returns it) and one `PreparedSet` fits all of them. A draw whose program has other slots at the set refuses the set with `SetLayoutMismatch`, as it does a set another runtime built. A set given twice, or given alongside an import or a bound resource for one of its bindings, is `PreparedSetConflict`. A prepared set for a set the pass owner binds is `ExternalSetConflict`, and `prepare_set` for a set the program has no bindings at is `UnknownSet`.
+- **Lifetimes.** The set's bind group and the `owners` given to `prepare_set` are held by every draw that binds the set, and by every frame that retains such a draw, until the frame is cancelled, dropped or completed on the GPU. The `PreparedSet` itself can be dropped once the draws are made.
+
+### Texture views of any dimension
+
+An imported texture carries the dimension of its view, because a view cannot be asked. `Import::texture` assumes the texture's default view, which is `D2` for one layer and `D2Array` for several. `Import::texture_array` takes the view as a 2D array whatever the layer count, which is how a texture of one layer or a view of some of the layers is read by `texture_2d_array`, and `Import::texture_view` takes any dimension, such as one layer of an array as `D2`. A binding accepts an import when the view's dimension and the texture's sample count match the shader's declaration and the format suits its sample type, so array, `Uint` and depth views can be imported. A mismatch is `ProgramError::WrongResource` naming what the binding expects and what was imported.
+
+### Programs from registered variants
+
+A registered program chooses its stages by feature set. Draws over lent resources take a program rather than a material, and `variant_program` returns the program that the variant for exactly those features built at registration, so resolving it builds nothing:
+
+```rust,no_run
+# use worldrunner_render_program::runtime::{GraphicsProgram, ProgramHandle, ProgramRuntime};
+# use worldrunner_render_program::variant::{FeatureId, FeatureSet};
+# fn resolve(
+#     runtime: &ProgramRuntime,
+#     handle: ProgramHandle,
+# ) -> Result<GraphicsProgram, Box<dyn std::error::Error>> {
+let features = FeatureSet::from([FeatureId::new("LAYERED")]);
+Ok(runtime.variant_program(handle, &features)?)
+# }
+```
+
+A feature no variant differs by is `VariantError::UnknownFeature`, and a set no variant has is `VariantError::NoMatch`.
+
+## Many geometries through one pipeline
+
+A draw over lent resources binds its pipeline and groups every time it records. A renderer with hundreds of meshes that share a material wants to bind once and draw each mesh. Split the draw in two: a `PreparedPipeline` holds the program, state, vertex layout, prepared sets and owners, and a `GeometryDraw` holds one mesh's buffers and ranges and nothing else.
+
+```rust,no_run
+# use worldrunner_render_program::runtime::{
+#     GeometryDraw, GraphicsProgram, ImportedGeometry, PipelineDraw, PreparedSet, ProgramRuntime,
+#     TargetSignature, VertexBufferSpec, VertexLayoutSpec,
+# };
+# use worldrunner_render_program::state::RenderState;
+# fn batch(
+#     runtime: &mut ProgramRuntime,
+#     device: &wgpu::Device,
+#     frame: &mut wgpu::CommandEncoder,
+#     program: &GraphicsProgram,
+#     material: &PreparedSet,
+#     signature: TargetSignature,
+#     chunk: (&wgpu::Buffer, &wgpu::Buffer, &ImportedGeometry),
+#     pass: &mut wgpu::RenderPass<'_>,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// Once per material and pass context: the layout of the vertex buffers, then the pipeline.
+let layout = VertexLayoutSpec::new(vec![
+    VertexBufferSpec {
+        stride: 56,
+        step: wgpu::VertexStepMode::Vertex,
+        attributes: wgpu::vertex_attr_array![0 => Float32x3].to_vec(),
+    },
+    VertexBufferSpec {
+        stride: 80,
+        step: wgpu::VertexStepMode::Instance,
+        attributes: wgpu::vertex_attr_array![3 => Float32x4].to_vec(),
+    },
+]);
+let state = RenderState::opaque_depth();
+let pipeline = runtime.prepare_pipeline(
+    &PipelineDraw {
+        program,
+        state: &state,
+        layout: &layout,
+        bindings: &[],
+        imports: &[],
+        sets: &[material],
+        owners: &[],
+    },
+    signature,
+)?;
+
+// When a mesh is uploaded: pure data, with the extent checks made here.
+let (vertices, instances, geometry) = chunk;
+let chunk = GeometryDraw::new(&layout, &[vertices.clone(), instances.clone()], geometry, 7..8)?;
+
+// Each frame: retain once, bind once, draw each mesh.
+pipeline.retain(frame)?;
+pipeline.bind(pass);
+pipeline.draw(pass, &chunk)?;
+# let _ = device;
+# Ok(())
+# }
+```
+
+- **Commands.** `bind` records `set_pipeline` and one `set_bind_group` for each group the pipeline holds. `draw` records one `set_vertex_buffer` for each vertex buffer, `set_index_buffer` for indexed geometry and the draw call. C indexed geometries over two vertex buffers and one prepared set are `2 + 4 * C` commands, where a `PreparedProgramDraw` for each geometry records `6 * C`. The sets the pass owner binds are not recorded by either call.
+- **Instances.** The instance range selects records of an instance-rate buffer that many geometries share: range `k..k + 1` draws record `k`. `GeometryDraw::new` checks that the buffer holds `k + 1` strides, so a range past the buffer is refused when the geometry is made, with the buffer's slot named.
+- **Layouts.** A geometry is made for a layout and a pipeline is prepared for one, and `draw` refuses a geometry of another layout with `ProgramError::GeometryLayoutMismatch` before it records a command. Layouts compare by content, so two layouts built from equal buffers are one layout. A geometry given the wrong number of buffers for its layout is `VertexBufferCount`.
+- **Retention.** A frame that calls `PreparedPipeline::retain` once holds the pipeline's owners and the owners of its prepared sets until it is cancelled, dropped or completed on the GPU, however many geometries it draws. Put whatever keeps the geometry's buffers alive in the pipeline's `owners`; wgpu itself keeps a buffer that a recorded command uses.
+- **Cost.** Neither `bind` nor `draw` reaches the runtime, so a frame that binds and draws prepared pipelines and geometries adds nothing to `RuntimeStats`. `prepare_pipeline` is not a draw and adds none to `draws_prepared`.
+- **Passes.** `bind` and `draw` take any `PassCommands`, which `wgpu::RenderPass` implements. `PreparedProgramDraw::record` is `bind` then `draw` for one geometry, so existing callers are unchanged.
+
 ## Clip space and depth
 
 A WGSL position is used as written. Clip Y is up, so positive Y lands in the top rows of the target, and depth runs from 0 at the near plane to 1 at the far plane, as wgpu defines them. A counter-clockwise triangle in clip space is a front face under `RenderState::opaque_depth`. SPIR-V stages keep the convention of the SPIR-V reader the crate uses, which flips the position's Y: the same vertices land in the bottom rows. Pick one source format per program and test an asymmetric scene when you switch.

@@ -32,10 +32,9 @@ fn boundary_terrain() -> SceneTerrain {
 
 #[test]
 fn terrain_gpu_cells_follow_stored_boundaries_and_outer_edge_ownership() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let fixture = crate::terrain::planes::tests::fixture;
     for terrain in [
         boundary_terrain(),

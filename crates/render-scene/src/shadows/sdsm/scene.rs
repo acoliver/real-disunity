@@ -23,6 +23,17 @@ pub(crate) struct SceneDepthFitting {
     last_time: Option<std::time::Duration>,
 }
 impl ShadowedScene {
+    /// Discards camera-dependent depth evidence and temporal history after a camera cut.
+    /// Frame identities remain monotonic; the next view gathers new fitting evidence.
+    pub fn reset_camera_history(&mut self) {
+        self.scheduler.reset_temporal_history();
+        self.gpu.reset_velocity_history();
+        self.refresh.borrow_mut().invalidate();
+        if let Some(state) = &mut self.depth_fitting {
+            state.reset_history();
+        }
+    }
+
     pub fn set_scene_depth_fitting(
         &mut self,
         context: &GpuContext,
@@ -407,16 +418,20 @@ struct RenderInput<'a> {
     terms: &'a [crate::compositor::terms::TermCapture],
 }
 impl SceneDepthFitting {
+    fn reset_history(&mut self) {
+        if let Some(fitting) = &mut self.fitting {
+            fitting.invalidate();
+        }
+        self.pending.clear();
+        self.current = None;
+    }
+
     fn select_time(&mut self, time: Option<std::time::Duration>) {
         if time
             .zip(self.last_time)
             .is_some_and(|(now, last)| now < last)
         {
-            if let Some(fitting) = &mut self.fitting {
-                fitting.invalidate();
-            }
-            self.pending.clear();
-            self.current = None;
+            self.reset_history();
         }
         self.last_time = time;
     }

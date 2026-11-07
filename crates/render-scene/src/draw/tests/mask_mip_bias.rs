@@ -39,6 +39,7 @@ fn covered(bytes: &[u8]) -> bool {
 
 #[test]
 fn forward_prepass_and_metadata_keep_the_same_masked_pixels_at_a_nonzero_bias() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let scene = masked_scene(level_zero_transparent());

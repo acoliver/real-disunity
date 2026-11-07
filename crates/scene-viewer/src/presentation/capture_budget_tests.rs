@@ -1,7 +1,7 @@
 #[test]
 fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let first = Viewport {
         width: 64,
         height: 64,
@@ -99,8 +99,8 @@ fn native_capture_inventory_includes_staging_padded_read_and_three_images() {
 
 #[test]
 fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocation() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let first = tiny_extents([16, 16]);
     let next = tiny_extents([24, 16]);
     assert_eq!(first.render, next.render);

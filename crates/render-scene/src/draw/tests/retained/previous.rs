@@ -50,6 +50,7 @@ impl Fixture {
 
 #[test]
 fn a_new_instance_starts_with_previous_equal_to_current() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let fixture = fixture();
     let (current, previous) = fixture.buffers();
     assert_eq!(current.len(), 2 * STRIDE);
@@ -58,6 +59,7 @@ fn a_new_instance_starts_with_previous_equal_to_current() {
 
 #[test]
 fn an_edit_keeps_the_last_published_transform_as_previous() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = fixture();
     let (before, _) = fixture.buffers();
     fixture
@@ -73,6 +75,7 @@ fn an_edit_keeps_the_last_published_transform_as_previous() {
 
 #[test]
 fn a_frame_without_edits_converges_previous_to_current() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = fixture();
     fixture
         .gpu
@@ -86,6 +89,7 @@ fn a_frame_without_edits_converges_previous_to_current() {
 
 #[test]
 fn a_second_edit_moves_the_first_one_into_previous() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = fixture();
     fixture
         .gpu
@@ -105,6 +109,7 @@ fn a_second_edit_moves_the_first_one_into_previous() {
 
 #[test]
 fn a_cancelled_frame_leaves_previous_untouched_until_a_frame_publishes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = fixture();
     let (before, previous_before) = fixture.buffers();
     fixture
@@ -131,6 +136,7 @@ fn a_cancelled_frame_leaves_previous_untouched_until_a_frame_publishes() {
 
 #[test]
 fn a_reused_slot_starts_with_previous_equal_to_current() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = fixture();
     let (_, _) = fixture.buffers();
     let object = fixture.gpu.instance_handles().count();
@@ -147,4 +153,35 @@ fn a_reused_slot_starts_with_previous_equal_to_current() {
     fixture.flush();
     let (current, previous) = fixture.buffers();
     assert_eq!(current, previous);
+}
+
+#[test]
+fn a_velocity_history_reset_survives_cancellation_and_initializes_current_transforms() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut fixture = fixture();
+    fixture
+        .gpu
+        .set_instance_transform(fixture.handle, moved(4321))
+        .unwrap();
+    fixture.gpu.reset_velocity_history();
+    let Fixture { context, gpu, .. } = &mut fixture;
+    context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            gpu.flush_instances_encoded(context.device(), encoder)
+                .map(|_| ())
+        })
+        .unwrap()
+        .cancel();
+    fixture.flush();
+    let (current, previous) = fixture.buffers();
+    assert_eq!(current, previous);
+    fixture
+        .gpu
+        .set_instance_transform(fixture.handle, moved(8000))
+        .unwrap();
+    fixture.flush();
+    let (next, previous) = fixture.buffers();
+    assert_ne!(next, current);
+    assert_eq!(previous, current);
 }

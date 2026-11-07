@@ -42,6 +42,7 @@ fn oracle(offset: Vec3) -> f64 {
 
 #[test]
 fn background_fog_raster_matches_full_ray_oracle_at_far_plane() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = render_tests::settings();
     settings.background_depth_policy = SceneBackgroundDepthPolicy::FarPlane;
     settings.background_distance_millimeters = 500_000;
@@ -75,6 +76,7 @@ fn background_fog_raster_matches_full_ray_oracle_at_far_plane() {
 
 #[test]
 fn default_background_policy_keeps_reserved_uniform_bytes_zero() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let settings = render_tests::settings();
     assert_eq!(
         settings.background_depth_policy,
@@ -87,7 +89,8 @@ fn default_background_policy_keeps_reserved_uniform_bytes_zero() {
 fn separate_surface_keeps_opacity_surface_fog_and_two_exposures_independent() {
     use super::scene_tests;
     use worldrunner_render_plan::*;
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let mut sky = scene_tests::atmosphere(100_000);
     sky.celestial_composition = SceneCelestialComposition::SeparateSurface;
     sky.celestial_exposure_micro = Some(500_000);
@@ -127,7 +130,8 @@ fn separate_surface_keeps_opacity_surface_fog_and_two_exposures_independent() {
 fn independent_object_exposure_does_not_change_inherited_surface_fog_distance() {
     use super::scene_tests;
     use worldrunner_render_plan::*;
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let source = scene_tests::scene(100_000, false, false);
     let mut sky = source.effects().unwrap().atmosphere().unwrap().clone();
     sky.celestial_exposure_micro = Some(500_000);

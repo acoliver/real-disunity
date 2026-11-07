@@ -13,8 +13,11 @@ thiserror.workspace = true
 pollster.workspace = true
 
 [features]
-# Display-output bounds for the render crates' tests; not for production builds.
+# Shared GPU handles and display-output bounds for tests, not production builds.
 test-support = []
+
+[dev-dependencies]
+worldrunner-render-gpu = { path = ".", features = ["test-support"] }
 
 [lints]
 workspace = true

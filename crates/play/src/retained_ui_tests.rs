@@ -2,7 +2,8 @@ use super::*;
 use std::{path::PathBuf, process::Command, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
 
-fn fixture_host() -> DisunityHost {
+/// A host booted on the portable fixture's managed assembly, with no slice loaded.
+pub(crate) fn booted_fixture_host() -> DisunityHost {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let status = Command::new(env!("CARGO"))
         .args(["build", "--locked", "-p", "worldrunner-disunity-ffi"])
@@ -25,7 +26,7 @@ fn fixture_host() -> DisunityHost {
         root.join(target)
     };
     let managed = root.join("csharp/PortableFixture/bin/Debug/net8.0");
-    let mut host = DisunityHost::boot(&ManagedHostConfig {
+    DisunityHost::boot(&ManagedHostConfig {
         ffi_library: target.join("debug").join(format!(
             "{}worldrunner_disunity_ffi{}",
             std::env::consts::DLL_PREFIX,
@@ -35,7 +36,12 @@ fn fixture_host() -> DisunityHost {
         assembly: managed.join("PortableFixture.dll"),
         bridge_type: "PortableFixture.NativeBridge, PortableFixture".into(),
     })
-    .unwrap();
+    .unwrap()
+}
+
+fn fixture_host() -> DisunityHost {
+    let mut host = booted_fixture_host();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     host.run_slice(&root.join("csharp/PortableFixture/retained-ui.fixture"))
         .unwrap();
     host

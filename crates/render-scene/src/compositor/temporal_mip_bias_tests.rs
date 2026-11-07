@@ -44,6 +44,7 @@ fn bias_of(scale_micro: Option<u32>, resolve: PostResolve, mode: Option<UpscaleM
 
 #[test]
 fn temporal_reconstruction_carries_positive_zero_at_each_scale() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for scale in SCALES {
         let bias = bias_of(
             Some(scale),
@@ -56,6 +57,7 @@ fn temporal_reconstruction_carries_positive_zero_at_each_scale() {
 
 #[test]
 fn every_other_configuration_carries_positive_zero() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let cases = [
         ("native TAA", None, PostResolve::taa(0.9), None),
         (

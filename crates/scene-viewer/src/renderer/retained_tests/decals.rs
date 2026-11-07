@@ -142,8 +142,8 @@ fn source_with_materials() -> RenderScene {
 
 #[test]
 fn unsupported_maps_and_incompatible_arrays_reject_before_acceptance_then_valid_edit_publishes() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = source_with_materials().with_decals(vec![decal(0)]).unwrap();
     let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
     for material in [1, 2, 3] {
@@ -175,8 +175,8 @@ fn unsupported_maps_and_incompatible_arrays_reject_before_acceptance_then_valid_
 
 #[test]
 fn retained_decal_add_transform_and_remove_publish_without_preparing_the_scene() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = source_with_materials();
     let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
     let mut resident = Resident::new(&context, &scene, None, crate::FrameProfile::Legacy).unwrap();
@@ -223,8 +223,8 @@ fn retained_decal_add_transform_and_remove_publish_without_preparing_the_scene()
 
 #[test]
 fn retained_modifier_only_replace_publishes_without_scene_preparation() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = source_with_materials().with_decals(vec![decal(4)]).unwrap();
     let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
     let mut resident = Resident::new(&context, &scene, None, crate::FrameProfile::Legacy).unwrap();

@@ -23,7 +23,8 @@ fn cube() -> SceneSpecularCube {
 }
 #[test]
 fn authored_cube_budget_and_publication_fail_before_binding() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let cube = cube();
     let required = allocations(&cube, settings())
@@ -65,16 +66,18 @@ fn authored_cube_budget_and_publication_fail_before_binding() {
 }
 #[test]
 fn gpu_authored_cube_ignores_filtering_and_retains_every_face_and_mip_byte() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_uploaded_cube(filtered_settings());
 }
 
 #[test]
 fn gpu_authored_cube_retains_every_face_and_mip_byte() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_uploaded_cube(settings());
 }
 
 fn assert_uploaded_cube(settings: EnvironmentPreparation) {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let cube = cube();
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {

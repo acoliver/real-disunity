@@ -19,6 +19,7 @@ fn commit(instances: &mut Instances) {
 
 #[test]
 fn handles_reject_foreign_removed_and_reused_slots() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let mut instances = Instances::new(&source);
     let mut foreign = Instances::new(&source);
@@ -64,6 +65,7 @@ fn handles_reject_foreign_removed_and_reused_slots() {
 
 #[test]
 fn invalid_edits_preserve_state_and_resource_tables() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let mut instances = Instances::new(&source);
     let handle = instances.handles().next().unwrap();
@@ -103,6 +105,7 @@ fn invalid_edits_preserve_state_and_resource_tables() {
 
 #[test]
 fn repeated_edits_merge_only_adjacent_changed_slots() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = scene(SceneAlphaMode::Opaque, false, 5);
     let mut instances = Instances::new(&source);
     let handles: Vec<_> = instances.handles().collect();
@@ -126,6 +129,7 @@ fn repeated_edits_merge_only_adjacent_changed_slots() {
 
 #[test]
 fn removal_visibility_and_lowest_free_slot_preserve_survivor_order() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = scene(SceneAlphaMode::Opaque, false, 5);
     let mut instances = Instances::new(&source);
     let handles: Vec<_> = instances.handles().collect();
@@ -145,6 +149,7 @@ fn removal_visibility_and_lowest_free_slot_preserve_survivor_order() {
 
 #[test]
 fn batches_sort_by_pipeline_mesh_and_material_even_for_late_additions() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let resources = SceneResources::new(
         vec![white_texture()],
         vec![
@@ -181,6 +186,7 @@ fn batches_sort_by_pipeline_mesh_and_material_even_for_late_additions() {
 
 #[test]
 fn gpu_transform_visibility_growth_and_removal_use_sparse_writes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -284,6 +290,7 @@ fn assert_gpu_growth(
 #[test]
 fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
     use worldrunner_render_post::BufferReadback;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);

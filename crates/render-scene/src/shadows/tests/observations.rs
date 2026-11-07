@@ -5,6 +5,7 @@ use worldrunner_render_post::ToneMap;
 
 #[test]
 fn gpu_reflection_only_receiver_observations_match_with_and_without_shadows() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for terrain in [false, true] {
         let base = scene(&[[0, 0, 1_000]], 600_000, None);
@@ -98,6 +99,7 @@ fn reflection_frame(context: &GpuContext, source: &RenderScene) -> FrameRenderer
 
 #[test]
 fn gpu_interactive_depth_fit_observes_one_prepass() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     depth_fit_observation(crate::shadows::sdsm::AdoptionPolicy::Interactive {
         latency_frames: 2,
         contraction_frames: 0,
@@ -106,6 +108,7 @@ fn gpu_interactive_depth_fit_observes_one_prepass() {
 
 #[test]
 fn gpu_same_frame_depth_fit_observes_one_prepass() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     depth_fit_observation(crate::shadows::sdsm::AdoptionPolicy::SameFrameCapture);
 }
 

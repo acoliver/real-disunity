@@ -133,6 +133,7 @@ pub(super) fn assert_level(actual: [u8; 3], level: usize, what: &str) {
 
 #[test]
 fn a_negative_bias_selects_the_next_finer_mip_level() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = sample_source();
     for level in [1_u32, 2] {
@@ -148,6 +149,7 @@ fn a_negative_bias_selects_the_next_finer_mip_level() {
 
 #[test]
 fn bias_zero_matches_the_unbiased_stock_sample_on_one_device() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = sample_source();
     let stock = source.replace(

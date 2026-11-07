@@ -9,8 +9,8 @@ const INITIAL_SIZE: Viewport = Viewport {
 
 #[test]
 fn viewer_hdr_profiles_encode_plain_and_shadowed_terrain_and_resize() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let source = super::retained_tests::terrain_source();
     for samples in [1, 4] {
         for shadows in [None, Some(super::retained_tests::shadow_settings())] {
@@ -74,7 +74,8 @@ fn hdr_encoder(context: &GpuContext) -> worldrunner_render_gpu::submission::Reco
 
 #[test]
 fn viewer_reduced_resolution_reconfigures_scene_and_output_together() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = super::retained_tests::terrain_source();
     let scale = worldrunner_render_plan::post::RenderScale::new(770_000).unwrap();
     let profile = FrameProfile::HdrUpscaled {

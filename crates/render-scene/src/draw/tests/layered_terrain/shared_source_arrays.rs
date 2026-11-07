@@ -47,6 +47,7 @@ fn assert_source_limit(error: &ConfigurationError<DriverAllocationError>) {
 
 #[test]
 fn shared_source_array_limit_is_typed_before_scene_upload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (device, authority) = limited_device(&context);
     let pipelines = ScenePipelines::new(&device, COLOR_FORMAT);
@@ -60,6 +61,7 @@ fn shared_source_array_limit_is_typed_before_scene_upload() {
 
 #[test]
 fn shared_source_array_limit_is_typed_for_cache_creation_and_replacement() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (device, authority) = limited_device(&context);
     let scene = shared_array_scene();

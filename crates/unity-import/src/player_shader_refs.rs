@@ -99,6 +99,19 @@ fn render_queue(tags: &[(String, String)]) -> Result<i32, String> {
         .map_or(Ok(GEOMETRY_QUEUE), |(_, value)| queue_value(value))
 }
 
+/// The render queue of a decoded shader: its first sub-shader's `Queue` tag, `Geometry` when it
+/// has none or the shader has no sub-shader.
+///
+/// # Errors
+/// Fails with the cause when the tag names a queue the engine cannot read.
+pub fn shader_render_queue(shader: &Shader) -> Result<i32, String> {
+    shader
+        .parsed
+        .sub_shaders
+        .first()
+        .map_or(Ok(GEOMETRY_QUEUE), |sub| render_queue(&sub.tags))
+}
+
 /// Decodes the shader object `key` into what the plan holds, or says why it does not.
 pub(crate) fn decode_shader(
     files: &mut PlayerFiles,
@@ -109,6 +122,7 @@ pub(crate) fn decode_shader(
         .open_path(file)
         .and_then(|open| open.decode(*path_id))
         .map_err(|error| error.to_string())?;
+    let queue = shader_render_queue(&shader)?;
     let name = if shader.parsed.name.is_empty() {
         shader.name
     } else {
@@ -126,7 +140,7 @@ pub(crate) fn decode_shader(
     });
     Ok(ShaderDecl {
         name,
-        render_queue: first.map_or(Ok(GEOMETRY_QUEUE), |sub| render_queue(&sub.tags))?,
+        render_queue: queue,
         pass_count: pass_names.len(),
         pass_names,
         subshader_count: shader.parsed.sub_shaders.len(),

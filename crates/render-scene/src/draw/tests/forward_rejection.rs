@@ -11,6 +11,7 @@ mod shadow;
 #[test]
 fn forward_card_terms_match_frozen_colour_and_coverage() {
     use crate::compositor::terms::CaptureTerm;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut survivors = 0;
     for (name, scene, pose) in fixtures::scenes() {
@@ -181,6 +182,7 @@ fn capture(
 
 #[test]
 fn forward_cards_match_frozen_per_sample_colour_depth_reflection_and_velocity() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut survivors = 0;
     let mut partial = 0;
@@ -252,6 +254,7 @@ fn forward_cards_match_frozen_per_sample_colour_depth_reflection_and_velocity() 
 
 #[test]
 fn frozen_a2c_fixture_retains_below_cutoff_and_raw_zero_alpha_samples() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut below = 0;
     let mut zero = 0;

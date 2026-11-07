@@ -167,7 +167,8 @@ fn generated_pipeline_position_qualifiers_match_pairing() {
 
 #[test]
 fn live_unlit_program_sources_are_non_invariant() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let format = wgpu::TextureFormat::Rgba16Float;
     for pipelines in [
         crate::renderer::ScenePipelines::new(context.device(), format),

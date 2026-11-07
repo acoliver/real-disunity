@@ -30,6 +30,7 @@ fn finish_timed_output(context: &GpuContext, presentation: &Presentation) {
 
 #[test]
 fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -87,8 +88,8 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
 
 #[test]
 fn retained_sdsm_selects_delayed_fit_and_same_frame_capture_then_invalidates_resize() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let (mut resident, mut presentation) = fixture(&context);
     assert_eq!(
         render(&context, &mut resident, &mut presentation, false),
@@ -237,8 +238,8 @@ pub(super) fn fitted_scene() -> worldrunner_render_plan::RenderScene {
 
 #[test]
 fn retained_settings_enable_fitting_without_resetting_host_frame_identity() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = fitted_scene();
     let base = source();
     let mut resident = Resident::new(
@@ -325,7 +326,8 @@ pub(crate) fn sky_ssr_source(velocity: bool) -> worldrunner_render_plan::RenderS
 
 #[test]
 fn sky_ssr_interactive_and_same_frame_capture() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for velocity in [false, true] {
         let scene = sky_ssr_source(velocity);
         let profile = crate::FrameProfile::Hdr {
@@ -359,7 +361,8 @@ fn sky_ssr_interactive_and_same_frame_capture() {
 #[test]
 fn shadowed_ssr_parameters_change_in_place_and_toggling_is_rejected() {
     use worldrunner_render_plan::SceneSsr;
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let scene = sky_ssr_source(false);
     let profile = crate::FrameProfile::Hdr {
         samples: 1,

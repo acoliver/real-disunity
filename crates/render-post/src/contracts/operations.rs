@@ -1,8 +1,8 @@
 use wgpu::util::DeviceExt;
 
 use super::{
-    BufferUse, BufferView, CheckedBindings, ContractError, RasterId, RasterPass, ResourceRegistry,
-    ResourceUse, TextureCopy,
+    BufferUse, BufferView, CheckedBindings, ContractError, FullscreenVertices, RasterId,
+    RasterPass, ResourceRegistry, ResourceUse, TextureCopy,
 };
 
 /// Work is executed in list order. No operation owns a queue or exposes an encoder.
@@ -22,6 +22,8 @@ pub enum TypedWork {
     Fullscreen {
         pass: RasterPass,
         pipeline: wgpu::RenderPipeline,
+        /// Vertex streams the pipeline reads. None draws three vertices with no streams.
+        vertices: Option<FullscreenVertices>,
     },
     Compute {
         pipeline: wgpu::ComputePipeline,
@@ -199,31 +201,24 @@ impl TypedOperation {
             TypedWork::Raster(pass) => {
                 pass.encode_named(encoder, stamp, label, |render| draw(self.id, render));
             }
-            TypedWork::Fullscreen { pass, pipeline } => {
+            TypedWork::Fullscreen {
+                pass,
+                pipeline,
+                vertices,
+            } => {
                 pass.encode_named(encoder, stamp, label, |render| {
                     render.set_pipeline(pipeline);
-                    render.draw(0..3, 0..1);
+                    match vertices {
+                        Some(vertices) => vertices.encode(render),
+                        None => render.draw(0..3, 0..1),
+                    }
                 });
             }
             TypedWork::Compute {
                 pipeline,
                 bindings,
                 workgroups,
-            } => {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some(label),
-                    timestamp_writes: stamp.map(crate::timing::Stamp::compute),
-                });
-                pass.set_pipeline(pipeline);
-                for (index, binding) in bindings.iter().enumerate() {
-                    pass.set_bind_group(
-                        u32::try_from(index).expect("validated bind group count"),
-                        binding.group(),
-                        binding.dynamic_offsets(),
-                    );
-                }
-                pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
-            }
+            } => encode_compute(encoder, stamp, label, (pipeline, bindings), *workgroups),
             _ => {
                 timestamp_boundary(encoder, stamp, label, true);
                 self.encode_transfer(encoder, staging);
@@ -327,4 +322,27 @@ pub(super) fn stage_uploads(
             _ => None,
         })
         .collect()
+}
+
+/// Records one compute dispatch under `label`, binding each checked group in order.
+fn encode_compute(
+    encoder: &mut wgpu::CommandEncoder,
+    stamp: Option<&crate::timing::Stamp>,
+    label: &str,
+    (pipeline, bindings): (&wgpu::ComputePipeline, &[CheckedBindings]),
+    workgroups: [u32; 3],
+) {
+    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some(label),
+        timestamp_writes: stamp.map(crate::timing::Stamp::compute),
+    });
+    pass.set_pipeline(pipeline);
+    for (index, binding) in bindings.iter().enumerate() {
+        pass.set_bind_group(
+            u32::try_from(index).expect("validated bind group count"),
+            binding.group(),
+            binding.dynamic_offsets(),
+        );
+    }
+    pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
 }

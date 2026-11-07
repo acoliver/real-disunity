@@ -8,6 +8,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use crate::batch::{GeometryDraw, PassCommands, VertexLayoutId};
 use crate::bind::Snapshot;
 use crate::budget::Reservation;
 use crate::draw::{DrawRequest, Geometry, VertexInput};
@@ -25,7 +26,8 @@ pub const MAX_COLOR_ATTACHMENTS: usize = 4;
 ///
 /// A signature exists only for what the runtime draws into: one to four colour attachments of
 /// one sample count (1, 2, 4, 8 or 16) and, optionally, a depth attachment. Renderer-owned
-/// stencil is preserved by program draws.
+/// stencil is preserved by program draws. A depth attachment with no colour attachment is
+/// the one signature [`depth_only`](Self::depth_only) makes.
 /// [`new`](Self::new) describes the pass the runtime opens for its own targets, one
 /// single-sample colour attachment, and [`attachments`](Self::attachments) the passes a
 /// renderer opens.
@@ -96,6 +98,15 @@ impl TargetSignature {
         Self::build(colors, depth, samples)
     }
 
+    /// The signature of a single-sample pass with a depth attachment and no colour attachment,
+    /// which offscreen depth-only render textures are drawn through.
+    ///
+    /// # Errors
+    /// Fails by name for a depth format with a stencil aspect, and for a format that has no depth.
+    pub(crate) fn depth_only(depth: wgpu::TextureFormat) -> Result<Self, ProgramError> {
+        Self::build(&[], Some(depth), 1)
+    }
+
     /// The signature of a pass a renderer opens: one to four colour attachments, the first of
     /// which the fragment stage writes and the others of which a draw may leave unwritten with
     /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with the same attachments
@@ -139,10 +150,10 @@ impl TargetSignature {
         })
     }
 
-    /// The first colour attachment, which every signature has.
+    /// The first colour attachment, or `None` for a depth-only pass.
     #[must_use]
-    pub fn color(&self) -> wgpu::TextureFormat {
-        self.colors[0].expect("a signature has a first colour attachment")
+    pub fn color(&self) -> Option<wgpu::TextureFormat> {
+        self.colors[0]
     }
 
     /// The colour attachments in order.
@@ -202,7 +213,7 @@ pub(crate) struct MaterialParts<'a> {
     pub(crate) instances: Range<u32>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum PreparedGeometry {
     Vertices {
         first: u32,
@@ -217,46 +228,38 @@ pub(crate) enum PreparedGeometry {
     },
 }
 
-/// A draw whose pipeline, bind groups and buffers are ready, without the hold on the budget.
-/// Recording it touches no runtime state.
+/// A pipeline with the bind groups of its program's own sets: what is recorded before any
+/// geometry.
 #[derive(Debug)]
-pub(crate) struct RecordableDraw {
+pub(crate) struct Bound {
     pub(crate) signature: TargetSignature,
     pub(crate) pipeline: wgpu::RenderPipeline,
     pub(crate) groups: Vec<(u32, wgpu::BindGroup)>,
-    pub(crate) vertex_buffers: Vec<wgpu::Buffer>,
-    pub(crate) geometry: PreparedGeometry,
-    pub(crate) instances: Range<u32>,
+    /// The sets the pass owner binds, which this neither builds nor binds.
+    pub(crate) external: Vec<u32>,
+}
+
+impl Bound {
+    pub(crate) fn bind<P: PassCommands + ?Sized>(&self, pass: &mut P) {
+        pass.set_pipeline(&self.pipeline);
+        for (set, group) in &self.groups {
+            pass.set_bind_group(*set, group);
+        }
+    }
+}
+
+/// A draw whose pipeline, bind groups and buffers are ready, without the hold on the budget.
+/// Recording it touches no runtime state: it binds the pipeline, then draws the geometry.
+#[derive(Debug)]
+pub(crate) struct RecordableDraw {
+    pub(crate) bound: Bound,
+    pub(crate) geometry: GeometryDraw,
 }
 
 impl RecordableDraw {
-    pub(crate) fn record(&self, pass: &mut wgpu::RenderPass<'_>) {
-        pass.set_pipeline(&self.pipeline);
-        for (set, group) in &self.groups {
-            pass.set_bind_group(*set, group, &[]);
-        }
-        for (slot, buffer) in (0..).zip(&self.vertex_buffers) {
-            pass.set_vertex_buffer(slot, buffer.slice(..));
-        }
-        match &self.geometry {
-            PreparedGeometry::Vertices { first, count } => {
-                pass.draw(*first..*first + *count, self.instances.clone());
-            }
-            PreparedGeometry::Indexed {
-                buffer,
-                format,
-                first,
-                count,
-                base_vertex,
-            } => {
-                pass.set_index_buffer(buffer.slice(..), *format);
-                pass.draw_indexed(
-                    *first..*first + *count,
-                    *base_vertex,
-                    self.instances.clone(),
-                );
-            }
-        }
+    pub(crate) fn record<P: PassCommands + ?Sized>(&self, pass: &mut P) {
+        self.bound.bind(pass);
+        self.geometry.record(pass);
     }
 }
 
@@ -277,7 +280,7 @@ pub struct PreparedProgramDraw {
 impl std::fmt::Debug for PreparedProgramDraw {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PreparedProgramDraw")
-            .field("signature", &self.draw.signature)
+            .field("signature", &self.draw.bound.signature)
             .finish_non_exhaustive()
     }
 }
@@ -286,7 +289,13 @@ impl PreparedProgramDraw {
     /// The attachments of the passes this draw can be recorded into.
     #[must_use]
     pub fn signature(&self) -> TargetSignature {
-        self.draw.signature
+        self.draw.bound.signature
+    }
+
+    /// The sets that the pass owner binds and this draw does not.
+    #[must_use]
+    pub fn external_sets(&self) -> &[u32] {
+        &self.draw.bound.external
     }
 
     /// Makes the frame `encoder` records hold the draw's resource reservations until the frame
@@ -302,7 +311,7 @@ impl PreparedProgramDraw {
 
     /// Records the draw into `pass`, whose attachments must match [`signature`](Self::signature).
     /// A pass that does not match is a GPU validation error when the frame is finished.
-    pub fn record(&self, pass: &mut wgpu::RenderPass<'_>) {
+    pub fn record<P: PassCommands + ?Sized>(&self, pass: &mut P) {
         self.draw.record(pass);
     }
 }
@@ -381,12 +390,18 @@ impl ProgramRuntime {
             .collect::<Result<_, ProgramError>>()?;
         let geometry = self.prepared_geometry(packet.geometry)?;
         let draw = RecordableDraw {
-            signature,
-            pipeline,
-            groups,
-            vertex_buffers,
-            geometry,
-            instances,
+            bound: Bound {
+                signature,
+                pipeline,
+                groups,
+                external: packet.program.gpu.external_sets.clone(),
+            },
+            geometry: GeometryDraw::from_parts(
+                VertexLayoutId::of(&layouts),
+                vertex_buffers,
+                geometry,
+                instances,
+            ),
         };
         let mut shares = self.reservation_shares(packet)?;
         shares.extend(
@@ -394,6 +409,7 @@ impl ProgramRuntime {
                 .iter()
                 .map(|snapshot| snapshot.reservation.clone()),
         );
+        self.counters.draw_prepared();
         Ok((draw, shares))
     }
 
@@ -454,65 +470,84 @@ impl ProgramRuntime {
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
         }
-        let modules = (
-            self.shader_module(&request.program.vertex)?,
-            self.shader_module(&request.program.fragment)?,
-        );
-        let pipeline = self.guarded(|| self.create_render_pipeline(request, &modules))?;
+        let modules = self.program_modules(request.program)?;
+        let pipeline = self.guarded(|| {
+            with_pipeline_descriptor(
+                request,
+                &modules,
+                &request.program.gpu.pipeline,
+                |descriptor| self.device.create_render_pipeline(descriptor),
+            )
+        })?;
+        self.counters.pipeline_built();
         self.render_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }
 
-    fn create_render_pipeline(
-        &self,
-        request: &PipelineRequest<'_>,
-        (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
-    ) -> wgpu::RenderPipeline {
-        let layouts = request.vertex_buffers();
-        let targets = request.color_targets();
-        let (state, signature) = (request.state, request.signature);
-        let depth = state.depth.unwrap_or(DepthState {
-            test: wgpu::CompareFunction::Always,
-            write: false,
-            bias: wgpu::DepthBiasState::default(),
-        });
-        let program = request.program;
-        self.device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("render-program pipeline"),
-                layout: Some(&program.gpu.pipeline),
-                vertex: wgpu::VertexState {
-                    module: vertex,
-                    entry_point: Some(&program.vertex.module().entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    buffers: &layouts,
-                },
-                primitive: wgpu::PrimitiveState {
-                    front_face: state.raster.front_face,
-                    cull_mode: state.raster.cull,
-                    ..wgpu::PrimitiveState::default()
-                },
-                depth_stencil: signature.depth().map(|format| wgpu::DepthStencilState {
-                    format,
-                    depth_write_enabled: Some(depth.write),
-                    depth_compare: Some(depth.test),
-                    stencil: wgpu::StencilState::default(),
-                    bias: depth.bias,
-                }),
-                multisample: wgpu::MultisampleState {
-                    count: signature.samples,
-                    ..wgpu::MultisampleState::default()
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: fragment,
-                    entry_point: Some(&program.fragment.module().entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    targets: &targets,
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
+    /// The shader modules of a program's two stages, built on first use and cached by content.
+    pub(crate) fn program_modules(
+        &mut self,
+        program: &GraphicsProgram,
+    ) -> Result<(wgpu::ShaderModule, wgpu::ShaderModule), ProgramError> {
+        Ok((
+            self.shader_module(&program.vertex)?,
+            self.shader_module(&program.fragment)?,
+        ))
     }
+}
+
+/// Builds the descriptor of the pipeline `request` describes against `layout` and hands it to
+/// `create`. The checked operations create their pipelines from the same descriptor, with a
+/// layout made of their own bind groups.
+pub(crate) fn with_pipeline_descriptor<T>(
+    request: &PipelineRequest<'_>,
+    (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
+    layout: &wgpu::PipelineLayout,
+    create: impl FnOnce(&wgpu::RenderPipelineDescriptor<'_>) -> T,
+) -> T {
+    let layouts = request.vertex_buffers();
+    let targets = request.color_targets();
+    let (state, signature) = (request.state, request.signature);
+    let depth = state.depth.unwrap_or(DepthState {
+        test: wgpu::CompareFunction::Always,
+        write: false,
+        bias: wgpu::DepthBiasState::default(),
+    });
+    let program = request.program;
+    create(&wgpu::RenderPipelineDescriptor {
+        label: Some("render-program pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: vertex,
+            entry_point: Some(&program.vertex.module().entry_point),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &layouts,
+        },
+        primitive: wgpu::PrimitiveState {
+            front_face: state.raster.front_face,
+            cull_mode: state.raster.cull,
+            ..wgpu::PrimitiveState::default()
+        },
+        depth_stencil: signature.depth().map(|format| wgpu::DepthStencilState {
+            format,
+            depth_write_enabled: Some(depth.write),
+            depth_compare: Some(depth.test),
+            stencil: wgpu::StencilState::default(),
+            bias: depth.bias,
+        }),
+        multisample: wgpu::MultisampleState {
+            count: signature.samples,
+            ..wgpu::MultisampleState::default()
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: fragment,
+            entry_point: Some(&program.fragment.module().entry_point),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &targets,
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 /// How a draw reads one vertex buffer.
@@ -563,11 +598,15 @@ impl PipelineRequest<'_> {
 
     /// The pipeline's content key: stage sources, layout, the whole state, the target signature
     /// and the vertex layouts.
-    fn key(&self) -> blake3::Hash {
+    pub(crate) fn key(&self) -> blake3::Hash {
         let mut key = Key::new("render");
         key.hash(self.program.vertex.content_key());
         key.hash(self.program.fragment.content_key());
         key.debug(&self.program.gpu.layout);
+        for lent in &self.program.gpu.external {
+            key.debug(&lent.set);
+            key.identity(&lent.layout);
+        }
         key.debug(&(self.state, self.signature));
         for layout in self.layouts {
             key.debug(&(layout.stride, layout.step, layout.attributes));

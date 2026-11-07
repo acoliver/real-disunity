@@ -4,6 +4,7 @@ mod baseline;
 
 #[test]
 fn gpu_water_pcf5_keeps_ambient_shadow_input_byte_identical() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = crate::water::water_source(true).replace(
         "vec4<f32>(color, 1.0)",
@@ -25,6 +26,7 @@ fn gpu_water_pcf5_keeps_ambient_shadow_input_byte_identical() {
 
 #[test]
 fn gpu_water_pcf5_reduces_fine_scale_visibility_variance_in_both_paths() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scene_path in [false, true] {
         let baseline = capture(&context, None, scene_path, true);
@@ -56,6 +58,7 @@ fn visibility_energy(bytes: &[u8]) -> f64 {
 
 #[test]
 fn gpu_water_absent_response_preserves_base_colour_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let original = baseline::source();
     for scene_path in [false, true] {
@@ -72,6 +75,7 @@ fn gpu_water_absent_response_preserves_base_colour_bytes() {
 
 #[test]
 fn gpu_water_specialized_neutral_is_identical_with_msaa_and_rippling_normals() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scene_path in [false, true] {
         for raw in [true, false] {

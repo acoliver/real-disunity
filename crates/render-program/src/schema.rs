@@ -66,6 +66,8 @@ fn value_kind(value: &PropertyValue) -> &'static str {
         PropertyValue::Matrix(_) => "a matrix",
         PropertyValue::VectorArray(_) => "a vector array",
         PropertyValue::MatrixArray(_) => "a matrix array",
+        PropertyValue::IntVector(_) => "an integer vector",
+        PropertyValue::IntVectorArray(_) => "an integer vector array",
         PropertyValue::Resource(Resource::Buffer(_)) => "a buffer",
         PropertyValue::Resource(Resource::Texture(_)) => "a texture",
     }

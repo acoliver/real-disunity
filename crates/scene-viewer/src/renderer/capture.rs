@@ -10,6 +10,7 @@ struct Pending {
     id: u64,
     frame: u64,
     scene: worldrunner_render_scene::draw::SceneStatistics,
+    temporal_history_reset: crate::TemporalHistoryReset,
     time: std::time::Duration,
     ticket: CompletionTicket,
     image: Products,
@@ -88,6 +89,7 @@ impl Captures {
         ticket: CompletionTicket,
         time: std::time::Duration,
         scene: &worldrunner_render_scene::draw::SceneStatistics,
+        temporal_history_reset: crate::TemporalHistoryReset,
     ) -> Result<(), ViewerError> {
         let frame = self.frame;
         self.advance_frame();
@@ -104,6 +106,7 @@ impl Captures {
                 id,
                 frame,
                 scene: *scene,
+                temporal_history_reset,
                 time,
                 ticket,
                 image,
@@ -140,6 +143,7 @@ impl Captures {
                         pending.time,
                         image,
                         &pending.scene,
+                        pending.temporal_history_reset,
                     );
                 } else {
                     host.captures.complete(
@@ -148,6 +152,7 @@ impl Captures {
                         pending.time,
                         image.srgb8.expect("plain capture"),
                         &pending.scene,
+                        pending.temporal_history_reset,
                     );
                 }
                 let pending = self.pending.remove(index);

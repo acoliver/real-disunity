@@ -3,6 +3,7 @@ use glam::{DVec3, Vec3};
 
 #[test]
 fn cached_anisotropy_opposing_normals_preserve_first_tap_direction() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut fixture = Fixture::new_with(&context, |_, uv| {
         let mut samples = stripes(uv);

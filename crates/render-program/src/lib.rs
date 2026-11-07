@@ -7,6 +7,7 @@
 //! descriptions and no other module names a Unity type.
 
 mod arena;
+mod batch;
 mod bind;
 pub mod binding;
 mod budget;
@@ -15,11 +16,14 @@ mod create;
 mod dispatch;
 mod draw;
 pub mod error;
+pub mod ids;
 mod import;
+pub mod layers;
 pub mod layout;
 pub mod material;
 mod material_draw;
 pub mod module;
+pub mod offscreen;
 mod packet;
 mod pipeline_key;
 mod program;
@@ -30,9 +34,13 @@ mod reflect;
 pub mod registry;
 mod resources;
 pub mod runtime;
+pub mod sampler;
 mod schema;
+mod set;
 pub mod state;
+mod stats;
 pub mod targets;
+pub mod texels;
 #[cfg(feature = "unity")]
 pub mod unity;
 pub mod variant;

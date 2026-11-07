@@ -73,6 +73,7 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
 
 #[test]
 fn gpu_relief_frame_preserves_products_and_restores_depth_reuse() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for shadows in [false, true] {
         assert_eq!(
@@ -87,6 +88,7 @@ fn gpu_relief_frame_preserves_products_and_restores_depth_reuse() {
 fn gpu_relief_ordinary_relief_retains_depth_without_draining_or_rebudgeting() {
     use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
     use worldrunner_render_gpu::configuration::AllocationBudget;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let [ordinary, relief, _] = scenes();

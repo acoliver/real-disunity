@@ -1,4 +1,5 @@
 use std::{cell::RefCell, rc::Rc};
+use worldrunner_render_gpu::{device::DeviceRequirements, test_support::TestGpu};
 use worldrunner_render_post::*;
 
 struct Triangle {
@@ -74,12 +75,8 @@ impl PreparedFeature for PreparedTriangle {
 
 #[test]
 fn external_features_draw_in_registration_order_in_one_frame_submission() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = TestGpu::shared(&DeviceRequirements::default()).unwrap();
+    let (device, queue) = (gpu.device, gpu.queue);
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1);
     let mut chain = PostChain::new(

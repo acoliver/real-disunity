@@ -133,6 +133,7 @@ fn replace_profile(
 
 #[test]
 fn post_enable_disable_and_collected_replacement_match_live_budget() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let mut options = options();
     let mut presentation = presentation(&context, &options);
@@ -237,7 +238,8 @@ fn restore_recipe(
 
 #[test]
 fn restored_recipe_history_matches_planned_replacement_peak() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let options = options();
     let mut presentation = presentation(&context, &options);
     let restored = restore_recipe(&context, &mut presentation, &options);
@@ -246,7 +248,8 @@ fn restored_recipe_history_matches_planned_replacement_peak() {
 
 #[test]
 fn retained_history_cap_rejection_matches_planned_union_without_publication() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut options = options();
     let large = Viewport {
         width: 32,

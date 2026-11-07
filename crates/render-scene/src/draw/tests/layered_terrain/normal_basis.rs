@@ -21,6 +21,7 @@ fn reference_source(normal: &str) -> String {
 
 #[test]
 fn terrain_normal_strength_zero_is_geometric_one_preserves_bytes_two_increases_contrast() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = fixture([191, 128, 238, 255], 0);
     let geometric_source = reference_source("    let normal = geometric;");
@@ -200,6 +201,7 @@ fn assert_directional(context: &GpuContext, layered: bool, cached: bool) {
 
 #[test]
 fn terrain_normal_basis_tracks_authored_u_and_v_in_live_and_cached_draws() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for cached in [false, true] {
         assert_directional(&context, true, cached);
@@ -208,11 +210,13 @@ fn terrain_normal_basis_tracks_authored_u_and_v_in_live_and_cached_draws() {
 
 #[test]
 fn terrain_conventional_palette_normal_basis_tracks_authored_u_and_v() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_directional(&context(), false, false);
 }
 
 #[test]
 fn terrain_two_layers_unrotate_each_normal_before_blending() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = configured_fixture([191, 128, 238, 255], &[0, 5400], true, vec![0; 4]);
     for cached in [false, true] {
@@ -224,6 +228,7 @@ fn terrain_two_layers_unrotate_each_normal_before_blending() {
 
 #[test]
 fn terrain_sloped_heightfield_normal_basis_matches_world_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = configured_fixture([191, 128, 238, 255], &[0], true, vec![0, 400, 600, 1000]);
     let n = glam::DVec3::new(-0.2, -0.3, 1.0).normalize();

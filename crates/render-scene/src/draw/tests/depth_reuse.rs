@@ -8,6 +8,7 @@ mod fixtures;
 
 #[test]
 fn gpu_forward_depth_reuse_matches_invariant_baseline_all_attachment_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut covered = 0;
     let mut moving = 0;
@@ -46,6 +47,7 @@ fn gpu_forward_depth_reuse_matches_invariant_baseline_all_attachment_bytes() {
 
 #[test]
 fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (name, scene, pose) in fixtures::ties() {
         let transform = || {
@@ -93,6 +95,7 @@ fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
 
 #[test]
 fn gpu_negative_scale_depth_reuse_matches_invariant_baseline_all_attachment_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = scene(SceneAlphaMode::Opaque, true, 1);
     let old = capture::transformed_frame(
@@ -113,6 +116,7 @@ fn gpu_negative_scale_depth_reuse_matches_invariant_baseline_all_attachment_byte
 
 #[test]
 fn gpu_terrain_pages_and_skirts_depth_reuse_matches_invariant_baseline_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for source in [
         terrain_scene(2),
@@ -153,6 +157,7 @@ fn gpu_terrain_pages_and_skirts_depth_reuse_matches_invariant_baseline_bytes() {
 
 #[test]
 fn gpu_unlit_quads_keep_forward_only_depth_and_auxiliary_masks() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = terrain_scene(1);
     let old = capture::transformed_frame(
@@ -185,6 +190,7 @@ mod frame_integration;
 
 #[test]
 fn gpu_depth_reuse_distinguishes_one_ulp_depth_separation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = fixtures::tie_scene(false);
     let old = capture::transformed_frame(

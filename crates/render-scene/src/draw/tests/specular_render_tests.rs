@@ -75,6 +75,7 @@ fn selected_scene(kind: u8) -> RenderScene {
 
 #[test]
 fn selected_mesh_terrain_and_card_draws_publish_environment_separately_from_direct() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let maps = environment_convention(&context, true, selected());
     for kind in 0..3 {
@@ -156,6 +157,7 @@ fn selected_water(missing: bool) -> RenderScene {
 
 #[test]
 fn selected_subfloor_water_environment_and_ssr_preserve_direct_specular() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let maps = environment_convention(&context, true, selected());
     let mut deltas = Vec::new();

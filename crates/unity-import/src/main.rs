@@ -5,12 +5,16 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
     import_scene, input_axes, plan_scene,
+    player_builtins::builtin_report,
+    player_channels::channel_report,
+    player_layouts::layout_report,
     player_objects::{
         OpenFile, decode_census, describe_object, describe_shader_programs, shader_chunks,
         shader_modules,
     },
     player_parameters::parameter_report,
     player_scene::{SceneNode, read_scene_hierarchy},
+    player_structs::struct_report,
     read_player,
     shader_prep::Backend,
 };
@@ -26,6 +30,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player <player data directory>
        unity-import player-decode <player data directory>
        unity-import player-shader-report <player data directory>
+       unity-import player-compute-report <player data directory>
        unity-import player-scripts <player data directory> <script layouts JSON>
        unity-import player-plan <player data directory> <scene file> <script layouts JSON>
        unity-import player-resources <player data directory> <script layouts JSON> <output directory>
@@ -34,6 +39,10 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-shader <serialized file> <path ID> <platform index> <output directory>
        unity-import player-shader-programs <serialized file> <path ID> <platform index>
        unity-import player-shader-parameters <player data directory>
+       unity-import player-shader-layouts <player data directory>
+       unity-import player-shader-structs <player data directory>
+       unity-import player-shader-channels <player data directory>
+       unity-import player-shader-builtins <player data directory> [percent [matrices]]
        unity-import player-shader-modules <serialized file> <path ID> <platform index> <output directory>";
 
 fn main() -> ExitCode {
@@ -61,12 +70,6 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         [command, data, layouts] if command == "player-scripts" => {
             player_scripts(Path::new(data), Path::new(layouts))
         }
-        [command, data] if command == "player-shader-report" => {
-            player_shader_report(Path::new(data))
-        }
-        [command, data] if command == "player-shader-parameters" => {
-            player_shader_parameters(Path::new(data))
-        }
         [command, file, path_id] if command == "player-object" => {
             player_object(Path::new(file), path_id)
         }
@@ -83,6 +86,48 @@ fn run_player(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
             read_scene_hierarchy(Path::new(data), scene)
                 .map(|roots| roots.iter().for_each(|root| print_node(root, 0)))
                 .map_err(Into::into)
+        }
+        _ => return run_shader_reports(args),
+    })
+}
+
+/// The commands that count what a player's Vulkan shaders hold, or `None` for any other command.
+fn run_shader_reports(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
+    Some(match args {
+        [command, data] if command == "player-shader-report" => {
+            player_shader_report(Path::new(data))
+        }
+        [command, data] if command == "player-compute-report" => {
+            player_compute_report(Path::new(data))
+        }
+        [command, data] if command == "player-shader-parameters" => {
+            player_shader_parameters(Path::new(data))
+        }
+        [command, data] if command == "player-shader-layouts" => {
+            player_shader_layouts(Path::new(data))
+        }
+        [command, data] if command == "player-shader-structs" => {
+            player_shader_structs(Path::new(data))
+        }
+        [command, data] if command == "player-shader-channels" => {
+            player_shader_channels(Path::new(data))
+        }
+        [command, data] if command == "player-shader-builtins" => {
+            player_shader_builtins(Path::new(data), 50, false)
+        }
+        [command, data, percent] if command == "player-shader-builtins" => {
+            percent.parse().map_or_else(
+                |error| Err(Box::from(format!("percent: {error}"))),
+                |percent| player_shader_builtins(Path::new(data), percent, false),
+            )
+        }
+        [command, data, percent, filter]
+            if command == "player-shader-builtins" && filter == "matrices" =>
+        {
+            percent.parse().map_or_else(
+                |error| Err(Box::from(format!("percent: {error}"))),
+                |percent| player_shader_builtins(Path::new(data), percent, true),
+            )
         }
         _ => return None,
     })
@@ -309,6 +354,20 @@ fn player_shader_report(data: &Path) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Counts what becomes of every compute shader kernel of a player: its variants' modules, their
+/// preparation for naga, and the stage programs, layouts and targets they build.
+fn player_compute_report(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!(
+        "{}",
+        worldrunner_unity_import::player_compute_report::compute_report(&paths)?
+    );
+    Ok(())
+}
+
 /// Decodes every Vulkan variant's parameters and program record tail of a player, checks them
 /// against the variants' stage modules and prints the counts.
 fn player_shader_parameters(data: &Path) -> Result<(), Box<dyn Error>> {
@@ -317,6 +376,51 @@ fn player_shader_parameters(data: &Path) -> Result<(), Box<dyn Error>> {
         .map(|entry| data.join(entry.name))
         .collect();
     print!("{}", parameter_report(&paths)?);
+    Ok(())
+}
+
+/// Prepares every Vulkan variant's stage modules, builds the renderer's layout from the
+/// variant's parameters and prints the counts and the failures by cause.
+fn player_shader_layouts(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", layout_report(&paths)?);
+    Ok(())
+}
+
+/// Counts which vertex source channels the variants of a player's shaders read, by code.
+fn player_shader_channels(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", channel_report(&paths)?);
+    Ok(())
+}
+
+/// Lists the constant buffer members that no shader declares and that most variants hold.
+fn player_shader_builtins(
+    data: &Path,
+    percent: usize,
+    matrices: bool,
+) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", builtin_report(&paths)?.display(percent, matrices));
+    Ok(())
+}
+
+/// Checks the structs of the bound constant buffers against the SPIR-V blocks and prints counts.
+fn player_shader_structs(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", struct_report(&paths)?);
     Ok(())
 }
 

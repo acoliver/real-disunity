@@ -41,6 +41,7 @@ fn close(actual: &[f32], expected: &[f64]) {
 
 #[test]
 fn gpu_bilateral_weights_match_cpu_and_production_two_axis_wiring() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let size = [11, 9];
     let depths: Vec<_> = (0..99)
@@ -129,6 +130,7 @@ fn metadata(
 
 #[test]
 fn gpu_average_normals_coverage_and_both_odd_edges_are_exact_half_float() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // Each footprint has four covered inputs or two covered and two uncovered.
     // All means are binary fractions, including opposing normals and replicated edges.
@@ -191,6 +193,7 @@ fn gpu_average_normals_coverage_and_both_odd_edges_are_exact_half_float() {
 
 #[test]
 fn averaged_hierarchy_stops_at_the_highest_sampled_level() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let screen = crate::scene_metadata::SceneMetadata::new(
         context.device(),

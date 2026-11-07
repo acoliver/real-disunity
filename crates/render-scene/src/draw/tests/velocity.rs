@@ -300,6 +300,7 @@ fn assert_matches_cpu_residual(velocity: &[[f32; 2]], clocks: (f32, f32)) {
 
 #[test]
 fn rigid_wind_writes_the_analytic_residual_at_two_clocks() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (first, second) in [(0.125, 0.25), (0.25, 0.5)] {
         let velocity = velocity_after(&context, &windy(), &[(first, pose()), (second, pose())]);
@@ -327,6 +328,7 @@ fn assert_sky_texels_are_zero_and_quad_moves(velocity: &[[f32; 2]]) {
 
 #[test]
 fn a_sky_in_the_opaque_pass_leaves_zero_velocity_beside_swaying_foliage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let frames = [(0.125, pose()), (0.25, pose())];
     let velocity = velocity_after(&context, &windy_under_sky(false), &frames);
@@ -335,6 +337,7 @@ fn a_sky_in_the_opaque_pass_leaves_zero_velocity_beside_swaying_foliage() {
 
 #[test]
 fn celestial_meshes_in_the_opaque_pass_leave_zero_velocity_beside_swaying_foliage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let frames = [(0.125, pose()), (0.25, pose())];
     let velocity = velocity_after(&context, &windy_under_sky(true), &frames);
@@ -343,6 +346,7 @@ fn celestial_meshes_in_the_opaque_pass_leave_zero_velocity_beside_swaying_foliag
 
 #[test]
 fn a_static_object_under_a_moving_camera_has_exactly_zero_residual() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let moved = CameraPose {
         eye_millimeters: [400, -2_000, 2_100],
@@ -354,6 +358,7 @@ fn a_static_object_under_a_moving_camera_has_exactly_zero_residual() {
 
 #[test]
 fn a_paused_clock_has_exactly_zero_residual_even_with_wind() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let velocity = velocity_after(
         &context,
@@ -365,6 +370,7 @@ fn a_paused_clock_has_exactly_zero_residual_even_with_wind() {
 
 #[test]
 fn a_renderer_without_taa_allocates_no_velocity_target_and_refuses_velocity_pipelines() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let plain = FrameRenderer::hdr_antialiased(
         &context,
@@ -398,6 +404,7 @@ fn taa_configuration(resolve: PostResolve) -> RendererConfiguration {
 
 #[test]
 fn enabling_taa_by_reconfiguration_allocates_the_velocity_target_and_dropping_it_releases_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = ConfiguredFrameRenderer::new(
         &context,
@@ -531,6 +538,7 @@ fn sway_errors(context: &GpuContext, samples: MsaaSamples) -> (f64, f64) {
 
 #[test]
 fn swaying_foliage_under_a_fixed_camera_resolves_closer_to_the_unjittered_frame_with_velocity() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (without, with) = sway_errors(&context(), MsaaSamples::X1);
     // Measured on lavapipe: 0.01251 without velocity (the previous behaviour, with the depth
     // history) and 0.00856 with it, a ratio of 0.68. The bound leaves margin for driver differences and still fails if
@@ -546,6 +554,7 @@ fn four_sample_msaa_binds_a_multisampled_velocity_target_and_does_not_resolve_wo
     // MSAA is not jittered, so the object residual only helps through the resolve's per-sample
     // read; the assertion is that the multisampled attachment draws without validation errors
     // and the velocity frame is no worse than the frame without it.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     if !crate::msaa_tests::supported_samples(&context).contains(&4) {
         return;

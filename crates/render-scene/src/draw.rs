@@ -269,8 +269,8 @@ pub struct SceneGpu {
     terrain: Option<GpuTerrain>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
+    player: programs::PlayerWork,
     unlit: crate::dynamic::UnlitRuntime,
-    programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
     retained: Retained,
 }
 
@@ -369,8 +369,8 @@ impl SceneGpu {
             terrain,
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
+            player: programs::PlayerWork::default(),
             unlit: crate::dynamic::UnlitRuntime::default(),
-            programs: None,
             retained: Retained {
                 contact_heights,
                 textures,

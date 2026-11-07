@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::binding::{BindingAddress, BindingSource, ResourceBinding, ResourceLayout};
 use crate::module::{StageKind, StageProgram};
+use crate::program::ExternalSet;
 use crate::reflect::Reflected;
 
 /// One binding of a bind group.
@@ -83,16 +84,42 @@ impl ProgramLayout {
     /// that is declared as another kind or not visible to its stage, and stages that declare
     /// one binding differently.
     pub fn build(stages: &[&StageProgram]) -> Result<Self, LayoutError> {
+        Self::build_in(stages, &[])
+    }
+
+    /// Like [`build`](Self::build), with the sets of `external` lent: they get no slot, and the
+    /// resources the stages use at them are checked against the lent declarations instead of the
+    /// stages' own. A stage's own declarations at a lent set are ignored.
+    ///
+    /// # Errors
+    /// Also fails on a resource at a lent set that its declaration does not list or lists as
+    /// another class, on a lent declaration repeated for one binding and on one that names
+    /// another set than the one it is lent for.
+    pub fn build_in(
+        stages: &[&StageProgram],
+        external: &[ExternalSet],
+    ) -> Result<Self, LayoutError> {
+        for lent in external {
+            check_lent_declarations(lent)?;
+        }
         let mut merged: BTreeMap<(u32, u32), Slot> = BTreeMap::new();
         let mut unused = Vec::new();
         for stage in stages {
             let declared = &stage.declarations().resources;
             check_unique(declared)?;
             for resource in stage.reflected() {
+                if let Some(lent) = external.iter().find(|lent| lent.set == resource.set) {
+                    check_lent(lent, resource)?;
+                    continue;
+                }
                 let slot = stage_slot(stage.module().kind, declared, resource)?;
                 merge(&mut merged, slot)?;
             }
-            unused.extend(unused_declarations(stage));
+            unused.extend(
+                unused_declarations(stage)
+                    .into_iter()
+                    .filter(|unused| external.iter().all(|lent| lent.set != unused.set)),
+            );
         }
         Ok(Self {
             slots: merged.into_values().collect(),
@@ -132,6 +159,44 @@ fn check_unique(declared: &ResourceLayout) -> Result<(), LayoutError> {
         }
     }
     Ok(())
+}
+
+fn check_lent_declarations(lent: &ExternalSet) -> Result<(), LayoutError> {
+    check_unique(&lent.bindings)?;
+    match lent.bindings.bindings.iter().find(|b| b.at.set != lent.set) {
+        Some(stray) => Err(LayoutError::Declaration {
+            reason: format!(
+                "set {} is lent, and its declaration lists set {} binding {}",
+                lent.set, stray.at.set, stray.at.binding
+            ),
+        }),
+        None => Ok(()),
+    }
+}
+
+/// A resource a stage uses at a lent set must be listed there as the same class.
+fn check_lent(lent: &ExternalSet, resource: &Reflected) -> Result<(), LayoutError> {
+    let at = BindingAddress {
+        set: resource.set,
+        binding: resource.binding,
+    };
+    let found = lent
+        .bindings
+        .find(at)
+        .ok_or_else(|| LayoutError::UndeclaredResource {
+            set: at.set,
+            binding: at.binding,
+            name: resource.name.clone(),
+        })?;
+    if found.kind.same_class(&resource.ty) {
+        return Ok(());
+    }
+    Err(LayoutError::Mismatch {
+        set: at.set,
+        binding: at.binding,
+        declared: format!("{:?}", found.kind),
+        found: format!("{:?}", resource.ty),
+    })
 }
 
 fn stage_slot(

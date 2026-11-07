@@ -10,6 +10,7 @@ use worldrunner_render_plan::TerrainPageSettings;
 
 #[test]
 fn blocking_b1_odd_non_affine_neighbors_remain_continuous() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -67,6 +68,7 @@ fn blocking_b1_odd_non_affine_neighbors_remain_continuous() {
 
 #[test]
 fn blocking_b2_perspective_refines_visible_before_behind_eye() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut parts = settings().parts();
     parts.maximum_selected_pages = 7;
     let selected = super::view::select_volume(
@@ -101,6 +103,7 @@ fn blocking_b2_perspective_refines_visible_before_behind_eye() {
 
 #[test]
 fn blocking_b3_fragment_lookup_work_is_depth_bounded() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let shader = include_str!("sampling.wgsl");
     assert!(
         !shader.contains("i < page_table.counts"),
@@ -181,6 +184,7 @@ fn warm_cache_scene(
 fn blocking_b4_warm_cache_slot_work_grows_linearly() {
     use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
 
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (device, queue, _) = pollster::block_on(request_device(
         context.adapter(),
@@ -228,6 +232,7 @@ fn blocking_b4_warm_cache_slot_work_grows_linearly() {
 
 #[test]
 fn blocking_b5_antipodal_mips_have_a_defined_source_direction() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

@@ -47,6 +47,7 @@ fn step_scene(
 
 #[test]
 fn step_bands_partition_forward_prepass_metadata_and_shadow_at_the_endpoint() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for (hashed, material_band) in [(true, false), (false, false), (false, true)] {
@@ -104,6 +105,7 @@ fn assert_step_partition(
 
 #[test]
 fn inclusive_step_mirrors_keep_endpoint_ownership_in_forward_and_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for terminal in [false, true] {

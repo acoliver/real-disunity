@@ -12,10 +12,11 @@ use worldrunner_render_program::unity::runtime::{
     DrawRequest, Geometry, GraphicsProgram, ProgramRuntime, TargetHandle, VertexInput,
 };
 use worldrunner_render_program::unity::state::{RenderState, resolve_state};
+use worldrunner_unity_serialized::shader_parameters::VariantParameters;
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
 use worldrunner_unity_serialized::shader_state::ShaderState;
 
-use crate::common::{fixed, opaque_state, read_target, run, runtime, stage};
+use crate::common::{Form, each_form, fixed, opaque_state, read_target, run, runtime, stage};
 
 const FLAT: &str = "
 struct VOut { @builtin(position) position: vec4<f32>, @location(0) color: vec4<f32> }
@@ -29,8 +30,20 @@ const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
 const CLEAR: [u8; 4] = [0, 0, 0, 0];
 const SIZE: u32 = 8;
 
-fn program(runtime: &ProgramRuntime) -> GraphicsProgram {
-    let build = |entry, kind| stage(FLAT, (entry, kind), vec![], ProgramParameters::default());
+/// The flat program, with no resources described in `form`.
+fn program(runtime: &ProgramRuntime, form: Form) -> GraphicsProgram {
+    let build = |entry, kind| match form {
+        Form::Program => stage(FLAT, (entry, kind), vec![], ProgramParameters::default()),
+        Form::Variant => stage(
+            FLAT,
+            (entry, kind),
+            vec![],
+            VariantParameters {
+                constant_buffers: Vec::new(),
+                bindings: Vec::new(),
+            },
+        ),
+    };
     let vertex = build("vs_main", StageKind::Vertex);
     let fragment = build("fs_main", StageKind::Fragment);
     runtime.graphics_program(&vertex, &fragment).unwrap()
@@ -118,8 +131,12 @@ fn bytes(color: [f32; 4]) -> [u8; 4] {
 
 #[test]
 fn positive_clip_y_lands_in_the_bottom_rows_as_in_vulkan() {
+    each_form(positive_clip_y_lands_in_the_bottom_rows_as_in_vulkan_in);
+}
+
+fn positive_clip_y_lands_in_the_bottom_rows_as_in_vulkan_in(form: Form) {
     let mut runtime = runtime();
-    let program = program(&runtime);
+    let program = program(&runtime, form);
     let target = new_target(&mut runtime, false);
     // A triangle whose clip-space Y is all positive: x from -0.9 to 0.9 at y = 0.1, apex at
     // y = 0.9. Vulkan puts +Y at the bottom of the image.
@@ -152,8 +169,12 @@ fn positive_clip_y_lands_in_the_bottom_rows_as_in_vulkan() {
 
 #[test]
 fn the_clip_depth_range_is_zero_to_one_and_the_nearer_triangle_wins() {
+    each_form(the_clip_depth_range_is_zero_to_one_and_the_nearer_triangle_wins_in);
+}
+
+fn the_clip_depth_range_is_zero_to_one_and_the_nearer_triangle_wins_in(form: Form) {
     let mut runtime = runtime();
-    let program = program(&runtime);
+    let program = program(&runtime, form);
     let target = new_target(&mut runtime, true);
     let state = uncull();
     let corners = |z: f32| [[-1.0, -1.0, z], [3.0, -1.0, z], [-1.0, 3.0, z]];
@@ -177,8 +198,12 @@ fn the_clip_depth_range_is_zero_to_one_and_the_nearer_triangle_wins() {
 
 #[test]
 fn front_face_is_the_winding_seen_in_the_image_and_cull_back_drops_the_other() {
+    each_form(front_face_is_the_winding_seen_in_the_image_and_cull_back_drops_the_other_in);
+}
+
+fn front_face_is_the_winding_seen_in_the_image_and_cull_back_drops_the_other_in(form: Form) {
     let mut runtime = runtime();
-    let program = program(&runtime);
+    let program = program(&runtime, form);
     // Clockwise as displayed with row 0 at the top: top left, top right, bottom center.
     let clockwise = [[-0.8, -0.8, 0.5], [0.8, -0.8, 0.5], [0.0, 0.8, 0.5]];
     let counter = [clockwise[0], clockwise[2], clockwise[1]];

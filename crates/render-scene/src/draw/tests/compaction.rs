@@ -176,6 +176,7 @@ fn count(image: &RgbaImage, color: [u8; 3]) -> usize {
 
 #[test]
 fn compacted_and_ranged_drawing_produce_identical_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut compacted = Rig::new(false);
     let mut ranged = Rig::new(true);
     let edits = [None, Some((0, moved(-4_500))), Some((5, moved(3_500)))];
@@ -199,6 +200,7 @@ fn compacted_and_ranged_drawing_produce_identical_pixels() {
 
 #[test]
 fn a_still_frame_stages_no_gather_and_each_input_change_stages_one() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut rig = Rig::new(false);
     rig.render(&unlit(pose_at(0)));
     let first = rig.staged();
@@ -222,6 +224,7 @@ fn a_still_frame_stages_no_gather_and_each_input_change_stages_one() {
 
 #[test]
 fn growing_a_batch_buffer_and_the_view_buffer_restages_the_gather() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut rig = Rig::new(false);
     let reference = rig.render(&unlit(pose_at(0)));
     let small = rig.gpu.views[0].compaction.committed_capacity();
@@ -242,6 +245,7 @@ fn growing_a_batch_buffer_and_the_view_buffer_restages_the_gather() {
 
 #[test]
 fn a_cancelled_frame_leaves_the_committed_compaction_and_the_next_frame_correct() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut rig = Rig::new(false);
     let reference = rig.render(&unlit(pose_at(0)));
     let committed = rig.gpu.views[0]
@@ -276,6 +280,7 @@ fn a_cancelled_frame_leaves_the_committed_compaction_and_the_next_frame_correct(
 
 #[test]
 fn a_cancelled_edit_is_gathered_again_by_the_frame_that_publishes_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut rig = Rig::new(false);
     rig.render(&unlit(pose_at(0)));
     let handle = rig.handles()[1];

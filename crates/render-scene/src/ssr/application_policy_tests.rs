@@ -19,6 +19,7 @@ fn lod_pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline {
 
 #[test]
 fn gpu_application_lod_matches_literal_oracles_and_default_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipeline = lod_pipeline(context.device());
     let uniform = context.device().create_buffer(&wgpu::BufferDescriptor {
@@ -95,6 +96,7 @@ pub(super) fn draw_policy(
 
 #[test]
 fn gpu_floor_reduction_keeps_sample_lanes_and_drops_incomplete_bins() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         radiance_rounding: SceneDownsampleRounding::Floor,

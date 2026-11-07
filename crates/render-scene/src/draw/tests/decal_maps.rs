@@ -10,6 +10,7 @@ use worldrunner_render_plan::{
 #[test]
 fn decal_normal_controls_reject_only_when_a_normal_map_is_present() {
     use worldrunner_render_plan::{SceneNormalEncoding, SceneNormalY};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let base = mapped_scene(false);
     for normal in [None, Some(2)] {
         let default = material(normal, Some(3), 900_000, 100_000);
@@ -182,6 +183,7 @@ fn baked_scene(scene: &RenderScene, slope: bool, alpha: u16) -> RenderScene {
 
 #[test]
 fn normal_and_packed_maps_match_independently_baked_plane_and_slope_before_lighting() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (slope, compressed_maps) in [(false, false), (true, false), (false, true), (true, true)] {
         let base = mapped_scene(slope);
@@ -218,6 +220,7 @@ fn normal_and_packed_maps_match_independently_baked_plane_and_slope_before_light
 
 #[test]
 fn each_optional_channel_rejects_incompatible_shapes_and_color_formats() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let scene = mapped_scene(false);
     for channel in [2, 3] {
         let mut textures = scene.resources().textures().to_vec();
@@ -253,6 +256,7 @@ fn each_optional_channel_rejects_incompatible_shapes_and_color_formats() {
 
 #[test]
 fn fractional_normal_and_packed_surface_blends_match_baked_receivers() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for slope in [false, true] {
         let scene = mapped_scene(slope);

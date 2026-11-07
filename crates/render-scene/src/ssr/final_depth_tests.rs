@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn final_foreground_depth_blocks_hits_without_moving_the_opaque_receiver() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let center = (45 * 65 + 32) * 8;
     let clear = final_trace(&context, false, 1.0, false);
@@ -12,6 +13,7 @@ fn final_foreground_depth_blocks_hits_without_moving_the_opaque_receiver() {
 
 #[test]
 fn receivers_inside_the_camera_near_plane_have_zero_confidence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let bytes = final_trace(&context, false, 0.01, false);
     let center = (45 * 65 + 32) * 8;
@@ -60,6 +62,7 @@ fn final_trace(context: &GpuContext, foreground: bool, scale: f32, unmatched: bo
 
 #[test]
 fn final_depth_hierarchy_is_declared_after_water_and_before_trace() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     let ssr = renderer.ssr.as_mut().unwrap();
@@ -101,6 +104,7 @@ fn final_depth_hierarchy_is_declared_after_water_and_before_trace() {
 
 #[test]
 fn final_depth_partial_bins_are_conservative_at_every_level() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let size = [9, 5];
     let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
@@ -143,6 +147,7 @@ fn final_depth_partial_bins_are_conservative_at_every_level() {
 
 #[test]
 fn final_depth_without_matching_surface_metadata_does_not_sample_the_opaque_bed() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let bytes = final_trace(&context, false, 1.0, true);
     let center = (45 * 65 + 32) * 8;
@@ -152,6 +157,7 @@ fn final_depth_without_matching_surface_metadata_does_not_sample_the_opaque_bed(
 #[test]
 fn final_depth_metadata_retains_the_forward_sample_domain() {
     use crate::frame::metadata::MetadataSampling;
+    let _session = crate::test_support::SceneTestSession::acquire();
     for samples in crate::msaa_tests::all_counts() {
         for level in 0..7 {
             let product = FrameProduct::reflection_depth(level, samples);

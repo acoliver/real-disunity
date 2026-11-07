@@ -98,7 +98,8 @@ mod tests {
 
     #[test]
     fn gpu_unused_material_variants_are_not_compiled_and_clones_share_variants() {
-        let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context = crate::device::GpuContext::shared_for_test().unwrap();
         let scene =
             super::super::ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba8Unorm);
         let objects = scene.object_pipelines();

@@ -4,6 +4,7 @@ use worldrunner_render_plan::{ScenePostStage, SceneSsao};
 
 #[test]
 fn absent_environment_selects_unlit_frame_encoding() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let view = SceneView::new(
         pose(),
         camera(),
@@ -21,6 +22,7 @@ fn absent_environment_selects_unlit_frame_encoding() {
 
 #[test]
 fn stock_frames_reject_each_requested_unimplemented_effect() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let view = SceneView::new(
         pose(),
         camera(),
@@ -43,6 +45,7 @@ fn stock_frames_reject_each_requested_unimplemented_effect() {
 /// that owns the targets and the history, which refuses a mismatched scene in `validate_post`.
 #[test]
 fn stock_frames_accept_authored_taa_because_the_renderer_owns_the_resolve() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let view = SceneView::new(
         pose(),
         camera(),
@@ -63,6 +66,7 @@ fn stock_frames_accept_authored_taa_because_the_renderer_owns_the_resolve() {
 
 #[test]
 fn gpu_scene_without_environment_renders_unlit_albedo() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let unlit = RenderScene::new(SceneParts {
@@ -89,6 +93,7 @@ fn gpu_scene_without_environment_renders_unlit_albedo() {
 
 #[test]
 fn gpu_upload_rejects_requested_ssao_before_uploading_resources() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let mut parts = effect_parts();
@@ -119,6 +124,7 @@ fn gpu_upload_rejects_requested_ssao_before_uploading_resources() {
 
 #[test]
 fn stock_frame_lighting_accepts_supported_ssao_settings() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut parts = effect_parts();
     parts.ssao = Some(SceneSsao {
         receiver: worldrunner_render_plan::SceneSsaoReceiver::Nearest,

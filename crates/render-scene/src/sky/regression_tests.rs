@@ -6,7 +6,8 @@ use worldrunner_render_plan::*;
 
 #[test]
 fn physical_mesh_composition_preserves_depth_exposure_and_fog() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut sky = atmosphere(0);
     sky.scattering = Some(super::scattering::tests::settings());
     let objects = scene(0, true, false).geometry().objects().to_vec();
@@ -46,7 +47,8 @@ fn custom(sky: SceneAtmosphere, mesh: SceneMesh, objects: Vec<SceneObject>) -> R
 
 #[test]
 fn regression_b1_nearest_celestial_surface_is_index_order_independent() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut captures = Vec::new();
     for reverse in [false, true] {
         let mut vertices = Vec::new();
@@ -95,7 +97,8 @@ fn regression_b1_nearest_celestial_surface_is_index_order_independent() {
 
 #[test]
 fn regression_b2_orthographic_body_behind_eye_is_clipped() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let front = render(&context, &scene(0, false, false), 1.0);
     assert_eq!(
         front.rgb(4).map(f32::to_bits),
@@ -121,7 +124,8 @@ fn regression_b2_orthographic_body_behind_eye_is_clipped() {
 
 #[test]
 fn regression_b3_billboard_is_translation_invariant() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for mode in [BillboardPolicy::YawLocked, BillboardPolicy::Spherical] {
         let mesh = SceneMesh::new(vec![
             SceneMeshLod::new(
@@ -161,7 +165,8 @@ fn regression_b3_billboard_is_translation_invariant() {
 
 #[test]
 fn regression_b4_resident_frame_fog_controls_objects_sky_and_discs() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut sky = atmosphere(100_000);
     sky.meshes.clear();
     sky.discs.push(SceneCelestialDisc {
@@ -218,7 +223,8 @@ fn regression_b4_resident_frame_fog_controls_objects_sky_and_discs() {
 
 #[test]
 fn regression_b5_orthographic_wall_uses_parallel_rays_and_pixel_height() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut sky = atmosphere(100_000);
     sky.meshes.clear();
     sky.fog.as_mut().unwrap().falloff_micro_per_meter = 500_000;
@@ -260,7 +266,8 @@ fn regression_b5_orthographic_wall_uses_parallel_rays_and_pixel_height() {
 
 #[test]
 fn regression_b6_perspective_dome_mips_are_periodic_at_longitude_seam() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut tex = textures().to_vec();
     let mut bytes = Vec::new();
     for mip in 0..7 {

@@ -45,6 +45,7 @@ fn observed(gpu: &SceneGpu) -> crate::draw::TerrainStreamingStatistics {
 
 #[test]
 fn geometry_observations_publish_streaming_then_settled_and_camera_leaf_identity() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(
@@ -82,6 +83,7 @@ fn geometry_observations_publish_streaming_then_settled_and_camera_leaf_identity
 
 #[test]
 fn geometry_observations_budget_limit_and_cancellation_preserve_submission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut gpu = SceneGpu::upload(

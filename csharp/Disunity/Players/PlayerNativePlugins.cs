@@ -31,7 +31,12 @@ internal sealed class SystemNativeLoader : INativeLoader
 /// platform's file names, so a Windows host loads the game's own <c>AkSoundEngine.dll</c> and a
 /// macOS build its own plugin. Failing that, it uses the engine's substitute for the name, if it
 /// has one (<see cref="Substitutes"/>), from the substitute directory the host passes in: the
-/// directory of the engine library. Any other name stays unresolved, so the runtime reports
+/// directory of the engine library. The substitute comes before the extra directories because
+/// it is known to fit the managed binding that imports the name, which a file from another
+/// build of the game need not (a Linux Wwise library does not fit the Windows binding). Failing that, it
+/// searches the extra plugin directories the host passes in (a build of the same game for this
+/// platform, say) the same way, in the order given, and logs one line for each library it loads
+/// from one. Any other name stays unresolved, so the runtime reports
 /// <see cref="DllNotFoundException"/> as it does without this class.
 /// </summary>
 public sealed class PlayerNativePlugins
@@ -46,6 +51,7 @@ public sealed class PlayerNativePlugins
 
     private readonly string _data;
     private readonly string? _substitutes;
+    private readonly IReadOnlyList<string> _extra;
     private readonly Action<string> _log;
     private readonly INativeLoader _loader;
     private readonly NativePlatform _platform;
@@ -56,13 +62,16 @@ public sealed class PlayerNativePlugins
 
     /// <param name="dataDirectory">The player's <c>&lt;Game&gt;_Data</c> directory.</param>
     /// <param name="substituteDirectory">Where the engine's substitute libraries are, or null for none.</param>
-    /// <param name="log">Receives one line each time a substitute is used.</param>
-    public PlayerNativePlugins(string dataDirectory, string? substituteDirectory, Action<string> log)
-        : this(dataDirectory, substituteDirectory, log, new SystemNativeLoader(), CurrentPlatform, CurrentArchitecture) { }
+    /// <param name="log">Receives one line each time a substitute or an extra directory's library is used.</param>
+    /// <param name="extraDirectories">Plugin directories searched after the player's own and the substitutes, or null for none.</param>
+    public PlayerNativePlugins(string dataDirectory, string? substituteDirectory, Action<string> log,
+        IReadOnlyList<string>? extraDirectories = null)
+        : this(dataDirectory, substituteDirectory, log, new SystemNativeLoader(), CurrentPlatform, CurrentArchitecture, extraDirectories) { }
 
     internal PlayerNativePlugins(string dataDirectory, string? substituteDirectory, Action<string> log,
-        INativeLoader loader, NativePlatform platform, string architecture)
+        INativeLoader loader, NativePlatform platform, string architecture, IReadOnlyList<string>? extraDirectories = null)
     {
+        _extra = extraDirectories ?? Array.Empty<string>();
         _data = dataDirectory;
         _substitutes = substituteDirectory;
         _log = log;
@@ -114,20 +123,39 @@ public sealed class PlayerNativePlugins
             if (_found.TryGetValue(name, out var known)) return known;
             var handle = FromPlugins(name);
             if (handle == 0) handle = FromSubstitute(name);
+            if (handle == 0) handle = FromExtra(name);
             if (handle != 0) _found[name] = handle;
             return handle;
         }
     }
 
-    private nint FromPlugins(string name)
+    private nint FromPlugins(string name) => FromPluginDirectory(name, Path.Combine(_data, "Plugins"), out _);
+
+    private nint FromExtra(string name)
     {
-        var plugins = Path.Combine(_data, "Plugins");
+        foreach (var extra in _extra)
+        {
+            var handle = FromPluginDirectory(name, extra, out var path);
+            if (handle == 0) continue;
+            _log($"native plugin {name}: the player ships none for this platform; using {path} from an extra plugin directory");
+            return handle;
+        }
+        return 0;
+    }
+
+    /// <summary>Loads <paramref name="name"/> from <paramref name="plugins"/>'s architecture subdirectory,
+    /// else from <paramref name="plugins"/> itself, or returns zero when neither has a file for it.</summary>
+    private nint FromPluginDirectory(string name, string plugins, out string? found)
+    {
         foreach (var directory in new[] { Path.Combine(plugins, _architecture), plugins })
             foreach (var file in FileNames(name, _platform))
             {
                 var path = Path.Combine(directory, file);
-                if (File.Exists(path)) return Load(name, path);
+                if (!File.Exists(path)) continue;
+                found = path;
+                return Load(name, path);
             }
+        found = null;
         return 0;
     }
 

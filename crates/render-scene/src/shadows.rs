@@ -427,8 +427,8 @@ impl ShadowedScene {
 
     /// Admitted player program draws are drawn by the configured compositor only.
     fn refuse_programs(&self) -> Result<(), ShadowError> {
-        if self.gpu.has_programs() {
-            return Err(ShadowError::UnsupportedFeature("player programs"));
+        if let Some(work) = self.gpu.waiting_player_work() {
+            return Err(ShadowError::UnsupportedFeature(work));
         }
         Ok(())
     }

@@ -7,6 +7,7 @@ const PHASES: [f64; 16] = [
 
 #[test]
 fn gpu_water_pcf5_matches_binary_map_oracle_across_phases_and_clamped_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let renderer = ShadowedScene::new(
@@ -196,6 +197,7 @@ pub(super) fn binary_probe(
 
 #[test]
 fn gpu_water_pcf5_preserves_cascade_selection_coverage_and_boundary_blends() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(&[], 600_000, None),
@@ -234,6 +236,7 @@ fn gpu_water_pcf5_preserves_cascade_selection_coverage_and_boundary_blends() {
 
 #[test]
 fn gpu_water_pcf5_depth_equality_is_lit_with_less_equal() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let renderer = ShadowedScene::new(

@@ -109,6 +109,7 @@ pub(super) fn mask(
 
 #[test]
 fn separate_objects_partition_forward_and_shadow_without_holes_or_overlap() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for (hashed, impostor) in [(true, false), (false, false), (false, true)] {
@@ -160,6 +161,7 @@ fn separate_objects_partition_forward_and_shadow_without_holes_or_overlap() {
 
 #[test]
 fn default_direction_keeps_uniform_storage_instance_and_render_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = card_scene(Some(BillboardPolicy::YawLocked), identity().rotation);
     let material = base.resources().materials()[0];
@@ -193,6 +195,7 @@ fn default_direction_keeps_uniform_storage_instance_and_render_bytes() {
 
 #[test]
 fn local_reference_rotates_scales_and_clamps_eye_at_literal_fade_boundaries() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for (scale, height, north) in [(500_000, 500, 1000), (1_500_000, 1500, 3000)] {

@@ -5,6 +5,7 @@ use worldrunner_render_post::{FrameConfig, Readback};
 
 #[test]
 fn lighting_terms_reconstruct_hdr_and_direct_diffuse_matches_shadow_edge() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for terrain in [false, true] {
         check_scene(&context, terrain);

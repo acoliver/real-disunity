@@ -210,6 +210,7 @@ fn frame_products(context: &GpuContext, renderer: &FrameRenderer, slot: usize) -
 
 #[test]
 fn gpu_paired_depth_preserves_water_sky_temporal_slots_resize_and_shadows() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for shadows in [false, true] {
         assert_eq!(
@@ -315,6 +316,7 @@ fn sdsm_frame(context: &GpuContext, independent: bool) -> Vec<Vec<u8>> {
 
 #[test]
 fn gpu_same_frame_sdsm_shared_depth_completes_opaque_snapshots_and_water_suffix() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     assert_eq!(sdsm_frame(&context, true), sdsm_frame(&context, false));
 }

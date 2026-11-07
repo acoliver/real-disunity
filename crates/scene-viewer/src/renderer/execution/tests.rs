@@ -1,8 +1,8 @@
 #[test]
 fn blocked_redraws_do_not_advance_retained_placement_state() {
     use super::super::{Resident, retained_tests::terrain_source};
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let mut resident = Resident::new(
         &context,
         &terrain_source(),
@@ -49,6 +49,7 @@ fn blocked_redraws_do_not_advance_retained_placement_state() {
 
 #[test]
 fn close_drops_surface_with_a_real_submission_pending_without_joining() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context =
         pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let flight = FrameAdmission::new(1).unwrap();
@@ -246,6 +247,7 @@ fn updates_require_a_usable_frame_and_never_run_for_blocked_or_suspended_redraws
 
 #[test]
 fn delayed_submission_completion_defers_lifecycle_without_waiting() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context =
         pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let flight = FrameAdmission::new(1).unwrap();

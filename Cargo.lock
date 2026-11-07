@@ -4980,15 +4980,22 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "png",
+ "pollster",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
+ "wgpu",
  "worldrunner-camera",
  "worldrunner-disunity-runtime",
  "worldrunner-original-games",
+ "worldrunner-render-gpu",
  "worldrunner-render-plan",
+ "worldrunner-render-program",
  "worldrunner-render-scene",
  "worldrunner-scene-viewer",
  "worldrunner-unity-import",
+ "worldrunner-unity-serialized",
+ "worldrunner-world-simulation",
 ]
 
 [[package]]
@@ -4998,6 +5005,7 @@ dependencies = [
  "pollster",
  "thiserror 2.0.21",
  "wgpu",
+ "worldrunner-render-gpu",
 ]
 
 [[package]]
@@ -5053,6 +5061,7 @@ dependencies = [
  "thiserror 2.0.21",
  "wgpu",
  "worldrunner-render-gpu",
+ "worldrunner-render-post",
  "worldrunner-unity-serialized",
 ]
 
@@ -5072,6 +5081,7 @@ dependencies = [
  "worldrunner-render-plan",
  "worldrunner-render-post",
  "worldrunner-render-program",
+ "worldrunner-render-scene",
  "worldrunner-render-shadow",
  "worldrunner-unity-serialized",
  "worldrunner-world-simulation",
@@ -5161,6 +5171,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "worldrunner-original-games",
+ "worldrunner-render-program",
  "worldrunner-unity-serialized",
 ]
 

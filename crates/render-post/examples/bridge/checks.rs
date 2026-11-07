@@ -5,12 +5,11 @@ use worldrunner_render_post::contracts::{
 
 #[test]
 fn negative_contracts() {
-    let instance = wgpu::Instance::default();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, _) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = worldrunner_render_gpu::test_support::TestGpu::shared(
+        &worldrunner_render_gpu::device::DeviceRequirements::default(),
+    )
+    .unwrap();
+    let device = gpu.device;
     let mut registry = ResourceRegistry::default();
     let output = texture(&device, 1);
     let (prefix, suffix, owned) = recipe(&device, &mut registry, &output, false);

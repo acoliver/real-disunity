@@ -29,9 +29,17 @@ mod operations_compute_tests;
 #[cfg(test)]
 mod operations_copy_rules_tests;
 #[cfg(test)]
+mod operations_draw_support;
+#[cfg(test)]
 mod operations_draw_tests;
 #[cfg(test)]
+mod operations_fullscreen_streams_tests;
+#[cfg(test)]
 mod operations_padding_tests;
+#[cfg(test)]
+mod operations_reads_tests;
+#[cfg(test)]
+mod operations_rebind_tests;
 #[cfg(test)]
 mod operations_tests;
 #[cfg(test)]
@@ -40,6 +48,8 @@ mod pass_labels;
 #[cfg(test)]
 mod raster_capture_tests;
 mod timing;
+#[cfg(test)]
+mod timing_operations_tests;
 pub use timing::{
     FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,
     TimingSupport,

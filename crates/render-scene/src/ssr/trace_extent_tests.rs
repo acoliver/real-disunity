@@ -100,6 +100,7 @@ fn check_floor(context: &GpuContext, samples: u32, traversal: SceneSsrTraversal,
 
 #[test]
 fn gpu_floor_trace_lanes_and_origins_match_allocated_extents() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for traversal in [SceneSsrTraversal::Conservative, SceneSsrTraversal::Grid] {
@@ -112,6 +113,7 @@ fn gpu_floor_trace_lanes_and_origins_match_allocated_extents() {
 
 #[test]
 fn gpu_default_trace_coordinates_preserve_legacy_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         resolution_scale_micro: 500_000,

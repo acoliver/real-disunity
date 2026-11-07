@@ -218,6 +218,7 @@ fn each_config(mut run: impl FnMut(&GpuContext, &Config, &Built)) {
 
 #[test]
 fn clipped_dynamic_quads_match_the_fixed_pipeline_in_the_scene_pass_in_every_target_set() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let textures = textures();
     each_config(|context, config, built| {
         for case in cases() {
@@ -238,6 +239,7 @@ fn clipped_dynamic_quads_match_the_fixed_pipeline_in_the_scene_pass_in_every_tar
 
 #[test]
 fn clipped_overlay_quads_match_the_fixed_pipeline_scissored_in_every_target_set() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let textures = textures();
     each_config(|context, config, built| {
         for case in cases() {

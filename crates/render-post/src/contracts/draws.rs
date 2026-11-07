@@ -12,6 +12,7 @@ pub struct CheckedDraw {
     samples: u32,
     geometry: super::DrawGeometry,
     vertex_abi: Vec<super::geometry::VertexAbi>,
+    primitive: wgpu::PrimitiveState,
 }
 impl CheckedDraw {
     /// Retains the actual creation contract, rather than accepting caller-reported metadata.
@@ -48,14 +49,7 @@ impl CheckedDraw {
         {
             return Err(ContractError::Pipeline);
         }
-        if matches!(
-            descriptor.primitive.topology,
-            wgpu::PrimitiveTopology::LineStrip | wgpu::PrimitiveTopology::TriangleStrip
-        ) && geometry
-            .index
-            .as_ref()
-            .is_some_and(|index| descriptor.primitive.strip_index_format != Some(index.format))
-        {
+        if strip_format_mismatch(&descriptor.primitive, &geometry) {
             return Err(ContractError::Pipeline);
         }
         let vertex_abi = geometry.register(device, descriptor.vertex.buffers)?;
@@ -80,6 +74,34 @@ impl CheckedDraw {
             samples: descriptor.multisample.count,
             geometry,
             vertex_abi,
+            primitive: descriptor.primitive,
+        })
+    }
+    /// Another draw of this pipeline with other bindings and geometry.
+    ///
+    /// The pipeline is not created again. The bind groups must have the layouts this draw's
+    /// groups have, in the same order, and the geometry the same number of vertex streams. Their
+    /// ranges and index format are checked as for a new draw.
+    pub fn rebind(
+        &self,
+        bindings: Vec<CheckedBindings>,
+        geometry: super::DrawGeometry,
+    ) -> Result<Self, ContractError> {
+        if bindings.len() != self.bindings.len()
+            || bindings
+                .iter()
+                .zip(&self.bindings)
+                .any(|(new, old)| new.layout_entries != old.layout_entries)
+            || strip_format_mismatch(&self.primitive, &geometry)
+        {
+            return Err(ContractError::Pipeline);
+        }
+        geometry.check_shape(self.vertex_abi.len())?;
+        geometry.check_ranges(&self.vertex_abi)?;
+        Ok(Self {
+            bindings,
+            geometry,
+            ..self.clone()
         })
     }
     pub(super) fn validate(
@@ -136,4 +158,16 @@ impl CheckedDraw {
         }
         self.geometry.encode(pass);
     }
+}
+
+/// A strip topology restarts on the pipeline's index format, so an index buffer of another format
+/// is not one this pipeline can draw.
+fn strip_format_mismatch(primitive: &wgpu::PrimitiveState, geometry: &super::DrawGeometry) -> bool {
+    matches!(
+        primitive.topology,
+        wgpu::PrimitiveTopology::LineStrip | wgpu::PrimitiveTopology::TriangleStrip
+    ) && geometry
+        .index
+        .as_ref()
+        .is_some_and(|index| primitive.strip_index_format != Some(index.format))
 }

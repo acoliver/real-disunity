@@ -7,6 +7,9 @@
 
 use super::FrameRenderer;
 mod block;
+#[cfg(test)]
+#[path = "temporal_reset_cpu_tests.rs"]
+mod reset_cpu_tests;
 mod taa;
 use crate::frame::{FrameUniform, temporal::TemporalView};
 use glam::{Mat4, Vec3};
@@ -47,6 +50,7 @@ pub(crate) struct TemporalHistory {
 impl TemporalHistory {
     fn reset(&mut self) {
         self.previous = None;
+        self.pending_taa = None;
         self.pending_temporal = None;
         self.pending_camera = None;
         self.frame_index = 0;
@@ -127,6 +131,11 @@ impl FrameRenderer {
             .borrow()
             .previous
             .is_some_and(|previous| previous.extents == extents)
+    }
+
+    /// Sequence position of the next frame. Advances only on submission and restarts on reset.
+    pub fn projection_jitter_index(&self) -> u64 {
+        self.temporal.borrow().frame_index
     }
 
     /// Applies the jitter of the next frame to the camera matrix and attaches the history.

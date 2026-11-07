@@ -4,6 +4,7 @@ const TOLERANCE: f64 = 0.012;
 
 #[test]
 fn gpu_water_pcf5_receiver_matches_oracle_and_rejects_bilinear_in_both_paths() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let fixture = ShadowedScene::new(

@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn gpu_invariant_only_baseline_reports_main_attachment_deltas() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut bytes = [0; 8];
     let mut pixels = [0; 8];

@@ -72,7 +72,8 @@ struct Output { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32, 
 }
 #[test]
 fn production_snapshots_average_distinct_samples_and_select_nearest_depth() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut renderer = regressions::renderer(&context, 4);
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
@@ -163,6 +164,7 @@ fn half_ulp(value: f32) -> f32 {
 
 #[test]
 fn half_ulp_matches_adjacent_output_values() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for bits in [0u16, 1, 0x0400, 0x3400, 0x361d, 0x3800, 0x3c00] {
         let value = positive_half(&bits.to_le_bytes());
         let next = positive_half(&(bits + 1).to_le_bytes());
@@ -180,7 +182,8 @@ fn absorption_error_bound(expected: f32, background: f32, scattering: f32) -> f3
 
 #[test]
 fn production_absorption_matches_cpu_with_nonzero_scattering_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let mut settings = settings();
@@ -239,7 +242,8 @@ fn production_absorption_matches_cpu_with_nonzero_scattering_at_every_supported_
 
 #[test]
 fn animation_changes_refraction_with_identical_scene_and_frame_slot() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let mut settings = settings();

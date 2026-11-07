@@ -69,6 +69,7 @@ fn settings() -> SceneWaterBody {
 }
 #[test]
 fn absorption_increases_with_distance_and_foreground_is_rejected() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for coefficient in [0.05, 0.1, 0.3] {
         assert!((transmittance(coefficient, 0.0) - 1.0).abs() < f32::EPSILON);
         assert!(transmittance(coefficient, 1.0) > transmittance(coefficient, 5.0));
@@ -103,7 +104,8 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
 }
 #[test]
 fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let view = fixture_view();
     let frame = FrameUniform::new(&view, None).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {

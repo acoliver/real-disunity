@@ -137,11 +137,13 @@ impl ProgramRuntime {
         Ok(())
     }
 
-    /// Uploads tightly packed rows of an uncompressed 2D texture.
+    /// Uploads the base level of a 2D texture as tightly packed rows, or rows of blocks for a
+    /// block-compressed format.
     ///
     /// # Errors
-    /// Fails when `bytes` is not exactly `width * height` texels of `format`, or the upload
-    /// plan or device refuses the texture.
+    /// Fails when `bytes` is not exactly the whole texels or blocks of the level in `format`, or
+    /// the upload plan or device refuses the texture, as a block format the device cannot sample
+    /// or an extent that is not a whole number of blocks.
     pub fn create_texture_2d(
         &mut self,
         label: &str,
@@ -150,13 +152,14 @@ impl ProgramRuntime {
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
         self.authority.check_device()?;
-        let texel = format
+        let block = format
             .block_copy_size(None)
-            .filter(|_| format.block_dimensions() == (1, 1))
-            .ok_or_else(|| {
-                ProgramError::Gpu(format!("{format:?} is not an uncompressed format"))
-            })?;
-        let needed = size[0] as usize * size[1] as usize * texel as usize;
+            .filter(|_| !format.is_depth_stencil_format() && !format.is_multi_planar_format())
+            .ok_or_else(|| ProgramError::Gpu(format!("{format:?} is not a color format")))?;
+        let (block_width, block_height) = format.block_dimensions();
+        let needed = size[0].div_ceil(block_width) as usize
+            * size[1].div_ceil(block_height) as usize
+            * block as usize;
         if bytes.len() != needed {
             return Err(ProgramError::TextureData {
                 size,
@@ -244,6 +247,56 @@ impl ProgramRuntime {
         Ok(self.store.add_target(target, reservation))
     }
 
+    /// Creates an empty 2D texture of `layers` array layers and `mips` mip levels, usable as a
+    /// render attachment, as a sampled texture and as a copy source and destination. A new
+    /// texture holds zeros.
+    ///
+    /// # Errors
+    /// Fails when the budget or the device refuses the texture.
+    pub(crate) fn create_empty_texture(
+        &mut self,
+        label: &str,
+        shape: TextureShape,
+    ) -> Result<TextureHandle, ProgramError> {
+        self.authority.check_device()?;
+        let mut allocations = AllocationSet::default();
+        allocations.texture(
+            "render-program render texture",
+            [shape.size[0], shape.size[1], shape.layers],
+            shape.format,
+            [shape.mips, 1],
+            1,
+        );
+        let reservation = self.admit(allocations)?;
+        let texture = self.guarded(|| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: shape.size[0],
+                    height: shape.size[1],
+                    depth_or_array_layers: shape.layers,
+                },
+                mip_level_count: shape.mips,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: shape.format,
+                usage: shape.usage(),
+                view_formats: &[],
+            })
+        })?;
+        Ok(self.store.add_texture(entry(texture), reservation))
+    }
+
+    /// The wgpu texture behind a handle.
+    pub(crate) fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
+        Ok(self.store.texture(handle)?.texture.clone())
+    }
+
+    /// The wgpu buffer behind a handle.
+    pub(crate) fn gpu_buffer(&self, handle: BufferHandle) -> Result<wgpu::Buffer, ProgramError> {
+        Ok(self.store.buffer(handle)?.buffer.clone())
+    }
+
     /// Releases a buffer for new work. Its bytes stay in the budget until the work already
     /// submitted has completed on the GPU. Returns whether the handle was live.
     ///
@@ -297,6 +350,29 @@ impl ProgramRuntime {
             usage,
             view_formats: &[],
         })
+    }
+}
+
+/// The shape of a texture [`ProgramRuntime::create_empty_texture`] makes.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TextureShape {
+    pub(crate) size: [u32; 2],
+    pub(crate) layers: u32,
+    pub(crate) mips: u32,
+    pub(crate) format: wgpu::TextureFormat,
+}
+
+impl TextureShape {
+    fn usage(self) -> wgpu::TextureUsages {
+        let attachment = if self.format.is_compressed() {
+            wgpu::TextureUsages::empty()
+        } else {
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+        };
+        attachment
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST
     }
 }
 

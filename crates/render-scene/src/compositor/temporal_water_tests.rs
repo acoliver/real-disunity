@@ -280,6 +280,7 @@ fn read_mask(context: &GpuContext, texture: &wgpu::Texture) -> Vec<[u8; 2]> {
 
 #[test]
 fn water_writes_the_policy_constant_under_its_surface_and_zero_elsewhere() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in [500_000, 670_000, 770_000] {
         let mut with = temporal(&context, scale, true);
@@ -327,6 +328,7 @@ fn water_writes_the_policy_constant_under_its_surface_and_zero_elsewhere() {
 
 #[test]
 fn the_producer_leaves_the_water_and_scene_colour_unchanged() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in [500_000, 670_000] {
         let mut with = temporal(&context, scale, true);
@@ -346,6 +348,7 @@ fn the_producer_leaves_the_water_and_scene_colour_unchanged() {
 
 #[test]
 fn a_frame_without_a_mask_draws_the_water_as_before() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut on = plain(&context, true);
     let mut off = plain(&context, false);
@@ -385,6 +388,7 @@ fn planned(
 
 #[test]
 fn the_mask_pass_follows_the_water_pass_only_with_a_mask_and_the_producer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut with = temporal(&context, 670_000, true);
     let mut off = temporal(&context, 670_000, false);

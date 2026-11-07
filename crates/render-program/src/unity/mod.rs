@@ -10,11 +10,19 @@
 //! Unity's policies stay here: an enabled keyword no variant differs by is ignored, and a
 //! vector or matrix is written one 16-byte register at a time.
 
+pub mod buffers;
+pub mod compute_kernel;
 pub mod constants;
 mod declare;
 pub mod layout;
 pub mod module;
+pub mod offscreen;
 pub mod runtime;
+pub mod shader;
+mod source;
 pub mod state;
-mod targets;
+pub mod structs;
+#[cfg(feature = "test-support")]
+pub mod synthetic;
+pub mod targets;
 pub mod variant;

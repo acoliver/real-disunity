@@ -6,6 +6,7 @@ use worldrunner_render_scene::{
 
 #[test]
 fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = pollster::block_on(GpuContext::request_with_features(
         wgpu::Features::TIMESTAMP_QUERY,
     ))

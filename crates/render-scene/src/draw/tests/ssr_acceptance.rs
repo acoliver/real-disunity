@@ -3,6 +3,7 @@ mod coverage_tests;
 
 #[test]
 fn narrow_sloped_water_publishes_sample_origins_on_its_geometric_plane() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for scale in [500_000, 1_000_000] {
@@ -374,6 +375,7 @@ fn channel_view(context: &GpuContext, view: &wgpu::TextureView, source: &str) ->
 }
 #[test]
 fn geometric_water_hit_and_offscreen_miss_at_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let hit = render(&context, &source(true, false), samples);
@@ -434,6 +436,7 @@ fn geometric_water_hit_and_offscreen_miss_at_every_supported_sample_count() {
 }
 #[test]
 fn prepared_forward_publication_matches_split_sum_without_screen_reflections() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let maps = environment(&context);
     let reference_factor = prepared_cpu_factor(&context, &maps);

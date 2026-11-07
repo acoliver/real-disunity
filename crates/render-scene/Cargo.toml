@@ -12,6 +12,9 @@ publish.workspace = true
 # the absence of those dependencies is what makes "pathless" a checked property
 # rather than a claim: there is no API in scope through which a path could be
 # resolved.
+[features]
+test-support = ["worldrunner-render-gpu/test-support"]
+
 [dependencies]
 worldrunner-camera = { path = "../camera" }
 worldrunner-render-gpu = { path = "../render-gpu" }
@@ -29,14 +32,17 @@ pollster.workspace = true
 # Only for tests: naga is the shader front end wgpu itself uses, so validating
 # the WGSL here fails a build rather than a frame on a machine with a GPU.
 [dev-dependencies]
+wgpu = { workspace = true, features = ["noop"] }
+worldrunner-render-scene = { path = ".", features = ["test-support"] }
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 worldrunner-render-plan = { path = "../render-plan", features = ["ui"] }
 worldrunner-world-simulation = { path = "../world-simulation", features = ["ui"] }
 # `spv-out` turns the WGSL of a synthetic player program into the SPIR-V a player ships.
 naga = { version = "30.0.0", features = ["wgsl-in", "spv-out"] }
 worldrunner-unity-serialized = { path = "../unity-serialized" }
-# The player program frame tests build Unity records, which only the adapter converts.
-worldrunner-render-program = { path = "../render-program", features = ["unity"] }
+# The player program frame tests build Unity records, which only the adapter converts, and the
+# offscreen frame test builds synthetic player shaders.
+worldrunner-render-program = { path = "../render-program", features = ["unity", "test-support"] }
 
 [lints]
 workspace = true

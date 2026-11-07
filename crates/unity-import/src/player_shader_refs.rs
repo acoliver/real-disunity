@@ -10,7 +10,9 @@
 
 use std::path::Path;
 
-use worldrunner_unity_serialized::{ClassId, object::PPtr, shader::Shader};
+use worldrunner_unity_serialized::{
+    ClassId, object::PPtr, script_data::ScriptLayouts, shader::Shader,
+};
 
 use crate::{
     plan::PlanAsset,
@@ -167,6 +169,8 @@ pub(crate) fn class_of(files: &mut PlayerFiles, key: &ObjectKey) -> Option<Class
 /// referenced. A material's shader is planned before it.
 pub(crate) struct SceneSource {
     files: PlayerFiles,
+    /// The player's script layouts, which decide whether a referenced script asset can be planned.
+    pub(crate) layouts: ScriptLayouts,
     pub(crate) assets: Vec<PlanAsset>,
     pub(crate) planned: Vec<(ObjectKey, usize)>,
     /// What the planned materials could not hold.
@@ -174,9 +178,10 @@ pub(crate) struct SceneSource {
 }
 
 impl SceneSource {
-    pub(crate) fn new(files: PlayerFiles) -> Self {
+    pub(crate) fn new(files: PlayerFiles, layouts: &ScriptLayouts) -> Self {
         Self {
             files,
+            layouts: layouts.clone(),
             assets: Vec::new(),
             planned: Vec::new(),
             differences: Vec::new(),
@@ -237,6 +242,12 @@ impl PlanSource for SceneSource {
         let class = class_of(&mut self.files, &key);
         if class == Some(ClassId::SPRITE) {
             return self.sprite_asset(&key, pptr);
+        }
+        if class == Some(ClassId::MONO_BEHAVIOUR) {
+            return self.script_asset(&key, pptr);
+        }
+        if class == Some(ClassId::FONT) {
+            return self.font_asset(&key, pptr);
         }
         for held_by_resources in [
             ClassId::TEXTURE_2D,

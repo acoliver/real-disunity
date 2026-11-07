@@ -84,6 +84,18 @@ public static partial class DisunityHost
         return (T)remap[original];
     }
 
+    /// <summary>A copy of a script asset: a new asset of the same class holding a copy of the serialized fields,
+    /// enabled once they are set. Nested serializable data is copied; references to other objects are kept.</summary>
+    internal static ScriptableObject CloneAsset(ScriptableObject original)
+    {
+        var clone = (ScriptableObject)Activator.CreateInstance(original.GetType(), nonPublic: true)!;
+        var remap = new Dictionary<object, object>(ReferenceEqualityComparer.Instance);
+        var copied = new Dictionary<object, object>(ReferenceEqualityComparer.Instance);
+        foreach (var field in SerializedFields(original.GetType()))
+            field.SetValue(clone, CopyField(field.GetValue(original), remap, copied));
+        return RegisterAsset(original.Named(clone));
+    }
+
     internal static IEnumerable<FieldInfo> SerializedFields(Type type)
     {
         for (var current = type; current != null && current != typeof(MonoBehaviour); current = current.BaseType)

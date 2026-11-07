@@ -70,7 +70,7 @@ pub fn plan_player_scene(
 ) -> Result<ScenePlan, PlayerError> {
     let names = tag_manager_names(data_dir)?;
     let tags = names.tags;
-    let mut source = SceneSource::new(PlayerFiles::new(data_dir));
+    let mut source = SceneSource::new(PlayerFiles::new(data_dir), layouts);
     let path = data_dir.join(scene);
     let mut planner = PlayerPlanner::new(path.clone(), &tags, false);
     source.files_mut().open_path(&path)?;

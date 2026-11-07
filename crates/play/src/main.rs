@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerWindow, ScheduledKey, key_code, play_player_window, prepare,
-    prepare_player, run_player,
+    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, key_code,
+    play_player_window, prepare, prepare_player, run_player,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -17,7 +17,8 @@ const WINDOW_SIZE: [u32; 2] = [1920, 1080];
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
-            [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...";
+            [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
+            [--plugins DIRECTORY]...";
 
 #[derive(Default)]
 struct Arguments {
@@ -28,6 +29,8 @@ struct Arguments {
     keys: Vec<ScheduledInput>,
     captures: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
+    /// Extra native plugin directories for a player, in the order given.
+    plugins: Vec<PathBuf>,
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
@@ -91,6 +94,7 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .push((number(frame, "--capture frame")?, file.into()));
         }
         "--font" => arguments.font = Some(value.into()),
+        "--plugins" => arguments.plugins.push(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
         "--player" => arguments.player = Some(value.into()),
         "--scene" => arguments.scene = Some(value.to_owned()),
@@ -128,8 +132,12 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
     // The window opens at `--size`, else at the size the live loop defaults to.
     let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
-    let prepared = prepare_player(data, scene, &arguments.command_line, screen)
-        .map_err(|error| error.to_string())?;
+    let launch = PlayerLaunch {
+        arguments: &arguments.command_line,
+        screen,
+        plugins: &arguments.plugins,
+    };
+    let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
         let window = PlayerWindow {
             title: format!("Disunity: {}", data.display()),
@@ -195,7 +203,16 @@ fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<
     Ok(())
 }
 
+/// Native plugin directories apply to a player's imports; an original game has none.
+fn check_plugins(arguments: &Arguments) -> Result<(), String> {
+    if arguments.player.is_none() && !arguments.plugins.is_empty() {
+        return Err("--plugins applies only to --player".into());
+    }
+    Ok(())
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
+    check_plugins(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
     }
@@ -252,6 +269,40 @@ mod tests {
             ["-userdata", "/saves", "-headless", "--flag"]
         );
         assert_eq!(arguments.frames, Some(3));
+    }
+
+    #[test]
+    fn repeated_plugins_options_keep_their_order() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--plugins",
+            "/a/Plugins",
+            "--plugins",
+            "b",
+        ])
+        .expect("parses");
+        assert_eq!(
+            arguments.plugins,
+            [
+                std::path::PathBuf::from("/a/Plugins"),
+                std::path::PathBuf::from("b")
+            ]
+        );
+    }
+
+    #[test]
+    fn plugins_needs_a_value() {
+        assert!(parsed(&["--player", "Game_Data", "--plugins"]).is_err());
+    }
+
+    #[test]
+    fn plugins_belong_to_a_player() {
+        let game = parsed(&["snake", "--plugins", "/a"]).expect("parses");
+        assert!(super::check_plugins(&game).is_err());
+        let player = parsed(&["--player", "Game_Data", "--plugins", "/a"]).expect("parses");
+        assert!(super::check_plugins(&player).is_ok());
+        assert!(super::check_plugins(&parsed(&["snake"]).expect("parses")).is_ok());
     }
 
     #[test]

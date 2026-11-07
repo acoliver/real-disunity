@@ -22,6 +22,9 @@ internal static class PlayerNativePluginTests
         UnknownNamesStayUnresolved();
         ABrokenLibraryFileFailsWithItsPath();
         SubstituteNeedsItsDirectory();
+        ExtraDirectoriesComeBetweenThePlayerAndTheSubstitute();
+        ExtraDirectoriesKeepTheirListedOrder();
+        ExtraDirectoriesLeaveUnknownNamesUnresolved();
         LoadedGameAssembliesGetTheResolver();
         Console.WriteLine("PASS: player native plugin search order, substitutes and failures");
     }
@@ -127,6 +130,48 @@ internal static class PlayerNativePluginTests
         Require(none.Resolve(Wwise, typeof(PlayerNativePluginTests).Assembly, null) == 0, "no substitute directory, no substitute");
     }
 
+    private static void ExtraDirectoriesComeBetweenThePlayerAndTheSubstitute()
+    {
+        using var scratch = new Scratch(PlayerNativePlugins.CurrentPlatform);
+        var own = scratch.Plugin("Plugins", Wwise);
+        var extraArch = scratch.ExtraPlugin(Arch, Wwise);
+        var extraFlat = scratch.ExtraPlugin("", Wwise);
+        var substitute = scratch.Substitute();
+        var assembly = typeof(PlayerNativePluginTests).Assembly;
+        Require(scratch.Plugins().Resolve(Wwise, assembly, null) == scratch.Loader.Handle(own), "a library the player ships wins over an extra directory");
+        Require(scratch.Lines.Count == 0, "a player-shipped library logs nothing: " + string.Join("|", scratch.Lines));
+        File.Delete(own);
+        var extra = scratch.Plugins();
+        Require(extra.Resolve(Wwise, assembly, null) == scratch.Loader.Handle(extraArch), "the extra directory's arch subdirectory comes before its top level");
+        Require(extra.Resolve(Wwise, assembly, null) == scratch.Loader.Handle(extraArch), "an extra library stays resolved");
+        Require(scratch.Lines.Count == 1 && scratch.Lines[0].Contains(Wwise) && scratch.Lines[0].Contains(extraArch) && !scratch.Lines[0].Contains("silent"),
+            "one line names the library and the extra file: " + string.Join("|", scratch.Lines));
+        Require(scratch.Loader.Loaded.Count(path => path == extraArch) == 1 && !scratch.Loader.Loaded.Contains(substitute), "the extra library loads once, the substitute not at all");
+        File.Delete(extraArch);
+        Require(scratch.Plugins().Resolve(Wwise, assembly, null) == scratch.Loader.Handle(extraFlat), "the extra directory's top level comes second");
+        File.Delete(extraFlat);
+        Require(scratch.Plugins().Resolve(Wwise, assembly, null) == scratch.Loader.Handle(substitute), "with no extra library the substitute is used");
+    }
+
+    private static void ExtraDirectoriesKeepTheirListedOrder()
+    {
+        using var scratch = new Scratch(PlayerNativePlugins.CurrentPlatform);
+        var first = scratch.ExtraPlugin("", Wwise, "first");
+        var second = scratch.ExtraPlugin("", Wwise, "second");
+        var plugins = scratch.Plugins("second", "first");
+        Require(plugins.Resolve(Wwise, typeof(PlayerNativePluginTests).Assembly, null) == scratch.Loader.Handle(second), "the first listed extra directory wins");
+        Require(first != second && !scratch.Loader.Loaded.Contains(first), "a later extra directory is not loaded");
+    }
+
+    private static void ExtraDirectoriesLeaveUnknownNamesUnresolved()
+    {
+        using var scratch = new Scratch(PlayerNativePlugins.CurrentPlatform);
+        scratch.ExtraPlugin(Arch, Wwise);
+        Require(scratch.Plugins().Resolve("NoSuchPlugin", typeof(PlayerNativePluginTests).Assembly, null) == 0,
+            "a name absent from the player, the extra directories and the substitutes resolves to zero");
+        Require(scratch.Loader.Loaded.Count == 0 && scratch.Lines.Count == 0, "nothing loads and nothing is logged for it");
+    }
+
     private static void LoadedGameAssembliesGetTheResolver()
     {
         using var scratch = new Scratch(PlayerNativePlugins.CurrentPlatform);
@@ -187,7 +232,16 @@ internal static class PlayerNativePluginTests
 
         public Scratch(NativePlatform platform) => Platform = platform;
 
-        public PlayerNativePlugins Plugins() => new(Data, Engine, Lines.Add, Loader, Platform, Arch);
+        /// <summary>The resolver, with extra directories <c>extra</c> (the one default directory when none are named).</summary>
+        public PlayerNativePlugins Plugins(params string[] extra) =>
+            new(Data, Engine, Lines.Add, Loader, Platform, Arch, (extra.Length == 0 ? new[] { "extra" } : extra).Select(ExtraDirectory).ToArray());
+
+        private string ExtraDirectory(string name) => Path.Combine(_root.FullName, name);
+
+        /// <summary>Creates the platform's first file name for <paramref name="name"/> under the extra directory
+        /// <paramref name="directory"/> (default <c>extra</c>) and <paramref name="relative"/>.</summary>
+        public string ExtraPlugin(string relative, string name, string directory = "extra") =>
+            Create(Path.Combine(ExtraDirectory(directory), relative), name);
 
         /// <summary>Creates the platform's first file name for <paramref name="name"/> under <paramref name="relative"/>.</summary>
         public string Plugin(string relative, string name) => Create(Path.Combine(Data, relative), name);

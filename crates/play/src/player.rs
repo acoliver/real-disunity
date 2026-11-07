@@ -26,13 +26,14 @@ pub struct PreparedPlayer {
 /// scene file `scene` and the player's resources with them, and builds the managed bridge,
 /// all into `<target>/play/player`. `arguments` become the player's command line after its
 /// executable path. `screen` is the size of the window the frame is drawn into, which is the size
-/// the player's `Screen` reports; a headless run gives none.
+/// the player's `Screen` reports; a headless run gives none. `plugins` are extra native plugin
+/// directories the player searches after its own `Plugins` directories and before the engine's substitutes.
 pub fn prepare_player(
     data: &Path,
     scene: &str,
-    arguments: &[String],
-    screen: Option<[u32; 2]>,
+    launch: (&[String], Option<[u32; 2]>, &[PathBuf]),
 ) -> Result<PreparedPlayer, PlayError> {
+    let (arguments, screen, plugins) = launch;
     let root = workspace_root()?;
     let output = target(&root).join("play").join("player");
     std::fs::create_dir_all(&output).map_err(|error| PlayError::Io(output.clone(), error))?;
@@ -62,7 +63,7 @@ pub fn prepare_player(
         &output,
         data,
         [&plan_path, &resources_path],
-        (&scenes, arguments, screen),
+        (&scenes, arguments, screen, plugins),
     )?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
@@ -157,10 +158,10 @@ fn write_request(
     output: &Path,
     data: &Path,
     plans: [&Path; 2],
-    launch: (&[serde_json::Value], &[String], Option<[u32; 2]>),
+    launch: (&[serde_json::Value], &[String], Option<[u32; 2]>, &[PathBuf]),
 ) -> Result<PathBuf, PlayError> {
     let [plan, resources] = plans;
-    let (scenes, arguments, screen) = launch;
+    let (scenes, arguments, screen, plugins) = launch;
     let identity = player_identity(data)?;
     eprintln!(
         "[player] {} {} {} built with Unity {} for {}",
@@ -179,7 +180,7 @@ fn write_request(
         data,
         [plan, resources, &persistent],
         &identity,
-        (arguments, screen),
+        (arguments, screen, plugins),
     );
     body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
@@ -192,15 +193,16 @@ fn write_request(
 /// The bridge's request. `paths` are the scene plan, the resource plan and the persistent data
 /// directory. The managed side derives the player's executable path from `player` and the
 /// platform in `identity`, and puts `arguments` after it in `Environment.GetCommandLineArgs()`.
-/// `screen` is the window size, listed as `screen` when there is a window.
+/// `screen` is the window size, listed as `screen` when there is a window. `plugins` are listed as
+/// `plugins` when there are any.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
     identity: &PlayerIdentity,
-    launch: (&[String], Option<[u32; 2]>),
+    launch: (&[String], Option<[u32; 2]>, &[PathBuf]),
 ) -> serde_json::Value {
     let [plan, resources, persistent] = paths;
-    let (arguments, screen) = launch;
+    let (arguments, screen, plugins) = launch;
     let mut body = serde_json::json!({
         "player": data,
         "plan": plan,
@@ -212,6 +214,9 @@ fn request_body(
     });
     if let Some(screen) = screen {
         body["screen"] = serde_json::json!(screen);
+    }
+    if !plugins.is_empty() {
+        body["plugins"] = serde_json::json!(plugins);
     }
     body
 }
@@ -299,8 +304,25 @@ mod tests {
             Path::new("/games/Game/Game_Data"),
             [plan, resources, persistent],
             &identity(),
-            (arguments, screen),
+            (arguments, screen, &[]),
         )
+    }
+
+    #[test]
+    fn the_request_lists_the_plugin_directories_in_order() {
+        let plugins = [PathBuf::from("/a/Plugins"), PathBuf::from("b")];
+        let request = request_body(
+            Path::new("/games/Game/Game_Data"),
+            [Path::new("p"), Path::new("r"), Path::new("x")],
+            &identity(),
+            (&[], None, &plugins),
+        );
+        assert_eq!(request["plugins"], serde_json::json!(["/a/Plugins", "b"]));
+    }
+
+    #[test]
+    fn a_request_without_plugin_directories_names_none() {
+        assert!(body(&[]).get("plugins").is_none());
     }
 
     #[test]

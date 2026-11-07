@@ -251,7 +251,10 @@ fn environment_reference(
         .targets()
         .depth()
         .texture()
-        .create_view(&TextureViewDescriptor::default());
+        .create_view(&TextureViewDescriptor {
+            aspect: wgpu::TextureAspect::DepthOnly,
+            ..Default::default()
+        });
     let views = [&normals, &material, &depth, &cube, &lut];
     let mut entries: Vec<_> = views
         .iter()

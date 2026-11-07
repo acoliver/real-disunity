@@ -54,6 +54,20 @@ pub enum ProgramError {
         "set {set} is lent by the pass owner, and the draw or the program gives it resources too"
     )]
     ExternalSetConflict { set: u32 },
+    #[error("the program has no set {set} that the runtime builds a group for")]
+    UnknownSet { set: u32 },
+    #[error(
+        "the prepared set for set {set} was built for another layout or runtime than the program has there"
+    )]
+    SetLayoutMismatch { set: u32 },
+    #[error(
+        "set {set} is given as a prepared set more than once, or alongside resources of its own"
+    )]
+    PreparedSetConflict { set: u32 },
+    #[error("the geometry was made for another vertex layout than the pipeline reads")]
+    GeometryLayoutMismatch,
+    #[error("the vertex layout has {expected} buffers and the geometry was given {found}")]
+    VertexBufferCount { expected: usize, found: usize },
     #[error("the instance range {start}..{end} ends before it starts")]
     InstanceRange { start: u32, end: u32 },
     #[error("the {kind} handle is not a live resource of this runtime")]

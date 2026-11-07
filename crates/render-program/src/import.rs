@@ -16,24 +16,50 @@
 
 use std::ops::Range;
 
+use crate::batch::{GeometryDraw, VertexLayoutId};
 use crate::binding::EngineSemantic;
 use crate::error::ProgramError;
 use crate::packet::{
-    PipelineRequest, PreparedGeometry, PreparedProgramDraw, RecordableDraw, TargetSignature,
+    Bound, PipelineRequest, PreparedGeometry, PreparedProgramDraw, RecordableDraw, TargetSignature,
     VertexLayout, instance_end,
 };
 use crate::program::GraphicsProgram;
 use crate::range::{Extent, Fetch, check_extent};
 use crate::resources::{BoundResource, Keepalive, Pins};
 use crate::runtime::ProgramRuntime;
+use crate::set::{PreparedSet, held_by};
 use crate::state::RenderState;
 
 /// A texture and the view of it a binding reads. The texture tells the runtime the format and
-/// sample count to check the binding against.
+/// sample count to check the binding against, and `dimension` is how `view` was made, which a
+/// view cannot be asked.
 #[derive(Clone, Debug)]
 pub struct ImportedTexture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
+    pub dimension: wgpu::TextureViewDimension,
+}
+
+impl ImportedTexture {
+    /// The default view of `texture`, which is 2D for one layer and a 2D array for several.
+    #[must_use]
+    pub fn whole(texture: wgpu::Texture, view: wgpu::TextureView) -> Self {
+        let dimension = default_dimension(&texture);
+        Self {
+            texture,
+            view,
+            dimension,
+        }
+    }
+}
+
+/// The dimension of a texture's default view.
+pub(crate) fn default_dimension(texture: &wgpu::Texture) -> wgpu::TextureViewDimension {
+    if texture.depth_or_array_layers() > 1 {
+        wgpu::TextureViewDimension::D2Array
+    } else {
+        wgpu::TextureViewDimension::D2
+    }
 }
 
 /// A buffer, texture view or sampler an owner lends to a draw.
@@ -70,6 +96,9 @@ impl Import {
         }
     }
 
+    /// A texture bound through its default view: 2D for a texture of one layer and a 2D array
+    /// for one of several. Use [`texture_array`](Self::texture_array) or
+    /// [`texture_view`](Self::texture_view) for any other view.
     #[must_use]
     pub fn texture(
         semantic: EngineSemantic,
@@ -78,7 +107,38 @@ impl Import {
     ) -> Self {
         Self {
             semantic,
-            resource: ImportedResource::Texture(ImportedTexture { texture, view }),
+            resource: ImportedResource::Texture(ImportedTexture::whole(texture, view)),
+        }
+    }
+
+    /// A view of `texture` made as a 2D array, whatever number of layers the texture or the view
+    /// has: for a binding the shader declares as `texture_2d_array`.
+    #[must_use]
+    pub fn texture_array(
+        semantic: EngineSemantic,
+        texture: wgpu::Texture,
+        view: wgpu::TextureView,
+    ) -> Self {
+        Self::texture_view(semantic, texture, view, wgpu::TextureViewDimension::D2Array)
+    }
+
+    /// A view of `texture` made with `dimension`, such as one layer of an array as `D2`, a cube
+    /// or a 3D texture. A `dimension` that is not how `view` was made is wgpu's to refuse when
+    /// the group is created, which surfaces as `ProgramError::Gpu`.
+    #[must_use]
+    pub fn texture_view(
+        semantic: EngineSemantic,
+        texture: wgpu::Texture,
+        view: wgpu::TextureView,
+        dimension: wgpu::TextureViewDimension,
+    ) -> Self {
+        Self {
+            semantic,
+            resource: ImportedResource::Texture(ImportedTexture {
+                texture,
+                view,
+                dimension,
+            }),
         }
     }
 
@@ -132,6 +192,8 @@ pub struct ImportedDraw<'a> {
     pub vertex_inputs: &'a [ImportedVertexInput],
     pub bindings: &'a [BoundResource],
     pub imports: &'a [Import],
+    /// Sets prepared ahead of this draw. The draw builds no group for a set it is given one for.
+    pub sets: &'a [&'a PreparedSet],
     pub geometry: &'a ImportedGeometry,
     pub instances: Range<u32>,
     pub owners: &'a [Keepalive],
@@ -194,31 +256,38 @@ impl ProgramRuntime {
             signature,
             colors: &colors,
         })?;
-        let groups =
-            self.bind_groups_importing(&draw.program.gpu, draw.bindings, &[], draw.imports)?;
+        let groups = self.bind_groups_sharing(
+            &draw.program.gpu,
+            (draw.bindings, &[], draw.imports),
+            draw.sets,
+        )?;
         let shares = self.binding_shares(draw.bindings)?;
         let recordable = RecordableDraw {
-            signature,
-            pipeline,
-            groups,
-            external: draw.program.gpu.external_sets.clone(),
-            vertex_buffers: draw
-                .vertex_inputs
-                .iter()
-                .map(|input| input.buffer.clone())
-                .collect(),
-            geometry: prepared_geometry(draw.geometry),
-            instances: draw.instances.clone(),
+            bound: Bound {
+                signature,
+                pipeline,
+                groups,
+                external: draw.program.gpu.external_sets.clone(),
+            },
+            geometry: GeometryDraw::from_parts(
+                VertexLayoutId::of(&layouts),
+                draw.vertex_inputs
+                    .iter()
+                    .map(|input| input.buffer.clone())
+                    .collect(),
+                prepared_geometry(draw.geometry),
+                draw.instances.clone(),
+            ),
         };
         self.counters.draw_prepared();
         Ok(PreparedProgramDraw {
-            pins: Pins::borrowing(&self.authority, shares, draw.owners.to_vec()),
+            pins: Pins::borrowing(&self.authority, shares, held_by(draw.owners, draw.sets)),
             draw: recordable,
         })
     }
 }
 
-fn extent(geometry: &ImportedGeometry) -> Extent {
+pub(crate) fn extent(geometry: &ImportedGeometry) -> Extent {
     match geometry {
         ImportedGeometry::Vertices { first, count } => Extent::Vertices {
             first: *first,
@@ -234,7 +303,7 @@ fn extent(geometry: &ImportedGeometry) -> Extent {
     }
 }
 
-fn prepared_geometry(geometry: &ImportedGeometry) -> PreparedGeometry {
+pub(crate) fn prepared_geometry(geometry: &ImportedGeometry) -> PreparedGeometry {
     match geometry {
         ImportedGeometry::Vertices { first, count } => PreparedGeometry::Vertices {
             first: *first,

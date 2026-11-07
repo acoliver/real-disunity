@@ -6,6 +6,7 @@
 //! count.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use wgpu::{ShaderStages, TextureFormat};
 use worldrunner_render_gpu::tolerance_test_support::assert_code_within;
@@ -18,7 +19,7 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{
-    BoundResource, ExternalSet, GraphicsProgram, Import, ImportedDraw, ImportedGeometry,
+    BoundResource, ExternalSet, GraphicsProgram, Import, ImportedDraw, ImportedGeometry, Keepalive,
     PreparedProgramDraw, ProgramRuntime, RuntimeStats, TargetSignature,
 };
 use worldrunner_render_program::state::RenderState;
@@ -234,6 +235,7 @@ pub fn prepare(
             vertex_inputs: &[],
             bindings: &inputs.bindings,
             imports: &inputs.imports,
+            sets: &[],
             geometry: &ImportedGeometry::Vertices { first: 0, count: 6 },
             instances: 0..1,
             owners: &[],
@@ -301,4 +303,23 @@ pub fn assert_halves(image: &[u8], left: [f32; 4], right: [f32; 4]) {
             assert_pixel(image, (x, y), if x < SIZE / 2 { left } else { right });
         }
     }
+}
+
+/// Sets a flag when the last holder lets go.
+struct Probe(Arc<AtomicBool>);
+
+impl Drop for Probe {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// An owner to lend, and the flag that says whether every holder has let go of it.
+pub fn probe() -> (Keepalive, Arc<AtomicBool>) {
+    let dropped = Arc::new(AtomicBool::new(false));
+    (Arc::new(Probe(dropped.clone())), dropped)
+}
+
+pub fn is_dropped(flag: &AtomicBool) -> bool {
+    flag.load(Ordering::SeqCst)
 }

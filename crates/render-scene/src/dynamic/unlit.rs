@@ -306,6 +306,7 @@ pub(super) fn prepare_quads(
                     vertex_inputs: &inputs,
                     bindings: &[],
                     imports: &imports,
+                    sets: &[],
                     geometry: &ImportedGeometry::Indexed(ImportedIndices {
                         buffer: resources.indices.clone(),
                         format: wgpu::IndexFormat::Uint32,

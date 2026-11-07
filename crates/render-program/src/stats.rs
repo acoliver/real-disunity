@@ -16,9 +16,8 @@ pub struct RuntimeStats {
     pub pipelines_built: u64,
     /// Bind groups created. A set that a lender binds (an external set) never adds to this.
     pub bind_groups_built: u64,
-    /// Reusable bind group sets prepared ahead of any draw. No call prepares one yet, so this is
-    /// always zero; it is part of the counter set so that a cost test written now stays valid
-    /// when sets can be prepared.
+    /// Reusable bind group sets prepared ahead of any draw by `prepare_set`. Each also adds its
+    /// bind group to `bind_groups_built`; a draw that binds a prepared set adds neither.
     pub sets_prepared: u64,
     /// Draws prepared, whether by `prepare_draw`, a material, an admission or
     /// `prepare_imported_draw`.
@@ -32,6 +31,7 @@ pub(crate) struct Counters {
     modules: AtomicU64,
     pipelines: AtomicU64,
     bind_groups: AtomicU64,
+    sets: AtomicU64,
     draws: AtomicU64,
 }
 
@@ -48,6 +48,10 @@ impl Counters {
         self.bind_groups.fetch_add(1, Ordering::Relaxed);
     }
 
+    pub(crate) fn set_prepared(&self) {
+        self.sets.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub(crate) fn draw_prepared(&self) {
         self.draws.fetch_add(1, Ordering::Relaxed);
     }
@@ -57,7 +61,7 @@ impl Counters {
             modules_built: self.modules.load(Ordering::Relaxed),
             pipelines_built: self.pipelines.load(Ordering::Relaxed),
             bind_groups_built: self.bind_groups.load(Ordering::Relaxed),
-            sets_prepared: 0,
+            sets_prepared: self.sets.load(Ordering::Relaxed),
             draws_prepared: self.draws.load(Ordering::Relaxed),
         }
     }

@@ -5,5 +5,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod batch;
 mod common;
 mod external;
+mod sets;

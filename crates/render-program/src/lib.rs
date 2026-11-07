@@ -7,6 +7,7 @@
 //! descriptions and no other module names a Unity type.
 
 mod arena;
+mod batch;
 mod bind;
 pub mod binding;
 mod budget;
@@ -35,6 +36,7 @@ mod resources;
 pub mod runtime;
 pub mod sampler;
 mod schema;
+mod set;
 pub mod state;
 mod stats;
 pub mod targets;

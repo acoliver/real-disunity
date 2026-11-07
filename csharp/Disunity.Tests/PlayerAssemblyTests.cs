@@ -32,6 +32,7 @@ internal static class PlayerAssemblyTests
         ResolvesGameReferencesThroughFacades();
         ResolvesListedNamesForOneContextAndLeavesOthersToDotNet();
         ReportsMissingTypesAndMembers();
+        LoadsEveryListedAssemblyInOrderAndReportsTheMissing();
         Console.WriteLine("PASS: player module facades, assembly resolution and missing engine API report");
     }
 
@@ -173,6 +174,36 @@ internal static class PlayerAssemblyTests
             }
             catch (InvalidOperationException error) when (error.Message.Contains("one load context")) { }
             other.Unload();
+            return context;
+        });
+    }
+
+    private static void LoadsEveryListedAssemblyInOrderAndReportsTheMissing()
+    {
+        WithManagedDirectory(directory =>
+        {
+            File.WriteAllBytes(Path.Combine(directory, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(directory, "Broken.dll"), [1, 2, 3, 4]);
+            var context = new AssemblyLoadContext("player", isCollectible: true);
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Listed.Missing", "System.Package", "Broken", "Game" });
+            try
+            {
+                player.LoadListed(_ => { });
+                throw new InvalidOperationException("loading before a context is attached must fail");
+            }
+            catch (InvalidOperationException error) when (error.Message.Contains("attached")) { }
+            player.Attach(context);
+            Require(!context.Assemblies.Any(a => a.GetName().Name is "Game" or "System.Package"), "nothing listed loads before LoadListed");
+            var reports = new List<string>();
+            var loaded = player.LoadListed(reports.Add);
+            Require(loaded == 2, $"the two shipped .NET images load, got {loaded}");
+            var names = context.Assemblies.Select(a => a.GetName().Name).ToList();
+            Require(names.IndexOf("System.Package") is >= 0 and var package && names.IndexOf("Game") > package,
+                $"listed assemblies load in the listed order: {string.Join(", ", names)}");
+            Require(AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "Game"),
+                "a loaded player assembly is visible to code that enumerates the domain's assemblies");
+            Require(reports.Count == 2 && reports[0].Contains("Listed.Missing") && reports[1].Contains("Broken"),
+                $"each listed assembly that cannot load is reported by name, in order: {string.Join(" | ", reports)}");
             return context;
         });
     }

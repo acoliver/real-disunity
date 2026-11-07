@@ -473,6 +473,77 @@ pipeline.draw(pass, &chunk)?;
 - **Cost.** Neither `bind` nor `draw` reaches the runtime, so a frame that binds and draws prepared pipelines and geometries adds nothing to `RuntimeStats`. `prepare_pipeline` is not a draw and adds none to `draws_prepared`.
 - **Passes.** `bind` and `draw` take any `PassCommands`, which `wgpu::RenderPass` implements. `PreparedProgramDraw::record` is `bind` then `draw` for one geometry, so existing callers are unchanged.
 
+## Override constants
+
+A WGSL `override` is a constant the pipeline sets when it is created, so one source serves every value of a switch, a convention or a radius without a second copy of the text. `StageProgram::with_overrides` returns the same stage with values set, and it checks them against the module:
+
+```rust
+# use std::sync::Arc;
+# use worldrunner_render_program::module::{
+#     OverrideError, StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
+# };
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+const WGSL: &str = "
+override gain: f32 = 0.25;
+override mirrored: bool = false;
+@fragment fn fs() -> @location(0) vec4<f32> {
+    return vec4<f32>(gain, select(0.0, 1.0, mirrored), 0.0, 1.0);
+}";
+let stage = StageProgram::new(
+    StageModule {
+        source: StageSource::Wgsl(Arc::from(WGSL)),
+        entry_point: "fs".to_owned(),
+        kind: StageKind::Fragment,
+    },
+    StageDeclarations::default(),
+)?;
+
+// A bool takes 0 or 1, an integer type an integer in range, a float type a finite number.
+let mirrored = stage.with_overrides(&[("gain", 0.75), ("mirrored", 1.0)])?;
+assert_ne!(stage.content_key(), mirrored.content_key());
+
+// A constant the module does not declare, and a value its type does not hold, are named.
+assert_eq!(
+    stage.with_overrides(&[("gian", 0.5)]).unwrap_err(),
+    OverrideError::Unknown { name: "gian".to_owned() },
+);
+assert!(matches!(
+    stage.with_overrides(&[("mirrored", 0.5)]),
+    Err(OverrideError::Value { name, .. }) if name == "mirrored",
+));
+# Ok(())
+# }
+```
+
+A program built from the specialized stages draws with the values, and a program registered from a `StageDesc` does the same: `StageDesc::with_overrides` records the values and registration applies them, so a name the module does not declare fails the registration as `ProgramError::Override`.
+
+```rust,no_run
+# use worldrunner_render_program::module::{StageDeclarations, StageKind};
+# use worldrunner_render_program::registry::{ProgramDesc, StageDesc};
+# use worldrunner_render_program::runtime::ProgramRuntime;
+# use worldrunner_render_program::state::RenderState;
+# fn register(
+#     runtime: &mut ProgramRuntime,
+#     source: &str,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+let vertex = StageDesc::wgsl(source, "vs", StageKind::Vertex, StageDeclarations::default());
+let fragment = StageDesc::wgsl(source, "fs", StageKind::Fragment, StageDeclarations::default())
+    .with_overrides(&[("gain", 0.75)]);
+let handle = runtime.register_program(ProgramDesc::single(
+    "tuned",
+    RenderState::opaque_depth(),
+    vertex,
+    fragment,
+))?;
+# let _ = handle;
+# Ok(())
+# }
+```
+
+- **Names.** A constant is named as wgpu names it: by its identifier, or by its `@id` written as a decimal number when it has one. Giving a name twice is `OverrideError::Duplicate`, and the order of the values does not matter. A call replaces the values a stage had, so `with_overrides(&[])` returns the stage as it was parsed.
+- **Cost.** The parsed module is shared and so is the compiled `ShaderModule`: overrides apply when a pipeline is created, so two stages of one source that differ only in their overrides add one pipeline and no module to `RuntimeStats`. The values are part of the stage's `content_key`, and so of the pipeline's cache key, and equal values share a pipeline.
+- **Stages.** Vertex, fragment and compute stages each take their own values, as the stages have their own entry points. A constant with no default that the entry point uses, and that no call set, is the GPU's to refuse when the pipeline is created, as `ProgramError::Gpu`.
+
 ## Clip space and depth
 
 A WGSL position is used as written. Clip Y is up, so positive Y lands in the top rows of the target, and depth runs from 0 at the near plane to 1 at the far plane, as wgpu defines them. A counter-clockwise triangle in clip space is a front face under `RenderState::opaque_depth`. SPIR-V stages keep the convention of the SPIR-V reader the crate uses, which flips the position's Y: the same vertices land in the bottom rows. Pick one source format per program and test an asymmetric scene when you switch.
@@ -481,7 +552,7 @@ A WGSL position is used as written. Clip Y is up, so positive Y lands in the top
 
 - A draw writes one single-sample colour target with an optional depth target whose format has no stencil aspect. Multisampled targets, several colour targets and stencil formats are refused by name.
 - Properties set values and resources. The runtime does not yet fill object, camera or light values for you, so a game sets the matrices and times its shaders read.
-- A constant layout holds scalars, vectors and matrices, and arrays of them. Struct arrays and WGSL override constants are not represented.
+- A constant layout holds scalars, vectors and matrices, and arrays of them. Struct arrays are not represented.
 - Comparison samplers are refused by name when a program is registered, and every sampler is the fixed linear, clamped one.
 
 Issues [#449](https://github.com/acoliver/real-disunity/issues/449) and [#450](https://github.com/acoliver/real-disunity/issues/450) track the remaining work.

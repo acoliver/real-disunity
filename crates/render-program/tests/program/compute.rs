@@ -1,10 +1,10 @@
 //! A compute kernel with Unity-style sparse bindings, run on the GPU and read back.
 
-use worldrunner_render_program::constants::pack_constant_buffer;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::module::StageKind;
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::constants::pack_constant_buffer;
+use worldrunner_render_program::unity::module::StageKind;
+use worldrunner_render_program::unity::runtime::{
     BoundResource, ComputeProgram, DispatchRequest, ProgramRuntime,
 };
 use worldrunner_unity_serialized::shader_program::{
@@ -129,8 +129,8 @@ fn a_kernel_writes_the_storage_buffer_and_only_within_its_count() {
 }
 
 pub fn kernel_program(
-    runtime: &worldrunner_render_program::runtime::ProgramRuntime,
-) -> worldrunner_render_program::runtime::ComputeProgram {
+    runtime: &worldrunner_render_program::unity::runtime::ProgramRuntime,
+) -> worldrunner_render_program::unity::runtime::ComputeProgram {
     let table = vec![same(0, 3), same(0, 5), same(0, 7)];
     let kernel = stage(KERNEL, ("main", StageKind::Compute), table, parameters());
     runtime.compute_program(&kernel).unwrap()

@@ -421,8 +421,16 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
-        self.refuse_programs()?;
+        self.begin_encode(encoder)?;
         self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+    }
+
+    /// Refuses what this path cannot draw and prepares the resident quads for its pass, before
+    /// the frame prepares or records anything else.
+    fn begin_encode(&mut self, encoder: &wgpu::CommandEncoder) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
+        self.gpu.prepare_dynamic(encoder, &self.pipelines)?;
+        Ok(())
     }
 
     /// Admitted player program draws are drawn by the configured compositor only.
@@ -443,7 +451,7 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
-        self.refuse_programs()?;
+        self.begin_encode(encoder)?;
         self.encode_fitted(
             context,
             view,

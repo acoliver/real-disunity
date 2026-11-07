@@ -8,6 +8,7 @@ use worldrunner_render_plan::{SceneDecalAlphaMode, SceneDecalColorModifier, Scen
 
 #[test]
 fn decal_tint_and_opacity_match_independent_interior_pixel_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for edge in [false, true] {
         let base = source(false, false);
@@ -55,6 +56,7 @@ fn decal_tint_and_opacity_match_independent_interior_pixel_oracle() {
 
 #[test]
 fn modifier_only_replace_updates_each_slot_without_rebuilding_palettes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let d = decal();
     let scene = source(false, false).with_decals(vec![d]).unwrap();
@@ -104,6 +106,7 @@ fn unmodified_source(source: &str) -> String {
 
 #[test]
 fn default_modifier_preserves_rendered_bytes_against_unmodified_shader() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let object = unmodified_source(crate::shader::ENVIRONMENT_WGSL);
     let terrain = unmodified_source(crate::shader::TERRAIN_WGSL);
@@ -136,6 +139,7 @@ fn default_modifier_preserves_rendered_bytes_against_unmodified_shader() {
 
 #[test]
 fn modifier_blends_before_forward_lighting_and_material_metadata_like_baked_texels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for terrain in [false, true] {
         let scene = source(false, terrain);
@@ -220,6 +224,7 @@ fn assert_interior_within_store(pixels: &[u8], expected: Vec3, context: &str) {
 
 #[test]
 fn opacity_edge_thresholds_angle_faded_alpha_for_mesh_and_terrain() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let metadata = channel_pipelines(&context);
     for terrain in [false, true] {
@@ -380,6 +385,7 @@ fn channel_pipelines(context: &crate::device::GpuContext) -> [ScenePipelines; 3]
 #[test]
 fn opacity_edge_with_disabled_albedo_and_alpha_test_matches_scalar_oracle() {
     use worldrunner_render_plan::{SceneDecalNormalFrame, SceneDecalWriteMask};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = channel_pipelines(&context);
     for terrain in [false, true] {

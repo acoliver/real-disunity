@@ -7,6 +7,7 @@ use worldrunner_render_gpu::{configuration::AllocationBudget, submission::Submis
 
 #[test]
 fn terrain_pages_cancelled_unencoded_handles_cannot_hold_or_clear_reused_slots() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -25,6 +26,7 @@ fn terrain_pages_cancelled_unencoded_handles_cannot_hold_or_clear_reused_slots()
 
 #[test]
 fn terrain_pages_scratch_admission_includes_unretired_submissions() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -57,6 +59,7 @@ fn terrain_pages_scratch_admission_includes_unretired_submissions() {
 
 #[test]
 fn terrain_pages_foreign_authority_cannot_reserve() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let owner = SubmissionAuthority::new(context.queue().clone());

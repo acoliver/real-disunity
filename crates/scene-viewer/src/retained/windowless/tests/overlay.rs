@@ -1,3 +1,4 @@
+mod annotation_depth;
 mod annotations;
 mod blend_tests;
 mod graphics;

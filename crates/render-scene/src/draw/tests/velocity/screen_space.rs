@@ -200,6 +200,7 @@ fn assert_matches_plain(velocity: &[[f32; 2]], plain: &[[f32; 2]]) {
 
 #[test]
 fn a_shadowed_scene_under_taa_writes_the_residual_of_the_plain_scene() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scope = context
         .device()
@@ -214,6 +215,7 @@ fn a_shadowed_scene_under_taa_writes_the_residual_of_the_plain_scene() {
 
 #[test]
 fn a_reflective_scene_under_taa_writes_the_residual_of_the_plain_scene() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scope = context
         .device()
@@ -228,6 +230,7 @@ fn a_reflective_scene_under_taa_writes_the_residual_of_the_plain_scene() {
 
 #[test]
 fn an_ssao_scene_under_taa_writes_the_residual_of_the_plain_scene() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scope = context
         .device()
@@ -242,6 +245,7 @@ fn an_ssao_scene_under_taa_writes_the_residual_of_the_plain_scene() {
 
 #[test]
 fn shadows_reflections_and_sky_under_taa_write_the_residual_of_the_plain_scene() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scope = context
         .device()
@@ -258,6 +262,7 @@ fn shadows_reflections_and_sky_under_taa_write_the_residual_of_the_plain_scene()
 
 #[test]
 fn reflections_and_sky_under_taa_draw_without_validation_errors_and_keep_sky_velocity_zero() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scope = context
         .device()

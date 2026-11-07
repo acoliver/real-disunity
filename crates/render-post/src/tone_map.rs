@@ -330,15 +330,12 @@ impl StageFactory for ToneMapOutput {
             }],
         });
         Ok(StageSet {
-            stages: vec![Stage {
-                label: "fixed exposure and tone mapping",
-                ..Stage::fullscreen(
-                    crate::StageId::new("tone", 0),
-                    &pipeline,
-                    &[&group],
-                    StageTarget::Output,
-                )
-            }],
+            stages: vec![Stage::fullscreen(
+                crate::StageId::new("tone", 0),
+                &pipeline,
+                &[&group],
+                StageTarget::Output,
+            )],
             resources: Resources::default(),
         })
     }

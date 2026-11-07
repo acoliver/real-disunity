@@ -20,6 +20,7 @@ fn oracle(mut size: [u32; 2], ceil: bool) -> Vec<[u32; 2]> {
 
 #[test]
 fn full_chain_counts_and_rejection_precede_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for samples in crate::msaa_tests::all_counts() {
         assert_eq!(
             pyramid::reduction_source(samples, &settings()),
@@ -184,6 +185,7 @@ fn reduce_chain(context: &GpuContext, config: FrameConfig, policy: &SceneSsr) ->
 
 #[test]
 fn gpu_full_pyramid_preserves_first_six_levels_and_sample_lanes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (rounding, size) in [
         (SceneDownsampleRounding::Ceil, [257, 5]),
@@ -310,6 +312,7 @@ fn lod_group(
 
 #[test]
 fn gpu_full_chain_resolve_lod_matches_independent_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = full(SceneDownsampleRounding::Ceil);
     let config = FrameConfig::new([257, 5], wgpu::TextureFormat::Rgba16Float, 4);
@@ -358,6 +361,7 @@ fn gpu_full_chain_resolve_lod_matches_independent_oracle() {
 
 #[test]
 fn gpu_full_pyramid_runs_in_the_existing_frame_schedule() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.ssr = Some(
@@ -392,6 +396,7 @@ fn gpu_full_pyramid_runs_in_the_existing_frame_schedule() {
 
 #[test]
 fn portrait_four_sample_preflight_fits_stock_limits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let config = FrameConfig::new([1440, 2560], wgpu::TextureFormat::Rgba16Float, 4);
     let policy = full(SceneDownsampleRounding::Ceil);
     let mut limits = wgpu::Limits::downlevel_defaults();

@@ -28,6 +28,9 @@ fn reflection_fixture() -> String {
 
 fn source(visibility: f32, reduction: f32, screen: f32) -> String {
     let shadow = include_str!("shadows.wgsl")
+        .split_once("struct SceneCardShadow")
+        .unwrap()
+        .0
         .split_once("fn direct_sunlight_visibility")
         .unwrap()
         .1;
@@ -46,7 +49,13 @@ fn source(visibility: f32, reduction: f32, screen: f32) -> String {
     format!(
         "{}\n{}",
         lighting
-            .replace(include_str!("unshadowed.wgsl"), &receiver)
+            .replace(
+                include_str!("unshadowed.wgsl")
+                    .split_once("struct SceneCardShadow")
+                    .unwrap()
+                    .0,
+                &receiver,
+            )
             .replace("1.0 /* SCREEN_AMBIENT_FACTOR */", &format!("{screen}"))
             .replace(
                 ao,
@@ -132,7 +141,8 @@ fn previous_source(source: &str) -> String {
 
 #[test]
 fn roughness_aware_shadow_strength_only_changes_direct_sunlight() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for visibility in [0.0, 0.4] {
         for screen in [1.0, 0.5, 0.1] {
             check_strengths(&context, visibility, screen);

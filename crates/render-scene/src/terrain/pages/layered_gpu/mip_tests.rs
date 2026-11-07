@@ -6,6 +6,7 @@ use worldrunner_render_plan::{TerrainColorizationChannels, TerrainSplatFilter};
 
 #[test]
 fn odd_pages_and_gutters_match_direct_gpu_samples_with_height_mips() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

@@ -1,5 +1,6 @@
 #[test]
 fn octahedral_card_blends_three_independently_colored_cells() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let base = scene(false, SceneRotation::IDENTITY);
     let texture = octahedral_texture();
     let material = base.resources().materials()[0].with_impostor(
@@ -48,6 +49,7 @@ fn octahedral_card_blends_three_independently_colored_cells() {
 
 #[test]
 fn atlas_blending_interpolates_linear_color_on_a_card() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = half_color_scene();
@@ -148,6 +150,7 @@ fn scene(masked: bool, rotation: SceneRotation) -> RenderScene {
 
 #[test]
 fn atlas_material_draws_selected_color_and_instance_orientation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for (rotation, expected) in [
@@ -191,6 +194,7 @@ fn atlas_material_draws_selected_color_and_instance_orientation() {
 
 #[test]
 fn atlas_cutout_depth_matches_forward_metadata() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let forward = ScenePipelines::new(device, COLOR_FORMAT);
@@ -247,6 +251,7 @@ fn atlas_cutout_depth_matches_forward_metadata() {
 
 #[test]
 fn malformed_atlas_is_rejected_before_gpu_upload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let base = scene(false, SceneRotation::IDENTITY);
     let mut materials = base.resources().materials().to_vec();
     materials[0] = materials[0].with_impostor(
@@ -357,6 +362,7 @@ fn half_color_scene() -> RenderScene {
 
 #[test]
 fn instance_fade_bands_share_forward_and_shadow_silhouettes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let shadow = crate::shadows::wind_test_pipelines(context.device(), &layouts);
@@ -436,6 +442,7 @@ fn contact_relief_scene() -> RenderScene {
 
 #[test]
 fn metadata_contact_uses_relief_height_against_flat_ground_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = contact_relief_scene();
@@ -486,6 +493,7 @@ fn metadata_contact_uses_relief_height_against_flat_ground_oracle() {
 
 #[test]
 fn relief_raster_bias_keeps_surface_when_card_is_beyond_far_plane() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let base = relief_scene();

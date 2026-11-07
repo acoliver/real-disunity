@@ -4,7 +4,8 @@ use worldrunner_render_plan::{SceneWaterShadowOffset, SceneWaterShadowResponse};
 
 #[test]
 fn water_shadow_lookup_preserves_roughness_aware_ambient_visibility() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let (mut body, mut frame) = response_fixture(None, true);
     body.material.lighting_normal_micro = Some(1_000_000);
     frame.ambient_sky = glam::Vec3::ONE;
@@ -31,7 +32,8 @@ fn water_shadow_lookup_preserves_roughness_aware_ambient_visibility() {
 
 #[test]
 fn water_shadow_relief_reuses_tint_or_refraction_depth_weight() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for tinted in [false, true] {
         let enabled = u8::from(tinted);
         let source = format!(
@@ -70,7 +72,8 @@ const water = TestWater(vec4<f32>(0.0,0.0,0.0,1.0), vec4<f32>(0.0,0.0,0.3,1.0),
 
 #[test]
 fn water_response_reaches_both_lighting_paths_without_changing_snapshots() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for scene_path in [false, true] {
         let baseline = response_render(&context, None, scene_path);
         let neutral = response_render(
@@ -100,7 +103,8 @@ fn water_response_reaches_both_lighting_paths_without_changing_snapshots() {
 
 #[test]
 fn water_clipped_disk_and_shadow_strength_match_cpu_in_both_lighting_paths() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for scene_path in [false, true] {
         for post in [false, true] {
             let response = SceneWaterShadowResponse {
@@ -250,6 +254,7 @@ fn response_fixture(
 
 #[test]
 fn shadow_response_validates_and_default_preserves_bytes_and_keys() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
     let original = uniform_data(&frame, 0.0, &body);
@@ -272,7 +277,8 @@ fn shadow_response_validates_and_default_preserves_bytes_and_keys() {
 
 #[test]
 fn shadow_response_floor_relief_and_disk_match_independent_cpu() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for relief in [false, true] {
         for post in [false, true] {
             let source = format!(

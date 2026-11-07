@@ -115,7 +115,7 @@ pub(crate) fn compute_stage(
         }
         (_, [only]) => Stage {
             id,
-            label: id.name,
+            label: id.diagnostic_label(),
             enabled: true,
             operation: crate::Operation::Compute {
                 pipeline: pipeline.clone(),

@@ -3,6 +3,7 @@ use glam::Vec3;
 
 #[test]
 fn cached_anisotropy_exact_zero_normal_sum_preserves_first_unit_tap() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

@@ -84,6 +84,7 @@ pub(super) fn center_red(bytes: &[u8]) -> u16 {
 }
 #[test]
 fn gpu_distance_origin_skip_and_pass_behind_control_traversal() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     assert!(center_red(&capture(&context, settings(), 1.0, false)) > 0);
     assert_eq!(
@@ -125,6 +126,7 @@ fn gpu_distance_origin_skip_and_pass_behind_control_traversal() {
 }
 #[test]
 fn gpu_luminance_ceiling_reduces_reflected_radiance() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let unrestricted = capture(&context, settings(), 1.0, false);
     let limited = capture(
@@ -146,6 +148,7 @@ fn gpu_luminance_ceiling_reduces_reflected_radiance() {
 }
 #[test]
 fn gpu_luminance_ceiling_preserves_trace_confidence_at_all_brightnesses() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for radiance in [0.0, 0.000_030_517_578_125, 0.25, 2.0] {
         let shader = gpu::trace_source(1, false).replace(
@@ -175,6 +178,7 @@ fn gpu_luminance_ceiling_preserves_trace_confidence_at_all_brightnesses() {
 }
 #[test]
 fn gpu_luminance_ceiling_matches_reference_floor_and_preserves_confidence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let shader = format!(
         "{}\n@fragment fn fs_screen(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
@@ -222,6 +226,7 @@ fn gpu_luminance_ceiling_matches_reference_floor_and_preserves_confidence() {
 }
 #[test]
 fn gpu_depth_scaled_thickness_matches_linear_depth_at_two_depths() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let shader = format!(
         "{}\n@fragment fn fs_screen(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
@@ -270,6 +275,7 @@ fn gpu_depth_scaled_thickness_matches_linear_depth_at_two_depths() {
 }
 #[test]
 fn gpu_default_trace_bytes_match_fixed_traversal() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let fixed = gpu::trace_source(1, false)
         .replace(

@@ -109,6 +109,7 @@ fn energy(bytes: &[u8]) -> u64 {
 
 #[test]
 fn cached_anisotropy_grazing_preserves_minor_axis_detail_on_every_backend() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let fixture = Fixture::new(&context);
     let points: Vec<_> = (0..16_u16)
@@ -130,6 +131,7 @@ fn cached_anisotropy_grazing_preserves_minor_axis_detail_on_every_backend() {
 
 #[test]
 fn cached_anisotropy_matches_independent_oracle_and_straddles_neighbor_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let fixture = Fixture::new(&context);
     for level in [2, 4, 8, 16] {
@@ -166,6 +168,7 @@ fn cached_anisotropy_matches_independent_oracle_and_straddles_neighbor_pages() {
 
 #[test]
 fn cached_anisotropy_straddling_taps_choose_their_own_resident_ancestor() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut fixture = Fixture::new_with(&context, |key, uv| {
         let mut samples = stripes(uv);
@@ -196,6 +199,7 @@ fn cached_anisotropy_straddling_taps_choose_their_own_resident_ancestor() {
 
 #[test]
 fn cached_anisotropy_ratio_one_and_default_match_main_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let fixture = Fixture::new(&context);
     for gradients in [
@@ -230,6 +234,7 @@ fn cached_anisotropy_ratio_one_and_default_match_main_bytes() {
 
 #[test]
 fn cached_anisotropy_extreme_derivatives_produce_finite_surface() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let fixture = Fixture::new(&context);
     for extent in [[1.0; 2], [0.001, 7.0]] {

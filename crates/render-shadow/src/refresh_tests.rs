@@ -123,3 +123,31 @@ fn invalid_policies_reject_overlapping_periodic_slots() {
     policy.projection_delta_texels = f32::NAN;
     assert!(policy.validate().is_err());
 }
+
+#[test]
+fn zero_light_threshold_refreshes_on_any_change_and_never_on_an_unchanged_sun() {
+    let policy = CascadeRefreshPolicy {
+        light_delta_radians: 0.0,
+        ..staggered()
+    };
+    let suns = [
+        Vec3::new(0.900_200_84, 0.207_827_96, 0.382_682_92),
+        Vec3::new(0.3, -0.4, 0.866_025_4).normalize(),
+        Vec3::new(-0.577_350_26, 0.577_350_26, 0.577_350_26),
+    ];
+    for sun in suns {
+        let mut rendered = input(0);
+        rendered.toward_light = sun;
+        let mut state = CascadeRefreshState::default();
+        state.record(rendered, RefreshReason::Uninitialized);
+        let mut next = input(2);
+        next.toward_light = sun;
+        assert_eq!(policy.reason(2, &state, next), None, "{sun:?}");
+        next.toward_light = Vec3::new(sun.x + 1.0e-6, sun.y, sun.z);
+        assert_eq!(
+            policy.reason(2, &state, next),
+            Some(RefreshReason::Light),
+            "{sun:?}"
+        );
+    }
+}

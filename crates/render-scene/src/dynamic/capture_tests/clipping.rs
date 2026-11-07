@@ -133,7 +133,9 @@ fn draw_both(
         let ours = render(context, target, |pass| {
             bind_screen(pass);
             pass.set_bind_group(0, legacy.frame_group(), &[]);
-            counts.0 = staged.draw_overlay(pass, legacy.pipeline(), [SIZE, SIZE]);
+            counts.0 = staged
+                .draw_overlay(pass, legacy.pipeline(), [SIZE, SIZE], None)
+                .0;
         });
         let reference = render(context, target, |pass| {
             bind_screen(pass);
@@ -216,6 +218,7 @@ fn each_config(mut run: impl FnMut(&GpuContext, &Config, &Built)) {
 
 #[test]
 fn clipped_dynamic_quads_match_the_fixed_pipeline_in_the_scene_pass_in_every_target_set() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let textures = textures();
     each_config(|context, config, built| {
         for case in cases() {
@@ -236,6 +239,7 @@ fn clipped_dynamic_quads_match_the_fixed_pipeline_in_the_scene_pass_in_every_tar
 
 #[test]
 fn clipped_overlay_quads_match_the_fixed_pipeline_scissored_in_every_target_set() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let textures = textures();
     each_config(|context, config, built| {
         for case in cases() {

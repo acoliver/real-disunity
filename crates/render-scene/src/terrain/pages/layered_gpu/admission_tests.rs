@@ -2,6 +2,7 @@ use super::admission::{LayeredGpuError, buffer_size, supported};
 
 #[test]
 fn storage_and_allocation_limits_are_both_enforced() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for limits in [
         wgpu::Limits {
             max_storage_buffer_binding_size: 128,
@@ -28,6 +29,7 @@ fn storage_and_allocation_limits_are_both_enforced() {
 
 #[test]
 fn layered_capability_requires_five_storage_bindings_and_compute_limits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     assert!(supported(&limits));
     assert!(supported(&wgpu::Limits {

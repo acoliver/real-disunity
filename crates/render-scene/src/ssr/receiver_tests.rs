@@ -37,6 +37,7 @@ fn gather_ssr(context: &GpuContext) -> Ssr {
 
 #[test]
 fn gpu_scalable_gather_application_ao_uses_receiver_and_consumed_metre_depths() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let ssr = gather_ssr(&context);
     assert_eq!(ssr.application_ao.format(), wgpu::TextureFormat::Rg32Float);

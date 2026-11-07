@@ -121,7 +121,8 @@ pub(super) fn render_probe(
 
 #[test]
 fn endpoint_seed_gpu_matches_independent_clamped_lattice_and_repeat_does_not() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let actual = probe(&context, SceneWaterSeedCoordinates::EndpointClamped);
     let repeated = probe(&context, SceneWaterSeedCoordinates::Repeat);
     let points = [
@@ -156,6 +157,7 @@ fn endpoint_seed_gpu_matches_independent_clamped_lattice_and_repeat_does_not() {
 
 #[test]
 fn repeat_seed_mode_preserves_default_uniform_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_eq!(
         SceneWaterSeedCoordinates::default(),
         SceneWaterSeedCoordinates::Repeat

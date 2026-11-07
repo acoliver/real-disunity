@@ -33,9 +33,11 @@ internal static class ComponentQueries
         for (Transform? current = start.transform; current is not null; current = current.parent) yield return current.gameObject;
     }
 
-    // Searches count an object as active when it and every ancestor are active themselves. For a scene object
-    // that is activeInHierarchy; it also holds for prefab templates and objects still under construction, which
-    // are not in the scene yet, so a search on a loaded prefab finds its active children (the engine's choice).
+    // A search starts at its caller: the caller and each descendant it reaches through active objects count as
+    // active when they are active themselves, whatever the objects above the caller are. A caller under an inactive
+    // parent finds its own active subtree, as the original game's run needs when it builds interface elements under
+    // a hidden container, and a prefab template or an object under construction, which is not in the scene, finds
+    // its active children (the engine's choice).
     public static IEnumerable<Component> InChildren(GameObject root, Type type, bool includeInactive) =>
         (includeInactive ? Descendants(root) : ActiveDescendants(root)).SelectMany(value => On(value, type));
 
@@ -45,7 +47,7 @@ internal static class ComponentQueries
     /// <summary>The descendants a search finds, depth first in sibling order, skipping each inactive subtree.</summary>
     private static IEnumerable<GameObject> ActiveDescendants(GameObject root)
     {
-        if (!Ancestors(root).All(value => value.activeSelf)) yield break;
+        if (!root.activeSelf) yield break;
         var pending = new Stack<GameObject>();
         pending.Push(root);
         while (pending.Count > 0)

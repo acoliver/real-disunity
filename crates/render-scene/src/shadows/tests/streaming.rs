@@ -48,6 +48,7 @@ fn assert_one_selection(preparations: &[crate::draw::StreamingPreparation], budg
 #[test]
 fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
     use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -107,6 +108,7 @@ fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
 
 #[test]
 fn ordinary_shadowed_frame_refines_multilevel_terrain_once_per_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -130,6 +132,7 @@ fn ordinary_shadowed_frame_refines_multilevel_terrain_once_per_frame() {
 
 #[test]
 fn streamed_shadow_depth_matches_forward_surface_and_default_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source =
         super::terrain::terrain_scene(&scene(&[[0, 0, 1000]], 600_000, None), false, false);
@@ -190,6 +193,7 @@ fn screen_source() -> RenderScene {
 
 #[test]
 fn streamed_ssao_ssr_prepass_depth_equals_forward_depth_in_shadowed_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = screen_source();
     let size = [view().viewport().width, view().viewport().height];
@@ -274,4 +278,90 @@ fn depth_bytes(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
     readback
         .read_encoded(context.device(), Some(submission))
         .unwrap()
+}
+
+fn wait(context: &GpuContext) {
+    context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(10)),
+        })
+        .unwrap();
+}
+
+fn cascade_passes() -> usize {
+    crate::scene_metadata::EXECUTED_PASSES
+        .with_borrow_mut(std::mem::take)
+        .iter()
+        .filter(|slot| matches!(slot, PassSlot::ShadowCasters(_)))
+        .count()
+}
+
+#[test]
+fn still_streamed_frames_keep_cascades_until_the_resident_chunks_change() {
+    use worldrunner_render_shadow::RefreshReason;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = multilevel_source();
+    let policy = worldrunner_render_shadow::CascadeRefreshPolicy {
+        intervals: [64; 4],
+        ..Default::default()
+    };
+    let settings = DirectionalShadowSettings {
+        refresh_policy: policy,
+        ..settings()
+    };
+    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let layers = usize::try_from(renderer.map.depth.layers()).unwrap();
+    cascade_passes();
+    let mut reasons = Vec::new();
+    let mut settled = None;
+    for _ in 0..8 {
+        let prepared = observe_preparations(|| {
+            render_target(&mut renderer, &context, &view(), &target).unwrap();
+        });
+        wait(&context);
+        let passes = cascade_passes();
+        let reason = renderer.cascade_refresh_states()[layers - 1].last_reason();
+        if prepared[0].uploads == 0 && reasons.len() > 1 {
+            settled = Some((passes, prepared[0].buffers.clone()));
+            break;
+        }
+        assert_eq!(
+            passes, layers,
+            "a frame that uploads chunks refreshes every cascade"
+        );
+        reasons.push(reason);
+    }
+    assert!(matches!(
+        reasons[0],
+        Some(RefreshReason::Uninitialized | RefreshReason::Invalidated)
+    ));
+    assert!(
+        reasons[1..]
+            .iter()
+            .all(|reason| *reason == Some(RefreshReason::Generation)),
+        "refinement under a still camera refreshes for the new chunk buffers: {reasons:?}"
+    );
+    let (passes, buffers) = settled.expect("the selection settles under a still camera");
+    assert_eq!(passes, 0, "settled terrain keeps every retained cascade");
+    let fresh = target.read_rgba8(&context).unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    wait(&context);
+    assert_eq!(cascade_passes(), 0);
+    assert_eq!(target.read_rgba8(&context).unwrap(), fresh);
+    renderer.invalidate_shadows();
+    let refreshed = observe_preparations(|| {
+        render_target(&mut renderer, &context, &view(), &target).unwrap();
+    });
+    wait(&context);
+    assert_eq!(cascade_passes(), layers);
+    assert_eq!(refreshed[0].buffers, buffers);
+    assert_eq!(
+        target.read_rgba8(&context).unwrap(),
+        fresh,
+        "retained cascades match freshly rendered ones"
+    );
 }

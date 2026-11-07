@@ -18,6 +18,7 @@ fn fixture(rotation: u32) -> (SceneTerrain, SceneResources) {
 
 #[test]
 fn terrain_large_rotation_cpu_matches_reduced_angle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (terrain, resources) = fixture(2_160_000_000);
     let (reduced, _) = fixture(0);
     let actual = LayeredReference::new(&terrain, &resources).unwrap();
@@ -32,6 +33,7 @@ fn terrain_large_rotation_cpu_matches_reduced_angle() {
 
 #[test]
 fn terrain_large_rotation_gpu_matches_cpu_with_one_byte_tolerance() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (terrain, resources) = fixture(2_160_000_000);
     let source = LayeredGpuSource::new(&terrain, &resources).unwrap();
@@ -56,6 +58,7 @@ fn terrain_large_rotation_gpu_matches_cpu_with_one_byte_tolerance() {
 
 #[test]
 fn terrain_ordinary_rotations_preserve_gpu_product_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let positions = [[0.1, 0.3], [1.25, 0.75], [8.0, 4.0]];
     for rotation in [0_u16, 1700, 2700, 5400, 10_800, 21_599] {

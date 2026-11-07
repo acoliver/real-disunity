@@ -103,6 +103,7 @@ impl TypedOperation {
 /// Immutable compiled bytes and resource handles. Revalidation precedes every encoding.
 pub struct CompiledOperations {
     pub(super) operations: Vec<TypedOperation>,
+    pub(super) labels: Vec<String>,
     pub(super) accesses: Vec<(Vec<ResourceUse>, Vec<BufferUse>)>,
     pub(super) staging: Vec<Option<wgpu::Buffer>>,
 }
@@ -152,6 +153,7 @@ impl CompiledOperations {
                 encoder,
                 self.staging[index].as_ref(),
                 stamp.as_ref(),
+                &self.labels[index],
                 &mut draw,
             );
         }
@@ -164,14 +166,17 @@ impl TypedOperation {
         encoder: &mut wgpu::CommandEncoder,
         staging: Option<&wgpu::Buffer>,
         stamp: Option<&crate::timing::Stamp>,
+        label: &str,
         draw: &mut impl FnMut(RasterId, &mut wgpu::RenderPass<'_>),
     ) {
         match &self.work {
-            TypedWork::Draws { pass, draws } => pass.encode(encoder, stamp, |render| {
-                for draw in draws {
-                    draw.encode(render);
-                }
-            }),
+            TypedWork::Draws { pass, draws } => {
+                pass.encode_named(encoder, stamp, label, |render| {
+                    for draw in draws {
+                        draw.encode(render);
+                    }
+                });
+            }
             TypedWork::Resolve {
                 source,
                 destination,
@@ -189,20 +194,24 @@ impl TypedOperation {
                     uses: Vec::new(),
                     bindings: Vec::new(),
                 };
-                pass.encode(encoder, stamp, |_| {});
+                pass.encode_named(encoder, stamp, label, |_| {});
             }
-            TypedWork::Raster(pass) => pass.encode(encoder, stamp, |render| draw(self.id, render)),
-            TypedWork::Fullscreen { pass, pipeline } => pass.encode(encoder, stamp, |render| {
-                render.set_pipeline(pipeline);
-                render.draw(0..3, 0..1);
-            }),
+            TypedWork::Raster(pass) => {
+                pass.encode_named(encoder, stamp, label, |render| draw(self.id, render));
+            }
+            TypedWork::Fullscreen { pass, pipeline } => {
+                pass.encode_named(encoder, stamp, label, |render| {
+                    render.set_pipeline(pipeline);
+                    render.draw(0..3, 0..1);
+                });
+            }
             TypedWork::Compute {
                 pipeline,
                 bindings,
                 workgroups,
             } => {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some(self.id.stage.name),
+                    label: Some(label),
                     timestamp_writes: stamp.map(crate::timing::Stamp::compute),
                 });
                 pass.set_pipeline(pipeline);
@@ -216,9 +225,9 @@ impl TypedOperation {
                 pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
             }
             _ => {
-                timestamp_boundary(encoder, stamp, true);
+                timestamp_boundary(encoder, stamp, label, true);
                 self.encode_transfer(encoder, staging);
-                timestamp_boundary(encoder, stamp, false);
+                timestamp_boundary(encoder, stamp, label, false);
             }
         }
     }
@@ -282,6 +291,7 @@ impl TypedOperation {
 fn timestamp_boundary(
     encoder: &mut wgpu::CommandEncoder,
     stamp: Option<&crate::timing::Stamp>,
+    label: &str,
     begin: bool,
 ) {
     // Empty boundary passes use portable pass timestamps, without requiring
@@ -289,7 +299,7 @@ fn timestamp_boundary(
     if let Some(stamp) = stamp {
         let writes = stamp.compute();
         let _pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("transfer timing boundary"),
+            label: Some(label),
             timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
                 query_set: writes.query_set,
                 beginning_of_pass_write_index: begin

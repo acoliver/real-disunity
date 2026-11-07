@@ -57,6 +57,7 @@ fn folded_placement(height: i64, minimum: u32, placement: Option<SceneTransform>
 
 #[test]
 fn folded_directions_match_forward_and_both_metadata_passes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for (height, weight) in [(0, 0.0), (500, 0.25), (2000, 1.0)] {
@@ -126,6 +127,7 @@ fn mask_settings() -> SceneTranslucency {
 
 #[test]
 fn metalness_mask_is_removed_from_forward_and_reflection_materials() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let base = scene(SceneAlphaMode::Opaque, true, 1);
@@ -186,11 +188,13 @@ fn srgb(linear: f32) -> f32 {
 
 #[test]
 fn translated_instances_keep_authored_fold_weights() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     transformed_fold_weights([1200, 0, 5000], 1_000_000);
 }
 
 #[test]
 fn scaled_instances_keep_unscaled_authored_fold_weights() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     transformed_fold_weights([0, 0, -500], 2_000_000);
 }
 
@@ -238,6 +242,7 @@ fn transformed_fold_weights(position: [i64; 3], scale: u32) {
 
 #[test]
 fn mapped_mask_combines_texture_vertex_and_material_ao_once() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for vertex_ao in [300_000, 700_000] {
@@ -263,6 +268,7 @@ fn mapped_mask_combines_texture_vertex_and_material_ao_once() {
 
 #[test]
 fn rendered_backlight_has_parallel_orthographic_and_diverging_perspective_rays() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let scene = backlight_scene();

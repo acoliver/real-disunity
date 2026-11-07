@@ -1,5 +1,6 @@
 #[test]
 fn snapshot_outputs_cannot_be_reopened_for_writing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for name in [
         "opaque snapshot color",
         "opaque snapshot depth",
@@ -86,7 +87,8 @@ impl PreparedFeature for Reader {
 
 #[test]
 fn independent_snapshot_reader_and_post_water_depth_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = crate::compositor::FrameRenderer::hdr(
@@ -185,7 +187,8 @@ pub(super) fn bytes_for_color(red: u16) -> Vec<u8> {
 
 #[test]
 fn missing_snapshot_version_fails_before_retained_preparation() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut renderer = crate::compositor::FrameRenderer::hdr(
         &context,
         [32, 32],
@@ -245,6 +248,7 @@ fn missing_snapshot_version_fails_before_retained_preparation() {
 
 #[test]
 fn unsupported_overlapping_transparent_writers_have_typed_errors() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let water = FeatureDeclaration::new(PassSlot::TransparentWater);
     let alpha = FeatureDeclaration::new(PassSlot::TransparentAlpha);
     let passes = [

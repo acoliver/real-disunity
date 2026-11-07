@@ -103,6 +103,7 @@ fn on_shadow_edge(shadowed: &RgbaImage, lit: &RgbaImage, index: usize) -> bool {
 
 #[test]
 fn gpu_single_map_receiver_matches_scalar_reference_except_at_shadow_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = receiver_scene();
     let fit = DirectionalShadowSettings {

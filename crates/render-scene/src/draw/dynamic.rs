@@ -34,6 +34,7 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         quads: &[crate::dynamic::DynamicQuad],
     ) -> Result<(), crate::dynamic::DynamicError> {
+        reject_annotation_depth(quads)?;
         self.dynamic.set_quads(
             device,
             authority.queue(),
@@ -64,6 +65,7 @@ impl SceneGpu {
         textures: &[worldrunner_render_plan::SceneTexture],
         quads: &[crate::dynamic::DynamicQuad],
     ) -> Result<(), crate::dynamic::DynamicError> {
+        reject_annotation_depth(quads)?;
         let mut staged = crate::dynamic::DynamicGpu::default();
         staged.set_textures(device, authority.queue(), textures)?;
         staged.set_quads(
@@ -136,4 +138,16 @@ impl SceneGpu {
         self.dynamic
             .set_textures(device, authority.queue(), textures)
     }
+}
+
+fn reject_annotation_depth(
+    quads: &[crate::dynamic::DynamicQuad],
+) -> Result<(), crate::dynamic::DynamicError> {
+    if let Some(index) = quads.iter().position(|quad| quad.depth_test) {
+        return Err(crate::dynamic::DynamicError::InvalidQuad {
+            index,
+            field: "annotation depth requires retained UI",
+        });
+    }
+    Ok(())
 }

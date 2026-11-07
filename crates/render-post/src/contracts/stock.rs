@@ -2,8 +2,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    CheckedView, ColorAttachment, CompiledRaster, ContractError, DepthAttachment, RasterId,
-    RasterPass, ResourceLifetime, ResourceRegistry, ResourceUse, Semantic, TextureRange, UseKind,
+    CheckedView, ColorAttachment, ContractError, DepthAttachment, RasterId, RasterPass,
+    ResourceLifetime, ResourceRegistry, ResourceUse, Semantic, TextureRange, UseKind,
 };
 use crate::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, PassDeclaration,
@@ -38,7 +38,7 @@ pub(crate) fn compile(
     views: &[AttachmentView],
     features: &[FeatureDeclaration],
     registry: &mut ResourceRegistry,
-) -> Result<CompiledRaster, ContractError> {
+) -> Result<super::raster::StockRaster, ContractError> {
     let keys = import_views(registry, views)?;
     let mut versions = initial_versions(views);
     let mut raster = Vec::new();
@@ -93,7 +93,8 @@ pub(crate) fn compile(
             bindings: Vec::new(),
         });
     }
-    registry.compile(device, &raster)
+    registry.validate_raster(device, &raster)?;
+    Ok(super::raster::StockRaster { passes: raster })
 }
 fn initial_versions(views: &[AttachmentView]) -> BTreeMap<ResourceRef, u32> {
     // Initialization belongs to the allocation. Newly written sibling layers

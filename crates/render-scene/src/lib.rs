@@ -26,6 +26,8 @@ mod ssao;
 mod ssr;
 pub mod terrain;
 pub mod terrain_uniform;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod texture;
 pub mod upload;
 mod velocity;
@@ -49,6 +51,8 @@ mod post_bloom;
 mod post_bloom_tests;
 #[cfg(test)]
 mod post_fxaa_tests;
+#[cfg(test)]
+mod post_smaa_tests;
 #[cfg(test)]
 mod post_taa_tests;
 #[cfg(test)]

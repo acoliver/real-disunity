@@ -8,17 +8,23 @@ namespace Disunity.Hosting;
 /// resolve to facades built from the player's own module metadata (see
 /// <see cref="ModuleFacades"/>). The game and package assemblies the player lists
 /// (<see cref="PlayerManifest.GameAssemblies"/>) resolve to its <c>Managed</c> directory,
-/// whatever their names. Any other name is left to .NET: the player's unlisted DLLs, such as
-/// <c>System.Core</c> and <c>Mono.Security</c>, are class libraries built for Unity's Mono
-/// runtime. A context asks only for names it and .NET could not resolve. Each game assembly it
-/// loads also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
+/// whatever their names. The player's unlisted DLLs, such as <c>System.Core</c> and
+/// <c>Mono.Security</c>, are class libraries built for Unity's Mono runtime, and their names are left to
+/// .NET. A name that the player neither lists nor ships, and that is not an engine module, resolves to
+/// the host's own library directory when that holds an assembly of the name (see the
+/// <c>hostLibraries</c> constructor argument); any other name is left to .NET. A context asks only for
+/// names it and .NET could not resolve. <see cref="ServeDefaultContext"/> gives the default context the same
+/// host libraries, for types the framework's own facades forward to them. Each game assembly it loads
+/// also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
 /// </summary>
 public sealed class PlayerAssemblies
 {
     private readonly string _managed;
     private readonly Assembly _engine;
     private readonly HashSet<string> _game;
+    private readonly IReadOnlyList<string> _listed;
     private readonly PlayerNativePlugins? _native;
+    private readonly string? _hostLibraries;
     private readonly Dictionary<string, Assembly> _facades = new(StringComparer.Ordinal);
     // Resolution can run on any thread that first touches a type; the lock makes each
     // facade build once. Game assemblies need no lock: the context loads each name once.
@@ -35,15 +41,21 @@ public sealed class PlayerAssemblies
     /// Resolves the native libraries the game and package assemblies import, or null to leave
     /// that to .NET. It registers for each assembly this instance loads.
     /// </param>
+    /// <param name="hostLibraries">
+    /// The host's directory of class libraries that a Mono player gets from its runtime and does not ship, such as
+    /// <c>System.Configuration.ConfigurationManager</c>, or null for none. The host carries them as packages.
+    /// </param>
     public PlayerAssemblies(string managedDirectory, Assembly engine, IEnumerable<string> gameAssemblies,
-        PlayerNativePlugins? nativePlugins = null)
+        PlayerNativePlugins? nativePlugins = null, string? hostLibraries = null)
     {
         if (!Directory.Exists(managedDirectory))
             throw new DirectoryNotFoundException($"no player Managed directory at {managedDirectory}");
         _managed = managedDirectory;
         _engine = engine;
-        _game = new HashSet<string>(gameAssemblies, StringComparer.Ordinal);
+        _listed = gameAssemblies.ToList();
+        _game = new HashSet<string>(_listed, StringComparer.Ordinal);
         _native = nativePlugins;
+        _hostLibraries = hostLibraries;
     }
 
     /// <summary>
@@ -60,8 +72,8 @@ public sealed class PlayerAssemblies
 
     /// <summary>
     /// The assembly for a name the context could not resolve: a facade for an engine module
-    /// the player ships, the player's assembly for a listed game or package name, or null for
-    /// any other name.
+    /// the player ships, the player's assembly for a listed game or package name, the host's
+    /// library for a name neither listed nor shipped by the player, or null for any other name.
     /// </summary>
     /// <exception cref="FileNotFoundException">The player lists the name but does not ship it.</exception>
     public Assembly? Resolve(AssemblyLoadContext context, AssemblyName name)
@@ -72,12 +84,59 @@ public sealed class PlayerAssemblies
         var path = Path.Combine(_managed, simple + ".dll");
         if (ModuleFacades.IsEngineModule(simple))
             return File.Exists(path) ? Facade(context, simple, path) : null;
-        if (!_game.Contains(simple)) return null;
+        if (!_game.Contains(simple)) return ResolveHostLibrary(context, name);
         if (!File.Exists(path))
             throw new FileNotFoundException($"the player lists {simple} but its Managed directory has no {simple}.dll", path);
         var assembly = context.LoadFromAssemblyPath(path);
         _native?.Register(assembly);
         return assembly;
+    }
+
+    /// <summary>
+    /// Loads every listed game and package assembly into the attached context, in the order the player lists them,
+    /// as a player's runtime does at startup, so code that enumerates the loaded assemblies to discover types sees
+    /// them all before it first runs (the engine's choice is to load them before any startup hook). A listed name
+    /// that cannot be loaded (missing from Managed, not a .NET image, or failing to load) is passed to
+    /// <paramref name="report"/> with the reason and skipped. Returns how many loaded.
+    /// </summary>
+    public int LoadListed(Action<string> report)
+    {
+        var context = _context ?? throw new InvalidOperationException("PlayerAssemblies.LoadListed needs an attached load context");
+        var loaded = 0;
+        foreach (var name in _listed)
+        {
+            try
+            {
+                context.LoadFromAssemblyName(new AssemblyName(name));
+                loaded++;
+            }
+            catch (Exception error) when (error is FileNotFoundException or BadImageFormatException or FileLoadException)
+            {
+                report($"listed assembly {name} did not load: {error.GetType().Name}: {error.Message}");
+            }
+        }
+        return loaded;
+    }
+
+    /// <summary>
+    /// Registers <see cref="ResolveHostLibrary"/> with the default load context. The framework's own facades,
+    /// such as <c>System.Configuration</c>, forward types to the host libraries from inside the default context,
+    /// which the player's context does not serve, so a type a player's package reaches through such a facade needs
+    /// the default context to find the library as well.
+    /// </summary>
+    public void ServeDefaultContext() => AssemblyLoadContext.Default.Resolving += ResolveHostLibrary;
+
+    /// <summary>
+    /// Loads the host library of a name into <paramref name="context"/>, or returns null when the player lists
+    /// the name, ships it, or when it is an engine module or the engine itself, or when the host has no such library.
+    /// </summary>
+    public Assembly? ResolveHostLibrary(AssemblyLoadContext context, AssemblyName name)
+    {
+        if (_hostLibraries is null || name.Name is not { Length: > 0 } simple) return null;
+        if (simple == _engine.GetName().Name || ModuleFacades.IsEngineModule(simple) || _game.Contains(simple)) return null;
+        if (File.Exists(Path.Combine(_managed, simple + ".dll"))) return null;
+        var path = Path.Combine(_hostLibraries, simple + ".dll");
+        return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
     }
 
     private Assembly Facade(AssemblyLoadContext context, string name, string path)

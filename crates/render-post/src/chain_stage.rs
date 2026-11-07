@@ -102,12 +102,18 @@ impl Operation {
 #[derive(Debug)]
 pub struct Stage {
     pub id: crate::StageId,
-    pub label: &'static str,
+    /// Cached diagnostic spelling of `id`, rebuilt with the schedule.
+    pub label: std::borrow::Cow<'static, str>,
     pub enabled: bool,
     pub operation: Operation,
 }
 
 impl Stage {
+    /// The retained label used by both render and compute descriptors.
+    pub fn encoder_label(&self) -> &str {
+        self.label.as_ref()
+    }
+
     /// A texture-to-texture copy, encoded outside any pass and so without a timing slot.
     pub fn copy_texture(
         id: crate::StageId,
@@ -116,7 +122,7 @@ impl Stage {
     ) -> Self {
         Self {
             id,
-            label: id.name,
+            label: id.diagnostic_label(),
             enabled: true,
             operation: Operation::CopyTexture {
                 source: source.clone(),
@@ -133,7 +139,7 @@ impl Stage {
     ) -> Self {
         Self {
             id,
-            label: id.name,
+            label: id.diagnostic_label(),
             enabled: true,
             operation: Operation::Fullscreen {
                 pipeline: pipeline.clone(),
@@ -156,7 +162,7 @@ impl Stage {
         });
         Self {
             id,
-            label: id.name,
+            label: id.diagnostic_label(),
             enabled: true,
             operation: Operation::FullscreenAlternating {
                 pipeline: pipeline.clone(),
@@ -176,7 +182,7 @@ impl Stage {
     ) -> Self {
         Self {
             id,
-            label: id.name,
+            label: id.diagnostic_label(),
             enabled: true,
             operation: Operation::ComputeAlternating {
                 pipeline: pipeline.clone(),
@@ -195,7 +201,7 @@ impl Stage {
         groups: &[wgpu::BindGroup],
     ) -> wgpu::ComputePass<'e> {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some(self.label),
+            label: Some(self.encoder_label()),
             timestamp_writes: stamp.map(crate::timing::Stamp::compute),
         });
         pass.set_pipeline(pipeline);
@@ -232,7 +238,7 @@ impl Stage {
             .collect();
         fullscreen_pass_timed(
             encoder,
-            Some(self.label),
+            Some(self.encoder_label()),
             &attachments,
             pipeline,
             &groups.iter().collect::<Vec<_>>(),

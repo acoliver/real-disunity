@@ -1,6 +1,7 @@
 #[test]
 fn gpu_depth_gather_runs_in_mesh_and_terrain_forward_draws() {
     use worldrunner_render_plan::SceneSsaoReceiver;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for base in [source(2_000_000, true, 255), terrain_scene(1)] {
         let mut effects = effect_parts();
@@ -86,6 +87,7 @@ fn encode_profile(
 #[test]
 fn unshadowed_ssao_requires_exact_profile_settings_before_preparation() {
     use worldrunner_render_post::FrameError;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source(1_000_000, true, 255);
     let pipelines =
@@ -278,6 +280,7 @@ fn read_ao(context: &GpuContext, filtered: &wgpu::Texture) -> Vec<f32> {
 
 #[test]
 fn gpu_ssao_ambient_only_and_msaa_combinations() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let (sun_baseline, _, _) = capture(&context, &source(0, false, 255), samples);
@@ -306,6 +309,7 @@ fn gpu_ssao_ambient_only_and_msaa_combinations() {
 }
 #[test]
 fn gpu_ssao_uniform_alpha_mask_prepass_uses_colour_cutoff() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let (hidden, normals, _) = capture(&context, &source(1_000_000, true, 100), samples);
@@ -346,6 +350,7 @@ pub(super) fn read_texture(
 
 #[test]
 fn gpu_spiral_bilateral_coverage_and_composition_at_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let scene = |intensity, alpha| {
@@ -370,6 +375,7 @@ fn gpu_spiral_bilateral_coverage_and_composition_at_every_supported_sample_count
 
 #[test]
 fn gpu_scalable_shared_coverage_at_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let scene = |intensity, alpha| {

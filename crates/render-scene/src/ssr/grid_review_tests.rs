@@ -3,6 +3,7 @@ use worldrunner_render_plan::SceneSsrGridDomain;
 
 #[test]
 fn gpu_grid_sixteen_texture_boundaries_precede_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -126,6 +127,7 @@ fn odd_average(previous: &[f64], side: usize, cell: [usize; 2]) -> f64 {
 
 #[test]
 fn gpu_grid_odd_partial_bins_projection_and_hits_match_cpu() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let depths = odd_pyramid();
     assert!((depths[1][15] - 4.0).abs() < f64::EPSILON);

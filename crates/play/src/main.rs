@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerWindow, ScheduledKey, key_code, play_player_window, prepare,
-    prepare_player, run_player,
+    Capture, Game, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, key_code,
+    play_player_window, prepare, prepare_player, run_player,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -132,7 +132,11 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
     // The window opens at `--size`, else at the size the live loop defaults to.
     let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
-    let launch = (&arguments.command_line[..], screen, &arguments.plugins[..]);
+    let launch = PlayerLaunch {
+        arguments: &arguments.command_line,
+        screen,
+        plugins: &arguments.plugins,
+    };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
         let window = PlayerWindow {

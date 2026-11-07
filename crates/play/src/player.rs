@@ -22,18 +22,25 @@ pub struct PreparedPlayer {
     pub request: PathBuf,
 }
 
+/// How a player is started besides its files: the command line after its executable path,
+/// the size of the window the frame is drawn into, which is the size the player's `Screen`
+/// reports (a headless run gives none), and extra native plugin directories the player
+/// searches after its own `Plugins` directories and the engine's substitutes.
+#[derive(Clone, Copy, Default)]
+pub struct PlayerLaunch<'a> {
+    pub arguments: &'a [String],
+    pub screen: Option<[u32; 2]>,
+    pub plugins: &'a [PathBuf],
+}
+
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
 /// scene file `scene` and the player's resources with them, and builds the managed bridge,
-/// all into `<target>/play/player`. `arguments` become the player's command line after its
-/// executable path. `screen` is the size of the window the frame is drawn into, which is the size
-/// the player's `Screen` reports; a headless run gives none. `plugins` are extra native plugin
-/// directories the player searches after its own `Plugins` directories and before the engine's substitutes.
+/// all into `<target>/play/player`. `launch` says how the player starts.
 pub fn prepare_player(
     data: &Path,
     scene: &str,
-    launch: (&[String], Option<[u32; 2]>, &[PathBuf]),
+    launch: PlayerLaunch,
 ) -> Result<PreparedPlayer, PlayError> {
-    let (arguments, screen, plugins) = launch;
     let root = workspace_root()?;
     let output = target(&root).join("play").join("player");
     std::fs::create_dir_all(&output).map_err(|error| PlayError::Io(output.clone(), error))?;
@@ -63,7 +70,7 @@ pub fn prepare_player(
         &output,
         data,
         [&plan_path, &resources_path],
-        (&scenes, arguments, screen, plugins),
+        (&scenes, launch),
     )?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
@@ -158,15 +165,10 @@ fn write_request(
     output: &Path,
     data: &Path,
     plans: [&Path; 2],
-    launch: (
-        &[serde_json::Value],
-        &[String],
-        Option<[u32; 2]>,
-        &[PathBuf],
-    ),
+    launch: (&[serde_json::Value], PlayerLaunch),
 ) -> Result<PathBuf, PlayError> {
     let [plan, resources] = plans;
-    let (scenes, arguments, screen, plugins) = launch;
+    let (scenes, launch) = launch;
     let identity = player_identity(data)?;
     eprintln!(
         "[player] {} {} {} built with Unity {} for {}",
@@ -181,12 +183,7 @@ fn write_request(
         .join(path_component(&identity.company_name))
         .join(path_component(&identity.product_name));
     let request = output.join("request.json");
-    let mut body = request_body(
-        data,
-        [plan, resources, &persistent],
-        &identity,
-        (arguments, screen, plugins),
-    );
+    let mut body = request_body(data, [plan, resources, &persistent], &identity, launch);
     body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
@@ -204,10 +201,14 @@ fn request_body(
     data: &Path,
     paths: [&Path; 3],
     identity: &PlayerIdentity,
-    launch: (&[String], Option<[u32; 2]>, &[PathBuf]),
+    launch: PlayerLaunch,
 ) -> serde_json::Value {
     let [plan, resources, persistent] = paths;
-    let (arguments, screen, plugins) = launch;
+    let PlayerLaunch {
+        arguments,
+        screen,
+        plugins,
+    } = launch;
     let mut body = serde_json::json!({
         "player": data,
         "plan": plan,
@@ -309,7 +310,11 @@ mod tests {
             Path::new("/games/Game/Game_Data"),
             [plan, resources, persistent],
             &identity(),
-            (arguments, screen, &[]),
+            PlayerLaunch {
+                arguments,
+                screen,
+                plugins: &[],
+            },
         )
     }
 
@@ -320,7 +325,10 @@ mod tests {
             Path::new("/games/Game/Game_Data"),
             [Path::new("p"), Path::new("r"), Path::new("x")],
             &identity(),
-            (&[], None, &plugins),
+            PlayerLaunch {
+                plugins: &plugins,
+                ..PlayerLaunch::default()
+            },
         );
         assert_eq!(request["plugins"], serde_json::json!(["/a/Plugins", "b"]));
     }

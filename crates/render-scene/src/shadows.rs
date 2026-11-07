@@ -536,7 +536,7 @@ impl ShadowedScene {
             self.settings,
             frame.shadow_direction,
             color.size(),
-            self.gpu.caster_generation(),
+            self.gpu.shadow_caster_generation(),
         );
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);

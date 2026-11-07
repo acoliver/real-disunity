@@ -158,7 +158,12 @@ impl SceneGpu {
         handle: InstanceHandle,
         transform: SceneTransform,
     ) -> Result<(), InstanceError> {
-        self.instances.set_transform(handle, transform)
+        let (old, visible) = self.instances.get(handle)?;
+        self.instances.set_transform(handle, transform)?;
+        if visible && old.casts_shadow() && *old.transform() != transform {
+            self.caster_generation = self.caster_generation.wrapping_add(1);
+        }
+        Ok(())
     }
 
     /// Replaces all placement fields while preserving visibility and batch identity.
@@ -168,9 +173,12 @@ impl SceneGpu {
         handle: InstanceHandle,
         object: SceneObject,
     ) -> Result<(), InstanceError> {
-        let old = self.instances.get(handle)?.0;
+        let (old, visible) = self.instances.get(handle)?;
         self.instances.set_object(handle, object)?;
-        if old.lod_distance_scale_millionths() != object.lod_distance_scale_millionths()
+        // A moved caster leaves its old shadow in every retained cascade.
+        let moved = visible && old.casts_shadow() && old.transform() != object.transform();
+        if moved
+            || old.lod_distance_scale_millionths() != object.lod_distance_scale_millionths()
             || old.casts_shadow() != object.casts_shadow()
         {
             self.caster_generation = self.caster_generation.wrapping_add(1);

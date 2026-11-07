@@ -29,11 +29,14 @@ internal sealed class SystemNativeLoader : INativeLoader
 /// name the runtime's default probing does not find, it searches the player's
 /// <c>&lt;Game&gt;_Data/Plugins/&lt;arch&gt;</c> and <c>&lt;Game&gt;_Data/Plugins</c> directories for the
 /// platform's file names, so a Windows host loads the game's own <c>AkSoundEngine.dll</c> and a
-/// macOS build its own plugin. Failing that, it searches the extra plugin directories the host
-/// passes in (a build of the same game for this platform, say) the same way, in the order given,
-/// and logs one line for each library it loads from one. Failing that, it uses the engine's substitute for the name, if it
+/// macOS build its own plugin. Failing that, it uses the engine's substitute for the name, if it
 /// has one (<see cref="Substitutes"/>), from the substitute directory the host passes in: the
-/// directory of the engine library. Any other name stays unresolved, so the runtime reports
+/// directory of the engine library. The substitute comes before the extra directories because
+/// it is known to fit the managed binding that imports the name, which a file from another
+/// build of the game need not (a Linux Wwise library does not fit the Windows binding). Failing that, it
+/// searches the extra plugin directories the host passes in (a build of the same game for this
+/// platform, say) the same way, in the order given, and logs one line for each library it loads
+/// from one. Any other name stays unresolved, so the runtime reports
 /// <see cref="DllNotFoundException"/> as it does without this class.
 /// </summary>
 public sealed class PlayerNativePlugins
@@ -60,7 +63,7 @@ public sealed class PlayerNativePlugins
     /// <param name="dataDirectory">The player's <c>&lt;Game&gt;_Data</c> directory.</param>
     /// <param name="substituteDirectory">Where the engine's substitute libraries are, or null for none.</param>
     /// <param name="log">Receives one line each time a substitute or an extra directory's library is used.</param>
-    /// <param name="extraDirectories">Plugin directories searched after the player's own and before the substitutes, or null for none.</param>
+    /// <param name="extraDirectories">Plugin directories searched after the player's own and the substitutes, or null for none.</param>
     public PlayerNativePlugins(string dataDirectory, string? substituteDirectory, Action<string> log,
         IReadOnlyList<string>? extraDirectories = null)
         : this(dataDirectory, substituteDirectory, log, new SystemNativeLoader(), CurrentPlatform, CurrentArchitecture, extraDirectories) { }
@@ -119,8 +122,8 @@ public sealed class PlayerNativePlugins
         {
             if (_found.TryGetValue(name, out var known)) return known;
             var handle = FromPlugins(name);
-            if (handle == 0) handle = FromExtra(name);
             if (handle == 0) handle = FromSubstitute(name);
+            if (handle == 0) handle = FromExtra(name);
             if (handle != 0) _found[name] = handle;
             return handle;
         }

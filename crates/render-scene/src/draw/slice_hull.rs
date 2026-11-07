@@ -9,8 +9,8 @@ use std::cell::{Cell, RefCell};
 
 use glam::{Mat4, Vec2, Vec3};
 
-use super::SceneGpu;
-use super::visibility::Bounds;
+use super::visibility::{Bounds, Frustum};
+use super::{DrawCount, FRAME_GROUP, SceneGpu};
 
 /// Convex polygon in a cascade's light clip-space XY, counter-clockwise.
 #[derive(Clone, Debug, PartialEq)]
@@ -179,6 +179,43 @@ impl SceneGpu {
             Some((matrix.to_cols_array().map(f32::to_bits), hull.clone()));
         slice.generation.set(slice.generation.get() + 1);
         Some(hull)
+    }
+}
+
+impl SceneGpu {
+    /// Draws the terrain into shadow cascade `index`. Streaming chunks outside the cascade's
+    /// volume or its slice hull cannot shadow a sampled texel and are skipped.
+    pub(crate) fn draw_terrain_depth(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        frame: &wgpu::BindGroup,
+        pipeline: &wgpu::RenderPipeline,
+        (index, matrix): (u32, Mat4),
+    ) -> DrawCount {
+        let frustum = Frustum::new(matrix);
+        let Some(terrain) = self
+            .terrain
+            .as_ref()
+            .filter(|t| frustum.intersects(t.bounds))
+        else {
+            return DrawCount::default();
+        };
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(FRAME_GROUP, frame, &[]);
+        let Some(streaming) = &terrain.streaming else {
+            return Self::draw_terrain_geometry(pass, terrain);
+        };
+        let slice = self.views[index as usize + 1].slice.for_matrix(matrix);
+        #[cfg(test)]
+        if UNCULLED.get() {
+            return streaming.draw(pass, &terrain.instances);
+        }
+        streaming.draw_where(pass, &terrain.instances, |bounds| {
+            frustum.intersects(bounds)
+                && slice
+                    .as_ref()
+                    .is_none_or(|(hull, _)| hull.overlaps(bounds, matrix))
+        })
     }
 }
 

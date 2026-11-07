@@ -581,23 +581,6 @@ impl SceneGpu {
         (count, bound)
     }
 
-    pub(crate) fn draw_terrain_depth(
-        &self,
-        pass: &mut RenderPass<'_>,
-        frame: &BindGroup,
-        pipeline: &wgpu::RenderPipeline,
-        matrix: glam::Mat4,
-    ) -> DrawCount {
-        if let Some(terrain) = &self.terrain
-            && visibility::Frustum::new(matrix).intersects(terrain.bounds)
-        {
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(FRAME_GROUP, frame, &[]);
-            return Self::draw_terrain_geometry(pass, terrain);
-        }
-        DrawCount::default()
-    }
-
     fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) -> DrawCount {
         if let Some(streaming) = &terrain.streaming {
             return streaming.draw(pass, &terrain.instances);

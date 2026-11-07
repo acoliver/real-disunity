@@ -59,6 +59,79 @@ fn gpu_static_refresh_policy_reuses_maps_and_visibility() {
     assert_eq!(fresh_default, reused);
 }
 
+#[test]
+fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
+    use worldrunner_render_shadow::RefreshReason;
+    let context = context();
+    let source = scene(&[[0, 0, 1_000], [500, 0, 1_000]], 600_000, None);
+    let mut renderer = ShadowedScene::new(
+        &context,
+        &source,
+        DirectionalShadowSettings {
+            refresh_policy: policy(),
+            ..settings()
+        },
+    )
+    .unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let last = |renderer: &ShadowedScene| renderer.cascade_refresh_states()[0].last_frame();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let handles: Vec<_> = renderer.scene_mut().instance_handles().collect();
+    let (moved, hidden) = (handles[1], handles[2]);
+    let (object, _) = renderer.scene_mut().instance(moved).unwrap();
+    renderer
+        .scene_mut()
+        .set_instance_transform(moved, *object.transform())
+        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        last(&renderer),
+        Some(0),
+        "an unchanged transform keeps the maps"
+    );
+    let shifted = SceneTransform {
+        position_millimeters: [200, 0, 1_000],
+        ..*object.transform()
+    };
+    renderer
+        .scene_mut()
+        .set_instance_transform(moved, shifted)
+        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(last(&renderer), Some(2));
+    assert_eq!(
+        renderer.cascade_refresh_states()[0].last_reason(),
+        Some(RefreshReason::Generation)
+    );
+    renderer
+        .scene_mut()
+        .set_instance_visible(hidden, false)
+        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        last(&renderer),
+        Some(3),
+        "hiding a caster removes its shadow"
+    );
+    let (object, _) = renderer.scene_mut().instance(hidden).unwrap();
+    renderer
+        .scene_mut()
+        .set_instance_object(
+            hidden,
+            object.with_transform(SceneTransform {
+                position_millimeters: [-300, 0, 1_000],
+                ..*object.transform()
+            }),
+        )
+        .unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(
+        last(&renderer),
+        Some(3),
+        "a hidden caster moves without a refresh"
+    );
+}
+
 pub(super) fn depth_layers(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<f32>> {
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let copies: Vec<_> = (0..renderer.map.depth.layers())
@@ -238,7 +311,8 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
-        Some(RefreshReason::DepthRange)
+        Some(RefreshReason::Generation),
+        "a moved caster refreshes before its depth range is compared"
     );
     renderer.set_effects(&fixture::effects(-600_000)).unwrap();
     render_target(&mut renderer, &context, &view(), &target).unwrap();

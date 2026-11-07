@@ -341,7 +341,70 @@ assert_eq!(after.draws_prepared, before.draws_prepared + 1);
 # }
 ```
 
-A call that is refused before it creates an object does not count it, and a cache hit counts nothing. `sets_prepared` is part of the set for later and is zero: no call prepares a reusable set yet.
+A call that is refused before it creates an object does not count it, and a cache hit counts nothing. `sets_prepared` counts the sets `prepare_set` builds, described next; each also adds its group to `bind_groups_built`, and a draw that binds a prepared set adds neither.
+
+## Sets built once for many draws
+
+A material's own resources are the same for every draw that uses the material, so the runtime should build their bind group once. `prepare_set` does: it fills the bindings of one set of a program from an `ImportTable`, a map from engine semantic to imported resource, and returns a `PreparedSet` that any number of draws bind through `ImportedDraw::sets`. A draw given a prepared set for a set builds no group for it.
+
+```rust,no_run
+# use worldrunner_render_program::binding::EngineSemantic;
+# use worldrunner_render_program::runtime::{
+#     GraphicsProgram, Import, ImportTable, ImportedDraw, ProgramRuntime, TargetSignature,
+# };
+# fn share(
+#     runtime: &mut ProgramRuntime,
+#     program: &GraphicsProgram,
+#     block: wgpu::Buffer,
+#     palette: (wgpu::Texture, wgpu::TextureView),
+#     draw: ImportedDraw<'_>,
+#     signature: TargetSignature,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// Everything any variant of the material reads. Entries a program does not use are ignored.
+let table = ImportTable::new()
+    .with(Import::buffer(EngineSemantic::named("terrain.block"), block))
+    .with(Import::texture_array(
+        EngineSemantic::named("terrain.palette"),
+        palette.0,
+        palette.1,
+    ));
+let set = runtime.prepare_set(program, 1, &table, Vec::new())?;
+
+let before = runtime.stats();
+let first = runtime.prepare_imported_draw(&ImportedDraw { sets: &[&set], ..draw.clone() }, signature)?;
+let second = runtime.prepare_imported_draw(&ImportedDraw { sets: &[&set], ..draw }, signature)?;
+// Neither draw built a bind group.
+assert_eq!(runtime.stats().bind_groups_built, before.bind_groups_built);
+# let _ = (first, second);
+# Ok(())
+# }
+```
+
+- **What the table must hold.** A binding the program uses and the table lacks is `ProgramError::MissingImport`, which names the semantic, the set and the binding. Entries for bindings the program does not use are ignored, so one table serves every variant of a material. A sampler binding that names no engine semantic gets the runtime's sampler. A buffer or texture binding that does not come from an engine semantic has nothing to fill it and is `MissingBinding`.
+- **Sharing.** The runtime keeps one `wgpu::BindGroupLayout` for each distinct list of slots at a set, so programs whose slots at a set are equal share a layout object (`GraphicsProgram::set_layout` returns it) and one `PreparedSet` fits all of them. A draw whose program has other slots at the set refuses the set with `SetLayoutMismatch`, as it does a set another runtime built. A set given twice, or given alongside an import or a bound resource for one of its bindings, is `PreparedSetConflict`. A prepared set for a set the pass owner binds is `ExternalSetConflict`, and `prepare_set` for a set the program has no bindings at is `UnknownSet`.
+- **Lifetimes.** The set's bind group and the `owners` given to `prepare_set` are held by every draw that binds the set, and by every frame that retains such a draw, until the frame is cancelled, dropped or completed on the GPU. The `PreparedSet` itself can be dropped once the draws are made.
+
+### Texture views of any dimension
+
+An imported texture carries the dimension of its view, because a view cannot be asked. `Import::texture` assumes the texture's default view, which is `D2` for one layer and `D2Array` for several. `Import::texture_array` takes the view as a 2D array whatever the layer count, which is how a texture of one layer or a view of some of the layers is read by `texture_2d_array`, and `Import::texture_view` takes any dimension, such as one layer of an array as `D2`. A binding accepts an import when the view's dimension and the texture's sample count match the shader's declaration and the format suits its sample type, so array, `Uint` and depth views can be imported. A mismatch is `ProgramError::WrongResource` naming what the binding expects and what was imported.
+
+### Programs from registered variants
+
+A registered program chooses its stages by feature set. Draws over lent resources take a program rather than a material, and `variant_program` returns the program that the variant for exactly those features built at registration, so resolving it builds nothing:
+
+```rust,no_run
+# use worldrunner_render_program::runtime::{GraphicsProgram, ProgramHandle, ProgramRuntime};
+# use worldrunner_render_program::variant::{FeatureId, FeatureSet};
+# fn resolve(
+#     runtime: &ProgramRuntime,
+#     handle: ProgramHandle,
+# ) -> Result<GraphicsProgram, Box<dyn std::error::Error>> {
+let features = FeatureSet::from([FeatureId::new("LAYERED")]);
+Ok(runtime.variant_program(handle, &features)?)
+# }
+```
+
+A feature no variant differs by is `VariantError::UnknownFeature`, and a set no variant has is `VariantError::NoMatch`.
 
 ## Clip space and depth
 

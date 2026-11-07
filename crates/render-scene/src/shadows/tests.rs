@@ -16,6 +16,7 @@ mod sampling_cost;
 mod scheduler;
 mod sdsm;
 mod selection;
+mod slice;
 mod ssao;
 mod streaming;
 mod subresources;

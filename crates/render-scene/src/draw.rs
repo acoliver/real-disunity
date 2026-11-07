@@ -692,6 +692,10 @@ mod environment;
 mod prepared;
 mod resources;
 mod selection_reuse;
+mod slice_hull;
+pub(crate) use slice_hull::SliceHull;
+#[cfg(test)]
+pub(crate) use slice_hull::UNCULLED as UNCULLED_CASCADES;
 pub mod source_environment;
 pub use prepared::PreparedScene;
 

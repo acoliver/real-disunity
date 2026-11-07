@@ -12,7 +12,13 @@ pub(super) struct RefreshCache {
     pub capture: bool,
     /// Latest localized caster change these states have been checked against.
     caster_seen: u64,
+    /// Slice hull each retained map's casters were culled to; none when unculled.
+    slices: [Option<crate::draw::SliceHull>; 4],
 }
+
+/// Texels a stored slice hull extends beyond the one required, so that small camera motion
+/// and projection jitter keep reusing a cascade's selection and retained map.
+const SLICE_SLACK_TEXELS: f32 = 32.0;
 
 #[derive(Clone, Debug, PartialEq)]
 struct RefreshKey {
@@ -66,8 +72,29 @@ impl RefreshCache {
         self.caster_seen = gpu.caster_sequence();
     }
 
+    /// Invalidates a retained map whose casters were culled to a slice that no longer
+    /// covers the receivers sampling it.
+    fn invalidate_uncovered(
+        &mut self,
+        index: usize,
+        cascades: &CascadeViews,
+        settings: DirectionalShadowSettings,
+    ) {
+        let state = &mut self.states[index];
+        let (Some(rendered), Some(matrix)) = (&self.slices[index], state.matrix()) else {
+            return;
+        };
+        if !cascades
+            .slice_hull(index, matrix, settings)
+            .is_none_or(|required| rendered.contains(&required))
+        {
+            state.invalidate();
+        }
+    }
+
     pub fn prepare(
         &mut self,
+        gpu: &crate::draw::SceneGpu,
         cascades: &mut CascadeViews,
         settings: DirectionalShadowSettings,
         sun: Vec3,
@@ -88,30 +115,48 @@ impl RefreshCache {
         }
         self.key = Some(key);
         let mut refresh = [false; 4];
-        for (index, matrix) in cascades.matrices.iter_mut().enumerate() {
+        let count = cascades.matrices.len();
+        for (index, refreshed) in refresh.iter_mut().enumerate().take(count) {
+            self.invalidate_uncovered(index, cascades, settings);
             let input = CascadeRefreshInput {
                 frame: self.frame,
-                matrix: *matrix,
+                matrix: cascades.matrices[index],
                 toward_light: sun,
                 resolution: settings.resolution,
                 generation,
                 capture: self.capture,
             };
-            if let Some(reason) = settings
-                .refresh_policy
-                .reason(index, &self.states[index], input)
-            {
-                refresh[index] = true;
-                self.states[index].record(input, reason);
-                self.bias[index] = cascades.depth_bias[index];
-            } else {
-                *matrix = self.states[index].matrix().expect("rendered cascade");
-                cascades.depth_bias[index] = self.bias[index];
-            }
+            *refreshed = self.refresh_cascade(gpu, cascades, (index, input), settings);
         }
         self.frame = self.frame.wrapping_add(1);
         self.capture = false;
         refresh
+    }
+
+    /// Records a refresh of cascade `index`, with the slice its casters are culled to, or
+    /// restores the retained map's matrix and bias. Returns whether it refreshes.
+    fn refresh_cascade(
+        &mut self,
+        gpu: &crate::draw::SceneGpu,
+        cascades: &mut CascadeViews,
+        (index, input): (usize, CascadeRefreshInput),
+        settings: DirectionalShadowSettings,
+    ) -> bool {
+        let Some(reason) = settings
+            .refresh_policy
+            .reason(index, &self.states[index], input)
+        else {
+            cascades.matrices[index] = self.states[index].matrix().expect("rendered cascade");
+            cascades.depth_bias[index] = self.bias[index];
+            return false;
+        };
+        self.states[index].record(input, reason);
+        self.bias[index] = cascades.depth_bias[index];
+        let required = cascades.slice_hull(index, input.matrix, settings);
+        let slack = SLICE_SLACK_TEXELS * 2.0
+            / f32::from(u16::try_from(settings.resolution).expect("bounded resolution"));
+        self.slices[index] = gpu.cascade_slice(index, input.matrix, required.as_ref(), slack);
+        true
     }
 }
 

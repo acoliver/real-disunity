@@ -14,6 +14,7 @@ use super::error::OffscreenError;
 pub struct PendingImage {
     buffer: wgpu::Buffer,
     size: [u32; 2],
+    format: wgpu::TextureFormat,
     bytes_per_row: u32,
     texel: u32,
 }
@@ -23,6 +24,12 @@ impl PendingImage {
     #[must_use]
     pub fn size(&self) -> [u32; 2] {
         self.size
+    }
+
+    /// The format of the texels.
+    #[must_use]
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
     }
 
     /// Waits for the submitted frame and returns the rows, without the padding the copy needs.
@@ -123,6 +130,7 @@ impl OffscreenOperations {
         Ok(PendingImage {
             buffer,
             size,
+            format: imported.format,
             bytes_per_row,
             texel,
         })

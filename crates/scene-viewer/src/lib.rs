@@ -39,12 +39,13 @@ mod retained;
 mod world_edits;
 pub use retained::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
-    AudioUnavailable, CancelToken, CaptureJitter, CaptureOutput, CaptureRequestError, ClipHandle,
-    CursorError, CursorGrabMode, KeyCode, LogicalKey, MAX_HOST_TIMERS, MouseButton, NativeKeyCode,
-    ObjectId, PhysicalKey, PickHit, RetainedCaptureObservation, RetainedCaptureOutcome,
-    RetainedCaptureProducts, RetainedCaptureRecipe, RetainedDriver, RetainedEvent,
-    RetainedEventHost, RetainedHost, RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate,
-    SceneObjectEdit, TimerError, TimerHandle, VoiceHandle, WheelDelta, WindowControlError,
+    AudioUnavailable, CameraContinuity, CancelToken, CaptureJitter, CaptureOutput,
+    CaptureRequestError, ClipHandle, CursorError, CursorGrabMode, KeyCode, LogicalKey,
+    MAX_HOST_TIMERS, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, PickHit,
+    RetainedCaptureObservation, RetainedCaptureOutcome, RetainedCaptureProducts,
+    RetainedCaptureRecipe, RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost,
+    RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate, SceneObjectEdit,
+    TemporalHistoryReset, TimerError, TimerHandle, VoiceHandle, WheelDelta, WindowControlError,
     WindowlessRetained, WorkCompletion, WorkFailure, WorkQueue, WorkQueueError, WorkSubmitError,
     WorkTicket,
 };

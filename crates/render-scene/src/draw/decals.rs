@@ -7,10 +7,14 @@ use std::cell::RefCell;
 use worldrunner_render_plan::{RenderScene, SceneDecal, SceneDecalAxis, SceneDecalWriteMask};
 
 mod channels;
+mod coverage;
 use channels::Channel;
+#[cfg(test)]
+pub(crate) use coverage::EVERY_VOLUME as EVERY_DECAL_VOLUME;
 
 const LIMIT: usize = 32;
-pub(crate) const BYTES: usize = 16 + LIMIT * 160;
+const VOLUME_BYTES: usize = 16 + LIMIT * 160;
+pub(crate) const BYTES: usize = VOLUME_BYTES + coverage::BYTES;
 
 #[derive(Debug)]
 struct Entry {
@@ -276,8 +280,10 @@ impl Decals {
             values.push(unit(decal.color_modifier.opacity_micro));
         }
         let mut bytes: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
-        assert!(bytes.len() <= BYTES);
-        bytes.resize(BYTES, 0);
+        assert!(bytes.len() <= VOLUME_BYTES);
+        bytes.resize(VOLUME_BYTES, 0);
+        let bounds: Vec<_> = selected.iter().map(|&i| self.entries[i].bounds).collect();
+        bytes.extend(coverage::bytes(&bounds));
         bytes
     }
 }

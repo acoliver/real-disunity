@@ -16,6 +16,16 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
     })
 }
 
+/// The wgpu format of an uploaded source texture: a render format, or a block-compressed format
+/// the player stores and the device samples as it is. BC6H (106) is unsigned-float, the form the
+/// managed engine's texture format 24 maps to.
+pub(crate) fn source_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenError> {
+    match code {
+        106 => Ok(wgpu::TextureFormat::Bc6hRgbUfloat),
+        _ => color_format(code),
+    }
+}
+
 /// The color format of a render texture: `None` for `GraphicsFormat` 0, a target with only depth,
 /// else the format of the table.
 pub(crate) fn render_color_format(
@@ -70,6 +80,19 @@ mod tests {
         assert!(matches!(
             render_color_format(93),
             Err(OffscreenError::UnsupportedFormat { code: 93 })
+        ));
+    }
+
+    #[test]
+    fn a_source_may_be_bc6h_and_a_render_texture_may_not() {
+        assert_eq!(
+            source_format(106).unwrap(),
+            wgpu::TextureFormat::Bc6hRgbUfloat
+        );
+        assert_eq!(source_format(8).unwrap(), wgpu::TextureFormat::Rgba8Unorm);
+        assert!(matches!(
+            render_color_format(106),
+            Err(OffscreenError::UnsupportedFormat { code: 106 })
         ));
     }
 

@@ -20,6 +20,7 @@ use worldrunner_unity_serialized::shader_state::ShaderState;
 use worldrunner_unity_serialized::spirv_prep::prepare_stages;
 use worldrunner_unity_serialized::{SerializedError, smolv};
 
+use crate::module::entry_point_names;
 use crate::unity::module::{ModuleError, StageKind, StageModule, StageProgram};
 use crate::unity::variant::{declared_keywords, select_variant};
 
@@ -32,6 +33,13 @@ pub enum PassSelector {
     /// compared without regard to ASCII case, because Unity stores some of them in upper case.
     /// Values are compared exactly.
     Tag { key: String, values: Vec<String> },
+    /// As `Tag`, with a pass that has no tag `key` counted as having `untagged` for that key.
+    /// A pass that has the tag keeps its own value.
+    TagWithUntagged {
+        key: String,
+        values: Vec<String>,
+        untagged: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -129,6 +137,33 @@ impl ProgramShader {
             .map_or(0, |sub| sub.passes.len())
     }
 
+    /// The number of passes of the first sub-shader and the values of tag `key` that they have,
+    /// in pass order; a pass without the tag adds none.
+    #[must_use]
+    pub fn pass_tags(&self, key: &str) -> (usize, Vec<String>) {
+        let passes = self
+            .shader
+            .parsed
+            .sub_shaders
+            .first()
+            .map_or(&[][..], |sub| sub.passes.as_slice());
+        let tags = passes
+            .iter()
+            .filter_map(|pass| tag(pass, key).map(str::to_owned))
+            .collect();
+        (passes.len(), tags)
+    }
+
+    /// The value of tag `key` on pass `pass` of the first sub-shader.
+    #[must_use]
+    pub fn pass_tag(&self, pass: usize, key: &str) -> Option<String> {
+        let passes = self.passes().ok()?;
+        passes
+            .get(pass)
+            .and_then(|pass| tag(pass, key))
+            .map(str::to_owned)
+    }
+
     /// Variants decoded so far.
     #[must_use]
     pub fn cached_variants(&self) -> usize {
@@ -182,6 +217,15 @@ impl ProgramShader {
                 passes
                     .iter()
                     .position(|pass| tag(pass, key) == Some(value.as_str()))
+            }),
+            PassSelector::TagWithUntagged {
+                key,
+                values,
+                untagged,
+            } => values.iter().find_map(|value| {
+                passes
+                    .iter()
+                    .position(|pass| tag(pass, key).unwrap_or(untagged.as_str()) == value.as_str())
             }),
         };
         found.ok_or_else(|| ResolveError::NoPass {
@@ -308,31 +352,8 @@ fn stage_words(record: &[u8]) -> Result<RecordStages, SerializedError> {
     })
 }
 
-const OP_ENTRY_POINT: u32 = 15;
-const FIRST_INSTRUCTION: usize = 5;
-
 /// The name of the module's only entry point.
 fn entry_point(words: &[u32]) -> Option<String> {
-    let mut found = None;
-    let mut at = FIRST_INSTRUCTION;
-    while let Some(&head) = words.get(at) {
-        let length = usize::try_from(head >> 16).ok().filter(|&n| n > 0)?;
-        let instruction = words.get(at..at + length)?;
-        if head & 0xffff == OP_ENTRY_POINT {
-            let bytes: Vec<u8> = instruction
-                .get(3..)?
-                .iter()
-                .flat_map(|word| word.to_le_bytes())
-                .take_while(|&byte| byte != 0)
-                .collect();
-            if found
-                .replace(String::from_utf8_lossy(&bytes).into_owned())
-                .is_some()
-            {
-                return None;
-            }
-        }
-        at += length;
-    }
-    found
+    let mut names = entry_point_names(words);
+    (names.len() == 1).then(|| names.remove(0))
 }

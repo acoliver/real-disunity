@@ -51,16 +51,16 @@ pub(crate) fn decode_compute_shader(
             file.display()
         ));
     }
+    let kernels = shader.kernels();
     Ok(ComputeDecl {
-        name: shader.name,
+        name: shader.name.clone(),
         file: file_name(&files.data_dir, file),
         path_id: *path_id,
-        kernels: shader
-            .kernels
-            .into_iter()
+        kernels: kernels
+            .iter()
             .map(|kernel| PlanKernel {
-                name: kernel.name,
-                thread_group_size: kernel.thread_group_size,
+                name: kernel.name.clone(),
+                thread_group_size: kernel.thread_group_size(),
             })
             .collect(),
     })

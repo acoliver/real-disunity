@@ -205,7 +205,7 @@ fn default_uniform_bytes_match_the_existing_volume_layout() {
     values.extend([1.0; 4]);
     let mut expected: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
     expected.resize(16 + 32 * 160, 0);
-    assert_eq!(actual, expected);
+    assert_eq!(actual[..expected.len()], expected);
 }
 
 fn folded_receiver(alpha: u8) -> RenderScene {

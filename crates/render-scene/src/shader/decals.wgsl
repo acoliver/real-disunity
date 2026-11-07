@@ -10,6 +10,19 @@ struct SceneDecalVolume {
 struct SceneDecalList {
     count: vec4<u32>,
     volumes: array<SceneDecalVolume, 32>,
+    // World-plane grid origin (xy) and inverse cell size (zw).
+    coverage_frame: vec4<f32>,
+    // 16 x 16 cells, row-major; bit i of a cell marks volume i reaching it.
+    coverage: array<vec4<u32>, 64>,
+}
+// The selected volumes whose bounds reach the cell of `position`; all others contain no
+// point of that cell, so the volume loop would skip them before writing.
+fn scene_decal_candidates(position: vec3<f32>) -> u32 {
+    let scaled = (position.xy - scene_decals.coverage_frame.xy) * scene_decals.coverage_frame.zw;
+    if any(scaled < vec2<f32>(0.0)) || any(scaled >= vec2<f32>(16.0)) { return 0u; }
+    let cell = vec2<u32>(scaled);
+    let index = cell.y * 16u + cell.x;
+    return scene_decals.coverage[index / 4u][index % 4u];
 }
 @group(0) @binding(1) var<uniform> scene_decals: SceneDecalList;
 @group(0) @binding(2) var scene_decal_albedo: texture_2d_array<f32>;

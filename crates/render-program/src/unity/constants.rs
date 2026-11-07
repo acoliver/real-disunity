@@ -21,7 +21,7 @@ use crate::constants::{
     self as neutral, ArrayLayout, ConstantLayout, MatrixLayout, MatrixOrder, Member, ScalarKind,
     pack_constants,
 };
-use crate::properties::PropertySet;
+use crate::properties::{PropertySet, PropertyValue, lookup};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ConstantError {
@@ -152,11 +152,67 @@ pub fn pack_layout(
     min_len: usize,
 ) -> Result<PackedConstants, ConstantError> {
     let neutral = neutral_layout(layout, names, min_len)?;
+    let converted = same_number(&neutral, layers);
+    let layers: Vec<&PropertySet> = std::iter::once(&converted)
+        .chain(layers.iter().copied())
+        .collect();
     Ok(pack_constants(
         &neutral,
-        layers,
+        &layers,
         min_len.next_multiple_of(REGISTER),
     )?)
+}
+
+/// Integers a 32-bit float holds exactly.
+const FLOAT_EXACT: u32 = 1 << 24;
+
+/// `value` as a float, when the float is the same number.
+#[allow(clippy::cast_precision_loss)] // exact up to `FLOAT_EXACT`, which the check enforces
+fn float_of(value: i32) -> Option<f32> {
+    (value.unsigned_abs() <= FLOAT_EXACT).then_some(value as f32)
+}
+
+/// `value` as an integer, when it is a whole number an `i32` holds.
+#[allow(clippy::cast_possible_truncation)] // a whole number inside the range, checked first
+fn integer_of(value: f32) -> Option<i32> {
+    let limit = 2_147_483_648.0_f32;
+    (value.fract() == 0.0 && (-limit..limit).contains(&value)).then_some(value as i32)
+}
+
+/// The values a scalar member takes from a property of the other number kind. Unity holds one
+/// number under a name whether a script set it as a float or an integer, so a whole number set as
+/// an integer is the same number in a float member when a float holds it exactly, and a whole
+/// float is the same number in a signed, unsigned or boolean member. The values go in a layer
+/// that shadows the ones they convert; anything that does not convert is left for the packer to
+/// name as a value of the wrong kind.
+fn same_number(layout: &ConstantLayout, layers: &[&PropertySet]) -> PropertySet {
+    let mut converted = PropertySet::new();
+    for member in &layout.members {
+        let BindingSource::Property(id) = &member.source else {
+            continue;
+        };
+        if member.rows != 1 || member.cols != 1 || member.matrix.is_some() {
+            continue;
+        }
+        let name = id.as_str();
+        match (member.kind, lookup(layers, name)) {
+            (ScalarKind::F32, Some(&PropertyValue::Int(value))) => {
+                if let Some(float) = float_of(value) {
+                    converted.set(name, PropertyValue::Float(float));
+                }
+            }
+            (
+                ScalarKind::I32 | ScalarKind::U32 | ScalarKind::Bool32,
+                Some(&PropertyValue::Float(value)),
+            ) => {
+                if let Some(integer) = integer_of(value) {
+                    converted.set(name, PropertyValue::Int(integer));
+                }
+            }
+            _ => {}
+        }
+    }
+    converted
 }
 
 /// The neutral layout of `layout`, whose size is a whole number of registers. Every member is

@@ -298,9 +298,14 @@ impl Gpu {
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("the program tests need a GPU adapter");
         announce_adapter(&adapter);
-        let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &DeviceRequirements::default()))
-                .expect("the adapter gives a device");
+        // Block compression is optional: the tests that draw from a block-compressed source
+        // check that the device has it.
+        let requirements = DeviceRequirements {
+            optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+            ..DeviceRequirements::default()
+        };
+        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+            .expect("the adapter gives a device");
         Self {
             device,
             authority: SubmissionAuthority::new(queue),

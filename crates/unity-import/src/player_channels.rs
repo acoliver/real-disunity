@@ -103,7 +103,7 @@ impl fmt::Display for ChannelReport {
 pub fn channel_report(paths: &[PathBuf]) -> Result<ChannelReport, PlayerError> {
     let mut report = ChannelReport::default();
     walk_variants(paths, &mut |event| match event {
-        Event::Shader => report.shaders += 1,
+        Event::Shader(_) => report.shaders += 1,
         Event::Unreadable(_) => report.unreadable += 1,
         Event::Variant { channels, .. } => report.add_table(channels),
     })?;

@@ -31,6 +31,7 @@ use super::adapter::{OffscreenAdapter, build};
 use super::assets::Assets;
 use super::compute::{ComputeAdapter, DispatchTrace, GpuBuffers, Prepared, nonzero_words};
 use super::frame::{Adapted, Report};
+use super::probe::{BeforeDispatch, Probe};
 use super::trace::WorkTrace;
 
 /// Why a flush stopped. The world logs it once and the read that asked for the flush returns the
@@ -173,6 +174,11 @@ impl OffscreenHost {
         self.state.set_constants_limit(bytes);
     }
 
+    /// Sets the most bytes all of a frame's constants may take together.
+    pub fn set_constants_total_limit(&mut self, bytes: u64) {
+        self.state.set_constants_total_limit(bytes);
+    }
+
     /// The runtime, for a caller that draws with the same device.
     pub fn runtime_mut(&mut self) -> &mut ProgramRuntime {
         &mut self.runtime
@@ -275,7 +281,7 @@ impl OffscreenHost {
             let segment = &records[from..until];
             from = until;
             // The first build also creates the render textures the dispatches bind.
-            let operations = if segment.is_empty() && (index > 0 || placements.is_empty()) {
+            let mut operations = if segment.is_empty() && (index > 0 || placements.is_empty()) {
                 None
             } else {
                 let (operations, kept) =
@@ -286,13 +292,20 @@ impl OffscreenHost {
             let prepared = placements.get(index).and_then(|placed| {
                 self.prepare(snapshot, placed.work, buffers, &mut adapted.report)
             });
+            let probe = prepared.as_ref().and_then(|_| {
+                let trace = adapted.report.traces.last()?;
+                Some(Probe::plan(trace, &self.state, operations.as_mut()))
+            });
             let submitted = Instant::now();
-            self.submit(operations, prepared.as_ref())?;
+            let probed = self.submit(operations, prepared.as_ref(), probe.as_ref())?;
             adapted.report.phases.submit += submitted.elapsed();
             if prepared.is_some()
                 && let Some(trace) = adapted.report.traces.last_mut()
             {
                 "ran".clone_into(&mut trace.outcome);
+                if let (Some(probe), Some((before, submission))) = (probe, probed) {
+                    probe.resolve(before, &submission, self.runtime.device(), trace);
+                }
             }
         }
         adapted.report.built = built;
@@ -345,16 +358,27 @@ impl OffscreenHost {
             &mut trace,
         );
         for texture in &mut trace.textures {
-            for camera in report
+            for (camera, pass) in report
                 .camera_draws
                 .iter()
-                .filter(|camera| Some(camera.target) == texture.texture)
+                .zip(&report.camera_passes)
+                .filter(|(camera, _)| Some(camera.target) == texture.texture)
             {
                 texture.camera_renders += 1;
                 texture.camera_draws += camera.drawn;
                 texture.camera_unmatched += camera.unmatched;
                 texture.camera_missing_texture += camera.missing_texture;
                 texture.camera_missing_channel += camera.missing_channel;
+                texture.camera_notes.push(format!(
+                    "camera {:?} drew {} into color {:?} depth {:?}, states {:?}, without a \
+                     value {:?}",
+                    camera.camera,
+                    camera.drawn,
+                    pass.color,
+                    pass.depth,
+                    pass.states,
+                    pass.without_value
+                ));
             }
         }
         let outcome = match prepared {
@@ -369,14 +393,16 @@ impl OffscreenHost {
         outcome
     }
 
-    /// Records the operations and then the dispatch into one frame and submits it.
+    /// Records the operations and then the dispatch into one frame and submits it. The probe's
+    /// second read is recorded between them, and comes back with the submission once it is made.
     fn submit(
         &mut self,
         operations: Option<OffscreenOperations>,
         dispatch: Option<&Prepared>,
-    ) -> Result<(), FlushError> {
+        probe: Option<&Probe>,
+    ) -> Result<Option<(BeforeDispatch, wgpu::SubmissionIndex)>, FlushError> {
         if operations.is_none() && dispatch.is_none() {
-            return Ok(());
+            return Ok(None);
         }
         let authority = self.runtime.authority().clone();
         let device = self.runtime.device().clone();
@@ -390,11 +416,14 @@ impl OffscreenHost {
                 .encode(None, &mut frame)
                 .map_err(OffscreenError::from)?;
         }
+        let before = probe
+            .filter(|_| dispatch.is_some())
+            .map(|probe| probe.record(&self.runtime, &mut frame));
         if let Some(dispatch) = dispatch {
             self.runtime.dispatch(&mut frame, &dispatch.request())?;
         }
-        frame.finish().submit().map_err(ProgramError::from)?;
-        Ok(())
+        let submission = frame.finish().submit().map_err(ProgramError::from)?;
+        Ok(before.map(|before| (before, submission)))
     }
 
     /// Copies every bound compute buffer back with one more submission, waits for it alone and

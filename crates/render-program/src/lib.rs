@@ -37,6 +37,7 @@ pub mod sampler;
 mod schema;
 pub mod state;
 pub mod targets;
+pub mod texels;
 #[cfg(feature = "unity")]
 pub mod unity;
 pub mod variant;

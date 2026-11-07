@@ -13,7 +13,7 @@ use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{
-    CameraDraws, OffscreenOperations, PartialMipReads, UnmatchedPasses,
+    CameraDraws, CameraPassReport, OffscreenOperations, PartialMipReads, UnmatchedPasses,
 };
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
@@ -159,6 +159,8 @@ pub struct Report {
     pub traces: Vec<DispatchTrace>,
     /// What each camera render recorded and left out.
     pub camera_draws: Vec<CameraDraws>,
+    /// How each of those camera renders drew, in the same order.
+    pub camera_passes: Vec<CameraPassReport>,
     /// The camera draws left out for want of a pass, and the texture reads that bound only the
     /// levels written with the base level, each counted by the tags of the pass concerned.
     pub unmatched_passes: Vec<UnmatchedPasses>,
@@ -187,6 +189,7 @@ impl Report {
     /// Takes what `operations` counted of the draws it holds.
     pub fn absorb_draws(&mut self, operations: &OffscreenOperations) {
         self.camera_draws.extend(operations.camera_draws());
+        self.camera_passes.extend(operations.camera_passes());
         for entry in operations.unmatched_passes() {
             self.add_unmatched(entry);
         }
@@ -284,6 +287,7 @@ impl Report {
             *self.unresolved_textures.entry(name).or_default() += count;
         }
         self.camera_draws.extend(other.camera_draws);
+        self.camera_passes.extend(other.camera_passes);
         self.phases.add(&other.phases);
         for (name, count) in other.unsupported_work {
             *self.unsupported_work.entry(name).or_default() += count;

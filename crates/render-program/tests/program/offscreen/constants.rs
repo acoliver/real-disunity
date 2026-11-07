@@ -178,3 +178,26 @@ fn a_block_larger_than_any_buffer_is_refused_by_its_size() {
         "{error}"
     );
 }
+
+#[test]
+fn constants_past_the_most_a_frame_may_hold_are_refused_by_their_sizes() {
+    let mut rig = rig();
+    // A buffer holds one block; three blocks of 16 bytes pass 40 bytes at the third.
+    let alignment = u64::from(rig.gpu.device.limits().min_uniform_buffer_offset_alignment);
+    rig.state.set_constants_limit(alignment.max(16));
+    rig.state.set_constants_total_limit(40);
+    let Err(error) = rig.build(&quadrants()) else {
+        panic!("three blocks of 16 bytes do not fit 40");
+    };
+    assert!(
+        matches!(
+            error,
+            OffscreenError::ConstantsOverBudget {
+                needed: 48,
+                budget: 40
+            }
+        ),
+        "{error}"
+    );
+    assert!(error.is_frame_wide());
+}

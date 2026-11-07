@@ -53,6 +53,7 @@ mod flush;
 mod frame;
 mod ids;
 mod kernels;
+mod probe;
 mod properties;
 mod shaders;
 mod trace;

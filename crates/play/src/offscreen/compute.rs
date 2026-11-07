@@ -91,6 +91,17 @@ impl DispatchTrace {
                 texture.camera_missing_texture,
                 texture.camera_missing_channel
             ));
+            if let Some(after) = &texture.after_operations {
+                lines.push(format!(
+                    "    after the operations before the dispatch: {after}"
+                ));
+            }
+            if let Some(before) = &texture.before_dispatch {
+                lines.push(format!("    right before the dispatch: {before}"));
+            }
+            for note in &texture.camera_notes {
+                lines.push(format!("    {note}"));
+            }
         }
         for buffer in &self.buffers {
             lines.push(format!(
@@ -119,6 +130,12 @@ pub struct TextureTrace {
     pub camera_unmatched: usize,
     pub camera_missing_texture: usize,
     pub camera_missing_channel: usize,
+    /// What a render texture held in texels after the operations before the dispatch and right
+    /// before the dispatch, as counts and a value range.
+    pub after_operations: Option<String>,
+    pub before_dispatch: Option<String>,
+    /// How each camera render into the texture drew: its target, state and the values it lacked.
+    pub camera_notes: Vec<String>,
 }
 
 /// A buffer a kernel declares and what the dispatch bound to it.

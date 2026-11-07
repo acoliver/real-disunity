@@ -22,6 +22,7 @@ mod player_layout;
 mod player_struct_block;
 mod player_structs;
 mod ranges;
+mod read_texture;
 mod rig;
 mod state;
 mod surface;

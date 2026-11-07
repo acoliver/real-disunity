@@ -65,6 +65,9 @@ pub struct OffscreenState {
     constants: Vec<(BufferHandle, u64)>,
     /// The most bytes one constants buffer may hold, when the host lowers it from the default.
     constants_limit: Option<u64>,
+    /// The most bytes all of a frame's constants may take, when the host lowers it from what the
+    /// runtime's budget has left.
+    constants_total_limit: Option<u64>,
     retired_constants: Vec<BufferHandle>,
 }
 
@@ -85,6 +88,7 @@ impl OffscreenState {
             draws: HashMap::new(),
             constants: Vec::new(),
             constants_limit: None,
+            constants_total_limit: None,
             retired_constants: Vec::new(),
         }
     }
@@ -94,6 +98,12 @@ impl OffscreenState {
     /// binding the buffer and offset that hold its bytes.
     pub fn set_constants_limit(&mut self, bytes: u64) {
         self.constants_limit = Some(bytes);
+    }
+
+    /// Sets the most bytes all of a frame's constants may take. By default that is what the
+    /// runtime's budget has left, since the constants are storage the runtime holds.
+    pub fn set_constants_total_limit(&mut self, bytes: u64) {
+        self.constants_total_limit = Some(bytes);
     }
 
     pub fn add_shader(&mut self, id: ShaderId, shader: ProgramShader) {
@@ -241,7 +251,7 @@ impl OffscreenState {
     }
 
     /// What the frame's constants must stay within: a block fits a uniform binding, a chunk fits a
-    /// buffer, and all of them fit the runtime's budget.
+    /// buffer, and all of them fit what the runtime's budget has left.
     fn constants_limits(&self, runtime: &ProgramRuntime) -> ConstantsLimits {
         let limits = runtime.device().limits();
         let chunk = self
@@ -252,7 +262,15 @@ impl OffscreenState {
             block: limits.max_uniform_buffer_binding_size,
             // A buffer's size is a multiple of four.
             chunk: chunk - chunk % 4,
-            total: runtime.budget().0,
+            total: self.constants_total_limit.unwrap_or_else(|| {
+                // The buffers this state already holds are reused or given back, so they are free.
+                let held: u64 = self.constants.iter().map(|(_, size)| size).sum();
+                runtime
+                    .budget()
+                    .0
+                    .saturating_sub(runtime.live_bytes())
+                    .saturating_add(held)
+            }),
         }
     }
 

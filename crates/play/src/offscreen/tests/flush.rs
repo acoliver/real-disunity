@@ -391,6 +391,11 @@ fn the_trace_reads_as_report_lines() {
             "  textures set [_Heights]",
             "  texture _Heights from render, on the GPU true, camera renders before 1 drew 1 left out 0 \
              for want of a pass, 0 for want of a texture and 0 for want of a mesh channel",
+            "    after the operations before the dispatch: 16 texels, 16 non-zero, values [0.25, 0.5]",
+            "    right before the dispatch: 16 texels, 16 non-zero, values [0.25, 0.5]",
+            "    camera CameraId(0) drew 1 into color Some(R16Float) depth None, states \
+             [(\"cull None, depth test LessEqual write true, color mask RGBA, blend off\", 1)], \
+             without a value []",
             "  buffer _Output 64 bytes, non-zero words 0 before, Some(16) after",
         ]
     );

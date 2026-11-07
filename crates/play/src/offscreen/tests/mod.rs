@@ -10,6 +10,7 @@ mod frame;
 mod gpu;
 mod kernels;
 mod policy;
+mod probe;
 mod properties;
 mod refusal;
 mod shaders;

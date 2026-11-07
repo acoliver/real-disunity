@@ -518,10 +518,18 @@ fn registering_a_program_parses_the_source_of_both_its_stages_once() {
     };
     let handle = runtime.register_program(desc(WGSL)).unwrap();
     let program = runtime.variant_program(handle, &FeatureSet::new()).unwrap();
-    assert!(program.vertex().shares_parse_with(program.fragment()));
+    assert!(
+        program
+            .vertex()
+            .shares_parse_with(program.fragment().unwrap())
+    );
 
     let edited = format!("{WGSL}\n// edited");
     let handle = runtime.register_program(desc(&edited)).unwrap();
     let program = runtime.variant_program(handle, &FeatureSet::new()).unwrap();
-    assert!(!program.vertex().shares_parse_with(program.fragment()));
+    assert!(
+        !program
+            .vertex()
+            .shares_parse_with(program.fragment().unwrap())
+    );
 }

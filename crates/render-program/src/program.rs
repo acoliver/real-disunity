@@ -56,11 +56,13 @@ pub struct ExternalSet {
     pub bindings: ResourceLayout,
 }
 
-/// A vertex and a fragment stage with their merged layouts.
+/// A vertex stage and, usually, a fragment stage, with their merged layouts. A program with no
+/// fragment stage (see [`ProgramRuntime::vertex_only_program`]) draws into passes that have no
+/// colour attachment, such as the depth passes of shadow casters.
 #[derive(Clone)]
 pub struct GraphicsProgram {
     pub(crate) vertex: StageProgram,
-    pub(crate) fragment: StageProgram,
+    pub(crate) fragment: Option<StageProgram>,
     pub(crate) gpu: Arc<GpuLayout>,
 }
 
@@ -77,9 +79,10 @@ impl GraphicsProgram {
         &self.vertex
     }
 
+    /// The fragment stage, or `None` for a vertex-only program.
     #[must_use]
-    pub fn fragment(&self) -> &StageProgram {
-        &self.fragment
+    pub fn fragment(&self) -> Option<&StageProgram> {
+        self.fragment.as_ref()
     }
 
     #[must_use]
@@ -121,6 +124,29 @@ impl ProgramRuntime {
         let gpu = self.gpu_layout(ProgramLayout::build(&[stage])?, &[])?;
         Ok(ComputeProgram {
             stage: stage.clone(),
+            gpu: Arc::new(gpu),
+        })
+    }
+
+    /// Builds the layouts of a vertex stage alone, for passes with a depth attachment and no
+    /// colour attachment: it can be drawn only into a signature made by
+    /// [`TargetSignature::depth_only`](crate::packet::TargetSignature::depth_only), and a
+    /// pipeline for any other is refused as `NoFragmentForColors`. The stage's declarations and
+    /// overrides are used as they are.
+    ///
+    /// # Errors
+    /// Fails when the stage is not a vertex stage, its declarations do not match its module or
+    /// the device cannot hold the layout.
+    pub fn vertex_only_program(
+        &self,
+        vertex: &StageProgram,
+    ) -> Result<GraphicsProgram, ProgramError> {
+        expect(vertex, StageKind::Vertex)?;
+        let layout = ProgramLayout::build_in(&[vertex], &[])?;
+        let gpu = self.gpu_layout(layout, &[])?;
+        Ok(GraphicsProgram {
+            vertex: vertex.clone(),
+            fragment: None,
             gpu: Arc::new(gpu),
         })
     }
@@ -173,7 +199,7 @@ impl ProgramRuntime {
         let gpu = self.gpu_layout(layout, external)?;
         Ok(GraphicsProgram {
             vertex: vertex.clone(),
-            fragment: fragment.clone(),
+            fragment: Some(fragment.clone()),
             gpu: Arc::new(gpu),
         })
     }

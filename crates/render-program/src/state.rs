@@ -1,8 +1,8 @@
 //! Fixed-function state a pipeline is built from, as plain data.
 //!
-//! The state describes more than the runtime draws today: stencil, depth bias, alpha to
-//! coverage and several colour targets are representable, and [`RenderState::check_drawable`]
-//! names the ones a draw refuses.
+//! The state describes more than the runtime draws today: stencil, alpha to coverage and several
+//! colour targets are representable, and [`RenderState::check_drawable`] names the ones a draw
+//! refuses. A depth bias is drawn: it is part of [`DepthState`] and of the pipeline.
 
 use crate::error::ProgramError;
 
@@ -88,12 +88,19 @@ impl RenderState {
     /// Checks that a draw into `count` colour targets can use this state and returns each
     /// target's state, in target order. A target the fragment stage does not write is
     /// expressed by an empty write mask, which keeps the attachment compatible with the pass.
+    /// A depth-only pass has `count` 0 and takes a state with no colour targets.
     ///
     /// # Errors
     /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses,
+    /// with `ColorStatesOnDepthOnly` when `count` is 0 and the state describes colour targets
     /// and with `ColorStates` when the state does not describe each of the `count` targets.
     pub fn check_targets(&self, count: usize) -> Result<Vec<ColorState>, ProgramError> {
         self.check_fixed_function()?;
+        if count == 0 && !self.colors.is_empty() {
+            return Err(ProgramError::ColorStatesOnDepthOnly {
+                states: self.colors.len(),
+            });
+        }
         if self.colors.len() != count {
             return Err(ProgramError::ColorStates {
                 states: self.colors.len(),
@@ -110,12 +117,6 @@ impl RenderState {
         let refuse = |what| Err(ProgramError::UnsupportedState { what });
         if self.stencil.is_some() {
             return refuse("stencil");
-        }
-        if self
-            .depth
-            .is_some_and(|depth| depth.bias != wgpu::DepthBiasState::default())
-        {
-            return refuse("depth bias");
         }
         if self.raster.alpha_to_coverage {
             return refuse("alpha to coverage");
@@ -157,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn stencil_depth_bias_and_alpha_to_coverage_are_refused_by_name() {
+    fn stencil_and_alpha_to_coverage_are_refused_by_name() {
         let mut state = RenderState::opaque_depth();
         state.stencil = Some(StencilState {
             ops: wgpu::StencilState::default(),
@@ -165,11 +166,39 @@ mod tests {
         });
         assert_eq!(refused(&state), "stencil");
         let mut state = RenderState::opaque_depth();
-        state.depth.as_mut().unwrap().bias.constant = 2;
-        assert_eq!(refused(&state), "depth bias");
-        let mut state = RenderState::opaque_depth();
         state.raster.alpha_to_coverage = true;
         assert_eq!(refused(&state), "alpha to coverage");
+    }
+
+    #[test]
+    fn a_depth_bias_is_part_of_a_drawable_state() {
+        let mut state = RenderState::opaque_depth();
+        state.depth.as_mut().unwrap().bias = wgpu::DepthBiasState {
+            constant: 2,
+            slope_scale: 1.5,
+            clamp: 0.01,
+        };
+        assert!(state.check_drawable().is_ok());
+        assert!(state.check_targets(1).is_ok());
+    }
+
+    #[test]
+    fn a_depth_only_pass_takes_a_state_with_no_colour_targets() {
+        let mut state = RenderState::opaque_depth();
+        assert_eq!(
+            state.check_targets(0).unwrap_err(),
+            ProgramError::ColorStatesOnDepthOnly { states: 1 }
+        );
+        state.colors.clear();
+        assert_eq!(state.check_targets(0).unwrap(), Vec::new());
+        // The same state does not describe a pass that has a colour attachment.
+        assert_eq!(
+            state.check_targets(1).unwrap_err(),
+            ProgramError::ColorStates {
+                states: 0,
+                targets: 1
+            }
+        );
     }
 
     #[test]

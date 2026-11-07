@@ -41,6 +41,12 @@ pub enum ProgramError {
     #[error("the state describes {states} colour targets and the pass has {targets}")]
     ColorStates { states: usize, targets: usize },
     #[error(
+        "the pass has a depth attachment and no colour attachment, and the state describes {states} colour targets"
+    )]
+    ColorStatesOnDepthOnly { states: usize },
+    #[error("the program has no fragment stage, and the pass has {colors} colour attachments")]
+    NoFragmentForColors { colors: usize },
+    #[error(
         "set {set} binding {binding} imports {semantic}, and the draw imports nothing of that name"
     )]
     MissingImport {

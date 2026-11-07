@@ -13,6 +13,7 @@ use crate::bind::Snapshot;
 use crate::budget::Reservation;
 use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
+use crate::module::StageProgram;
 use crate::pipeline_key::Key;
 use crate::program::GraphicsProgram;
 use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
@@ -90,13 +91,19 @@ impl TargetSignature {
         Self::build(colors, depth, samples)
     }
 
-    /// The signature of a single-sample pass with a depth attachment and no colour attachment,
-    /// which offscreen depth-only render textures are drawn through.
+    /// The signature of a pass with a depth attachment of `format` and no colour attachment, of
+    /// `samples` of 1, 2, 4, 8 or 16 per pixel: the pass of a shadow map, and of the offscreen
+    /// depth-only render textures. A draw into it takes a state with no colour targets, and a
+    /// program with or without a fragment stage ([`vertex_only_program`]).
+    ///
+    /// [`vertex_only_program`]: crate::runtime::ProgramRuntime::vertex_only_program
     ///
     /// # Errors
-    /// Fails by name for a depth format with a stencil aspect, and for a format that has no depth.
-    pub(crate) fn depth_only(depth: wgpu::TextureFormat) -> Result<Self, ProgramError> {
-        Self::build(&[], Some(depth), 1)
+    /// Fails by name for a depth format with a stencil aspect, for a format that has no depth and
+    /// for a sample count that is not a power of two up to 16.
+    pub fn depth_only(depth: wgpu::TextureFormat, samples: u32) -> Result<Self, ProgramError> {
+        check_samples(samples)?;
+        Self::build(&[], Some(depth), samples)
     }
 
     /// The signature of a pass a renderer opens: one to four colour attachments, the first of
@@ -113,9 +120,7 @@ impl TargetSignature {
         depth: Option<wgpu::TextureFormat>,
         samples: u32,
     ) -> Result<Self, ProgramError> {
-        if !matches!(samples, 1 | 2 | 4 | 8 | 16) {
-            return Err(UnsupportedTarget::SampleCount { samples }.into());
-        }
+        check_samples(samples)?;
         if !(1..=MAX_COLOR_ATTACHMENTS).contains(&colors.len()) {
             return Err(UnsupportedTarget::ColorAttachments {
                 count: colors.len(),
@@ -167,6 +172,13 @@ impl TargetSignature {
     pub fn samples(&self) -> u32 {
         self.samples
     }
+}
+
+fn check_samples(samples: u32) -> Result<(), ProgramError> {
+    if matches!(samples, 1 | 2 | 4 | 8 | 16) {
+        return Ok(());
+    }
+    Err(UnsupportedTarget::SampleCount { samples }.into())
 }
 
 fn depth_format(format: wgpu::TextureFormat) -> Result<DepthFormat, ProgramError> {
@@ -461,6 +473,11 @@ impl ProgramRuntime {
         &mut self,
         request: &PipelineRequest<'_>,
     ) -> Result<wgpu::RenderPipeline, ProgramError> {
+        if request.program.fragment.is_none() && request.signature.color_count() > 0 {
+            return Err(ProgramError::NoFragmentForColors {
+                colors: request.signature.color_count(),
+            });
+        }
         let key = request.key();
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
@@ -483,12 +500,22 @@ impl ProgramRuntime {
     pub(crate) fn program_modules(
         &mut self,
         program: &GraphicsProgram,
-    ) -> Result<(wgpu::ShaderModule, wgpu::ShaderModule), ProgramError> {
-        Ok((
-            self.shader_module(&program.vertex)?,
-            self.shader_module(&program.fragment)?,
-        ))
+    ) -> Result<ProgramModules, ProgramError> {
+        let vertex = self.shader_module(&program.vertex)?;
+        let fragment = program
+            .fragment
+            .as_ref()
+            .map(|stage| self.shader_module(stage))
+            .transpose()?;
+        Ok(ProgramModules { vertex, fragment })
     }
+}
+
+/// The compiled modules of a program's stages: the vertex stage's and, if there is one, the
+/// fragment stage's.
+pub(crate) struct ProgramModules {
+    pub(crate) vertex: wgpu::ShaderModule,
+    pub(crate) fragment: Option<wgpu::ShaderModule>,
 }
 
 /// Builds the descriptor of the pipeline `request` describes against `layout` and hands it to
@@ -496,7 +523,7 @@ impl ProgramRuntime {
 /// layout made of their own bind groups.
 pub(crate) fn with_pipeline_descriptor<T>(
     request: &PipelineRequest<'_>,
-    (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
+    modules: &ProgramModules,
     layout: &wgpu::PipelineLayout,
     create: impl FnOnce(&wgpu::RenderPipelineDescriptor<'_>) -> T,
 ) -> T {
@@ -509,13 +536,14 @@ pub(crate) fn with_pipeline_descriptor<T>(
         bias: wgpu::DepthBiasState::default(),
     });
     let program = request.program;
-    let (vertex_constants, fragment_constants) =
-        (program.vertex.constants(), program.fragment.constants());
+    let vertex_constants = program.vertex.constants();
+    let fragment_stage = program.fragment.as_ref().zip(modules.fragment.as_ref());
+    let fragment_constants = fragment_stage.map(|(stage, _)| stage.constants());
     create(&wgpu::RenderPipelineDescriptor {
         label: Some("render-program pipeline"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
-            module: vertex,
+            module: &modules.vertex,
             entry_point: Some(&program.vertex.module().entry_point),
             compilation_options: wgpu::PipelineCompilationOptions {
                 constants: &vertex_constants,
@@ -539,11 +567,11 @@ pub(crate) fn with_pipeline_descriptor<T>(
             count: signature.samples,
             ..wgpu::MultisampleState::default()
         },
-        fragment: Some(wgpu::FragmentState {
-            module: fragment,
-            entry_point: Some(&program.fragment.module().entry_point),
+        fragment: fragment_stage.map(|(stage, module)| wgpu::FragmentState {
+            module,
+            entry_point: Some(&stage.module().entry_point),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &fragment_constants,
+                constants: fragment_constants.as_deref().unwrap_or_default(),
                 ..wgpu::PipelineCompilationOptions::default()
             },
             targets: &targets,
@@ -604,7 +632,14 @@ impl PipelineRequest<'_> {
     pub(crate) fn key(&self) -> blake3::Hash {
         let mut key = Key::new("render");
         key.hash(self.program.vertex.content_key());
-        key.hash(self.program.fragment.content_key());
+        // A vertex-only program is a different pipeline from any with a fragment stage.
+        key.debug(
+            &self
+                .program
+                .fragment
+                .as_ref()
+                .map(StageProgram::content_key),
+        );
         key.debug(&self.program.gpu.layout);
         for lent in &self.program.gpu.external {
             key.debug(&lent.set);

@@ -178,7 +178,7 @@ internal sealed partial class ResourceDatabase
         return asset.Str("type") switch
         {
             "TextAsset" => _built[index] = Text(asset),
-            "Font" => _built[index] = PlayerFont(asset),
+            "Font" => _built[index] = PlayerFonts.Build(asset),
             "Texture2D" => _built[index] = Texture(asset),
             "Texture2DArray" => _built[index] = TextureArray(asset),
             "Sprite" => _built[index] = PlayerSprite(asset),
@@ -207,17 +207,6 @@ internal sealed partial class ResourceDatabase
         var bytes = new byte[length];
         ReadBytes(name, path, offset, bytes);
         return new TextAsset(name, bytes);
-    }
-
-    private static Font PlayerFont(JsonElement asset)
-    {
-        var (name, path) = (asset.Str("name"), asset.Str("file"));
-        var (offset, length) = (asset.GetProperty("offset").GetInt64(), asset.GetProperty("length").GetInt64());
-        if (length < 0 || length > int.MaxValue)
-            throw new InvalidDataException($"resource font {name}: {length} bytes cannot be read");
-        var bytes = new byte[length];
-        ReadBytes(name, path, offset, bytes);
-        return new Font(name, bytes);
     }
 
     /// <summary>Fills <paramref name="destination"/> from <paramref name="path"/> at <paramref name="offset"/>.</summary>

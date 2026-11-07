@@ -389,3 +389,301 @@ fn a_later_stream_starts_on_a_16_byte_boundary_and_color_alpha_defaults_to_one()
     expected.extend(u32s(&[0, 1, 2]));
     assert_eq!(bytes, expected);
 }
+
+const DEFAULT_RESOURCES: &str = "Library/unity default resources";
+
+/// One prefab per id, each with a filter that names that object of the built-in default
+/// resources, which no data file holds.
+fn plan_built_in(dir: &Path, ids: &[i64]) -> ResourcesPlan {
+    let names: Vec<String> = (0..ids.len()).map(|k| format!("prefabs/p{k}")).collect();
+    let listed: Vec<(&str, i64)> = (0..ids.len())
+        .map(|k| (names[k].as_str(), 10 + 3 * i64::try_from(k).unwrap()))
+        .collect();
+    let mut objects = Vec::new();
+    for (k, id) in ids.iter().enumerate() {
+        let base = 10 + 3 * i64::try_from(k).unwrap();
+        objects.push(object(
+            base,
+            ClassId::GAME_OBJECT,
+            game_object("Prop", &[ptr(0, base + 1), ptr(0, base + 2)]),
+        ));
+        objects.push(object(
+            base + 1,
+            ClassId::TRANSFORM,
+            transform(base, ptr(0, 0)),
+        ));
+        objects.push(object(
+            base + 2,
+            ClassId::MESH_FILTER,
+            filter_bytes(base, ptr(1, *id)),
+        ));
+    }
+    write_file(
+        dir,
+        "globalgamemanagers",
+        vec![object(
+            1,
+            ClassId::RESOURCE_MANAGER,
+            resource_manager(&listed),
+        )],
+        &["resources.assets"],
+    );
+    write_file(dir, "resources.assets", objects, &[DEFAULT_RESOURCES]);
+    plan_player_resources(dir, &ScriptLayouts::new(Vec::new()), &dir.join("out")).unwrap()
+}
+
+/// A planned mesh read back: its attributes by channel name and its indices.
+struct Geometry {
+    plan: Json,
+    channels: Vec<(String, Vec<Vec<f32>>)>,
+    indices: Vec<u32>,
+}
+
+fn read_geometry(dir: &Path, mesh: &Json) -> Geometry {
+    let bytes = std::fs::read(dir.join("out").join(mesh["resource"].as_str().unwrap())).unwrap();
+    let words: Vec<[u8; 4]> = bytes.chunks(4).map(|c| c.try_into().unwrap()).collect();
+    let count = usize::try_from(mesh["vertex_count"].as_u64().unwrap()).unwrap();
+    let mut at = 0;
+    let mut channels = Vec::new();
+    for channel in mesh["channels"].as_array().unwrap() {
+        let dimension = usize::try_from(channel["dimension"].as_u64().unwrap()).unwrap();
+        let vertices = (0..count)
+            .map(|v| {
+                (0..dimension)
+                    .map(|c| f32::from_le_bytes(words[at + v * dimension + c]))
+                    .collect()
+            })
+            .collect();
+        at += count * dimension;
+        channels.push((channel["name"].as_str().unwrap().to_owned(), vertices));
+    }
+    let indices = words[at..].iter().map(|w| u32::from_le_bytes(*w)).collect();
+    Geometry {
+        plan: mesh.clone(),
+        channels,
+        indices,
+    }
+}
+
+impl Geometry {
+    fn channel(&self, name: &str) -> &[Vec<f32>] {
+        &self.channels.iter().find(|(n, _)| n == name).unwrap().1
+    }
+}
+
+fn built_in(id: i64) -> Geometry {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = plan_built_in(dir.path(), &[id]);
+    let [mesh] = &mesh_assets(&plan)[..] else {
+        panic!("one mesh: {:?} {:?}", plan.assets, plan.differences)
+    };
+    read_geometry(dir.path(), mesh)
+}
+
+fn near(a: f32, b: f32) -> bool {
+    (a - b).abs() < 1e-5
+}
+
+/// Every triangle runs clockwise seen from the side its normals point to, which in the engine's
+/// left-handed space means the cross product of two edges points the way the normals do.
+fn assert_faces_outward(geometry: &Geometry) {
+    let (positions, normals) = (geometry.channel("position"), geometry.channel("normal"));
+    for triangle in geometry.indices.chunks(3) {
+        let at = |i: usize| &positions[usize::try_from(triangle[i]).unwrap()];
+        let (a, b, c) = (at(0), at(1), at(2));
+        let (e1, e2) = (
+            [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+            [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
+        );
+        let cross = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let n = &normals[usize::try_from(triangle[0]).unwrap()];
+        let facing = cross[0] * n[0] + cross[1] * n[1] + cross[2] * n[2];
+        assert!(facing > 0.0, "triangle {triangle:?} faces away: {facing}");
+    }
+}
+
+#[test]
+fn a_built_in_quad_is_a_unit_square_facing_back() {
+    let quad = built_in(10210);
+    assert_eq!(quad.plan["name"], "Quad");
+    assert_eq!(quad.plan["vertex_count"], 4);
+    assert_eq!(quad.plan["index_count"], 6);
+    assert_eq!(
+        quad.plan["bounds"],
+        json!({"center": [0.0, 0.0, 0.0], "extent": [0.5, 0.5, 0.0]})
+    );
+    assert_eq!(
+        quad.channel("position"),
+        [
+            [-0.5, -0.5, 0.0],
+            [0.5, -0.5, 0.0],
+            [-0.5, 0.5, 0.0],
+            [0.5, 0.5, 0.0]
+        ]
+    );
+    assert_eq!(quad.channel("normal"), [[0.0, 0.0, -1.0]; 4]);
+    assert_eq!(
+        quad.channel("uv0"),
+        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]
+    );
+    assert_faces_outward(&quad);
+}
+
+#[test]
+fn a_built_in_plane_is_ten_units_across_in_ten_cells() {
+    let plane = built_in(10209);
+    assert_eq!(plane.plan["name"], "Plane");
+    assert_eq!(plane.plan["vertex_count"], 121);
+    assert_eq!(plane.plan["index_count"], 600);
+    assert_eq!(
+        plane.plan["bounds"],
+        json!({"center": [0.0, 0.0, 0.0], "extent": [5.0, 0.0, 5.0]})
+    );
+    let positions = plane.channel("position");
+    assert!(positions.iter().all(|p| near(p[1], 0.0)));
+    assert!(
+        positions
+            .iter()
+            .any(|p| near(p[0], -5.0) && near(p[2], -5.0))
+    );
+    assert!(positions.iter().any(|p| near(p[0], 5.0) && near(p[2], 5.0)));
+    assert!(
+        plane
+            .channel("normal")
+            .iter()
+            .all(|n| *n == [0.0, 1.0, 0.0])
+    );
+    assert!(
+        plane
+            .channel("uv0")
+            .iter()
+            .all(|t| (0.0..=1.0).contains(&t[0]) && (0.0..=1.0).contains(&t[1]))
+    );
+    assert_faces_outward(&plane);
+}
+
+#[test]
+fn a_built_in_cube_has_four_vertices_per_face() {
+    let cube = built_in(10202);
+    assert_eq!(cube.plan["name"], "Cube");
+    assert_eq!(cube.plan["vertex_count"], 24);
+    assert_eq!(cube.plan["index_count"], 36);
+    assert_eq!(
+        cube.plan["bounds"],
+        json!({"center": [0.0, 0.0, 0.0], "extent": [0.5, 0.5, 0.5]})
+    );
+    for p in cube.channel("position") {
+        assert!(p.iter().all(|c| near(c.abs(), 0.5)), "{p:?}");
+    }
+    for (p, n) in cube.channel("position").iter().zip(cube.channel("normal")) {
+        let along = p[0] * n[0] + p[1] * n[1] + p[2] * n[2];
+        assert!(near(along, 0.5), "{p:?} is not on the face of {n:?}");
+    }
+    assert_faces_outward(&cube);
+}
+
+#[test]
+fn a_built_in_sphere_has_radius_one_half_and_outward_normals() {
+    let sphere = built_in(10207);
+    assert_eq!(sphere.plan["name"], "Sphere");
+    assert_eq!(sphere.plan["bounds"]["extent"].as_array().unwrap().len(), 3);
+    for (p, n) in sphere
+        .channel("position")
+        .iter()
+        .zip(sphere.channel("normal"))
+    {
+        let length = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+        assert!(near(length, 0.5), "{p:?}");
+        assert!(near(n[0] * 0.5, p[0]) && near(n[1] * 0.5, p[1]) && near(n[2] * 0.5, p[2]));
+    }
+    assert!(
+        sphere
+            .indices
+            .iter()
+            .all(|&i| u64::from(i) < sphere.plan["vertex_count"].as_u64().unwrap())
+    );
+    assert_faces_outward(&sphere);
+}
+
+#[test]
+fn filters_naming_one_built_in_mesh_share_it_and_nothing_is_listed() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = plan_built_in(dir.path(), &[10210, 10210, 10209]);
+    let meshes = mesh_assets(&plan);
+    assert_eq!(meshes.len(), 2, "{meshes:?}");
+    let index_of = |name: &str| {
+        plan.assets
+            .iter()
+            .position(|a| serde_json::to_value(a).unwrap()["name"] == name)
+            .unwrap()
+    };
+    assert_eq!(
+        prefab_filter(dir.path(), &plan, 0)["mesh"],
+        json!(index_of("Quad"))
+    );
+    assert_eq!(
+        prefab_filter(dir.path(), &plan, 1)["mesh"],
+        json!(index_of("Quad"))
+    );
+    assert_eq!(
+        prefab_filter(dir.path(), &plan, 2)["mesh"],
+        json!(index_of("Plane"))
+    );
+    assert_eq!(plan.differences, Vec::<String>::new());
+}
+
+#[test]
+fn a_built_in_mesh_the_engine_does_not_generate_stays_null_and_is_listed() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan = plan_built_in(dir.path(), &[10299]);
+    assert_eq!(mesh_assets(&plan), Vec::<Json>::new());
+    assert_eq!(prefab_filter(dir.path(), &plan, 0)["mesh"], Json::Null);
+    let listed = plan.differences.join("\n");
+    assert!(
+        listed.contains(
+            "MeshFilter mesh references object 10299 of file 1, which the plan does not hold"
+        ),
+        "{listed}"
+    );
+}
+
+#[test]
+fn an_object_of_another_external_file_with_a_primitive_id_is_not_a_primitive() {
+    let dir = tempfile::tempdir().unwrap();
+    write_file(
+        dir.path(),
+        "globalgamemanagers",
+        vec![object(
+            1,
+            ClassId::RESOURCE_MANAGER,
+            resource_manager(&[("prefabs/p0", 10)]),
+        )],
+        &["resources.assets"],
+    );
+    write_file(
+        dir.path(),
+        "resources.assets",
+        vec![
+            object(
+                10,
+                ClassId::GAME_OBJECT,
+                game_object("Prop", &[ptr(0, 11), ptr(0, 12)]),
+            ),
+            object(11, ClassId::TRANSFORM, transform(10, ptr(0, 0))),
+            object(12, ClassId::MESH_FILTER, filter_bytes(10, ptr(1, 10210))),
+        ],
+        &["other.assets"],
+    );
+    let plan = plan_player_resources(
+        dir.path(),
+        &ScriptLayouts::new(Vec::new()),
+        &dir.path().join("out"),
+    )
+    .unwrap();
+    assert_eq!(mesh_assets(&plan), Vec::<Json>::new());
+    assert_eq!(prefab_filter(dir.path(), &plan, 0)["mesh"], Json::Null);
+}

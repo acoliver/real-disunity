@@ -24,7 +24,7 @@ use std::{
 use serde::Serialize;
 use serde_json::{Value as Json, json};
 use worldrunner_unity_serialized::{
-    ClassId, font::Font, graphics::Material, managers::ResourceManager, object::PPtr,
+    ClassId, graphics::Material, managers::ResourceManager, object::PPtr,
     render_texture::RenderTexture, script_data::ScriptLayouts, text_asset::TextAsset,
 };
 
@@ -37,6 +37,7 @@ use crate::{
         unplanned_reference as unplanned_compute_shader,
     },
     player_files::PlayerFiles,
+    player_font_files::{FontRange, font_range},
     player_input::plan_player_axes,
     player_materials::{
         PlanMaterial, decode_material, plan_material, unplanned_reference as unplanned_material,
@@ -45,6 +46,7 @@ use crate::{
     player_pipeline::{GraphicsAssets, admit_graphics_assets},
     player_plan::{PlanSource, tag_manager_names},
     player_prefabs::{is_root, plan_prefab, prefab_name},
+    player_primitives::primitive_mesh,
     player_render_textures::{
         decode_render_texture, plan_render_texture, unplanned_reference as unplanned_render_texture,
     },
@@ -433,6 +435,18 @@ impl Registry {
         Ok(Some(self.queue.len() - 1))
     }
 
+    /// The asset index of a built-in primitive mesh the engine generates, planned when it is new.
+    fn admit_primitive(&mut self, key: &ObjectKey) -> Option<usize> {
+        let generated = primitive_mesh(key)?;
+        if let Some(&index) = self.planned.get(key) {
+            return Some(index);
+        }
+        self.meshes.insert(key.clone(), generated);
+        self.planned.insert(key.clone(), self.queue.len());
+        self.queue.push((key.clone(), ClassId::MESH));
+        Some(self.queue.len() - 1)
+    }
+
     /// Decodes a mesh being admitted. A mesh the plan cannot hold is noted once, with whatever
     /// else it leaves out, and rejected.
     fn admit_mesh(&mut self, key: &ObjectKey) -> Result<bool, PlayerError> {
@@ -470,6 +484,9 @@ impl Registry {
             .referenced_file(owner, pptr)
             .map_err(|_| not_held(pptr))?;
         let key = (file, pptr.path_id);
+        if let Some(index) = self.admit_primitive(&key) {
+            return Ok(index);
+        }
         let class = self.class(&key.0, key.1).map_err(|_| not_held(pptr))?;
         if class == ClassId::GAME_OBJECT && !is_root(&mut self.files, &key) {
             return Err(format!(
@@ -732,17 +749,17 @@ impl ResourcePlanner {
     }
 
     fn font(&mut self, file: &Path, path_id: i64) -> Result<ResourceAsset, PlayerError> {
-        let open = self.registry.files.open_path(file)?;
-        let font: Font = open.decode(path_id)?;
-        let object = *open.file.object(path_id).expect("decoded objects exist");
+        let FontRange {
+            name,
+            file,
+            offset,
+            length,
+        } = font_range(&mut self.registry.files, file, path_id)?;
         Ok(ResourceAsset::Font {
-            name: font.name,
-            file: std::path::absolute(file).map_err(|error| PlayerError::Io {
-                path: file.to_owned(),
-                source: error,
-            })?,
-            offset: object.offset + font.font_data.start as u64,
-            length: (font.font_data.end - font.font_data.start) as u64,
+            name,
+            file,
+            offset,
+            length,
         })
     }
 

@@ -213,6 +213,7 @@ impl<'a> Planner<'a> {
                 Ok(PlanAsset::Script {
                     script,
                     class,
+                    assembly: None,
                     name,
                     fields,
                 })

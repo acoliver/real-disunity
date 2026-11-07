@@ -29,6 +29,7 @@ mod player_primitives;
 mod player_render_textures;
 pub mod player_resources;
 pub mod player_scene;
+mod player_scene_scripts;
 mod player_scene_sprites;
 pub mod player_scripts;
 mod player_shader_refs;

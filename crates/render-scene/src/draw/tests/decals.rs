@@ -571,3 +571,56 @@ mod write;
 mod color;
 #[path = "decal_normal_frames.rs"]
 mod normal_frames;
+
+fn placed(x: i64, y: i64, size: u32) -> SceneDecal {
+    let mut placed = decal();
+    placed.transform.position_millimeters = [x, y, 0];
+    placed.dimensions_millimeters = [size, size, 1000];
+    placed
+}
+
+/// A volume turned 45 degrees about the vertical, so its footprint is wider than its size.
+fn yawed(x: i64, y: i64, size: u32) -> SceneDecal {
+    let mut turned = placed(x, y, size);
+    turned.transform.rotation = worldrunner_render_plan::SceneRotation {
+        x: 0,
+        y: 0,
+        z: 382_683,
+        w: 923_880,
+    };
+    turned
+}
+
+fn coverage_frame(context: &GpuContext, scene: &RenderScene, every: bool) -> Vec<u8> {
+    super::super::decals::EVERY_DECAL_VOLUME.set(every);
+    let image = capture(context, scene, 1);
+    super::super::decals::EVERY_DECAL_VOLUME.set(false);
+    image
+}
+
+#[test]
+fn decal_coverage_grid_keeps_mesh_and_terrain_pixels_identical_to_visiting_every_volume() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let decals = vec![
+        placed(-600, -600, 500),
+        placed(650, 500, 400),
+        placed(0, 0, 300),
+        placed(-700, 700, 250),
+        yawed(780, -760, 450),
+    ];
+    for terrain_receiver in [false, true] {
+        let plain = source(false, terrain_receiver);
+        let scene = plain.clone().with_decals(decals.clone()).unwrap();
+        let reference = coverage_frame(&context, &scene, true);
+        assert_ne!(
+            reference,
+            capture(&context, &plain, 1),
+            "decals must reach the target (terrain {terrain_receiver})"
+        );
+        assert!(
+            coverage_frame(&context, &scene, false) == reference,
+            "the grid changed pixels (terrain {terrain_receiver})"
+        );
+    }
+}

@@ -9,8 +9,9 @@ use worldrunner_unity_serialized::object::PPtr;
 
 use crate::{
     plan::PlanAsset,
+    player_font_files::{FontRange, font_range},
     player_plan::PlanSource,
-    player_resources::{FontRange, ObjectKey, font_range},
+    player_resources::ObjectKey,
     player_scripts::{Referenced, referenced_script, script_fields},
     player_shader_refs::SceneSource,
     player_values::{FieldWriter, not_held},

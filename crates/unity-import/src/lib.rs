@@ -13,6 +13,7 @@ pub mod player;
 pub mod player_animators;
 mod player_compute;
 pub mod player_files;
+mod player_font_files;
 mod player_graphics;
 mod player_hierarchy;
 pub mod player_identity;

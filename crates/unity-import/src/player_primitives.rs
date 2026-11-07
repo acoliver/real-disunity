@@ -217,7 +217,7 @@ impl Geometry {
                 index_count,
                 index_format: 1,
                 bounds: PlanBounds {
-                    center: [0, 1, 2].map(|axis| (low[axis] + high[axis]) / 2.0),
+                    center: [0, 1, 2].map(|axis| f32::midpoint(low[axis], high[axis])),
                     extent: [0, 1, 2].map(|axis| (high[axis] - low[axis]) / 2.0),
                 },
                 resource: String::new(),

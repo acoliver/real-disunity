@@ -54,7 +54,7 @@ internal static class PlayerSceneAssetTests
         Expect.That(first is { count: 1, name: "first" } && ReferenceEquals(holder.again, first), "a scene script holds the planned asset, two references to it being one object");
         Expect.That(first.next is { count: 2, name: "second" } && ReferenceEquals(first.next.next, first), "assets that name each other are built once each");
         Expect.That(ReferenceEquals(Settings.Instance, first.next) && ReferenceEquals(holder.instanceAtEnable, first.next), "the assets are enabled before the scene's scripts");
-        Expect.That(first.face is { name: "Sans" } && ReferenceEquals(first.face, first.next.face), "a font the assets name is one object");
+        Expect.That(first.face is { name: "Sans" } && ReferenceEquals(first.face, first.next!.face), "a font the assets name is one object");
         Expect.Equal(FontEngineError.Success, FontEngine.LoadFontFace(first.face!, 40), "a face loads from the font's range of the data file");
         Console.WriteLine("PASS: a player scene plan builds the script assets and fonts its scripts reference");
     }

@@ -1,15 +1,7 @@
 use crate::{StageId, contracts::*};
 
 pub(super) fn device() -> (wgpu::Device, wgpu::Queue) {
-    let instance = wgpu::Instance::default();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
-        ..Default::default()
-    }))
-    .unwrap()
+    crate::gpu_tests::gpu_with_optional_features(wgpu::Features::TIMESTAMP_QUERY)
 }
 pub(super) fn buffer(device: &wgpu::Device, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {

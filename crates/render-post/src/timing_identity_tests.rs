@@ -38,15 +38,8 @@ fn submit(
 
 #[test]
 fn unread_post_ids_survive_resize_and_reconfiguration() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
-        ..Default::default()
-    }))
-    .unwrap();
+    let (device, queue) =
+        crate::gpu_tests::gpu_with_optional_features(wgpu::Features::TIMESTAMP_QUERY);
     let settings = HdrPostSettings {
         bloom: Some(Bloom {
             policies: crate::BloomPolicies::default(),

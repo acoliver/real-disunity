@@ -3,6 +3,7 @@
 use worldrunner_render_program::unity::module::{
     ModuleError, StageKind, StageModule, StageProgram,
 };
+use worldrunner_unity_serialized::shader_parameters::VariantParameters;
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
 
 use crate::common::{same, spirv};
@@ -71,4 +72,24 @@ fn the_content_key_follows_the_words_entry_point_and_stage() {
     let other = spirv(&textured("texel * material.tint"));
     assert_ne!(base, key(&other, "fs_main", StageKind::Fragment));
     assert_ne!(base, key(&words, "vs_main", StageKind::Vertex));
+}
+
+#[test]
+fn either_form_of_parameters_builds_the_same_module() {
+    let words = spirv(&textured("texel"));
+    let editor = StageProgram::new(
+        module(words.clone(), "fs_main", StageKind::Fragment),
+        ProgramParameters::default(),
+    )
+    .unwrap();
+    let player = StageProgram::new(
+        module(words, "fs_main", StageKind::Fragment),
+        VariantParameters {
+            constant_buffers: Vec::new(),
+            bindings: Vec::new(),
+        },
+    )
+    .unwrap();
+    assert_eq!(editor.content_key(), player.content_key());
+    assert_eq!(editor.resources(), player.resources());
 }

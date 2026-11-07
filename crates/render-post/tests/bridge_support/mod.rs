@@ -1,15 +1,28 @@
 use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_gpu::{device::DeviceRequirements, test_support::TestGpu};
 use worldrunner_render_post::{AttachmentLoad, FrameConfig, Readback, StageId, contracts::*};
 
 pub fn gpu() -> (wgpu::Device, SubmissionAuthority) {
-    let instance = worldrunner_render_gpu::device::headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-    (device, SubmissionAuthority::new(queue))
+    // Each fixture owns its authority and resources; callbacks remain the cache's fail-fast ones.
+    let gpu = TestGpu::shared(&DeviceRequirements::default()).unwrap();
+    (gpu.device, SubmissionAuthority::new(gpu.queue))
 }
+
+#[test]
+fn ordinary_bridge_fixtures_share_handles_but_keep_authorities_local() {
+    let (first, first_authority) = gpu();
+    let (second, second_authority) = gpu();
+    assert_eq!(first, second);
+    assert_eq!(first_authority.queue(), second_authority.queue());
+    assert!(first.features().is_empty());
+    assert_eq!(first_authority.submitted_serial(), 0);
+    assert_eq!(second_authority.submitted_serial(), 0);
+    let frame = first_authority.begin(&first).unwrap();
+    assert!(!first_authority.is_idle());
+    assert!(second_authority.is_idle());
+    frame.finish().cancel();
+}
+
 pub fn id(name: &'static str) -> RasterId {
     RasterId::new(StageId::new(name, 0), 0)
 }

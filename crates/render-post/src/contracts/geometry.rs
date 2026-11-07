@@ -26,17 +26,24 @@ pub(super) struct VertexAbi {
     end: u64,
 }
 impl DrawGeometry {
+    /// A draw reads at least one element of one instance, and only an indexed draw has a base vertex.
+    pub(super) fn check_shape(&self, slots: usize) -> Result<(), ContractError> {
+        if self.elements.is_empty()
+            || self.instances.is_empty()
+            || self.vertex_buffers.len() != slots
+            || (self.index.is_none() && self.base_vertex != 0)
+        {
+            return Err(ContractError::Pipeline);
+        }
+        Ok(())
+    }
     pub(super) fn register(
         &self,
         device: &wgpu::Device,
         layouts: &[Option<wgpu::VertexBufferLayout<'_>>],
     ) -> Result<Vec<VertexAbi>, ContractError> {
-        if self.elements.is_empty()
-            || self.instances.is_empty()
-            || self.vertex_buffers.len() != layouts.len()
-            || layouts.len() > device.limits().max_vertex_buffers as usize
-            || (self.index.is_none() && self.base_vertex != 0)
-        {
+        self.check_shape(layouts.len())?;
+        if layouts.len() > device.limits().max_vertex_buffers as usize {
             return Err(ContractError::Pipeline);
         }
         let mut locations = Vec::new();
@@ -164,7 +171,7 @@ impl DrawGeometry {
         }
     }
 }
-fn check_slice(
+pub(super) fn check_slice(
     view: &BufferView,
     alignment: u64,
     usage: wgpu::BufferUsages,

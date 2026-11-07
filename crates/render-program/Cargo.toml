@@ -10,9 +10,13 @@ publish.workspace = true
 [features]
 # The Unity adapter, `render_program::unity`. The neutral runtime does not depend on it.
 unity = ["dep:worldrunner-unity-serialized"]
+# Synthetic player shaders built from WGSL (`unity::synthetic`), for tests of this crate and of
+# its consumers. They are Unity records, so the feature implies `unity`.
+test-support = ["unity", "naga/spv-out"]
 
 [dependencies]
 worldrunner-render-gpu = { path = "../render-gpu" }
+worldrunner-render-post = { path = "../render-post" }
 worldrunner-unity-serialized = { path = "../unity-serialized", optional = true }
 # naga is the front end wgpu runs; parsing a stage here names a failure before wgpu sees it.
 naga = { version = "30.0.0", features = ["spv-in", "wgsl-in"] }
@@ -30,11 +34,12 @@ pollster.workspace = true
 [lints]
 workspace = true
 
-# The suites that build Unity records run only with the `unity` feature.
+# The suites that build Unity records run only with the `unity` feature, and the program suite
+# also draws offscreen with the synthetic shaders of `test-support`.
 [[test]]
 name = "program"
 path = "tests/program/main.rs"
-required-features = ["unity"]
+required-features = ["unity", "test-support"]
 
 [[test]]
 name = "variant"

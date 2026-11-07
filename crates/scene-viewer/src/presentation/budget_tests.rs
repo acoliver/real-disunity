@@ -110,8 +110,8 @@ fn water_frame_storage() -> u64 {
 
 #[test]
 fn retained_startup_and_resize_keep_recipe_reservation() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let size = Viewport {
         width: 8,
         height: 8,
@@ -151,8 +151,8 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
 
 #[test]
 fn presentation_creation_and_resize_preserve_typed_budget_errors() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let size = Viewport {
         width: 8,
         height: 8,

@@ -1,6 +1,8 @@
 //! Serialized shader objects for tests: a shader whose passes carry the render state the
 //! planner skips, so the object decodes through its declared name, queue tag and pass counts.
 
+#![allow(dead_code)]
+
 use worldrunner_unity_serialized::write::ObjectWriter;
 
 /// Render state values in serialized order: 8 targets of 7 blend values, 8 depth values, 3
@@ -47,14 +49,34 @@ fn write_pass(w: &mut ObjectWriter, name: &str) {
 /// A shader declared as `name` whose sub-shaders hold `passes` unnamed passes each, tagged with
 /// the queue `queue` when there is one.
 pub fn shader(name: &str, queue: Option<(&str, &str)>, passes: &[usize]) -> Vec<u8> {
+    shader_with_platforms(name, queue, passes, &[])
+}
+
+/// A shader as [`shader`] writes it, compiled for `platforms`, each with no chunks.
+pub fn shader_with_platforms(
+    name: &str,
+    queue: Option<(&str, &str)>,
+    passes: &[usize],
+    platforms: &[u32],
+) -> Vec<u8> {
     let names: Vec<Vec<&str>> = passes.iter().map(|&count| vec![""; count]).collect();
     let names: Vec<&[&str]> = names.iter().map(Vec::as_slice).collect();
-    named_shader(name, queue, &names)
+    named_shader_with_platforms(name, queue, &names, platforms)
 }
 
 /// A shader declared as `name` with one sub-shader per entry of `sub_shaders`, whose passes
 /// carry the names listed, tagged with the queue `queue` when there is one.
 pub fn named_shader(name: &str, queue: Option<(&str, &str)>, sub_shaders: &[&[&str]]) -> Vec<u8> {
+    named_shader_with_platforms(name, queue, sub_shaders, &[])
+}
+
+/// A shader as [`named_shader`] writes it, compiled for `platforms`, each with no chunks.
+pub fn named_shader_with_platforms(
+    name: &str,
+    queue: Option<(&str, &str)>,
+    sub_shaders: &[&[&str]],
+    platforms: &[u32],
+) -> Vec<u8> {
     let mut w = ObjectWriter::new(false);
     w.string("").unwrap().i32(0);
     w.i32(i32::try_from(sub_shaders.len()).unwrap());
@@ -86,13 +108,17 @@ pub fn named_shader(name: &str, queue: Option<(&str, &str)>, sub_shaders: &[&[&s
         .string("")
         .unwrap();
     w.i32(0).i32(0).u8(0).align();
-    w.i32(0)
-        .i32(0)
-        .i32(0)
-        .i32(0)
-        .byte_array(&[])
-        .unwrap()
-        .i32(0);
+    w.i32(i32::try_from(platforms.len()).unwrap());
+    for &platform in platforms {
+        w.u32(platform);
+    }
+    for _ in 0..3 {
+        w.i32(i32::try_from(platforms.len()).unwrap());
+        for _ in platforms {
+            w.i32(0);
+        }
+    }
+    w.byte_array(&[]).unwrap().i32(0);
     w.pptrs(&[]).unwrap().i32(0).u8(0).align();
     w.bytes(&[0; 16]).i64(0);
     w.finish()

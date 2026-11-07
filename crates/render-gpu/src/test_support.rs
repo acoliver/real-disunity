@@ -141,6 +141,15 @@ pub fn install_fail_fast_handlers(device: &Device) {
     }));
 }
 
+// Loss, foreign-queue and retirement tests must own their device's polling lifecycle.
+#[cfg(test)]
+pub(crate) fn fresh_device() -> (Device, Queue) {
+    let adapter = TestGpu::shared_adapter().unwrap();
+    let (device, queue, _) =
+        pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
+    (device, queue)
+}
+
 #[cfg(test)]
 mod gpu_tests;
 #[cfg(test)]

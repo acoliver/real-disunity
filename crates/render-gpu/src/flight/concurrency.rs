@@ -16,11 +16,8 @@ impl IntoIterator for PausedCommands {
 }
 
 fn context() -> (wgpu::Device, wgpu::Queue) {
-    let instance = crate::device::headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap()
+    // Retirement and callback order must not be advanced by another test polling this device.
+    crate::test_support::fresh_device()
 }
 
 #[test]

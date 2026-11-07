@@ -2,7 +2,7 @@
 
 use crate::layout::{ProgramLayout as NeutralLayout, Slot, UnusedDeclaration};
 
-use super::module::StageProgram;
+use super::module::{StageKind, StageProgram};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum LayoutError {
@@ -12,8 +12,27 @@ pub enum LayoutError {
     UnboundResource { unity_binding: i64 },
     #[error("binding {unity_binding} is in several descriptor sets of the binding table")]
     AmbiguousBinding { unity_binding: u32 },
+    #[error("parameter binding {binding} in set {set} is not in the module's binding table")]
+    UnboundSlot { set: u32, binding: u32 },
     #[error("constant buffer name {name_index} has a binding but no buffer record")]
     UndescribedConstantBuffer { name_index: i32 },
+    #[error("constant buffer {name:?} has a binding but no layout of that name")]
+    UndescribedBuffer { name: String },
+    #[error(
+        "texture dimension code {code} is a multisampled texture in the player checked, which \
+         this renderer does not bind"
+    )]
+    MultisampledTexture { code: i32 },
+    #[error(
+        "the {stage:?} module uses set {set} binding {binding}, which the parameters bind for \
+         stages {stages:#b} only"
+    )]
+    StageMismatch {
+        set: u32,
+        binding: u32,
+        stage: StageKind,
+        stages: u8,
+    },
     #[error("the module uses {name} at set {set} binding {binding}, which no parameter declares")]
     UndeclaredResource {
         set: u32,

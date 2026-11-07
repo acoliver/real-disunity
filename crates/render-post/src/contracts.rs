@@ -1,4 +1,5 @@
 //! Shared physical resources and authored pass access contracts.
+mod fullscreen;
 mod geometry;
 pub use geometry::{DrawGeometry, IndexBinding};
 mod draws;
@@ -30,6 +31,7 @@ pub use async_readback::AsyncReadback;
 pub use bindings::{CheckedBindings, TextureBinding, TextureBindingKind};
 pub use buffer_bindings::{BufferBinding, BufferBindingKind};
 pub use buffers::{BufferUse, BufferUseKind, BufferView};
+pub use fullscreen::{FullscreenVertices, VertexStream};
 pub use operations::{CompiledOperations, TypedOperation, TypedWork};
 pub use raster::{ColorAttachment, CompiledRaster, DepthAttachment, RasterId, RasterPass};
 pub use registry::ResourceRegistry;

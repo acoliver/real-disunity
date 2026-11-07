@@ -1,87 +1,14 @@
 //! Values the tests build the way Unity's serialized shader describes them.
 
-use worldrunner_unity_serialized::shader_state::{
-    Depth, Fog, ShaderState, StateValue, Stencil, StencilOps, TargetBlend,
-};
-
-pub fn fixed(value: f32) -> StateValue {
-    StateValue {
-        value,
-        property: None,
-    }
-}
-
-pub fn named(value: f32, property: &str) -> StateValue {
-    StateValue {
-        value,
-        property: Some(property.to_owned()),
-    }
-}
-
-fn stencil_ops() -> StencilOps {
-    StencilOps {
-        pass: fixed(0.0),
-        fail: fixed(0.0),
-        z_fail: fixed(0.0),
-        compare: fixed(8.0),
-    }
-}
-
-fn target_blend() -> TargetBlend {
-    TargetBlend {
-        src: fixed(1.0),
-        dst: fixed(0.0),
-        src_alpha: fixed(1.0),
-        dst_alpha: fixed(0.0),
-        op: fixed(0.0),
-        op_alpha: fixed(0.0),
-        color_mask: fixed(15.0),
-    }
-}
-
-/// A pass with no blending, back-face culling, `ZTest LEqual` and `ZWrite On`.
-pub fn opaque_state() -> ShaderState {
-    ShaderState {
-        name: String::new(),
-        blend: (0..8).map(|_| target_blend()).collect(),
-        separate_blend: false,
-        depth: Depth {
-            clip: fixed(1.0),
-            test: fixed(4.0),
-            write: fixed(1.0),
-            cull: fixed(2.0),
-            conservative: fixed(0.0),
-            offset_factor: fixed(0.0),
-            offset_units: fixed(0.0),
-            alpha_to_mask: fixed(0.0),
-        },
-        stencil: Stencil {
-            both: stencil_ops(),
-            front: stencil_ops(),
-            back: stencil_ops(),
-            read_mask: fixed(255.0),
-            write_mask: fixed(255.0),
-            reference: fixed(0.0),
-        },
-        fog: Fog {
-            start: fixed(0.0),
-            end: fixed(0.0),
-            density: fixed(0.0),
-            color: [fixed(0.0), fixed(0.0), fixed(0.0), fixed(0.0)],
-            color_property: None,
-            mode: 0,
-        },
-        gpu_program_id: 0,
-        tags: Vec::new(),
-        lod: 0,
-        lighting: false,
-    }
-}
+pub use worldrunner_render_program::unity::synthetic::{fixed, named, opaque_state};
 
 use naga::back::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use worldrunner_render_program::unity::module::{
-    ModuleBinding, StageKind, StageModule, StageProgram,
+    ResourceBinding, StageKind, StageModule, StageParameters, StageProgram,
+};
+use worldrunner_unity_serialized::shader_parameters::{
+    DescriptorSlot, ResourceBinding as PlayerBinding, ResourceKind, VariantParameters,
 };
 use worldrunner_unity_serialized::shader_program::{
     Binding, ProgramParameters, SamplerParam, TextureParam,
@@ -102,8 +29,8 @@ pub fn spirv(wgsl: &str) -> Vec<u32> {
 }
 
 /// A binding table entry whose prepared binding is Unity's.
-pub fn same(set: u32, binding: u32) -> ModuleBinding {
-    ModuleBinding {
+pub fn same(set: u32, binding: u32) -> ResourceBinding {
+    ResourceBinding {
         set,
         unity_binding: binding,
         binding,
@@ -152,8 +79,8 @@ pub fn parameters(
 pub fn stage(
     wgsl: &str,
     (entry_point, kind): (&str, StageKind),
-    bindings: Vec<ModuleBinding>,
-    parameters: ProgramParameters,
+    bindings: Vec<ResourceBinding>,
+    parameters: impl Into<StageParameters>,
 ) -> StageProgram {
     let module = StageModule {
         words: spirv(wgsl),
@@ -162,6 +89,189 @@ pub fn stage(
         bindings,
     };
     StageProgram::new(module, parameters).unwrap()
+}
+
+/// Unity bound texture and sampler as one combined image sampler at 1; the split gave the
+/// sampler binding 2 and moved the draw constants from Unity's 2 to 3.
+pub fn split_table() -> Vec<ResourceBinding> {
+    vec![
+        same(0, 0),
+        ResourceBinding {
+            set: 0,
+            unity_binding: 1,
+            binding: 1,
+            sampler_binding: Some(2),
+        },
+        ResourceBinding {
+            set: 0,
+            unity_binding: 2,
+            binding: 3,
+            sampler_binding: None,
+        },
+    ]
+}
+
+/// The two ways a stage's parameters are described: an editor-style sub program's, or a
+/// player variant's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Form {
+    Program,
+    Variant,
+}
+
+pub const FORMS: [Form; 2] = [Form::Program, Form::Variant];
+
+/// Runs `body` once for each form.
+pub fn each_form(body: fn(Form)) {
+    for form in FORMS {
+        body(form);
+    }
+}
+
+/// A texture's dimension, which the two forms code differently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dim {
+    D2,
+    Cube,
+}
+
+impl Dim {
+    fn program(self) -> i8 {
+        match self {
+            Self::D2 => 2,
+            Self::Cube => 4,
+        }
+    }
+
+    fn variant(self) -> i32 {
+        match self {
+            Self::D2 => 4,
+            Self::Cube => 8,
+        }
+    }
+}
+
+/// What one stage binds, by Unity binding, before it is described in either form.
+#[derive(Clone, Debug, Default)]
+pub struct Resources {
+    pub buffers: Vec<i32>,
+    pub textures: Vec<(i32, Dim)>,
+    pub samplers: Vec<i32>,
+}
+
+impl Resources {
+    pub fn new(buffers: &[i32], textures: &[(i32, Dim)], samplers: &[i32]) -> Self {
+        Self {
+            buffers: buffers.to_vec(),
+            textures: textures.to_vec(),
+            samplers: samplers.to_vec(),
+        }
+    }
+}
+
+/// The stage bit a variant's binding names for a stage. A compute stage has none, so its
+/// bindings name no stage.
+pub fn stage_bit(kind: StageKind) -> u8 {
+    match kind {
+        StageKind::Vertex => DescriptorSlot::VERTEX,
+        StageKind::Fragment => DescriptorSlot::FRAGMENT,
+        StageKind::Compute => 0,
+    }
+}
+
+pub fn slot(set: u16, binding: u16, stages: u8) -> DescriptorSlot {
+    DescriptorSlot {
+        binding,
+        set,
+        stages,
+    }
+}
+
+pub fn player_binding(name: &str, slot: DescriptorSlot, kind: ResourceKind) -> PlayerBinding {
+    PlayerBinding {
+        name: name.to_owned(),
+        slot,
+        kind,
+    }
+}
+
+fn unity_binding(index: i32) -> u16 {
+    u16::try_from(index).unwrap()
+}
+
+/// A pass's stages described as one player variant: each resource names every stage that
+/// binds it.
+fn variant_of(pass: &[(StageKind, &Resources)]) -> VariantParameters {
+    let mut bindings: Vec<PlayerBinding> = Vec::new();
+    let mut add = |name: String, index: i32, kind: ResourceKind, stage: StageKind| {
+        let bit = stage_bit(stage);
+        if let Some(found) = bindings
+            .iter_mut()
+            .find(|b| b.name == name && b.kind == kind)
+        {
+            found.slot.stages |= bit;
+        } else {
+            bindings.push(player_binding(
+                &name,
+                slot(0, unity_binding(index), bit),
+                kind,
+            ));
+        }
+    };
+    for (stage, resources) in pass {
+        for buffer in &resources.buffers {
+            add(
+                format!("B{buffer}"),
+                *buffer,
+                ResourceKind::ConstantBuffer,
+                *stage,
+            );
+        }
+        for (index, dim) in &resources.textures {
+            let kind = ResourceKind::Texture {
+                sampler: None,
+                dimension: dim.variant(),
+            };
+            add(format!("T{index}"), *index, kind, *stage);
+        }
+        for index in &resources.samplers {
+            let kind = ResourceKind::Sampler { state: 0 };
+            add(format!("S{index}"), *index, kind, *stage);
+        }
+    }
+    VariantParameters {
+        constant_buffers: Vec::new(),
+        bindings,
+    }
+}
+
+/// The parameters of `kind`'s stage in `pass`, in `form`. An editor-style sub program
+/// describes one stage; a player variant describes the whole pass.
+pub fn describe(form: Form, kind: StageKind, pass: &[(StageKind, &Resources)]) -> StageParameters {
+    match form {
+        Form::Variant => variant_of(pass).into(),
+        Form::Program => {
+            let (_, resources) = pass.iter().find(|(k, _)| *k == kind).unwrap();
+            let textures = resources
+                .textures
+                .iter()
+                .map(|(index, dim)| texture(*index, dim.program()))
+                .collect();
+            let samplers = resources.samplers.iter().map(|b| sampler(*b)).collect();
+            parameters(&resources.buffers, textures, samplers).into()
+        }
+    }
+}
+
+/// A stage of `pass`, described in `form`.
+pub fn stage_in(
+    form: Form,
+    wgsl: &str,
+    entry: (&str, StageKind),
+    bindings: Vec<ResourceBinding>,
+    pass: &[(StageKind, &Resources)],
+) -> StageProgram {
+    stage(wgsl, entry, bindings, describe(form, entry.1, pass))
 }
 
 use worldrunner_render_gpu::configuration::AllocationBudget;

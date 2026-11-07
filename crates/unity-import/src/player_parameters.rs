@@ -26,7 +26,7 @@ use crate::{
     PlayerError,
     player_module_resources::{ModuleResource, ResourceClass, module_resources},
     player_objects::{OpenFile, load_shader, shader_platforms},
-    player_shaders::VULKAN,
+    player_shaders::VulkanCensus,
 };
 
 /// How many of some things pass a check.
@@ -447,7 +447,7 @@ impl ParameterReport {
     }
 }
 
-fn shader_programs(shader: &Shader) -> Vec<&Program> {
+pub(crate) fn shader_programs(shader: &Shader) -> Vec<&Program> {
     let passes = shader.parsed.sub_shaders.iter().flat_map(|sub| &sub.passes);
     passes
         .flat_map(|pass| {
@@ -540,10 +540,11 @@ impl fmt::Display for ParameterReport {
 /// checks them against the variants' stage modules.
 ///
 /// # Errors
-/// Fails if a file cannot be read or a shader does not load; an entry that does not decode is
-/// counted, not an error.
+/// Fails if a file cannot be read, a shader does not load, or the player has shaders and none
+/// with a Vulkan platform; an entry that does not decode is counted, not an error.
 pub fn parameter_report(paths: &[PathBuf]) -> Result<ParameterReport, PlayerError> {
     let mut report = ParameterReport::default();
+    let mut census = VulkanCensus::default();
     for path in paths {
         let mut open = OpenFile::open(path)?;
         let shaders: Vec<i64> = open
@@ -555,7 +556,7 @@ pub fn parameter_report(paths: &[PathBuf]) -> Result<ParameterReport, PlayerErro
             .collect();
         for path_id in shaders {
             let platforms = shader_platforms(&mut open, path_id)?;
-            let Some(platform) = platforms.iter().position(|&kind| kind == VULKAN) else {
+            let Some(platform) = census.platform(&platforms) else {
                 continue;
             };
             report.shaders += 1;
@@ -565,5 +566,6 @@ pub fn parameter_report(paths: &[PathBuf]) -> Result<ParameterReport, PlayerErro
                 .map_err(|source| open.error(source))?;
         }
     }
+    census.finish()?;
     Ok(report)
 }

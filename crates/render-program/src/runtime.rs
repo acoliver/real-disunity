@@ -70,12 +70,7 @@ impl ProgramRuntime {
         authority: SubmissionAuthority,
         budget: AllocationBudget,
     ) -> Self {
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("render-program fixed sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..wgpu::SamplerDescriptor::default()
-        });
+        let sampler = device.create_sampler(&crate::sampler::fixed_descriptor());
         Self {
             device,
             authority,

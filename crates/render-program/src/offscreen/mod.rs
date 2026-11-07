@@ -325,6 +325,17 @@ pub struct CameraDraws {
     pub unmatched: usize,
     /// The draws left out because a texture the pass samples is named by no layer.
     pub missing_texture: usize,
+    /// The draws left out because the mesh lacks a vertex channel the pass reads.
+    pub missing_channel: usize,
+}
+
+/// Camera draws left out because the mesh lacks a vertex channel the pass reads, counted for one
+/// source channel and the shader input it feeds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingChannelDraws {
+    pub channel: i8,
+    pub input: i8,
+    pub draws: usize,
 }
 
 /// Camera draws left out because no layer names a texture the pass samples, counted for one
@@ -369,6 +380,21 @@ impl OffscreenOperations {
             .map(|(texture, draws)| MissingTextureDraws {
                 texture: texture.clone(),
                 draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by the
+    /// channel and the input it feeds, sorted. The rest of the camera's draws are recorded.
+    #[must_use]
+    pub fn missing_channel_draws(&self) -> Vec<MissingChannelDraws> {
+        self.counts
+            .missing_channels
+            .iter()
+            .map(|(&(channel, input), &draws)| MissingChannelDraws {
+                channel,
+                input,
+                draws,
             })
             .collect()
     }

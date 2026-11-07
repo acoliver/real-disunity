@@ -278,6 +278,7 @@ impl OffscreenHost {
                 texture.camera_draws += camera.drawn;
                 texture.camera_unmatched += camera.unmatched;
                 texture.camera_missing_texture += camera.missing_texture;
+                texture.camera_missing_channel += camera.missing_channel;
             }
         }
         let outcome = match prepared {

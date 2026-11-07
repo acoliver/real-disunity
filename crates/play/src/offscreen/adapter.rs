@@ -216,8 +216,11 @@ impl OffscreenAdapter {
                 .map_or(0, |held| held.generation);
             let stored = match assets.texture(identity, known) {
                 Ok(Some(stored)) => stored,
+                // None is a texture the engine does not hold, or one it holds unchanged.
                 Ok(None) => {
-                    notes.count("texture:NotStored");
+                    if held.is_none() {
+                        notes.count("texture:NotStored");
+                    }
                     continue;
                 }
                 Err(_) => {
@@ -371,6 +374,14 @@ pub fn build(
         "draw:MissingTexture",
         operations
             .missing_texture_draws()
+            .iter()
+            .map(|entry| entry.draws)
+            .sum(),
+    );
+    adapted.report.count_many(
+        "draw:MissingChannel",
+        operations
+            .missing_channel_draws()
             .iter()
             .map(|entry| entry.draws)
             .sum(),

@@ -8,7 +8,7 @@ use worldrunner_render_program::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, Renderer,
 };
 use worldrunner_render_program::offscreen::{
-    CameraDraws, MissingTextureDraws, OffscreenError, UnmatchedPasses,
+    CameraDraws, MissingChannelDraws, MissingTextureDraws, OffscreenError, UnmatchedPasses,
 };
 use worldrunner_render_program::shader::{PassSelector, ProgramShader};
 
@@ -331,9 +331,9 @@ fn a_frame_whose_draws_all_have_a_pass_counts_none_left_out() {
 }
 
 #[test]
-fn a_mesh_without_a_channel_the_shader_reads_is_a_named_error() {
+fn a_draw_whose_mesh_lacks_a_channel_the_shader_reads_is_left_out_and_counted_by_the_channel() {
     let mut rig = Rig::new();
-    let mut frame = halves(&mut rig, 1 << LEFT);
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     let mut bare = quad(0.5);
     bare.channels.retain(|channel| {
         channel.source == worldrunner_render_program::synthetic::shaders::POSITION
@@ -342,18 +342,21 @@ fn a_mesh_without_a_channel_the_shader_reads_is_a_named_error() {
         .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &bare)
         .unwrap();
     frame.renderers.get_mut(&RendererId(1)).unwrap().mesh = super::rig::NEAR_QUAD;
-    let error = rig.build(&frame).err().unwrap();
-    assert!(
-        matches!(
-            error,
-            OffscreenError::MissingChannel {
-                channel: 4,
-                input: 1,
-                ..
-            }
-        ),
-        "{error}"
+    let operations = rig.build(&frame).unwrap();
+    // The table feeds shader input 1 from channel 4, which the left renderer's mesh lacks.
+    assert_eq!(
+        operations.missing_channel_draws(),
+        vec![MissingChannelDraws {
+            channel: 4,
+            input: 1,
+            draws: 1
+        }]
     );
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 0, 1));
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (1, 3)), CLEAR, "left: no uv channel");
+    assert_eq!(pixel(&image, 8, (5, 3)), BLUE, "right: drawn");
 }
 
 #[test]
@@ -373,7 +376,7 @@ fn a_draw_whose_texture_nothing_names_is_left_out_and_counted_by_the_texture() {
         }]
     );
     assert_eq!(operations.unmatched_draws(), 0);
-    assert_eq!(operations.camera_draws(), drawn(0, 0, 2));
+    assert_eq!(operations.camera_draws(), drawn(0, 0, 2, 0));
     drop(operations);
     let image = render(&mut rig, &frame);
     assert!(image.chunks(4).all(|texel| texel == CLEAR));
@@ -397,7 +400,7 @@ fn a_draw_without_its_texture_is_left_out_beside_one_that_needs_none() {
         values: vec!["Gamma".to_owned(), "Alpha".to_owned()],
     };
     let operations = rig.build(&frame).unwrap();
-    assert_eq!(operations.camera_draws(), drawn(1, 0, 1));
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 1, 0));
     assert_eq!(operations.missing_texture_draws().len(), 1);
     drop(operations);
     let image = render(&mut rig, &frame);
@@ -406,13 +409,19 @@ fn a_draw_without_its_texture_is_left_out_beside_one_that_needs_none() {
 }
 
 /// What one camera render of the fixture recorded.
-fn drawn(drawn: usize, unmatched: usize, missing_texture: usize) -> Vec<CameraDraws> {
+fn drawn(
+    drawn: usize,
+    unmatched: usize,
+    missing_texture: usize,
+    missing_channel: usize,
+) -> Vec<CameraDraws> {
     vec![CameraDraws {
         camera: CAMERA,
         target: TARGET,
         drawn,
         unmatched,
         missing_texture,
+        missing_channel,
     }]
 }
 
@@ -434,9 +443,9 @@ fn each_camera_render_reports_the_draws_it_recorded_and_the_ones_it_left_out() {
     use worldrunner_render_program::synthetic::shaders::blit_passes;
     let mut rig = Rig::new();
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
-    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(2, 0, 0));
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(2, 0, 0, 0));
     frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = 1 << LEFT;
-    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 0, 0));
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 0, 0, 0));
     // The blit shader's passes carry no `LightMode` tag, so the second renderer is left out.
     frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = (1 << LEFT) | (1 << RIGHT);
     let blit = blit_passes("_MainTex");
@@ -445,7 +454,7 @@ fn each_camera_render_reports_the_draws_it_recorded_and_the_ones_it_left_out() {
         ProgramShader::new(blit.shader, blit.chunks).unwrap(),
     );
     frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
-    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 1, 0));
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 1, 0, 0));
 }
 
 #[test]

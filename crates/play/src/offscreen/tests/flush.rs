@@ -23,7 +23,7 @@ use super::super::compute::ComputeAdapter;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
-use super::gpu::{MESH, Quad, SIDE, Synthetic, gpu, shader, target, vector};
+use super::gpu::{BareQuad, MESH, Quad, SIDE, Synthetic, gpu, shader, target, vector};
 use super::kernels::{copy_object, text_object, write_compute};
 use super::support::{
     camera, compute_buffer, compute_shader, dispatch, renderer_with, snapshot, world,
@@ -389,7 +389,7 @@ fn the_trace_reads_as_report_lines() {
             "  constants set [_Scale=[2.0, 0.0, 0.0, 0.0]], without a value []",
             "  textures set [_Heights]",
             "  texture _Heights from render, on the GPU true, camera renders before 1 drew 1 left out 0 \
-             for want of a pass and 0 for want of a texture",
+             for want of a pass, 0 for want of a texture and 0 for want of a mesh channel",
             "  buffer _Output 64 bytes, non-zero words 0 before, Some(16) after",
         ]
     );
@@ -580,4 +580,36 @@ fn an_unset_texture_whose_default_the_host_does_not_supply_leaves_the_draw_out()
         BTreeMap::from([("_Albedo".to_owned(), 1)])
     );
     assert_eq!(heights, vec![CLEAR * SCALE; 16]);
+}
+
+/// A camera whose mesh lacks the texture coordinates its shader reads leaves that draw out and
+/// names the channel and the input, and keeps the camera render.
+#[test]
+fn a_camera_draw_whose_mesh_lacks_a_channel_is_counted_by_the_channel_and_not_by_the_record() {
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
+    let mut world = world();
+    let heights = target(&mut world, HEIGHT);
+    camera_render(&mut world, heights);
+    let shader = scaling(&mut world);
+    let buffer = compute_buffer(&mut world, SIDE * SIDE);
+    dispatch(&mut world, shader, (heights, buffer), [2, 2, 1]);
+    let snapshot = snapshot(&mut world);
+
+    let outcome = host.flush(&snapshot, &BareQuad).unwrap();
+    outcome.apply(&mut world).unwrap();
+    let report = &outcome.report;
+    assert_eq!(report.failures.get("draw:MissingChannel"), Some(&1));
+    assert_eq!(report.failures.get("record:MissingChannel"), None);
+    assert_eq!(
+        report.missing_channels,
+        BTreeMap::from([("channel 4 for input 1".to_owned(), 1)])
+    );
+    let texture = &report.traces[0].textures[0];
+    assert_eq!(
+        (texture.camera_draws, texture.camera_missing_channel),
+        (0, 1)
+    );
+    assert_eq!(floats(&world, buffer), vec![CLEAR * SCALE; 16]);
 }

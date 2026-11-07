@@ -129,6 +129,10 @@ pub(super) struct DrawCounts {
     /// texture property.
     pub(super) missing_texture: usize,
     pub(super) missing_textures: std::collections::BTreeMap<String, usize>,
+    /// Camera draws left out because the mesh lacks a vertex channel the pass reads, in all and
+    /// by (source channel, shader input).
+    pub(super) missing_channel: usize,
+    pub(super) missing_channels: std::collections::BTreeMap<(i8, i8), usize>,
     /// Texture reads that bound fewer levels than the texture has.
     pub(super) partial_mips: usize,
     /// What each camera render recorded, in call order.

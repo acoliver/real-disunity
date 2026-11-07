@@ -131,6 +131,27 @@ impl Assets for Quad {
     }
 }
 
+/// The quad without its texture coordinates.
+pub(super) struct BareQuad;
+
+impl Assets for BareQuad {
+    fn mesh(&self, identity: u64, known: u64) -> Result<Option<MeshChannels>, AssetError> {
+        let mut mesh = Quad.mesh(identity, known)?;
+        if let Some(mesh) = &mut mesh {
+            mesh.channels.retain(|channel| channel.number != 4);
+        }
+        Ok(mesh)
+    }
+
+    fn texture(&self, identity: u64, known: u64) -> Result<Option<PlayerTexture>, AssetError> {
+        Quad.texture(identity, known)
+    }
+
+    fn sampler(&self, identity: u64) -> Result<Option<TextureSampler>, AssetError> {
+        Quad.sampler(identity)
+    }
+}
+
 /// A device with its submission authority, a program runtime and the arena the renderer
 /// reserved for it.
 pub(super) struct Gpu {
@@ -516,15 +537,47 @@ fn a_record_that_does_not_build_on_its_own_is_dropped_and_counted_by_the_error()
     assert_eq!(pixel(&b, (0, 0)), WHITE);
 }
 
+/// The quad's assets, and one 1x1 texture under `HELD` that reads as unchanged once its
+/// generation is known, as the engine's store does.
+struct HeldTexture;
+
+const HELD: u64 = 1 << 40;
+
+impl Assets for HeldTexture {
+    fn mesh(&self, identity: u64, known: u64) -> Result<Option<MeshChannels>, AssetError> {
+        Quad.mesh(identity, known)
+    }
+
+    fn texture(&self, identity: u64, known: u64) -> Result<Option<PlayerTexture>, AssetError> {
+        if identity != HELD || known == 1 {
+            return Ok(None);
+        }
+        Ok(Some(PlayerTexture {
+            format: 4,
+            width: 1,
+            height: 1,
+            mips: 1,
+            linear: false,
+            generation: 1,
+            distance_spread: 0,
+            bytes: vec![255; 4],
+        }))
+    }
+
+    fn sampler(&self, _: u64) -> Result<Option<TextureSampler>, AssetError> {
+        Ok(None)
+    }
+}
+
 #[test]
-fn a_stored_texture_the_engine_does_not_hold_is_counted_as_not_stored() {
+fn a_stored_texture_the_engine_does_not_hold_is_counted_each_frame_and_one_it_does_is_not() {
     use super::support::{material, set, snapshot, texture_slot};
     use worldrunner_world_simulation::graphics::PropertyValue as WorldValue;
     let mut rig = Rig::new();
     let mut world = world();
     let blit = shader(&mut world, "blit");
     let material = material(&mut world, blit);
-    for (name, identity) in [("_Held", 1_u64 << 40), ("_Other", 1 << 41)] {
+    for (name, identity) in [("_Held", HELD), ("_Other", 1 << 41)] {
         set(
             &mut world,
             material,
@@ -541,8 +594,11 @@ fn a_stored_texture_the_engine_does_not_hold_is_counted_as_not_stored() {
         })
         .unwrap();
     let snapshot = snapshot(&mut world);
-    let adapted = rig
-        .adapter
-        .adapt(&snapshot, &Quad, &mut rig.state, &mut rig.runtime);
-    assert_eq!(adapted.report.failures.get("texture:NotStored"), Some(&2));
+    // The second frame finds the held texture unchanged, which is not a texture missing.
+    for _ in 0..2 {
+        let adapted = rig
+            .adapter
+            .adapt(&snapshot, &HeldTexture, &mut rig.state, &mut rig.runtime);
+        assert_eq!(adapted.report.failures.get("texture:NotStored"), Some(&1));
+    }
 }

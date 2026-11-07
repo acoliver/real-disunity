@@ -75,6 +75,8 @@ pub struct GpuWorkReport {
     pub partial_reads: BTreeMap<String, usize>,
     /// The draws left out because no layer names a texture the pass samples, by the property.
     pub missing_textures: BTreeMap<String, usize>,
+    /// The draws left out because the mesh lacks a vertex channel the pass reads.
+    pub missing_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// Time spent in the frame path and in flushes.
@@ -118,6 +120,9 @@ impl GpuWorkReport {
             .sum::<usize>();
         for (name, count) in &report.missing_textures {
             *self.missing_textures.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.missing_channels {
+            *self.missing_channels.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
@@ -166,6 +171,7 @@ impl GpuWorkReport {
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
             ("draws without a texture", &self.missing_textures),
+            ("draws without a mesh channel", &self.missing_channels),
             (
                 "texture properties without a texture",
                 &self.unresolved_textures,

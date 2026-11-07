@@ -24,8 +24,8 @@ fn shadow_effects(base: &SceneEffects) -> SceneEffects {
 
 #[test]
 fn retained_shadow_direction_changes_pixels_without_rebuilding_geometry() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let base = source();
     let scene = shadow_scene(&base);
     let settings = Some(shadow_settings());

@@ -50,17 +50,13 @@ fn depth_stencil_storage_accounts_for_backend_promotion() {
 }
 
 fn context() -> (wgpu::Device, SubmissionAuthority) {
-    let instance = crate::device::headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-    (device, SubmissionAuthority::new(queue))
+    let gpu = crate::test_support::TestGpu::shared(&crate::device::DeviceRequirements::default())
+        .unwrap();
+    (gpu.device, SubmissionAuthority::new(gpu.queue))
 }
 #[test]
 fn derived_budget_tracks_all_live_generations_and_shared_reservations() {
-    let (device, authority) = context();
+    let (device, authority) = fresh_context();
     let inventory = |size| {
         let mut set = bytes(size);
         set.shared_cpu("host capture pool", 256);
@@ -108,6 +104,11 @@ fn derived_budget_tracks_all_live_generations_and_shared_reservations() {
         .replace(&device.limits(), inventory(16), || Ok::<_, ()>(4))
         .unwrap();
     assert_eq!(config.budget(), AllocationBudget(320));
+}
+
+fn fresh_context() -> (wgpu::Device, SubmissionAuthority) {
+    let (device, queue) = crate::test_support::fresh_device();
+    (device, SubmissionAuthority::new(queue))
 }
 
 fn bytes(size: u64) -> AllocationSet {
@@ -179,7 +180,7 @@ fn rejection_and_allocator_failure_leave_generation_and_output_unchanged() {
 }
 #[test]
 fn replacement_peak_and_retirement_follow_queue_completion() {
-    let (device, authority) = context();
+    let (device, authority) = fresh_context();
     let mut config = Configuration::new(
         &authority,
         1_u32,

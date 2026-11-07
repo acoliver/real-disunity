@@ -9,11 +9,17 @@ use std::{
 };
 
 fn context() -> (wgpu::Device, wgpu::Queue) {
-    let instance = crate::device::headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap()
+    let gpu = crate::test_support::TestGpu::shared(&crate::device::DeviceRequirements::default())
+        .unwrap();
+    (gpu.device, gpu.queue)
+}
+
+#[test]
+fn ordinary_submission_fixtures_share_device_and_queue_identity() {
+    let first = context();
+    let second = context();
+    assert_eq!(first.0, second.0);
+    assert_eq!(first.1, second.1);
 }
 
 #[test]
@@ -189,7 +195,7 @@ fn production_submission_sites_are_confined_to_authority() {
 
 #[test]
 fn device_loss_stops_admission_without_retry_or_publication() {
-    let (device, queue) = context();
+    let (device, queue) = crate::test_support::fresh_device();
     let authority = SubmissionAuthority::new(queue);
     let published = Rc::new(Cell::new(false));
     let frame = authority
@@ -288,9 +294,11 @@ fn configuration_reservation_excludes_every_clone_until_release() {
 
 #[test]
 fn prepared_flights_register_completion_on_their_own_queue() {
-    let (device, queue) = context();
+    let (device, queue) = crate::test_support::fresh_device();
     let authority = SubmissionAuthority::new(queue);
-    let (_unpolled_device, _other_queue) = context();
+    let (unpolled_device, other_queue) = crate::test_support::fresh_device();
+    assert_ne!(device, unpolled_device);
+    assert_ne!(authority.queue(), &other_queue);
     let flights = crate::flight::FrameAdmission::new(2).unwrap();
     let first = flights.try_acquire().unwrap();
     let frame = authority.prepare(&device, |_, _| Ok::<_, ()>(())).unwrap();
@@ -342,7 +350,7 @@ fn retained_by_a_recording_frame(
     wgpu::Device,
     Arc<AtomicUsize>,
 ) {
-    let (device, queue) = context();
+    let (device, queue) = crate::test_support::fresh_device();
     let authority = SubmissionAuthority::new(queue);
     let dropped = Arc::new(AtomicUsize::new(0));
     let owner = FrameOwner::new(DropProbe(dropped.clone()), &authority);
@@ -391,7 +399,7 @@ fn a_detached_owner_is_released_at_once_when_its_frame_is_cancelled() {
 
 #[test]
 fn a_detached_owner_with_no_frame_is_released_at_once_and_takes_no_new_frame() {
-    let (device, queue) = context();
+    let (device, queue) = crate::test_support::fresh_device();
     let authority = SubmissionAuthority::new(queue);
     let dropped = Arc::new(AtomicUsize::new(0));
     let owner = FrameOwner::new(DropProbe(dropped.clone()), &authority);

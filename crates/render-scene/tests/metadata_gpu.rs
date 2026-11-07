@@ -5,6 +5,23 @@ use worldrunner_render_scene::{
     wgpu,
 };
 
+#[test]
+fn integration_contexts_share_gpu_handles_without_sharing_submission_state() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let first = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
+    let second = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
+    assert_eq!(first.device(), second.device());
+    assert_eq!(first.queue(), second.queue());
+    assert_eq!(
+        first.device().features(),
+        first.adapter().features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+    );
+    let prepared = first.submission().begin(first.device()).unwrap();
+    assert!(!first.submission().is_idle());
+    assert!(second.submission().is_idle());
+    prepared.finish().cancel();
+}
+
 fn texture(context: &GpuContext, samples: u32) -> wgpu::Texture {
     context.device().create_texture(&wgpu::TextureDescriptor {
         label: Some("synthetic frame metadata"),
@@ -63,8 +80,8 @@ fn encode_clear(
 
 #[test]
 fn gpu_metadata_coverage_clear_resolve_and_cancellation_at_1x_and_4x() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let source = texture(&context, samples);
         let output = texture(&context, 1);
@@ -113,8 +130,8 @@ fn gpu_metadata_coverage_clear_resolve_and_cancellation_at_1x_and_4x() {
 #[test]
 fn gpu_all_source_products_require_identical_extent_and_coverage() {
     use worldrunner_render_scene::frame::metadata::validate_inputs;
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let normal = texture(&context, samples);
         let material = texture(&context, samples);

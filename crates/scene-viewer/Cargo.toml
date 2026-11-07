@@ -29,6 +29,7 @@ objc2 = "=0.6.5"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSObject", "NSProcessInfo", "NSString"] }
 
 [dev-dependencies]
+worldrunner-render-scene = { path = "../render-scene", features = ["test-support"] }
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
 
 [[test]]

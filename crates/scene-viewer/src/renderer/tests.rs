@@ -1,7 +1,12 @@
 #[test]
 fn device_error_observer_does_not_retain_the_context_queue() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
+    let other = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
+    assert_ne!(context.device(), other.device());
+    assert_ne!(context.queue(), other.queue());
+    drop(other);
     let errors = super::device_errors(context.device(), context.submission());
     drop(context);
     assert!(instance.generate_report().unwrap().hub.queues.is_empty());
@@ -11,6 +16,7 @@ fn device_error_observer_does_not_retain_the_context_queue() {
 
 #[test]
 fn device_error_observer_reports_loss_to_the_host_and_submission_authority() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = pollster::block_on(GpuContext::request()).unwrap();
     let errors = super::device_errors(context.device(), context.submission());
     context.device().destroy();

@@ -266,12 +266,7 @@ mod tests {
 
     #[test]
     fn two_submissions_overlap_and_third_requires_oldest_completion() {
-        let instance = crate::device::headless_instance();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .unwrap();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let (device, queue) = crate::test_support::fresh_device();
         let authority = crate::submission::SubmissionAuthority::new(queue.clone());
         let flight = FrameAdmission::new(2).unwrap();
         let mut first = flight.try_acquire().unwrap();

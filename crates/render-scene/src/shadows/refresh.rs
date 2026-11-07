@@ -10,6 +10,8 @@ pub(super) struct RefreshCache {
     frame: u64,
     key: Option<RefreshKey>,
     pub capture: bool,
+    /// Latest localized caster change these states have been checked against.
+    caster_seen: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +51,19 @@ impl RefreshCache {
         for state in &mut self.states {
             state.invalidate();
         }
+    }
+
+    /// Invalidates only the retained cascades whose maps a caster change can reach.
+    fn invalidate_touched(&mut self, gpu: &crate::draw::SceneGpu) {
+        for state in &mut self.states {
+            if state
+                .matrix()
+                .is_some_and(|matrix| gpu.casters_changed_within(self.caster_seen, matrix))
+            {
+                state.invalidate();
+            }
+        }
+        self.caster_seen = gpu.caster_sequence();
     }
 
     pub fn prepare(
@@ -101,10 +116,16 @@ impl RefreshCache {
 }
 
 impl super::ShadowedScene {
-    pub(super) fn refresh_for_frame(&self, replaced: bool) -> RefreshCache {
+    pub(super) fn refresh_for_frame(&mut self, replaced: bool) -> RefreshCache {
         // Cascades draw the resident streaming chunks. A change to them reaches the
         // refresh policy through the caster generation, not as a per-frame invalidation.
-        self.refresh.borrow().clone_for_frame(replaced)
+        // Moved placements invalidate only the cascades they touch. Changes stay pending
+        // until a submitted frame has checked them.
+        let committed = self.refresh.borrow().caster_seen;
+        self.gpu.forget_caster_changes_through(committed);
+        let mut next = self.refresh.borrow().clone_for_frame(replaced);
+        next.invalidate_touched(&self.gpu);
+        next
     }
 
     /// Invalidates every retained cascade on the next submitted frame.

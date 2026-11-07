@@ -21,13 +21,13 @@ fn gpu_retained_cast_toggle_removes_shadow_and_non_caster_receives() {
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let shadowed = render(&context, &mut renderer, &mut target);
     let caster = renderer.scene_mut().instance_handles().nth(1).unwrap();
-    let generation = renderer.scene_mut().caster_generation();
+    let sequence = renderer.scene_mut().caster_sequence();
     objects[1] = objects[1].with_casts_shadow(false);
     renderer
         .scene_mut()
         .set_instance_object(caster, objects[1])
         .unwrap();
-    assert_ne!(renderer.scene_mut().caster_generation(), generation);
+    assert!(renderer.scene_mut().caster_sequence() > sequence);
     let no_cast = render(&context, &mut renderer, &mut target);
     assert_ne!(shadowed, no_cast);
     assert_eq!(

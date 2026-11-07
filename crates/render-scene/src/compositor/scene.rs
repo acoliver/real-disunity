@@ -1,3 +1,4 @@
+use super::offscreen::encode_player_work;
 use super::{FrameRenderer, attachment, attachment_resource};
 use worldrunner_render_post::{
     AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, PassDeclaration, PassSlot,
@@ -102,8 +103,8 @@ pub(crate) fn declare_velocity(
     Ok(())
 }
 
-/// Checks the effects the scene asks for against the renderer's configuration, before anything
-/// is declared. The water inputs are already bound by `prepare_scene_inputs`.
+/// Checks the screen-space, water and post settings the scene was uploaded with against the
+/// renderer.
 fn validate_effects(
     renderer: &mut FrameRenderer,
     gpu: &crate::draw::SceneGpu,
@@ -133,8 +134,7 @@ pub fn encode_scene(
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     validate_effects(renderer, gpu, pipelines)?;
-    let programs =
-        super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;

@@ -10,6 +10,7 @@ use super::*;
 use crate::compositor::RendererConfiguration;
 
 mod admission;
+mod offscreen;
 mod rig;
 mod stock;
 use rig::{BLACK, BLUE, CARD_EDGE, FAR_DEPTH, Fixture, GREEN, NEAR_DEPTH, RED, engine_depth};

@@ -65,6 +65,9 @@ impl ProgramRuntime {
         let mut groups = Vec::new();
         for (set, layout) in (0..).zip(&gpu.groups) {
             let Some(layout) = layout else { continue };
+            if gpu.is_external(set) {
+                continue;
+            }
             let mut entries = Vec::new();
             for slot in gpu.layout.slots().iter().filter(|s| s.set == set) {
                 entries.push(wgpu::BindGroupEntry {
@@ -79,6 +82,7 @@ impl ProgramRuntime {
                     entries: &entries,
                 })
             })?;
+            self.counters.bind_group_built();
             groups.push((set, group));
         }
         Ok(groups)
@@ -190,11 +194,19 @@ fn check_imports(gpu: &GpuLayout, imports: &[Import]) -> Result<(), ProgramError
                 semantic: import.semantic.to_string(),
             });
         }
+        let semantic = BindingSource::Engine(import.semantic.clone());
+        if let Some(lent) = gpu
+            .external
+            .iter()
+            .find(|lent| lent.bindings.bindings.iter().any(|b| b.source == semantic))
+        {
+            return Err(ProgramError::ExternalSetConflict { set: lent.set });
+        }
         let taken = gpu
             .layout
             .slots()
             .iter()
-            .any(|slot| slot.source == BindingSource::Engine(import.semantic.clone()));
+            .any(|slot| slot.source == semantic);
         if !taken {
             return Err(ProgramError::UnusedImport {
                 semantic: import.semantic.to_string(),
@@ -235,6 +247,9 @@ fn check_bound(
     snapshots: &[Snapshot],
 ) -> Result<(), ProgramError> {
     for (index, item) in bound.iter().enumerate() {
+        if gpu.is_external(item.set) {
+            return Err(ProgramError::ExternalSetConflict { set: item.set });
+        }
         let known = gpu.layout.slot(item.set, item.binding).is_some_and(|slot| {
             !matches!(slot.ty, wgpu::BindingType::Sampler(_))
                 && !matches!(slot.source, BindingSource::Engine(_))
@@ -276,14 +291,19 @@ fn check_texture(slot: &Slot, texture: &wgpu::Texture) -> Result<(), ProgramErro
         (wanted, Some(found)) => wanted == found,
         (_, None) => false,
     };
-    let is_2d = view_dimension == wgpu::TextureViewDimension::D2 && !multisampled;
-    if suits && is_2d {
+    // A texture is bound with its default view: 2D for one layer, a 2D array for several.
+    let default_dimension = if texture.depth_or_array_layers() > 1 {
+        wgpu::TextureViewDimension::D2Array
+    } else {
+        wgpu::TextureViewDimension::D2
+    };
+    if suits && view_dimension == default_dimension && !multisampled {
         return Ok(());
     }
     Err(ProgramError::WrongResource {
         set: slot.set,
         binding: slot.binding,
         expected: format!("{sample_type:?} {view_dimension:?} multisampled={multisampled}"),
-        found: format!("{:?} 2D texture", texture.format()),
+        found: format!("{:?} {default_dimension:?} texture", texture.format()),
     })
 }

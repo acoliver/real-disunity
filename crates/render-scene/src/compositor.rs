@@ -9,6 +9,7 @@ mod clock;
 mod configuration;
 mod depth_prefix;
 mod environment;
+mod offscreen;
 mod output;
 mod overlay;
 mod overlay_depth;

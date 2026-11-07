@@ -205,6 +205,32 @@ path. Graphics already projected to screen pixels are accepted; world graphics
 are rejected. Linear HDR and opaque-term capture products exclude this
 display-space UI. Built-player retained-driver UI export is not connected yet.
 
+## Retained camera updates
+
+`RetainedUpdate::Camera { pose, lens, convention }` preserves temporal history.
+For a teleport, view reset or scene switch, submit
+`RetainedUpdate::camera_with_continuity(pose, lens, convention, CameraContinuity::Cut)`.
+`CameraContinuity::Continuous` has the same behavior as the ordinary `Camera`
+variant and is the continuity default. Both forms validate and publish the camera
+in the ordered retained-update queue.
+
+A cut discards TAA and temporal-upscaler history, restarts projection jitter at
+index zero, and replaces previous camera, jitter and animation time with the new
+frame's values for velocity producers. It also resets shadow depth-fitting
+evidence, contraction filters and retained cascade maps. Exposure adaptation is
+preserved across cuts; the separate `reset_exposure()` API requests an explicit
+restart. SSAO and SSR use current-frame products and have no separate temporal history.
+The reset happens before encoding the first submitted frame with the cut view.
+Multiple published cuts before that submission collapse into one reset. An
+abandoned or cancelled frame does not consume the cut; a later continuous
+update does not erase it.
+
+`RetainedFrameStatistics::temporal_history_reset` and
+`RetainedCaptureObservation::temporal_history_reset` report
+`TemporalHistoryReset::CameraCut` for the affected submission, otherwise `None`.
+Capture observations freeze this field with the source frame's scene statistics;
+accumulated recipes report their first sample after warmup.
+
 ## Retained shadow light
 
 Submit `RetainedUpdate::Settings` with effects updated through

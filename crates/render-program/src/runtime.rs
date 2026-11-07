@@ -17,6 +17,7 @@ use crate::error::ProgramError;
 use crate::module::StageProgram;
 use crate::registry::Registry;
 use crate::resources::{Pins, Store};
+use crate::stats::Counters;
 
 pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::dispatch::DispatchRequest;
@@ -27,12 +28,13 @@ pub use crate::import::{
 };
 pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
 pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
-pub use crate::program::{ComputeProgram, GraphicsProgram};
+pub use crate::program::{ComputeProgram, ExternalSet, GraphicsProgram};
 pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
 pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
 pub use crate::resources::{
     BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,
 };
+pub use crate::stats::RuntimeStats;
 
 /// Shares the caller's wgpu device and `SubmissionAuthority`, owns the resources it creates by
 /// handle, and caches shader modules and pipelines keyed by their content.
@@ -58,6 +60,7 @@ pub struct ProgramRuntime {
     modules: HashMap<blake3::Hash, wgpu::ShaderModule>,
     pub(crate) render_pipelines: HashMap<blake3::Hash, wgpu::RenderPipeline>,
     pub(crate) compute_pipelines: HashMap<blake3::Hash, wgpu::ComputePipeline>,
+    pub(crate) counters: Counters,
 }
 
 /// Gives each runtime its own number, so a handle from another runtime is refused.
@@ -70,12 +73,7 @@ impl ProgramRuntime {
         authority: SubmissionAuthority,
         budget: AllocationBudget,
     ) -> Self {
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("render-program fixed sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..wgpu::SamplerDescriptor::default()
-        });
+        let sampler = device.create_sampler(&crate::sampler::fixed_descriptor());
         Self {
             device,
             authority,
@@ -87,6 +85,7 @@ impl ProgramRuntime {
             modules: HashMap::new(),
             render_pipelines: HashMap::new(),
             compute_pipelines: HashMap::new(),
+            counters: Counters::default(),
         }
     }
 
@@ -167,6 +166,13 @@ impl ProgramRuntime {
         self.render_pipelines.len() + self.compute_pipelines.len()
     }
 
+    /// What this runtime has built since it was made. Every count only rises, so a cost test
+    /// compares a snapshot taken before a frame with one taken after.
+    #[must_use]
+    pub fn stats(&self) -> RuntimeStats {
+        self.counters.snapshot()
+    }
+
     /// The compiled module for a stage, built from the parsed naga module on first use.
     ///
     /// # Errors
@@ -185,6 +191,7 @@ impl ProgramRuntime {
                     source: wgpu::ShaderSource::Naga(Cow::Owned(stage.naga_module().clone())),
                 })
         })?;
+        self.counters.module_built();
         self.modules.insert(stage.content_key(), module.clone());
         Ok(module)
     }

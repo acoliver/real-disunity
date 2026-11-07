@@ -14,7 +14,7 @@ use crate::{
 };
 
 /// Unity's `ShaderCompilerPlatform` for Vulkan.
-const VULKAN: u32 = 18;
+pub const VULKAN: u32 = 18;
 
 /// Tells the Vulkan platform of each shader of a player, and whether the player has any.
 /// Every walk that collects a player's Vulkan programs passes its shaders through one census, so

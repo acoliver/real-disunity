@@ -7,8 +7,8 @@ use std::{collections::BTreeSet, ops::RangeInclusive, path::PathBuf};
 use worldrunner_unity_serialized::{
     ClassId, SerializedError,
     shader::Shader,
-    shader_parameters::{VariantParameters, read_parameters},
-    shader_program::Program,
+    shader_parameters::{VariantParameters, read_bind_channels, read_parameters},
+    shader_program::{BindChannels, Program},
     shader_records::{
         ProgramEntry, platform_program_types, program_table, read_record, vulkan_stages,
     },
@@ -32,13 +32,15 @@ pub struct RawStage {
 /// What the walk finds.
 pub enum Event<'a> {
     /// A shader with a Vulkan platform, before its variants.
-    Shader,
+    Shader(&'a Shader),
     /// A variant that failed before its parameters and modules could be read together, by cause.
     Unreadable(String),
     /// A variant whose record and parameters both decode, each pair once for its shader.
     Variant {
         parameters: &'a VariantParameters,
         stages: &'a [RawStage],
+        /// The variant's vertex input table, read from the tail of its record.
+        channels: &'a BindChannels,
     },
 }
 
@@ -47,8 +49,8 @@ const MISSING: SerializedError = SerializedError::InvalidShaderProgram {
     reason: "a variant names an entry that does not exist",
 };
 
-/// The stage modules of a program record.
-fn read_stages(record: &[u8]) -> Result<Vec<RawStage>, SerializedError> {
+/// The stage modules and the vertex input table of a program record.
+fn read_stages(record: &[u8]) -> Result<(Vec<RawStage>, BindChannels), SerializedError> {
     let read = read_record(record)?;
     let outside = || SerializedError::InvalidShaderProgram {
         offset: 0,
@@ -63,7 +65,8 @@ fn read_stages(record: &[u8]) -> Result<Vec<RawStage>, SerializedError> {
             words: smolv::module_words(stage.encoding, bytes)?,
         });
     }
-    Ok(stages)
+    let tail = record.get(read.rest.clone()).ok_or_else(outside)?;
+    Ok((stages, read_bind_channels(tail)?))
 }
 
 fn cause(error: &SerializedError) -> String {
@@ -112,11 +115,14 @@ fn walk_program(
         let decoded = platform
             .entry(variant.blob_index)
             .and_then(read_stages)
-            .and_then(|stages| Ok((stages, read_parameters(platform.entry(entry)?)?)));
+            .and_then(|(stages, channels)| {
+                Ok((stages, channels, read_parameters(platform.entry(entry)?)?))
+            });
         match decoded {
-            Ok((stages, parameters)) => visit(Event::Variant {
+            Ok((stages, channels, parameters)) => visit(Event::Variant {
                 parameters: &parameters,
                 stages: &stages,
+                channels: &channels,
             }),
             Err(error) => visit(Event::Unreadable(cause(&error))),
         }
@@ -168,8 +174,8 @@ pub fn walk_variants(
             let Some(platform) = census.platform(&platforms) else {
                 continue;
             };
-            visit(Event::Shader);
             let (shader, kind, chunks) = load_shader(&mut open, path_id, platform)?;
+            visit(Event::Shader(&shader));
             walk_platform(&shader, kind, &chunks, visit).map_err(|source| open.error(source))?;
         }
     }

@@ -204,6 +204,22 @@ fn written_width(member: &Member, in_struct: bool) -> Option<usize> {
     }
 }
 
+/// Integers a 32-bit float holds exactly.
+const FLOAT_EXACT: u32 = 1 << 24;
+
+/// `value` as a float, when the float is the same number.
+#[allow(clippy::cast_precision_loss)] // exact up to `FLOAT_EXACT`, which the check enforces
+fn float_of(value: i32) -> Option<f32> {
+    (value.unsigned_abs() <= FLOAT_EXACT).then_some(value as f32)
+}
+
+/// `value` as an integer, when it is a whole number an `i32` holds.
+#[allow(clippy::cast_possible_truncation)] // a whole number inside the range, checked first
+fn integer_of(value: f32) -> Option<i32> {
+    let limit = 2_147_483_648.0_f32;
+    (value.fract() == 0.0 && (-limit..limit).contains(&value)).then_some(value as i32)
+}
+
 impl Packer<'_> {
     fn name<'n>(&'n self, name: &'n ParamName) -> Result<&'n str, ConstantError> {
         name.resolve(self.names)
@@ -348,6 +364,16 @@ impl Packer<'_> {
     fn vector(&mut self, found: &Found<'_>, width: usize) -> Result<(), ConstantError> {
         let elements: Vec<[f32; 4]> = match &found.value {
             PropertyValue::Float(x) if width == 1 => vec![[*x, 0.0, 0.0, 0.0]],
+            // One name holds one number: a whole number set as an integer is the same number in
+            // a float member, when a float holds it exactly.
+            PropertyValue::Int(x) if width == 1 => {
+                vec![[
+                    float_of(*x).ok_or_else(|| found.wrong_kind())?,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]]
+            }
             PropertyValue::Vector(v) => vec![*v],
             PropertyValue::VectorArray(items) => items.clone(),
             _ => return Err(found.wrong_kind()),
@@ -367,6 +393,9 @@ impl Packer<'_> {
     fn integers(&mut self, found: &Found<'_>, width: usize) -> Result<(), ConstantError> {
         let elements: Vec<[i32; 4]> = match &found.value {
             PropertyValue::Int(x) if width == 1 => vec![[*x, 0, 0, 0]],
+            PropertyValue::Float(x) if width == 1 => {
+                vec![[integer_of(*x).ok_or_else(|| found.wrong_kind())?, 0, 0, 0]]
+            }
             PropertyValue::IntVector(v) => vec![*v],
             PropertyValue::IntVectorArray(items) => items.clone(),
             _ => return Err(found.wrong_kind()),
@@ -382,9 +411,15 @@ impl Packer<'_> {
         Ok(())
     }
 
-    /// A boolean or unsigned scalar; every other kind and width is unsupported.
+    /// A boolean or unsigned scalar; every other kind and width is unsupported. A float that is a
+    /// whole number counts as the integer.
     fn scalar(&mut self, found: &Found<'_>) -> Result<(), ConstantError> {
-        let PropertyValue::Int(value) = found.value else {
+        let value = match found.value {
+            PropertyValue::Int(value) => Some(value),
+            PropertyValue::Float(value) => integer_of(value),
+            _ => None,
+        };
+        let Some(value) = value else {
             return match found.member.kind {
                 Kind::Int | Kind::Bool | Kind::Uint => Err(found.wrong_kind()),
                 _ => Err(found.unsupported()),

@@ -25,6 +25,7 @@ pub mod player_parameters;
 pub mod player_pipeline;
 pub mod player_plan;
 mod player_prefabs;
+mod player_primitives;
 mod player_render_textures;
 pub mod player_resources;
 pub mod player_scene;

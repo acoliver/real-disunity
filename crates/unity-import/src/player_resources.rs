@@ -45,6 +45,7 @@ use crate::{
     player_pipeline::{GraphicsAssets, admit_graphics_assets},
     player_plan::{PlanSource, tag_manager_names},
     player_prefabs::{is_root, plan_prefab, prefab_name},
+    player_primitives::primitive_mesh,
     player_render_textures::{
         decode_render_texture, plan_render_texture, unplanned_reference as unplanned_render_texture,
     },
@@ -433,6 +434,18 @@ impl Registry {
         Ok(Some(self.queue.len() - 1))
     }
 
+    /// The asset index of a built-in primitive mesh the engine generates, planned when it is new.
+    fn admit_primitive(&mut self, key: &ObjectKey) -> Option<usize> {
+        if let Some(&index) = self.planned.get(key) {
+            return Some(index);
+        }
+        let generated = primitive_mesh(key)?;
+        self.meshes.insert(key.clone(), generated);
+        self.planned.insert(key.clone(), self.queue.len());
+        self.queue.push((key.clone(), ClassId::MESH));
+        Some(self.queue.len() - 1)
+    }
+
     /// Decodes a mesh being admitted. A mesh the plan cannot hold is noted once, with whatever
     /// else it leaves out, and rejected.
     fn admit_mesh(&mut self, key: &ObjectKey) -> Result<bool, PlayerError> {
@@ -470,6 +483,9 @@ impl Registry {
             .referenced_file(owner, pptr)
             .map_err(|_| not_held(pptr))?;
         let key = (file, pptr.path_id);
+        if let Some(index) = self.admit_primitive(&key) {
+            return Ok(index);
+        }
         let class = self.class(&key.0, key.1).map_err(|_| not_held(pptr))?;
         if class == ClassId::GAME_OBJECT && !is_root(&mut self.files, &key) {
             return Err(format!(

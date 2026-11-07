@@ -211,6 +211,10 @@ impl OffscreenHost {
             self.note(("frame", live_before), &adapted.report, None);
             return Ok((None, adapted.report));
         }
+        let reclaimed = self
+            .adapter
+            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        adapted.report.reclaimed.add(reclaimed);
         let built = build(
             &mut self.state,
             &mut self.runtime,
@@ -237,6 +241,10 @@ impl OffscreenHost {
         let mut adapted =
             self.adapter
                 .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
+        let reclaimed = self
+            .adapter
+            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        adapted.report.reclaimed.add(reclaimed);
         adapted.report.phases.adapt = started.elapsed();
         let mut buffers = GpuBuffers::default();
         let result = self.run(snapshot, &mut adapted, &mut buffers);

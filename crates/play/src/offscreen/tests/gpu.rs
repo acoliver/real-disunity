@@ -165,6 +165,11 @@ pub(super) struct Gpu {
 }
 
 pub(super) fn gpu() -> Gpu {
+    gpu_with_budget(64 << 20)
+}
+
+/// A device whose runtime may hold `budget` bytes of storage.
+pub(super) fn gpu_with_budget(budget: u64) -> Gpu {
     let instance = headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -172,7 +177,7 @@ pub(super) fn gpu() -> Gpu {
     let (device, queue, _) =
         pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
     let authority = SubmissionAuthority::new(queue);
-    let budget = AllocationBudget(64 << 20);
+    let budget = AllocationBudget(budget);
     let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
     let limits = device.limits();
     let mut renderer = Configuration::new(

@@ -25,7 +25,8 @@ use worldrunner_world_simulation::graphics::{
 use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
 use super::defaults::DefaultTexture;
 use super::frame::{
-    Adapted, Available, BLIT_MESH, Report, Settings, ShaderInfo, adapt_probing, textures_of,
+    Adapted, Available, BLIT_MESH, Reclaimed, Report, Settings, ShaderInfo, adapt_probing,
+    textures_of,
 };
 use super::holdings;
 use super::ids;
@@ -42,6 +43,8 @@ pub struct OffscreenAdapter {
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
     blit_mesh: bool,
+    /// Counts the snapshots adapted, so a stored mesh or texture knows how long ago it was named.
+    epoch: u64,
 }
 
 /// A stored mesh or texture the adapter has read: the generation, the generation of the sampler
@@ -51,6 +54,8 @@ struct Stored {
     generation: u64,
     sampler_generation: u64,
     usable: bool,
+    /// The epoch of the last snapshot that named it.
+    last_named: u64,
 }
 
 impl OffscreenAdapter {
@@ -71,6 +76,7 @@ impl OffscreenAdapter {
             textures: BTreeMap::new(),
             defaults: BTreeSet::new(),
             blit_mesh: false,
+            epoch: 0,
         }
     }
 
@@ -96,6 +102,7 @@ impl OffscreenAdapter {
         runtime: &mut ProgramRuntime,
         probe: bool,
     ) -> Adapted {
+        self.epoch += 1;
         let mut notes = Report::default();
         let mut available = Available::default();
         // A render texture the script destroyed has nothing left to draw; its storage goes back
@@ -107,10 +114,17 @@ impl OffscreenAdapter {
             .collect();
         state.retain_render_textures(runtime, &live_targets);
         self.register_shaders(snapshot, state, &mut available, &mut notes);
-        let renderers = snapshot.renderers.iter().map(|renderer| renderer.mesh);
-        self.register_meshes(renderers.collect(), assets, (state, runtime), &mut notes);
-        self.register_defaults(state, runtime, &mut notes);
+        let meshes: BTreeSet<u64> = snapshot
+            .renderers
+            .iter()
+            .map(|renderer| renderer.mesh)
+            .collect();
         let wanted = stored_textures(snapshot);
+        // What the snapshot names is stamped before anything is uploaded, so that making room for
+        // one upload never gives back another the snapshot is about to use.
+        self.stamp(&meshes, &wanted);
+        self.register_meshes(meshes, assets, (state, runtime), &mut notes);
+        self.register_defaults(state, runtime, &mut notes);
         self.register_textures(&wanted, assets, (state, runtime), &mut notes);
         available.meshes = usable(&self.meshes);
         available.textures = usable(&self.textures);
@@ -196,8 +210,10 @@ impl OffscreenAdapter {
                 }
             };
             let uploaded = match mesh_of(&stored) {
-                Ok(mesh) => state
-                    .set_mesh(runtime, ids::mesh(identity), &mesh)
+                Ok(mesh) => self
+                    .with_room(state, runtime, notes, |state, runtime| {
+                        state.set_mesh(runtime, ids::mesh(identity), &mesh)
+                    })
                     .map_err(|error| notes.fail("mesh", &error))
                     .is_ok(),
                 Err(error) => {
@@ -211,6 +227,7 @@ impl OffscreenAdapter {
                     generation: stored.generation,
                     sampler_generation: 0,
                     usable: uploaded,
+                    last_named: self.epoch,
                 },
             );
         }
@@ -256,8 +273,10 @@ impl OffscreenAdapter {
             };
             let sampled = stored_sampler.as_ref().map(sampler_of_stored);
             let uploaded = match texture_of(id, &stored, sampled) {
-                Ok(texture) => state
-                    .set_texture(runtime, &texture)
+                Ok(texture) => self
+                    .with_room(state, runtime, notes, |state, runtime| {
+                        state.set_texture(runtime, &texture)
+                    })
                     .map_err(|error| notes.fail("texture", &error))
                     .is_ok(),
                 Err(error) => {
@@ -278,9 +297,127 @@ impl OffscreenAdapter {
                     generation: stored.generation,
                     sampler_generation: stored_sampler.map_or(0, |found| found.generation),
                     usable: uploaded,
+                    last_named: self.epoch,
                 },
             );
         }
+    }
+}
+
+/// The bytes by which the budget refused an allocation, when that is why `error` is.
+fn shortfall(error: &OffscreenError) -> Option<u64> {
+    match error {
+        OffscreenError::Program(ProgramError::OverBudget { required, budget }) => {
+            Some(required.saturating_sub(*budget).max(1))
+        }
+        _ => None,
+    }
+}
+
+impl OffscreenAdapter {
+    /// Notes that the snapshot names the meshes and textures given.
+    fn stamp(&mut self, meshes: &BTreeSet<u64>, textures: &BTreeSet<u64>) {
+        for (named, held) in [(meshes, &mut self.meshes), (textures, &mut self.textures)] {
+            for identity in named {
+                if let Some(stored) = held.get_mut(identity) {
+                    stored.last_named = self.epoch;
+                }
+            }
+        }
+    }
+
+    /// Runs `upload`, and when the budget refuses it gives back what the snapshot does not name,
+    /// least recently named first, as far as the refusal asks, and runs it once more.
+    fn with_room<T>(
+        &mut self,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        notes: &mut Report,
+        mut upload: impl FnMut(&mut OffscreenState, &mut ProgramRuntime) -> Result<T, OffscreenError>,
+    ) -> Result<T, OffscreenError> {
+        let error = match upload(state, runtime) {
+            Ok(done) => return Ok(done),
+            Err(error) => error,
+        };
+        let Some(short) = shortfall(&error) else {
+            return Err(error);
+        };
+        let reclaimed = self.reclaim(state, runtime, short);
+        notes.reclaimed.add(reclaimed);
+        if reclaimed.bytes == 0 {
+            return Err(error);
+        }
+        upload(state, runtime)
+    }
+
+    /// Gives back what the last snapshot did not name until the render textures of `frame` fit in
+    /// the budget, or nothing more can go.
+    pub fn make_room(
+        &mut self,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        frame: &OffscreenFrame,
+    ) -> Reclaimed {
+        runtime.collect();
+        let needed = state.new_render_texture_bytes(runtime, &frame.render_textures);
+        let free = runtime.budget().0.saturating_sub(runtime.live_bytes());
+        if needed <= free {
+            return Reclaimed::default();
+        }
+        self.reclaim(state, runtime, needed - free)
+    }
+
+    /// Releases stored meshes and textures that the current snapshot does not name, least
+    /// recently named first, until `shortfall` bytes are given back or none are left. The storage
+    /// is counted in the budget again once the GPU is done with it, so this waits for that.
+    fn reclaim(
+        &mut self,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        shortfall: u64,
+    ) -> Reclaimed {
+        let unnamed = |held: &BTreeMap<u64, Stored>, texture: bool| -> Vec<(u64, bool, u64)> {
+            held.iter()
+                .filter(|(_, stored)| stored.usable && stored.last_named < self.epoch)
+                .map(|(identity, stored)| (stored.last_named, texture, *identity))
+                .collect()
+        };
+        let mut candidates = unnamed(&self.textures, true);
+        candidates.extend(unnamed(&self.meshes, false));
+        candidates.sort_unstable();
+        let mut reclaimed = Reclaimed::default();
+        for (_, texture, identity) in candidates {
+            if reclaimed.bytes >= shortfall {
+                break;
+            }
+            let freed = if texture {
+                ids::stored_texture(identity)
+                    .and_then(|id| state.release_source_texture(runtime, id))
+            } else {
+                state.release_mesh(runtime, ids::mesh(identity))
+            };
+            let Some(bytes) = freed else { continue };
+            reclaimed.bytes += bytes;
+            if texture {
+                self.textures.remove(&identity);
+                reclaimed.textures += 1;
+            } else {
+                self.meshes.remove(&identity);
+                reclaimed.meshes += 1;
+            }
+        }
+        // A device that cannot be waited on has nothing further to collect.
+        if runtime
+            .device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .is_ok()
+        {
+            runtime.collect();
+        }
+        reclaimed
     }
 }
 

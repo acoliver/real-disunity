@@ -28,8 +28,8 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Report,
-    Settings, WorkTrace,
+    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
+    Report, Settings, WorkTrace,
 };
 
 /// Bytes of GPU storage the program runtime may hold.
@@ -101,6 +101,8 @@ pub struct GpuWorkReport {
     /// in.
     pub refusal_holdings: Vec<String>,
     pub refusal_frame: u64,
+    /// The uploaded textures and meshes given back to make room.
+    pub reclaimed: Reclaimed,
     /// The records of frames and flushes the GPU refused whole. Their other counts are not in the
     /// totals above, which a refused piece of work never reaches.
     pub refused_records: usize,
@@ -161,6 +163,7 @@ impl GpuWorkReport {
         for (name, count) in &report.failures {
             *self.failures.entry(name.clone()).or_default() += count;
         }
+        self.reclaimed.add(report.reclaimed);
         if self.refusal_holdings.is_empty() && !report.holdings.is_empty() {
             self.refusal_holdings.clone_from(&report.holdings);
             self.refusal_frame = self.frames;
@@ -284,6 +287,10 @@ impl GpuWorkReport {
         eprintln!(
             "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
             self.peak_live_bytes, self.peak_runtime_bytes
+        );
+        eprintln!(
+            "[gpu] given back to make room: {} textures, {} meshes, {} bytes",
+            self.reclaimed.textures, self.reclaimed.meshes, self.reclaimed.bytes
         );
         for line in &self.refusal_holdings {
             eprintln!(

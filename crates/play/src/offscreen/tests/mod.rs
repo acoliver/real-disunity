@@ -12,6 +12,7 @@ mod kernels;
 mod policy;
 mod probe;
 mod properties;
+mod reclaim;
 mod refusal;
 mod shaders;
 mod support;

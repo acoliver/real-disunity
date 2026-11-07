@@ -140,6 +140,24 @@ pub enum RendererSkip {
     EmptySlot,
 }
 
+/// The uploaded textures and meshes given back to make room in the budget.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reclaimed {
+    pub textures: usize,
+    pub meshes: usize,
+    /// Their bytes, as the budget counted them.
+    pub bytes: u64,
+}
+
+impl Reclaimed {
+    /// Adds `other`'s counts to these.
+    pub fn add(&mut self, other: Self) {
+        self.textures += other.textures;
+        self.meshes += other.meshes;
+        self.bytes += other.bytes;
+    }
+}
+
 /// What the mapping did.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
@@ -191,6 +209,8 @@ pub struct Report {
     /// What the runtime's storage held when the budget first refused an allocation of this work,
     /// as lines; empty when it refused none.
     pub holdings: Vec<String>,
+    /// What was given back to make room for this work.
+    pub reclaimed: Reclaimed,
 }
 
 impl Report {
@@ -297,6 +317,7 @@ impl Report {
         if self.holdings.is_empty() {
             self.holdings = other.holdings;
         }
+        self.reclaimed.add(other.reclaimed);
         self.camera_draws.extend(other.camera_draws);
         self.camera_passes.extend(other.camera_passes);
         self.phases.add(&other.phases);

@@ -80,8 +80,8 @@ pub use compute::{
 pub use defaults::DefaultTexture;
 pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
-    Adapted, Available, BLIT_MESH, Placed, RendererSkip, Report, Settings, ShaderInfo, Skip,
-    TEST_CLEAR, adapt, adapt_probing,
+    Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,
+    Skip, TEST_CLEAR, adapt, adapt_probing,
 };
 pub use kernels::PlayerKernels;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};

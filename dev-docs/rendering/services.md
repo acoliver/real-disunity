@@ -43,8 +43,19 @@ resources and error scopes remain test-owned. Scopes must be popped on the issui
 thread in reverse order. Cached-device loss and uncaptured errors abort the test
 process, and session teardown restores those handlers. Callback-observer tests use
 dedicated devices. Dedicated scene tests hold the same lease for their complete
-lifetime to exclude concurrent shared-device activity.
+lifetime to exclude concurrent shared-device activity. Direct scene contexts in
+viewer tests and scene integration tests follow this rule too. Integration tests
+activate `test-support` through dev-dependencies, including a self dev-dependency
+when testing the crate that owns the feature. A dependency's `cfg(test)` does not
+activate its test helpers.
 
+Ordinary post-service tests share raw devices and queues without a session lease.
+Each test owns its resources, submission authorities and thread-local error scopes;
+concurrent submissions and polling are permitted. These tests never replace the
+cached device's callbacks or assert queue-wide completion timing. Retirement and
+callback-lifecycle probes use fresh devices so another test cannot dispatch their
+callbacks. Software-adapter, exact custom-capability and production windowless
+acquisition tests also keep their production acquisition paths.
 
 ## Viewer frame pacing
 

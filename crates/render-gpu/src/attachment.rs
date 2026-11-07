@@ -84,12 +84,10 @@ mod tests {
 
     #[test]
     fn attachment_rejects_invalid_contracts_before_gpu_allocation() {
-        let instance = crate::device::headless_instance();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .expect("attachment contract test requires a GPU adapter");
-        let (device, _) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let gpu =
+            crate::test_support::TestGpu::shared(&crate::device::DeviceRequirements::default())
+                .unwrap();
+        let (device, _) = (gpu.device, gpu.queue);
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         for size in [

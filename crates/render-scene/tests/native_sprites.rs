@@ -161,8 +161,8 @@ fn read_image(context: &GpuContext, renderer: &FrameRenderer, size: [u32; 2]) ->
 }
 #[test]
 fn native_sprites_share_srgb_alpha_msaa_resize_and_unload() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_samples(
             context.device(),
@@ -252,8 +252,8 @@ fn glyph_frame(size: [u32; 2]) -> WorldSceneContribution {
 }
 #[test]
 fn glyph_coverage_and_tint_alpha_reach_the_shared_srgb_target() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_samples(
             context.device(),
@@ -286,8 +286,8 @@ fn glyph_coverage_and_tint_alpha_reach_the_shared_srgb_target() {
 
 #[test]
 fn native_global_lights_multiply_exact_gpu_pixels() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_samples(
             context.device(),
@@ -505,8 +505,8 @@ fn sampling_cases() -> [(Option<worldrunner_render_plan::TextureSampler>, f32, f
 #[test]
 fn per_texture_sampling_has_exact_pixels_and_default_output() {
     use worldrunner_render_plan::TextureSampler as S;
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_samples(
             context.device(),
@@ -545,8 +545,8 @@ fn per_texture_sampling_has_exact_pixels_and_default_output() {
 #[test]
 fn texture_samplers_are_independent_within_one_frame() {
     use worldrunner_render_plan::{TextureFilter, TextureSampler};
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_samples(
             context.device(),
@@ -593,6 +593,7 @@ fn texture_samplers_are_independent_within_one_frame() {
 
 #[test]
 fn feature_off_pixels_and_stage_ids_remain_identical() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let context = pollster::block_on(GpuContext::request_with_features(
         wgpu::Features::TIMESTAMP_QUERY,
     ))
@@ -651,8 +652,8 @@ fn mip_frame(sampler: Option<worldrunner_render_plan::TextureSampler>) -> WorldS
 #[test]
 fn authored_bilinear_selects_one_mip_and_unspecified_preserves_linear_mips() {
     use worldrunner_render_plan::TextureFilter;
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for samples in [1, 4] {
         let pipelines = ScenePipelines::with_samples(
             context.device(),

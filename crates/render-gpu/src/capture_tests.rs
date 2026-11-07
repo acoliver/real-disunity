@@ -25,7 +25,7 @@ fn unsubmitted_prefix_cancellation_has_no_publication_or_cleanup_work() {
 
 #[test]
 fn capture_waits_for_earlier_work_and_poll_retires_abandoned_prefix() {
-    let (device, authority) = context();
+    let (device, authority) = fresh_context();
     let frame = authority.prepare(&device, |_, _| Ok::<_, ()>(())).unwrap();
     let submission = frame.submit().unwrap();
     assert!(matches!(
@@ -104,7 +104,7 @@ fn final_readback_failure_retains_submitted_suffix_accounting() {
 
 #[test]
 fn device_loss_before_suffix_enqueue_discards_its_publications() {
-    let (device, authority) = context();
+    let (device, authority) = fresh_context();
     let value = Arc::new(AtomicUsize::new(0));
     let prefix = authority
         .begin_capture(&device, writes(), frozen(), |_, _, _| Ok::<_, ()>(()))
@@ -147,12 +147,12 @@ use std::sync::{
 };
 
 fn context() -> (wgpu::Device, SubmissionAuthority) {
-    let instance = crate::device::headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = crate::test_support::TestGpu::shared(&crate::device::DeviceRequirements::default())
+        .unwrap();
+    (gpu.device, SubmissionAuthority::new(gpu.queue))
+}
+fn fresh_context() -> (wgpu::Device, SubmissionAuthority) {
+    let (device, queue) = crate::test_support::fresh_device();
     (device, SubmissionAuthority::new(queue))
 }
 fn writes() -> CaptureWrites {
@@ -304,7 +304,7 @@ fn readback_and_suffix_failures_discard_suffix_and_drain_prefix() {
 #[test]
 fn dropped_continuation_and_suffix_keep_inputs_until_drain() {
     for segment in [0, 1, 2] {
-        let (device, authority) = context();
+        let (device, authority) = fresh_context();
         let inputs = Arc::new(123);
         let weak = Arc::downgrade(&inputs);
         let prefix = authority
@@ -335,7 +335,7 @@ fn dropped_continuation_and_suffix_keep_inputs_until_drain() {
 
 #[test]
 fn suffix_cannot_publish_prefix_keys_and_device_loss_stops_generation() {
-    let (device, authority) = context();
+    let (device, authority) = fresh_context();
     let prefix = authority
         .begin_capture(&device, writes(), frozen(), |_, _, _| Ok::<_, ()>(()))
         .unwrap();

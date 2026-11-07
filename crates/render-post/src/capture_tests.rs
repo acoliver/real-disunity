@@ -14,12 +14,7 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
-        let instance = worldrunner_render_gpu::device::headless_instance();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .unwrap();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let (device, queue) = crate::gpu_tests::gpu();
         let authority = SubmissionAuthority::new(queue);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("capture reduction"),

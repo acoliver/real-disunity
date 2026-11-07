@@ -34,3 +34,15 @@ fn gpu_production_requests_still_create_fresh_devices() {
     assert_ne!(first.0, cached.device);
     assert_ne!(second.0, cached.device);
 }
+
+#[test]
+fn gpu_loss_and_retirement_fixtures_bypass_the_device_cache() {
+    let first = super::fresh_device();
+    let second = super::fresh_device();
+    let cached = TestGpu::shared(&DeviceRequirements::default()).unwrap();
+    assert_ne!(first.0, second.0);
+    assert_ne!(first.1, second.1);
+    assert_ne!(first.0, cached.device);
+    assert_ne!(second.0, cached.device);
+    assert_eq!(first.0.features(), wgpu::Features::empty());
+}

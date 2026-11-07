@@ -1,4 +1,5 @@
 use std::{cell::Cell, rc::Rc};
+use worldrunner_render_gpu::{device::DeviceRequirements, test_support::TestGpu};
 use worldrunner_render_post::*;
 
 struct Counted {
@@ -34,12 +35,8 @@ impl PreparedFeature for Counted {
 
 #[test]
 fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = TestGpu::shared(&DeviceRequirements::default()).unwrap();
+    let (device, queue) = (gpu.device, gpu.queue);
     let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1);
     let mut chain = PostChain::new(
         &device,
@@ -93,12 +90,8 @@ fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
 
 #[test]
 fn checked_nonzero_subresources_are_valid_in_generic_executor() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = TestGpu::shared(&DeviceRequirements::default()).unwrap();
+    let (device, queue) = (gpu.device, gpu.queue);
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let config = FrameConfig::new([8, 8], wgpu::TextureFormat::Rgba8Unorm, 1);
     let mut chain = PostChain::new(

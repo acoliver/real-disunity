@@ -15,8 +15,7 @@ struct Fixture {
 
 impl Fixture {
     fn new(shadows: Option<DirectionalShadowSettings>) -> Self {
-        let context =
-            pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+        let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
         let resident =
             Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
         let target = OffscreenTarget::new(
@@ -69,6 +68,7 @@ fn both_residents() -> [Option<DirectionalShadowSettings>; 2] {
 
 #[test]
 fn a_frame_after_an_append_matches_a_frame_after_the_full_replacement() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     for shadows in both_residents() {
         let mut fixture = Fixture::new(shadows);
         let before = fixture.frame();
@@ -93,6 +93,7 @@ fn a_frame_after_an_append_matches_a_frame_after_the_full_replacement() {
 
 #[test]
 fn an_append_that_changes_no_object_leaves_the_frame_alone() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut fixture = Fixture::new(None);
     let before = fixture.frame();
     fixture.apply(RetainedUpdate::AppendResources(append()));
@@ -101,6 +102,7 @@ fn an_append_that_changes_no_object_leaves_the_frame_alone() {
 
 #[test]
 fn later_appends_may_use_earlier_items_and_edit_objects_in_the_same_frame() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     for shadows in both_residents() {
         let mut fixture = Fixture::new(shadows);
         fixture.apply(RetainedUpdate::AppendResources(append()));
@@ -139,6 +141,7 @@ fn later_appends_may_use_earlier_items_and_edit_objects_in_the_same_frame() {
 
 #[test]
 fn replacing_a_mesh_changes_the_next_frame_to_the_rebuilt_one() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     for shadows in both_residents() {
         let mut fixture = Fixture::new(shadows);
         let before = fixture.frame();
@@ -163,6 +166,7 @@ fn replacing_a_mesh_changes_the_next_frame_to_the_rebuilt_one() {
 
 #[test]
 fn replacing_a_texture_changes_the_next_frame_to_the_rebuilt_one() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     for shadows in both_residents() {
         let mut fixture = Fixture::new(shadows);
         let before = fixture.frame();
@@ -178,6 +182,7 @@ fn replacing_a_texture_changes_the_next_frame_to_the_rebuilt_one() {
 
 #[test]
 fn an_append_counts_only_its_own_bytes_as_uploaded() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut fixture = Fixture::new(None);
     let initial = fixture.resident.scene_mut().take_statistics();
     assert_eq!(
@@ -267,6 +272,7 @@ pub(super) fn budgeted_presentation(
 
 #[test]
 fn an_append_over_the_budget_fails_and_changes_nothing() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut fixture = Fixture::new(None);
     let mut presentation = budgeted_presentation(&fixture.context, 1024 * 1024);
     let before = fixture.frame();
@@ -305,6 +311,7 @@ fn an_append_over_the_budget_fails_and_changes_nothing() {
 
 #[test]
 fn an_append_inside_the_budget_is_admitted() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut fixture = Fixture::new(None);
     let mut presentation = budgeted_presentation(&fixture.context, 64 * 1024 * 1024);
     fixture
@@ -472,6 +479,7 @@ fn object_at(x: i64, mesh: u32) -> worldrunner_render_plan::SceneObject {
 
 #[test]
 fn a_replaced_mesh_is_culled_and_drawn_by_its_new_bounds() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     for shadows in both_residents() {
         let mut fixture = Fixture::new(shadows);
         fixture.apply(RetainedUpdate::Add {
@@ -491,6 +499,7 @@ fn a_replaced_mesh_is_culled_and_drawn_by_its_new_bounds() {
 
 #[test]
 fn a_replaced_mesh_casts_its_new_shadow() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let shadows = Some(shadow_settings());
     let mut fixture = Fixture::new(shadows);
     let before = fixture.frame();
@@ -505,6 +514,7 @@ fn a_replaced_mesh_casts_its_new_shadow() {
 
 #[test]
 fn an_append_prepared_for_other_tables_is_refused_and_changes_nothing() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut fixture = Fixture::new(None);
     fixture.resident = Resident::new(
         &fixture.context,

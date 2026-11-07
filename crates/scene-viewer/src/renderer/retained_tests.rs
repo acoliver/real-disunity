@@ -3,8 +3,8 @@ mod resource_edits;
 mod shadow_direction;
 #[test]
 fn retained_lighting_settings_change_the_next_frame_without_reupload() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = source();
     let initial_effects = scene.effects().unwrap();
     let effects = SceneEffects::new(SceneEffectsParts {
@@ -52,8 +52,8 @@ fn retained_lighting_settings_change_the_next_frame_without_reupload() {
 #[test]
 fn retained_host_ordered_edits_reach_the_next_frame() {
     use crate::{ObjectId, RetainedHost, RetainedUpdate};
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for shadows in [None, Some(shadow_settings())] {
         let mut host = RetainedHost::new(source(), crate::tests::options()).unwrap();
         let mut resident =
@@ -157,9 +157,9 @@ pub(crate) fn terrain_source() -> RenderScene {
 
 #[test]
 fn terrain_viewer_validates_and_preserves_readbacks_and_resident_edits() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let source = terrain_source();
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let viewport = Viewport {
         width: 64,
         height: 64,
@@ -306,8 +306,8 @@ pub(crate) fn shadow_settings() -> DirectionalShadowSettings {
 
 #[test]
 fn viewer_callback_edits_flush_in_plain_and_shadowed_residents() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for shadows in [None, Some(shadow_settings())] {
         let mut resident =
             Resident::new(&context, &source(), shadows, crate::FrameProfile::Legacy).unwrap();
@@ -365,8 +365,8 @@ fn viewer_callback_edits_flush_in_plain_and_shadowed_residents() {
 
 #[test]
 fn shadowed_viewer_encodes_geometry_output_and_capture_in_one_host_submission() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let size = Viewport {
         width: 64,
         height: 64,
@@ -472,22 +472,24 @@ fn replace_tables(host: &mut crate::RetainedHost) -> SceneObject {
 
 #[test]
 fn retained_tint_only_replace_changes_next_generation_pixels() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     assert_in_place_replace(true, false);
 }
 
 #[test]
 fn retained_transform_only_replace_preserves_handle_and_sparse_writes() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     assert_in_place_replace(false, true);
 }
 
 #[test]
 fn retained_combined_replace_applies_tint_and_transform() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     assert_in_place_replace(true, true);
 }
 
 fn assert_in_place_replace(tint: bool, transform: bool) {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let base = source();
     let original = base.geometry().objects()[0];
     let offscreen = SceneObject::new(
@@ -632,8 +634,8 @@ fn streaming_terrain_replacement(base: &SceneTerrain) -> SceneTerrain {
 fn streaming_retained_install_replace_remove_pixels_and_generations() {
     use crate::{RetainedHost, RetainedUpdate};
     use std::sync::Arc;
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let base = terrain_source();
     let terrain = Arc::new(
         base.terrain()
@@ -679,8 +681,8 @@ fn streaming_retained_install_replace_remove_pixels_and_generations() {
 #[test]
 fn retained_casts_shadow_replace_preserves_handle_and_receiving_membership() {
     use crate::{ObjectId, RetainedHost, RetainedUpdate};
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let scene = source();
     let mut host = RetainedHost::new(scene.clone(), crate::tests::options()).unwrap();
     let mut resident = Resident::new(

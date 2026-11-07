@@ -129,3 +129,46 @@ fn parallel_cache_misses_publish_one_identity() {
         assert!(Arc::ptr_eq(&devices[0], other));
     }
 }
+
+#[test]
+fn optional_and_required_requests_share_only_their_effective_profile() {
+    let mut cache = ProfileCache::default();
+    let optional = profile(&DeviceRequirements {
+        optional_features: Features::TIMESTAMP_QUERY,
+        ..Default::default()
+    });
+    let required = profile(&DeviceRequirements {
+        required_features: Features::TIMESTAMP_QUERY,
+        ..Default::default()
+    });
+    let first = device(&mut cache, optional);
+    assert!(Arc::ptr_eq(&first, &device(&mut cache, required)));
+    let empty = device(&mut cache, profile(&DeviceRequirements::default()));
+    assert!(!Arc::ptr_eq(&first, &empty));
+    assert_eq!(cache.entries.len(), 2);
+}
+
+#[test]
+fn featureful_first_request_cannot_upgrade_a_later_empty_request() {
+    let mut cache = ProfileCache::default();
+    let features = Features::TIMESTAMP_QUERY | Features::TEXTURE_COMPRESSION_BC;
+    let full = profile(&DeviceRequirements {
+        required_features: features,
+        ..Default::default()
+    });
+    let first = device(&mut cache, full.clone());
+    let timestamp = profile(&DeviceRequirements {
+        required_features: Features::TIMESTAMP_QUERY,
+        ..Default::default()
+    });
+    let second = device(&mut cache, timestamp.clone());
+    let empty = profile(&DeviceRequirements::default());
+    let third = device(&mut cache, empty.clone());
+    assert!(!Arc::ptr_eq(&first, &second));
+    assert!(!Arc::ptr_eq(&first, &third));
+    assert!(!Arc::ptr_eq(&second, &third));
+    assert_eq!(cache.entries.len(), 3);
+    assert_eq!(full.features, features);
+    assert_eq!(timestamp.features, Features::TIMESTAMP_QUERY);
+    assert!(empty.features.is_empty());
+}

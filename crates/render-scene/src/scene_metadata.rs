@@ -29,6 +29,7 @@ pub(crate) struct SceneMetadata {
     pub size: [u32; 2],
     pub normals: wgpu::Texture,
     pub depth: wgpu::Texture,
+    pub(crate) independent_depth: wgpu::Texture,
     pub geometry: Geometry,
     pub passes: crate::ssao::passes::ScreenPasses,
     pub(crate) uniform: wgpu::Buffer,
@@ -65,6 +66,7 @@ impl SceneMetadata {
             settings,
             size,
             normals,
+            independent_depth: depth.clone(),
             depth,
             geometry: Geometry {
                 pipelines,

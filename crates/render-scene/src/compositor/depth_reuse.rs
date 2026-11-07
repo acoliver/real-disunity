@@ -46,11 +46,7 @@ impl FrameRenderer {
             if let Some(screen) = &mut self.ssao
                 && screen.depth.format().has_stencil_aspect()
             {
-                let depth = crate::ssao::passes::texture(
-                    device,
-                    screen.size,
-                    wgpu::TextureFormat::Depth32Float,
-                );
+                let depth = screen.independent_depth.clone();
                 screen.share_depth(device, &depth);
             }
         } else {

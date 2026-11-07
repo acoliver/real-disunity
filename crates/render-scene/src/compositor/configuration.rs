@@ -467,7 +467,7 @@ impl ConfiguredFrameRenderer {
     /// Test harnesses that rasterise their own scene need the stock encoder and `prepare_uniform`,
     /// which the restricted public surface does not expose.
     #[cfg(test)]
-    pub(super) fn renderer_mut(&mut self) -> &mut FrameRenderer {
+    pub(crate) fn renderer_mut(&mut self) -> &mut FrameRenderer {
         self.state.current_mut()
     }
     pub fn configuration(&self) -> &RendererConfiguration {

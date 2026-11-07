@@ -312,6 +312,7 @@ impl Harness {
                 ticket.clone(),
                 std::time::Duration::ZERO,
                 &self.resident.scene_mut().statistics(),
+                crate::TemporalHistoryReset::None,
             )
             .unwrap();
         ticket

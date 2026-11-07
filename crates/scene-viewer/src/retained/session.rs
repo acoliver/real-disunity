@@ -271,6 +271,7 @@ impl Content for Session<'_> {
                 frame: self.frame,
                 generation: self.host.readiness.published,
                 scene: renderer.take_statistics(),
+                temporal_history_reset: renderer.temporal_history_reset(),
                 presentation_budget_bytes: renderer.presentation_budget_bytes(),
                 capture_pool_bytes: renderer.capture_pool_bytes(),
             });

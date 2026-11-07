@@ -154,3 +154,34 @@ fn a_reused_slot_starts_with_previous_equal_to_current() {
     let (current, previous) = fixture.buffers();
     assert_eq!(current, previous);
 }
+
+#[test]
+fn a_velocity_history_reset_survives_cancellation_and_initializes_current_transforms() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut fixture = fixture();
+    fixture
+        .gpu
+        .set_instance_transform(fixture.handle, moved(4321))
+        .unwrap();
+    fixture.gpu.reset_velocity_history();
+    let Fixture { context, gpu, .. } = &mut fixture;
+    context
+        .submission()
+        .prepare(context.device(), |encoder, _| {
+            gpu.flush_instances_encoded(context.device(), encoder)
+                .map(|_| ())
+        })
+        .unwrap()
+        .cancel();
+    fixture.flush();
+    let (current, previous) = fixture.buffers();
+    assert_eq!(current, previous);
+    fixture
+        .gpu
+        .set_instance_transform(fixture.handle, moved(8000))
+        .unwrap();
+    fixture.flush();
+    let (next, previous) = fixture.buffers();
+    assert_ne!(next, current);
+    assert_eq!(previous, current);
+}

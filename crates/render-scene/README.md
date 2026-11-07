@@ -490,7 +490,13 @@ The previous camera advances only when the frame's transaction is submitted, lik
 history. A cancelled or failed preparation changes nothing. The first frame, `reset_temporal_history`
 (call it on a camera cut), a resize, a reconfigure, and a change of jitter settings each discard
 the previous camera and restart the sequence; a frame prepared before a reset cannot republish
-after it.
+after it. `projection_jitter_index()` reads the next sequence position without advancing it.
+The explicit reset also discards pending native TAA and temporal-reconstruction blocks.
+For retained instance draws, pair the reset with `SceneGpu::reset_velocity_history()`:
+previous transforms then initialize from current placements at the next submission,
+including when a preparation was cancelled. `ShadowedScene::reset_camera_history()`
+also discards depth-fitting evidence, contraction filters and retained cascade maps.
+Exposure adaptation has its separate `reset_exposure()` operation.
 
 Velocity. `ScenePipelines::with_taa_velocity` builds pipelines whose object and terrain draws also
 write the wind residual to the `Rg16Float` velocity attachment that `FrameTargets` allocates only

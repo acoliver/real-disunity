@@ -241,6 +241,15 @@ impl SceneGpu {
         Ok(writes)
     }
 
+    /// Discards per-instance motion, for the first frame after a camera cut.
+    /// The next submitted upload initializes previous transforms from the current placements.
+    /// Abandoning its preparation leaves the reset pending.
+    pub fn reset_velocity_history(&mut self) {
+        for batch in self.instances.batches.values_mut() {
+            batch.reset_velocity_history();
+        }
+    }
+
     /// Keeps previous-frame instance transforms while the pass draws velocity pipelines.
     pub(crate) fn track_previous_transforms(&mut self, track: bool) {
         self.instances.track_previous = track;

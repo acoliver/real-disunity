@@ -39,6 +39,10 @@ pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod effects;
 mod environment;
 pub use environment::{SceneEnvironment, SceneEnvironmentConsumers};
+mod smaa;
+#[cfg(test)]
+mod smaa_tests;
+pub use smaa::{SceneSmaaEdgeDetection, SceneSmaaPreset, SceneSmaaSettings};
 mod shadow_sampling;
 pub use shadow_sampling::{SceneShadowFilter, SceneShadowSampling};
 mod lighting;

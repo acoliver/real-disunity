@@ -101,6 +101,7 @@ pub use document::{
     StreamLimits, TerrainMaterialSlot, TerrainRecipe, TransformMillimeters, UniformScaleMillionths,
     WaterPlaneRecipe, WindRecipe,
 };
+pub use scene::{SceneSmaaEdgeDetection, SceneSmaaPreset, SceneSmaaSettings};
 
 pub use scene::{
     SceneAdaptiveExposure, SceneBloom, SceneBloomLevelSelection, SceneBloomRecipe,

@@ -2,8 +2,8 @@
 
 use wgpu::{BindingType, BufferBindingType, SamplerBindingType, ShaderStages};
 use wgpu::{TextureSampleType, TextureViewDimension};
-use worldrunner_render_program::layout::{LayoutError, ProgramLayout};
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageProgram};
+use worldrunner_render_program::unity::layout::{LayoutError, ProgramLayout};
+use worldrunner_render_program::unity::module::{ModuleBinding, StageKind, StageProgram};
 
 use crate::common::{parameters, same, sampler, stage, texture};
 use crate::fixtures::textured;

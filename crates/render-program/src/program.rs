@@ -56,7 +56,7 @@ impl ProgramRuntime {
     /// Builds the layouts of a compute stage.
     ///
     /// # Errors
-    /// Fails when the stage is not a compute stage, its parameters do not match the module,
+    /// Fails when the stage is not a compute stage, its declarations do not match the module,
     /// or the device cannot hold the layout.
     pub fn compute_program(&self, stage: &StageProgram) -> Result<ComputeProgram, ProgramError> {
         expect(stage, StageKind::Compute)?;
@@ -70,7 +70,7 @@ impl ProgramRuntime {
     /// Builds the merged layouts of a vertex and a fragment stage.
     ///
     /// # Errors
-    /// Fails when a stage is of the wrong kind, the stages' parameters do not match their
+    /// Fails when a stage is of the wrong kind, the stages' declarations do not match their
     /// modules or each other, or the device cannot hold the layout.
     pub fn graphics_program(
         &self,

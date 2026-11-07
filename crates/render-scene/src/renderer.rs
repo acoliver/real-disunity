@@ -93,7 +93,9 @@ pub struct ScenePipelines {
     pub(crate) cached_terrain: RenderPipeline,
     pub(crate) layered: Option<pages::LayeredPipelines>,
     pub(crate) cached_terrain_layout: BindGroupLayout,
-    unlit_alpha: RenderPipeline,
+    /// The colour attachments of the pass the dynamic unlit-alpha material draws into, from the
+    /// same target list the object pipelines have.
+    unlit_colors: Vec<TextureFormat>,
     specialization: specular::Specialization,
 }
 
@@ -304,12 +306,28 @@ impl ScenePipelines {
             terrain_layout,
             pipelines,
             terrain,
-            unlit_alpha: unlit::build(device, target, &layout, &buffers, &module, &targets),
+            unlit_colors: targets.iter().flatten().map(|t| t.format).collect(),
         }
     }
 
-    pub const fn unlit_alpha(&self) -> &RenderPipeline {
-        &self.unlit_alpha
+    /// The pass the dynamic unlit-alpha material draws into with these pipelines: their colour
+    /// targets, the scene's depth format and their sample count.
+    pub(crate) fn unlit_signature(
+        &self,
+    ) -> Result<
+        worldrunner_render_program::runtime::TargetSignature,
+        worldrunner_render_program::error::ProgramError,
+    > {
+        worldrunner_render_program::runtime::TargetSignature::attachments(
+            &self.unlit_colors,
+            Some(DEPTH_FORMAT),
+            self.samples,
+        )
+    }
+
+    /// The shader source the dynamic unlit-alpha material's entry points are read from.
+    pub(crate) fn unlit_source(&self) -> &str {
+        self.specialization.source()
     }
 
     pub(crate) const fn object_pipelines(&self) -> &ObjectPipelines {

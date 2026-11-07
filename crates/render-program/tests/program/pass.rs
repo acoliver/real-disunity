@@ -1,13 +1,13 @@
 //! A textured Unity pass drawn with a constant-buffer tint and two keyword variants.
 
 use worldrunner_render_gpu::tolerance_test_support::assert_code_within;
-use worldrunner_render_program::runtime::TargetImage;
+use worldrunner_render_program::unity::runtime::TargetImage;
 
 use crate::common::{opaque_state, runtime};
 use crate::rig::{
     ADD, MULTIPLY, OFFSET_VALUE, Pass, QUAD, Samplers, Scene, TEXELS, TINT_VALUE, pass, properties,
 };
-use worldrunner_render_program::state::resolve_state;
+use worldrunner_render_program::unity::state::resolve_state;
 
 /// The quad covers the 2x2 target and each pixel center samples a texel center (uv 0.25 or
 /// 0.75), so the linear filter returns that texel and no neighbor.

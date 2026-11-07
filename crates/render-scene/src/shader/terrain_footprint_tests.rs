@@ -22,10 +22,9 @@ fn expected(matrix: Mat4, pixel: Vec2, normal: Vec3, depth: f32) -> [f32; 4] {
 
 #[test]
 fn terrain_analytic_footprint_matches_pixel_pairs_on_flat_and_sloped_planes() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let mut frame = configured_frame(worldrunner_render_lighting::ExposureOwnership::SceneLinear(
         1.0,
     ));
@@ -112,6 +111,7 @@ fn analytic_cpu(matrix: Mat4, fragment: Vec4, axis: Vec2, normal: Vec3) -> Vec2 
 
 #[test]
 fn terrain_cpu_footprint_matches_ray_plane_intersections_for_both_projections() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let perspective = glam::camera::rh::proj::directx::perspective(
         std::f32::consts::FRAC_PI_2,
         2.0,

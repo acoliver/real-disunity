@@ -102,6 +102,7 @@ pub(super) fn resident_images() -> Vec<Vec<u8>> {
 
 #[test]
 fn resident_default_and_point_clamp_keep_trilinear_repeat_output() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let images = resident_images();
     assert!(images[0].chunks_exact(4).any(|p| p[0] > 10 && p[1] > 10));
     assert_eq!(images[0], images[1]);

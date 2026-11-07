@@ -63,17 +63,23 @@ pub fn settings(effects: &SceneEffects) -> Result<HdrPostSettings, PostError> {
         },
         PostResolve::taa_with,
     );
+    if let SceneAntiAlias::Smaa(settings) = *effects.anti_alias() {
+        let settings = smaa(settings);
+        settings.validate()?;
+        out.resolve = PostResolve::Smaa(settings);
+    }
     Ok(out)
 }
 
-/// Resolve chosen by the authored anti-alias field. FXAA lands in `fxaa_strength`, TAA is
-/// returned; either fails when the HDR post block already chose a resolve.
+/// FXAA lands in `fxaa_strength`, TAA is returned, and SMAA is applied by the caller.
+/// Every authored resolve conflicts with a resolve selected by the HDR post block.
 fn authored_anti_alias(
     effects: &SceneEffects,
     fxaa_strength: &mut Option<f32>,
 ) -> Result<Option<TaaSettings>, PostError> {
     match *effects.anti_alias() {
         SceneAntiAlias::Disabled => Ok(None),
+        SceneAntiAlias::Smaa(_) if fxaa_strength.is_none() => Ok(None),
         SceneAntiAlias::Fxaa { subpixel_micro } if fxaa_strength.is_none() => {
             *fxaa_strength = Some(micro(subpixel_micro));
             Ok(None)
@@ -89,6 +95,27 @@ fn authored_anti_alias(
     }
 }
 
+fn smaa(
+    settings: worldrunner_render_plan::SceneSmaaSettings,
+) -> worldrunner_render_post::SmaaSettings {
+    use worldrunner_render_plan::SceneSmaaEdgeDetection as S;
+    use worldrunner_render_post::SmaaEdgeDetection as P;
+    let whole = u16::try_from(settings.threshold_micro / 1000).expect("validated SMAA threshold");
+    let remainder = u16::try_from(settings.threshold_micro % 1000).unwrap();
+    // Every admitted integer is exact in f32; only the final division rounds.
+    let threshold = (f32::from(whole) * 1000.0 + f32::from(remainder)) / 1_000_000.0;
+    worldrunner_render_post::SmaaSettings {
+        edge_detection: match settings.edge_detection {
+            S::Luma => P::Luma,
+            S::Color => P::Color,
+        },
+        threshold,
+        max_search_steps: settings.max_search_steps,
+        max_search_steps_diag: settings.max_search_steps_diag,
+        corner_rounding: settings.corner_rounding,
+    }
+}
+
 /// Projection jitter of a renderer with this merged post resolve: one rule for both authoring
 /// routes, owned by `PostResolve::effective_jitter`.
 pub(crate) fn jitter(
@@ -99,7 +126,7 @@ pub(crate) fn jitter(
     post.effective_jitter(config, explicit)
 }
 /// Authored post settings with the descriptor's resolve and sharpening; the scene effects and
-/// the descriptor may not both choose a resolve (FXAA or TAA).
+/// the descriptor may not both choose a resolve.
 pub(crate) fn settings_with_antialiasing(
     effects: Option<&worldrunner_render_plan::SceneEffects>,
     antialiasing: AntiAliasing,
@@ -219,6 +246,28 @@ fn adaptive(a: worldrunner_render_plan::SceneAdaptiveExposure) -> AdaptiveExposu
         speeds: [milli(a.speed_up_milli), milli(a.speed_down_milli)],
         fixed_delta: a.fixed_delta_microseconds.map(micro),
         fixed_exposure: a.fixed_exposure_micro.map(micro),
+    }
+}
+
+#[cfg(test)]
+mod smaa_tests {
+    #[test]
+    fn every_admitted_threshold_matches_the_rounded_f64_reference() {
+        use worldrunner_render_plan::SceneSmaaSettings;
+        for threshold_micro in 1..=500_000 {
+            let actual = super::smaa(SceneSmaaSettings {
+                threshold_micro,
+                ..SceneSmaaSettings::HIGH
+            });
+            let reference = f64::from(threshold_micro) / 1_000_000.0;
+            // Decimal round-tripping avoids an unchecked narrowing float cast.
+            let expected: f32 = reference.to_string().parse().unwrap();
+            assert_eq!(
+                actual.threshold.to_bits(),
+                expected.to_bits(),
+                "threshold_micro: {threshold_micro}"
+            );
+        }
     }
 }
 

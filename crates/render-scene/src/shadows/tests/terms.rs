@@ -5,6 +5,7 @@ use crate::offscreen::LinearRgbaImage;
 
 #[test]
 fn sun_visibility_capture_matches_cpu_occluder_projection_across_edge() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let view = view()

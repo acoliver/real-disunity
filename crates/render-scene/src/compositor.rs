@@ -12,8 +12,10 @@ mod environment;
 mod offscreen;
 mod output;
 mod overlay;
+mod overlay_depth;
 mod programs;
 pub(crate) mod publication;
+mod snapshots;
 mod temporal;
 mod validation;
 use crate::ssao::passes::ScreenFeature;
@@ -25,8 +27,8 @@ use validation::{validate_clear, validate_hdr_effects, validate_reflection_exten
 
 use worldrunner_render_post::{
     AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
-    CopyOutput, FeatureDeclaration, FrameConfig, FrameError, MsaaSamples, PassDeclaration,
-    PostChain, PostError, PostResolve, Resources, ToneMapOutput,
+    CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,
+    PostResolve, Resources, ToneMapOutput,
 };
 
 /// Retained executor for transaction-bound composition. Submission belongs to the host.
@@ -152,7 +154,7 @@ impl FrameRenderer {
     ///
     /// A sample count the adapter cannot render for the scene formats fails with
     /// [`PostError::SampleCount`] before any target is allocated; it is never reduced.
-    /// A resolve other than [`PostResolve::None`] conflicts with a resolve (FXAA or TAA)
+    /// A resolve other than [`PostResolve::None`] conflicts with a resolve
     /// authored in `effects` and is rejected rather than merged.
     ///
     /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
@@ -578,9 +580,9 @@ impl FrameRenderer {
             });
         }
         let retained = self.chain.plan_features(&mut passes, &mut views)?;
-        let (request, mut snapshot_feature) = Self::plan_snapshots(
+        let (request, mut snapshot_feature) = snapshots::plan(
             device,
-            &mut self.snapshots,
+            (&mut self.snapshots, &mut self.overlay),
             &(config, frame, self.frame_slot, self.water.is_some()),
             (&mut passes, &mut views),
             (&combined, &retained),
@@ -613,39 +615,6 @@ impl FrameRenderer {
             ready.borrow_mut()[slot] = request;
         })
         .expect("checked transaction encoder");
-    }
-    fn plan_snapshots(
-        device: &wgpu::Device,
-        snapshots: &mut Option<[crate::water::snapshots::Snapshots; 3]>,
-        input: &(FrameConfig, crate::frame::FrameUniform, usize, bool),
-        plan: (&mut Vec<PassDeclaration>, &mut Vec<AttachmentView>),
-        features: (&[BorrowedFeature<'_>], &[FeatureDeclaration]),
-    ) -> Result<
-        (
-            crate::water::planning::SnapshotRequest,
-            Option<(FeatureDeclaration, crate::water::snapshots::SnapshotFeature)>,
-        ),
-        FrameError,
-    > {
-        let reads: Vec<_> = features
-            .0
-            .iter()
-            .map(|feature| &feature.declaration)
-            .chain(features.1.iter())
-            .flat_map(|feature| &feature.passes)
-            .flat_map(|pass| &pass.reads)
-            .copied()
-            .collect();
-        let (config, frame, slot, water) = *input;
-        let result = crate::water::planning::snapshot_feature(
-            device,
-            snapshots,
-            (config, &frame, slot),
-            plan,
-            &reads,
-            water,
-        )?;
-        Ok(result)
     }
     pub fn encode(
         &mut self,

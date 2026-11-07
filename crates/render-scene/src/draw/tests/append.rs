@@ -6,6 +6,7 @@ use worldrunner_render_plan::MeshHandle;
 
 #[test]
 fn replacing_a_mesh_changes_the_casters_and_keeps_the_placements() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = scene(true);
@@ -24,6 +25,7 @@ fn replacing_a_mesh_changes_the_casters_and_keeps_the_placements() {
 
 #[test]
 fn a_replacement_for_a_missing_mesh_is_refused_and_changes_nothing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = scene(true);
@@ -76,6 +78,7 @@ fn two_lod_quad(near_until: u64) -> SceneMesh {
 
 #[test]
 fn a_still_view_selects_again_after_its_mesh_is_replaced() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = build(
         white_texture(),

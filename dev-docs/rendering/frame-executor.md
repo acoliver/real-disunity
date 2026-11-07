@@ -193,6 +193,23 @@ carries no temporal data, nothing is staged and every byte is as before.
 
 ## Asynchronous pass timings
 
+Geometry encoder labels use their typed timing identities, such as
+`Geometry(DepthNormalPrepass)` and `Geometry(ShadowCasters(2))`. Resolve uses
+`Resolve`. Authored post stages use their declared name and append ` level N`
+when the logical level is nonzero, for example `gaussian_downsample level 2`.
+The fixed-tone stage uses `tone`. Typed operations use their full debug identity,
+including the stage level and occurrence. `PassId` display and
+`PassId::encoder_label` select the same spelling for timing reports and encoders.
+
+Variable-length authored labels are retained when the post schedule or typed
+operation list is built. Stage render and compute descriptors borrow those labels;
+encoding performs no label-formatting heap allocation. Geometry indices use a
+bounded stack buffer. This describes the engine's label construction, not wgpu's
+backend string ownership and platform conversion. Labels are present even when
+timing is disabled. Terrain, decals and impostors share the label of the geometry
+pass in which they draw. The command encoder is shared by the frame rather than
+created separately for each pass.
+
 Desktop and windowless retained hosts accept `ViewerOptions::gpu_timing`. They
 request the adapter's timestamp capability before device creation and expose the
 latest completed sample through `RetainedHost::gpu_timing()`, separately from

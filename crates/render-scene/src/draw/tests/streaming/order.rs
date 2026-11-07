@@ -63,6 +63,7 @@ fn keys(gpu: &SceneGpu) -> Vec<TerrainChunk> {
 
 #[test]
 fn terrain_pixels_are_identical_after_different_completion_schedules() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = source();

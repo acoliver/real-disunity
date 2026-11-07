@@ -137,7 +137,10 @@ fn scale_table(
             },
         ],
     });
-    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("authored BRDF intensity"),
+        ..Default::default()
+    });
     pass.set_pipeline(&pipeline);
     pass.set_bind_group(0, &group, &[]);
     pass.dispatch_workgroups(

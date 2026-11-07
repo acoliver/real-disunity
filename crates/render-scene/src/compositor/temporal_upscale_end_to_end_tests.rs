@@ -171,6 +171,7 @@ fn error(bytes: &[u8], reference: &Image) -> f64 {
 
 #[test]
 fn the_renderer_builds_the_output_extent_and_derives_the_jitter_from_both_extents() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in SCALES {
         let rig = Rig::new(&context, scale);
@@ -186,6 +187,7 @@ fn the_renderer_builds_the_output_extent_and_derives_the_jitter_from_both_extent
 
 #[test]
 fn every_frame_of_two_jitter_cycles_is_an_output_sized_fully_written_image() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in SCALES {
         let mut rig = Rig::new(&context, scale);
@@ -217,6 +219,7 @@ fn every_frame_of_two_jitter_cycles_is_an_output_sized_fully_written_image() {
 
 #[test]
 fn the_first_frame_after_a_reset_equals_the_first_frame_of_a_fresh_renderer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in SCALES {
         let fresh = Rig::new(&context, scale).render_in_slot(0);
@@ -246,6 +249,7 @@ fn measured(context: &GpuContext, scale: u32) -> (f64, f64) {
 
 #[test]
 fn the_static_error_against_reset_every_frame_meets_the_design_ratio_at_each_scale() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in SCALES {
         let (temporal, reset) = measured(&context, scale);
@@ -278,6 +282,7 @@ fn fourth_frame_after(context: &GpuContext, scale: u32, cancelled: usize) -> Vec
 /// fourth frame of a renderer that never encoded them. Same device, same code, byte equal.
 #[test]
 fn cancelled_frames_do_not_change_which_history_the_next_frame_reads() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in SCALES {
         let fresh = fourth_frame_after(&context, scale, 0);
@@ -353,6 +358,7 @@ const CAMERA_OVER_NONE_BOUND: f64 = 0.95;
 /// motion weight then discards the history.
 #[test]
 fn a_camera_pan_stays_aligned_with_the_native_resolution_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in SCALES {
         for step in PAN_STEPS {

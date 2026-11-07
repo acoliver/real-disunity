@@ -12,6 +12,9 @@ publish.workspace = true
 # the absence of those dependencies is what makes "pathless" a checked property
 # rather than a claim: there is no API in scope through which a path could be
 # resolved.
+[features]
+test-support = ["worldrunner-render-gpu/test-support"]
+
 [dependencies]
 worldrunner-camera = { path = "../camera" }
 worldrunner-render-gpu = { path = "../render-gpu" }

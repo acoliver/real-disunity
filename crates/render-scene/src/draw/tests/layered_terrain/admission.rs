@@ -14,6 +14,7 @@ fn limited_device(limits: wgpu::Limits) -> (wgpu::Device, wgpu::Queue) {
 
 #[test]
 fn two_storage_bindings_preserve_linear_scene_and_reject_layered_upload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits {
         max_storage_buffers_per_shader_stage: 2,
         ..Default::default()
@@ -35,6 +36,7 @@ fn two_storage_bindings_preserve_linear_scene_and_reject_layered_upload() {
 
 #[test]
 fn source_binding_size_rejection_precedes_gpu_allocations_and_validation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits {
         max_storage_buffer_binding_size: 128,
         ..Default::default()

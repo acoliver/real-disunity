@@ -250,6 +250,7 @@ pub(super) fn pipelines(
 
 #[test]
 fn forward_helpers_preserve_pre_change_source_exactly() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (shadowed, terrain) = crate::shadows::capture_sources(true);
     for source in [crate::shader::ENVIRONMENT_WGSL, shadowed] {
         for helper in [NORMAL, DECALS] {
@@ -274,7 +275,7 @@ fn forward_helpers_preserve_pre_change_source_exactly() {
     }
 }
 
-// Fingerprints refreshed from production assemblies for material channel selectors (Hubnot 494ab80b0dd2).
+// Fingerprints regenerated from production assemblies for staged forward rejection (Hubnot 6199655cef5e).
 // Hash every byte, including unreachable declarations, to detect changes shared by both GPU runs.
 fn source_fingerprint(source: &str) -> (usize, u128) {
     let hash = source.bytes().fold(
@@ -286,23 +287,24 @@ fn source_fingerprint(source: &str) -> (usize, u128) {
 
 #[test]
 fn all_forward_assemblies_preserve_complete_pre_change_source() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (shadowed, shadowed_terrain) = crate::shadows::capture_sources(true);
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (84_013, 0xd1af_d967_3bb4_7cb4_7421_c870_a8c8_51db),
+            (92_613, 0xdb10_cc54_7145_1b02_22e4_f07c_7455_f5ae),
         ),
         (
             crate::shader::TERRAIN_WGSL,
-            (47_835, 0xb91f_ae0f_5f60_4dd2_1301_23f0_7eff_8e8b),
+            (48_111, 0x375a_5a96_35f7_5f92_c33b_f52a_0571_01a5),
         ),
         (
             shadowed,
-            (94_424, 0x74c5_ef71_2625_de54_3436_f4c6_0f40_f633),
+            (105_814, 0x09ba_62a1_7be3_6d3c_1a20_2ca1_d93d_c0ac),
         ),
         (
             shadowed_terrain,
-            (58_246, 0xd34c_303d_39f9_50e8_fafd_d96a_2e93_1f93),
+            (61_312, 0x7527_e442_7bc5_d4b3_b822_e1e6_adc9_e86b),
         ),
     ] {
         assert_eq!(source_fingerprint(source), expected);
@@ -313,11 +315,11 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (84_227, 0x7ca0_8a0a_0505_8a21_f12e_494c_6776_f22d),
+            (92_848, 0xd979_0a23_f1de_2ede_c089_a9b0_67a7_acd0),
         ),
         (
             shadowed,
-            (94_638, 0xaec2_1497_76cd_9dd9_b1f4_088d_b100_dc45),
+            (106_049, 0xd7b2_0873_f011_1a80_aab7_25f1_8369_fab2),
         ),
     ] {
         assert_eq!(
@@ -329,34 +331,35 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
 
 const CELESTIAL_SOURCES: [[(usize, u128); 4]; 4] = [
     [
-        (85_612, 0xcb23_cc22_8930_2916_0ccf_ee53_552a_f0d0),
-        (85_586, 0x3f65_eae4_59f6_8993_ab28_37d6_f24c_17c6),
-        (85_826, 0xf147_8ebe_958d_aee8_a7bc_9f45_e9f0_ce0a),
-        (85_800, 0x4a67_c800_7865_a392_7b12_2460_cd04_816c),
+        (94_212, 0xbd0f_175d_93cd_ae84_9d49_a876_51b3_6ddb),
+        (94_186, 0x6558_a9cb_fded_0469_fceb_99fd_b2ea_6a99),
+        (94_447, 0xff26_5e2e_f859_4b96_8b24_1f1d_d9d2_7459),
+        (94_421, 0x059e_1c94_662d_ad09_4997_fbd1_27bb_c273),
     ],
     [
-        (85_556, 0xfcca_e825_260b_f01c_b843_cc6e_c285_c37d),
-        (85_530, 0xed71_f89c_14f1_8522_83d0_6475_cf5c_95f7),
-        (85_770, 0xdb7a_98ee_652b_6dc0_6f39_804f_1cac_da03),
-        (85_744, 0x2c19_27b8_a413_de25_d4c7_ee66_65d8_c7a1),
+        (94_100, 0x89d3_b85d_3ce7_5227_d28a_1b43_b753_296f),
+        (94_074, 0xc5e3_9847_efa9_5f47_0d0c_a0ab_8a50_68dd),
+        (94_335, 0xde1c_7cf0_a7b2_c591_8661_b54b_4f4c_22b3),
+        (94_309, 0xf241_3605_9ddd_87d4_1622_d3a1_cb5b_ff71),
     ],
     [
-        (85_625, 0xb208_cc05_49dc_52c0_6d37_5817_8dda_d040),
-        (85_599, 0x530e_1f42_35a8_24b7_85eb_5062_6560_5056),
-        (85_839, 0xe128_b5fc_6f90_6ede_99de_53a2_2f47_a870),
-        (85_813, 0xabfb_5505_c019_8c89_1081_8148_7300_7aa6),
+        (94_238, 0xea06_5b29_19b7_52c9_22b2_a83b_4f51_cf8b),
+        (94_212, 0x7874_8083_cc8c_7228_6b80_6d8b_df46_f829),
+        (94_473, 0x919b_8035_a6d7_e8b6_7609_9478_0836_dafd),
+        (94_447, 0x5ac7_7f6e_9cc5_7a76_2022_105f_b038_6977),
     ],
     [
-        (85_596, 0x3a80_3892_71a6_153e_b00d_9458_6a40_745b),
-        (85_570, 0x5be9_cd29_1f82_7b30_2a73_b5b6_f1c5_a519),
-        (85_810, 0x2ceb_76ed_6260_4470_dc97_2653_5ae5_7eb1),
-        (85_784, 0xd47f_4520_f5e8_a986_6c30_0fbd_e08a_e56b),
+        (94_180, 0xdcb0_b0e8_15c1_5b57_2ba2_73fd_0b8b_9623),
+        (94_154, 0xfff8_db76_be00_5677_cb8f_9e12_b75a_3b01),
+        (94_415, 0x690b_7d22_fea7_5721_7326_9146_0a12_f96b),
+        (94_389, 0x632f_b9f1_c1bf_ad98_699c_16e0_fe3d_9949),
     ],
 ];
 
 #[test]
 fn celestial_forward_assemblies_preserve_complete_pre_change_source() {
     use worldrunner_render_plan::SceneCelestialLighting;
+    let _session = crate::test_support::SceneTestSession::acquire();
     for (composition, index) in [
         ((false, false, false), 0),
         ((false, false, true), 3),
@@ -383,4 +386,12 @@ fn celestial_forward_assemblies_preserve_complete_pre_change_source() {
             }
         }
     }
+}
+
+#[test]
+fn forward_fingerprint_detects_even_unused_source_byte_mutations() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let source = crate::shader::ENVIRONMENT_WGSL;
+    let changed = format!("{source}\n// unused declaration mutation\n");
+    assert_ne!(source_fingerprint(source), source_fingerprint(&changed));
 }

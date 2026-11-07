@@ -339,3 +339,37 @@ fn the_taa_history_weight_is_still_checked_beside_the_clip_scale() {
         })
     ));
 }
+
+#[test]
+fn scene_adoption_validates_smaa_before_owning_the_policy() {
+    use crate::SceneSmaaSettings as S;
+    for settings in [
+        S::LOW,
+        S::MEDIUM,
+        S::HIGH,
+        S::ULTRA,
+        S {
+            threshold_micro: 0,
+            ..S::ULTRA
+        },
+        S {
+            max_search_steps: 113,
+            ..S::ULTRA
+        },
+        S {
+            max_search_steps_diag: Some(21),
+            ..S::ULTRA
+        },
+        S {
+            corner_rounding: Some(101),
+            ..S::ULTRA
+        },
+    ] {
+        let mut staged = parts();
+        staged.anti_alias = SceneAntiAlias::Smaa(settings);
+        assert_eq!(
+            SceneEffects::new(staged).map(|effects| *effects.anti_alias()),
+            settings.validate().map(|()| SceneAntiAlias::Smaa(settings))
+        );
+    }
+}

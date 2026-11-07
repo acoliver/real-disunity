@@ -4,6 +4,7 @@ use super::*;
 
 #[test]
 fn required_gpu_concurrent_poller_readback_and_reuse() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = required_context();
     let mut target = OffscreenTarget::new(context.device(), viewport(65, 3)).unwrap();
     let stop = AtomicBool::new(false);

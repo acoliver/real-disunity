@@ -4,6 +4,7 @@ use crate::offscreen::LinearRgbaImage;
 
 #[test]
 fn terrain_albedo_capture_matches_two_layer_cpu_blend() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = two_layer_source();
     let view = SceneView::new(

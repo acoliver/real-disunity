@@ -2,7 +2,7 @@ use super::{ENVIRONMENT_WGSL, gpu_math_tests::evaluate_source};
 use crate::device::GpuContext;
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap()
+    GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap()
 }
 
 fn run(context: &GpuContext, body: &str) -> Vec<f32> {
@@ -15,6 +15,7 @@ fn run(context: &GpuContext, body: &str) -> Vec<f32> {
 
 #[test]
 fn octahedral_triangle_weights_and_diagonal_boundaries() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (view, expected) in [
         ("1.0,0.0,1.0", [0.5, 0.0, 0.5, 0.0]),
@@ -41,6 +42,7 @@ fn octahedral_triangle_weights_and_diagonal_boundaries() {
 
 #[test]
 fn azimuth_wrap_and_elevation_rows_match_angular_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (view, expected) in [
         ("1.0,0.0,0.0", [0.0, 0.0, 1.0, 0.0]),
@@ -75,6 +77,7 @@ fn azimuth_wrap_and_elevation_rows_match_angular_reference() {
 
 #[test]
 fn cell_border_clamps_and_virtual_plane_intersection() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let uv = run(
         &context,
@@ -90,6 +93,7 @@ fn cell_border_clamps_and_virtual_plane_intersection() {
 
 #[test]
 fn nearest_frame_mode_and_quadratic_snap_have_independent_weights() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // With view (1,0,3), a 5x5 octahedral grid has coordinate (2.5,2.5).
     // Use (1,0,4) instead to avoid the implementation-defined rounding tie.
@@ -110,6 +114,7 @@ fn nearest_frame_mode_and_quadratic_snap_have_independent_weights() {
 
 #[test]
 fn equal_area_relief_normals_match_independent_sphere_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for [x, y, z] in [
         [0.0_f64, 0.0, 1.0],
@@ -130,6 +135,7 @@ fn equal_area_relief_normals_match_independent_sphere_oracle() {
 }
 #[test]
 fn distance_fade_endpoints_and_capsule_force_match_independent_oracles() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let result = run(
         &context,
@@ -154,6 +160,7 @@ fn distance_fade_endpoints_and_capsule_force_match_independent_oracles() {
 
 #[test]
 fn cancelled_primary_force_keeps_independent_radial_response() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let actual = run(
         &context,
@@ -180,6 +187,7 @@ fn assert_coverage(actual: f32, expected: f64) {
 
 #[test]
 fn terminal_fade_matches_independent_linear_coverage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (distance, expected) in [
         (1.0, 1.0),
@@ -208,6 +216,7 @@ fn terminal_fade_matches_independent_linear_coverage() {
 
 #[test]
 fn per_vertex_fold_samples_local_slope_before_wind() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = ENVIRONMENT_WGSL
         .replace(

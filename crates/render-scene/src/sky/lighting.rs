@@ -42,10 +42,11 @@ pub(crate) fn source(source: String, lighting: SceneCelestialLighting) -> String
         ),
     ];
     let mut source = source;
-    for (old, new) in replacements {
+    for (index, (old, new)) in replacements.into_iter().enumerate() {
+        let count = if index == 2 { 2 } else { 1 };
         assert_eq!(
             source.matches(old).count(),
-            1,
+            count,
             "celestial lighting source contract"
         );
         source = source.replace(old, new);
@@ -93,6 +94,12 @@ mod tests {
     fn selected_contributions_validate_as_wgsl() {
         let lighting = SceneCelestialLighting::new(500_000, 2_000_000, 3_000_000).unwrap();
         let modified = source(crate::shader::ENVIRONMENT_WGSL.to_owned(), lighting);
+        assert_eq!(
+            modified
+                .matches("colour += albedo_sample.rgb * emission * CELESTIAL_EMISSION;")
+                .count(),
+            2,
+        );
         let module = naga::front::wgsl::parse_str(&modified).unwrap();
         naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),

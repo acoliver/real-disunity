@@ -105,6 +105,7 @@ impl TypedOperation {
 /// Immutable compiled bytes and resource handles. Revalidation precedes every encoding.
 pub struct CompiledOperations {
     pub(super) operations: Vec<TypedOperation>,
+    pub(super) labels: Vec<String>,
     pub(super) accesses: Vec<(Vec<ResourceUse>, Vec<BufferUse>)>,
     pub(super) staging: Vec<Option<wgpu::Buffer>>,
 }
@@ -154,6 +155,7 @@ impl CompiledOperations {
                 encoder,
                 self.staging[index].as_ref(),
                 stamp.as_ref(),
+                &self.labels[index],
                 &mut draw,
             );
         }
@@ -166,14 +168,17 @@ impl TypedOperation {
         encoder: &mut wgpu::CommandEncoder,
         staging: Option<&wgpu::Buffer>,
         stamp: Option<&crate::timing::Stamp>,
+        label: &str,
         draw: &mut impl FnMut(RasterId, &mut wgpu::RenderPass<'_>),
     ) {
         match &self.work {
-            TypedWork::Draws { pass, draws } => pass.encode(encoder, stamp, |render| {
-                for draw in draws {
-                    draw.encode(render);
-                }
-            }),
+            TypedWork::Draws { pass, draws } => {
+                pass.encode_named(encoder, stamp, label, |render| {
+                    for draw in draws {
+                        draw.encode(render);
+                    }
+                });
+            }
             TypedWork::Resolve {
                 source,
                 destination,
@@ -191,52 +196,35 @@ impl TypedOperation {
                     uses: Vec::new(),
                     bindings: Vec::new(),
                 };
-                pass.encode(encoder, stamp, |_| {});
+                pass.encode_named(encoder, stamp, label, |_| {});
             }
-            TypedWork::Raster(pass) => pass.encode(encoder, stamp, |render| draw(self.id, render)),
+            TypedWork::Raster(pass) => {
+                pass.encode_named(encoder, stamp, label, |render| draw(self.id, render));
+            }
             TypedWork::Fullscreen {
                 pass,
                 pipeline,
                 vertices,
-            } => pass.encode(encoder, stamp, |render| {
-                render.set_pipeline(pipeline);
-                match vertices {
-                    Some(vertices) => vertices.encode(render),
-                    None => render.draw(0..3, 0..1),
-                }
-            }),
+            } => {
+                pass.encode_named(encoder, stamp, label, |render| {
+                    render.set_pipeline(pipeline);
+                    match vertices {
+                        Some(vertices) => vertices.encode(render),
+                        None => render.draw(0..3, 0..1),
+                    }
+                });
+            }
             TypedWork::Compute {
                 pipeline,
                 bindings,
                 workgroups,
-            } => self.encode_compute(encoder, stamp, (pipeline, bindings), *workgroups),
+            } => encode_compute(encoder, stamp, label, (pipeline, bindings), *workgroups),
             _ => {
-                timestamp_boundary(encoder, stamp, true);
+                timestamp_boundary(encoder, stamp, label, true);
                 self.encode_transfer(encoder, staging);
-                timestamp_boundary(encoder, stamp, false);
+                timestamp_boundary(encoder, stamp, label, false);
             }
         }
-    }
-    fn encode_compute(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        stamp: Option<&crate::timing::Stamp>,
-        (pipeline, bindings): (&wgpu::ComputePipeline, &[CheckedBindings]),
-        workgroups: [u32; 3],
-    ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some(self.id.stage.name),
-            timestamp_writes: stamp.map(crate::timing::Stamp::compute),
-        });
-        pass.set_pipeline(pipeline);
-        for (index, binding) in bindings.iter().enumerate() {
-            pass.set_bind_group(
-                u32::try_from(index).expect("validated bind group count"),
-                binding.group(),
-                binding.dynamic_offsets(),
-            );
-        }
-        pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
     }
     fn encode_transfer(&self, encoder: &mut wgpu::CommandEncoder, staging: Option<&wgpu::Buffer>) {
         match &self.work {
@@ -298,6 +286,7 @@ impl TypedOperation {
 fn timestamp_boundary(
     encoder: &mut wgpu::CommandEncoder,
     stamp: Option<&crate::timing::Stamp>,
+    label: &str,
     begin: bool,
 ) {
     // Empty boundary passes use portable pass timestamps, without requiring
@@ -305,7 +294,7 @@ fn timestamp_boundary(
     if let Some(stamp) = stamp {
         let writes = stamp.compute();
         let _pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("transfer timing boundary"),
+            label: Some(label),
             timestamp_writes: Some(wgpu::ComputePassTimestampWrites {
                 query_set: writes.query_set,
                 beginning_of_pass_write_index: begin
@@ -333,4 +322,27 @@ pub(super) fn stage_uploads(
             _ => None,
         })
         .collect()
+}
+
+/// Records one compute dispatch under `label`, binding each checked group in order.
+fn encode_compute(
+    encoder: &mut wgpu::CommandEncoder,
+    stamp: Option<&crate::timing::Stamp>,
+    label: &str,
+    (pipeline, bindings): (&wgpu::ComputePipeline, &[CheckedBindings]),
+    workgroups: [u32; 3],
+) {
+    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some(label),
+        timestamp_writes: stamp.map(crate::timing::Stamp::compute),
+    });
+    pass.set_pipeline(pipeline);
+    for (index, binding) in bindings.iter().enumerate() {
+        pass.set_bind_group(
+            u32::try_from(index).expect("validated bind group count"),
+            binding.group(),
+            binding.dynamic_offsets(),
+        );
+    }
+    pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
 }

@@ -1,5 +1,6 @@
 #[test]
 fn sharpened_coverage_half_boundary_survives_derivative_clamping_and_rounding() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for width in [0.0, 1e-12, 0.03125, 1.0, 1e10] {
         for bits in [0x3eff_ffff_u32, 0x3f00_0000, 0x3f00_0001] {
@@ -131,6 +132,7 @@ fn coverage_frame(source: &RenderScene) -> FrameUniform {
 
 #[test]
 fn masked_ssr_silhouettes_share_pixel_centre_majority_receivers() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = coverage_scene();
     let frame = coverage_frame(&source);

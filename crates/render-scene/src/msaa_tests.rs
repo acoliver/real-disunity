@@ -24,7 +24,7 @@ const EDGE_SHADER: &str = "
 ";
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request()).unwrap()
+    GpuContext::shared_for_test().unwrap()
 }
 
 fn supported(context: &GpuContext, samples: MsaaSamples) -> bool {
@@ -254,6 +254,7 @@ fn check_image(samples: MsaaSamples, image: &[f32]) -> EdgeStats {
 
 #[test]
 fn edge_coverage_gains_resolution_with_each_sample_count_and_interiors_are_unchanged() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut results = Vec::new();
     for samples in MsaaSamples::ALL {
@@ -310,6 +311,7 @@ fn edge_coverage_gains_resolution_with_each_sample_count_and_interiors_are_uncha
 
 #[test]
 fn resizing_keeps_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for count in supported_samples(&context) {
         let samples = MsaaSamples::try_from(count).unwrap();
@@ -322,6 +324,7 @@ fn resizing_keeps_every_supported_sample_count() {
 
 #[test]
 fn unsupported_sample_counts_fail_with_a_typed_error_before_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for invalid in [0, 3, 5, 16] {
         let result = FrameRenderer::hdr(&context, [8, 8], OUTPUT, invalid, ToneMap::Reinhard, None);
@@ -348,6 +351,7 @@ fn unsupported_sample_counts_fail_with_a_typed_error_before_allocation() {
 
 #[test]
 fn fxaa_resolve_runs_at_every_supported_sample_count_and_conflicts_with_authored_fxaa() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in MsaaSamples::ALL {
         if !supported(&context, samples) {
@@ -383,6 +387,7 @@ fn fxaa_resolve_runs_at_every_supported_sample_count_and_conflicts_with_authored
 
 #[test]
 fn sharpening_follows_any_resolve_and_an_invalid_sharpness_is_rejected() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let build = |aa: AntiAliasing, effects| {
         FrameRenderer::hdr_antialiased(

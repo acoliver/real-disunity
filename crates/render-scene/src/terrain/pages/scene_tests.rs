@@ -8,6 +8,7 @@ use worldrunner_render_gpu::{configuration::AllocationBudget, submission::Submis
 
 #[test]
 fn terrain_pages_cancelled_scene_selection_and_source_failures_do_not_publish() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -53,6 +54,7 @@ fn terrain_pages_cancelled_scene_selection_and_source_failures_do_not_publish() 
 
 #[test]
 fn terrain_pages_scene_source_errors_retain_the_composition_failure() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

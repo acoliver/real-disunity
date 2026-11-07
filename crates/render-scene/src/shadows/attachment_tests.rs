@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn gpu_reducer_rejects_external_unsampleable_and_multisampled_attachments() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let valid = source(&context, [2.0; 4], true);
     for product in [FrameProduct::linear_depth(0), FrameProduct::normals()] {

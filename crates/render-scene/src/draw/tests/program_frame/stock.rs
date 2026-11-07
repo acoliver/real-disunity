@@ -28,6 +28,7 @@ fn submitted(fixture: &mut Fixture, programs: bool) -> Image {
 
 #[test]
 fn without_admitted_programs_the_frame_is_byte_identical_to_the_stock_scene_draw() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = fixture();
     let composed = submitted(&mut fixture, false);
     let direct = render_frame(&fixture.context, &engine_scene(), &frame());
@@ -37,6 +38,7 @@ fn without_admitted_programs_the_frame_is_byte_identical_to_the_stock_scene_draw
 
 #[test]
 fn a_cancelled_program_frame_leaves_the_target_and_the_published_counters_unchanged() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = fixture();
     let authority = fixture.context.submission().clone();
     let baseline = submitted(&mut fixture, true);

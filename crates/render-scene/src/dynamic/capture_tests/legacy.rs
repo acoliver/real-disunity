@@ -135,7 +135,8 @@ impl Legacy {
         };
         let draws = ordered
             .chunk_by(|a, b| {
-                a.clip_rect == b.clip_rect
+                a.depth_test == b.depth_test
+                    && a.clip_rect == b.clip_rect
                     && a.texture == b.texture
                     && a.corners == b.corners
                     && a.triangle_uv == b.triangle_uv

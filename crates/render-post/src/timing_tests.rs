@@ -96,7 +96,7 @@ impl StageFactory for Factory {
             0,
             Stage {
                 id: crate::StageId::new("compute probe", 0),
-                label: "compute probe",
+                label: "compute probe".into(),
                 enabled: true,
                 operation: Operation::Compute {
                     pipeline,

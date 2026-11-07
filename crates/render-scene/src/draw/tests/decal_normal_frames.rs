@@ -10,6 +10,7 @@ use worldrunner_render_plan::{SceneDecalNormalFrame, SceneRotation};
 
 #[test]
 fn correction_frame_reaches_forward_and_metadata_on_rotated_planes_and_slopes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for slope in [false, true] {

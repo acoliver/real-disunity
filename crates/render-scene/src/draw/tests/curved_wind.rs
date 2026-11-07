@@ -27,6 +27,7 @@ fn disabled_wind(mode: u32) -> Option<SceneWind> {
 
 #[test]
 fn disabled_curvature_preserves_material_entry_depth_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let base = scene_with_wind();
@@ -72,6 +73,7 @@ fn disabled_curvature_preserves_material_entry_depth_bytes() {
 
 #[test]
 fn phase_sources_and_local_hinge_translation_reach_production_geometry() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let base = scene_with_wind();
@@ -129,6 +131,7 @@ fn phase_sources_and_local_hinge_translation_reach_production_geometry() {
 
 #[test]
 fn curved_bounds_remain_finite_and_cull_distant_objects() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let scene = scene_with_wind();
     let instances = crate::instances::Instances::new(&scene);
     let meshes: Vec<_> = scene
@@ -171,6 +174,7 @@ fn curved_bounds_remain_finite_and_cull_distant_objects() {
 
 #[test]
 fn default_wind_preserves_legacy_vertex_arithmetic_and_material_prefix() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let base = scene_with_wind();
@@ -288,6 +292,7 @@ fn scene_with_wind() -> RenderScene {
 
 #[test]
 fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let forward = ScenePipelines::new(device, COLOR_FORMAT);

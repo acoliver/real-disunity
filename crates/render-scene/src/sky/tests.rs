@@ -3,6 +3,7 @@ use glam::Vec3;
 
 #[test]
 fn angular_disc_orientation_and_occlusion_contract() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let center = Vec3::Z;
     assert_eq!(disc_uv(center, center, 0.1, 0.0), Some([0.5, 0.5]));
     assert!(disc_uv(Vec3::X, center, 0.1, 0.0).is_none());
@@ -22,6 +23,7 @@ fn angular_disc_orientation_and_occlusion_contract() {
 
 #[test]
 fn sky_shader_is_valid_and_exposure_is_owned_by_the_shared_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let module = naga::front::wgsl::parse_str(SOURCE).unwrap();
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -34,7 +36,8 @@ fn sky_shader_is_valid_and_exposure_is_owned_by_the_shared_frame() {
 
 #[test]
 fn sky_pipeline_compiles_for_hdr_and_msaa() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let scope = context
             .device()

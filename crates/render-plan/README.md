@@ -212,11 +212,25 @@ microseconds or an absolute fixed exposure. Fixed exposure bypasses adaptation.
 Bloom defines linear threshold, fractional soft knee, intensity and one to eight
 pyramid levels. Existing runtime `ScenePostStage::Bloom` selects knee 0.5 and five
 levels. Only one bloom is accepted; duplicate controls and vignette fail
-with typed errors. FXAA or TAA may be requested through the recipe or runtime AA choice,
-but only one resolve. `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` takes a history weight and a clip-box scale in micro-units (`clip_scale_micro` within `500_000..=2_000_000`, 1_000_000 by default through `SceneAntiAlias::taa`); TAA has no serialized document route, only this programmatic recipe. `render-scene` maps authored TAA to `PostResolve::Taa` with those values (history weight at most 0.99). Bloom and exposure precede the selected tone curve (Reinhard or
-fitted ACES), followed by FXAA. MSAA and FXAA are allowed together: MSAA resolves
-HDR coverage before metering and FXAA filters the display-linear result.
+with typed errors. FXAA may be requested through `hdr_post` or `SceneAntiAlias`;
+TAA and SMAA use `SceneAntiAlias` programmatically. Only one resolve is accepted. `SceneAntiAlias::Taa { history_micro, clip_scale_micro }` takes a history weight and a clip-box scale in micro-units (`clip_scale_micro` within `500_000..=2_000_000`, 1_000_000 by default through `SceneAntiAlias::taa`); TAA has no serialized document route, only this programmatic recipe. `render-scene` maps authored TAA to `PostResolve::Taa` with those values (history weight at most 0.99). Bloom and exposure precede the selected tone curve (Reinhard or
+fitted ACES), followed by FXAA or SMAA when selected. MSAA can accompany either:
+MSAA resolves HDR coverage before metering and the spatial resolve filters the
+display-linear result.
 Contrast and saturation remain unsupported.
+
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` selects SMAA 1x with luma edges.
+`SceneSmaaSettings::{LOW, MEDIUM, HIGH, ULTRA}` provide the four presets;
+`SceneAntiAlias::Smaa(settings)` accepts custom settings with
+`SceneSmaaEdgeDetection::{Luma, Color}`. `threshold_micro` is in `1..=500_000`,
+`max_search_steps` in `0..=112`, `max_search_steps_diag` is `None` or `0..=20`,
+and `corner_rounding` is `None` or `0..=100`. Optional zero enables the feature
+with zero steps or rounding; `None` disables it. `validate` returns
+`SceneValidationError::RangeViolation` naming the field and its bounds.
+Effects construction validates the same quantities before adopting the policy.
+These integer scene types carry no GPU dependency. `render-scene` translates them
+into the existing three-pass post resolve without automatic projection jitter.
+There is no serialized SMAA field. CMAA2 is not exposed by `SceneAntiAlias`.
 
 ## Shared specular environment
 

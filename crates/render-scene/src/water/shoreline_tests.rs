@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn oblique_candidate_ray_classifies_both_depth_orderings() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for (green, foreground) in [(64u8, true), (192, false)] {
             let mut renderer = regressions::renderer(&context, samples);
@@ -131,6 +132,7 @@ fn shoreline_depths(frame: &FrameUniform, foreground: bool, center: usize) -> Ve
 
 #[test]
 fn shoreline_depth_ordering_covers_the_candidate_pixel_footprint() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let frame = FrameUniform::new(&fixture_view(), None).unwrap();
     let inverse = frame.view_projection.inverse();
     let original = surface_depth(&frame, inverse, 16.5, 16.5);

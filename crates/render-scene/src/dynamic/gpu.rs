@@ -62,6 +62,7 @@ struct QuadDraw {
     instance_count: u32,
     clip_rect: Option<[u32; 4]>,
     material: Option<BindGroup>,
+    depth_test: bool,
 }
 
 /// The draws prepared for the pass a signature describes, a draw of each quad group for each
@@ -296,21 +297,25 @@ impl DynamicGpu {
         }
     }
 
-    /// Draws the quads into the overlay's pass with its own fixed `pipeline`, each draw clipped
-    /// to its rectangle, or to the whole `viewport` without one, and not at all when the
-    /// rectangle leaves nothing of it. Returns the draw calls and instances recorded.
+    /// Draws the quads into the overlay's pass with its own fixed `pipeline`, or with
+    /// `depth_pipeline` for depth-tested annotations, each draw clipped to its rectangle, or to
+    /// the whole `viewport` without one, and not at all when the rectangle leaves nothing of it.
+    /// Returns the draw calls and instances recorded, all of them and the depth-tested ones.
     ///
     /// # Panics
-    /// Panics when the quads were not staged for the overlay.
+    /// Panics when the quads were not staged for the overlay, or a depth-tested draw has no
+    /// `depth_pipeline`.
     pub(crate) fn draw_overlay(
         &self,
         pass: &mut RenderPass<'_>,
         pipeline: &wgpu::RenderPipeline,
         viewport: [u32; 2],
-    ) -> crate::draw::DrawCount {
+        depth_pipeline: Option<&wgpu::RenderPipeline>,
+    ) -> (crate::draw::DrawCount, crate::draw::DrawCount) {
         let mut count = crate::draw::DrawCount::default();
+        let mut tested = crate::draw::DrawCount::default();
         if self.draws.is_empty() {
-            return count;
+            return (count, tested);
         }
         pass.set_pipeline(pipeline);
         pass.set_index_buffer(
@@ -324,6 +329,11 @@ impl DynamicGpu {
             if !set_scissor(pass, draw.clip_rect, viewport) {
                 continue;
             }
+            pass.set_pipeline(if draw.depth_test {
+                depth_pipeline.expect("prepared depth-tested overlay pipeline")
+            } else {
+                pipeline
+            });
             let material = draw
                 .material
                 .as_ref()
@@ -334,8 +344,11 @@ impl DynamicGpu {
             pass.set_vertex_buffer(2, draw.resources.tint.slice(..));
             pass.draw_indexed(0..draw.resources.index_count, 0, 0..draw.instance_count);
             count.draw(u64::from(draw.instance_count));
+            if draw.depth_test {
+                tested.draw(u64::from(draw.instance_count));
+            }
         }
-        count
+        (count, tested)
     }
 }
 
@@ -455,6 +468,7 @@ impl QuadDraw {
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
             clip_rect: quad.clip_rect,
             material,
+            depth_test: quad.depth_test,
         }
     }
 }
@@ -531,7 +545,8 @@ fn set_scissor(pass: &mut RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]
 }
 
 fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
-    a.clip_rect == b.clip_rect
+    a.depth_test == b.depth_test
+        && a.clip_rect == b.clip_rect
         && a.texture == b.texture
         && a.corners == b.corners
         && a.triangle_uv == b.triangle_uv

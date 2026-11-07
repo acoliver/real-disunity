@@ -10,6 +10,10 @@ use worldrunner_unity_serialized::{
     write::{FileContents, ObjectData, ObjectWriter},
 };
 
+#[path = "support/font_bytes.rs"]
+mod font_bytes;
+use font_bytes::font;
+
 const TYPES: [ClassId; 2] = [ClassId::RESOURCE_MANAGER, ClassId::FONT];
 const FONT_FILE: &[u8] = b"\x00\x01\x00\x00 not a real font, only bytes to find again";
 
@@ -68,25 +72,6 @@ fn resource_manager() -> Vec<u8> {
         w.string(path).unwrap().pptr(target);
     }
     w.i32(0);
-    w.finish()
-}
-
-fn font(name: &str, file: &[u8]) -> Vec<u8> {
-    let mut w = ObjectWriter::new(false);
-    let none = PPtr {
-        file_id: 0,
-        path_id: 0,
-    };
-    w.string(name)
-        .unwrap()
-        .f32(1.)
-        .pptr(none)
-        .f32(16.)
-        .pptr(none);
-    w.i32(0).f32(0.).i32(0).i32(0).i32(-2).i32(0).i32(0);
-    w.f32(1.).byte_array(file).unwrap();
-    w.f32(12.).f32(-3.).u32(0).i32(0).pptrs(&[]).unwrap();
-    w.i32(0).bytes(&[0, 0]);
     w.finish()
 }
 

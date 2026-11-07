@@ -8,6 +8,7 @@ use worldrunner_render_post::FrameError;
 
 #[test]
 fn layered_production_capture_bakes_cold_and_invalidated_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

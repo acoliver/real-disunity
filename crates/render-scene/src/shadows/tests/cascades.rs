@@ -14,6 +14,7 @@ pub(super) fn source_with(source: &RenderScene, shadows: SceneShadowCascades) ->
 
 #[test]
 fn resident_statistics_clear_shadows_only_after_submission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = scene(&[[0, 0, 1_000]], 600_000, None);
     let source = super::terrain::terrain_scene(&base, false, false);
@@ -72,6 +73,7 @@ fn resident_statistics_clear_shadows_only_after_submission() {
 
 #[test]
 fn gpu_four_layers_have_distinct_coverage_and_keep_retained_handles() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source_with(
         &scene(
@@ -128,6 +130,7 @@ fn gpu_four_layers_have_distinct_coverage_and_keep_retained_handles() {
 
 #[test]
 fn gpu_each_cascade_keeps_off_camera_casters_and_main_camera_lod() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = source_with(
         &scene(&[[1_500, 0, 2_000]], 600_000, None),
@@ -181,6 +184,7 @@ fn gpu_each_cascade_keeps_off_camera_casters_and_main_camera_lod() {
 
 #[test]
 fn gpu_camera_splits_blend_and_reconfigure_without_reupload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, Some([255, 255, 0, 0]));
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -251,6 +255,7 @@ fn with_caster_lod(base: &RenderScene) -> RenderScene {
 
 #[test]
 fn gpu_four_cascade_terrain_receivers_share_masked_coverage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = scene(
         &[
@@ -276,6 +281,7 @@ fn gpu_four_cascade_terrain_receivers_share_masked_coverage() {
 
 #[test]
 fn cascade_contract_rejects_unrepresentable_ranges_before_upload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for extents in [
         vec![1, 2, 3, 4, 5],
         vec![1, u64::MAX],
@@ -303,6 +309,7 @@ fn cascade_contract_rejects_unrepresentable_ranges_before_upload() {
 
 #[test]
 fn split_and_projection_distances_share_the_same_unit_conversion() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for far in [16_777_219, 33_554_433, u32::MAX] {
         let camera = SceneCamera {
             far_plane_millimeters: far,

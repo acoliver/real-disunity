@@ -90,8 +90,7 @@ const TARGET: u32 = 64;
 const MICRO: i64 = 1_000_000;
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request())
-        .expect("GPU acceptance requires a real adapter with BC support")
+    GpuContext::shared_for_test().expect("GPU acceptance requires a real adapter with BC support")
 }
 
 /// Builds a single-mip 4x4 BC1 DDS whose every texel decodes to `color0`.

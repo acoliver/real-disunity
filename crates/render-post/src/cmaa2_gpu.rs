@@ -167,7 +167,7 @@ impl Builder<'_> {
         let (pipeline, group) = self.pipeline_and_group(name, entries);
         Stage {
             id: StageId::new(name, 0),
-            label: name,
+            label: name.into(),
             enabled: true,
             operation: Operation::Compute {
                 pipeline,
@@ -187,7 +187,7 @@ impl Builder<'_> {
         let (pipeline, group) = self.pipeline_and_group(name, entries);
         Stage {
             id: StageId::new(name, 0),
-            label: name,
+            label: name.into(),
             enabled: true,
             operation: Operation::ComputeIndirect {
                 pipeline,
@@ -252,7 +252,7 @@ impl Schedule<'_> {
         let name = STAGES[0];
         Stage {
             id: StageId::new(name, 0),
-            label: name,
+            label: name.into(),
             enabled: true,
             operation: Operation::Clear(self.inputs.control.clone()),
         }

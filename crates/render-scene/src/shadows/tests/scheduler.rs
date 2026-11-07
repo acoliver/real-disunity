@@ -26,6 +26,7 @@ pub(super) fn uniforms(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Ve
 
 #[test]
 fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -59,6 +60,7 @@ fn rejected_shadow_contract_preserves_uniforms_and_published_frame() {
 
 #[test]
 fn stock_water_and_non_neutral_grading_are_explicit_errors() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut water = fixture::effects_parts(600_000);
     water.water = Some(SceneWaterBody {
         material: worldrunner_render_plan::SceneWaterSettings::STOCK,
@@ -94,6 +96,7 @@ fn stock_water_and_non_neutral_grading_are_explicit_errors() {
 
 #[test]
 fn rejected_cascade_reconfiguration_keeps_the_old_array_and_uniforms() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();

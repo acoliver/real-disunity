@@ -4,6 +4,7 @@ use glam::{Quat, Vec3};
 
 #[test]
 fn default_normal_frame_preserves_projection_float_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for rotation in [
         Quat::IDENTITY,
@@ -27,6 +28,7 @@ fn default_normal_frame_preserves_projection_float_bytes() {
 
 #[test]
 fn normal_correction_frames_match_rotated_plane_and_slope_oracles() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for rotation in [
         Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
@@ -53,6 +55,7 @@ fn normal_correction_frames_match_rotated_plane_and_slope_oracles() {
 
 #[test]
 fn receiver_world_uses_reference_rotation_until_the_exact_south_pole() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for z in [-0.999_998_1_f32, -0.999_999_5, -1.0] {
         let x = ((1.0 + z) * (1.0 - z)).sqrt();
@@ -99,7 +102,7 @@ fn frame_expression(rotation: Quat, geometric: Vec3, world: bool) -> String {
 }
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap()
+    GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap()
 }
 fn evaluate(context: &GpuContext, expression: &str) -> Vec<f32> {
     let entry = format!(
@@ -111,6 +114,7 @@ fn frame_stock_normal(decal: SceneDecalVolume, geometric: vec3<f32>) -> vec3<f32
 
 #[test]
 fn flat_decal_preserves_partial_fold_magnitude_continuously() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let receiver = Vec3::new(-0.45, 0.0, 0.85);
     let folded = "scene_fold_direction(vec3<f32>(0.0,0.0,1.0), vec4<f32>(-0.6,0.0,0.8,0.5), vec2<f32>(2.0,0.0))";
@@ -141,6 +145,7 @@ fn flat_decal_preserves_partial_fold_magnitude_continuously() {
 
 #[test]
 fn normal_basis_follows_rotated_nonuniform_hulls_for_every_projection_axis() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (axis, expected) in [
         (0, [-0.6, 0.8, 0.0]),
@@ -161,6 +166,7 @@ fn normal_basis_follows_rotated_nonuniform_hulls_for_every_projection_axis() {
 
 #[test]
 fn projected_normal_decode_rotation_and_receiver_correction_match_shortest_arc_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (encoded, detail) in [
         ([0.5, 0.5], Vec3::Z),
@@ -193,6 +199,7 @@ fn projected_normal_decode_rotation_and_receiver_correction_match_shortest_arc_o
 
 #[test]
 fn power_and_linear_angle_curves_match_scalar_oracles_on_both_sides() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for cosine in [-1.0_f32, -0.35, 0.0, 0.35, 0.7, 1.0] {
         for double_sided in [false, true] {
@@ -216,6 +223,7 @@ fn power_and_linear_angle_curves_match_scalar_oracles_on_both_sides() {
 
 #[test]
 fn uv_scale_offset_and_packed_surface_blend_match_independent_values() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let result = evaluate(
         &context,
@@ -228,6 +236,7 @@ fn uv_scale_offset_and_packed_surface_blend_match_independent_values() {
 
 #[test]
 fn decal_color_matches_scalar_oracle_including_hdr_and_opacity_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for opacity in [0.0_f32, 0.4, 0.98, 1.0] {
         let lower = (1.0 - opacity).max(0.0001);
@@ -268,6 +277,7 @@ fn decal_color_matches_scalar_oracle_including_hdr_and_opacity_edges() {
 
 #[test]
 fn default_decal_color_preserves_sample_bits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let sample = "vec4<f32>(0.1234567,1.77,0.0,0.3333333)";
     let original = evaluate(&context, sample);

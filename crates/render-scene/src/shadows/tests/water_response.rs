@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn gpu_water_response_leaves_opaque_receivers_and_refraction_snapshot_identical() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let baseline = water_capture(&context, None);
     let response = water_capture(
@@ -118,6 +119,7 @@ fn water_view(source: &RenderScene) -> SceneView {
 
 #[test]
 fn gpu_water_geometric_lookup_removes_normal_map_structure_along_shadow_edge() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(&[], 600_000, None),

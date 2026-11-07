@@ -26,12 +26,19 @@ internal static class PlayerRun
         var manifest = PlayerManifest.Read(data);
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
         var plugins = new PlayerNativePlugins(data, DisunityHost.NativeLibraryDirectory, Log);
-        new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins).Attach(context);
+        // A Mono player gets some class libraries from its runtime and does not ship them; the bridge carries them.
+        var bridge = Path.GetDirectoryName(typeof(PlayerRun).Assembly.Location);
+        var assemblies = new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins, bridge);
+        assemblies.Attach(context);
+        assemblies.ServeDefaultContext();
         // Unity's Mono runtime loads a player into one domain, so a lookup by name, such as
         // BinaryFormatter's or Type.GetType's from class-library code, finds the game's assemblies.
         // Entering the player's context makes those lookups resolve there for the rest of the run.
         context.EnterContextualReflection();
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
+        // A player's runtime loads every listed assembly at startup; packages that find their types by enumerating
+        // the loaded assemblies (a pipeline's volume components, for one) rely on it.
+        Log($"loaded {assemblies.LoadListed(Log)} of {manifest.GameAssemblies.Count} listed assemblies");
         // The screen is the window the frame is drawn into, so the game's canvases scale for the size they are drawn at.
         var (screenWidth, screenHeight) = PlayerScreen.Size(request);
         DisunityHost.SetScreen(screenWidth, screenHeight, 96f, 60f);

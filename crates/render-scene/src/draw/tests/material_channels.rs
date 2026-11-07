@@ -51,6 +51,7 @@ fn packed_bc1(color: u16) -> SceneTexture {
 
 #[test]
 fn native_rb_bc1_matches_default_gb_for_mesh_and_impostor_shading() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for atlas in [false, true] {
         let mut material = mapped_material();
@@ -108,6 +109,7 @@ fn native_rb_bc1_matches_default_gb_for_mesh_and_impostor_shading() {
 
 #[test]
 fn bc4_and_bc5_reject_missing_scalar_lanes_before_upload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for (code, payload) in [(80_u32, 8), (83, 16)] {
         let mut bytes = bc1_with_format(0, code);
         bytes.resize(148 + payload, 0);
@@ -136,6 +138,7 @@ fn rgba(value: [u8; 4], size: u32) -> SceneTexture {
 
 #[test]
 fn packed_atlas_admission_checks_its_layout_and_any_mesh_fallback() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let dual = || SceneTexture::Texels {
         format: TexelFormat::Rg8Unorm,
         color_space: TextureColorSpace::Linear,
@@ -253,6 +256,7 @@ fn auxiliary_scene(packed: bool, custom: bool) -> RenderScene {
 
 #[test]
 fn auxiliary_and_packed_impostor_selectors_sample_authored_lanes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let probe = format!(
@@ -293,6 +297,7 @@ fn auxiliary_and_packed_impostor_selectors_sample_authored_lanes() {
 
 #[test]
 fn bc7_upload_samples_a_known_mode_six_block() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // Mode six: equal 7-bit endpoints, zero p-bits and zero interpolation indices.
     // The endpoints therefore decode to (254, 0, 0, 254) for all sixteen texels.
@@ -351,6 +356,7 @@ fn bc7_upload_samples_a_known_mode_six_block() {
 
 #[test]
 fn shared_r8_and_bc4_channels_match_separate_rgba_lanes_in_shading() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let shared = mapped_material()
         .with_channels(SceneMaterialChannels {
@@ -406,6 +412,7 @@ fn shared_r8_and_bc4_channels_match_separate_rgba_lanes_in_shading() {
 
 #[test]
 fn packed_impostor_scalars_can_share_both_maps_channels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let baseline = auxiliary_material(true, false);
     let atlas = baseline

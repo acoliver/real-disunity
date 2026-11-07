@@ -79,6 +79,7 @@ fn assert_affine(zero: &[f32], unit: &[f32], double: &[f32]) {
 
 #[test]
 fn uploaded_intensity_scales_selected_lobes_without_scaling_hit_factors() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for consumers in [Water, Reflections, Both] {
         for missing in [true, false] {
@@ -119,6 +120,7 @@ fn uploaded_intensity_scales_selected_lobes_without_scaling_hit_factors() {
 
 #[test]
 fn forward_diffuse_and_direct_residual_are_independent_of_cube_scale() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     let effects = SceneEffects::new(effect_parts())

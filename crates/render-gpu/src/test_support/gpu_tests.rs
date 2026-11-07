@@ -1,5 +1,5 @@
 use super::TestGpu;
-use crate::device::{DeviceRequirements, headless_instance, request_device};
+use crate::device::{DeviceRequirements, request_device};
 
 #[test]
 fn gpu_cached_handles_preserve_exact_device_profiles() {
@@ -23,10 +23,8 @@ fn gpu_cached_handles_preserve_exact_device_profiles() {
 
 #[test]
 fn gpu_production_requests_still_create_fresh_devices() {
-    let instance = headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
+    // wgpu device equality compares instance-local IDs, so use one instance throughout.
+    let adapter = TestGpu::shared_adapter().unwrap();
     let first =
         pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
     let second =

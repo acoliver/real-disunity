@@ -570,7 +570,7 @@ impl Services<'_> {
             return Ok(TargetSignature::new(&[info.format], None, 1)?);
         };
         if info.color.is_none() {
-            return Ok(TargetSignature::depth_only(depth)?);
+            return Ok(TargetSignature::depth_only(depth, 1)?);
         }
         Ok(TargetSignature::new(&[info.format], Some(depth), 1)?)
     }

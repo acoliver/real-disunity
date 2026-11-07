@@ -5,13 +5,15 @@ use worldrunner_render_gpu::texture::UploadError;
 
 use crate::constants::ConstantError;
 use crate::layout::LayoutError;
-use crate::module::ModuleError;
+use crate::module::{ModuleError, OverrideError};
 use crate::variant::VariantError;
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ProgramError {
     #[error(transparent)]
     Module(#[from] ModuleError),
+    #[error(transparent)]
+    Override(#[from] OverrideError),
     #[error(transparent)]
     Layout(#[from] LayoutError),
     #[error(transparent)]
@@ -38,6 +40,12 @@ pub enum ProgramError {
     },
     #[error("the state describes {states} colour targets and the pass has {targets}")]
     ColorStates { states: usize, targets: usize },
+    #[error(
+        "the pass has a depth attachment and no colour attachment, and the state describes {states} colour targets"
+    )]
+    ColorStatesOnDepthOnly { states: usize },
+    #[error("the program has no fragment stage, and the pass has {colors} colour attachments")]
+    NoFragmentForColors { colors: usize },
     #[error(
         "set {set} binding {binding} imports {semantic}, and the draw imports nothing of that name"
     )]

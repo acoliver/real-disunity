@@ -9,7 +9,7 @@ internal static class TemplateSearchTests
         try
         {
             TemplateSearchesFindActiveChildren();
-            SceneSearchesStillSkipInactiveParents();
+            SceneSearchesStartAtTheCallerNotAtTheRoot();
         }
         finally { DisunityHost.UnloadWorld(); }
     }
@@ -41,17 +41,28 @@ internal static class TemplateSearchTests
         Console.WriteLine("PASS: searches on a template count objects whose chain is active themselves");
     }
 
-    private static void SceneSearchesStillSkipInactiveParents()
+    private static void SceneSearchesStartAtTheCallerNotAtTheRoot()
     {
         var root = new GameObject("scene search root");
         var child = new GameObject("scene search child");
+        var grandchild = new GameObject("scene search grandchild");
         child.transform.SetParent(root.transform);
+        grandchild.transform.SetParent(child.transform);
         var filter = child.AddComponent<MeshFilter>();
+        var deep = grandchild.AddComponent<MeshFilter>();
         Expect.That(ReferenceEquals(root.GetComponentInChildren<MeshFilter>(), filter), "an active scene child is found");
         root.SetActive(false);
-        Expect.That(root.GetComponentInChildren<MeshFilter>() == null && child.GetComponentInChildren<MeshFilter>() == null, "an inactive scene parent hides its children");
+        Expect.That(root.GetComponentInChildren<MeshFilter>() == null, "an inactive object finds nothing below it");
+        Expect.That(ReferenceEquals(child.GetComponentInChildren<MeshFilter>(), filter), "an active object under an inactive parent still finds its own components (the engine's choice, taken from the original game's run)");
+        Expect.Equal(2, child.GetComponentsInChildren<MeshFilter>().Length, "and its active descendants");
+        grandchild.SetActive(false);
+        Expect.That(ReferenceEquals(child.GetComponentInChildren<MeshFilter>(), filter) && child.GetComponentsInChildren<MeshFilter>().Length == 1,
+            "an inactive descendant and its subtree are still skipped");
         Expect.That(ReferenceEquals(root.GetComponentInChildren<MeshFilter>(true), filter), "including inactive still finds it");
+        Expect.That(ReferenceEquals(grandchild.GetComponentInChildren<MeshFilter>(true), deep), "including inactive finds an inactive object's own component");
+        child.SetActive(false);
+        Expect.That(child.GetComponentInChildren<MeshFilter>() == null, "an object that is inactive itself finds nothing");
         UnityEngine.Object.Destroy(root);
-        Console.WriteLine("PASS: scene searches still skip objects under an inactive parent");
+        Console.WriteLine("PASS: a scene search from an object under an inactive parent finds the object's active subtree");
     }
 }

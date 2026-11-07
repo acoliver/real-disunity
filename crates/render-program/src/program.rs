@@ -6,6 +6,7 @@ use crate::binding::ResourceLayout;
 use crate::error::ProgramError;
 use crate::layout::ProgramLayout;
 use crate::module::{StageKind, StageProgram};
+use crate::pipeline_key::Key;
 use crate::runtime::ProgramRuntime;
 
 /// A program's bind group layouts and pipeline layout.
@@ -14,6 +15,9 @@ pub(crate) struct GpuLayout {
     /// One per descriptor set up to the highest used; `None` for a set with no bindings. A lent
     /// set holds the layout it was lent as.
     pub(crate) groups: Vec<Option<wgpu::BindGroupLayout>>,
+    /// The identity of each runtime-built set's layout, parallel to `groups`: `None` for a set
+    /// with no bindings and for a lent set. Equal keys are one shared layout object.
+    pub(crate) set_keys: Vec<Option<blake3::Hash>>,
     pub(crate) pipeline: wgpu::PipelineLayout,
     /// The lent sets, ordered by set.
     pub(crate) external: Vec<ExternalSet>,
@@ -87,6 +91,14 @@ impl GraphicsProgram {
     #[must_use]
     pub fn external_sets(&self) -> &[u32] {
         &self.gpu.external_sets
+    }
+
+    /// The layout of `set`: the lent layout for a lent set, and for a set the runtime builds the
+    /// one layout every program of the runtime with equal slots at that set shares, so a group
+    /// built against it fits all of them. `None` for a set with no bindings.
+    #[must_use]
+    pub fn set_layout(&self, set: u32) -> Option<&wgpu::BindGroupLayout> {
+        self.gpu.groups.get(usize::try_from(set).ok()?)?.as_ref()
     }
 }
 
@@ -187,11 +199,14 @@ impl ProgramRuntime {
             });
         }
         let mut groups = Vec::new();
+        let mut set_keys = Vec::new();
         for set in 0..sets {
-            groups.push(match external.iter().find(|lent| lent.set == set) {
-                Some(lent) => Some(lent.layout.clone()),
-                None => self.group_layout(&layout, set)?,
-            });
+            let (group, key) = match external.iter().find(|lent| lent.set == set) {
+                Some(lent) => (Some(lent.layout.clone()), None),
+                None => self.group_layout(&layout, set)?.unzip(),
+            };
+            groups.push(group);
+            set_keys.push(key);
         }
         let borrowed: Vec<Option<&wgpu::BindGroupLayout>> =
             groups.iter().map(Option::as_ref).collect();
@@ -208,17 +223,20 @@ impl ProgramRuntime {
         Ok(GpuLayout {
             layout,
             groups,
+            set_keys,
             pipeline,
             external_sets: external.iter().map(|lent| lent.set).collect(),
             external,
         })
     }
 
+    /// The layout of `set`, and the key that names it. Programs whose slots at a set are equal
+    /// get one layout object, so a group built for one fits the others.
     fn group_layout(
         &self,
         layout: &ProgramLayout,
         set: u32,
-    ) -> Result<Option<wgpu::BindGroupLayout>, ProgramError> {
+    ) -> Result<Option<(wgpu::BindGroupLayout, blake3::Hash)>, ProgramError> {
         let slots: Vec<_> = layout.slots().iter().filter(|s| s.set == set).collect();
         if slots.is_empty() {
             return Ok(None);
@@ -241,6 +259,18 @@ impl ProgramRuntime {
                 count: None,
             });
         }
+        let mut key = Key::new("set layout");
+        key.debug(
+            &layout
+                .slots()
+                .iter()
+                .filter(|s| s.set == set)
+                .collect::<Vec<_>>(),
+        );
+        let key = key.finish();
+        if let Some(known) = self.lock_set_layouts().get(&key).filter(|_| false) {
+            return Ok(Some((known.clone(), key)));
+        }
         let group = self.guarded(|| {
             self.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -248,6 +278,7 @@ impl ProgramRuntime {
                     entries: &entries,
                 })
         })?;
-        Ok(Some(group))
+        let shared = self.lock_set_layouts().entry(key).or_insert(group).clone();
+        Ok(Some((shared, key)))
     }
 }

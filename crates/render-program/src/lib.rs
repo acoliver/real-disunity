@@ -35,6 +35,7 @@ mod resources;
 pub mod runtime;
 pub mod sampler;
 mod schema;
+mod set;
 pub mod state;
 mod stats;
 pub mod targets;

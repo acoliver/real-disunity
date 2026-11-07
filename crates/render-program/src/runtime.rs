@@ -7,6 +7,7 @@ use std::future::Future;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
@@ -34,6 +35,7 @@ pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
 pub use crate::resources::{
     BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,
 };
+pub use crate::set::{ImportTable, PreparedSet};
 pub use crate::stats::RuntimeStats;
 
 /// Shares the caller's wgpu device and `SubmissionAuthority`, owns the resources it creates by
@@ -58,6 +60,9 @@ pub struct ProgramRuntime {
     /// The one sampler every sampler binding gets: linear filtering, clamped to the edge.
     pub(crate) sampler: wgpu::Sampler,
     modules: HashMap<blake3::Hash, wgpu::ShaderModule>,
+    /// Bind group layouts by the slots they were made for, so programs with equal slots at a set
+    /// share one. Programs are built through `&self`, hence the lock.
+    set_layouts: Mutex<HashMap<blake3::Hash, wgpu::BindGroupLayout>>,
     pub(crate) render_pipelines: HashMap<blake3::Hash, wgpu::RenderPipeline>,
     pub(crate) compute_pipelines: HashMap<blake3::Hash, wgpu::ComputePipeline>,
     pub(crate) counters: Counters,
@@ -83,6 +88,7 @@ impl ProgramRuntime {
             budget,
             sampler,
             modules: HashMap::new(),
+            set_layouts: Mutex::new(HashMap::new()),
             render_pipelines: HashMap::new(),
             compute_pipelines: HashMap::new(),
             counters: Counters::default(),
@@ -171,6 +177,16 @@ impl ProgramRuntime {
     #[must_use]
     pub fn stats(&self) -> RuntimeStats {
         self.counters.snapshot()
+    }
+
+    /// The interned bind group layouts. A layout is only ever added, so a panic while the lock
+    /// was held leaves the map consistent.
+    pub(crate) fn lock_set_layouts(
+        &self,
+    ) -> MutexGuard<'_, HashMap<blake3::Hash, wgpu::BindGroupLayout>> {
+        self.set_layouts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The compiled module for a stage, built from the parsed naga module on first use.

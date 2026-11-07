@@ -17,7 +17,7 @@ use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
 use crate::schema::Schema;
 use crate::state::RenderState;
-use crate::variant::{FeatureSet, Variants};
+use crate::variant::{FeatureSet, UnknownFeatures, Variants};
 
 /// A registered program. A handle belongs to the runtime that made it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -143,6 +143,10 @@ impl Registry {
         self.next
     }
 
+    pub(crate) fn runtime(&self) -> u64 {
+        self.runtime
+    }
+
     pub(crate) fn add_program(&mut self, program: Registered) -> ProgramHandle {
         let id = self.id();
         self.programs.insert(id, Arc::new(program));
@@ -242,6 +246,26 @@ fn differ(at: BindingAddress) -> ProgramError {
 }
 
 impl ProgramRuntime {
+    /// The program of the variant that exactly `features` select, for draws over lent
+    /// resources (`prepare_imported_draw`), which take a program rather than a material. The
+    /// program is the one registration built, so resolving it builds nothing.
+    ///
+    /// # Errors
+    /// Fails with `UnknownHandle` for a handle of another runtime, with
+    /// `VariantError::UnknownFeature` for a feature no variant differs by and with
+    /// `VariantError::NoMatch` when no variant has the set.
+    pub fn variant_program(
+        &self,
+        handle: ProgramHandle,
+        features: &FeatureSet,
+    ) -> Result<GraphicsProgram, ProgramError> {
+        let registered = self.registry.program(handle)?;
+        let variant = registered
+            .variants
+            .select(features, UnknownFeatures::Fail)?;
+        Ok(variant.program.clone())
+    }
+
     /// Registers a program: parses every stage with naga, checks the declarations against what
     /// the entry points use, builds each variant's layouts and returns a handle for creating
     /// materials. The state must be one a draw supports.

@@ -250,6 +250,16 @@ pub fn error(terrain: &SceneTerrain, node: TerrainChunk, matrix: Mat4, viewport:
     }
     result
 }
+/// World bounds of a chunk's geometry: its sample corners across the terrain's elevation
+/// range, down to the skirt one metre below the lowest sample.
+pub(crate) fn chunk_bounds(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3; 2] {
+    let corners = points(terrain, node);
+    let mut minimum = corners.iter().copied().fold(Vec3::INFINITY, Vec3::min);
+    let maximum = corners.iter().copied().fold(Vec3::NEG_INFINITY, Vec3::max);
+    minimum.z -= 1.0;
+    [minimum, maximum]
+}
+
 fn points(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3; 8] {
     let height = elevation(terrain);
     std::array::from_fn(|index| {

@@ -685,9 +685,12 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 self.depth_pipelines,
                 Some((index, matrix)),
             ));
-            let terrain =
-                self.gpu
-                    .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
+            let terrain = self.gpu.draw_terrain_depth(
+                pass,
+                group,
+                self.terrain_depth_pipeline,
+                (index, matrix),
+            );
             self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
         } else {
             if let Some(screen) = &self.screen {

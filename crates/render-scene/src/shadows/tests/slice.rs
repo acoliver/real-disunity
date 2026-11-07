@@ -121,3 +121,83 @@ fn gpu_retained_cascades_refresh_when_the_camera_turns_out_of_their_slice() {
     }
     assert!(kept > 4, "the camera motion must retain some cascades");
 }
+
+/// Streaming ridged terrain much wider than the view, with two casters near the camera and a
+/// wall outside the view that shadows it.
+fn terrain_source() -> RenderScene {
+    let base = super::terrain::terrain_scene(
+        &scene(&[[0, 4_000, 1_000], [2_000, 6_000, 1_500]], 600_000, None),
+        false,
+        false,
+    );
+    // Low ridges everywhere, and a 4 m wall beside the camera, outside the view, whose
+    // shadow falls into the nearest cascade's slice.
+    let heights = (0..49 * 49)
+        .map(|index: i32| {
+            let (east, north) = (index % 49 - 24, index / 49 - 24);
+            if (5..=6).contains(&east) && (-7..=-2).contains(&north) {
+                4_000
+            } else {
+                (east * 7 + north * 13).rem_euclid(5) * 400
+            }
+        })
+        .collect();
+    let terrain = SceneTerrain::new(SceneTerrainParts {
+        columns: 49,
+        rows: 49,
+        origin_east_millimeters: -24_000,
+        origin_north_millimeters: -24_000,
+        sample_spacing_millimeters: 1_000,
+        heights_millimeters: heights,
+        surface_indices: vec![0; 49 * 49],
+        surfaces: base.terrain().unwrap().surfaces().to_vec(),
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap()
+    .with_streaming_policy(Some(TerrainStreamingPolicy::new(4, 256, 64, 1000).unwrap()));
+    cascades::source_with(
+        &base
+            .with_terrain(Some(std::sync::Arc::new(terrain)))
+            .unwrap(),
+        SceneShadowCascades::camera_splits(vec![4_000, 7_000, 11_000, 19_000], 0).unwrap(),
+    )
+}
+
+fn terrain_draws(renderer: &mut ShadowedScene) -> u64 {
+    renderer
+        .scene_mut()
+        .statistics()
+        .passes
+        .shadow_cascades
+        .iter()
+        .map(|count| count.calls)
+        .sum()
+}
+
+#[test]
+fn gpu_cascades_draw_only_the_terrain_chunks_their_slice_can_sample() {
+    let context = context();
+    let source = terrain_source();
+    let mut culled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let mut unculled = ShadowedScene::new(&context, &source, settings()).unwrap();
+    for target in TARGETS {
+        let view = turned_view(target);
+        // Streaming refines over several frames; compare once both renderers have settled.
+        for _ in 0..3 {
+            render(&context, &mut culled, &view, false);
+            render(&context, &mut unculled, &view, true);
+        }
+        let (image, _) = render(&context, &mut culled, &view, false);
+        let kept = terrain_draws(&mut culled);
+        let (reference, _) = render(&context, &mut unculled, &view, true);
+        let all = terrain_draws(&mut unculled);
+        assert!(
+            image == reference,
+            "terrain culling changed the image at {target:?}"
+        );
+        assert!(
+            kept < all,
+            "no terrain chunk culled at {target:?}: {kept} of {all}"
+        );
+    }
+}

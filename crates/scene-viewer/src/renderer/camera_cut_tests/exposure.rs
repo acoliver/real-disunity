@@ -1,6 +1,9 @@
 use super::*;
 use std::time::Duration;
-use worldrunner_render_plan::{SceneAdaptiveExposure, SceneHdrPost};
+use worldrunner_render_plan::{
+    SceneAdaptiveExposure, SceneAtmosphere, SceneBackgroundDepthPolicy, SceneCelestialComposition,
+    SceneHdrPost,
+};
 use worldrunner_render_post::{FrameConfig, Readback};
 
 fn source() -> RenderScene {
@@ -17,6 +20,21 @@ fn source() -> RenderScene {
         post: vec![],
         anti_alias: SceneAntiAlias::taa(900_000),
         ssao: None,
+    })
+    .unwrap()
+    .with_atmosphere(SceneAtmosphere {
+        celestial_composition: SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy: SceneBackgroundDepthPolicy::FarPlane,
+        scattering: None,
+        horizon_radiance_micro: [2_000_000; 3],
+        zenith_radiance_micro: [2_000_000; 3],
+        gradient_exponent_micro: 1_000_000,
+        sun_angular_radius_millidegrees: 0,
+        fog: None,
+        discs: vec![],
+        meshes: vec![],
+        background_distance_millimeters: 1_000_000,
     })
     .unwrap()
     .with_hdr_post(SceneHdrPost {
@@ -137,7 +155,13 @@ fn preserves_exposure(profile: crate::FrameProfile, shadows: Option<DirectionalS
         initial, warmed,
         "automatic exposure must adapt away from its unity seed"
     );
+    assert!(initial.chunks_exact(4).all(|p| p == &initial[..4]));
     assert!(warmed.chunks_exact(4).all(|p| p == &warmed[..4]));
+    assert!(warmed[..3].iter().all(|channel| *channel > 0));
+    assert!(
+        initial[0] > warmed[0].saturating_add(32),
+        "constant HDR sky radiance must visibly darken as exposure adapts"
+    );
     for time in [Duration::from_secs(2), Duration::from_micros(2_016_667)] {
         assert!(renderer.presentation.scheduler.has_temporal_history());
         assert!(renderer.presentation.scheduler.projection_jitter_index() > 1);

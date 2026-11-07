@@ -12,7 +12,7 @@ namespace Disunity.Play;
 /// scene, and the scene loads from its plan. A player request is
 /// <c>{"player": data directory, "plan": path, "resources": path, "identity": {...},
 /// "persistent": directory, "arguments": [the player's command line after its executable path],
-/// "first_texture": 1, "quality": {"names": [...], "current": 0},
+/// "first_texture": 1, "plugins": [extra native plugin directories], "quality": {"names": [...], "current": 0},
 /// "scenes": [{"name": ..., "path": ..., "plan": path or null, "error": why it has no plan}]}</c>, with the scene and
 /// resource plans, the player identity and its quality levels (when it defines any)
 /// <c>unity-import</c> writes. <c>scenes</c> lists the player's build in build order for <c>SceneManager</c>. Each step writes a line
@@ -25,13 +25,20 @@ internal static class PlayerRun
         var data = request.GetProperty("player").GetString()!;
         var manifest = PlayerManifest.Read(data);
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
-        var plugins = new PlayerNativePlugins(data, DisunityHost.NativeLibraryDirectory, Log);
-        new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins).Attach(context);
+        var plugins = new PlayerNativePlugins(data, DisunityHost.NativeLibraryDirectory, Log, ExtraPluginDirectories(request));
+        // A Mono player gets some class libraries from its runtime and does not ship them; the bridge carries them.
+        var bridge = Path.GetDirectoryName(typeof(PlayerRun).Assembly.Location);
+        var assemblies = new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins, bridge);
+        assemblies.Attach(context);
+        assemblies.ServeDefaultContext();
         // Unity's Mono runtime loads a player into one domain, so a lookup by name, such as
         // BinaryFormatter's or Type.GetType's from class-library code, finds the game's assemblies.
         // Entering the player's context makes those lookups resolve there for the rest of the run.
         context.EnterContextualReflection();
         Assembly Load(string name) => context.LoadFromAssemblyName(new AssemblyName(name));
+        // A player's runtime loads every listed assembly at startup; packages that find their types by enumerating
+        // the loaded assemblies (a pipeline's volume components, for one) rely on it.
+        Log($"loaded {assemblies.LoadListed(Log)} of {manifest.GameAssemblies.Count} listed assemblies");
         // The screen is the window the frame is drawn into, so the game's canvases scale for the size they are drawn at.
         var (screenWidth, screenHeight) = PlayerScreen.Size(request);
         DisunityHost.SetScreen(screenWidth, screenHeight, 96f, 60f);
@@ -75,6 +82,10 @@ internal static class PlayerRun
         Log("scene loaded");
         return scene;
     }
+
+    /// <summary>The request's <c>plugins</c>: extra native plugin directories, searched after the player's own.</summary>
+    private static string[] ExtraPluginDirectories(JsonElement request) =>
+        request.TryGetProperty("plugins", out var plugins) ? plugins.EnumerateArray().Select(directory => directory.GetString()!).ToArray() : Array.Empty<string>();
 
     /// <summary>Runs a startup phase as Unity does: a hook that fails is logged with
     /// <see cref="Debug.LogException(Exception)"/> and the phase goes on.</summary>

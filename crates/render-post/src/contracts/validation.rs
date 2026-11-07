@@ -17,6 +17,20 @@ impl ResourceRegistry {
         device: &wgpu::Device,
         passes: &[RasterPass],
     ) -> Result<CompiledRaster, ContractError> {
+        self.validate_raster(device, passes)?;
+        Ok(CompiledRaster {
+            passes: passes.to_vec(),
+            labels: passes
+                .iter()
+                .map(|pass| crate::PassId::Operation(pass.id).to_string())
+                .collect(),
+        })
+    }
+    pub(super) fn validate_raster(
+        &self,
+        device: &wgpu::Device,
+        passes: &[RasterPass],
+    ) -> Result<(), ContractError> {
         let mut versions = Versions::default();
         for (index, pass) in passes.iter().enumerate() {
             if passes[..index].iter().any(|other| other.id == pass.id) {
@@ -31,9 +45,7 @@ impl ResourceRegistry {
                     source: Box::new(source),
                 })?;
         }
-        Ok(CompiledRaster {
-            passes: passes.to_vec(),
-        })
+        Ok(())
     }
     pub(super) fn validate_pass(
         &self,

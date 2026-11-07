@@ -1,4 +1,5 @@
 use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_gpu::{device::DeviceRequirements, test_support::TestGpu};
 use worldrunner_render_post::{
     AttachmentLoad, FrameConfig, Readback, StageId,
     contracts::{
@@ -90,12 +91,8 @@ fn draw(device: &wgpu::Device, near: bool) -> CheckedDraw {
 }
 #[test]
 fn checked_providers_share_three_targets_and_depth() {
-    let instance = wgpu::Instance::default();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let gpu = TestGpu::shared(&DeviceRequirements::default()).unwrap();
+    let (device, queue) = (gpu.device, gpu.queue);
     let authority = SubmissionAuthority::new(queue);
     for reverse in [false, true] {
         prove_depth(&device, &authority, reverse);

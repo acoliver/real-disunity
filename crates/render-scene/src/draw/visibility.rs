@@ -28,14 +28,14 @@ pub(super) struct Bounds {
 }
 
 impl Bounds {
-    fn expanded(self, extent: Vec3) -> Self {
+    pub(super) fn expanded(self, extent: Vec3) -> Self {
         Self {
             min: self.min - extent,
             max: self.max + extent,
         }
     }
 
-    fn transformed(self, matrix: Mat4) -> Self {
+    pub(super) fn transformed(self, matrix: Mat4) -> Self {
         let center = matrix.transform_point3((self.min + self.max) * 0.5);
         let half = (self.max - self.min) * 0.5;
         let extent = matrix.x_axis.truncate().abs() * half.x
@@ -230,7 +230,7 @@ fn impostor_extent(extents: [f32; 2], transform: &SceneTransform, stretch: f32) 
 }
 
 // The longest ray per unit axial depth occurs at a frustum corner.
-fn relief_ray_stretch(matrix: Mat4) -> f32 {
+pub(super) fn relief_ray_stretch(matrix: Mat4) -> f32 {
     let rows = matrix.transpose();
     if rows.w_axis.truncate().length_squared() == 0.0 {
         return 1.0;
@@ -286,6 +286,8 @@ pub(super) struct SelectedRange {
 #[derive(Clone, Debug, Default)]
 pub(super) struct Selection {
     pub casters_only: bool,
+    /// Light-space slice a cascade's receivers sample; casters missing it are culled.
+    pub slice: Option<super::slice_hull::SliceHull>,
     pub ranges: Vec<SelectedRange>,
     pub stats: ViewStats,
 }
@@ -333,11 +335,11 @@ impl Selection {
                 self.stats.considered += 1;
                 if !visible
                     || (self.casters_only && !object.casts_shadow())
-                    || !frustum.intersects(bounds.placement(
-                        slot,
-                        object.transform(),
-                        relief_stretch,
-                    ))
+                    || !self.admits(
+                        &frustum,
+                        matrix,
+                        bounds.placement(slot, object.transform(), relief_stretch),
+                    )
                 {
                     self.stats.culled += 1;
                     continue;
@@ -348,6 +350,14 @@ impl Selection {
                 self.push(key, lod, slot);
             }
         }
+    }
+
+    fn admits(&self, frustum: &Frustum, matrix: Mat4, placement: Bounds) -> bool {
+        frustum.intersects(placement)
+            && self
+                .slice
+                .as_ref()
+                .is_none_or(|slice| slice.overlaps(placement, matrix))
     }
 
     fn push(&mut self, key: BatchKey, lod: usize, slot: usize) {
@@ -383,6 +393,34 @@ fn distance_squared(position: [i64; 3], eye: [i64; 3]) -> u128 {
 /// Extend only the toward-light depth end of the authored receiver volume.
 /// XY coverage and its far end stay fixed. Casters beyond the original near
 /// plane must also fit the depth projection, not merely survive CPU culling.
+/// Caster bounds of a visible shadow-casting placement, before any view's relief stretch.
+pub(super) fn caster_placement(
+    instances: &Instances,
+    meshes: &[MeshSelection],
+    handle: crate::instances::InstanceHandle,
+) -> Option<super::caster_edits::CasterBounds> {
+    let (key, slot) = instances.location(handle).ok()?;
+    let batch = &instances.batches[&key];
+    let (object, visible) = batch.get(slot);
+    if !visible || !object.casts_shadow() {
+        return None;
+    }
+    let mesh = &meshes[key.1];
+    let bounds =
+        BatchBounds::new(mesh, instances, key.2, batch).placement(slot, object.transform(), 0.0);
+    let relief = std::iter::once(key.2)
+        .chain(
+            mesh.material_slots
+                .iter()
+                .flatten()
+                .flatten()
+                .map(|slot| slot.material().raw() as usize),
+        )
+        .map(|material| instances.impostor_extents[material][1])
+        .fold(0.0, f32::max);
+    Some(super::caster_edits::CasterBounds { bounds, relief })
+}
+
 pub(super) fn caster_matrix(
     instances: &Instances,
     meshes: &[MeshSelection],

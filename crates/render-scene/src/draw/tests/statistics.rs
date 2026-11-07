@@ -3,6 +3,7 @@ use crate::{draw::DrawCount, offscreen::OffscreenTarget};
 
 #[test]
 fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 3);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -66,6 +67,7 @@ fn submitted_draw_statistics_track_visibility_without_counting_cancelled_frames(
 #[test]
 fn draw_statistics_classify_impostors_and_count_lod_material_slots() {
     use worldrunner_render_plan::SceneFadeDirection;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let impostor = super::fade_handoff::handoff_scene(true, true, &[SceneFadeDirection::Keep]);
@@ -108,6 +110,7 @@ fn draw_statistics_classify_impostors_and_count_lod_material_slots() {
 
 #[test]
 fn decal_statistics_apply_visibility_and_shader_capacity_at_submission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut outside = super::decals::decal();
     outside.transform.position_millimeters = [100_000; 3];
@@ -151,6 +154,7 @@ fn target(context: &GpuContext) -> OffscreenTarget {
 
 #[test]
 fn raw_terrain_and_sky_draw_preserves_submitted_statistics() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = terrain_scene(1);
     let atmosphere = worldrunner_render_plan::SceneAtmosphere {

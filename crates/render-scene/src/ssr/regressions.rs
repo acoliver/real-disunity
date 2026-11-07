@@ -50,6 +50,7 @@ fn edge_weight(pixel: u32, base: u32, level: u32) -> f32 {
 
 #[test]
 fn gpu_first_crossing_rejects_uncovered_and_back_facing_targets() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let target = glam::Vec2::new(0.65, 0.35);
     let pixel = (45 * 65 + 32) * 8;
@@ -164,6 +165,7 @@ fn red(bytes: &[u8], width: usize, x: usize, y: usize) -> f32 {
 
 #[test]
 fn gpu_odd_extent_filtered_bins_preserve_interior_and_partial_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let size = [65, 65];
     for scale in [1_000_000, 500_000] {
@@ -225,6 +227,7 @@ fn gpu_odd_extent_filtered_bins_preserve_interior_and_partial_edges() {
 
 #[test]
 fn gpu_roughness_contribution_fades_before_cutoff() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let full = numerical::resolve_capture(&context, 1.0, 0.0, false);
     let fading = numerical::resolve_capture(&context, 1.0, 0.55, false);

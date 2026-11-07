@@ -66,6 +66,7 @@ impl ProgramRuntime {
                     cache: None,
                 })
         })?;
+        self.counters.pipeline_built();
         self.compute_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }

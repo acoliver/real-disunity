@@ -21,6 +21,7 @@ fn depth_outputs(context: &GpuContext, gpu: &SceneGpu, pipelines: &ScenePipeline
 
 #[test]
 fn scaled_retained_lod_agrees_in_forward_metadata_prepass_and_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = scene(true);
@@ -65,6 +66,7 @@ fn scaled_retained_lod_agrees_in_forward_metadata_prepass_and_shadow() {
 
 #[test]
 fn lod_scale_preserves_explicit_world_distance_fade_endpoints() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for terminal in [false, true] {

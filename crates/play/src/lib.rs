@@ -36,7 +36,9 @@ mod unresolved;
 pub use driver::{Capture, PlayDriver};
 pub use gpu_player::{GpuWorkReport, PlayerGpu};
 pub use keys::key_code;
-pub use player::{GpuWork, PreparedPlayer, prepare_player, run_player, run_player_with};
+pub use player::{
+    GpuWork, PlayerLaunch, PreparedPlayer, prepare_player, run_player, run_player_with,
+};
 pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,
 };

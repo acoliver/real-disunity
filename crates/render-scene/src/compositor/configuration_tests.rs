@@ -26,7 +26,8 @@ fn uploaded_reflection_maps(
 #[test]
 fn scene_environment_consumers_isolate_water_and_reflections() {
     use worldrunner_render_plan::SceneEnvironmentConsumers::{Both, Reflections, Water};
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let maps = uploaded_reflection_maps(&context);
     let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     settings.frame.format = wgpu::TextureFormat::Rgba16Float;
@@ -94,6 +95,7 @@ fn environment_water_body() -> worldrunner_render_plan::SceneWaterBody {
 #[test]
 fn reflection_mip_inventory_counts_physical_storage_once() {
     use worldrunner_render_plan::{SceneSsr, SceneSsrPyramid};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     for (size, samples) in [([257, 5], 1), ([257, 5], 4), ([5, 257], 4), ([1, 1], 1)] {
         let config = FrameConfig::new(size, wgpu::TextureFormat::Rgba16Float, samples);
@@ -120,6 +122,7 @@ use worldrunner_render_post::{AdaptiveExposure, BufferReadback, Readback};
 
 #[test]
 fn initial_allocation_reports_loss_before_success_or_validation_failure() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for fail in [false, true] {
         let context = pollster::block_on(GpuContext::request()).unwrap();
         let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
@@ -156,6 +159,7 @@ fn initial_allocation_reports_loss_before_success_or_validation_failure() {
 
 #[test]
 fn foreign_device_is_rejected_before_validation_or_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let owner = pollster::block_on(GpuContext::request()).unwrap();
     let foreign = pollster::block_on(GpuContext::request()).unwrap();
     let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
@@ -187,7 +191,8 @@ fn foreign_device_is_rejected_before_validation_or_allocation() {
 
 #[test]
 fn timing_changes_are_rejected_without_changing_inventory() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     let mut renderer =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(4096)).unwrap();
@@ -205,6 +210,7 @@ fn timing_changes_are_rejected_without_changing_inventory() {
 
 #[test]
 fn stock_inventory_matches_hand_computed_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     // One resolved RGBA8 target and one depth32 target.
     assert_eq!(
@@ -227,7 +233,8 @@ fn stock_inventory_matches_hand_computed_bytes() {
 }
 #[test]
 fn replacement_preserves_history_and_rejection_preserves_targets() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     let mut renderer =
         ConfiguredFrameRenderer::new(&context, settings.clone(), AllocationBudget(4096)).unwrap();
@@ -248,7 +255,8 @@ fn replacement_preserves_history_and_rejection_preserves_targets() {
 
 #[test]
 fn exposure_history_and_stock_output_survive_replacement() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     settings.frame.format = wgpu::TextureFormat::Rgba16Float;
     settings.hdr = Some((1.0, ToneMap::Reinhard));
@@ -373,7 +381,8 @@ fn clear_scene(encoder: &mut wgpu::CommandEncoder, renderer: &ConfiguredFrameRen
 fn reflection_maps_and_composition_survive_both_replacement_paths() {
     use crate::sky::preparation::EnvironmentPreparation;
     use worldrunner_render_lighting::reflections::Composition;
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let preparation = EnvironmentPreparation {
         convention: worldrunner_render_plan::SceneSpecularConvention::default(),
         cube_size: 2,
@@ -469,7 +478,8 @@ fn adaptive_settings() -> AdaptiveExposure {
 fn authored_reflection_composition_changes_override_retained_service_selection() {
     use worldrunner_render_lighting::reflections::Composition;
     use worldrunner_render_plan::{SceneSsr, SceneSsrComposition};
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     settings.frame.format = wgpu::TextureFormat::Rgba16Float;
     settings.hdr = Some((1.0, ToneMap::Reinhard));

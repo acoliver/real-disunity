@@ -134,7 +134,8 @@ fn energy(bytes: &[u8]) -> f64 {
 
 #[test]
 fn grazing_water_normal_anisotropy_preserves_minor_axis_detail() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let baseline = render(&context, 1, false, false);
     assert!(
         energy(&baseline) > 1.0,
@@ -166,7 +167,8 @@ fn grazing_water_normal_anisotropy_preserves_minor_axis_detail() {
 
 #[test]
 fn water_surface_samplers_cache_each_validated_level() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let bodies = [
         mapped_body(1),
         mapped_body(16),

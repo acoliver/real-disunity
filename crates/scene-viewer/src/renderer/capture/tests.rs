@@ -1,5 +1,6 @@
 #[test]
 fn capture_readback_uses_submission_statistics_after_later_frames() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut h = Harness::new();
     let id = h.host.request_capture(0).unwrap();
     h.frame();
@@ -30,6 +31,7 @@ fn capture_readback_uses_submission_statistics_after_later_frames() {
 
 #[test]
 fn recipe_returns_linear_hdr_before_tone_mapping_and_plain_bytes_are_unchanged() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut h = Harness::with_profile(
         FrameProfile::Hdr {
             samples: 1,
@@ -130,6 +132,7 @@ fn direct_linear(
 
 #[test]
 fn continuous_ready_requests_cannot_starve_a_successor_capture() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut h = Harness::new();
     let cohort: Vec<_> = (0..4).map(|_| h.host.request_capture(0).unwrap()).collect();
     h.replacement([255, 0, 0, 255]);
@@ -181,6 +184,7 @@ fn continuous_ready_requests_cannot_starve_a_successor_capture() {
 
 #[test]
 fn submitted_capture_completes_with_zero_extent_and_no_more_frames() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut h = Harness::new();
     let id = h.host.request_capture(0).unwrap();
     h.frame();
@@ -215,8 +219,20 @@ impl Harness {
         Self::with_profile(FrameProfile::Legacy, crate::presentation::COLOR)
     }
     fn with_profile(profile: FrameProfile, format: wgpu::TextureFormat) -> Self {
+        let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
+        Self::with_context(context, profile, format)
+    }
+    fn dedicated() -> Self {
+        // These probes observe retirement before polling or exercise session shutdown.
         let context =
             pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+        Self::with_context(context, FrameProfile::Legacy, crate::presentation::COLOR)
+    }
+    fn with_context(
+        context: GpuContext,
+        profile: FrameProfile,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let source = super::super::retained_tests::source();
         let size = Viewport {
             width: 64,
@@ -388,6 +404,7 @@ fn center(image: &RgbaImage) -> &[u8] {
 
 #[test]
 fn requested_generation_waits_for_publication_and_returns_its_completed_pixels() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut h = Harness::new();
     let initial = h.host.request_capture(0).unwrap();
     h.frame();
@@ -422,7 +439,8 @@ fn requested_generation_waits_for_publication_and_returns_its_completed_pixels()
 
 #[test]
 fn production_collection_retains_replaced_resident_and_submitted_capture() {
-    let mut h = Harness::new();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let mut h = Harness::dedicated();
     h.host.request_capture(0).unwrap();
     h.replacement([255, 0, 0, 255]);
     // Finish CPU preparation without publishing or polling GPU completion.
@@ -465,6 +483,7 @@ fn production_collection_retains_replaced_resident_and_submitted_capture() {
 
 #[test]
 fn hdr_upscaled_bgra_capture_reads_the_final_display_image() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut h = Harness::with_profile(
         FrameProfile::HdrUpscaled {
             samples: 1,
@@ -498,7 +517,8 @@ fn hdr_upscaled_bgra_capture_reads_the_final_display_image() {
 
 #[test]
 fn three_gpu_slots_are_reused_without_skipping_waiting_generation() {
-    let mut h = Harness::new();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let mut h = Harness::dedicated();
     for _ in 0..4 {
         h.host.request_capture(0).unwrap();
     }
@@ -537,7 +557,8 @@ fn session_exit_cancels_a_real_submitted_capture_before_releasing_its_buffer() {
             Ok(())
         }
     }
-    let mut h = Harness::new();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let mut h = Harness::dedicated();
     let id = h.host.request_capture(0).unwrap();
     let ticket = h.frame();
     assert!(!ticket.is_complete());

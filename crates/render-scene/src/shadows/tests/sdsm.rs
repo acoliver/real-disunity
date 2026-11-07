@@ -17,6 +17,7 @@ pub(super) fn policy() -> RangeFit {
 }
 #[test]
 fn depth_fit_keeps_offscreen_casters_and_rescales_bias_with_extent() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000]], 600_000, None);
     let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -54,6 +55,7 @@ fn depth_fit_keeps_offscreen_casters_and_rescales_bias_with_extent() {
 /// declared cascades refitted afterwards, with and without receivers and for both split policies.
 #[test]
 fn fitted_cascades_equal_declared_cascades_refitted() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000], [-800, 300, 4_000]], 600_000, None);
     let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -125,6 +127,7 @@ fn snapshot(views: &CascadeViews) -> String {
 
 #[test]
 fn empty_depth_has_explicit_zero_receiver_uniform() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -151,6 +154,7 @@ fn empty_depth_has_explicit_zero_receiver_uniform() {
 
 #[test]
 fn gpu_depth_fitted_shadow_retains_camera_invisible_caster() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000]], 600_000, None);
     let view = SceneView::new(
@@ -210,6 +214,7 @@ fn gpu_depth_fitted_shadow_retains_camera_invisible_caster() {
 #[test]
 fn gpu_stock_sdsm_capture_and_interactive_latency_render_the_adopted_fit() {
     use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let view = view();
@@ -347,6 +352,7 @@ fn assert_fitted_pixels(
 #[test]
 fn gpu_stock_sdsm_capture_reuses_hdr_ssao_and_reflection_metadata() {
     use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut frame, mut renderer) = screen_renderers(&context);
     for adoption in [

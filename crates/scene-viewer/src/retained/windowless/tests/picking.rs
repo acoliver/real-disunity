@@ -12,15 +12,18 @@ fn pixel(host: &RetainedHost, point: glam::Vec3) -> [f64; 2] {
     [f64::from(p.x), f64::from(p.y)]
 }
 fn present_generation(run: &mut WindowlessRetained<'_>, generation: u64) {
+    present_until(run, |s| s.generation == generation);
+}
+
+fn present_until(
+    run: &mut WindowlessRetained<'_>,
+    presented: impl Fn(&crate::RetainedFrameStatistics) -> bool,
+) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         run.frame().unwrap();
         run.poll().unwrap();
-        if run
-            .host()
-            .statistics()
-            .is_some_and(|s| s.generation == generation)
-        {
+        if run.host().statistics().is_some_and(&presented) {
             break;
         }
         assert!(Instant::now() < deadline, "presentation did not advance");
@@ -105,9 +108,12 @@ fn picking_camera_resources_and_physical_resize_wait_for_presentation() {
         })
         .unwrap();
     present_generation(&mut run, 2);
+    let before_resize = run.host().statistics().unwrap().frame;
     run.resize([128, 64]).unwrap();
     assert!(run.host().pick(center, |_| true).is_some());
-    present_generation(&mut run, 2);
+    assert_eq!(run.host().statistics().unwrap().frame, before_resize);
+    assert!(run.host().pick([64.0, 32.0], |_| true).is_none());
+    present_until(&mut run, |s| s.generation == 2 && s.frame > before_resize);
     assert!(run.host().pick([64.0, 32.0], |_| true).is_some());
     assert!(run.host().pick([f64::NAN, 0.0], |_| true).is_none());
     assert!(run.host().pick([-1.0, 0.0], |_| true).is_none());

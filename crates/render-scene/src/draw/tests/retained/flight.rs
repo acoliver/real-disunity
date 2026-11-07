@@ -13,6 +13,7 @@ struct Encoded {
 
 #[test]
 fn overlapping_frames_keep_uniform_uploads_instances_and_captures_separate() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     overlapping_frames(&[64]);
     overlapping_frames(&[64, 32]);
 }

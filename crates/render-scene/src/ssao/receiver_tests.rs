@@ -17,6 +17,7 @@ fn scalable_settings() -> worldrunner_render_plan::SceneSsao {
 #[test]
 fn gpu_final_filter_preserves_consumed_metre_depth_for_each_policy() {
     use worldrunner_render_plan::{SceneSsaoFilter, SceneSsaoKernel};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for settings in [
         super::tests::settings(),
@@ -120,6 +121,7 @@ fn prepare_depth(
 #[test]
 fn receiver_choices_validate_and_account_for_only_final_target_growth() {
     use crate::compositor::RendererConfiguration;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut config = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     config.ssao = Some(super::tests::settings());
     let limits = wgpu::Limits::default();
@@ -168,6 +170,7 @@ fn oracle(ao: [f64; 4], depths: [f64; 4], receiver: f64, self_ao: f64) -> f64 {
 
 #[test]
 fn receiver_oracle_constants_clamp_weights_composition_and_depth_shift() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert!((oracle([0.5; 4], [2.0, 3.0, 4.0, 5.0], 3.0, 1.0) - 0.505).abs() < 1e-12);
     let ao = [0.1, 0.2, 0.8, 0.9];
     let depths = [2.0, 2.0, 4.0, 4.0];
@@ -183,6 +186,7 @@ fn receiver_oracle_constants_clamp_weights_composition_and_depth_shift() {
 
 #[test]
 fn receiver_oracle_excludes_uncovered_taps() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for depth in [1.0, 101.0] {
         assert!(
             (oracle([0.2, 0.2, 1.0, 1.0], [depth, depth, 0.0, 0.0], depth, 1.0) - 0.202).abs()
@@ -197,6 +201,7 @@ fn receiver_oracle_excludes_uncovered_taps() {
 
 #[test]
 fn gpu_receiver_gather_excludes_uncovered_silhouette_taps() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (depths, receiver, expected) in [
         ([1.0_f32, 1.0, 0.0, 0.0], 1.0, 0.2),
@@ -244,6 +249,7 @@ fn gpu_receiver_gather_excludes_uncovered_silhouette_taps() {
 
 #[test]
 fn nearest_receiver_preserves_shader_bytes_and_gather_is_shared() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_eq!(SceneSsaoReceiver::default(), SceneSsaoReceiver::Nearest);
     for source in [crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL] {
         let nearest = super::ambient_source(source);
@@ -259,6 +265,7 @@ fn nearest_receiver_preserves_shader_bytes_and_gather_is_shared() {
 
 #[test]
 fn gpu_receiver_gather_matches_oracle_and_depth_shift() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let ao = [0.125_f32, 0.25, 0.75, 0.875];
     for shift in [0.0_f32, 100.0] {

@@ -32,6 +32,9 @@ internal static class PlayerAssemblyTests
         ResolvesGameReferencesThroughFacades();
         ResolvesListedNamesForOneContextAndLeavesOthersToDotNet();
         ReportsMissingTypesAndMembers();
+        LoadsEveryListedAssemblyInOrderAndReportsTheMissing();
+        ResolvesHostLibrariesOnlyForNamesNeitherListedNorShipped();
+        ResolvesHostLibrariesForFrameworkFacadeForwards();
         Console.WriteLine("PASS: player module facades, assembly resolution and missing engine API report");
     }
 
@@ -173,6 +176,116 @@ internal static class PlayerAssemblyTests
             }
             catch (InvalidOperationException error) when (error.Message.Contains("one load context")) { }
             other.Unload();
+            return context;
+        });
+    }
+
+    private static void LoadsEveryListedAssemblyInOrderAndReportsTheMissing()
+    {
+        WithManagedDirectory(directory =>
+        {
+            File.WriteAllBytes(Path.Combine(directory, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(directory, "Broken.dll"), [1, 2, 3, 4]);
+            var context = new AssemblyLoadContext("player", isCollectible: true);
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Listed.Missing", "System.Package", "Broken", "Game" });
+            try
+            {
+                player.LoadListed(_ => { });
+                throw new InvalidOperationException("loading before a context is attached must fail");
+            }
+            catch (InvalidOperationException error) when (error.Message.Contains("attached")) { }
+            player.Attach(context);
+            Require(!context.Assemblies.Any(a => a.GetName().Name is "Game" or "System.Package"), "nothing listed loads before LoadListed");
+            var reports = new List<string>();
+            var loaded = player.LoadListed(reports.Add);
+            Require(loaded == 2, $"the two shipped .NET images load, got {loaded}");
+            var names = context.Assemblies.Select(a => a.GetName().Name).ToList();
+            Require(names.IndexOf("System.Package") is >= 0 and var package && names.IndexOf("Game") > package,
+                $"listed assemblies load in the listed order: {string.Join(", ", names)}");
+            Require(AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "Game"),
+                "a loaded player assembly is visible to code that enumerates the domain's assemblies");
+            Require(reports.Count == 2 && reports[0].Contains("Listed.Missing") && reports[1].Contains("Broken"),
+                $"each listed assembly that cannot load is reported by name, in order: {string.Join(" | ", reports)}");
+            return context;
+        });
+    }
+
+    private static void ResolvesHostLibrariesOnlyForNamesNeitherListedNorShipped()
+    {
+        WithManagedDirectory(directory =>
+        {
+            var host = Directory.CreateDirectory(Path.Combine(directory, "host")).FullName;
+            // A library only the host carries, a listed name both carry, an unlisted name both carry
+            // (the player's copy is built for its own runtime), and an engine module only the host has.
+            File.WriteAllBytes(Path.Combine(host, "Host.Library.dll"), new SyntheticAssembly("Host.Library").Build());
+            File.WriteAllBytes(Path.Combine(host, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(directory, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(host, "System.Core.dll"), new SyntheticAssembly("System.Core").Build());
+            File.WriteAllBytes(Path.Combine(directory, "System.Core.dll"), new SyntheticAssembly("System.Core").Build());
+            File.WriteAllBytes(Path.Combine(host, "UnityEngine.HostModule.dll"), new SyntheticAssembly("UnityEngine.HostModule").Build());
+            var context = new AssemblyLoadContext("player", isCollectible: true);
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Game", "System.Package" }, hostLibraries: host);
+            player.Attach(context);
+
+            var library = player.Resolve(context, new AssemblyName("Host.Library"));
+            Require(library?.GetName().Name == "Host.Library" && library.Location == Path.Combine(host, "Host.Library.dll"),
+                "a name neither listed nor shipped loads from the host's library directory");
+            Require(ReferenceEquals(library, player.Resolve(context, new AssemblyName("Host.Library"))) && context.Assemblies.Contains(library),
+                "the host library loads into the player's context once");
+
+            var listed = player.Resolve(context, new AssemblyName("System.Package"));
+            Require(listed?.Location == Path.Combine(directory, "System.Package.dll"), "a listed name still resolves from Managed");
+            Require(player.Resolve(context, new AssemblyName("System.Core")) is null, "a name the player ships stays with .NET");
+            Require(player.Resolve(context, new AssemblyName("UnityEngine.HostModule")) is null, "an engine module the player lacks is not taken from the host");
+            Require(player.Resolve(context, new AssemblyName(Module)) is { } facade && facade.GetName().Name == Module, "an engine module the player ships still gets its facade");
+            Require(player.Resolve(context, new AssemblyName("Absent.Library")) is null, "a name nobody has stays unresolved");
+            Require(player.Resolve(context, new AssemblyName("Listed.Missing")) is null, "an unlisted name is not mistaken for a missing listed one");
+
+            var without = new AssemblyLoadContext("without", isCollectible: true);
+            var bare = new PlayerAssemblies(directory, Engine, new[] { "Game" });
+            bare.Attach(without);
+            Require(bare.Resolve(without, new AssemblyName("Host.Library")) is null, "no host directory leaves the name to .NET");
+            without.Unload();
+            return context;
+        });
+    }
+
+    private static void ResolvesHostLibrariesForFrameworkFacadeForwards()
+    {
+        WithManagedDirectory(directory =>
+        {
+            var host = Directory.CreateDirectory(Path.Combine(directory, "host")).FullName;
+            foreach (var name in new[] { "Host.Library", "System.Package", "System.Core", "Disunity.Engine", "UnityEngine.HostModule", "Listed.Elsewhere" })
+                File.WriteAllBytes(Path.Combine(host, name + ".dll"), new SyntheticAssembly(name).Build());
+            File.WriteAllBytes(Path.Combine(directory, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(directory, "System.Core.dll"), new SyntheticAssembly("System.Core").Build());
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Game", "System.Package", "Listed.Elsewhere" }, hostLibraries: host);
+            var context = new AssemblyLoadContext("default stand-in", isCollectible: true);
+
+            // The framework's own facades (System.Configuration) forward types to these libraries inside the
+            // default context, which the player context never sees, so the default context asks the same rules.
+            var library = player.ResolveHostLibrary(context, new AssemblyName("Host.Library"));
+            Require(library?.Location == Path.Combine(host, "Host.Library.dll") && context.Assemblies.Contains(library),
+                "a name neither listed nor shipped loads from the host's library directory into the asking context");
+            foreach (var skipped in new[] { "System.Package", "Listed.Elsewhere", "System.Core", "Disunity.Engine", "UnityEngine.HostModule", Module, "Absent.Library" })
+                Require(player.ResolveHostLibrary(context, new AssemblyName(skipped)) is null, $"{skipped} is not a host library for the asking context");
+            Require(new PlayerAssemblies(directory, Engine, new[] { "Game" }).ResolveHostLibrary(context, new AssemblyName("Host.Library")) is null,
+                "no host directory leaves the name to .NET");
+
+            // Served, the default context itself finds a host library it could not resolve. The default context
+            // never unloads, so this name is used by this check only and the directory removal may only warn on Windows.
+            File.WriteAllBytes(Path.Combine(host, "Host.DefaultServed.dll"), new SyntheticAssembly("Host.DefaultServed").Build());
+            var served = new AssemblyName("Host.DefaultServed");
+            try
+            {
+                AssemblyLoadContext.Default.LoadFromAssemblyName(served);
+                throw new InvalidOperationException("the default context must not find a host library before it is served");
+            }
+            catch (FileNotFoundException) { }
+            player.ServeDefaultContext();
+            var loaded = AssemblyLoadContext.Default.LoadFromAssemblyName(served);
+            Require(ReferenceEquals(AssemblyLoadContext.GetLoadContext(loaded), AssemblyLoadContext.Default),
+                "a served default context loads the host library into itself");
             return context;
         });
     }

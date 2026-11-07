@@ -253,6 +253,7 @@ fn assert_matches_analytic(
 
 #[test]
 fn a_translated_billboard_writes_the_analytic_residual() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let still = orbit(0);
     let velocity = residuals_after(&[(still, 0), (still, 0), (still, 250)]);
     let largest = assert_matches_analytic(&velocity, (still, 250), (still, 0));
@@ -261,6 +262,7 @@ fn a_translated_billboard_writes_the_analytic_residual() {
 
 #[test]
 fn a_billboard_under_an_orbiting_camera_writes_the_residual_of_its_turning_basis() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let velocity = residuals_after(&[(orbit(0), 0), (orbit(0), 0), (orbit(1), 0)]);
     let largest = assert_matches_analytic(&velocity, (orbit(1), 0), (orbit(0), 0));
     assert!(largest > 0.01, "the residual was never large: {largest}");
@@ -268,6 +270,7 @@ fn a_billboard_under_an_orbiting_camera_writes_the_residual_of_its_turning_basis
 
 #[test]
 fn a_billboard_with_static_camera_and_instance_writes_exactly_zero() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let still = orbit(3);
     assert!(
         residuals_after(&[(still, 0), (still, 0), (still, 0)])
@@ -390,6 +393,7 @@ fn errors(samples: MsaaSamples) -> (f64, f64) {
 
 #[test]
 fn a_billboard_under_an_orbiting_camera_resolves_closer_to_the_unjittered_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (without, with) = errors(MsaaSamples::X1);
     println!("orbiting billboard band error: without {without}, with {with}");
     assert!(
@@ -407,6 +411,7 @@ fn a_billboard_under_an_orbiting_camera_resolves_closer_to_the_unjittered_frame(
 /// `without`, and the card must stay within one 8-bit step.
 #[test]
 fn four_sample_msaa_with_an_orbiting_billboard_does_not_bleed_or_lag_beyond_a_step() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     if !crate::msaa_tests::supported_samples(&context).contains(&4) {
         return;

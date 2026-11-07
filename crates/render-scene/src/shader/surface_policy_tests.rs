@@ -5,7 +5,8 @@ use worldrunner_render_plan::{SceneDirectDiffuse, SceneSurfaceDisk};
 
 #[test]
 fn prepared_diffuse_matches_albedo_without_pi_or_fresnel() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut frame = test_frame(1.0);
     frame.unlit = false;
     frame.camera_position = Vec3::Z;
@@ -36,7 +37,8 @@ fn prepared_diffuse_matches_albedo_without_pi_or_fresnel() {
 
 #[test]
 fn finite_surface_disk_has_independent_intensity_and_caps_after_shadow() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut frame = test_frame(1.0);
     let entry = r"
 @group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
@@ -62,7 +64,8 @@ fn finite_surface_disk_has_independent_intensity_and_caps_after_shadow() {
 
 #[test]
 fn shared_disk_direction_matches_geometric_circle_projection() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let start = ENVIRONMENT_WGSL
         .find("    let half_vector = normalize(view + selected);")
         .unwrap();
@@ -95,7 +98,8 @@ fn shared_disk_direction_matches_geometric_circle_projection() {
 
 #[test]
 fn sun_tint_scales_lambertian_diffuse_but_leaves_ao_relief_untinted() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut frame = test_frame(1.0);
     frame.unlit = false;
     frame.camera_position = Vec3::Z;
@@ -125,7 +129,8 @@ fn sun_tint_scales_lambertian_diffuse_but_leaves_ao_relief_untinted() {
 
 #[test]
 fn disk_uses_sun_tint_independently_of_direct_intensity_and_limits_after_tint() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut frame = test_frame(1.0);
     frame.sun_tint = Vec3::new(0.0, 2.0, 0.5);
     let entry = r"
@@ -160,7 +165,8 @@ pub(crate) fn fixed_disk_source(source: &str) -> String {
 
 #[test]
 fn default_surface_highlight_bytes_match_fixed_disk() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut frame = test_frame(1.0);
     frame.specular_convention.surface_disk =
         Some(SceneSurfaceDisk::new(1_000_000, 1_000_000).unwrap());

@@ -50,7 +50,7 @@ impl SceneGpu {
     }
 
     pub(crate) fn caster_generation(&self) -> u64 {
-        self.caster_generation
+        self.casters.generation
     }
 
     /// Provisions bounded page uploads and declares stock geometry's capture writes.
@@ -130,7 +130,8 @@ impl SceneGpu {
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
         let handle = self.instances.add(object, visible)?;
-        self.caster_generation = self.caster_generation.wrapping_add(1);
+        let added = self.caster_bounds(handle);
+        self.record_caster_change(None, added);
         Ok(handle)
     }
 
@@ -147,8 +148,9 @@ impl SceneGpu {
 
     /// Removes a placement without moving surviving batch slots or rewriting bytes.
     pub fn remove_instance(&mut self, handle: InstanceHandle) -> Result<(), InstanceError> {
+        let removed = self.caster_bounds(handle);
         self.instances.remove(handle)?;
-        self.caster_generation = self.caster_generation.wrapping_add(1);
+        self.record_caster_change(removed, None);
         Ok(())
     }
 
@@ -158,7 +160,14 @@ impl SceneGpu {
         handle: InstanceHandle,
         transform: SceneTransform,
     ) -> Result<(), InstanceError> {
-        self.instances.set_transform(handle, transform)
+        let old = *self.instances.get(handle)?.0.transform();
+        let before = self.caster_bounds(handle);
+        self.instances.set_transform(handle, transform)?;
+        if old != transform {
+            let after = self.caster_bounds(handle);
+            self.record_caster_change(before, after);
+        }
+        Ok(())
     }
 
     /// Replaces all placement fields while preserving visibility and batch identity.
@@ -169,11 +178,14 @@ impl SceneGpu {
         object: SceneObject,
     ) -> Result<(), InstanceError> {
         let old = self.instances.get(handle)?.0;
+        let before = self.caster_bounds(handle);
         self.instances.set_object(handle, object)?;
-        if old.lod_distance_scale_millionths() != object.lod_distance_scale_millionths()
-            || old.casts_shadow() != object.casts_shadow()
-        {
-            self.caster_generation = self.caster_generation.wrapping_add(1);
+        if old.lod_distance_scale_millionths() != object.lod_distance_scale_millionths() {
+            self.casters.global();
+        } else if old != object {
+            // A changed caster leaves its old shadow in the cascades that hold it.
+            let after = self.caster_bounds(handle);
+            self.record_caster_change(before, after);
         }
         Ok(())
     }
@@ -184,10 +196,12 @@ impl SceneGpu {
         handle: InstanceHandle,
         visible: bool,
     ) -> Result<(), InstanceError> {
+        let before = self.caster_bounds(handle);
         let changed = self.instances.get(handle)?.1 != visible;
         self.instances.set_visible(handle, visible)?;
         if changed {
-            self.caster_generation = self.caster_generation.wrapping_add(1);
+            let after = self.caster_bounds(handle);
+            self.record_caster_change(before, after);
         }
         Ok(())
     }

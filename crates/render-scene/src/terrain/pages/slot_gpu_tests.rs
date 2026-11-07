@@ -10,6 +10,7 @@ use worldrunner_render_plan::TerrainPageSettings;
 
 #[test]
 fn terrain_pages_gpu_slot_layers_do_not_alias_and_reuse_rejects_old_references() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

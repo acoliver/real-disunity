@@ -132,6 +132,7 @@ fn assert_metadata(context: &crate::device::GpuContext, renderer: &FrameRenderer
 
 #[test]
 fn sky_ssr_combined_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for velocity in [false, true] {
         for capture in [false, true] {
             let baseline = render(None, velocity, capture);

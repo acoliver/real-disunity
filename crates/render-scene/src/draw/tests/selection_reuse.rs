@@ -19,6 +19,7 @@ fn rebuilds_after(
 
 #[test]
 fn unchanged_views_reuse_their_selection_until_an_input_changes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut gpu = SceneGpu::upload(
@@ -64,6 +65,7 @@ fn unchanged_views_reuse_their_selection_until_an_input_changes() {
 
 #[test]
 fn caster_fits_are_reused_until_a_placement_changes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut gpu = SceneGpu::upload(

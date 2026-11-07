@@ -60,6 +60,7 @@ pub(super) fn prepare(context: &GpuContext, ssr: &Ssr, target: &wgpu::Texture) {
 
 #[test]
 fn gpu_forward_then_resolve_replaces_actual_lobe_and_preserves_direct_diffuse() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         depth_relative_ao: true,

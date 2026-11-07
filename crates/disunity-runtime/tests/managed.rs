@@ -700,6 +700,7 @@ fn assert_managed_triangle_round_trip(host: &mut DisunityHost, root: &Path) {
     assert_eq!(ui.draws.len(), 1, "the mesh exports one triangle");
     let draw = &ui.draws[0];
     assert_eq!(draw.kind, UiDrawKind::Graphic);
+    assert!(!draw.depth_test);
     assert_eq!(
         draw.triangle_uv,
         Some([[0.125, 0.75], [0.375, 0.5], [0.625, 0.25]]),

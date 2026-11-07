@@ -57,7 +57,7 @@ pub fn stage(
     });
     let stage = Stage {
         id: StageId::new(STAGE, 0),
-        label: STAGE,
+        label: STAGE.into(),
         enabled: true,
         operation: Operation::Compute {
             pipeline,

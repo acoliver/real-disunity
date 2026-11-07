@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn opaque_auxiliary_is_not_a_water_target() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         renderer
@@ -66,6 +67,7 @@ fn opaque_auxiliary_is_not_a_water_target() {
 #[test]
 fn authored_surface_and_configured_environment_are_public() {
     use crate::compositor::ConfiguredFrameRenderer;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     body.material.normal = Some(worldrunner_render_plan::TextureHandle::from_raw(0));
     body.material.flow = Some(worldrunner_render_plan::TextureHandle::from_raw(1));

@@ -3,6 +3,7 @@ use crate::shadows::sdsm::{AdoptedFit, AdoptionPolicy, SdsmSettings};
 
 #[test]
 fn gpu_capture_preserves_interactive_contraction_history_and_immediate_expansion() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -62,6 +63,7 @@ fn gpu_capture_preserves_interactive_contraction_history_and_immediate_expansion
 #[test]
 fn gpu_fixed_clock_contraction_ignores_host_delay_and_resets_on_rewind() {
     use std::time::Duration;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();

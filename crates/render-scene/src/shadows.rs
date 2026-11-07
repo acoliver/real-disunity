@@ -532,11 +532,12 @@ impl ShadowedScene {
             fitting,
         )?;
         let refresh = next_refresh.prepare(
+            &self.gpu,
             &mut cascades,
             self.settings,
             frame.shadow_direction,
             color.size(),
-            self.gpu.caster_generation(),
+            self.gpu.shadow_caster_generation(),
         );
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
@@ -692,9 +693,12 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 self.depth_pipelines,
                 Some((index, matrix)),
             ));
-            let terrain =
-                self.gpu
-                    .draw_terrain_depth(pass, group, self.terrain_depth_pipeline, matrix);
+            let terrain = self.gpu.draw_terrain_depth(
+                pass,
+                group,
+                self.terrain_depth_pipeline,
+                (index, matrix),
+            );
             self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
         } else {
             if let Some(screen) = &self.screen {

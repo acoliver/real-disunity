@@ -6,6 +6,8 @@ use std::{cell::Cell, rc::Rc};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PassDrawStatistics {
     pub ui: DrawCount,
+    /// Subset of UI calls with scene-depth testing enabled.
+    pub ui_depth_tested: DrawCount,
     pub terrain: DrawCount,
     pub water: DrawCount,
     pub sky: DrawCount,
@@ -48,6 +50,7 @@ impl PassCounter {
 pub(crate) struct PassCounters {
     pub geometry: Rc<Cell<Option<super::TerrainGeometryStatistics>>>,
     pub ui: PassCounter,
+    pub ui_depth_tested: PassCounter,
     pub terrain: PassCounter,
     pub water: PassCounter,
     pub sky: PassCounter,
@@ -57,14 +60,21 @@ impl PassCounters {
     pub fn write_keys(
         &self,
     ) -> impl Iterator<Item = worldrunner_render_gpu::submission::capture::WriteKey> + '_ {
-        [&self.ui, &self.terrain, &self.water, &self.sky]
-            .into_iter()
-            .chain(&self.shadows)
-            .map(|counter| crate::compositor::publication::key(&counter.0))
+        [
+            &self.ui,
+            &self.ui_depth_tested,
+            &self.terrain,
+            &self.water,
+            &self.sky,
+        ]
+        .into_iter()
+        .chain(&self.shadows)
+        .map(|counter| crate::compositor::publication::key(&counter.0))
     }
     pub fn snapshot(&self) -> PassDrawStatistics {
         PassDrawStatistics {
             ui: self.ui.get(),
+            ui_depth_tested: self.ui_depth_tested.get(),
             terrain: self.terrain.get(),
             water: self.water.get(),
             sky: self.sky.get(),
@@ -76,6 +86,7 @@ impl SceneGpu {
     pub(crate) fn reset_pass_statistics(&self) {
         for counter in [
             &self.pass_counters.ui,
+            &self.pass_counters.ui_depth_tested,
             &self.pass_counters.terrain,
             &self.pass_counters.water,
             &self.pass_counters.sky,

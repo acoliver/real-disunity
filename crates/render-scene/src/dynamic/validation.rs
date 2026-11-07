@@ -34,6 +34,7 @@ pub(crate) fn validate_quad(
     index: usize,
     texture_count: usize,
 ) -> Result<(), DynamicError> {
+    validate_overlay_depth(quad, index)?;
     let invalid = |field| DynamicError::InvalidQuad { index, field };
     if !quad.position.into_iter().all(f32::is_finite) {
         return Err(invalid("position"));
@@ -102,6 +103,23 @@ fn validate_transform(
         if !model.transform_point3(position).is_finite() {
             return Err(invalid("transformed rect"));
         }
+    }
+    Ok(())
+}
+
+fn validate_overlay_depth(quad: &DynamicQuad, index: usize) -> Result<(), DynamicError> {
+    if quad.depth_test
+        && (!quad.overlay
+            || quad.corners.is_none_or(|corners| {
+                corners
+                    .iter()
+                    .any(|corner| !(0. ..=1.).contains(&corner[2]))
+            }))
+    {
+        return Err(DynamicError::InvalidQuad {
+            index,
+            field: "overlay raster depth",
+        });
     }
     Ok(())
 }

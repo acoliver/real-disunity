@@ -6,6 +6,7 @@ use worldrunner_render_gpu::{configuration::AllocationBudget, submission::Submis
 
 #[test]
 fn terrain_pages_camera_selection_changes_lod_and_capture_requires_exact_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let settings = settings();
     let near = super::view::select(
         settings,
@@ -52,6 +53,7 @@ fn terrain_pages_camera_selection_changes_lod_and_capture_requires_exact_pages()
 
 #[test]
 fn terrain_pages_automatic_eviction_protects_root_and_selected_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let authority = SubmissionAuthority::new(context.queue().clone());
     let cache = super::residency::ResidentPages::new(

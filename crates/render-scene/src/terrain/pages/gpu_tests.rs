@@ -3,10 +3,9 @@ use worldrunner_render_post::{StageId, contracts::*};
 
 #[test]
 fn terrain_pages_gpu_composition_matches_exact_cpu_products() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let sample = |color, roughness, weight| LayerSample {
         color,
         normal: [0, 0, i16::MAX],

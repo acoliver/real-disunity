@@ -30,6 +30,7 @@ fn assert_strength_reference(micro: u32, index: usize, pixel: &[f32]) {
 
 #[test]
 fn gpu_scalable_filtered_depth_selects_every_level_without_texel_snapping() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scalable::source(8);
     let prefix = source.split("@fragment").next().unwrap();
@@ -61,6 +62,7 @@ fn gpu_scalable_filtered_depth_selects_every_level_without_texel_snapping() {
 
 #[test]
 fn scalable_response_exponent_and_intensity_are_independent() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scalable::source(1);
     let prefix = source.split("@fragment").next().unwrap();
@@ -103,6 +105,7 @@ fn scalable_response_exponent_and_intensity_are_independent() {
 
 #[test]
 fn gpu_scalable_zero_bias_strength_matches_production_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scalable::source(1);
     let prefix = source.split("@fragment").next().unwrap();
@@ -142,6 +145,7 @@ fn gpu_scalable_zero_bias_strength_matches_production_reference() {
 
 #[test]
 fn gpu_scalable_projected_tap_radius_respects_camera_projection() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scalable::source(1);
     let prefix = source.split("@fragment").next().unwrap();

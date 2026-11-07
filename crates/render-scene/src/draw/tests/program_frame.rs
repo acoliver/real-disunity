@@ -24,6 +24,7 @@ fn settings() -> RendererConfiguration {
 #[test]
 fn player_program_and_scene_gpu_draw_composite_in_one_submitted_frame() {
     // The engine's card sits between the patches in depth, which is what decides the overlaps.
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert!(NEAR_DEPTH < engine_depth() && engine_depth() < FAR_DEPTH);
     // The card covers pixels 32 +- 18.5 on both axes; the patches' clip rectangles cover
     // columns 38.4..57.6 and rows 25.6..38.4 (near) and columns 6.4..25.6 and rows 44.8..57.6

@@ -153,6 +153,32 @@ impl ResourceKind {
     pub fn matches(&self, ty: &BindingType) -> bool {
         Self::of_binding_type(ty, self.min_size()).is_some_and(|found| found == *self)
     }
+
+    /// Whether `ty`, read from a shader, is the same class of resource: the buffer kind and
+    /// access, the texture dimension, multisampling and sample class, or the sampler class. The
+    /// filterable flag of a float texture is not part of the class, because WGSL cannot say it:
+    /// every float texture a shader declares reads as filterable, and the owner of a layout
+    /// decides whether the texture it binds may be filtered.
+    #[must_use]
+    pub fn same_class(&self, ty: &BindingType) -> bool {
+        Self::of_binding_type(ty, self.min_size())
+            .is_some_and(|found| found.ignoring_filterable() == self.ignoring_filterable())
+    }
+
+    fn ignoring_filterable(self) -> Self {
+        match self {
+            Self::Texture {
+                dimension,
+                sample: wgpu::TextureSampleType::Float { .. },
+                multisampled,
+            } => Self::Texture {
+                dimension,
+                sample: wgpu::TextureSampleType::Float { filterable: true },
+                multisampled,
+            },
+            other => other,
+        }
+    }
 }
 
 /// One declared binding.
@@ -240,6 +266,31 @@ mod tests {
             multisampled: false,
         };
         assert!(!kind.matches(&cube));
+    }
+
+    #[test]
+    fn a_class_ignores_the_filterable_flag_and_nothing_else_of_a_texture() {
+        let shader = BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        };
+        let texture = |sample, dimension, multisampled| ResourceKind::Texture {
+            dimension,
+            sample,
+            multisampled,
+        };
+        let d2 = wgpu::TextureViewDimension::D2;
+        let unfilterable = wgpu::TextureSampleType::Float { filterable: false };
+        assert!(!texture(unfilterable, d2, false).matches(&shader));
+        assert!(texture(unfilterable, d2, false).same_class(&shader));
+        assert!(!texture(wgpu::TextureSampleType::Uint, d2, false).same_class(&shader));
+        assert!(
+            !texture(unfilterable, wgpu::TextureViewDimension::D2Array, false).same_class(&shader)
+        );
+        assert!(!texture(unfilterable, d2, true).same_class(&shader));
+        let sampler = ResourceKind::Sampler(SamplerBindingType::NonFiltering);
+        assert!(!sampler.same_class(&BindingType::Sampler(SamplerBindingType::Filtering)));
     }
 
     #[test]

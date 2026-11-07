@@ -1,5 +1,6 @@
 #[test]
 fn multisampled_masked_pipelines_support_velocity_and_reflection_targets() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let velocity =
@@ -204,6 +205,7 @@ fn draw(
 
 #[test]
 fn four_sample_alpha_gradient_resolves_to_quarter_coverage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let hard = coverage(&context, Some(false), 4);
     assert!(
@@ -241,6 +243,7 @@ fn four_sample_alpha_gradient_resolves_to_quarter_coverage() {
 
 #[test]
 fn single_sample_alpha_coverage_keeps_hard_cutoff_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     assert_eq!(
         coverage(&context, Some(true), 1),
@@ -250,6 +253,7 @@ fn single_sample_alpha_coverage_keeps_hard_cutoff_bytes() {
 
 #[test]
 fn metadata_prepass_and_shadow_keep_hard_cutoff_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let capture = |enabled| {

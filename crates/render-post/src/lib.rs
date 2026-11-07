@@ -44,6 +44,7 @@ mod operations_rebind_tests;
 mod operations_tests;
 #[cfg(test)]
 mod operations_transfer_tests;
+mod pass_labels;
 #[cfg(test)]
 mod raster_capture_tests;
 mod timing;

@@ -706,8 +706,7 @@ fn capture_expecting(
 }
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
-        .expect("actual GPU required")
+    GpuContext::shared_for_test_with_features(wgpu::Features::empty()).expect("actual GPU required")
 }
 
 fn supported(context: &GpuContext, config: &Config) -> bool {
@@ -729,6 +728,7 @@ fn supported(context: &GpuContext, config: &Config) -> bool {
 
 #[test]
 fn dynamic_quads_match_the_fixed_pipeline_byte_for_byte_in_every_target_set() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (textures, quads) = (textures(), quads());
     for config in &CONFIGS {
@@ -745,6 +745,7 @@ fn dynamic_quads_match_the_fixed_pipeline_byte_for_byte_in_every_target_set() {
 
 #[test]
 fn an_untextured_batch_and_an_empty_contribution_match_the_fixed_pipeline() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let config = &CONFIGS[2];
     let batch: Vec<_> = (0..5u8)
@@ -773,12 +774,14 @@ use legacy::Legacy;
 
 #[test]
 fn native_sprites_match_the_fixed_pipeline_through_the_frame_renderer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     world::captures(&context, "sprite", &world::sprite_frame());
 }
 
 #[test]
 fn world_glyphs_match_the_fixed_pipeline_through_the_frame_renderer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     world::captures(&context, "glyph", &world::glyph_frame());
 }

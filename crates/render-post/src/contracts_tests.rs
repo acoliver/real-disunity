@@ -150,16 +150,28 @@ fn encode_stock_fixture(
         ]
     );
     compiled
-        .encode_stock_pass(0, encoder, None, |_| {})
+        .encode_stock_pass(
+            0,
+            crate::PassSlot::DepthNormalPrepass,
+            encoder,
+            None,
+            |_| {},
+        )
         .unwrap();
     compiled
-        .encode_stock_pass(1, encoder, None, |_| {})
+        .encode_stock_pass(1, crate::PassSlot::Opaque, encoder, None, |_| {})
         .unwrap();
 }
 
 #[test]
 fn retired_backing_cannot_be_reimported_as_a_fresh_identity() {
-    let (device, _) = device();
+    let adapter = worldrunner_render_gpu::test_support::TestGpu::shared_adapter().unwrap();
+    let (device, _, _) = pollster::block_on(worldrunner_render_gpu::device::request_device(
+        &adapter,
+        &worldrunner_render_gpu::device::DeviceRequirements::default(),
+    ))
+    .unwrap();
+    assert_ne!(device, crate::gpu_tests::gpu().0);
     let old_texture = texture(&device, 1);
     let mut registry = ResourceRegistry::default();
     let key = registry
@@ -267,11 +279,7 @@ use crate::contracts::*;
 use crate::{AttachmentLoad, StageId};
 
 fn device() -> (wgpu::Device, wgpu::Queue) {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap()
+    crate::gpu_tests::gpu()
 }
 
 fn texture(device: &wgpu::Device, samples: u32) -> wgpu::Texture {

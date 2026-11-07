@@ -76,6 +76,7 @@ fn depths(context: &GpuContext, scene: &RenderScene) -> Vec<Vec<u8>> {
 
 #[test]
 fn odd_alpha_cutoffs_match_rational_oracle_in_all_passes_and_impostors() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for atlas in [false, true] {
         let full = depths(
@@ -110,6 +111,7 @@ fn odd_alpha_cutoffs_match_rational_oracle_in_all_passes_and_impostors() {
 
 #[test]
 fn bilinear_alpha_is_scaled_after_filtering_without_byte_baking() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let factored = source(texture(&[1, 3], 2), 500_000, 4500, false);
     // Doubling the threshold is an independent oracle for a half-alpha factor.
@@ -132,6 +134,7 @@ fn bilinear_alpha_is_scaled_after_filtering_without_byte_baking() {
 
 #[test]
 fn explicit_unit_alpha_factor_keeps_default_render_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let stock = scene(
         SceneAlphaMode::Mask {
@@ -154,6 +157,7 @@ fn explicit_unit_alpha_factor_keeps_default_render_bytes() {
 
 #[test]
 fn unlit_output_scales_only_alpha_before_blending() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let authority =

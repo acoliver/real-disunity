@@ -46,6 +46,7 @@ pub(super) fn buffer_bytes(context: &GpuContext, buffer: &wgpu::Buffer, bytes: u
 
 #[test]
 fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 2);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -109,6 +110,7 @@ fn stock_growth_survives_later_preparation_failure_without_encoder_commands() {
 
 #[test]
 fn published_slots_leave_the_dirty_set() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 4);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -163,6 +165,7 @@ fn published_slots_leave_the_dirty_set() {
 
 #[test]
 fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(SceneAlphaMode::Opaque, false, 1);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);

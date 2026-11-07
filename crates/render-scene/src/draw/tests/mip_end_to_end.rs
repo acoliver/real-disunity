@@ -314,17 +314,20 @@ fn assert_policy_bounds(table: &Table, name: &str) {
 
 #[test]
 fn the_candidates_lower_the_error_and_the_shipped_zero_keeps_native_shimmer_on_the_stripes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_policy_bounds(&table(&context(), stripes, "stripes"), "stripes");
 }
 
 #[test]
 fn the_candidates_lower_the_error_and_the_shipped_zero_keeps_native_shimmer_on_the_smooth_texture()
 {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_policy_bounds(&table(&context(), smooth, "smooth"), "smooth");
 }
 
 #[test]
 fn a_renderer_without_reconstruction_ignores_the_forced_zero_bias() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let frames = |forced| {
         let mut harness = Harness::new(&context, OUTPUT, None, stripes());

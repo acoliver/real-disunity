@@ -49,11 +49,13 @@ fn pair_energy(pair: &[u8]) -> u64 {
 
 #[test]
 fn source_anisotropy_preserves_detail_across_the_minor_footprint_axis() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_anisotropy(Shape::Quads);
 }
 
 #[test]
 fn source_anisotropy_preserves_detail_in_explicit_gradient_row() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_anisotropy(Shape::Row);
 }
 
@@ -99,11 +101,13 @@ fn check_anisotropy(shape: Shape) {
 
 #[test]
 fn source_isotropic_small_footprint_row_is_not_flat() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_baseline(Shape::Row);
 }
 
 #[test]
 fn source_isotropic_small_footprint_quads_are_not_flat() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_baseline(Shape::Quads);
 }
 
@@ -123,6 +127,7 @@ fn check_baseline(shape: Shape) {
 
 #[test]
 fn source_sampling_matches_independent_cpu_taps() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::terrain::pages::residency_tests::context();
     let reference = super::anisotropy_reference::Reference::new();
     let points = [[0.125, 0.25], [-0.375, 0.625], [1.25, -0.125]];
@@ -217,6 +222,7 @@ fn tiny_rotated_source(
 
 #[test]
 fn source_ratio_one_matches_isotropic_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::terrain::pages::residency_tests::context();
     let reference = super::anisotropy_reference::Reference::new();
     let points = [[0.125, 0.25], [-0.375, 0.625], [1.25, -0.125]];
@@ -238,6 +244,7 @@ fn source_ratio_one_matches_isotropic_bytes() {
 
 #[test]
 fn source_one_x_matches_main_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::terrain::pages::residency_tests::context();
     let reference = super::anisotropy_reference::Reference::new();
     let source = tiny_source(1, &reference);

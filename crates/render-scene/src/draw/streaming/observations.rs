@@ -10,6 +10,7 @@ impl Streaming {
     ) {
         let residents = self.committed.borrow().clone();
         let current: Vec<_> = residents.iter().map(|(key, _)| *key).collect();
+        self.residency.observe(current.iter().copied(), false);
         let observation = crate::terrain::streaming::observe(
             self.scene.terrain().expect("terrain"),
             &current,

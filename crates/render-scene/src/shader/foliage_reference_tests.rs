@@ -5,8 +5,8 @@ use glam::DVec3;
 
 #[test]
 fn attachment_geometry_matches_reference_using_gpu_trigonometry() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for height in [0.5_f64, 2.0] {
         for curve in [1.0_f64, 2.0] {
             let entry = format!(
@@ -34,8 +34,8 @@ fn attachment_geometry_matches_reference_using_gpu_trigonometry() {
 
 #[test]
 fn arc_geometry_matches_reference_using_gpu_trigonometry() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for height in [0.5_f64, 2.0, 8.0] {
         for curvature in [0.06_f64, 0.25, 0.7] {
             let entry = format!(
@@ -141,8 +141,8 @@ pub(super) fn reference_tolerance(point: DVec3, curve: f64) -> f64 {
 
 #[test]
 fn axial_and_radial_bending_match_cpu_reference_at_fixed_times() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for point in [
         DVec3::ZERO,
         DVec3::new(0.3, 0.4, 0.5),

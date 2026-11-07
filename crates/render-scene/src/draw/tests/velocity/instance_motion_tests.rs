@@ -200,16 +200,19 @@ fn assert_translation_residual(velocity: &[[f32; 2]]) {
 
 #[test]
 fn a_translated_instance_writes_the_analytic_residual() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_translation_residual(&residuals_after(Previous::Tracked, &[0, 0, 250]));
 }
 
 #[test]
 fn a_translated_instance_in_an_ssao_scene_writes_the_analytic_residual() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_translation_residual(&residuals_after(Previous::Occluded, &[0, 0, 250]));
 }
 
 #[test]
 fn a_static_instance_and_a_settled_instance_write_exactly_zero() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert!(
         residuals_after(Previous::Tracked, &[0, 0, 0])
             .iter()
@@ -289,6 +292,7 @@ fn errors(samples: MsaaSamples) -> (f64, f64) {
 
 #[test]
 fn a_moving_instance_under_a_fixed_camera_resolves_closer_to_the_unjittered_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (without, with) = errors(MsaaSamples::X1);
     println!("moving instance band error: without {without}, with {with}");
     assert!(
@@ -299,6 +303,7 @@ fn a_moving_instance_under_a_fixed_camera_resolves_closer_to_the_unjittered_fram
 
 #[test]
 fn four_sample_msaa_with_a_moving_instance_does_not_resolve_worse() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     if !crate::msaa_tests::supported_samples(&context).contains(&4) {
         return;

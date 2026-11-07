@@ -149,3 +149,45 @@ pub(crate) fn script_fields(
         Err(error) => Err((class.key(), error.to_string())),
     })
 }
+
+/// What a `MonoBehaviour` object is to a reference that names it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Referenced {
+    /// A script asset (a `ScriptableObject`) whose fields decode.
+    Asset,
+    /// A component of a game object, which a resource cannot hold.
+    Component,
+    /// A script asset whose fields do not decode, with the script and the reason.
+    Unreadable(String),
+}
+
+/// Whether the `MonoBehaviour` at `path_id` of `path` is a script asset a plan can hold.
+///
+/// # Errors
+/// Fails when the file cannot be read or the object's header does not decode.
+pub(crate) fn referenced_script(
+    player: &mut PlayerFiles,
+    path: &Path,
+    path_id: i64,
+    layouts: &ScriptLayouts,
+) -> Result<Referenced, PlayerError> {
+    let open = player.open_path(path)?;
+    let object = *open
+        .file
+        .object(path_id)
+        .ok_or_else(|| PlayerError::MissingObject {
+            path: path.to_owned(),
+            path_id,
+        })?;
+    let bytes = open.bytes(&object)?;
+    let big_endian = open.file.header.big_endian;
+    let behaviour: MonoBehaviour =
+        decode(&bytes, &object, big_endian).map_err(|source| open.error(source))?;
+    if !behaviour.game_object.is_null() {
+        return Ok(Referenced::Component);
+    }
+    Ok(match script_fields(player, path, path_id, layouts)? {
+        Ok(_) => Referenced::Asset,
+        Err((script, reason)) => Referenced::Unreadable(format!("{script}: {reason}")),
+    })
+}

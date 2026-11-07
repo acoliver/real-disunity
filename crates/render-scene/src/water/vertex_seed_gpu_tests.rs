@@ -159,7 +159,8 @@ fn assert_seed(actual: [f64; 2], expected: [f64; 2]) {
 
 #[test]
 fn vertex_seed_centroid_matches_interpolated_oracle_not_fragment_sampling() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let points = [[0, 0], [600, 0], [0, 600]];
     let expected = oracle(normalized(points), [1.0 / 3.0; 3], Address::EndpointClamped);
     let sampled = sample(&lattice(), 17, [0.02, 0.02], Address::EndpointClamped);
@@ -198,7 +199,8 @@ fn vertex_seed_centroid_matches_interpolated_oracle_not_fragment_sampling() {
 
 #[test]
 fn vertex_seed_addressing_covers_corners_clamps_and_independent_tile_edges() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for mode in [Address::Repeat, Address::EndpointClamped] {
         for points in [
             [[0, 0], [600, 0], [0, 600]],
@@ -219,7 +221,8 @@ fn vertex_seed_addressing_covers_corners_clamps_and_independent_tile_edges() {
 
 #[test]
 fn vertex_seed_varying_is_perspective_correct() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let points = [[0, 0], [600, 0], [0, 600]];
     let weights = [4.0 / 7.0, 2.0 / 7.0, 1.0 / 7.0];
     assert_seed(
@@ -236,7 +239,8 @@ fn vertex_seed_varying_is_perspective_correct() {
 
 #[test]
 fn vertex_seed_adjacent_tiles_address_the_shared_edge_independently() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let edge = [[10_000, 5000]; 3];
     let west = probe_at_origin(
         &context,
@@ -268,6 +272,7 @@ fn vertex_seed_adjacent_tiles_address_the_shared_edge_independently() {
 
 #[test]
 fn vertex_seed_cpu_oracle_samples_before_barycentric_interpolation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let points = [[0.0, 0.0], [0.06, 0.0], [0.0, 0.06]];
     let expected = oracle(points, [1.0 / 3.0; 3], Address::EndpointClamped);
     let manual = [

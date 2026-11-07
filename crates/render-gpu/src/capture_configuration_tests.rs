@@ -69,12 +69,7 @@ fn assert_excluded(
 
 #[test]
 fn cloned_authority_and_budgeted_replacement_stay_busy_until_capture_retires() {
-    let instance = crate::device::headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let (device, queue) = crate::test_support::fresh_device();
     let authority = SubmissionAuthority::new(queue);
     let cloned = authority.clone();
     let mut configuration = Configuration::new(

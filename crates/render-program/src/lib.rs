@@ -36,6 +36,7 @@ pub mod runtime;
 pub mod sampler;
 mod schema;
 pub mod state;
+mod stats;
 pub mod targets;
 pub mod texels;
 #[cfg(feature = "unity")]

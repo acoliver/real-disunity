@@ -303,9 +303,12 @@ namespace UnityEngine.Rendering
     {
         public Type[] renderPipelineTypes { get; }
 
-        /// <summary>No render pipeline asset is active in the engine yet, which is Unity's
-        /// built-in renderer: a type named here is supported only when it names none.</summary>
-        public bool isSupportedOnCurrentPipeline => renderPipelineTypes.Length == 0;
+        /// <summary>Whether the active render pipeline asset is one of the named types or derives from one. With no
+        /// active asset, which is the built-in renderer, only an attribute that names none is supported.</summary>
+        public bool isSupportedOnCurrentPipeline =>
+            UnityEngine.Rendering.GraphicsSettings.currentRenderPipelineAssetType is { } active
+                ? renderPipelineTypes.Any(named => named.IsAssignableFrom(active))
+                : renderPipelineTypes.Length == 0;
 
         /// <summary>Whether <paramref name="type"/> is supported on <paramref name="renderPipeline"/>: true for a type with no
         /// attribute (it names no restriction, and a derived type keeps its base type's attribute), otherwise true when the

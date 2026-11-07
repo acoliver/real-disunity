@@ -327,7 +327,7 @@ impl HdrPost {
             self.meter(&scene, slot, a, &mut set);
             set.stages.push(Stage {
                 id: crate::StageId::new("publish frame exposure", 0),
-                label: "publish frame exposure",
+                label: "publish frame exposure".into(),
                 enabled: true,
                 operation: crate::Operation::CopyBuffer {
                     source: self.carry.clone(),
@@ -370,7 +370,7 @@ impl HdrPost {
         constants.extend(crate::exposure_policy::constants(a));
         set.stages.push(Stage {
             id: crate::StageId::new("clear luminance histogram", 0),
-            label: "clear luminance histogram",
+            label: "clear luminance histogram".into(),
             enabled: true,
             operation: crate::Operation::Clear(bins.clone()),
         });

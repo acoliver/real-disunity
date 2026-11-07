@@ -192,15 +192,19 @@ uses mutually exclusive explicit-gradient and explicit-level-zero branches accor
 to the atlas policy. Gradients include the material mip bias; clamped UVs and
 per-texture insets determine each footprint. CPU Naga-IR tests bound reconstruction
 calls and require blended level-zero samples to exclude the gradient branch.
-Forward coverage is resolved after shading. Metadata captures atlas footprints,
-normal frames and decal position gradients with the complete fragment quad, then
-samples albedo once and rejects alpha, distance-fade and invisible relief fragments.
-Only survivors sample normal and surface maps or traverse decal volumes. All samples
-after metadata rejection use explicit gradients or levels; relief depth is reconstructed
-before rejection and reused by shading and depth output. Normal, surface-channel
-and decal evaluation expand from shared source bodies. Preparation and prepared
-evaluation declarations belong only to metadata assembly; forward source bytes
-remain unchanged because preparation wrappers change rendered bytes on Metal.
+Forward cards filter alpha and capture its width, auxiliary footprints, normal frames,
+decal position gradients and shadow gradients before rejecting fragments. Shadow
+preparation uses the decal-modified normal and its opposite for transmission. Under
+alpha-to-coverage, only zero computed coverage is rejected; below-cutoff or raw zero
+alpha can still own samples. Survivors sample AO, emission, shadows and environment
+and evaluate lighting. Card term captures reuse the prepared shadow inputs for
+sun visibility; every term assembly is covered by the forward derivative guard.
+Ordinary materials retain their shading path.
+Metadata captures atlas footprints, normal frames and decal gradients before alpha,
+distance-fade and relief-visibility rejection. Only survivors sample normal/surface
+maps and project decals. Samples after either rejection use explicit gradients or
+levels. Relief position is reconstructed once and reused by shading and depth output.
+Normal, surface-channel and decal evaluation expand from shared source bodies.
 
 Surface and impostor materials specialize `SCENE_IMPOSTOR` independently of alpha
 coverage. Surface variants exclude atlas selection and relief sampling at compilation,
@@ -450,6 +454,21 @@ rejected, including requests with zero weights. An authored TAA (`SceneAntiAlias
 no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
+
+## Scene-authored SMAA
+
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` selects the existing
+`PostResolve::Smaa(SmaaSettings::ULTRA)` through scene effects, including retained
+HDR consumers. `SceneAntiAlias::Smaa(SceneSmaaSettings { .. })` accepts custom
+integer settings and `SceneSmaaEdgeDetection::Color` as well as the default luma
+edges. The [scene contract](../render-plan/README.md#hdr-post-processing)
+lists the quantity bounds.
+The executor schedules `smaa_edges`, `smaa_weights` and `smaa_blend` after tone
+mapping, before upscaling, with a separate timing slot for each. SMAA requests
+no jitter or temporal history. An explicit descriptor jitter remains explicit.
+Selecting another resolve in `hdr_post` or the frame descriptor is rejected as
+`PostError::UnsupportedProfile("duplicate resolve")`, including zero-weight FXAA.
+CMAA2 remains available through the post descriptor, not the scene recipe.
 
 ## Temporal antialiasing
 

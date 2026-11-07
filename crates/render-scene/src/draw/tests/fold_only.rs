@@ -4,6 +4,7 @@ use worldrunner_render_plan::{SceneFoldSampling, SceneTerrainContact, SceneTint}
 
 #[test]
 fn fold_only_preserves_surface_channels_at_local_heights_and_raised_placements() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for height in [-500, 0, 500, 2000] {

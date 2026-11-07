@@ -33,11 +33,13 @@ fn source(side: u32, changed: bool) -> RenderScene {
 
 #[test]
 fn source_deferred_replacement_preserves_temporal_state() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     check_deferred(true);
 }
 
 #[test]
 fn source_deferred_replacement_keeps_old_cube_charged_until_retirement() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     check_deferred(false);
 }
 

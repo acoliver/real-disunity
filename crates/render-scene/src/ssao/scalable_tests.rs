@@ -67,6 +67,7 @@ fn camera_projection(
 }
 #[test]
 fn gpu_scalable_taps_mips_and_response_match_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let screen = SceneMetadata::new(context.device(), [20, 2], recipe()).unwrap();
     camera(&context, &screen);
@@ -98,10 +99,12 @@ fn gpu_scalable_taps_mips_and_response_match_reference() {
 }
 #[test]
 fn gpu_scalable_plane_corner_and_full_resolution_normal() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     plane_corner(false);
 }
 #[test]
 fn gpu_scalable_orthographic_obscurance_matches_analytic_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     plane_corner(true);
 }
 fn plane_corner(orthographic: bool) {
@@ -143,6 +146,7 @@ fn plane_corner(orthographic: bool) {
 }
 #[test]
 fn gpu_scalable_filter_matches_gaussian_and_depth_key_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let size = [17, 1];
     let screen = SceneMetadata::new(context.device(), [34, 2], recipe()).unwrap();
@@ -206,6 +210,7 @@ fn gpu_scalable_filter_matches_gaussian_and_depth_key_reference() {
 }
 #[test]
 fn gpu_scalable_hierarchy_odd_sizes_and_single_pixel_axes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for size in [[1, 1], [1, 7], [7, 1], [5, 3], [513, 257]] {
         let screen = SceneMetadata::new(context.device(), size, recipe()).unwrap();

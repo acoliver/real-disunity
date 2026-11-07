@@ -268,10 +268,10 @@ mod tests {
     use super::*;
     #[test]
     fn gpu_failed_mapping_is_typed_error() {
-        let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-            wgpu::Features::empty(),
-        ))
-        .unwrap();
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context =
+            crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+                .unwrap();
         let state = crate::shadows::sdsm::AdoptionState::new(crate::shadows::sdsm::SdsmSettings {
             policy: crate::shadows::sdsm::AdoptionPolicy::SameFrameCapture,
             range: crate::shadows::sdsm::RangeFit {

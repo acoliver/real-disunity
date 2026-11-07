@@ -120,6 +120,7 @@ pub(crate) fn effects(bloom: s::SceneBloom) -> s::SceneEffects {
 
 #[test]
 fn scene_recipe_translates_to_direct_pyramid() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut authored = bloom();
     authored.recipe.as_mut().unwrap().levels[2] = s::SceneGaussianLevel {
         radius: 64,
@@ -145,6 +146,7 @@ fn scene_recipe_translates_to_direct_pyramid() {
 
 #[test]
 fn alternate_choices_and_full_half_float_scalars_translate() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut b = bloom();
     let r = b.recipe.as_mut().unwrap();
     r.extraction = s::SceneBrightExtraction::SoftKnee;
@@ -300,7 +302,8 @@ fn assert_uniform_bloom(pixels: &[u8], intensity: f64) {
 
 #[test]
 fn gpu_scene_recipe_matches_direct_and_omission_preserves_tent_bytes() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let pyramid = direct();
     let actual = scene_pixels(&context, &effects(bloom()));
     let expected = direct_pixels(

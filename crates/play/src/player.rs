@@ -158,7 +158,12 @@ fn write_request(
     output: &Path,
     data: &Path,
     plans: [&Path; 2],
-    launch: (&[serde_json::Value], &[String], Option<[u32; 2]>, &[PathBuf]),
+    launch: (
+        &[serde_json::Value],
+        &[String],
+        Option<[u32; 2]>,
+        &[PathBuf],
+    ),
 ) -> Result<PathBuf, PlayError> {
     let [plan, resources] = plans;
     let (scenes, arguments, screen, plugins) = launch;

@@ -133,8 +133,7 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     // The window opens at `--size`, else at the size the live loop defaults to.
     let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
     let launch = (&arguments.command_line[..], screen, &arguments.plugins[..]);
-    let prepared = prepare_player(data, scene, launch)
-        .map_err(|error| error.to_string())?;
+    let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
         let window = PlayerWindow {
             title: format!("Disunity: {}", data.display()),

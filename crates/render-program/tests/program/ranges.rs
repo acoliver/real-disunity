@@ -7,7 +7,7 @@ use worldrunner_render_program::unity::runtime::{
 };
 use worldrunner_render_program::unity::state::{RenderState, resolve_state};
 
-use crate::common::{opaque_state, runtime};
+use crate::common::{Form, opaque_state, runtime};
 use crate::rig::{
     MULTIPLY, QUAD, Samplers, Scene, Setup, TEXELS, TINT_VALUE, index_buffer, pass, properties,
     setup,
@@ -27,7 +27,7 @@ fn rig() -> Rig {
     let setup = setup(
         &mut runtime,
         &Scene {
-            pass: &pass(Samplers::Separate),
+            pass: &pass(Samplers::Separate, Form::Program),
             enabled: &[MULTIPLY],
             material: &material,
             globals: &globals,

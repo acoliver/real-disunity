@@ -2,24 +2,46 @@
 
 use std::sync::Arc;
 
+use worldrunner_unity_serialized::shader_parameters::{DescriptorSlot, VariantParameters};
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
+pub use worldrunner_unity_serialized::spirv_prep::ResourceBinding;
 
 use super::declare::{declarations, resource_layout};
 use super::layout::LayoutError;
 pub use crate::module::{ModuleError, Reflected, StageKind};
 use crate::module::{StageDeclarations, StageSource};
 
-/// Where one resource of a prepared module is bound: the same data as the importer's
-/// `ResourceBinding`, which this crate cannot depend on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ModuleBinding {
-    pub set: u32,
-    /// The binding in Unity's module, which parameters refer to.
-    pub unity_binding: u32,
-    /// The binding in the prepared module; for a split combined sampler, the image's.
-    pub binding: u32,
-    /// For a split combined sampler, the sampler's binding in the prepared module.
-    pub sampler_binding: Option<u32>,
+/// The bit that names `kind` in a player variant's descriptor slots. Only the vertex and
+/// fragment bits have been measured, so a compute stage has none.
+#[must_use]
+pub fn stage_bit(kind: StageKind) -> Option<u8> {
+    match kind {
+        StageKind::Vertex => Some(DescriptorSlot::VERTEX),
+        StageKind::Fragment => Some(DescriptorSlot::FRAGMENT),
+        StageKind::Compute => None,
+    }
+}
+
+/// What describes the resources a stage binds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StageParameters {
+    /// A sub program's parameters, which an editor-style serialized shader stores per stage.
+    Program(ProgramParameters),
+    /// A Unity 6 player variant's parameters, which describe every stage of the variant and
+    /// name the stages that use each binding.
+    Variant(VariantParameters),
+}
+
+impl From<ProgramParameters> for StageParameters {
+    fn from(parameters: ProgramParameters) -> Self {
+        Self::Program(parameters)
+    }
+}
+
+impl From<VariantParameters> for StageParameters {
+    fn from(parameters: VariantParameters) -> Self {
+        Self::Variant(parameters)
+    }
 }
 
 /// A prepared stage module: SPIR-V that naga reads, and where its resources are bound.
@@ -28,7 +50,7 @@ pub struct StageModule {
     pub words: Vec<u32>,
     pub entry_point: String,
     pub kind: StageKind,
-    pub bindings: Vec<ModuleBinding>,
+    pub bindings: Vec<ResourceBinding>,
 }
 
 /// A stage with its Unity parameters. It holds the parsed neutral stage; the parameters become
@@ -38,7 +60,7 @@ pub struct StageModule {
 #[derive(Clone)]
 pub struct StageProgram {
     module: StageModule,
-    parameters: ProgramParameters,
+    parameters: StageParameters,
     parsed: crate::module::StageProgram,
 }
 
@@ -56,7 +78,10 @@ impl StageProgram {
     /// # Errors
     /// Fails with naga's parse or validation error, a missing entry point, or a resource that
     /// cannot be bound.
-    pub fn new(module: StageModule, parameters: ProgramParameters) -> Result<Self, ModuleError> {
+    pub fn new(
+        module: StageModule,
+        parameters: impl Into<StageParameters>,
+    ) -> Result<Self, ModuleError> {
         let neutral = crate::module::StageModule {
             source: StageSource::SpirV(Arc::from(module.words.as_slice())),
             entry_point: module.entry_point.clone(),
@@ -65,7 +90,7 @@ impl StageProgram {
         let parsed = crate::module::StageProgram::new(neutral, StageDeclarations::default())?;
         Ok(Self {
             module,
-            parameters,
+            parameters: parameters.into(),
             parsed,
         })
     }
@@ -76,7 +101,7 @@ impl StageProgram {
     }
 
     #[must_use]
-    pub fn parameters(&self) -> &ProgramParameters {
+    pub fn parameters(&self) -> &StageParameters {
         &self.parameters
     }
 
@@ -104,12 +129,9 @@ impl StageProgram {
     /// Fails on a parameter kind that is not bound, a parameter outside the binding table, or
     /// a parameter of another kind than the module's resource at its binding.
     pub fn neutral(&self) -> Result<crate::module::StageProgram, LayoutError> {
-        let declared = declarations(&self.parameters, &self.module.bindings)?;
-        let resources = resource_layout(
-            &declared,
-            self.parsed.reflected(),
-            self.module.kind.visibility(),
-        )?;
+        let kind = self.module.kind;
+        let declared = declarations(&self.parameters, &self.module.bindings, kind)?;
+        let resources = resource_layout(&declared, self.parsed.reflected(), kind)?;
         Ok(self.parsed.with_declarations(StageDeclarations {
             resources,
             constants: Vec::new(),

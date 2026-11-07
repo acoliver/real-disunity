@@ -5163,6 +5163,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "worldrunner-original-games",
+ "worldrunner-render-program",
  "worldrunner-unity-serialized",
 ]
 

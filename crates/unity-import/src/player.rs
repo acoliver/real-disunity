@@ -43,6 +43,13 @@ pub enum PlayerError {
         file_id: i32,
         path_id: i64,
     },
+    /// The player holds shaders and none has a Vulkan platform, so it has no programs the
+    /// renderer can run; the macOS build ships Metal programs only.
+    #[error(
+        "no SPIR-V programs; Metal programs unsupported: none of the player's {shaders} shaders \
+         has a Vulkan platform"
+    )]
+    NoSpirvPrograms { shaders: usize },
 }
 
 /// One serialized file of a player, read through its metadata.

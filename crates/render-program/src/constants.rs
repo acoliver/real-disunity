@@ -161,12 +161,10 @@ fn writes(member: &Member) -> bool {
     let components = (1..=4).contains(&member.cols) && (1..=4).contains(&member.rows);
     match member.kind {
         ScalarKind::F32 => components && (member.matrix.is_some() || member.rows == 1),
-        _ => {
-            member.rows == 1
-                && member.cols == 1
-                && member.array.is_none()
-                && member.matrix.is_none()
+        ScalarKind::I32 => {
+            member.rows == 1 && matches!(member.cols, 1 | 4) && member.matrix.is_none()
         }
+        _ => member.rows == 1 && member.cols == 1 && member.matrix.is_none(),
     }
 }
 
@@ -266,18 +264,42 @@ impl Packer<'_> {
         Ok(())
     }
 
+    /// A signed integer scalar, or vector of four components, takes the leading `cols`
+    /// components of each element. An unsigned or boolean member takes one value, which is
+    /// element 0's when the member is an array.
     fn integer(&mut self, found: &Found<'_>) -> Result<(), ConstantError> {
+        if found.member.kind == ScalarKind::I32 {
+            return self.signed(found);
+        }
         let bytes = match (found.member.kind, &found.value) {
             (ScalarKind::U32, PropertyValue::Uint(v)) => v.to_le_bytes(),
             (ScalarKind::U32, PropertyValue::Int(v)) => u32::try_from(*v)
                 .map_err(|_| found.wrong_kind())?
                 .to_le_bytes(),
             (ScalarKind::Bool32, PropertyValue::Bool(v)) => u32::from(*v).to_le_bytes(),
-            (ScalarKind::I32, PropertyValue::Int(v))
-            | (ScalarKind::Bool32, PropertyValue::Int(v @ (0 | 1))) => v.to_le_bytes(),
+            (ScalarKind::Bool32, PropertyValue::Int(v @ (0 | 1))) => v.to_le_bytes(),
             _ => return Err(found.wrong_kind()),
         };
         self.store(u64::from(found.member.offset), &bytes);
+        Ok(())
+    }
+
+    fn signed(&mut self, found: &Found<'_>) -> Result<(), ConstantError> {
+        let cols = usize::from(found.member.cols);
+        let elements: Vec<[i32; 4]> = match &found.value {
+            PropertyValue::Int(x) if cols == 1 => vec![[*x, 0, 0, 0]],
+            PropertyValue::IntVector(v) => vec![*v],
+            PropertyValue::IntVectorArray(items) => items.clone(),
+            _ => return Err(found.wrong_kind()),
+        };
+        found.check_length(elements.len())?;
+        for (index, element) in (0..).zip(&elements) {
+            let data: Vec<u8> = element[..cols]
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect();
+            self.store(found.element_at(index), &data);
+        }
         Ok(())
     }
 }

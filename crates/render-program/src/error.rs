@@ -50,6 +50,10 @@ pub enum ProgramError {
     UnusedImport { semantic: String },
     #[error("the draw imports {semantic} more than once")]
     DuplicateImport { semantic: String },
+    #[error(
+        "set {set} is lent by the pass owner, and the draw or the program gives it resources too"
+    )]
+    ExternalSetConflict { set: u32 },
     #[error("the instance range {start}..{end} ends before it starts")]
     InstanceRange { start: u32, end: u32 },
     #[error("the {kind} handle is not a live resource of this runtime")]

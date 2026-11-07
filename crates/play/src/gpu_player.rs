@@ -41,9 +41,37 @@ const MAX_TRACES: usize = 32;
 /// The most frame and flush traces a report keeps.
 const MAX_WORK_TRACES: usize = 64;
 
+/// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GlobalListing {
+    /// The frame the work belongs to, counting from zero: a flush the managed engine asked for
+    /// during a frame's script update, or that frame's own snapshot.
+    pub frame: u64,
+    /// `flush` or `frame`.
+    pub source: &'static str,
+    pub textures: Vec<String>,
+}
+
+impl GlobalListing {
+    /// The listing as a report line.
+    #[must_use]
+    pub fn line(&self) -> String {
+        format!(
+            "globals at a {} of frame {}: {}",
+            self.source,
+            self.frame,
+            self.textures.join(", ")
+        )
+    }
+}
+
 /// What the offscreen work of a run did.
 #[derive(Debug, Default)]
 pub struct GpuWorkReport {
+    /// Frames the player has run the frame path for, those without work included.
+    pub frames: u64,
+    /// The textures the globals held at each piece of work that listed any, in order.
+    pub global_listings: Vec<GlobalListing>,
     /// Frames whose snapshot held work.
     pub frames_with_work: u64,
     /// Flushes the managed engine asked for.
@@ -109,7 +137,7 @@ impl GpuWorkReport {
         self.work.extend(traces.into_iter().take(room));
     }
 
-    fn add(&mut self, report: &Report) {
+    fn add(&mut self, report: &Report, source: &'static str) {
         self.records += report.records;
         self.built += report.built;
         self.dispatches += report.dispatches;
@@ -156,6 +184,13 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.global_textures {
             *self.global_textures.entry(name.clone()).or_default() += count;
+        }
+        if !report.global_textures.is_empty() {
+            self.global_listings.push(GlobalListing {
+                frame: self.frames,
+                source,
+                textures: report.global_textures.keys().cloned().collect(),
+            });
         }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
@@ -221,6 +256,9 @@ impl GpuWorkReport {
             for line in trace.lines() {
                 eprintln!("[gpu] {line}");
             }
+        }
+        for listing in &self.global_listings {
+            eprintln!("[gpu] {}", listing.line());
         }
         eprintln!(
             "[gpu] compute buffers written {}, non-zero values {}",
@@ -343,7 +381,7 @@ impl PlayerGpu {
             let outcome = outcome.inspect_err(|message| {
                 *report.errors.entry(message.clone()).or_default() += 1;
             })?;
-            report.add(&outcome.report);
+            report.add(&outcome.report, "flush");
             report.buffers_written += outcome.writes.len();
             report.nonzero_values += outcome
                 .writes
@@ -365,6 +403,7 @@ impl PlayerGpu {
     pub fn frame(&self, host: &mut DisunityHost) -> Result<(), PlayError> {
         let snapshot = host.graphics_snapshot()?;
         if snapshot.work.is_empty() {
+            self.report.borrow_mut().frames += 1;
             return Ok(());
         }
         let started = Instant::now();
@@ -374,7 +413,7 @@ impl PlayerGpu {
         report.keep_traces(self.offscreen.borrow_mut().take_traces());
         match built {
             Ok((operations, frame_report)) => {
-                report.add(&frame_report);
+                report.add(&frame_report, "frame");
                 if let Some(operations) = operations {
                     let submitted = Instant::now();
                     let ran = self.run(operations);
@@ -392,6 +431,7 @@ impl PlayerGpu {
             }
         }
         report.frame_time += started.elapsed();
+        report.frames += 1;
         Ok(())
     }
 
@@ -437,6 +477,37 @@ mod tests {
             error: error.map(str::to_owned),
             ..WorkTrace::default()
         }
+    }
+
+    fn listing(names: &[&str]) -> Report {
+        let mut report = Report::default();
+        for name in names {
+            report.global_textures.insert((*name).to_owned(), 1);
+        }
+        report
+    }
+
+    #[test]
+    fn each_piece_of_work_lists_the_global_textures_it_saw_with_the_frame_it_belongs_to() {
+        let mut report = GpuWorkReport::default();
+        report.add(&listing(&["_Height: render"]), "flush");
+        report.add(&Report::default(), "flush");
+        report.frames = 3;
+        report.add(&listing(&["_Height: render", "_Last: none"]), "flush");
+        report.add(&listing(&["_Last: render"]), "frame");
+        let found: Vec<_> = report
+            .global_listings
+            .iter()
+            .map(GlobalListing::line)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "globals at a flush of frame 0: _Height: render",
+                "globals at a flush of frame 3: _Height: render, _Last: none",
+                "globals at a frame of frame 3: _Last: render",
+            ]
+        );
     }
 
     #[test]

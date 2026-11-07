@@ -41,7 +41,8 @@ fn default_output(context: &GpuContext, legacy: bool) -> Vec<Vec<u8>> {
 
 #[test]
 fn default_water_convention_preserves_legacy_color_and_receiver_bytes() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let expected = default_output(&context, true);
     let actual = default_output(&context, false);
     assert_eq!(actual, expected);

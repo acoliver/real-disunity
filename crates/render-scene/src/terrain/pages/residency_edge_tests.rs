@@ -8,6 +8,7 @@ use worldrunner_render_plan::TerrainPageSettings;
 
 #[test]
 fn terrain_pages_edits_cover_neighbour_gutters_and_preserve_remote_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -56,6 +57,7 @@ fn terrain_pages_edits_cover_neighbour_gutters_and_preserve_remote_pages() {
 
 #[test]
 fn terrain_pages_all_neighbours_and_ancestor_indices_are_exact() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for depth in 0..=4 {
         let side = 1_u32 << depth;
         for y in 0..side {

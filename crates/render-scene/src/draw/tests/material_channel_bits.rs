@@ -122,10 +122,12 @@ fn assert_bits(negative_zero: bool) {
 
 #[test]
 fn unselected_non_finite_components_do_not_contaminate_default_scalars() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_bits(false);
 }
 
 #[test]
 fn selected_negative_zero_keeps_its_sign_in_default_scalar_paths() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_bits(true);
 }

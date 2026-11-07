@@ -104,6 +104,7 @@ fn clear(encoder: &mut wgpu::CommandEncoder, renderer: &ConfiguredFrameRenderer)
 
 #[test]
 fn construction_rejects_every_unsupported_temporal_combination_with_a_typed_error() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for settings in unsupported() {
         let error =
@@ -115,6 +116,7 @@ fn construction_rejects_every_unsupported_temporal_combination_with_a_typed_erro
 
 #[test]
 fn a_rejected_reconfiguration_leaves_a_renderer_that_still_renders_like_a_fresh_one() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut control = build(&context, temporal(HALF));
     let expected = first_frame(&context, &mut control);

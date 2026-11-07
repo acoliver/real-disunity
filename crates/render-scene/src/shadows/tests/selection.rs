@@ -14,6 +14,7 @@ pub(super) const PROBE: &str = r"
 
 #[test]
 fn gpu_receiver_selects_split_boundaries_and_blends_continuously() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(&[], 600_000, None),
@@ -206,6 +207,7 @@ pub(super) fn render_probe(
 
 #[test]
 fn gpu_multi_cascade_sample_counts_match_main_exactly() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(&[], 600_000, None),

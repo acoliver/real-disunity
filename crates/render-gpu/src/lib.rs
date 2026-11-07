@@ -14,6 +14,8 @@ pub mod submission;
 #[cfg(test)]
 mod submission_tests;
 pub mod surface;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod texture;
 #[cfg(any(test, feature = "test-support"))]
 pub mod tolerance_test_support;

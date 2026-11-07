@@ -12,6 +12,7 @@ fn viewport(width: u32, height: u32) -> Viewport {
 
 #[test]
 fn odd_width_rows_are_tightly_packed_without_padding_or_shearing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for width in [1, 3, 63, 64, 65, 257] {
         let layout =
             ReadbackLayout::new(viewport(width, 3), &wgpu::Limits::default(), 1 << 20).unwrap();
@@ -35,6 +36,7 @@ fn odd_width_rows_are_tightly_packed_without_padding_or_shearing() {
 
 #[test]
 fn zero_extents_texture_limits_and_row_overflow_are_rejected() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     for size in [viewport(0, 1), viewport(1, 0), viewport(0, 0)] {
         assert!(matches!(
@@ -64,6 +66,7 @@ fn zero_extents_texture_limits_and_row_overflow_are_rejected() {
 
 #[test]
 fn staging_cap_includes_padding_and_device_limit_is_independent() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     // 1x2 has only eight image bytes, but requires two complete 256-byte rows.
     assert!(matches!(
@@ -92,7 +95,7 @@ fn staging_cap_includes_padding_and_device_limit_is_independent() {
 }
 
 fn required_context() -> GpuContext {
-    let context = pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
         .expect("required headless GPU acceptance needs an adapter; it must not skip");
     eprintln!("required GPU: {:?}", context.adapter().get_info());
     assert!(
@@ -107,6 +110,7 @@ fn required_context() -> GpuContext {
 
 #[test]
 fn required_gpu_odd_width_custom_pass_and_repeated_readback() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = required_context();
     let mut target = OffscreenTarget::new(context.device(), viewport(65, 3)).unwrap();
     for color in [wgpu::Color::RED, wgpu::Color::GREEN] {
@@ -155,6 +159,7 @@ fn required_gpu_odd_width_custom_pass_and_repeated_readback() {
 
 #[test]
 fn required_gpu_capture_draws_geometry_and_preserves_upload_errors() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = required_context();
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(65, 47));
@@ -205,7 +210,9 @@ fn required_gpu_capture_draws_geometry_and_preserves_upload_errors() {
 
 #[test]
 fn required_gpu_device_loss_is_returned_not_panicked() {
-    let context = required_context();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let mut target = OffscreenTarget::new(context.device(), viewport(3, 2)).unwrap();
     context.device().destroy();
     let error = target.read_rgba8(&context).unwrap_err();
@@ -219,6 +226,7 @@ mod fixture;
 
 #[test]
 fn required_gpu_odd_width_pixel_coordinates_survive_readback() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = required_context();
     let device = context.device();
     let mut target = OffscreenTarget::new(device, viewport(65, 3)).unwrap();

@@ -74,6 +74,7 @@ fn reference(
 
 #[test]
 fn gpu_production_spiral_samples_distinct_reduced_levels_against_cpu() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let settings = worldrunner_render_plan::SceneSsao {
         kernel: SceneSsaoKernel::Spiral,

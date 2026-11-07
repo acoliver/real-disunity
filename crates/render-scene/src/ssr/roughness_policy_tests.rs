@@ -3,6 +3,7 @@ use worldrunner_render_plan::{SceneSsrPassBehind, SceneSsrTraversal};
 
 #[test]
 fn decreasing_curves_match_independent_integer_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // Binary endpoints exercise exact ties; decimal endpoints use samples away from f32-sensitive ties.
     for (start, end, offset) in [
@@ -47,6 +48,7 @@ fn decreasing_curves_match_independent_integer_oracle() {
 
 #[test]
 fn disabled_cutoff_accepts_roughness_one_without_changing_pass_budget() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for traversal in [SceneSsrTraversal::Conservative, SceneSsrTraversal::Grid] {
         let disabled = SceneSsr {
@@ -86,6 +88,7 @@ fn settings_with(traversal: SceneSsrTraversal) -> SceneSsr {
 
 #[test]
 fn disabled_cutoff_resolves_rough_surfaces_without_fading() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for roughness in [0.0, 0.5, 1.0] {
         let bytes = super::numerical::resolve_capture_settings(
@@ -111,6 +114,7 @@ fn disabled_cutoff_resolves_rough_surfaces_without_fading() {
 
 #[test]
 fn default_trace_matches_prior_shader_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = gpu::trace_source(1, false).replace(
         "(camera.settings.z > 0.0 && roughness >= camera.settings.z)",

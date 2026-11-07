@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn forward_metadata_declares_the_replaceable_lobe() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut screen = SceneMetadata::new(context.device(), [3, 3], neutral_ao()).unwrap();
     let ssr = Ssr::new(
@@ -17,6 +18,7 @@ fn forward_metadata_declares_the_replaceable_lobe() {
 
 #[test]
 fn gpu_replacement_preserves_diffuse_and_interpolates_confidence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = format!(
         "{}\n@fragment fn fs_screen(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
@@ -69,6 +71,7 @@ fn gpu_replacement_preserves_diffuse_and_interpolates_confidence() {
 
 #[test]
 fn generated_resolve_source_calls_composition_helpers() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = gpu::resolve_source(3);
     assert!(source.contains("reflection_delta("));
     assert!(source.contains("reflection_factor("));

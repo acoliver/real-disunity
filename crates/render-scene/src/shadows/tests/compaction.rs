@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn gpu_cascade_draw_counts_follow_groups_not_ranges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(

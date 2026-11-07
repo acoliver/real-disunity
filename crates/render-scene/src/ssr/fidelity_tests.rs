@@ -40,6 +40,7 @@ pub(super) fn evaluate(context: &GpuContext, shader: &str, width: u32) -> Vec<f3
 
 #[test]
 fn gpu_first_tap_ao_matches_independent_double_precision_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let depths = [1.0f64, 2.0, 3.0, 4.0];
     let weights = depths.map(|depth| (-(depth - depths[0]).abs()).exp());
@@ -63,6 +64,7 @@ fn gpu_first_tap_ao_matches_independent_double_precision_oracle() {
 
 #[test]
 fn gpu_roughness_count_endpoints_clamping_rounding_and_constant_override() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let curve = SceneSsrPassBehind {
         minimum_steps: 2,
@@ -94,6 +96,7 @@ fn gpu_roughness_count_endpoints_clamping_rounding_and_constant_override() {
 
 #[test]
 fn application_ao_compiles_for_opaque_water_and_multisampling() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut screen = SceneMetadata::new(context.device(), [3, 3], neutral_ao()).unwrap();
@@ -112,6 +115,7 @@ fn application_ao_compiles_for_opaque_water_and_multisampling() {
 
 #[test]
 fn invalid_roughness_counts_fail_while_disabled() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let valid = SceneSsrPassBehind {
         minimum_steps: 2,
         maximum_steps: 10,
@@ -174,6 +178,7 @@ pub(super) fn prepare_application_ao(context: &GpuContext, ssr: &Ssr, final_dept
 
 #[test]
 fn gpu_production_resolve_applies_first_tap_ao_without_changing_disabled_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         depth_relative_ao: true,
@@ -199,6 +204,7 @@ fn gpu_production_resolve_applies_first_tap_ao_without_changing_disabled_bytes()
 
 #[test]
 fn gpu_roughness_count_controls_production_pass_behind_at_endpoints() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         roughness_pass_behind: Some(SceneSsrPassBehind {
@@ -222,6 +228,7 @@ fn gpu_roughness_count_controls_production_pass_behind_at_endpoints() {
 
 #[test]
 fn gpu_replacement_ao_retains_the_published_lobe_and_confidence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         depth_relative_ao: true,
@@ -243,6 +250,7 @@ fn gpu_replacement_ao_retains_the_published_lobe_and_confidence() {
 
 #[test]
 fn application_ao_pairs_half_resolution_with_averaged_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let ao = SceneSsao {
         kernel: worldrunner_render_plan::SceneSsaoKernel::Scalable {

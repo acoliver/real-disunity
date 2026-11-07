@@ -18,14 +18,12 @@ pub(super) fn settings() -> TerrainPageSettings {
 }
 
 pub(super) fn context() -> crate::device::GpuContext {
-    pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap()
+    crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap()
 }
 
 #[test]
 fn terrain_pages_publication_cancellation_invalidation_eviction_and_limits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -87,6 +85,7 @@ fn terrain_pages_publication_cancellation_invalidation_eviction_and_limits() {
 
 #[test]
 fn terrain_pages_replacement_peak_is_admitted_before_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

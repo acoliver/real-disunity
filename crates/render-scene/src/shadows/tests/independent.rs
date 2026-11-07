@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn independent_shadow_default_matches_explicit_direct_sun_byte_for_byte() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let explicit = independent(&source, Some(source.effects().unwrap().sun().direction));
@@ -18,6 +19,7 @@ fn independent_shadow_default_matches_explicit_direct_sun_byte_for_byte() {
 #[test]
 fn independent_shadow_depth_fitting_uses_shadow_light_in_both_paths() {
     use crate::shadows::sdsm::AdoptionPolicy;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let changed = independent(
@@ -71,6 +73,7 @@ fn depth_settings(
 
 #[test]
 fn independent_shadow_uses_validated_scene_directions() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for components in [[0; 3], [0, 0, 500_000], [i32::MAX; 3]] {
         assert_eq!(
             SceneDirection::new(components),
@@ -105,6 +108,7 @@ fn independent(source: &RenderScene, direction: Option<SceneDirection>) -> Rende
 
 #[test]
 fn independent_shadow_keeps_direct_uniform_and_default_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = scene(&[], 600_000, None);
     let effects = source.effects().unwrap();
     assert_eq!(effects.shadow_direction(), None);
@@ -130,6 +134,7 @@ fn independent_shadow_keeps_direct_uniform_and_default_bytes() {
 
 #[test]
 fn independent_shadow_moves_and_resizes_without_relighting_or_reupload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = vertical_caster();
     let changed = independent(

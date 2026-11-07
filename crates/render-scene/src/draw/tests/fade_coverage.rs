@@ -1,5 +1,6 @@
 #[test]
 fn hashed_distance_fade_keeps_stock_rendered_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let base = threshold_scene(false, false, [0, 0]);
@@ -74,6 +75,7 @@ fn threshold_scene(impostor: bool, quantized: bool, jitter: [i32; 2]) -> RenderS
 
 #[test]
 fn threshold_coverage_matches_point_repeat_oracle_in_every_pass_and_impostors() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for (impostor, quantized, jitter) in [
@@ -132,6 +134,7 @@ fn threshold_coverage_matches_point_repeat_oracle_in_every_pass_and_impostors() 
 
 #[test]
 fn default_fade_policy_preserves_uniform_prefix_and_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = scene(SceneAlphaMode::Opaque, true, 1);
     let stock = base.resources().materials()[0];

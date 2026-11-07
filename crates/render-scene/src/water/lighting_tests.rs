@@ -1,6 +1,7 @@
 #[test]
 fn fog_segments_preserve_existing_fog_without_dividing_by_transmittance() {
     use glam::Vec3;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let background = Vec3::new(0.5, 0.25, 0.125);
     let fog = Vec3::splat(0.25);
     let scattering = Vec3::splat(0.125);
@@ -34,7 +35,8 @@ use super::*;
 
 #[test]
 fn water_fog_composes_only_the_camera_segment_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let mut body = settings();
@@ -85,6 +87,7 @@ fn water_fog_composes_only_the_camera_segment_at_every_supported_sample_count() 
 
 #[test]
 fn water_shader_uses_shared_lighting_and_sample_receiver_outputs() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = include_str!("water.wgsl");
     for required in [
         "rd_toward_light",
@@ -101,7 +104,8 @@ fn water_shader_uses_shared_lighting_and_sample_receiver_outputs() {
 #[test]
 fn sh9_diffuse_reaches_water_scattering_at_every_supported_sample_count() {
     use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut coefficients = [[0; 3]; 9];
     coefficients[0] = [250_000, 500_000, -250_000];
     let counts = crate::msaa_tests::supported_samples(&context);

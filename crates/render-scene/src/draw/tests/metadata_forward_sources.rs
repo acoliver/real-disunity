@@ -404,6 +404,7 @@ fn final_forward_sources() -> Vec<(String, [String; 6])> {
 
 #[test]
 fn final_forward_assemblies_preserve_complete_pre_change_source() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let cases = final_forward_sources();
     assert_eq!(cases.len(), FINAL_FORWARD_SOURCES.len());
     for ((label, sources), expected) in cases.into_iter().zip(FINAL_FORWARD_SOURCES) {

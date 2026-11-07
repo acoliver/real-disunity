@@ -14,6 +14,7 @@ fn settings(footprint: SceneSsaoDepthFootprint) -> worldrunner_render_plan::Scen
 #[test]
 fn allocation_bytes_follow_the_selected_footprint() {
     use crate::compositor::RendererConfiguration;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut config = RendererConfiguration::legacy([9, 7], wgpu::TextureFormat::Rgba8UnormSrgb);
     config.ssao = Some(settings(SceneSsaoDepthFootprint::default()));
     let limits = wgpu::Limits::default();
@@ -28,6 +29,7 @@ fn allocation_bytes_follow_the_selected_footprint() {
 
 #[test]
 fn gpu_floor_footprint_has_requested_levels_and_literal_reduction() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let footprint = SceneSsaoDepthFootprint {
         level_count: 2,
@@ -122,6 +124,7 @@ fn legacy_levels(context: &crate::device::GpuContext, seed: &wgpu::Texture) -> V
 
 #[test]
 fn gpu_default_depth_and_occlusion_bytes_match_legacy_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let screen = SceneMetadata::new(
         context.device(),

@@ -29,7 +29,8 @@ fn word(bytes: &[u8], offset: usize) -> u32 {
 
 #[test]
 fn mixed_source_fade_bands_partition_hashed_and_byte_threshold_masks() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let band = SceneFadeBand::new(16_777_219, 16_781_219).unwrap();
     let (packed, incoming) = mixed_sources(band);
     for threshold in [false, true] {
@@ -39,7 +40,8 @@ fn mixed_source_fade_bands_partition_hashed_and_byte_threshold_masks() {
 
 #[test]
 fn mixed_source_step_bands_partition_every_hashed_and_r8_threshold() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for endpoint in [0, 4000] {
         let (packed, incoming) = mixed_sources(SceneFadeBand::new(endpoint, endpoint).unwrap());
         for distance in [
@@ -189,7 +191,8 @@ const ENTRY: &str = r"
 
 #[test]
 fn positive_width_fade_coverage_preserves_float_bits_including_rounded_endpoints() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for (start, end) in [
         (0, 1),
         (2000, 6000),

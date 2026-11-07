@@ -5,7 +5,7 @@ use crate::device::GpuContext;
 use glam::DVec3;
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap()
+    GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap()
 }
 
 fn evaluate(context: &GpuContext, body: &str) -> Vec<f32> {
@@ -43,6 +43,7 @@ fn integrate(sample: DVec3, force: DVec3, curvature: f64) -> DVec3 {
 
 #[test]
 fn authored_basis_pins_oblique_parallel_and_radial_stretch_and_tangents() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (sample, force, curvature) in [
         (DVec3::Z * 2.0, DVec3::Z, 0.25),
@@ -116,6 +117,7 @@ const MATERIAL_ENTRY: &str = r"
 
 #[test]
 fn zero_and_small_force_are_straight_through_material_vertex() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for settings in [
         "material.wind_direction_amplitude.w = 0.0;",
@@ -159,6 +161,7 @@ fn zero_and_small_force_are_straight_through_material_vertex() {
 
 #[test]
 fn billboard_wind_keeps_instance_axis_and_offset_hinge() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for mode in [1, 2] {
         // Original rotation maps local Z to world X. The local hinge (0,0,0.4)
@@ -208,6 +211,7 @@ fn billboard_wind_keeps_instance_axis_and_offset_hinge() {
 
 #[test]
 fn curved_material_retains_authored_shading_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for field in ["world_normal", "world_tangent.xyz"] {
         let body = format!(
@@ -230,6 +234,7 @@ fn curved_material_retains_authored_shading_frame() {
 
 #[test]
 fn planar_field_and_static_modifier_deform_at_fixed_clock() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let actual = evaluate(
         &context,
@@ -262,6 +267,7 @@ fn planar_field_and_static_modifier_deform_at_fixed_clock() {
 
 #[test]
 fn relief_raster_bias_matches_linear_depth_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let projection =
         glam::camera::rh::proj::directx::perspective(std::f32::consts::FRAC_PI_2, 1.0, 1.0, 101.0);
@@ -292,6 +298,7 @@ fn relief_raster_bias_matches_linear_depth_oracle() {
 
 #[test]
 fn orthographic_relief_does_not_divide_by_main_camera_light_angle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let values = evaluate(
         &context,
@@ -302,6 +309,7 @@ fn orthographic_relief_does_not_divide_by_main_camera_light_angle() {
 
 #[test]
 fn minimum_arc_zero_and_tiny_force_match_independent_axial_and_radial_integrals() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let curvature = std::f64::consts::PI / 360.0;
     // Midpoint integral of cos(k*s), without using the shader antiderivative.
@@ -339,6 +347,7 @@ fn minimum_arc_zero_and_tiny_force_match_independent_axial_and_radial_integrals(
 
 #[test]
 fn minimum_arc_material_vertex_applies_to_both_stages_at_zero_force() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let expected = (std::f64::consts::PI / 360.0).sin() / (std::f64::consts::PI / 360.0);
     let body = r"
@@ -363,6 +372,7 @@ fn minimum_arc_material_vertex_applies_to_both_stages_at_zero_force() {
 
 #[test]
 fn capture_center_curved_vertex_matches_additive_parallel_arc_integral() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let body = format!(
         r"
@@ -425,6 +435,7 @@ fn bend_world(point: DVec3, time: u32, curve: f64) -> DVec3 {
 
 #[test]
 fn the_current_time_entry_point_is_the_displacement_at_the_frame_clock() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for setup in [
         bend_material(2.0),
@@ -442,6 +453,7 @@ fn the_current_time_entry_point_is_the_displacement_at_the_frame_clock() {
 
 #[test]
 fn rigid_wind_world_delta_is_previous_minus_current_position() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // Tolerance: each sine carries the shader trigonometry bound TRIG_ERROR, scaled by the
     // 0.5 m amplitude, for two evaluations; plus one rounding step for the position sums.
@@ -466,6 +478,7 @@ fn rigid_wind_world_delta_is_previous_minus_current_position() {
 
 #[test]
 fn bend_model_world_delta_matches_the_cpu_reference_at_two_clocks() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for point in [DVec3::new(0.3, 0.4, 0.5), DVec3::new(-0.6, 0.2, 2.0)] {
         for (previous, now) in [(0_u32, 1500_u32), (100_000, 0)] {
@@ -495,6 +508,7 @@ fn bend_model_world_delta_matches_the_cpu_reference_at_two_clocks() {
 
 #[test]
 fn a_paused_clock_gives_exactly_zero_world_delta() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let rigid = format!(
         "{MATERIAL_ENTRY} material.foliage_axis_curve.w = 0.0; material.wind_clock = vec4<u32>(1000u, 125000u, 0u, 0u);"
@@ -512,6 +526,7 @@ fn a_paused_clock_gives_exactly_zero_world_delta() {
 
 #[test]
 fn a_material_without_wind_has_no_world_delta_between_clocks() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let body = format!(
         "{} material.wind_clock = vec4<u32>(0u, 0u, 0u, 0u); {} result[0] = vec4(scene_wind_world_delta(vec3(0.3, 0.4, 1.7), 0.5, instance), 0.0);",

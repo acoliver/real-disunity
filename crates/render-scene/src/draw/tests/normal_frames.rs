@@ -1,5 +1,6 @@
 #[test]
 fn terrain_palettes_refuse_unimplemented_normal_settings_before_upload() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let terrain_material = terrain_material();
     let base = terrain_scene(1);
     for material in [
@@ -27,6 +28,7 @@ fn terrain_palettes_refuse_unimplemented_normal_settings_before_upload() {
 
 #[test]
 fn absent_tangents_and_default_normal_settings_match_stock_shading_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let stock = concat!(
         worldrunner_render_lighting::lighting_wgsl!(),
         worldrunner_render_post::post_wgsl!(),
@@ -161,6 +163,7 @@ pub(super) fn assert_normal(pixels: &[u8], normal: Vec3) {
 
 #[test]
 fn stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_passes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let xy = Vec3::new(191.0 / 255.0 * 2.0 - 1.0, 159.0 / 255.0 * 2.0 - 1.0, 0.0);
@@ -206,6 +209,7 @@ fn stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_
 
 #[test]
 fn source_channels_y_conventions_and_normal_scale_reach_every_normal_pass() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for encoding in [SceneNormalEncoding::Rgb, SceneNormalEncoding::TwoChannelXy] {
@@ -235,6 +239,7 @@ fn source_channels_y_conventions_and_normal_scale_reach_every_normal_pass() {
 
 #[test]
 fn brightening_tint_reaches_shaded_output_linearly() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let material = mapped_material().with_normal_scale(0).unwrap();
     let scene = normal_scene([128, 128, 255, 255], None, &material);
@@ -319,6 +324,7 @@ fn decoded_normal(
 #[test]
 fn sh9_diffuse_produces_the_same_radiance_for_mesh_terrain_and_cards() {
     use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut coefficients = [[0; 3]; 9];
     coefficients[0] = [250_000, 375_000, 125_000];

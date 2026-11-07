@@ -10,6 +10,7 @@ use worldrunner_render_plan::TerrainPageSettings;
 
 #[test]
 fn populated_tree_gpu_lookup_reads_one_record_per_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

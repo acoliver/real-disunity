@@ -59,7 +59,7 @@ struct Out { @builtin(position) position: vec4<f32>, @location(0) colour: vec3<f
 ";
 
 pub(super) fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request()).unwrap()
+    GpuContext::shared_for_test().unwrap()
 }
 
 fn supported(context: &GpuContext, samples: MsaaSamples) -> bool {
@@ -473,11 +473,13 @@ const TAA_MARGIN: f64 = 0.5;
 
 #[test]
 fn taa_converges_to_the_supersampled_reference_without_msaa() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     converged(MsaaSamples::X1);
 }
 
 #[test]
 fn taa_converges_to_the_supersampled_reference_with_four_msaa_samples() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     converged(MsaaSamples::X4);
 }
 
@@ -550,26 +552,31 @@ const SECOND_STEP_MM: i64 = -29;
 
 #[test]
 fn a_translating_camera_leaves_no_smear_trail_without_msaa() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     translation(MsaaSamples::X1, STEP_MM);
 }
 
 #[test]
 fn a_translating_camera_leaves_no_smear_trail_with_four_msaa_samples() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     translation(MsaaSamples::X4, STEP_MM);
 }
 
 #[test]
 fn a_second_camera_path_keeps_the_edge_in_place_without_msaa() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     translation(MsaaSamples::X1, SECOND_STEP_MM);
 }
 
 #[test]
 fn a_second_camera_path_keeps_the_edge_in_place_with_four_msaa_samples() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     translation(MsaaSamples::X4, SECOND_STEP_MM);
 }
 
 #[test]
 fn a_reset_makes_the_next_frames_equal_the_first_frames_of_a_fresh_renderer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut fresh = Rig::new(&context, MsaaSamples::X1, taa());
     let expected = [fresh.render(0), fresh.render(STEP_MM)];
@@ -593,6 +600,7 @@ fn a_reset_makes_the_next_frames_equal_the_first_frames_of_a_fresh_renderer() {
 
 #[test]
 fn renderers_without_taa_do_not_jitter_or_accumulate() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let resolves = [
         PostResolve::None,
@@ -711,12 +719,14 @@ fn moving_sharpness(samples: MsaaSamples, step_mm: i64) {
 
 #[test]
 fn history_in_motion_sharpens_the_jittered_image_without_msaa() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     moving_sharpness(MsaaSamples::X1, STEP_MM);
     moving_sharpness(MsaaSamples::X1, SECOND_STEP_MM);
 }
 
 #[test]
 fn history_in_motion_costs_a_multisampled_image_at_most_twice_the_msaa_error() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     moving_sharpness(MsaaSamples::X4, STEP_MM);
     moving_sharpness(MsaaSamples::X4, SECOND_STEP_MM);
 }
@@ -725,6 +735,7 @@ fn history_in_motion_costs_a_multisampled_image_at_most_twice_the_msaa_error() {
 /// which slot ran the previous frame.
 #[test]
 fn a_renderer_reusing_one_slot_every_frame_still_accumulates_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let reference = supersampled(&context, 0);
     let mut rig = Rig::new(&context, MsaaSamples::X1, taa());

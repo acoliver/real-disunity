@@ -4,7 +4,8 @@ use worldrunner_render_post::{AttachmentView, ResourceRef};
 
 #[test]
 fn celestial_visibility_composites_corresponding_msaa_samples() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         if samples > 1 {
             assert_celestial_composites_samples(&context, samples);
@@ -85,7 +86,8 @@ fn capture_celestial_target(
 #[test]
 fn celestial_alpha_coverage_composites_occupied_samples_once() {
     use worldrunner_render_plan::*;
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let masked = SceneMaterial::new(SceneMaterialParts {
         albedo: TextureHandle::from_raw(0),
         normal: None,
@@ -131,7 +133,8 @@ fn celestial_alpha_coverage_composites_occupied_samples_once() {
 
 #[test]
 fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = scene(0, false, false);
     let mut gpu = crate::shadows::ShadowedScene::with_target(
         &context,
@@ -170,6 +173,7 @@ fn shadowed_scene_schedules_celestial_visibility_without_touching_scene_depth() 
 
 #[test]
 fn allocation_plan_includes_visibility_only_when_meshes_are_present() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let sky = atmosphere(0);
     let required = |sky: &worldrunner_render_plan::SceneAtmosphere, samples| {
         super::allocations(sky, [9, 3], samples)

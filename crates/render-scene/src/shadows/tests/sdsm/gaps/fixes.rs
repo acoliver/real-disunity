@@ -33,6 +33,7 @@ fn capture_state(range: RangeFit) -> AdoptionState {
 fn gpu_sdsm_capture_interval_matches_cascade_construction() {
     use crate::{frame::metadata::FrameProduct, shadows::sdsm::DepthReducer};
     use worldrunner_render_gpu::submission::capture::CaptureWrites;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::super::super::cascades::source_with(
         &scene(&[], 600_000, None),
@@ -91,6 +92,7 @@ fn gpu_sdsm_capture_interval_matches_cascade_construction() {
 
 #[test]
 fn gpu_sdsm_interactive_reuses_cold_and_invalidated_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source =
         super::super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
@@ -147,6 +149,7 @@ fn gpu_sdsm_interactive_reuses_cold_and_invalidated_pages() {
 
 #[test]
 fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source =
         super::super::super::terrain::terrain_scene(&scene(&[], 600_000, None), false, false);
@@ -200,6 +203,7 @@ fn gpu_sdsm_abandoned_prefix_does_not_publish_pages() {
 
 #[test]
 fn gpu_sdsm_adopted_interval_is_not_fitted_twice() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();

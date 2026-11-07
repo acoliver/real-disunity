@@ -5,6 +5,35 @@ use thiserror::Error;
 
 mod adapter;
 pub use adapter::{AdapterClass, AdapterIdentity};
+#[cfg(any(test, feature = "test-support"))]
+mod test_support;
+
+fn requirements(
+    adapter: &Adapter,
+    required_features: Features,
+    timing: worldrunner_render_post::TimingMode,
+) -> worldrunner_render_gpu::device::DeviceRequirements {
+    worldrunner_render_gpu::device::DeviceRequirements {
+        required_features,
+        // Full SSR depth chains share the trace stage with receiver metadata.
+        required_limits: wgpu::Limits {
+            max_texture_array_layers: adapter.limits().max_texture_array_layers,
+            max_sampled_textures_per_shader_stage: adapter
+                .limits()
+                .max_sampled_textures_per_shader_stage
+                .min(32),
+            ..Default::default()
+        },
+        // Lets frame validation use adapter-reported sample counts (2x and 8x).
+        optional_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+            | if timing == worldrunner_render_post::TimingMode::Optional {
+                timing.features()
+            } else {
+                Features::empty()
+            },
+        ..Default::default()
+    }
+}
 
 pub const REQUIRED_FEATURES: Features = Features::TEXTURE_COMPRESSION_BC;
 
@@ -127,26 +156,7 @@ impl GpuContext {
 
         let (device, queue, _) = worldrunner_render_gpu::device::request_device(
             &adapter,
-            &worldrunner_render_gpu::device::DeviceRequirements {
-                required_features,
-                // Full SSR depth chains share the trace stage with receiver metadata.
-                required_limits: wgpu::Limits {
-                    max_texture_array_layers: adapter.limits().max_texture_array_layers,
-                    max_sampled_textures_per_shader_stage: adapter
-                        .limits()
-                        .max_sampled_textures_per_shader_stage
-                        .min(32),
-                    ..Default::default()
-                },
-                // Lets frame validation use adapter-reported sample counts (2x and 8x).
-                optional_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
-                    | if timing == worldrunner_render_post::TimingMode::Optional {
-                        timing.features()
-                    } else {
-                        Features::empty()
-                    },
-                ..Default::default()
-            },
+            &requirements(&adapter, required_features, timing),
         )
         .await
         .map_err(|error| DeviceError::DeviceRefused(error.to_string()))?;

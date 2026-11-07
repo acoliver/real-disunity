@@ -9,6 +9,7 @@ fn phases(time: f32, period: f32) -> ([f32; 2], [f32; 2]) {
 
 #[test]
 fn two_phase_weights_partition_unity_and_hide_both_resets() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for time in [0.0, 0.25, 0.5, 0.75, 1.0, 12.25] {
         let (phase, weight) = phases(time, 1.0);
         assert!((weight[0] + weight[1] - 1.0).abs() < f32::EPSILON);
@@ -194,7 +195,8 @@ fn phased_scene(field: bool, shore: bool) -> (Vec<SceneWaterBody>, RenderScene) 
 
 #[test]
 fn two_phase_normal_matches_cpu_for_constant_and_sampled_flow_on_basin_and_mesh() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for (field, shore) in [(false, false), (true, false), (false, true), (true, true)] {
             let (bodies, source) = phased_scene(field, shore);

@@ -1,5 +1,6 @@
 #[test]
 fn gpu_production_water_trace_and_resolve_share_registered_metadata() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = crate::compositor::FrameRenderer::hdr(
@@ -218,6 +219,7 @@ fn draw_water_resolve(
 }
 #[test]
 fn gpu_water_selection_and_replacement_are_exact_at_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for (confidence, expected) in [
@@ -262,6 +264,7 @@ fn select_last_sample(context: &GpuContext, water: &crate::water::Water) {
 }
 #[test]
 fn gpu_partial_water_coverage_replaces_only_its_own_sample() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let result = water_resolve(&context, 4, 1.0, true);
     let expected: Vec<_> = [0.5625, 0.46875, 0.359_375, 1.0]

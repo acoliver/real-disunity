@@ -3,6 +3,7 @@ use crate::terrain::pages::composition::{LayerSample, compose_page};
 
 #[test]
 fn terrain_pages_gpu_filters_neighbor_gutters_and_fractional_mips_without_seams() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

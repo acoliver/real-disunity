@@ -3,6 +3,7 @@ use worldrunner_render_plan::{SceneWaterOptics, SceneWaterShoreline};
 
 #[test]
 fn optical_and_shoreline_controls_validate_before_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     body.material.optics = Some(SceneWaterOptics {
         fresnel_micro: 20_370,
@@ -39,7 +40,8 @@ fn optical_and_shoreline_controls_validate_before_allocation() {
 
 #[test]
 fn shader_optical_equations_match_depth_endpoints_and_bounds() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = format!(
         "{}\n{}",
         include_str!("optics.wgsl"),
@@ -80,6 +82,7 @@ fn shader_optical_equations_match_depth_endpoints_and_bounds() {
 #[test]
 fn tint_validation_and_uniforms_preserve_disabled_bytes() {
     use worldrunner_render_plan::SceneWaterTint;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     body.material.optics = Some(SceneWaterOptics {
         fresnel_micro: 20_370,
@@ -139,7 +142,8 @@ fn tint_validation_and_uniforms_preserve_disabled_bytes() {
 
 #[test]
 fn tint_ramp_endpoints_midpoints_and_offsets_match_cpu() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for offsets in [
         [0.0f32, 0.0],
         [0.25, 0.125],

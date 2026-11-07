@@ -68,6 +68,7 @@ fn exact_origin(size: u32, pixel: u32, extent: u32) -> i32 {
 /// and in about a thousand on llvmpipe, so this test uses exact integers only.
 #[test]
 fn gpu_gather_origin_is_exact_integer_floor_division_on_every_grid() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (label, extent) in [
         ("aligned", "size"),

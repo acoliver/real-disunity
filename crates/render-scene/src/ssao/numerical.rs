@@ -56,6 +56,7 @@ fn upload_camera(context: &GpuContext, screen: &SceneMetadata) {
 
 #[test]
 fn gpu_spiral_plane_corner_and_normal_orientation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let size = [33, 33];
     let screen = SceneMetadata::new(
@@ -107,6 +108,7 @@ fn gpu_spiral_plane_corner_and_normal_orientation() {
 
 #[test]
 fn gpu_pack_preserves_metre_depth_and_sky_coverage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let depth = upload(&context, [2, 1], &[2.0, 2000.0]);
     let normals = metadata(&context, [2, 1], &[[0, 0, 0x3c00, 0x3c00], [0; 4]]);
@@ -133,6 +135,7 @@ fn gpu_pack_preserves_metre_depth_and_sky_coverage() {
 #[test]
 fn policy_changes_rebuild_resources_and_preserve_existing_pass_slots() {
     use worldrunner_render_post::PassSlot;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let old = SceneMetadata::new(context.device(), [5, 3], settings()).unwrap();
     let mut passes = Vec::new();
@@ -198,6 +201,7 @@ fn policy_changes_rebuild_resources_and_preserve_existing_pass_slots() {
 fn allocation_plan_accounts_for_new_kernel_targets() {
     use crate::compositor::RendererConfiguration;
     use worldrunner_render_post::FrameConfig;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut base = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     base.frame = FrameConfig::new([5, 3], wgpu::TextureFormat::Rgba16Float, 1);
     base.hdr = Some((1.0, worldrunner_render_post::ToneMap::Reinhard));
@@ -218,6 +222,7 @@ fn gpu_kernel_reconfiguration_is_transactional_and_can_disable_metadata() {
     use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
     use worldrunner_render_gpu::configuration::AllocationBudget;
     use worldrunner_render_post::FrameConfig;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut config = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     config.frame = FrameConfig::new([5, 3], wgpu::TextureFormat::Rgba16Float, 1);
@@ -244,6 +249,7 @@ fn gpu_kernel_reconfiguration_is_transactional_and_can_disable_metadata() {
 
 #[test]
 fn gpu_linear_depth_is_view_metres_not_device_or_radial_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let screen = SceneMetadata::new(context.device(), [3, 1], settings()).unwrap();
     let projection = glam::Mat4::from_diagonal(glam::Vec4::new(1.0, 1.0, -0.25, 1.0));

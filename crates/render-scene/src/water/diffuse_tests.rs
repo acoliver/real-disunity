@@ -24,7 +24,8 @@ fn prepared_frame(selected: bool) -> FrameUniform {
 
 #[test]
 fn prepared_sun_water_diffuse_matches_independent_cpu() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut renderer = regressions::renderer(&context, 1);
     let mut body = settings();
     body.color_micro = [250_000, 500_000, 750_000];
@@ -76,7 +77,8 @@ fn prepared_sun_water_diffuse_matches_independent_cpu() {
 
 #[test]
 fn water_diffuse_conventions_have_distinct_reused_pipelines() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let water = Water::new(
         context.device(),
         FrameConfig::new([32, 32], wgpu::TextureFormat::Rgba16Float, 1),

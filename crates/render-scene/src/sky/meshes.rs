@@ -274,6 +274,7 @@ mod tests {
     }
     #[test]
     fn mesh_radius_is_angular_and_pose_is_camera_relative() {
+        let _session = crate::test_support::SceneTestSession::acquire();
         let model = model(settings());
         assert!((model.transform_point3(Vec3::ZERO) - Vec3::Y * 100.0).length() < 1e-5);
         assert!((model.transform_vector3(Vec3::X).length() - 50.0).abs() < 1e-5);
@@ -292,7 +293,8 @@ mod tests {
     }
     #[test]
     fn mesh_pipelines_share_the_resident_material_layout() {
-        let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context = crate::device::GpuContext::shared_for_test().unwrap();
         let scope = context
             .device()
             .push_error_scope(wgpu::ErrorFilter::Validation);

@@ -6,6 +6,7 @@ use worldrunner_render_plan::TerrainPagePolicy;
 fn caller_device_array_limit_rejects_cache_replacement_without_changing_storage() {
     use crate::terrain::pages::residency::ResidentPages;
     use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (device, queue, _) = pollster::block_on(request_device(
         context.adapter(),
@@ -72,6 +73,7 @@ fn policy_pixels(context: &GpuContext, scene: &RenderScene) -> Vec<u8> {
 
 #[test]
 fn layered_policy_above_default_array_limit_prepares_draws_and_preserves_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     assert!(context.adapter().limits().max_texture_array_layers >= 384);
     let baseline = policy_pixels(&context, &scene_with_slots(1));
@@ -82,6 +84,7 @@ fn layered_policy_above_default_array_limit_prepares_draws_and_preserves_pixels(
 
 #[test]
 fn layered_policy_above_device_array_limit_fails_before_upload_with_both_counts() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let available = context.device().limits().max_texture_array_layers;
     let slots = available / 3 + 1;

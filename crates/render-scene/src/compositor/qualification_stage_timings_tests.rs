@@ -154,6 +154,7 @@ fn print_report(measured: &Measured) {
 #[test]
 #[ignore = "per-stage GPU timing measurement: run explicitly with --ignored --nocapture"]
 fn qualification_stage_timings() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let outputs = env_outputs("1920x1080");
     let scales: Vec<u32> = env_list("SCALES", "500000,770000");
     let modes: Vec<Mode> = env_list("MODES", "M3,M4,M5");
@@ -206,6 +207,7 @@ mod tests {
 
     #[test]
     fn the_median_is_taken_per_name_in_order_of_first_appearance() {
+        let _session = crate::test_support::SceneTestSession::acquire();
         let frames = vec![
             vec![one("b", 5.0), one("a", 1.0)],
             vec![one("b", 9.0), one("a", 3.0)],
@@ -252,6 +254,7 @@ mod tests {
 
     #[test]
     fn a_frame_sums_passes_with_one_name_and_skips_passes_without_a_duration() {
+        let _session = crate::test_support::SceneTestSession::acquire();
         let timing = FrameTiming {
             frame_id: 1,
             passes: vec![

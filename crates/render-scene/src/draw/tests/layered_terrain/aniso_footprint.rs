@@ -70,6 +70,7 @@ fn shader_footprint(dx: DVec2, dy: DVec2) -> (f64, f64) {
 /// land two levels finer.
 #[test]
 fn the_anisotropic_fixture_lod_sits_just_above_each_asserted_level() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for level in [2_u32, 3] {
         for (gradient_scale, finer) in [(1.0, 0), (0.25, 2)] {
             let [dx, dy] = uv_derivatives(aniso_height_for(level), gradient_scale);

@@ -3,8 +3,9 @@ mod base_arithmetic_tests;
 
 #[test]
 fn specular_intensity_matches_closed_form_single_sample_without_changing_cube() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_eq!(integration_source(1_000_000), SOURCE);
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let source = source_cube(&context);
     for intensity in [0, 500_000, 1_000_000, 2_000_000, 64_000_000] {
@@ -67,7 +68,8 @@ use super::*;
 
 #[test]
 fn prefilter_uses_source_mip_footprints_but_mirror_keeps_mip_zero() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let source = mip_distinct_source(&context);
     let mut maps = None;
@@ -109,6 +111,7 @@ fn settings() -> EnvironmentPreparation {
 }
 #[test]
 fn bounded_preparation_settings() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert!(settings().allocations().is_ok());
     for config in [
         EnvironmentPreparation {
@@ -140,7 +143,8 @@ fn bounded_preparation_settings() {
 }
 #[test]
 fn cancellation_does_not_publish_environment_resources() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let source = source_cube(&context);
     let mut maps = None;
@@ -400,7 +404,8 @@ fn mip_distinct_source(context: &crate::device::GpuContext) -> wgpu::TextureView
 
 #[test]
 fn encode_rejects_an_under_budget_environment_job() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let source = source_cube(&context);
     let required = settings()
@@ -432,7 +437,8 @@ fn selected_environment_conventions_match_reference_integrals() {
     use worldrunner_render_plan::{
         SceneRoughnessRemap, SceneSpecularConvention, SceneSpecularVisibility,
     };
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let source = source_cube(&context);
     for roughness in [
         SceneRoughnessRemap::Perceptual045,

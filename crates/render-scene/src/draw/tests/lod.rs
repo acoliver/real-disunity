@@ -3,6 +3,7 @@ use crate::offscreen::OffscreenTarget;
 
 #[test]
 fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let near = quad().lods()[0].clone();
     let far = SceneMeshLod::new(
@@ -61,6 +62,7 @@ fn gpu_switches_geometry_at_the_authored_inclusive_threshold() {
 
 #[test]
 fn gpu_selected_level_owns_its_billboard_policy() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let near = card(None).lods()[0].clone();
     let far = SceneMeshLod::new(

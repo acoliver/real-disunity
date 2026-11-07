@@ -81,6 +81,7 @@ impl<'a> Rig<'a> {
 
 #[test]
 fn scene_smaa_ultra_schedules_three_timed_stages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = pollster::block_on(GpuContext::request_with_features(
         wgpu::Features::TIMESTAMP_QUERY,
     ))
@@ -117,6 +118,7 @@ fn scene_smaa_ultra_schedules_three_timed_stages() {
 
 #[test]
 fn scene_smaa_ultra_differs_from_fxaa_on_high_contrast_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut smaa = Rig::new(
         &context,
@@ -148,6 +150,7 @@ fn scene_smaa_ultra_differs_from_fxaa_on_high_contrast_edges() {
 
 #[test]
 fn scene_fxaa_and_taa_match_the_existing_descriptor_path_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (authored, descriptor) in [
         (SceneAntiAlias::Disabled, PostResolve::None),

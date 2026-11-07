@@ -24,6 +24,27 @@ The service crates do not own application assets, scene documents, filesystem pu
 `resource::PreparedMaterial` consumes explicit `MaterialDescriptor` / `MaterialBindings`; binding indices and caller layouts remain authoritative. No implicit binding renumbering is introduced.
 
 `surface::Presenter`, `SurfacePolicy` and `AcquiredFrame` separate presentation mechanics from host recovery. Zero-area suspension, configure/recreate actions and validation errors remain distinct. Native surface extent and bounded scene-attachment extent are different contracts; the host must not silently substitute one for the other.
+## Shared handles in GPU tests
+
+With `test-support` enabled, `render-gpu::test_support::TestGpu::shared` retains one
+headless instance and high-performance adapter for the test process. Device and
+queue handles are cached by negotiated features and the complete limits profile.
+Optional capabilities are negotiated before lookup; profiles are never unioned.
+Adapter selection and WGPU_* overrides are fixed at first use. Acquisition,
+fallback-adapter, destruction, loss, foreign-device and retirement tests use fresh
+devices through the production constructors.
+
+Scene tests acquire one `render-scene::test_support::SceneTestSession` at test
+entry, before their contexts and fixtures. Its lease covers fixture teardown and
+drains used shared devices before releasing the next session. Context helpers use
+`GpuContext::shared_for_test` or `shared_for_test_with_features` without acquiring
+another lease. Each context has its own submission authority; renderers, pipelines,
+resources and error scopes remain test-owned. Scopes must be popped on the issuing
+thread in reverse order. Cached-device loss and uncaptured errors abort the test
+process, and session teardown restores those handlers. Callback-observer tests use
+dedicated devices. Dedicated scene tests hold the same lease for their complete
+lifetime to exclude concurrent shared-device activity.
+
 
 ## Viewer frame pacing
 

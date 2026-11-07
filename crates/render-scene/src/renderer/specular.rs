@@ -194,7 +194,8 @@ mod tests {
 
     #[test]
     fn convention_cache_reuses_each_selection_and_preserves_default_pipelines() {
-        let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context = crate::device::GpuContext::shared_for_test().unwrap();
         let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
         let key = crate::pipeline::PipelineKey::ALL[0];
         for roughness in [
@@ -238,7 +239,8 @@ mod tests {
 #[test]
 fn disk_radius_is_part_of_existing_pipeline_cache_key() {
     use worldrunner_render_plan::{SceneSpecularConvention, SceneSurfaceDisk};
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
     let convention = |radius| SceneSpecularConvention {
         surface_disk: Some(
@@ -263,7 +265,8 @@ fn disk_radius_is_part_of_existing_pipeline_cache_key() {
 #[cfg(test)]
 #[test]
 fn winding_uses_existing_specialization_cache_without_changing_default_pipelines() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
     let convention = worldrunner_render_plan::SceneSpecularConvention::default();
     let key = crate::pipeline::PipelineKey::ALL[0];

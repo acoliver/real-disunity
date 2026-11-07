@@ -13,6 +13,7 @@ use worldrunner_render_post::contracts::ResourceRegistry;
 
 #[test]
 fn prepared_gpu_antipodal_normals_publish_only_defined_reductions() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

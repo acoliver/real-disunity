@@ -5,6 +5,7 @@ use worldrunner_render_plan::{SceneDecalAngle, SceneResources, SceneRotation, Sc
 
 #[test]
 fn transformed_uv_selects_authored_crop_independently_of_hull_size() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = source(false, false);
     let mut textures = base.resources().textures().to_vec();
@@ -47,6 +48,7 @@ fn transformed_uv_selects_authored_crop_independently_of_hull_size() {
 
 #[test]
 fn power_fade_and_double_sided_projection_match_plane_and_slope_pixel_oracles() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for slope in [false, true] {
         let scene = source(slope, false);

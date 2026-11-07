@@ -4,6 +4,7 @@ use worldrunner_render_plan::*;
 
 #[test]
 fn uploads_only_positions_and_reuses_all_source_allocations() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (terrain, resources) = super::tests::fixture(
         TerrainSplatFilter::Bilinear,
@@ -41,7 +42,11 @@ fn uploads_only_positions_and_reuses_all_source_allocations() {
 
 #[test]
 fn residency_is_atomic_per_device_and_owned_by_the_source() {
-    let first = context();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let first = pollster::block_on(crate::device::GpuContext::request_with_features(
+        wgpu::Features::empty(),
+    ))
+    .unwrap();
     let second = pollster::block_on(crate::device::GpuContext::from_adapter_with_features(
         first.adapter().clone(),
         wgpu::Features::empty(),
@@ -120,6 +125,7 @@ pub(super) fn compressed(format: u32, size: u32, mips: u32, block: &[u8]) -> Sce
 
 #[test]
 fn large_bc_palette_admission_counts_source_once_for_eight_uploads() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut source = LayeredGpuSource {
         anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         parameters: vec![0; 64 + 12 * 64],
@@ -152,7 +158,8 @@ fn large_bc_palette_admission_counts_source_once_for_eight_uploads() {
 
 #[test]
 fn bc1_bc3_bc4_bc5_sources_remain_compressed_and_sampled() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     for height_format in [80, 83] {
         let (terrain, base) = super::source_mip_tests::fixture(0, 1000, [1; 3]);
         let color = [0x00, 0xf8, 0x00, 0xf8, 0, 0, 0, 0];
@@ -183,6 +190,7 @@ fn bc1_bc3_bc4_bc5_sources_remain_compressed_and_sampled() {
 
 #[test]
 fn heterogeneous_arrays_exceeding_the_stage_budget_fail_before_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut source = LayeredGpuSource {
         anisotropy: worldrunner_render_plan::TextureAnisotropy::default(),
         parameters: vec![],

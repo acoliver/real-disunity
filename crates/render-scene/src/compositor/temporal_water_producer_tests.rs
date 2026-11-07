@@ -127,6 +127,7 @@ fn error(images: &[Image], truths: &[Image], roi: &[bool]) -> f64 {
 
 #[test]
 fn the_water_producer_measurement_keeps_the_static_region_at_each_scale() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let wet: Vec<Image> = (0..FRAMES)
         .map(|f| truth(&context, seconds(f), false))

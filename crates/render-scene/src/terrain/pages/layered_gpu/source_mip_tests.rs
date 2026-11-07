@@ -176,6 +176,7 @@ fn oracle_texel(footprint: [f64; 2], rotation: u32, repeat: u32) -> Vec<u8> {
 
 #[test]
 fn independent_level_oracle_covers_fine_coarse_rotation_and_scale() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let cases = [
         ([0.001; 2], 0, [1.0, 0.0, 0.0, 0.0]),
         ([10.0; 2], 0, [0.0, 0.0, 0.0, 1.0]),
@@ -199,6 +200,7 @@ fn independent_level_oracle_covers_fine_coarse_rotation_and_scale() {
 
 #[test]
 fn composed_pages_match_independent_trilinear_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (rotation, repeat) in [(0, 750), (2700, 1700), (5400, 9000), (2_160_000_000, 750)] {
         let (terrain, resources) = fixture(rotation, repeat, [4; 3]);
@@ -275,6 +277,7 @@ fn check_pages(
 
 #[test]
 fn incomplete_authored_chains_are_typed_errors_for_every_product() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for index in 0..3 {
         let mut counts = [4; 3];
         counts[index] = 2;
@@ -287,6 +290,7 @@ fn incomplete_authored_chains_are_typed_errors_for_every_product() {
 
 #[test]
 fn every_authored_mip_is_charged_to_source_memory() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (terrain, resources) = fixture(0, 1000, [4; 3]);
     let source = LayeredGpuSource::new(&terrain, &resources).unwrap();
     let texels: u64 = SHAPES
@@ -309,6 +313,7 @@ fn every_authored_mip_is_charged_to_source_memory() {
 
 #[test]
 fn single_mip_gpu_products_are_byte_identical_for_all_footprints() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (terrain, resources) = super::tests::fixture(
         TerrainSplatFilter::Spiral14,
@@ -382,6 +387,7 @@ pub(super) fn execute_shader(
 
 #[test]
 fn coarse_authored_heights_drive_the_same_crossover_as_explicit_last_levels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for filter in [TerrainSplatFilter::Spiral14, TerrainSplatFilter::Bilinear] {
         let (terrain, base) =
@@ -477,6 +483,7 @@ fn check_budget(
 
 #[test]
 fn sampler_wrappers_preserve_every_level_and_incomplete_chain_diagnostics() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for counts in [[4; 3], [4, 2, 4]] {
         let (terrain, resources) = fixture(2700, 1700, counts);
         let textures = resources

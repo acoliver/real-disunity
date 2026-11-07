@@ -13,7 +13,8 @@ const ENTRY: &str = r"
 
 #[test]
 fn named_lighting_terms_preserve_main_lit_float_bytes() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for source in [super::ENVIRONMENT_WGSL, super::TERRAIN_WGSL] {
         let baseline = source.replace(
             include_str!("lighting.wgsl"),
@@ -43,7 +44,8 @@ fn named_lighting_terms_preserve_main_lit_float_bytes() {
 
 #[test]
 fn named_terms_share_ambient_ao_and_nonzero_environment_math() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = super::ENVIRONMENT_WGSL.replace(
         "vec3<f32>(0.0); /* SCENE_ENVIRONMENT */",
         "vec3<f32>(0.2,0.3,0.4);",

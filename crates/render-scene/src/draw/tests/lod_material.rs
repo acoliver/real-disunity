@@ -80,6 +80,7 @@ pub(super) fn selection_frame(distance: i64) -> FrameUniform {
 
 #[test]
 fn material_slots_preserve_packed_geometry_and_default_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let default = scene(false);
     let explicit = scene(true);
     let plain = super::super::PreparedScene::new(&default).unwrap();
@@ -115,6 +116,7 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
 
 #[test]
 fn selected_level_changes_material_topology_and_pipeline() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(
@@ -146,6 +148,7 @@ fn selected_level_changes_material_topology_and_pipeline() {
 
 #[test]
 fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(
@@ -174,6 +177,7 @@ fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
 
 #[test]
 fn scene_rejects_a_level_material_outside_the_resource_table() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = scene(true);
     let lod = quad().lods()[0]
         .clone()
@@ -229,6 +233,7 @@ fn transition_scene(coverage: u32) -> RenderScene {
 
 #[test]
 fn transition_complement_keeps_the_preceding_levels_material() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut target = OffscreenTarget::new(

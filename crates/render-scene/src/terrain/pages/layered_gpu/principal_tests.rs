@@ -6,6 +6,7 @@ use worldrunner_render_plan::{SceneResources, SceneTerrain, SceneTexture, Textur
 
 #[test]
 fn analytical_principal_axes_match_rotated_rectangle_and_nonorthogonal_gradients() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let diagonal = 0.375 / 2.0_f64.sqrt();
     let rectangular = Geometry::new([DVec2::splat(diagonal), DVec2::new(-diagonal, diagonal)], 2);
     assert!((rectangular.major - 3.0).abs() < 1e-12);
@@ -29,6 +30,7 @@ fn analytical_principal_axes_match_rotated_rectangle_and_nonorthogonal_gradients
 
 #[test]
 fn gpu_matches_analytical_principal_filter_expectations() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::terrain::pages::residency_tests::context();
     let points = [[0.125, 0.25], [-0.375, 0.625], [1.25, -0.125]];
     let reference = Reference::new();
@@ -94,6 +96,7 @@ pub(super) fn fixture(
 
 #[test]
 fn public_reference_matches_anisotropic_gpu_with_and_without_mips() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::terrain::pages::residency_tests::context();
     let points = [[0.125, 0.25], [-0.375, 0.625], [1.25, -0.125]];
     for (level, single_mip) in [2, 4, 16]

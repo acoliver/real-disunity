@@ -341,6 +341,7 @@ pub(crate) fn draw_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
 mod format_tests {
     #[test]
     fn bc7_linear_and_srgb_are_admitted_for_layer_arrays() {
+        let _session = crate::test_support::SceneTestSession::acquire();
         for format in [
             wgpu::TextureFormat::Bc7RgbaUnorm,
             wgpu::TextureFormat::Bc7RgbaUnormSrgb,

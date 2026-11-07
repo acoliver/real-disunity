@@ -12,6 +12,7 @@ fn policy() -> worldrunner_render_shadow::CascadeRefreshPolicy {
 
 #[test]
 fn gpu_static_refresh_policy_reuses_maps_and_visibility() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = cascades::source_with(
         &scene(&[[0, 0, 1_000]], 600_000, None),
@@ -62,6 +63,7 @@ fn gpu_static_refresh_policy_reuses_maps_and_visibility() {
 #[test]
 fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
     use worldrunner_render_shadow::RefreshReason;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000], [500, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(
@@ -134,6 +136,7 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
 
 #[test]
 fn gpu_a_moved_caster_refreshes_only_the_cascades_it_reaches() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = cascades::source_with(
         &scene(&[[0, 0, 1_000], [3_400, 0, 1_000]], 600_000, None),
@@ -228,6 +231,7 @@ pub(super) fn depth_layers(context: &GpuContext, renderer: &ShadowedScene) -> Ve
 
 #[test]
 fn gpu_refresh_invalidation_capture_and_abandonment() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(
@@ -301,6 +305,7 @@ fn gpu_refresh_invalidation_capture_and_abandonment() {
 
 #[test]
 fn gpu_camera_motion_refreshes_and_uploads_map_consistent_matrices() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = cascades::source_with(
         &scene(&[[0, 0, 1_000]], 600_000, None),
@@ -347,6 +352,7 @@ fn gpu_camera_motion_refreshes_and_uploads_map_consistent_matrices() {
 #[test]
 fn gpu_sun_depth_settings_and_resize_force_refresh() {
     use worldrunner_render_shadow::RefreshReason;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let configured = DirectionalShadowSettings {

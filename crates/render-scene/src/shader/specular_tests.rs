@@ -3,7 +3,8 @@ use worldrunner_render_plan::{SceneRoughnessRemap, SceneSpecularVisibility};
 
 #[test]
 fn visibility_selection_does_not_change_low_roughness_distribution() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for remap in [
         SceneRoughnessRemap::Perceptual045,
         SceneRoughnessRemap::Perceptual04,

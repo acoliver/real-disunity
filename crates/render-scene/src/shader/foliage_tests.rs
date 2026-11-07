@@ -1,5 +1,6 @@
 #[test]
 fn band_reduces_complete_phase_before_calling_sine() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let foliage = include_str!("foliage.wgsl");
     assert_eq!(ENVIRONMENT_WGSL.matches(foliage).count(), 1);
@@ -36,6 +37,7 @@ fn recorded_sin(angle: f32) -> f32 {{
 
 #[test]
 fn curved_deformation_is_axis_covariant_and_base_ring_is_fixed() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let entry = r"
 @group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
@@ -58,11 +60,12 @@ use super::gpu_math_tests::evaluate_source;
 use crate::device::GpuContext;
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap()
+    GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap()
 }
 
 #[test]
 fn curved_axis_base_extent_and_arc_length_match_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for height in [0.0_f64, 0.5, 2.0] {
         let radius = 2.0 / (2.0 * (0.5_f64 / 2.0).atan());
@@ -93,6 +96,7 @@ fn curved_axis_base_extent_and_arc_length_match_reference() {
 
 #[test]
 fn both_frequency_bands_match_independent_clock_and_spatial_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (period, frequency, perturb, spatial) in [
         (6283_u32, 1.0_f32, 0.1_f32, 0.15_f32),
@@ -128,6 +132,7 @@ fn both_frequency_bands_match_independent_clock_and_spatial_reference() {
 
 #[test]
 fn rotated_attachment_preserves_length_without_detail_force() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let entry = r"
 @group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;

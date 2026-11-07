@@ -3,6 +3,7 @@ use worldrunner_render_plan::SceneWaterSurface;
 
 #[test]
 fn basin_clips_dry_shores_and_interpolates_crossings() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     body.surface = SceneWaterSurface::Basin {
         columns: 2,
@@ -23,6 +24,7 @@ fn basin_clips_dry_shores_and_interpolates_crossings() {
 
 #[test]
 fn authored_mesh_uses_body_elevation_and_rejects_invalid_indices() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     body.height_millimeters = 2500;
     body.surface = SceneWaterSurface::Mesh {
@@ -44,7 +46,8 @@ fn authored_mesh_uses_body_elevation_and_rejects_invalid_indices() {
 
 #[test]
 fn multiple_heights_order_independently_of_body_order_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut low = settings();
         low.height_millimeters = -1000;
@@ -106,7 +109,8 @@ fn multiple_heights_order_independently_of_body_order_at_every_supported_sample_
 
 #[test]
 fn empty_bodies_do_not_enable_water_or_snapshots() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut renderer = regressions::renderer(&context, 1);
     renderer
         .install_water_bodies(context.device(), Vec::new())

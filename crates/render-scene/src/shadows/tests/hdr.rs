@@ -75,6 +75,7 @@ fn exposed(source: &RenderScene, exposure: u32) -> RenderScene {
 
 #[test]
 fn hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for terrain in [false, true] {
@@ -104,6 +105,7 @@ fn hdr_mesh_and_terrain_shadows_preserve_unexposed_radiance_at_every_supported_s
 
 #[test]
 fn hdr_profile_rejects_uninstalled_settings_before_gpu_execution() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scope = context
         .device()
@@ -150,6 +152,7 @@ fn hdr_profile_rejects_uninstalled_settings_before_gpu_execution() {
 
 #[test]
 fn fixed_exposure_mismatch_is_typed_before_preparation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = exposed(&scene(&[], 600_000, None), 500_000);
     let frame = FrameRenderer::hdr(
@@ -176,6 +179,7 @@ fn fixed_exposure_mismatch_is_typed_before_preparation() {
 
 #[test]
 fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let base =
@@ -207,6 +211,7 @@ fn ssao_opaque_mesh_and_terrain_produce_shadowed_hdr_output() {
 
 #[test]
 fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let base =
@@ -240,6 +245,7 @@ fn ssr_profile_renders_nonempty_shadowed_mesh_and_terrain_at_every_supported_sam
 #[test]
 fn hdr_post_effects_run_after_resolve_with_msaa_and_deterministic_capture() {
     use worldrunner_render_plan::{SceneAdaptiveExposure, SceneBloom, SceneHdrPost};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = exposed(&scene(&[[0, 0, 1_000]], 600_000, None), 1_000_000);
     let effects = source
@@ -312,6 +318,7 @@ fn read_hdr(context: &GpuContext, frame: &FrameRenderer, size: [u32; 2]) -> Vec<
 #[test]
 fn authored_display_grade_reaches_the_existing_hdr_executor() {
     use worldrunner_render_plan::{SceneDisplayGrading, SceneHdrPost, SceneToneMap};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = exposed(&scene(&[[0, 0, 1_000]], 600_000, None), 1_000_000);
     let effects = source

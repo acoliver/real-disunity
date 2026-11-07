@@ -107,6 +107,7 @@ fn capture(context: &GpuContext, request: Option<SceneSsr>, samples: u32) -> Vec
 }
 #[test]
 fn gpu_ssr_profile_nonempty_without_ssao_and_disabled_identity_at_every_supported_sample_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let baseline = capture(&context, None, samples);

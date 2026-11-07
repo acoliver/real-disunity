@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn prepared_environment_matches_replaceable_lobe_and_sample_receivers() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let maps = prepare_environment(&context);
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);

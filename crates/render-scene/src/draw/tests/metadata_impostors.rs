@@ -218,6 +218,7 @@ pub(super) fn scenes() -> Vec<(&'static str, RenderScene, CameraPose)> {
 
 #[test]
 fn masked_impostor_fixture_specializes_alpha_to_coverage_at_four_samples_only() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (_, scene, _) = scenes()
         .into_iter()
         .find(|(name, _, _)| *name == A2C_FIXTURE)

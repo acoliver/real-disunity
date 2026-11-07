@@ -85,6 +85,7 @@ pub(super) fn frame_at(height: i64) -> FrameUniform {
 
 #[test]
 fn a_temporal_half_scale_renderer_selects_terrain_mips_two_levels_finer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = scene();
     for level in [2_u32, 3] {

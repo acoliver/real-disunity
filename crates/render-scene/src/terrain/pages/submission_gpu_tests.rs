@@ -4,8 +4,12 @@ use worldrunner_render_gpu::{configuration::AllocationBudget, submission::Submis
 
 #[test]
 fn terrain_pages_failed_submission_and_pending_edits_publish_nothing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for fail_submission in [false, true] {
-        let context = context();
+        let context = pollster::block_on(crate::device::GpuContext::request_with_features(
+            wgpu::Features::empty(),
+        ))
+        .unwrap();
         let device = context.device();
         let authority = SubmissionAuthority::new(context.queue().clone());
         let settings = settings();
@@ -41,6 +45,7 @@ fn terrain_pages_failed_submission_and_pending_edits_publish_nothing() {
 
 #[test]
 fn terrain_pages_invalidated_reservation_is_rejected_before_encoding() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

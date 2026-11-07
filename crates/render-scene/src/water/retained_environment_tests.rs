@@ -48,7 +48,8 @@ fn uploaded_maps(
 }
 #[test]
 fn uploaded_constant_environment_matches_independent_water_split_sum() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let maps = uploaded_maps(&context, 1_000_000);
     let mut renderer = regressions::renderer(&context, 1);
     renderer

@@ -49,6 +49,7 @@ fn ownership_source() -> String {
 #[test]
 fn gpu_forward_ownership_rejects_inside_interval_foreground_and_partial_water_independent_of_shading_normal()
  {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let config = FrameConfig::new([3, 1], wgpu::TextureFormat::Rgba16Float, 4);
     let mut screen = SceneMetadata::new(context.device(), config.size, neutral_ao()).unwrap();

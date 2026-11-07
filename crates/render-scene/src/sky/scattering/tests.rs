@@ -28,6 +28,7 @@ fn rgb(bytes: &[u8]) -> Vec3 {
 }
 #[test]
 fn half_storage_saturates_and_truncates() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_eq!(quantize(1e5), half::f16::MAX.to_bits());
     for value in [0.00001, 0.12345, 1.2345, 12345.0] {
         let stored = half::f16::from_bits(quantize(value)).to_f32();
@@ -38,6 +39,7 @@ fn half_storage_saturates_and_truncates() {
 #[test]
 #[expect(clippy::cast_precision_loss, reason = "bounded lookup indices")]
 fn every_lookup_row_stores_the_defined_model_with_declared_quantization() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for format in [
         SceneScatteringFormat::Float16,
         SceneScatteringFormat::Float32,
@@ -81,7 +83,8 @@ fn every_lookup_row_stores_the_defined_model_with_declared_quantization() {
 }
 #[test]
 fn preparation_budget_and_cancellation_control_publication() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let mut maps = None;
     let transaction = context
@@ -138,6 +141,7 @@ fn preparation_budget_and_cancellation_control_publication() {
 }
 #[test]
 fn gpu_lookup_formats_match_their_saturated_or_unquantized_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     let mut frame = render_tests::test_frame(1.0);
     frame.sun_direction = Vec3::Z;
@@ -178,6 +182,7 @@ fn gpu_lookup_formats_match_their_saturated_or_unquantized_reference() {
 
 #[test]
 fn gpu_physical_background_and_discs_share_scattering_exposure_fog_and_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     sky.scattering = Some(settings());
     let mut frame = render_tests::test_frame(1.0);
@@ -220,6 +225,7 @@ fn gpu_physical_background_and_discs_share_scattering_exposure_fog_and_depth() {
 
 #[test]
 fn gpu_elevation_columns_have_no_azimuthal_twilight_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     sky.scattering = Some(SceneScattering {
         aerosol_scattering_pico_per_meter: [0; 3],
@@ -238,6 +244,7 @@ fn gpu_elevation_columns_have_no_azimuthal_twilight_shadow() {
 
 #[test]
 fn gpu_interior_elevation_interpolates_adjacent_quantized_columns() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     let mut frame = render_tests::test_frame(1.0);
     frame.sun_direction = Vec3::Z;
@@ -284,6 +291,7 @@ fn gpu_interior_elevation_interpolates_adjacent_quantized_columns() {
 
 #[test]
 fn fixed_observer_uses_authored_altitude_and_validates_the_atmosphere_boundary() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = settings();
     for camera in [0.1, 20.0, 1000.0] {
         assert_eq!(

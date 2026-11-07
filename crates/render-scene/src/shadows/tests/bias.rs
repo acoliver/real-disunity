@@ -3,6 +3,7 @@ use crate::shadows::cascades::CascadeViews;
 
 #[test]
 fn single_box_bias_preserves_authored_world_offset_after_caster_extension() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = scene(&[], 600_000, None);
     let extended = scene(&[[600_000, 0, 800_500]], 600_000, None);
@@ -38,6 +39,7 @@ fn texel_width(matrix: glam::Mat4) -> f32 {
 
 #[test]
 fn cascade_bias_preserves_reference_texels_across_box_and_sphere_fits_and_casters() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policies = [
         SceneShadowCascades::new(vec![1_000, 2_000, 4_000, 8_000], 0).unwrap(),
@@ -88,6 +90,7 @@ fn cascade_bias_preserves_reference_texels_across_box_and_sphere_fits_and_caster
 
 #[test]
 fn gpu_distant_non_occluding_caster_does_not_erase_nearby_cascade_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneShadowCascades::new(vec![1_000, 2_000], 0).unwrap();
     let source = super::cascades::source_with(&scene(&[[0, 1_700, 100]], 600_000, None), policy);

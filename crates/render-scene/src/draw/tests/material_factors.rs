@@ -89,7 +89,7 @@ fn interior_rgb(pixels: &[u8]) -> Vec<u8> {
 }
 
 fn assert_rendered_factors(cases: &[(u32, u32)]) {
-    let context = pollster::block_on(GpuContext::request())
+    let context = GpuContext::shared_for_test()
         .expect("material pixel regression requires a GPU adapter; absence is a failure");
     let info = context.adapter().get_info();
     println!("material factors: {} via {:?}", info.name, info.backend);
@@ -155,10 +155,12 @@ fn assert_rendered_factors(cases: &[(u32, u32)]) {
 
 #[test]
 fn rendered_roughness_factors_match_effective_scalars() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_rendered_factors(&[(UNIT, UNIT), (0, UNIT), (600_000, UNIT)]);
 }
 
 #[test]
 fn rendered_metalness_factors_match_effective_scalars() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_rendered_factors(&[(UNIT, UNIT), (UNIT, 0), (UNIT, 400_000)]);
 }

@@ -414,6 +414,7 @@ fn run_cell(
 #[test]
 #[ignore = "qualification measurement matrix: run explicitly with --ignored --nocapture"]
 fn qualification_matrix() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let config = Config::from_env();
     let context = open_context();
     let scene = CompositeScene::new(context.device());

@@ -111,19 +111,23 @@ fn check_replacement(edits: &[(usize, i32)], expected: usize) {
 }
 #[test]
 fn local_height_edit_only_uploads_the_touching_source_span() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_replacement(&[(10, 0)], 1);
 }
 #[test]
 fn shared_stitch_boundary_invalidates_every_touching_chunk() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_replacement(&[(40, 0)], 4);
 }
 #[test]
 fn changed_elevation_range_rebuilds_all_resident_chunks() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_replacement(&[(80, 1000)], 4);
 }
 
 #[test]
 fn tight_budget_coarsens_the_previous_source_before_rebuilding() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let initial = source();
     let terrain = initial

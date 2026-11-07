@@ -384,6 +384,8 @@ pub enum SceneAntiAlias {
         /// Subpixel blend weight in micro-units within `0..=1_000_000`.
         subpixel_micro: u32,
     },
+    /// Three-pass morphological resolve without automatic projection jitter.
+    Smaa(super::SceneSmaaSettings),
     /// Temporal accumulation with a unit-interval history weight.
     Taa {
         /// History blend weight in micro-units within `0..=1_000_000`.
@@ -396,6 +398,12 @@ pub enum SceneAntiAlias {
 }
 
 impl SceneAntiAlias {
+    /// SMAA 1x with luma edges at the given quality preset.
+    #[must_use]
+    pub const fn smaa(preset: super::SceneSmaaPreset) -> Self {
+        Self::Smaa(super::SceneSmaaSettings::preset(preset))
+    }
+
     /// Temporal accumulation with the given history weight and the default clip-box scale.
     #[must_use]
     pub const fn taa(history_micro: u32) -> Self {
@@ -409,11 +417,12 @@ impl SceneAntiAlias {
     ///
     /// # Errors
     ///
-    /// Returns [`SceneValidationError`] when a weight leaves the unit
-    /// interval.
+    /// Returns [`SceneValidationError`] when a weight, clip scale, or SMAA
+    /// parameter leaves its supported range.
     pub fn validate(&self) -> Result<(), SceneValidationError> {
         let (weight, clip_scale) = match self {
             Self::Disabled => return Ok(()),
+            Self::Smaa(settings) => return settings.validate(),
             Self::Fxaa { subpixel_micro } => (*subpixel_micro, None),
             Self::Taa {
                 history_micro,

@@ -48,14 +48,27 @@ impl StageDesc {
         self
     }
 
-    /// The stage parsed and validated, with its overrides applied.
-    fn program(self) -> Result<StageProgram, ProgramError> {
+    /// The stage parsed and validated, with its overrides applied. A source that a stage in
+    /// `known` was made from is not parsed again: the stage is a sibling of it. The stage is added
+    /// to `known`.
+    fn program(self, known: &mut Vec<StageProgram>) -> Result<StageProgram, ProgramError> {
         let overrides: Vec<(&str, f64)> = self
             .overrides
             .iter()
             .map(|(name, value)| (name.as_str(), *value))
             .collect();
-        Ok(StageProgram::new(self.module, self.declarations)?.with_overrides(&overrides)?)
+        let parsed = known
+            .iter()
+            .find(|stage| stage.module().source == self.module.source)
+            .cloned();
+        let stage = match parsed {
+            Some(parsed) => parsed
+                .sibling(&self.module.entry_point, self.module.kind)?
+                .with_declarations(self.declarations),
+            None => StageProgram::new(self.module, self.declarations)?,
+        };
+        known.push(stage.clone());
+        Ok(stage.with_overrides(&overrides)?)
     }
 
     /// A stage whose code is WGSL text.
@@ -314,9 +327,10 @@ impl ProgramRuntime {
             .flat_map(|variant| variant.features.iter().cloned())
             .collect();
         let mut built = Vec::new();
+        let mut parsed = Vec::new();
         for variant in desc.variants {
-            let vertex = variant.vertex.program()?;
-            let fragment = variant.fragment.program()?;
+            let vertex = variant.vertex.program(&mut parsed)?;
+            let fragment = variant.fragment.program(&mut parsed)?;
             let program = self.graphics_program(&vertex, &fragment)?;
             built.push((
                 variant.features,

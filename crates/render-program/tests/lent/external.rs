@@ -44,13 +44,14 @@ fn an_external_set_keeps_the_pass_bound_group_across_two_programs() {
 
     let mark = runtime.stats();
     let left_draw = prepare(&mut runtime, &left, &Inputs::bound(Vec::new())).unwrap();
-    assert_eq!(added(mark, runtime.stats()), [2, 1, 0, 0, 1]);
+    // The stages of both programs are entry points of one source: one module serves them all.
+    assert_eq!(added(mark, runtime.stats()), [1, 1, 0, 0, 1]);
     let mark = runtime.stats();
     let bindings = vec![BoundResource::buffer(1, 0, own)];
     let right_draw = prepare(&mut runtime, &right, &Inputs::bound(bindings)).unwrap();
-    // Two modules, `vs_right` and `fs_scaled`, and one group, for the program's own set 1. Set 0
-    // builds none.
-    assert_eq!(added(mark, runtime.stats()), [2, 1, 1, 0, 1]);
+    // No module, because the source is compiled already, and one group, for the program's own
+    // set 1. Set 0 builds none.
+    assert_eq!(added(mark, runtime.stats()), [0, 1, 1, 0, 1]);
     assert_eq!(left_draw.external_sets(), [0]);
     assert_eq!(right_draw.external_sets(), [0]);
 
@@ -169,7 +170,7 @@ fn stats_count_pipelines_modules_groups_and_prepared_draws() {
     let first = prepare(&mut runtime, &left, &inputs(no_cull())).unwrap();
     assert_eq!(
         added(RuntimeStats::default(), runtime.stats()),
-        [2, 1, 1, 0, 1]
+        [1, 1, 1, 0, 1]
     );
 
     let mark = runtime.stats();
@@ -182,7 +183,7 @@ fn stats_count_pipelines_modules_groups_and_prepared_draws() {
 
     let mark = runtime.stats();
     let other = prepare(&mut runtime, &right, &inputs(no_cull())).unwrap();
-    assert_eq!(added(mark, runtime.stats()), [1, 1, 1, 0, 1]);
+    assert_eq!(added(mark, runtime.stats()), [0, 1, 1, 0, 1]);
 
     // A draw refused before anything is built prepares nothing and builds nothing.
     let mark = runtime.stats();
@@ -219,11 +220,11 @@ fn a_plain_programs_draws_count_one_group_per_set() {
     let first = prepare(&mut runtime, &left, &inputs(no_cull())).unwrap();
     assert_eq!(
         added(RuntimeStats::default(), runtime.stats()),
-        [2, 1, 2, 0, 1]
+        [1, 1, 2, 0, 1]
     );
     let mark = runtime.stats();
     let other = prepare(&mut runtime, &right, &inputs(no_cull())).unwrap();
-    assert_eq!(added(mark, runtime.stats()), [1, 1, 2, 0, 1]);
+    assert_eq!(added(mark, runtime.stats()), [0, 1, 2, 0, 1]);
     assert!(first.external_sets().is_empty());
 
     let image = render(&gpu, &[], &[&first, &other]);

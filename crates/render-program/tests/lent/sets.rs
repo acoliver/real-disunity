@@ -101,10 +101,10 @@ fn a_prepared_set_serves_two_draws_and_builds_one_bind_group() {
 
     let mark = runtime.stats();
     let first = draw_with(&mut runtime, &left, (&[], &[&set])).unwrap();
-    assert_eq!(added(mark, runtime.stats()), [2, 1, 0, 0, 1]);
+    assert_eq!(added(mark, runtime.stats()), [1, 1, 0, 0, 1]);
     let mark = runtime.stats();
     let second = draw_with(&mut runtime, &right, (&[], &[&set])).unwrap();
-    assert_eq!(added(mark, runtime.stats()), [1, 1, 0, 0, 1]);
+    assert_eq!(added(mark, runtime.stats()), [0, 1, 0, 0, 1]);
     assert_eq!(runtime.stats().bind_groups_built, 1);
     assert_eq!(runtime.stats().sets_prepared, 1);
 
@@ -660,7 +660,7 @@ fn two_programs_with_equal_slots_share_a_set_layout_and_a_prepared_set() {
     let mark = runtime.stats();
     let first = draw_with(&mut runtime, &left, (&[], &both)).unwrap();
     let second = draw_with(&mut runtime, &right, (&[], &both)).unwrap();
-    assert_eq!(added(mark, runtime.stats()), [3, 2, 0, 0, 2]);
+    assert_eq!(added(mark, runtime.stats()), [1, 2, 0, 0, 2]);
     assert_eq!(runtime.stats().bind_groups_built, 2);
     assert_eq!(runtime.stats().sets_prepared, 2);
     assert_halves(&render(&gpu, &[], &[&first, &second]), PRODUCT, PRODUCT);

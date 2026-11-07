@@ -114,10 +114,11 @@ pub struct StageDeclarations {
     pub constants: Vec<BoundConstantLayout>,
 }
 
-/// What naga made of the module.
+/// What naga made of the source: the module and what validation learned of it. Every stage made
+/// from one source shares one.
 pub(crate) struct Parsed {
     pub(crate) module: naga::Module,
-    pub(crate) resources: Vec<Reflected>,
+    info: ModuleInfo,
 }
 
 /// A stage ready to build pipelines from: parsed, validated, with its declarations.
@@ -128,11 +129,14 @@ pub struct StageProgram {
     module: StageModule,
     declarations: StageDeclarations,
     parsed: Arc<Parsed>,
+    /// The resources the entry point uses.
+    resources: Arc<[Reflected]>,
     /// The values of pipeline-overridable constants, ordered by the key wgpu is given.
     overrides: Arc<[(String, f64)]>,
-    /// Identifies the compiled module: the source, entry point and stage.
+    /// Identifies the compiled module: the source alone, so every entry point and every set of
+    /// overrides of one source shares one.
     module_key: blake3::Hash,
-    /// Identifies the pipeline stage: `module_key` and the overrides.
+    /// Identifies the pipeline stage: the source, entry point, stage and overrides.
     key: blake3::Hash,
 }
 
@@ -149,26 +153,56 @@ impl std::fmt::Debug for StageProgram {
 
 impl StageProgram {
     /// Parses and validates `module` with naga, reading the resources its entry point uses.
+    /// Use [`sibling`](Self::sibling) for another entry point of the same source, which does not
+    /// parse again.
     ///
     /// # Errors
     /// Fails with naga's parse or validation error, a missing entry point, or a resource that
     /// cannot be bound.
     pub fn new(module: StageModule, declarations: StageDeclarations) -> Result<Self, ModuleError> {
-        let parsed = catch_unwind(AssertUnwindSafe(|| parse(&module)))
-            .map_err(|payload| ModuleError::Panicked(panic_text(payload.as_ref())))??;
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(module.source.tag().as_bytes());
-        module.source.update(&mut hasher);
-        hasher.update(module.entry_point.as_bytes());
-        hasher.update(format!("{:?}", module.kind).as_bytes());
-        let module_key = hasher.finalize();
+        let (parsed, resources) = guarded(|| {
+            let parsed = parse(&module.source)?;
+            let resources = reflected(&parsed, &module.entry_point, module.kind)?;
+            Ok((parsed, resources))
+        })?;
+        let module_key = source_key(&module.source);
+        let key = stage_key(module_key, &module, &[]);
         Ok(Self {
             module,
             declarations,
             parsed: Arc::new(parsed),
+            resources,
             overrides: Arc::from([]),
             module_key,
-            key: module_key,
+            key,
+        })
+    }
+
+    /// Another entry point of the same source, which shares this stage's parse and validation:
+    /// a vertex and a fragment stage of one WGSL text cost one parse, and they compile as one
+    /// shader module. The sibling has no declarations and no overrides; give it its own with
+    /// [`with_declarations`](Self::with_declarations) and
+    /// [`with_overrides`](Self::with_overrides).
+    ///
+    /// # Errors
+    /// Fails with `EntryPointMissing` when the source has no `kind` entry point named
+    /// `entry_point`, and with a resource that cannot be bound.
+    pub fn sibling(&self, entry_point: &str, kind: StageKind) -> Result<Self, ModuleError> {
+        let module = StageModule {
+            source: self.module.source.clone(),
+            entry_point: entry_point.to_owned(),
+            kind,
+        };
+        let resources = guarded(|| reflected(&self.parsed, entry_point, kind))?;
+        let key = stage_key(self.module_key, &module, &[]);
+        Ok(Self {
+            module,
+            declarations: StageDeclarations::default(),
+            parsed: self.parsed.clone(),
+            resources,
+            overrides: Arc::from([]),
+            module_key: self.module_key,
+            key,
         })
     }
 
@@ -189,23 +223,18 @@ impl StageProgram {
     /// twice and when a value is not one its type holds.
     pub fn with_overrides(&self, overrides: &[(&str, f64)]) -> Result<Self, OverrideError> {
         let overrides = checked_overrides(&self.parsed.module, overrides)?;
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(self.module_key.as_bytes());
-        for (name, value) in &overrides {
-            hasher.update(&(name.len() as u64).to_le_bytes());
-            hasher.update(name.as_bytes());
-            hasher.update(&value.to_bits().to_le_bytes());
-        }
-        let key = if overrides.is_empty() {
-            self.module_key
-        } else {
-            hasher.finalize()
-        };
+        let key = stage_key(self.module_key, &self.module, &overrides);
         Ok(Self {
             overrides: overrides.into(),
             key,
             ..self.clone()
         })
+    }
+
+    /// Whether both stages were made from one parse and validation of one module.
+    #[must_use]
+    pub fn shares_parse_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.parsed, &other.parsed)
     }
 
     /// The overrides set on the stage, ordered by name, as wgpu is given them.
@@ -240,8 +269,8 @@ impl StageProgram {
         self.key
     }
 
-    /// A hash of the source, entry point and stage, which identifies the compiled module that
-    /// every override of the stage shares.
+    /// A hash of the source, which identifies the compiled module that every entry point and
+    /// every set of overrides of the source shares.
     #[must_use]
     pub(crate) fn module_key(&self) -> blake3::Hash {
         self.module_key
@@ -258,7 +287,7 @@ impl StageProgram {
     /// The resources the entry point uses, by set and binding.
     #[must_use]
     pub fn reflected(&self) -> &[Reflected] {
-        &self.parsed.resources
+        &self.resources
     }
 
     /// The module as naga parsed it.
@@ -347,8 +376,13 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "a panic without a message".to_owned())
 }
 
-fn parse(stage: &StageModule) -> Result<Parsed, ModuleError> {
-    let module = match &stage.source {
+fn guarded<T>(work: impl FnOnce() -> Result<T, ModuleError>) -> Result<T, ModuleError> {
+    catch_unwind(AssertUnwindSafe(work))
+        .map_err(|payload| ModuleError::Panicked(panic_text(payload.as_ref())))?
+}
+
+fn parse(source: &StageSource) -> Result<Parsed, ModuleError> {
+    let module = match source {
         StageSource::SpirV(words) => parse_spirv(words)?,
         StageSource::Wgsl(text) => naga::front::wgsl::parse_str(text)
             .map_err(|error| ModuleError::Parse(error.emit_to_string(text)))?,
@@ -356,16 +390,52 @@ fn parse(stage: &StageModule) -> Result<Parsed, ModuleError> {
     let info: ModuleInfo = Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(&module)
         .map_err(|error| ModuleError::Validate(format!("{:?}", error.into_inner())))?;
-    let entry = module
+    Ok(Parsed { module, info })
+}
+
+/// The resources the `kind` entry point `entry_point` of `parsed` uses.
+fn reflected(
+    parsed: &Parsed,
+    entry_point: &str,
+    kind: StageKind,
+) -> Result<Arc<[Reflected]>, ModuleError> {
+    let entry = parsed
+        .module
         .entry_points
         .iter()
-        .position(|e| e.name == stage.entry_point && e.stage == stage.kind.naga())
+        .position(|e| e.name == entry_point && e.stage == kind.naga())
         .ok_or_else(|| ModuleError::EntryPointMissing {
-            name: stage.entry_point.clone(),
-            kind: stage.kind,
+            name: entry_point.to_owned(),
+            kind,
         })?;
-    let resources = reflect(&module, &info, entry)?;
-    Ok(Parsed { module, resources })
+    Ok(reflect(&parsed.module, &parsed.info, entry)?.into())
+}
+
+/// A hash of the source alone.
+fn source_key(source: &StageSource) -> blake3::Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(source.tag().as_bytes());
+    source.update(&mut hasher);
+    hasher.finalize()
+}
+
+/// A hash of the source, entry point, stage and overrides, which are everything a pipeline's
+/// stage is built from.
+fn stage_key(
+    source: blake3::Hash,
+    module: &StageModule,
+    overrides: &[(String, f64)],
+) -> blake3::Hash {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(source.as_bytes());
+    hasher.update(module.entry_point.as_bytes());
+    hasher.update(format!("{:?}", module.kind).as_bytes());
+    for (name, value) in overrides {
+        hasher.update(&(name.len() as u64).to_le_bytes());
+        hasher.update(name.as_bytes());
+        hasher.update(&value.to_bits().to_le_bytes());
+    }
+    hasher.finalize()
 }
 
 fn parse_spirv(words: &[u32]) -> Result<naga::Module, ModuleError> {

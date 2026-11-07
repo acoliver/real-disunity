@@ -90,3 +90,67 @@ fn direct_sunlight_visibility(visibility: f32) -> f32 {
 fn sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     return direct_sunlight_visibility(raw_sunlight_visibility(position, normal));
 }
+struct SceneCardShadow {
+    single_ndc: vec3<f32>,
+    single_gradient: vec2<f32>,
+    coordinates: array<vec3<f32>, 4>,
+    gradients: array<vec2<f32>, 4>,
+}
+fn scene_prepare_card_shadow(position: vec3<f32>, normal: vec3<f32>) -> SceneCardShadow {
+    var prepared: SceneCardShadow;
+    if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 {
+        let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
+        let ndc = clip.xyz / clip.w;
+        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+        let gradient = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+        prepared.single_ndc = ndc;
+        prepared.single_gradient = gradient;
+        return prepared;
+    }
+    for (var i = 0; i < 4; i += 1) {
+        let clip = shadow.clip_from_world[i] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
+        let ndc = clip.xyz / clip.w;
+        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+        prepared.coordinates[i] = ndc;
+        prepared.gradients[i] = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+    }
+    return prepared;
+}
+fn scene_card_shadow_visibility(position: vec3<f32>, prepared: SceneCardShadow) -> f32 {
+    if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 {
+        return cascade_visibility(prepared.single_ndc, prepared.single_gradient, 0);
+    }
+    let count = i32(shadow.policy.x);
+    let distance = dot(shadow.view_depth, vec4<f32>(position, 1.0));
+    var selected = count;
+    for (var i = 0; i < count; i += 1) {
+        var contains = max(abs(prepared.coordinates[i].x), abs(prepared.coordinates[i].y)) <= 1.0;
+        if shadow.policy.z > 0.5 { contains = distance <= shadow.splits[i]; }
+        if contains { selected = i; break; }
+    }
+    if selected == count { return 1.0; }
+    let current = cascade_visibility(prepared.coordinates[selected], prepared.gradients[selected], selected);
+    if selected + 1 == count || shadow.policy.y == 0.0 { return current; }
+    var progress = max(abs(prepared.coordinates[selected].x), abs(prepared.coordinates[selected].y));
+    if shadow.policy.z > 0.5 {
+        var start = shadow.policy.w;
+        if selected > 0 { start = shadow.splits[selected - 1]; }
+        progress = (distance - start) / (shadow.splits[selected] - start);
+    }
+    var fade_fraction = shadow.policy.y;
+    if shadow.policy.z > 1.5 {
+        var width = shadow.splits[0] - shadow.policy.w;
+        var start = shadow.policy.w;
+        var fade = width * shadow.policy.y;
+        for (var i = 0; i < selected; i += 1) {
+            start += width - fade;
+            width *= shadow.bias.x;
+            fade = (width - fade) * shadow.policy.y;
+        }
+        progress = (distance - start) / width;
+        fade_fraction = fade / width;
+    }
+    let weight = clamp((progress - (1.0 - fade_fraction)) / fade_fraction, 0.0, 1.0);
+    let next = cascade_visibility(prepared.coordinates[selected + 1], prepared.gradients[selected + 1], selected + 1);
+    return mix(current, next, weight);
+}

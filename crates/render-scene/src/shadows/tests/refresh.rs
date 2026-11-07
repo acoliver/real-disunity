@@ -101,7 +101,7 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
     assert_eq!(last(&renderer), Some(2));
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
-        Some(RefreshReason::Generation)
+        Some(RefreshReason::Invalidated)
     );
     renderer
         .scene_mut()
@@ -130,6 +130,50 @@ fn gpu_moved_casters_refresh_retained_cascades_and_other_edits_do_not() {
         Some(3),
         "a hidden caster moves without a refresh"
     );
+}
+
+#[test]
+fn gpu_a_moved_caster_refreshes_only_the_cascades_it_reaches() {
+    let context = context();
+    let source = cascades::source_with(
+        &scene(&[[0, 0, 1_000], [3_400, 0, 1_000]], 600_000, None),
+        SceneShadowCascades::new(vec![1_000, 2_000, 3_000, 4_000], 0).unwrap(),
+    );
+    let settings = DirectionalShadowSettings {
+        refresh_policy: policy(),
+        ..settings()
+    };
+    let mut renderer = ShadowedScene::new(&context, &source, settings).unwrap();
+    let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let frames =
+        |renderer: &ShadowedScene| renderer.cascade_refresh_states().map(|s| s.last_frame());
+    assert_eq!(frames(&renderer), [Some(0); 4]);
+    let far = renderer.scene_mut().instance_handles().nth(2).unwrap();
+    let (object, _) = renderer.scene_mut().instance(far).unwrap();
+    let mut moves = Vec::new();
+    for (step, east) in [3_500, 3_600, 3_700].into_iter().enumerate() {
+        renderer
+            .scene_mut()
+            .set_instance_transform(
+                far,
+                SceneTransform {
+                    position_millimeters: [east, 0, 1_000],
+                    ..*object.transform()
+                },
+            )
+            .unwrap();
+        render_target(&mut renderer, &context, &view(), &target).unwrap();
+        let frame = Some(step as u64 + 1);
+        moves.push(frames(&renderer).map(|last| last == frame));
+    }
+    // The far caster sits outside the two inner cascades' caster volumes.
+    assert_eq!(moves, vec![[false, false, true, true]; 3]);
+    let retained = target.read_rgba8(&context).unwrap();
+    renderer.invalidate_shadows();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    assert_eq!(frames(&renderer), [Some(4); 4]);
+    assert_eq!(target.read_rgba8(&context).unwrap(), retained);
 }
 
 pub(super) fn depth_layers(context: &GpuContext, renderer: &ShadowedScene) -> Vec<Vec<f32>> {
@@ -221,10 +265,22 @@ fn gpu_refresh_invalidation_capture_and_abandonment() {
         .scene_mut()
         .set_instance_visible(handle, false)
         .unwrap();
+    let mut abandoned = context.submission().begin(context.device()).unwrap();
+    renderer
+        .encode(
+            &context,
+            &view(),
+            &target.color_attachment(),
+            &target.depth_attachment(),
+            &mut abandoned,
+        )
+        .unwrap();
+    drop(abandoned);
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
-        Some(worldrunner_render_shadow::RefreshReason::Generation)
+        Some(worldrunner_render_shadow::RefreshReason::Invalidated),
+        "an abandoned frame leaves the hidden caster's change pending"
     );
     renderer
         .set_settings(
@@ -311,7 +367,7 @@ fn gpu_sun_depth_settings_and_resize_force_refresh() {
     render_target(&mut renderer, &context, &view(), &target).unwrap();
     assert_eq!(
         renderer.cascade_refresh_states()[0].last_reason(),
-        Some(RefreshReason::Generation),
+        Some(RefreshReason::Invalidated),
         "a moved caster refreshes before its depth range is compared"
     );
     renderer.set_effects(&fixture::effects(-600_000)).unwrap();

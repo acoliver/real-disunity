@@ -109,7 +109,7 @@ fn entry_point(words: &[u32]) -> Option<(u32, String)> {
     found
 }
 
-fn module_cause(error: &ModuleError) -> String {
+pub(crate) fn module_cause(error: &ModuleError) -> String {
     match error {
         ModuleError::Parse(_) => "naga cannot parse".to_owned(),
         ModuleError::Validate(_) => "naga rejects".to_owned(),
@@ -119,7 +119,7 @@ fn module_cause(error: &ModuleError) -> String {
     }
 }
 
-fn layout_cause(error: &LayoutError) -> String {
+pub(crate) fn layout_cause(error: &LayoutError) -> String {
     match error {
         LayoutError::UnsupportedParameter { kind } => format!("unsupported parameter: {kind}"),
         LayoutError::UnboundResource { .. } | LayoutError::UnboundSlot { .. } => {
@@ -506,7 +506,7 @@ impl fmt::Display for LayoutReport {
 pub fn layout_report(paths: &[PathBuf]) -> Result<LayoutReport, PlayerError> {
     let mut report = LayoutReport::default();
     walk_variants(paths, &mut |event| match event {
-        Event::Shader => report.shaders += 1,
+        Event::Shader(_) => report.shaders += 1,
         Event::Unreadable(cause) => count(&mut report.unreadable_variants, cause),
         Event::Variant {
             parameters, stages, ..

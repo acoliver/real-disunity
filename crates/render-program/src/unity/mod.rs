@@ -11,6 +11,7 @@
 //! vector or matrix is written one 16-byte register at a time.
 
 pub mod buffers;
+pub mod compute_kernel;
 pub mod constants;
 mod declare;
 pub mod layout;

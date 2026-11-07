@@ -1,6 +1,6 @@
 //! The textures offscreen work names: uploaded sources and render textures the state creates.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::create::TextureShape;
 use crate::error::ProgramError;
@@ -10,7 +10,7 @@ use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerState;
 
 use super::error::OffscreenError;
-use super::format::{color_format, depth_format, render_color_format};
+use super::format::{depth_format, render_color_format, source_format};
 use super::frame::{RenderTextureSpec, SourceTexture};
 
 /// A texture of the state and what its color and depth storage is.
@@ -62,7 +62,7 @@ impl TextureTable {
         runtime: &mut ProgramRuntime,
         source: &SourceTexture,
     ) -> Result<(), OffscreenError> {
-        let format = color_format(source.graphics_format)?;
+        let format = source_format(source.graphics_format)?;
         let color =
             runtime.create_texture_2d("offscreen source", source.size, format, &source.bytes)?;
         let info = TextureInfo {
@@ -95,6 +95,27 @@ impl TextureTable {
             }
         }
         Ok(())
+    }
+
+    /// Gives back the storage of every render texture that `live` does not name, as one that its
+    /// owner destroyed. An uploaded source is kept: it is replaced, never destroyed.
+    pub(super) fn retain_render_textures(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        live: &BTreeSet<TextureId>,
+    ) {
+        let gone: Vec<TextureId> = self
+            .textures
+            .iter()
+            .filter(|(id, info)| info.spec.is_some() && !live.contains(id))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in gone {
+            if let Some(old) = self.textures.remove(&id) {
+                self.retired.extend(old.handles());
+            }
+        }
+        self.release_waiting(runtime);
     }
 
     fn replace(&mut self, runtime: &mut ProgramRuntime, id: TextureId, info: TextureInfo) {

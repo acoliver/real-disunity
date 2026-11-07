@@ -22,6 +22,14 @@ pub struct TextureTarget {
     pub binding: u32,
 }
 
+/// A storage buffer parameter's name and the binding it fills.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BufferTarget {
+    pub name: ParamName,
+    pub set: u32,
+    pub binding: u32,
+}
+
 impl StageProgram {
     /// The constant buffers the parameters describe for this stage, each with its prepared set
     /// and binding.
@@ -59,6 +67,28 @@ impl StageProgram {
             .map(|wanted| {
                 let placed = entry(&self.module().bindings, wanted.at)?;
                 Ok(TextureTarget {
+                    name: wanted.name,
+                    set: placed.set,
+                    binding: placed.binding,
+                })
+            })
+            .collect()
+    }
+
+    /// The structured buffer and unordered access parameters of this stage with their prepared
+    /// set and binding, in the order they are declared.
+    ///
+    /// # Errors
+    /// Fails on a binding outside the binding table.
+    pub fn buffer_targets(&self) -> Result<Vec<BufferTarget>, LayoutError> {
+        let kind = self.module().kind;
+        self.parameters()
+            .storage_buffers()
+            .into_iter()
+            .filter(|wanted| applies(wanted.stages, kind))
+            .map(|wanted| {
+                let placed = entry(&self.module().bindings, wanted.at)?;
+                Ok(BufferTarget {
                     name: wanted.name,
                     set: placed.set,
                     binding: placed.binding,

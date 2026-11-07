@@ -1,4 +1,4 @@
-//! Turning planned steps into typed operations once the constants buffer exists: creating the
+//! Turning planned steps into typed operations once the constants buffers exist: creating the
 //! bind groups and the checked draws.
 
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ use crate::state::{ColorState, RenderState};
 
 use super::error::OffscreenError;
 use super::plan::DrawPlan;
-use super::steps::{BlitStep, CameraDraw, Step, push_buffer_use};
+use super::steps::{BlitStep, BufferReads, CameraDraw, Step, push_buffer_use};
 use super::tracker::Tracker;
 
 /// The state turning steps into operations needs, borrowed from the offscreen state.
@@ -24,8 +24,8 @@ pub(super) struct Finish<'a> {
     pub(super) runtime: &'a mut ProgramRuntime,
     pub(super) tracker: &'a mut Tracker,
     pub(super) draws: &'a mut HashMap<blake3::Hash, CheckedDraw>,
-    /// The constants buffer in the registry, when any draw has constants.
-    pub(super) constants: Option<AllocationKey>,
+    /// The constants buffers in the registry, one for each chunk of the frame's constants.
+    pub(super) constants: Vec<AllocationKey>,
 }
 
 impl Finish<'_> {
@@ -49,16 +49,17 @@ impl Finish<'_> {
         pass: RasterPass,
         draws: &[CameraDraw],
     ) -> Result<TypedOperation, OffscreenError> {
-        let mut buffers = Vec::new();
+        let mut reads = BufferReads::default();
         let mut checked = Vec::new();
         for draw in draws {
             let (bindings, uses) = self.bind(&draw.plan)?;
             checked.push(self.checked_draw(draw, bindings)?);
-            for usage in uses.into_iter().chain(draw.vertices.uses.iter().cloned()) {
-                push_buffer_use(&mut buffers, usage);
-            }
-            if let Some(usage) = &draw.index_use {
-                push_buffer_use(&mut buffers, usage.clone());
+            for usage in uses
+                .iter()
+                .chain(&draw.vertices.uses)
+                .chain(&draw.index_use)
+            {
+                reads.add(usage);
             }
         }
         let mut operation = TypedOperation::new(
@@ -68,12 +69,12 @@ impl Finish<'_> {
                 draws: checked,
             },
         );
-        operation.buffers = buffers;
+        operation.buffers = reads.finish(self.tracker)?;
         Ok(operation)
     }
 
     /// The bind group of each descriptor set of the plan's program, and the uniform reads they
-    /// make of the constants buffer.
+    /// make of the constants buffers.
     fn bind(
         &mut self,
         plan: &DrawPlan,
@@ -98,7 +99,10 @@ impl Finish<'_> {
                 .collect();
             let mut buffers = Vec::new();
             for constant in plan.constants.iter().filter(|c| c.set == set) {
-                let key = self.constants.ok_or(ContractError::Pipeline)?;
+                let key = *self
+                    .constants
+                    .get(constant.chunk)
+                    .ok_or(ContractError::Pipeline)?;
                 let view = self.tracker.buffer_view(
                     key,
                     constant.offset..constant.offset + constant.len,

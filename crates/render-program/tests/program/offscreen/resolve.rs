@@ -140,3 +140,49 @@ fn a_variant_is_prepared_once_and_shared_by_every_resolution_of_it() {
         .unwrap();
     assert_eq!(shader.cached_variants(), 2);
 }
+
+/// The two passes with the first one's tags removed: pass 0 is untagged and pass 1 is `Beta`.
+fn first_untagged() -> ProgramShader {
+    let mut synthetic = two_passes();
+    let first = &mut synthetic.shader.parsed.sub_shaders[0].passes[0];
+    first.tags.clear();
+    first.state.tags.clear();
+    ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap()
+}
+
+fn untagged_as(values: &[&str], untagged: &str) -> PassSelector {
+    PassSelector::TagWithUntagged {
+        key: "lightmode".to_owned(),
+        values: values.iter().map(|&value| value.to_owned()).collect(),
+        untagged: untagged.to_owned(),
+    }
+}
+
+#[test]
+fn a_pass_without_the_tag_counts_as_the_value_given_for_untagged_passes() {
+    let mut shader = first_untagged();
+    assert!(matches!(
+        shader.resolve(&tag(&["Alpha"]), &[]),
+        Err(ResolveError::NoPass { .. })
+    ));
+    assert_eq!(
+        shader
+            .resolve(&untagged_as(&["Alpha"], "Alpha"), &[])
+            .unwrap()
+            .pass,
+        0
+    );
+    // The first value in the caller's list that a pass has decides, tagged or not.
+    assert_eq!(
+        shader
+            .resolve(&untagged_as(&["Beta", "Alpha"], "Alpha"), &["K_OTHER"])
+            .unwrap()
+            .pass,
+        1
+    );
+    // A value that is neither a pass's tag nor the untagged value matches nothing.
+    assert!(matches!(
+        shader.resolve(&untagged_as(&["Gamma"], "Alpha"), &[]),
+        Err(ResolveError::NoPass { .. })
+    ));
+}

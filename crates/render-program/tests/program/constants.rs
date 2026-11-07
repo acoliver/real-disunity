@@ -8,6 +8,7 @@ const FLOAT: i8 = 0;
 const INT: i8 = 1;
 const BOOL: i8 = 2;
 const HALF: i8 = 3;
+const UINT: i8 = 5;
 
 fn names() -> Vec<(String, i32)> {
     [
@@ -113,6 +114,63 @@ fn integers_and_booleans_are_written_as_integers() {
     let packed = pack_constant_buffer(&cb, &names(), &[&material], 0).unwrap();
     assert_eq!(&packed.bytes[0..4], &(-3_i32).to_le_bytes());
     assert_eq!(&packed.bytes[4..8], &1_u32.to_le_bytes());
+}
+
+/// The first four bytes of the buffer a single scalar member packs to, for `value`.
+fn scalar_bytes(kind: i8, value: PropertyValue) -> Result<[u8; 4], ConstantError> {
+    let cb = buffer(vec![param(4, 0, 1, kind, 1)], vec![], 16);
+    let mut material = PropertySet::new();
+    material.set("_Count", value);
+    let packed = pack_constant_buffer(&cb, &names(), &[&material], 0)?;
+    Ok(packed.bytes[..4].try_into().unwrap())
+}
+
+fn wrong_kind() -> ConstantError {
+    ConstantError::WrongKind {
+        property: "_Count".to_owned(),
+    }
+}
+
+#[test]
+fn an_integer_set_on_a_float_member_is_written_as_that_number_while_a_float_can_hold_it_exactly() {
+    let float = |value| scalar_bytes(FLOAT, PropertyValue::Int(value)).map(f32::from_le_bytes);
+    assert_eq!(float(3), Ok(3.0));
+    assert_eq!(float(-7), Ok(-7.0));
+    assert_eq!(float(0), Ok(0.0));
+    assert_eq!(float(1 << 24), Ok(16_777_216.0));
+    assert_eq!(float((1 << 24) + 1), Err(wrong_kind()));
+    assert_eq!(float(-(1 << 24) - 1), Err(wrong_kind()));
+}
+
+#[test]
+fn a_float_set_on_an_integer_boolean_or_unsigned_member_is_written_when_it_is_a_whole_number() {
+    let int = |value| scalar_bytes(INT, PropertyValue::Float(value)).map(i32::from_le_bytes);
+    assert_eq!(int(2.0), Ok(2));
+    assert_eq!(int(-3.0), Ok(-3));
+    assert_eq!(int(2.5), Err(wrong_kind()));
+    assert_eq!(int(f32::NAN), Err(wrong_kind()));
+    assert_eq!(int(3.0e9), Err(wrong_kind()), "past the largest integer");
+
+    let flag = |value| scalar_bytes(BOOL, PropertyValue::Float(value)).map(u32::from_le_bytes);
+    assert_eq!(flag(1.0), Ok(1));
+    assert_eq!(flag(0.0), Ok(0));
+    assert_eq!(flag(2.0), Err(wrong_kind()));
+
+    let unsigned = |value| scalar_bytes(UINT, PropertyValue::Float(value)).map(u32::from_le_bytes);
+    assert_eq!(unsigned(3.0), Ok(3));
+    assert_eq!(unsigned(-1.0), Err(wrong_kind()));
+}
+
+#[test]
+fn a_vector_on_a_scalar_member_stays_a_named_error() {
+    assert_eq!(
+        scalar_bytes(FLOAT, PropertyValue::Matrix([0.0; 16])),
+        Err(wrong_kind())
+    );
+    assert_eq!(
+        scalar_bytes(INT, PropertyValue::Vector([1.0; 4])),
+        Err(wrong_kind())
+    );
 }
 
 #[test]

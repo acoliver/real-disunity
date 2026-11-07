@@ -56,6 +56,13 @@ pub(crate) struct WantedTexture {
     pub(crate) stages: Option<u8>,
 }
 
+/// A storage buffer binding with the name the host binds a buffer under.
+pub(crate) struct WantedStorage {
+    pub(crate) at: At,
+    pub(crate) name: ParamName,
+    pub(crate) stages: Option<u8>,
+}
+
 pub(crate) trait Source {
     /// Every resource declared, whichever stage uses it.
     ///
@@ -66,6 +73,9 @@ pub(crate) trait Source {
     fn constant_buffers(&self) -> Vec<WantedBuffer>;
 
     fn textures(&self) -> Vec<WantedTexture>;
+
+    /// The structured buffers and unordered access views, which hold the buffers a host binds.
+    fn storage_buffers(&self) -> Vec<WantedStorage>;
 }
 
 impl Source for StageParameters {
@@ -87,6 +97,13 @@ impl Source for StageParameters {
         match self {
             Self::Program(parameters) => parameters.textures(),
             Self::Variant(parameters) => parameters.textures(),
+        }
+    }
+
+    fn storage_buffers(&self) -> Vec<WantedStorage> {
+        match self {
+            Self::Program(parameters) => parameters.storage_buffers(),
+            Self::Variant(parameters) => parameters.storage_buffers(),
         }
     }
 }
@@ -161,6 +178,20 @@ impl Source for ProgramParameters {
                 stages: None,
             })
             .collect()
+    }
+
+    fn storage_buffers(&self) -> Vec<WantedStorage> {
+        let structured = self.buffers.iter().map(|buffer| WantedStorage {
+            at: At::binding(buffer.index),
+            name: ParamName::Index(buffer.name_index),
+            stages: None,
+        });
+        let writable = self.uavs.iter().map(|uav| WantedStorage {
+            at: At::binding(uav.index),
+            name: ParamName::Index(uav.name_index),
+            stages: None,
+        });
+        structured.chain(writable).collect()
     }
 }
 
@@ -271,6 +302,18 @@ impl Source for VariantParameters {
             .iter()
             .filter(|binding| matches!(binding.kind, ResourceKind::Texture { .. }))
             .map(|binding| WantedTexture {
+                at: At::slot(binding.slot),
+                name: ParamName::Named(binding.name.clone()),
+                stages: Some(binding.slot.stages),
+            })
+            .collect()
+    }
+
+    fn storage_buffers(&self) -> Vec<WantedStorage> {
+        self.bindings
+            .iter()
+            .filter(|binding| binding.kind == ResourceKind::Buffer)
+            .map(|binding| WantedStorage {
                 at: At::slot(binding.slot),
                 name: ParamName::Named(binding.name.clone()),
                 stages: Some(binding.slot.stages),

@@ -110,6 +110,11 @@ pub fn stage_spirv(wgsl: &str, entry: &str, stage: naga::ShaderStage) -> Vec<u32
     spv::write_vec(&module, &info, &options, Some(&pipeline)).unwrap()
 }
 
+/// SPIR-V of the compute entry point `entry` of a WGSL module.
+pub fn compute_spirv(wgsl: &str, entry: &str) -> Vec<u32> {
+    stage_spirv(wgsl, entry, naga::ShaderStage::Compute)
+}
+
 /// A float vector member of a constant buffer.
 pub fn vector_member(name: &str, offset: i32) -> BufferMember {
     BufferMember {
@@ -430,4 +435,31 @@ pub fn shader(keyword_names: &[&str], passes: &[PassSpec]) -> SyntheticShader {
         asset_local_identifier: 0,
     };
     SyntheticShader { shader, chunks }
+}
+
+/// A compute stage built from WGSL, for hosts that test dispatches. `places` are the sets and
+/// bindings the module declares, which `parameters` name; each is its own prepared binding.
+pub fn compute_stage(
+    wgsl: &str,
+    entry: &str,
+    places: &[(u32, u32)],
+    parameters: VariantParameters,
+) -> super::module::StageProgram {
+    use super::module::{ResourceBinding, StageKind, StageModule, StageProgram};
+    let bindings = places
+        .iter()
+        .map(|&(set, binding)| ResourceBinding {
+            set,
+            unity_binding: binding,
+            binding,
+            sampler_binding: None,
+        })
+        .collect();
+    let module = StageModule {
+        words: compute_spirv(wgsl, entry),
+        entry_point: entry.to_owned(),
+        kind: StageKind::Compute,
+        bindings,
+    };
+    StageProgram::new(module, parameters).expect("a compute stage that parses")
 }

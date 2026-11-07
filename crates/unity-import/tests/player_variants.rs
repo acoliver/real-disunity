@@ -67,7 +67,7 @@ fn write_player(dir: &Path, shaders: &[&[u32]]) -> Vec<PathBuf> {
 fn walked_shaders(paths: &[PathBuf]) -> Result<usize, PlayerError> {
     let mut shaders = 0;
     walk_variants(paths, &mut |event| {
-        if matches!(event, Event::Shader) {
+        if matches!(event, Event::Shader(_)) {
             shaders += 1;
         }
     })?;

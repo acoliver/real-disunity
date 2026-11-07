@@ -137,11 +137,13 @@ impl ProgramRuntime {
         Ok(())
     }
 
-    /// Uploads tightly packed rows of an uncompressed 2D texture.
+    /// Uploads the base level of a 2D texture as tightly packed rows, or rows of blocks for a
+    /// block-compressed format.
     ///
     /// # Errors
-    /// Fails when `bytes` is not exactly `width * height` texels of `format`, or the upload
-    /// plan or device refuses the texture.
+    /// Fails when `bytes` is not exactly the whole texels or blocks of the level in `format`, or
+    /// the upload plan or device refuses the texture, as a block format the device cannot sample
+    /// or an extent that is not a whole number of blocks.
     pub fn create_texture_2d(
         &mut self,
         label: &str,
@@ -150,13 +152,14 @@ impl ProgramRuntime {
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
         self.authority.check_device()?;
-        let texel = format
+        let block = format
             .block_copy_size(None)
-            .filter(|_| format.block_dimensions() == (1, 1))
-            .ok_or_else(|| {
-                ProgramError::Gpu(format!("{format:?} is not an uncompressed format"))
-            })?;
-        let needed = size[0] as usize * size[1] as usize * texel as usize;
+            .filter(|_| !format.is_depth_stencil_format() && !format.is_multi_planar_format())
+            .ok_or_else(|| ProgramError::Gpu(format!("{format:?} is not a color format")))?;
+        let (block_width, block_height) = format.block_dimensions();
+        let needed = size[0].div_ceil(block_width) as usize
+            * size[1].div_ceil(block_height) as usize
+            * block as usize;
         if bytes.len() != needed {
             return Err(ProgramError::TextureData {
                 size,

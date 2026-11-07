@@ -1,0 +1,17 @@
+//! Tests of the offscreen adapter. Worlds, files, meshes and textures are synthetic.
+
+mod assets;
+mod builtins;
+mod camera;
+mod causes;
+mod defaults;
+mod flush;
+mod frame;
+mod gpu;
+mod kernels;
+mod policy;
+mod probe;
+mod properties;
+mod refusal;
+mod shaders;
+mod support;

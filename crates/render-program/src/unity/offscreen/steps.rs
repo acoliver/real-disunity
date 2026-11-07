@@ -1,22 +1,28 @@
 //! The steps of a frame, in call order, before the constants buffer exists: camera passes with
 //! their draws, blits and copies.
 
+use std::collections::BTreeMap;
+use std::ops::Range;
+
 use worldrunner_render_post::contracts::{
-    BufferUse, BufferUseKind, ColorAttachment, DepthAttachment, DrawGeometry, IndexBinding,
-    RasterId, RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation, TypedWork,
+    AllocationKey, BufferUse, BufferUseKind, ColorAttachment, DepthAttachment, DrawGeometry,
+    IndexBinding, RasterId, RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation,
+    TypedWork,
 };
 use worldrunner_render_post::{AttachmentLoad, StageId};
 
-use crate::ids::{CameraId, MaterialId, MeshId, TextureId};
+use crate::ids::{CameraId, MaterialId, MeshId, ShaderId, TextureId};
 use crate::layers::{Layers, PropertyLayer, TextureInput};
 use crate::packet::TargetSignature;
 use crate::properties::PropertyValue;
-use crate::unity::shader::PassSelector;
+use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::textures::TextureInfo;
+use super::tracker::Tracker;
+use super::{CameraCauses, CameraDraws, CameraPassReport, UnmatchedPasses};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
@@ -90,37 +96,30 @@ fn camera_step(
     require_render_texture(svc, target)?;
     let signature = svc.signature(target)?;
     let mut draws = Vec::new();
-    for (material_id, renderer_id, slot) in visible_draws(svc, frame, camera)? {
-        let renderer = &frame.renderers[&renderer_id];
-        let material = &frame.materials[&material_id];
-        let shader = material
-            .shader
-            .ok_or(OffscreenError::NoShader(material_id))?;
-        let layers = [
-            &renderer.per_draw,
-            &camera.values,
-            &renderer.block,
-            &material.properties,
-            &frame.globals,
-        ];
-        let spec = DrawSpec {
-            shader,
-            keywords: keywords(material, frame),
-            selector: camera.pass.clone(),
-            layers: Layers::new(&layers),
-        };
-        let sub = svc.meshes.get(renderer.mesh)?.sub_meshes[slot];
-        if sub.count == 0 {
-            continue;
+    let unmatched_before = svc.counts.unmatched;
+    let missing_before = svc.counts.missing_texture;
+    let channel_before = svc.counts.missing_channel;
+    svc.counts.current = CameraCauses::default();
+    let outer_missing = std::mem::take(svc.missing);
+    for visible in visible_draws(svc, frame, camera)? {
+        if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+            draws.push(draw);
         }
-        draws.push(camera_draw(
-            svc,
-            &spec,
-            renderer.mesh,
-            sub,
-            (signature, camera.front_face),
-        )?);
     }
+    svc.counts.cameras.push(CameraDraws {
+        camera: camera_id,
+        target,
+        drawn: draws.len(),
+        unmatched: svc.counts.unmatched - unmatched_before,
+        missing_texture: svc.counts.missing_texture - missing_before,
+        missing_channel: svc.counts.missing_channel - channel_before,
+    });
+    let causes = std::mem::take(&mut svc.counts.current);
+    svc.counts.camera_causes.push(causes);
+    let without_value = std::mem::replace(svc.missing, outer_missing);
+    let report = pass_report((camera_id, target), svc, &draws, &without_value);
+    svc.counts.passes.push(report);
+    svc.missing.extend(without_value);
     let pass = camera_pass(
         svc,
         raster_id("offscreen camera", index),
@@ -133,6 +132,167 @@ fn camera_step(
         pass,
         draws,
     })
+}
+
+/// How the camera's draws were set up: the target's formats, the states of the draws and the names
+/// the draws read with no value.
+fn pass_report(
+    (camera, target): (CameraId, TextureId),
+    svc: &Services<'_>,
+    draws: &[CameraDraw],
+    without_value: &std::collections::BTreeSet<String>,
+) -> CameraPassReport {
+    let info = svc.textures.get(target).ok();
+    let mut states = std::collections::BTreeMap::<String, usize>::new();
+    for draw in draws {
+        let state = &draw.plan.state;
+        let words = format!(
+            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}",
+            state.cull,
+            state.depth_compare,
+            state.depth_write,
+            write_mask(state.color_write),
+            if state.blend.is_some() { "on" } else { "off" }
+        );
+        *states.entry(words).or_default() += 1;
+    }
+    CameraPassReport {
+        camera,
+        target,
+        color: info.and_then(|info| info.color.map(|_| info.format)),
+        depth: info.and_then(|info| info.depth_format),
+        states: states.into_iter().collect(),
+        without_value: without_value.iter().cloned().collect(),
+    }
+}
+
+/// The channels a color write mask lets through, as `RGBA` with the ones it blocks left out, or
+/// `none`.
+fn write_mask(mask: wgpu::ColorWrites) -> String {
+    let channels = [
+        (wgpu::ColorWrites::RED, 'R'),
+        (wgpu::ColorWrites::GREEN, 'G'),
+        (wgpu::ColorWrites::BLUE, 'B'),
+        (wgpu::ColorWrites::ALPHA, 'A'),
+    ];
+    let letters: String = channels
+        .iter()
+        .filter(|(channel, _)| mask.contains(*channel))
+        .map(|(_, letter)| *letter)
+        .collect();
+    if letters.is_empty() {
+        "none".to_owned()
+    } else {
+        letters
+    }
+}
+
+/// Plans one sub-mesh the camera sees as (material, renderer, slot). A sub-mesh with no
+/// indices, a draw whose shader has no pass the camera selects, a draw whose pass samples a
+/// texture no layer names and a draw whose mesh lacks a channel the pass reads give none; the
+/// last three are counted.
+fn planned_draw(
+    svc: &mut Services<'_>,
+    frame: &OffscreenFrame,
+    (camera, signature): (&Camera, TargetSignature),
+    (material_id, renderer_id, slot): (MaterialId, crate::ids::RendererId, usize),
+) -> Result<Option<CameraDraw>, OffscreenError> {
+    let renderer = &frame.renderers[&renderer_id];
+    let material = &frame.materials[&material_id];
+    let shader = material
+        .shader
+        .ok_or(OffscreenError::NoShader(material_id))?;
+    let layers = [
+        &renderer.per_draw,
+        &camera.values,
+        &renderer.block,
+        &material.properties,
+        &frame.globals,
+    ];
+    let spec = DrawSpec {
+        shader,
+        keywords: keywords(material, frame),
+        selector: camera.pass.clone(),
+        layers: Layers::new(&layers),
+    };
+    let sub = svc.meshes.get(renderer.mesh)?.sub_meshes[slot];
+    if sub.count == 0 {
+        return Ok(None);
+    }
+    // A draw left out after its constants were packed leaves none of them in the frame.
+    let constants_mark = svc.constants.mark();
+    let planned = camera_draw(
+        svc,
+        &spec,
+        renderer.mesh,
+        sub,
+        (signature, camera.front_face),
+    );
+    if planned.is_err() {
+        svc.constants.rollback(constants_mark);
+    }
+    match planned {
+        Ok(draw) => {
+            svc.counts.note_defaulted(&draw.vertices.defaulted);
+            Ok(Some(draw))
+        }
+        Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
+            svc.counts.unmatched += 1;
+            left_out(svc, spec.shader, &camera.pass);
+            Ok(None)
+        }
+        Err(OffscreenError::MissingTexture { name }) => {
+            svc.counts.missing_texture += 1;
+            *svc.counts.current.textures.entry(name.clone()).or_default() += 1;
+            *svc.counts.missing_textures.entry(name).or_default() += 1;
+            Ok(None)
+        }
+        Err(OffscreenError::MissingChannel { channel, input, .. }) => {
+            svc.counts.missing_channel += 1;
+            *svc.counts
+                .current
+                .channels
+                .entry((channel, input))
+                .or_default() += 1;
+            *svc.counts
+                .missing_channels
+                .entry((channel, input))
+                .or_default() += 1;
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// Counts a draw left out because `shader` has no pass `selector` selects.
+fn left_out(svc: &mut Services<'_>, shader: ShaderId, selector: &PassSelector) {
+    let (key, selected) = match selector {
+        PassSelector::Tag { key, values } | PassSelector::TagWithUntagged { key, values, .. } => {
+            (key.clone(), values.clone())
+        }
+        PassSelector::Index(index) => ("index".to_owned(), vec![index.to_string()]),
+    };
+    let (passes, tags) = svc
+        .shaders
+        .get(&shader)
+        .map_or((0, Vec::new()), |shader| shader.pass_tags(&key));
+    let found = svc.counts.unmatched_passes.iter_mut().find(|entry| {
+        entry.key == key
+            && entry.selected == selected
+            && entry.tags == tags
+            && entry.passes == passes
+    });
+    if let Some(entry) = found {
+        entry.draws += 1;
+    } else {
+        svc.counts.unmatched_passes.push(UnmatchedPasses {
+            key,
+            selected,
+            tags,
+            passes,
+            draws: 1,
+        });
+    }
 }
 
 /// The material and renderer of every sub-mesh the camera sees, as (material, renderer, slot), in
@@ -181,7 +341,7 @@ fn camera_draw(
     (signature, front_face): (TargetSignature, wgpu::FrontFace),
 ) -> Result<CameraDraw, OffscreenError> {
     let plan = svc.plan_program(spec)?;
-    let vertices = svc.plan_vertices(mesh, &plan.entry.variant)?;
+    let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     let info = svc.meshes.get(mesh)?;
     let buffer = svc.runtime.gpu_buffer(info.buffer)?;
     let key = svc
@@ -315,6 +475,57 @@ pub(super) fn push_buffer_use(uses: &mut Vec<BufferUse>, usage: BufferUse) {
     }
 }
 
+/// The buffer reads of one operation, with the reads of one buffer at one version in one kind
+/// merged into a single use over the span they cover.
+///
+/// The contract checks every use against every other and every binding against the uses, so an
+/// operation of many draws that declared each draw's slice of a shared buffer would cost the
+/// square of its draws. A read is a declaration that the pass may read the span, and reads do not
+/// conflict, so the span stands for each of the reads in it.
+#[derive(Default)]
+pub(super) struct BufferReads {
+    places: BTreeMap<(AllocationKey, u32, u8), usize>,
+    spans: Vec<(BufferUse, Range<u64>)>,
+}
+
+impl BufferReads {
+    pub(super) fn add(&mut self, usage: &BufferUse) {
+        let view = &usage.view;
+        let key = (view.allocation(), view.version(), kind_rank(usage.kind));
+        let range = view.range();
+        if let Some(&place) = self.places.get(&key) {
+            let span = &mut self.spans[place].1;
+            span.start = span.start.min(range.start);
+            span.end = span.end.max(range.end);
+        } else {
+            self.places.insert(key, self.spans.len());
+            self.spans.push((usage.clone(), range));
+        }
+    }
+
+    /// The merged uses, in the order their buffers were first read.
+    pub(super) fn finish(self, tracker: &Tracker) -> Result<Vec<BufferUse>, OffscreenError> {
+        self.spans
+            .into_iter()
+            .map(|(usage, span)| {
+                let view =
+                    tracker.buffer_view(usage.view.allocation(), span, usage.view.version())?;
+                Ok(BufferUse { view, ..usage })
+            })
+            .collect()
+    }
+}
+
+fn kind_rank(kind: BufferUseKind) -> u8 {
+    match kind {
+        BufferUseKind::Uniform => 0,
+        BufferUseKind::Storage => 1,
+        BufferUseKind::Vertex => 2,
+        BufferUseKind::Index => 3,
+        BufferUseKind::Copy => 4,
+    }
+}
+
 fn blit_step(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
@@ -343,7 +554,8 @@ fn blit_step(
         layers: Layers::new(&layers),
     };
     let plan = svc.plan_program(&spec)?;
-    let vertices = svc.plan_vertices(mesh, &plan.entry.variant)?;
+    let vertices = svc.plan_vertices(mesh, &plan.entry)?;
+    svc.counts.note_defaulted(&vertices.defaulted);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

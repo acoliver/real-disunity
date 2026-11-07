@@ -21,6 +21,8 @@ macro_rules! environment_wgsl {
             include_str!(concat!($prefix, "normal_forward.wgsl")),
             include_str!(concat!($prefix, "normal_sample.wgsl")),
             include_str!(concat!($prefix, "environment.wgsl")),
+            include_str!(concat!($prefix, "forward_cards.wgsl")),
+            "\n",
         )
     };
 }

@@ -2,8 +2,14 @@ use super::*;
 
 #[test]
 fn triangle_copy_out_preserves_uvs_and_three_corner_topology() {
+    for depth_test in [false, true] {
+        triangle_copy_out(depth_test);
+    }
+}
+
+fn triangle_copy_out(depth_test: bool) {
     let meta = native::DisunityUiDraw {
-        kind: 2,
+        kind: 2 | (u32::from(depth_test) << 2),
         triangle_u0: 0.1,
         triangle_v0: 0.2,
         triangle_u1: 0.3,
@@ -20,6 +26,7 @@ fn triangle_copy_out_preserves_uvs_and_three_corner_topology() {
     };
     let draw = decode(meta, quad).unwrap();
     assert_eq!(draw.kind, UiDrawKind::Graphic);
+    assert_eq!(draw.depth_test, depth_test);
     assert_eq!(draw.triangle_uv, Some([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]));
     assert_eq!(
         draw.corners[..3],

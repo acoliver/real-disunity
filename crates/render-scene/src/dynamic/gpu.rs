@@ -37,6 +37,7 @@ struct QuadDraw {
     index_count: u32,
     material: BindGroup,
     clip_rect: Option<[u32; 4]>,
+    depth_test: bool,
 }
 
 #[derive(Debug, Default)]
@@ -149,7 +150,7 @@ impl DynamicGpu {
         frame_group: &BindGroup,
         pipelines: &ScenePipelines,
     ) {
-        self.draw_with_pipeline(pass, Some(frame_group), pipelines.unlit_alpha(), None);
+        self.draw_with_pipeline(pass, Some(frame_group), pipelines.unlit_alpha(), None, None);
     }
 
     pub(crate) fn draw_with_pipeline(
@@ -158,10 +159,12 @@ impl DynamicGpu {
         frame_group: Option<&BindGroup>,
         pipeline: &wgpu::RenderPipeline,
         viewport: Option<[u32; 2]>,
-    ) -> crate::draw::DrawCount {
+        depth_pipeline: Option<&wgpu::RenderPipeline>,
+    ) -> (crate::draw::DrawCount, crate::draw::DrawCount) {
         let mut count = crate::draw::DrawCount::default();
+        let mut tested = crate::draw::DrawCount::default();
         if self.draws.is_empty() {
-            return count;
+            return (count, tested);
         }
         pass.set_pipeline(pipeline);
         if let Some(frame_group) = frame_group {
@@ -178,14 +181,22 @@ impl DynamicGpu {
             if viewport.is_some_and(|size| !set_scissor(pass, draw.clip_rect, size)) {
                 continue;
             }
+            pass.set_pipeline(if draw.depth_test {
+                depth_pipeline.expect("prepared depth-tested overlay pipeline")
+            } else {
+                pipeline
+            });
             pass.set_bind_group(MATERIAL_GROUP, &draw.material, &[]);
             pass.set_vertex_buffer(0, draw.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.instance.slice(..));
             pass.set_vertex_buffer(2, draw.tint.slice(..));
             pass.draw_indexed(0..draw.index_count, 0, 0..draw.instance_count);
             count.draw(u64::from(draw.instance_count));
+            if draw.depth_test {
+                tested.draw(u64::from(draw.instance_count));
+            }
         }
-        count
+        (count, tested)
     }
 }
 
@@ -237,6 +248,7 @@ impl QuadDraw {
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
             material,
             clip_rect: quad.clip_rect,
+            depth_test: quad.depth_test,
             index_count: if quad.triangle_uv.is_some() { 3 } else { 6 },
         }
     }
@@ -311,7 +323,8 @@ fn set_scissor(pass: &mut RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]
 }
 
 fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
-    a.clip_rect == b.clip_rect
+    a.depth_test == b.depth_test
+        && a.clip_rect == b.clip_rect
         && a.texture == b.texture
         && a.corners == b.corners
         && a.triangle_uv == b.triangle_uv

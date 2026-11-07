@@ -69,6 +69,7 @@ fn render(
 
 #[test]
 fn gpu_slice_culling_keeps_cascade_images_and_drops_casters_outside_the_slice() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = wide_scene();
     let mut culled = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -87,6 +88,7 @@ fn gpu_slice_culling_keeps_cascade_images_and_drops_casters_outside_the_slice() 
 
 #[test]
 fn gpu_retained_cascades_refresh_when_the_camera_turns_out_of_their_slice() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = wide_scene();
     // The sun has no north component, so sliding the camera north keeps each cascade's depth
@@ -176,6 +178,7 @@ fn terrain_draws(renderer: &mut ShadowedScene) -> u64 {
 
 #[test]
 fn gpu_cascades_draw_only_the_terrain_chunks_their_slice_can_sample() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = terrain_source();
     let mut culled = ShadowedScene::new(&context, &source, settings()).unwrap();

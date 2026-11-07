@@ -68,6 +68,8 @@ impl GlobalListing {
 /// What the offscreen work of a run did.
 #[derive(Debug, Default)]
 pub struct GpuWorkReport {
+    /// The adapter and the buffer limits of the device the work ran on.
+    pub device: String,
     /// Frames the player has run the frame path for, those without work included.
     pub frames: u64,
     /// The textures the globals held at each piece of work that listed any, in order.
@@ -213,6 +215,7 @@ impl GpuWorkReport {
 
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
+        eprintln!("[gpu] {}", self.device);
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
             self.frames_with_work, self.flushes, self.records, self.built, self.dispatches
@@ -344,6 +347,19 @@ impl PlayerGpu {
         let arena = runtime
             .open_arena(reservation)
             .map_err(|error| format!("no arena: {error}"))?;
+        let info = adapter.get_info();
+        let device_line = format!(
+            "adapter {} ({:?}), buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size \
+             {}, max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, \
+             runtime budget {}",
+            info.name,
+            info.backend,
+            limits.max_buffer_size,
+            limits.max_uniform_buffer_binding_size,
+            limits.max_storage_buffer_binding_size,
+            limits.min_uniform_buffer_offset_alignment,
+            budget.0
+        );
         let settings = Settings::cameras();
         let offscreen = OffscreenHost::new(
             runtime,
@@ -353,7 +369,10 @@ impl PlayerGpu {
         );
         Ok(Self {
             offscreen: Rc::new(RefCell::new(offscreen)),
-            report: Rc::new(RefCell::new(GpuWorkReport::default())),
+            report: Rc::new(RefCell::new(GpuWorkReport {
+                device: device_line,
+                ..GpuWorkReport::default()
+            })),
             authority,
             device,
         })

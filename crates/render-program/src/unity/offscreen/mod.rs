@@ -7,6 +7,7 @@
 //! its storage. The scene encodes the admitted operations before its own, with the frame's pass
 //! timer, in the same submission.
 
+mod constants_plan;
 mod defaults;
 mod error;
 mod finish;
@@ -38,11 +39,12 @@ use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
 use crate::unity::shader::ProgramShader;
 
+use constants_plan::{ConstantsLimits, ConstantsPlan};
 use defaults::DefaultBuffers;
 use finish::Finish;
 use frame::{Mesh, OffscreenFrame, SourceTexture};
 use meshes::MeshTable;
-use plan::{ConstantsPlan, DrawCounts, ProgramEntry, Services};
+use plan::{DrawCounts, ProgramEntry, Services};
 use textures::TextureTable;
 use tracker::Tracker;
 
@@ -59,10 +61,16 @@ pub struct OffscreenState {
     defaults: Option<DefaultBuffers>,
     samplers: SamplerCache,
     draws: HashMap<blake3::Hash, CheckedDraw>,
-    /// The buffer every draw's constants are uploaded into, and its size.
-    constants: Option<(BufferHandle, u64)>,
+    /// The buffers the frame's constants are uploaded into, one for each chunk, with their sizes.
+    constants: Vec<(BufferHandle, u64)>,
+    /// The most bytes one constants buffer may hold, when the host lowers it from the default.
+    constants_limit: Option<u64>,
     retired_constants: Vec<BufferHandle>,
 }
+
+/// The most bytes a constants buffer holds unless the host sets less. A frame with more constants
+/// than this is uploaded in several buffers.
+const CONSTANTS_CHUNK: u64 = 32 << 20;
 
 impl OffscreenState {
     #[must_use]
@@ -75,9 +83,17 @@ impl OffscreenState {
             defaults: None,
             samplers: SamplerCache::new(runtime.device()),
             draws: HashMap::new(),
-            constants: None,
+            constants: Vec::new(),
+            constants_limit: None,
             retired_constants: Vec::new(),
         }
+    }
+
+    /// Sets the most bytes one constants buffer may hold, which the device's buffer size also
+    /// limits. A frame whose constants are larger is uploaded in several buffers, each draw
+    /// binding the buffer and offset that hold its bytes.
+    pub fn set_constants_limit(&mut self, bytes: u64) {
+        self.constants_limit = Some(bytes);
     }
 
     pub fn add_shader(&mut self, id: ShaderId, shader: ProgramShader) {
@@ -162,7 +178,7 @@ impl OffscreenState {
             .limits()
             .min_uniform_buffer_offset_alignment;
         let mut tracker = Tracker::new(arena.lease());
-        let mut constants = ConstantsPlan::new(alignment);
+        let mut constants = ConstantsPlan::new(alignment, self.constants_limits(runtime));
         let mut missing = BTreeSet::new();
         let mut counts = DrawCounts::default();
         let mut shares = Vec::new();
@@ -187,20 +203,27 @@ impl OffscreenState {
             let steps = steps::plan_steps(&mut services, frame)?;
             (steps, later_reads(&mut services, frame)?)
         };
-        let constants_bytes = constants.bytes.len() as u64;
+        let (blocks, shared_blocks) = constants.block_counts();
+        let constants_use = ConstantsUse {
+            buffers: constants.chunks().len(),
+            bytes: constants.total_bytes(),
+            largest: constants.chunks().iter().map(Vec::len).max().unwrap_or(0) as u64,
+            blocks,
+            shared: shared_blocks,
+        };
         let mut operations = Vec::new();
-        let mut constants_key = None;
-        if let Some((key, upload)) =
+        let mut constants_keys = Vec::new();
+        for (key, upload) in
             self.upload_constants(runtime, &mut tracker, &constants, &mut shares)?
         {
-            constants_key = Some(key);
+            constants_keys.push(key);
             operations.push(upload);
         }
         let mut finish = Finish {
             runtime,
             tracker: &mut tracker,
             draws: &mut self.draws,
-            constants: constants_key,
+            constants: constants_keys,
         };
         operations.extend(finish.operations(steps)?);
         Ok(OffscreenOperations {
@@ -213,12 +236,28 @@ impl OffscreenState {
             shares,
             missing: missing.into_iter().collect(),
             counts,
-            constants_bytes,
+            constants_use,
         })
     }
 
-    /// The upload of the frame's constants into the constants buffer, which is created or made
-    /// larger when the frame needs it.
+    /// What the frame's constants must stay within: a block fits a uniform binding, a chunk fits a
+    /// buffer, and all of them fit the runtime's budget.
+    fn constants_limits(&self, runtime: &ProgramRuntime) -> ConstantsLimits {
+        let limits = runtime.device().limits();
+        let chunk = self
+            .constants_limit
+            .unwrap_or(CONSTANTS_CHUNK)
+            .min(limits.max_buffer_size);
+        ConstantsLimits {
+            block: limits.max_uniform_buffer_binding_size,
+            // A buffer's size is a multiple of four.
+            chunk: chunk - chunk % 4,
+            total: runtime.budget().0,
+        }
+    }
+
+    /// The upload of each chunk of the frame's constants into a constants buffer, which is created
+    /// or made larger when the chunk needs it. Buffers past the first that no chunk needs are given back.
     fn upload_constants(
         &mut self,
         runtime: &mut ProgramRuntime,
@@ -226,52 +265,74 @@ impl OffscreenState {
         constants: &ConstantsPlan,
         shares: &mut Vec<Arc<Reservation>>,
     ) -> Result<
-        Option<(
+        Vec<(
             worldrunner_render_post::contracts::AllocationKey,
             TypedOperation,
         )>,
         OffscreenError,
     > {
-        let needed = constants.bytes.len() as u64;
-        if needed == 0 {
-            return Ok(None);
-        }
-        let handle = self.constants_buffer(runtime, needed)?;
-        shares.push(runtime.store.buffer_reservation(handle)?);
-        let buffer = runtime.gpu_buffer(handle)?;
-        let key = tracker.import_buffer(
-            &buffer,
-            worldrunner_render_post::contracts::ResourceLifetime::FrameLocal,
-            None,
-        )?;
-        let destination = tracker.buffer_view(key, 0..needed, 1)?;
-        let upload = TypedOperation::new(
-            RasterId::new(StageId::new("offscreen constants", 0), 0),
-            TypedWork::Upload {
-                destination,
-                bytes: constants.bytes.clone(),
-            },
+        self.retired_constants
+            .retain(|buffer| matches!(runtime.release_buffer(*buffer), Err(ProgramError::Busy)));
+        // The first buffer stays for the next frame whatever it needs; the others, which only a
+        // frame with more constants than one buffer holds uses, are given back.
+        let kept = constants.chunks().len().max(1).min(self.constants.len());
+        self.retired_constants.extend(
+            self.constants
+                .split_off(kept)
+                .into_iter()
+                .map(|(buffer, _)| buffer),
         );
-        Ok(Some((key, upload)))
+        let mut uploads = Vec::new();
+        for (index, chunk) in constants.chunks().iter().enumerate() {
+            let needed = chunk.len() as u64;
+            let handle = self.constants_buffer(runtime, index, needed, constants.chunk_limit())?;
+            shares.push(runtime.store.buffer_reservation(handle)?);
+            let buffer = runtime.gpu_buffer(handle)?;
+            let key = tracker.import_buffer(
+                &buffer,
+                worldrunner_render_post::contracts::ResourceLifetime::FrameLocal,
+                None,
+            )?;
+            let destination = tracker.buffer_view(key, 0..needed, 1)?;
+            let upload = TypedOperation::new(
+                RasterId::new(
+                    StageId::new("offscreen constants", 0),
+                    u32::try_from(index).unwrap_or(u32::MAX),
+                ),
+                TypedWork::Upload {
+                    destination,
+                    bytes: chunk.clone(),
+                },
+            );
+            uploads.push((key, upload));
+        }
+        Ok(uploads)
     }
 
+    /// The buffer of chunk `index`, made larger than any it had when `needed` does not fit it. A
+    /// buffer is a power of two bytes, or `limit` when that is less.
     fn constants_buffer(
         &mut self,
         runtime: &mut ProgramRuntime,
+        index: usize,
         needed: u64,
+        limit: u64,
     ) -> Result<BufferHandle, OffscreenError> {
-        self.retired_constants
-            .retain(|buffer| matches!(runtime.release_buffer(*buffer), Err(ProgramError::Busy)));
-        if let Some((handle, _)) = self.constants.filter(|(_, size)| *size >= needed) {
+        if let Some(&(handle, size)) = self.constants.get(index)
+            && size >= needed
+        {
             return Ok(handle);
         }
-        let size = needed.next_power_of_two().max(4096);
+        let size = needed.next_power_of_two().max(4096).min(limit).max(needed);
         let len = usize::try_from(size).map_err(|_| {
             ProgramError::Gpu(format!("{size} bytes of constants do not fit memory"))
         })?;
         let handle = runtime.create_buffer("offscreen constants", &vec![0; len])?;
-        if let Some((old, _)) = self.constants.replace((handle, size)) {
+        if index < self.constants.len() {
+            let (old, _) = std::mem::replace(&mut self.constants[index], (handle, size));
             self.retired_constants.push(old);
+        } else {
+            self.constants.push((handle, size));
         }
         Ok(handle)
     }
@@ -321,7 +382,19 @@ pub struct OffscreenOperations {
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
-    constants_bytes: u64,
+    constants_use: ConstantsUse,
+}
+
+/// What a frame's constants took: the buffers they were uploaded into, their bytes, the largest
+/// buffer's bytes, and the blocks packed against the blocks that took an earlier block's slice
+/// because their bytes were equal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ConstantsUse {
+    pub buffers: usize,
+    pub bytes: u64,
+    pub largest: u64,
+    pub blocks: usize,
+    pub shared: usize,
 }
 
 /// Texture reads that bound only the levels written with the base level, counted for one
@@ -370,6 +443,20 @@ pub struct MissingChannelDraws {
     pub channel: i8,
     pub input: i8,
     pub draws: usize,
+}
+
+/// How one camera render drew: the formats of its target, the fixed-function state of the draws it
+/// recorded and the constants and state properties its draws read that no layer gave a value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CameraPassReport {
+    pub camera: CameraId,
+    pub target: TextureId,
+    pub color: Option<wgpu::TextureFormat>,
+    pub depth: Option<wgpu::TextureFormat>,
+    /// The state of the recorded draws in words, with the number of draws that had each.
+    pub states: Vec<(String, usize)>,
+    /// The names of the values no layer gave, which the draws read as zero or the pass's default.
+    pub without_value: Vec<String>,
 }
 
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
@@ -449,6 +536,12 @@ impl OffscreenOperations {
         self.counts.defaulted.clone()
     }
 
+    /// How each camera render drew, in the order of [`camera_draws`](Self::camera_draws).
+    #[must_use]
+    pub fn camera_passes(&self) -> Vec<CameraPassReport> {
+        self.counts.passes.clone()
+    }
+
     /// What each camera render recorded and left out, in call order.
     #[must_use]
     pub fn camera_draws(&self) -> Vec<CameraDraws> {
@@ -461,11 +554,25 @@ impl OffscreenOperations {
         self.counts.camera_causes.clone()
     }
 
-    /// The bytes of the frame's constants upload: the constants of the draws that were kept, each
-    /// buffer starting at the device's uniform offset alignment. Zero when no draw has constants.
+    /// The bytes of the frame's constants uploads: the constants of the draws that were kept, each
+    /// block starting at the device's uniform offset alignment, and blocks of equal bytes shared.
+    /// Zero when no draw has constants.
     #[must_use]
     pub fn constants_bytes(&self) -> u64 {
-        self.constants_bytes
+        self.constants_use.bytes
+    }
+
+    /// The buffers the constants are uploaded into: one unless the frame's constants exceed what a
+    /// buffer may hold.
+    #[must_use]
+    pub fn constants_buffers(&self) -> usize {
+        self.constants_use.buffers
+    }
+
+    /// The buffers, bytes and blocks of the frame's constants.
+    #[must_use]
+    pub fn constants_use(&self) -> ConstantsUse {
+        self.constants_use
     }
 
     /// The programs this frame's draws built because the state had none for their shader, pass and

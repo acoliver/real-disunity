@@ -29,7 +29,7 @@ pub fn alpha() -> PassSelector {
     }
 }
 
-fn material(tint: [f32; 4], queue: i32) -> Material {
+pub fn material(tint: [f32; 4], queue: i32) -> Material {
     Material {
         shader: Some(SHADER),
         keywords: Vec::new(),
@@ -38,7 +38,7 @@ fn material(tint: [f32; 4], queue: i32) -> Material {
     }
 }
 
-fn renderer(material: u64, layer_index: u32, place: [f32; 4]) -> Renderer {
+pub fn renderer(material: u64, layer_index: u32, place: [f32; 4]) -> Renderer {
     Renderer {
         mesh: QUAD,
         materials: vec![MaterialId(material)],

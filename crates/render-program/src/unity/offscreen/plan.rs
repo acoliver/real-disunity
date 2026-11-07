@@ -1,7 +1,7 @@
 //! Planning one draw: choosing the program, packing its constants, binding its textures and
 //! samplers, and arranging the vertex streams the program reads. Nothing here touches the
-//! constants buffer, whose size depends on every draw of the frame; a [`DrawPlan`] holds the
-//! offsets its constants will have in it.
+//! constants buffers, whose sizes depend on every draw of the frame; a [`DrawPlan`] holds the
+//! chunk and offset its constants will have.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -28,6 +28,7 @@ use crate::unity::state::{RenderState, resolve_state};
 use crate::unity::targets::{ConstantBufferTarget, TextureTarget};
 use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 
+use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::error::OffscreenError;
 use super::meshes::MeshTable;
@@ -48,43 +49,12 @@ pub(super) struct ProgramEntry {
     inputs: DeclaredInputs,
 }
 
-/// The constants of a frame's draws, one slice for each constant buffer binding.
-pub(super) struct ConstantsPlan {
-    pub(super) bytes: Vec<u8>,
-    alignment: usize,
-}
-
-impl ConstantsPlan {
-    pub(super) fn new(alignment: u32) -> Self {
-        Self {
-            bytes: Vec::new(),
-            alignment: alignment as usize,
-        }
-    }
-
-    /// Where the next draw's constants start, to give back to [`rollback`](Self::rollback).
-    pub(super) fn mark(&self) -> usize {
-        self.bytes.len()
-    }
-
-    /// Drops the constants pushed since `mark`, for a draw that was left out after packing them.
-    pub(super) fn rollback(&mut self, mark: usize) {
-        self.bytes.truncate(mark);
-    }
-
-    fn push(&mut self, slice: &[u8]) -> u64 {
-        let start = self.bytes.len().next_multiple_of(self.alignment);
-        self.bytes.resize(start, 0);
-        self.bytes.extend(slice);
-        start as u64
-    }
-}
-
-/// A constant buffer binding whose bytes are in the constants plan at `offset`.
+/// A constant buffer binding whose bytes are in the constants plan at `offset` of `chunk`.
 pub(super) struct PendingConstant {
     pub(super) set: u32,
     pub(super) binding: u32,
     pub(super) visibility: wgpu::ShaderStages,
+    pub(super) chunk: usize,
     pub(super) offset: u64,
     pub(super) len: u64,
 }
@@ -165,6 +135,8 @@ pub(super) struct DrawCounts {
     /// planned.
     pub(super) camera_causes: Vec<super::CameraCauses>,
     pub(super) current: super::CameraCauses,
+    /// How each camera render drew, in the order of `cameras`.
+    pub(super) passes: Vec<super::CameraPassReport>,
     /// Programs built because the state had none, and the time draws spent choosing programs.
     pub(super) programs_built: usize,
     pub(super) program_time: std::time::Duration,
@@ -352,12 +324,13 @@ impl Services<'_> {
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
         let packed = pack_layout(&target.buffer, &[], &spec.layers.values(), min_len)?;
         self.missing.extend(packed.missing);
-        let offset = self.constants.push(&packed.bytes);
+        let placed = self.constants.push(&packed.bytes)?;
         plan.constants.push(PendingConstant {
             set: slot.set,
             binding: slot.binding,
             visibility: slot.visibility,
-            offset,
+            chunk: placed.chunk,
+            offset: placed.offset,
             len: packed.bytes.len() as u64,
         });
         Ok(())

@@ -31,7 +31,7 @@ use super::support::{
 };
 
 /// `GraphicsFormat` 45, one 16-bit float channel.
-const HEIGHT: u32 = 45;
+pub(super) const HEIGHT: u32 = 45;
 /// The red the camera's material draws over the left half, and the red it clears to.
 const DRAWN: f32 = 0.5;
 const CLEAR: f32 = 0.25;
@@ -39,7 +39,7 @@ const CLEAR: f32 = 0.25;
 const SCALE: f32 = 2.0;
 
 /// A host whose kernels are read from the compute shader objects under `directory`.
-fn host(directory: &Path) -> OffscreenHost {
+pub(super) fn host(directory: &Path) -> OffscreenHost {
     let settings = Settings {
         light_modes: vec!["Alpha".to_owned()],
         ..Settings::default()
@@ -58,7 +58,7 @@ fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
 }
 
 /// A camera that clears to `CLEAR` in red and draws `DRAWN` over the left half of its target.
-fn camera_render(world: &mut World, into: RenderTextureId) {
+pub(super) fn camera_render(world: &mut World, into: RenderTextureId) {
     camera_render_of(world, into, "camera");
 }
 
@@ -99,7 +99,7 @@ fn camera_render_of(world: &mut World, into: RenderTextureId, shader_file: &str)
 }
 
 /// A compute shader the kernels are found for, scaling by `SCALE`.
-fn scaling(world: &mut World) -> ComputeShaderId {
+pub(super) fn scaling(world: &mut World) -> ComputeShaderId {
     let shader = compute_shader(world, "heights");
     world
         .set_compute_property(

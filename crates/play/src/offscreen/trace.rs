@@ -24,6 +24,12 @@ pub struct Phases {
     /// Programs the draws built, and the bytes of constants the kept draws upload.
     pub programs_built: usize,
     pub constants_bytes: u64,
+    /// The buffers the constants went into, the most bytes one held, the blocks packed and the
+    /// blocks that shared an earlier slice.
+    pub constants_buffers: usize,
+    pub constants_largest: u64,
+    pub constants_blocks: usize,
+    pub constants_shared: usize,
 }
 
 impl Phases {
@@ -37,6 +43,10 @@ impl Phases {
         self.probes += other.probes;
         self.programs_built += other.programs_built;
         self.constants_bytes += other.constants_bytes;
+        self.constants_buffers += other.constants_buffers;
+        self.constants_largest = self.constants_largest.max(other.constants_largest);
+        self.constants_blocks += other.constants_blocks;
+        self.constants_shared += other.constants_shared;
     }
 }
 
@@ -67,7 +77,8 @@ impl WorkTrace {
         let seconds = |time: Duration| time.as_secs_f64();
         let mut line = format!(
             "{} {index}: records {}, built {}, camera renders {} drew {} left out {}, programs \
-             built {}, constants {} bytes, held {} then {} bytes, adapt {:.1} s, build {:.1} s \
+             built {}, constants {} bytes in {} buffers (largest {}, {} blocks, {} shared), held {} then {} \
+             bytes, adapt {:.1} s, build {:.1} s \
              (programs {:.1} s), submit {:.1} s, whole-frame refusals {} with {} builds alone",
             self.kind,
             self.records,
@@ -77,6 +88,10 @@ impl WorkTrace {
             self.left_out,
             self.phases.programs_built,
             self.phases.constants_bytes,
+            self.phases.constants_buffers,
+            self.phases.constants_largest,
+            self.phases.constants_blocks,
+            self.phases.constants_shared,
             self.live_before,
             self.live_after,
             seconds(self.phases.adapt),

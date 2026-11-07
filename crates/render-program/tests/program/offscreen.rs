@@ -4,6 +4,8 @@
 mod blit;
 mod block_sources;
 mod camera;
+mod camera_report;
+mod constants;
 mod copy;
 mod defaults;
 mod depth_only;

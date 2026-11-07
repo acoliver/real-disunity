@@ -100,6 +100,30 @@ pub enum OffscreenError {
         binding: u32,
         what: &'static str,
     },
+    #[error(
+        "a block of {len} constant bytes is larger than the {limit} bytes a buffer or a binding \
+         may hold, and no split of the frame's constants makes it fit"
+    )]
+    ConstantsTooLarge { len: u64, limit: u64 },
+    #[error(
+        "the frame's constants take {needed} bytes against the runtime's budget of {budget}, and \
+         no split of them makes them fit"
+    )]
+    ConstantsOverBudget { needed: u64, budget: u64 },
     #[error("texture {0:?} cannot be sampled and rendered into in one operation")]
     FeedbackLoop(TextureId),
+}
+
+impl OffscreenError {
+    /// Whether the frame as a whole is at fault: a refusal no record or render texture causes, so
+    /// building them one at a time cannot find a part to leave out.
+    #[must_use]
+    pub fn is_frame_wide(&self) -> bool {
+        matches!(
+            self,
+            Self::ConstantsTooLarge { .. }
+                | Self::ConstantsOverBudget { .. }
+                | Self::Program(ProgramError::DeviceLost(_))
+        )
+    }
 }

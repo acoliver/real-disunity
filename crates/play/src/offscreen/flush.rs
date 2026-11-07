@@ -167,6 +167,12 @@ impl OffscreenHost {
         });
     }
 
+    /// Sets the most bytes one buffer of the frame's constants may hold. A frame with more is
+    /// uploaded in several buffers.
+    pub fn set_constants_limit(&mut self, bytes: u64) {
+        self.state.set_constants_limit(bytes);
+    }
+
     /// The runtime, for a caller that draws with the same device.
     pub fn runtime_mut(&mut self) -> &mut ProgramRuntime {
         &mut self.runtime
@@ -307,9 +313,11 @@ impl OffscreenHost {
             report: Report::default(),
             dispatches: Vec::new(),
         };
-        let operations = build(&mut self.state, &mut self.runtime, &self.arena, &mut part)?;
+        let built = build(&mut self.state, &mut self.runtime, &self.arena, &mut part);
+        // A refused segment still tells how many refusals and probes it cost and how long.
+        let kept = part.frame.records.len();
         report.absorb_failures(part.report);
-        Ok((operations, part.frame.records.len()))
+        Ok((built?, kept))
     }
 
     fn prepare(

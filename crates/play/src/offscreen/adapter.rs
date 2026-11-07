@@ -379,7 +379,7 @@ pub fn build(
     let operations = match state.build(runtime, arena, &adapted.frame) {
         Ok(operations) => operations,
         Err(first) => {
-            let rebuilt = rebuild_without_unusable_parts(state, runtime, arena, adapted, &first);
+            let rebuilt = rebuild_without_unusable_parts(state, runtime, arena, adapted, first);
             adapted.report.phases.build += started.elapsed();
             rebuilt?
         }
@@ -390,7 +390,12 @@ pub fn build(
     }
     phases.programs += operations.program_time();
     phases.programs_built += operations.programs_built();
-    phases.constants_bytes += operations.constants_bytes();
+    let used = operations.constants_use();
+    phases.constants_bytes += used.bytes;
+    phases.constants_buffers += used.buffers;
+    phases.constants_largest = phases.constants_largest.max(used.largest);
+    phases.constants_blocks += used.blocks;
+    phases.constants_shared += used.shared;
     adapted
         .report
         .count_many("draw:NoPassForCamera", operations.unmatched_draws());
@@ -430,12 +435,17 @@ fn rebuild_without_unusable_parts(
     runtime: &mut ProgramRuntime,
     arena: &ProgramArena,
     adapted: &mut Adapted,
-    first: &OffscreenError,
+    first: OffscreenError,
 ) -> Result<OffscreenOperations, OffscreenError> {
     adapted.report.phases.refusals += 1;
+    // A refusal that is the whole frame's is not found in a part, and building the parts one at a
+    // time costs as much as the frame for each of them.
+    if first.is_frame_wide() {
+        return Err(first);
+    }
     adapted.report.phases.probes += adapted.frame.render_textures.len();
     drop_unusable_textures(state, runtime, arena, adapted);
-    if is_over_budget(first) {
+    if is_over_budget(&first) {
         match state.build(runtime, arena, &adapted.frame) {
             Ok(operations) => return Ok(operations),
             Err(error) if is_over_budget(&error) => return Err(error),

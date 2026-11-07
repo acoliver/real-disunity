@@ -17,7 +17,7 @@ use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::textures::TextureInfo;
-use super::{CameraCauses, CameraDraws, UnmatchedPasses};
+use super::{CameraCauses, CameraDraws, CameraPassReport, UnmatchedPasses};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
@@ -95,6 +95,7 @@ fn camera_step(
     let missing_before = svc.counts.missing_texture;
     let channel_before = svc.counts.missing_channel;
     svc.counts.current = CameraCauses::default();
+    let outer_missing = std::mem::take(svc.missing);
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
             draws.push(draw);
@@ -110,6 +111,10 @@ fn camera_step(
     });
     let causes = std::mem::take(&mut svc.counts.current);
     svc.counts.camera_causes.push(causes);
+    let without_value = std::mem::replace(svc.missing, outer_missing);
+    let report = pass_report((camera_id, target), svc, &draws, &without_value);
+    svc.counts.passes.push(report);
+    svc.missing.extend(without_value);
     let pass = camera_pass(
         svc,
         raster_id("offscreen camera", index),
@@ -122,6 +127,59 @@ fn camera_step(
         pass,
         draws,
     })
+}
+
+/// How the camera's draws were set up: the target's formats, the states of the draws and the names
+/// the draws read with no value.
+fn pass_report(
+    (camera, target): (CameraId, TextureId),
+    svc: &Services<'_>,
+    draws: &[CameraDraw],
+    without_value: &std::collections::BTreeSet<String>,
+) -> CameraPassReport {
+    let info = svc.textures.get(target).ok();
+    let mut states = std::collections::BTreeMap::<String, usize>::new();
+    for draw in draws {
+        let state = &draw.plan.state;
+        let words = format!(
+            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}",
+            state.cull,
+            state.depth_compare,
+            state.depth_write,
+            write_mask(state.color_write),
+            if state.blend.is_some() { "on" } else { "off" }
+        );
+        *states.entry(words).or_default() += 1;
+    }
+    CameraPassReport {
+        camera,
+        target,
+        color: info.and_then(|info| info.color.map(|_| info.format)),
+        depth: info.and_then(|info| info.depth_format),
+        states: states.into_iter().collect(),
+        without_value: without_value.iter().cloned().collect(),
+    }
+}
+
+/// The channels a color write mask lets through, as `RGBA` with the ones it blocks left out, or
+/// `none`.
+fn write_mask(mask: wgpu::ColorWrites) -> String {
+    let channels = [
+        (wgpu::ColorWrites::RED, 'R'),
+        (wgpu::ColorWrites::GREEN, 'G'),
+        (wgpu::ColorWrites::BLUE, 'B'),
+        (wgpu::ColorWrites::ALPHA, 'A'),
+    ];
+    let letters: String = channels
+        .iter()
+        .filter(|(channel, _)| mask.contains(*channel))
+        .map(|(_, letter)| *letter)
+        .collect();
+    if letters.is_empty() {
+        "none".to_owned()
+    } else {
+        letters
+    }
 }
 
 /// Plans one sub-mesh the camera sees as (material, renderer, slot). A sub-mesh with no

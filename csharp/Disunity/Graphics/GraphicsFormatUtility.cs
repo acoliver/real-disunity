@@ -26,6 +26,41 @@ public static class GraphicsFormatUtility
 
     public static bool IsSRGBFormat(GraphicsFormat format) => GraphicsFormats.IsSrgb(format);
 
+    /// <summary>True for a color format whose channels are all 16-bit floats, such as <c>R16G16B16A16_SFloat</c>.</summary>
+    public static bool IsHalfFormat(GraphicsFormat format) => GraphicsFormatComponents.IsHalf(format);
+
+    /// <summary>True for a color format whose channels are IEEE 754 floats (16 or 32 bits); a packed float format and a depth
+    /// format are not (the engine's choice for the depth case).</summary>
+    public static bool IsIEEE754Format(GraphicsFormat format) => GraphicsFormatComponents.IsIEEE754(format);
+
+    /// <summary>True for a color format whose channels are floats, including the packed unsigned float formats.</summary>
+    public static bool IsFloatFormat(GraphicsFormat format) =>
+        GraphicsFormatComponents.Kind(format) is GraphicsFormatComponents.Numeric.SFloat or GraphicsFormatComponents.Numeric.UFloat;
+
+    /// <summary>True for a color format whose channels hold no sign: unsigned normalized (sRGB included), unsigned integer or
+    /// unsigned float. Depth and stencil formats are neither signed nor unsigned (the engine's choice).</summary>
+    public static bool IsUnsignedFormat(GraphicsFormat format) =>
+        GraphicsFormatComponents.Kind(format) is GraphicsFormatComponents.Numeric.UNorm or GraphicsFormatComponents.Numeric.UInt
+            or GraphicsFormatComponents.Numeric.UFloat;
+
+    public static bool IsSignedFormat(GraphicsFormat format) =>
+        GraphicsFormatComponents.Kind(format) is GraphicsFormatComponents.Numeric.SNorm or GraphicsFormatComponents.Numeric.SInt
+            or GraphicsFormatComponents.Numeric.SFloat;
+
+    public static bool IsNormFormat(GraphicsFormat format) =>
+        GraphicsFormatComponents.Kind(format) is GraphicsFormatComponents.Numeric.UNorm or GraphicsFormatComponents.Numeric.SNorm;
+
+    public static bool IsUNormFormat(GraphicsFormat format) => GraphicsFormatComponents.Kind(format) == GraphicsFormatComponents.Numeric.UNorm;
+
+    public static bool IsSNormFormat(GraphicsFormat format) => GraphicsFormatComponents.Kind(format) == GraphicsFormatComponents.Numeric.SNorm;
+
+    public static bool IsIntegerFormat(GraphicsFormat format) =>
+        GraphicsFormatComponents.Kind(format) is GraphicsFormatComponents.Numeric.UInt or GraphicsFormatComponents.Numeric.SInt;
+
+    public static bool IsUIntFormat(GraphicsFormat format) => GraphicsFormatComponents.Kind(format) == GraphicsFormatComponents.Numeric.UInt;
+
+    public static bool IsSIntFormat(GraphicsFormat format) => GraphicsFormatComponents.Kind(format) == GraphicsFormatComponents.Numeric.SInt;
+
     public static bool IsDepthFormat(GraphicsFormat format) => GraphicsFormats.DepthBits(format) > 0;
 
     public static bool IsStencilFormat(GraphicsFormat format) => GraphicsFormats.HasStencil(format);

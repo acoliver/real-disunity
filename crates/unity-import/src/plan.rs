@@ -261,6 +261,13 @@ pub enum PlanAsset {
         #[serde(flatten)]
         material: PhysicsMaterial,
     },
+    /// A font of a player, as [`crate::player_resources::ResourceAsset::Font`].
+    Font {
+        name: String,
+        file: std::path::PathBuf,
+        offset: u64,
+        length: u64,
+    },
     /// A shader of a player, as [`crate::player_resources::ResourceAsset::Shader`].
     Shader {
         name: String,

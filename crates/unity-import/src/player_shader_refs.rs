@@ -246,6 +246,9 @@ impl PlanSource for SceneSource {
         if class == Some(ClassId::MONO_BEHAVIOUR) {
             return self.script_asset(&key, pptr);
         }
+        if class == Some(ClassId::FONT) {
+            return self.font_asset(&key, pptr);
+        }
         for held_by_resources in [
             ClassId::TEXTURE_2D,
             ClassId::MESH,

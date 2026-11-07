@@ -1,4 +1,4 @@
-//! Script assets a player scene's script fields reference, as scene plan assets.
+//! Script assets and fonts a player scene's script fields reference, as scene plan assets.
 //!
 //! A referenced `ScriptableObject` plans once, with its class, its assembly and its own fields,
 //! which may name other assets or the asset itself. A script component of a game object is
@@ -10,7 +10,7 @@ use worldrunner_unity_serialized::object::PPtr;
 use crate::{
     plan::PlanAsset,
     player_plan::PlanSource,
-    player_resources::ObjectKey,
+    player_resources::{FontRange, ObjectKey, font_range},
     player_scripts::{Referenced, referenced_script, script_fields},
     player_shader_refs::SceneSource,
     player_values::{FieldWriter, not_held},
@@ -72,5 +72,35 @@ impl SceneSource {
             fields,
         };
         Ok(index)
+    }
+}
+
+impl SceneSource {
+    /// The index of the font `pptr` names, planned with the range of its font file when it is
+    /// new, or why the scene does not hold it.
+    pub(crate) fn font_asset(&mut self, key: &ObjectKey, pptr: PPtr) -> Result<usize, String> {
+        if let Some((_, index)) = self.planned.iter().find(|(known, _)| known == key) {
+            return Ok(*index);
+        }
+        let FontRange {
+            name,
+            file,
+            offset,
+            length,
+        } = font_range(self.files_mut(), &key.0, key.1).map_err(|cause| {
+            format!(
+                "references font object {} of file {}, which did not plan: {cause}",
+                pptr.path_id, pptr.file_id
+            )
+        })?;
+        Ok(self.push_asset(
+            key.clone(),
+            PlanAsset::Font {
+                name,
+                file,
+                offset,
+                length,
+            },
+        ))
     }
 }

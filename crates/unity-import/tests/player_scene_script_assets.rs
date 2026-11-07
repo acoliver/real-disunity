@@ -16,11 +16,18 @@ use worldrunner_unity_serialized::{
     write::{FileContents, ObjectData, ObjectWriter},
 };
 
-const TYPES: [ClassId; 4] = [
+#[path = "support/font_bytes.rs"]
+mod font_bytes;
+use font_bytes::font;
+
+const FONT_FILE: &[u8] = b"\x00\x01\x00\x00 not a real font, only bytes to find again";
+
+const TYPES: [ClassId; 5] = [
     ClassId::MONO_BEHAVIOUR,
     ClassId::MONO_SCRIPT,
     ClassId::GAME_OBJECT,
     ClassId::TRANSFORM,
+    ClassId::FONT,
 ];
 
 fn ptr(file_id: i32, path_id: i64) -> PPtr {
@@ -122,6 +129,7 @@ fn layouts() -> ScriptLayouts {
                     ty: FieldType::Primitive(Primitive::I32),
                 },
                 object("next", "Example.Settings"),
+                object("face", "UnityEngine.Font"),
             ],
         },
     ])
@@ -165,11 +173,11 @@ fn write_player(dir: &Path) {
     );
     let settings = |count: i32, next: i64| {
         behaviour(0, ptr(0, 11), &format!("settings {count}"), |w| {
-            w.i32(count).pptr(ptr(0, next));
+            w.i32(count).pptr(ptr(0, next)).pptr(ptr(0, 14));
         })
     };
     let owned = behaviour(2, ptr(0, 11), "owned", |w| {
-        w.i32(9).pptr(ptr(0, 0));
+        w.i32(9).pptr(ptr(0, 0)).pptr(ptr(0, 0));
     });
     write_file(
         dir,
@@ -179,15 +187,21 @@ fn write_player(dir: &Path) {
             object(12, ClassId::MONO_BEHAVIOUR, settings(2, 10)),
             object(13, ClassId::MONO_BEHAVIOUR, owned),
             object(11, ClassId::MONO_SCRIPT, script("Settings")),
+            object(14, ClassId::FONT, font("Sans", FONT_FILE)),
         ],
         &[],
     );
 }
 
-fn planned() -> ScenePlan {
+fn planned_in_dir() -> (tempfile::TempDir, ScenePlan) {
     let dir = tempfile::tempdir().unwrap();
     write_player(dir.path());
-    plan_player_scene(dir.path(), "level0", &layouts()).unwrap()
+    let plan = plan_player_scene(dir.path(), "level0", &layouts()).unwrap();
+    (dir, plan)
+}
+
+fn planned() -> ScenePlan {
+    planned_in_dir().1
 }
 
 fn assets(plan: &ScenePlan) -> Vec<Value> {
@@ -209,14 +223,14 @@ fn script_fields(plan: &ScenePlan) -> &Value {
 fn a_referenced_script_asset_is_a_scene_asset_with_its_class_name_and_fields() {
     let plan = planned();
     let assets = assets(&plan);
-    assert_eq!(assets.len(), 2, "{assets:?}");
+    assert_eq!(assets.len(), 3, "{assets:?}");
     assert_eq!(assets[0]["type"], "Script");
     assert_eq!(assets[0]["class"], "Example.Settings");
     assert_eq!(assets[0]["assembly"], "Example.Game");
     assert_eq!(assets[0]["name"], "settings 1");
     assert_eq!(
         assets[0]["fields"],
-        json!({"count": "1", "next": {"$asset": 1}})
+        json!({"count": "1", "next": {"$asset": 1}, "face": {"$asset": 2}})
     );
 }
 
@@ -227,7 +241,7 @@ fn assets_that_name_each_other_plan_once_each() {
     assert_eq!(assets[1]["name"], "settings 2");
     assert_eq!(
         assets[1]["fields"],
-        json!({"count": "2", "next": {"$asset": 0}})
+        json!({"count": "2", "next": {"$asset": 0}, "face": {"$asset": 2}})
     );
 }
 
@@ -266,4 +280,20 @@ fn a_script_component_of_an_object_is_not_an_asset_and_binds_null() {
         "{:?}",
         plan.differences
     );
+}
+
+#[test]
+fn a_font_an_asset_names_is_a_scene_asset_with_the_range_of_its_file() {
+    let (dir, plan) = planned_in_dir();
+    let assets = assets(&plan);
+    assert_eq!(
+        (&assets[2]["type"], &assets[2]["name"]),
+        (&json!("Font"), &json!("Sans"))
+    );
+    let file = assets[2]["file"].as_str().unwrap();
+    assert_eq!(Path::new(file), dir.path().join("sharedassets0.assets"));
+    let bytes = std::fs::read(file).unwrap();
+    let start = usize::try_from(assets[2]["offset"].as_u64().unwrap()).unwrap();
+    let end = start + usize::try_from(assets[2]["length"].as_u64().unwrap()).unwrap();
+    assert_eq!(&bytes[start..end], FONT_FILE);
 }

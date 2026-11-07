@@ -568,7 +568,7 @@ impl SceneGpu {
             self.materials[at] = group;
         }
         // Alpha-tested casters cut their shadow from the replaced texels.
-        self.caster_generation = self.caster_generation.wrapping_add(1);
+        self.casters.global();
         Ok(())
     }
 
@@ -597,7 +597,7 @@ impl SceneGpu {
         self.meshes[index] = uploaded;
         self.mesh_selection[index] = replacement.selection;
         self.instances.forget_mesh_bounds(index);
-        self.caster_generation = self.caster_generation.wrapping_add(1);
+        self.casters.global();
         Ok(())
     }
 }

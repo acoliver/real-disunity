@@ -10,9 +10,18 @@
     <!-- Games built for Unity's Mono runtime may use BinaryFormatter, which that runtime allows and .NET 8
          turns off by default. The bridge allows it so such games run unchanged. -->
     <EnableUnsafeBinaryFormatterSerialization>true</EnableUnsafeBinaryFormatterSerialization>
+    <!-- A library project copies no package assemblies to its output by default; the bridge directory must carry them. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Disunity.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Mono players reference System.Configuration.ConfigurationManager, which their runtime provides and
+         they do not ship (the AWS SDK assemblies are .NET Standard builds that use it). The package's 8.0
+         line matches net8.0; it is MIT licensed and part of the .NET runtime's package set. PlayerAssemblies
+         loads it from the bridge directory for a player that lacks it. -->
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Disunity/Disunity.Engine.csproj" />

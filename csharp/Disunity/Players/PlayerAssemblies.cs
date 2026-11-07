@@ -8,10 +8,12 @@ namespace Disunity.Hosting;
 /// resolve to facades built from the player's own module metadata (see
 /// <see cref="ModuleFacades"/>). The game and package assemblies the player lists
 /// (<see cref="PlayerManifest.GameAssemblies"/>) resolve to its <c>Managed</c> directory,
-/// whatever their names. Any other name is left to .NET: the player's unlisted DLLs, such as
-/// <c>System.Core</c> and <c>Mono.Security</c>, are class libraries built for Unity's Mono
-/// runtime. A context asks only for names it and .NET could not resolve. Each game assembly it
-/// loads also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
+/// whatever their names. The player's unlisted DLLs, such as <c>System.Core</c> and
+/// <c>Mono.Security</c>, are class libraries built for Unity's Mono runtime, and their names are left to
+/// .NET. A name that the player neither lists nor ships, and that is not an engine module, resolves to
+/// the host's own library directory when that holds an assembly of the name (see the
+/// <c>hostLibraries</c> constructor argument); any other name is left to .NET. A context asks only for
+/// names it and .NET could not resolve. Each game assembly it loads also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
 /// </summary>
 public sealed class PlayerAssemblies
 {
@@ -20,6 +22,7 @@ public sealed class PlayerAssemblies
     private readonly HashSet<string> _game;
     private readonly IReadOnlyList<string> _listed;
     private readonly PlayerNativePlugins? _native;
+    private readonly string? _hostLibraries;
     private readonly Dictionary<string, Assembly> _facades = new(StringComparer.Ordinal);
     // Resolution can run on any thread that first touches a type; the lock makes each
     // facade build once. Game assemblies need no lock: the context loads each name once.
@@ -36,8 +39,12 @@ public sealed class PlayerAssemblies
     /// Resolves the native libraries the game and package assemblies import, or null to leave
     /// that to .NET. It registers for each assembly this instance loads.
     /// </param>
+    /// <param name="hostLibraries">
+    /// The host's directory of class libraries that a Mono player gets from its runtime and does not ship, such as
+    /// <c>System.Configuration.ConfigurationManager</c>, or null for none. The host carries them as packages.
+    /// </param>
     public PlayerAssemblies(string managedDirectory, Assembly engine, IEnumerable<string> gameAssemblies,
-        PlayerNativePlugins? nativePlugins = null)
+        PlayerNativePlugins? nativePlugins = null, string? hostLibraries = null)
     {
         if (!Directory.Exists(managedDirectory))
             throw new DirectoryNotFoundException($"no player Managed directory at {managedDirectory}");
@@ -46,6 +53,7 @@ public sealed class PlayerAssemblies
         _listed = gameAssemblies.ToList();
         _game = new HashSet<string>(_listed, StringComparer.Ordinal);
         _native = nativePlugins;
+        _hostLibraries = hostLibraries;
     }
 
     /// <summary>
@@ -62,8 +70,8 @@ public sealed class PlayerAssemblies
 
     /// <summary>
     /// The assembly for a name the context could not resolve: a facade for an engine module
-    /// the player ships, the player's assembly for a listed game or package name, or null for
-    /// any other name.
+    /// the player ships, the player's assembly for a listed game or package name, the host's
+    /// library for a name neither listed nor shipped by the player, or null for any other name.
     /// </summary>
     /// <exception cref="FileNotFoundException">The player lists the name but does not ship it.</exception>
     public Assembly? Resolve(AssemblyLoadContext context, AssemblyName name)
@@ -74,7 +82,7 @@ public sealed class PlayerAssemblies
         var path = Path.Combine(_managed, simple + ".dll");
         if (ModuleFacades.IsEngineModule(simple))
             return File.Exists(path) ? Facade(context, simple, path) : null;
-        if (!_game.Contains(simple)) return null;
+        if (!_game.Contains(simple)) return File.Exists(path) ? null : HostLibrary(context, simple);
         if (!File.Exists(path))
             throw new FileNotFoundException($"the player lists {simple} but its Managed directory has no {simple}.dll", path);
         var assembly = context.LoadFromAssemblyPath(path);
@@ -106,6 +114,13 @@ public sealed class PlayerAssemblies
             }
         }
         return loaded;
+    }
+
+    private Assembly? HostLibrary(AssemblyLoadContext context, string simple)
+    {
+        if (_hostLibraries is null) return null;
+        var path = Path.Combine(_hostLibraries, simple + ".dll");
+        return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
     }
 
     private Assembly Facade(AssemblyLoadContext context, string name, string path)

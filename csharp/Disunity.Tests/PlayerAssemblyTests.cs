@@ -33,6 +33,7 @@ internal static class PlayerAssemblyTests
         ResolvesListedNamesForOneContextAndLeavesOthersToDotNet();
         ReportsMissingTypesAndMembers();
         LoadsEveryListedAssemblyInOrderAndReportsTheMissing();
+        ResolvesHostLibrariesOnlyForNamesNeitherListedNorShipped();
         Console.WriteLine("PASS: player module facades, assembly resolution and missing engine API report");
     }
 
@@ -204,6 +205,46 @@ internal static class PlayerAssemblyTests
                 "a loaded player assembly is visible to code that enumerates the domain's assemblies");
             Require(reports.Count == 2 && reports[0].Contains("Listed.Missing") && reports[1].Contains("Broken"),
                 $"each listed assembly that cannot load is reported by name, in order: {string.Join(" | ", reports)}");
+            return context;
+        });
+    }
+
+    private static void ResolvesHostLibrariesOnlyForNamesNeitherListedNorShipped()
+    {
+        WithManagedDirectory(directory =>
+        {
+            var host = Directory.CreateDirectory(Path.Combine(directory, "host")).FullName;
+            // A library only the host carries, a listed name both carry, an unlisted name both carry
+            // (the player's copy is built for its own runtime), and an engine module only the host has.
+            File.WriteAllBytes(Path.Combine(host, "Host.Library.dll"), new SyntheticAssembly("Host.Library").Build());
+            File.WriteAllBytes(Path.Combine(host, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(directory, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
+            File.WriteAllBytes(Path.Combine(host, "System.Core.dll"), new SyntheticAssembly("System.Core").Build());
+            File.WriteAllBytes(Path.Combine(directory, "System.Core.dll"), new SyntheticAssembly("System.Core").Build());
+            File.WriteAllBytes(Path.Combine(host, "UnityEngine.HostModule.dll"), new SyntheticAssembly("UnityEngine.HostModule").Build());
+            var context = new AssemblyLoadContext("player", isCollectible: true);
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Game", "System.Package" }, hostLibraries: host);
+            player.Attach(context);
+
+            var library = player.Resolve(context, new AssemblyName("Host.Library"));
+            Require(library?.GetName().Name == "Host.Library" && library.Location == Path.Combine(host, "Host.Library.dll"),
+                "a name neither listed nor shipped loads from the host's library directory");
+            Require(ReferenceEquals(library, player.Resolve(context, new AssemblyName("Host.Library"))) && context.Assemblies.Contains(library),
+                "the host library loads into the player's context once");
+
+            var listed = player.Resolve(context, new AssemblyName("System.Package"));
+            Require(listed?.Location == Path.Combine(directory, "System.Package.dll"), "a listed name still resolves from Managed");
+            Require(player.Resolve(context, new AssemblyName("System.Core")) is null, "a name the player ships stays with .NET");
+            Require(player.Resolve(context, new AssemblyName("UnityEngine.HostModule")) is null, "an engine module the player lacks is not taken from the host");
+            Require(player.Resolve(context, new AssemblyName(Module)) is { } facade && facade.GetName().Name == Module, "an engine module the player ships still gets its facade");
+            Require(player.Resolve(context, new AssemblyName("Absent.Library")) is null, "a name nobody has stays unresolved");
+            Require(player.Resolve(context, new AssemblyName("Listed.Missing")) is null, "an unlisted name is not mistaken for a missing listed one");
+
+            var without = new AssemblyLoadContext("without", isCollectible: true);
+            var bare = new PlayerAssemblies(directory, Engine, new[] { "Game" });
+            bare.Attach(without);
+            Require(bare.Resolve(without, new AssemblyName("Host.Library")) is null, "no host directory leaves the name to .NET");
+            without.Unload();
             return context;
         });
     }

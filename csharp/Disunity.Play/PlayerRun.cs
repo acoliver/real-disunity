@@ -26,7 +26,9 @@ internal static class PlayerRun
         var manifest = PlayerManifest.Read(data);
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
         var plugins = new PlayerNativePlugins(data, DisunityHost.NativeLibraryDirectory, Log);
-        var assemblies = new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins);
+        // A Mono player gets some class libraries from its runtime and does not ship them; the bridge carries them.
+        var bridge = Path.GetDirectoryName(typeof(PlayerRun).Assembly.Location);
+        var assemblies = new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins, bridge);
         assemblies.Attach(context);
         // Unity's Mono runtime loads a player into one domain, so a lookup by name, such as
         // BinaryFormatter's or Type.GetType's from class-library code, finds the game's assemblies.

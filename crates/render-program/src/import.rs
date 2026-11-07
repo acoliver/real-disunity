@@ -201,6 +201,7 @@ impl ProgramRuntime {
             signature,
             pipeline,
             groups,
+            external: draw.program.gpu.external_sets.clone(),
             vertex_buffers: draw
                 .vertex_inputs
                 .iter()
@@ -209,6 +210,7 @@ impl ProgramRuntime {
             geometry: prepared_geometry(draw.geometry),
             instances: draw.instances.clone(),
         };
+        self.counters.draw_prepared();
         Ok(PreparedProgramDraw {
             pins: Pins::borrowing(&self.authority, shares, draw.owners.to_vec()),
             draw: recordable,

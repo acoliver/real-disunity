@@ -262,6 +262,87 @@ Every buffer, texture and render target is counted against the budget you gave `
 
 A frame from another submission authority is refused with `ProgramError::Lease`, and an encoder that is not a frame is `ProgramError::Transaction`.
 
+## Sets the pass owner binds
+
+A renderer that opens a pass often binds a group of its own once, such as a frame uniform, and wants every program drawn in the pass to read it. A program can lend such a set instead of declaring it. The runtime then uses the renderer's `wgpu::BindGroupLayout` as it is, builds no group for the set and does not bind it when a draw records.
+
+`ExternalSet` carries the set number, the layout and `bindings`, a `ResourceLayout` that says what the shader reads from the set. `graphics_program_in` checks the shader against `bindings` and builds the program's pipeline layout with the lent layout at that set:
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
+# };
+# use worldrunner_render_program::module::StageProgram;
+# use worldrunner_render_program::runtime::{ExternalSet, ProgramRuntime};
+# fn lend(
+#     runtime: &ProgramRuntime,
+#     device: &wgpu::Device,
+#     vertex: &StageProgram,
+#     fragment: &StageProgram,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// The layout the renderer builds its per-pass group against.
+let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    label: Some("frame"),
+    entries: &[wgpu::BindGroupLayoutEntry {
+        binding: 0,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }],
+});
+let frame = ExternalSet {
+    set: 0,
+    layout,
+    bindings: ResourceLayout::new(vec![ResourceBinding {
+        at: BindingAddress { set: 0, binding: 0 },
+        source: BindingSource::Engine(EngineSemantic::named("scene.frame")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Uniform { min_size: 16 },
+    }]),
+};
+let program = runtime.graphics_program_in(vertex, fragment, &[frame])?;
+assert_eq!(program.external_sets(), [0]);
+# Ok(())
+# }
+```
+
+- **What is checked.** Each resource a stage uses at a lent set must be listed in `bindings` at its address with the same class: the buffer kind and access, the texture dimension, multisampling and sample type, or the sampler class. The filterable flag of a float texture is ignored, because WGSL cannot say it: the renderer's layout can declare an unfilterable float texture that the shader reads with `textureLoad`. A used resource that is not listed is a `LayoutError::UndeclaredResource` that names the shader's variable, and one listed as another class is a `LayoutError::Mismatch`. A listed binding the shader does not use is allowed, so one declaration serves every program that reads part of the set. A stage's own declarations at a lent set are ignored.
+- **What wgpu checks.** Visibility, minimum buffer sizes and the rest of the match between the shader and the layout are wgpu's to check when it creates the pipeline. The failure comes back from the draw's preparation as `ProgramError::Gpu`.
+- **Pipelines.** The pipeline cache key includes the identity of each lent layout. Programs that lend one layout, cloned from one `wgpu::BindGroupLayout`, share the group the renderer binds. Two layouts with equal entries are still two layouts, and their programs do not share a pipeline, because a group built against one does not fit the other.
+- **Recording.** `PreparedProgramDraw::external_sets()` lists the sets the pass owner must bind before the draw records, and `GraphicsProgram::external_sets()` lists them for the program. The pass binds each once, and every draw of the pass leaves it bound.
+- **Conflicts.** A draw may not give resources to a lent set. A `BoundResource` at a lent set, an import of an engine semantic that a lent binding names and a set lent twice are each `ProgramError::ExternalSetConflict` naming the set.
+
+The draw side is `prepare_imported_draw`, described in the [crate README](../crates/render-program/README.md#lending-a-renderers-resources). A program with no lent set behaves as `graphics_program` always has: `graphics_program_in` with an empty slice builds the same program and shares its pipelines.
+
+### Counting what the runtime builds
+
+`ProgramRuntime::stats()` returns a `RuntimeStats` with the number of shader modules, pipelines, bind groups and draws the runtime has built since it was made. Each count only rises, so a cost test takes a snapshot, runs a frame and compares:
+
+```rust,no_run
+# use worldrunner_render_program::runtime::{ImportedDraw, ProgramRuntime, TargetSignature};
+# fn steady_state(
+#     runtime: &mut ProgramRuntime,
+#     draw: &ImportedDraw<'_>,
+#     signature: TargetSignature,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+let before = runtime.stats();
+let _prepared = runtime.prepare_imported_draw(draw, signature)?;
+let after = runtime.stats();
+// A cache hit builds no module or pipeline, and a draw over lent sets builds a group only for
+// the sets the program owns.
+assert_eq!(after.modules_built, before.modules_built);
+assert_eq!(after.pipelines_built, before.pipelines_built);
+assert_eq!(after.draws_prepared, before.draws_prepared + 1);
+# Ok(())
+# }
+```
+
+A call that is refused before it creates an object does not count it, and a cache hit counts nothing. `sets_prepared` is part of the set for later and is zero: no call prepares a reusable set yet.
+
 ## Clip space and depth
 
 A WGSL position is used as written. Clip Y is up, so positive Y lands in the top rows of the target, and depth runs from 0 at the near plane to 1 at the far plane, as wgpu defines them. A counter-clockwise triangle in clip space is a front face under `RenderState::opaque_depth`. SPIR-V stages keep the convention of the SPIR-V reader the crate uses, which flips the position's Y: the same vertices land in the bottom rows. Pick one source format per program and test an asymmetric scene when you switch.

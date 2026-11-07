@@ -82,6 +82,17 @@ impl Gpu {
         attachments: &[Attachment<'_>],
         draws: &[&PreparedProgramDraw],
     ) -> wgpu::SubmissionIndex {
+        self.pass_with(attachments, &[], draws)
+    }
+
+    /// Like [`pass`](Self::pass), with `groups` bound once at the start of the pass, before any
+    /// draw records: the sets that the pass owner binds and the draws leave alone.
+    pub fn pass_with(
+        &self,
+        attachments: &[Attachment<'_>],
+        groups: &[(u32, &wgpu::BindGroup)],
+        draws: &[&PreparedProgramDraw],
+    ) -> wgpu::SubmissionIndex {
         let mut frame = self.authority.begin(&self.device).unwrap();
         for draw in draws {
             draw.retain(&frame).unwrap();
@@ -106,6 +117,9 @@ impl Gpu {
                 color_attachments: &colors,
                 ..wgpu::RenderPassDescriptor::default()
             });
+            for (set, group) in groups {
+                pass.set_bind_group(*set, *group, &[]);
+            }
             for draw in draws {
                 draw.record(&mut pass);
             }

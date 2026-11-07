@@ -7,6 +7,7 @@
 //! descriptions and no other module names a Unity type.
 
 mod arena;
+mod batch;
 mod bind;
 pub mod binding;
 mod budget;

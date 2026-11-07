@@ -64,6 +64,10 @@ pub enum ProgramError {
         "set {set} is given as a prepared set more than once, or alongside resources of its own"
     )]
     PreparedSetConflict { set: u32 },
+    #[error("the geometry was made for another vertex layout than the pipeline reads")]
+    GeometryLayoutMismatch,
+    #[error("the vertex layout has {expected} buffers and the geometry was given {found}")]
+    VertexBufferCount { expected: usize, found: usize },
     #[error("the instance range {start}..{end} ends before it starts")]
     InstanceRange { start: u32, end: u32 },
     #[error("the {kind} handle is not a live resource of this runtime")]

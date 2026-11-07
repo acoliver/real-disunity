@@ -116,3 +116,11 @@ impl ProgramRuntime {
         })
     }
 }
+
+/// The owners of a draw or pipeline and the holds of the prepared sets it binds, so that a frame
+/// that retains it keeps the sets' owners alive too.
+pub(crate) fn held_by(owners: &[Keepalive], sets: &[&PreparedSet]) -> Vec<Keepalive> {
+    let mut held = owners.to_vec();
+    held.extend(sets.iter().map(|ready| -> Keepalive { ready.pins.clone() }));
+    held
+}

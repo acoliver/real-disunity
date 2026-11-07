@@ -16,17 +16,18 @@
 
 use std::ops::Range;
 
+use crate::batch::{GeometryDraw, VertexLayoutId};
 use crate::binding::EngineSemantic;
 use crate::error::ProgramError;
 use crate::packet::{
-    PipelineRequest, PreparedGeometry, PreparedProgramDraw, RecordableDraw, TargetSignature,
+    Bound, PipelineRequest, PreparedGeometry, PreparedProgramDraw, RecordableDraw, TargetSignature,
     VertexLayout, instance_end,
 };
 use crate::program::GraphicsProgram;
 use crate::range::{Extent, Fetch, check_extent};
 use crate::resources::{BoundResource, Keepalive, Pins};
 use crate::runtime::ProgramRuntime;
-use crate::set::PreparedSet;
+use crate::set::{PreparedSet, held_by};
 use crate::state::RenderState;
 
 /// A texture and the view of it a binding reads. The texture tells the runtime the format and
@@ -262,39 +263,31 @@ impl ProgramRuntime {
         )?;
         let shares = self.binding_shares(draw.bindings)?;
         let recordable = RecordableDraw {
-            signature,
-            pipeline,
-            groups,
-            external: draw.program.gpu.external_sets.clone(),
-            vertex_buffers: draw
-                .vertex_inputs
-                .iter()
-                .map(|input| input.buffer.clone())
-                .collect(),
-            geometry: prepared_geometry(draw.geometry),
-            instances: draw.instances.clone(),
+            bound: Bound {
+                signature,
+                pipeline,
+                groups,
+                external: draw.program.gpu.external_sets.clone(),
+            },
+            geometry: GeometryDraw::from_parts(
+                VertexLayoutId::of(&layouts),
+                draw.vertex_inputs
+                    .iter()
+                    .map(|input| input.buffer.clone())
+                    .collect(),
+                prepared_geometry(draw.geometry),
+                draw.instances.clone(),
+            ),
         };
         self.counters.draw_prepared();
         Ok(PreparedProgramDraw {
-            pins: Pins::borrowing(&self.authority, shares, held_by(draw)),
+            pins: Pins::borrowing(&self.authority, shares, held_by(draw.owners, draw.sets)),
             draw: recordable,
         })
     }
 }
 
-/// The owners of the draw and the holds of the prepared sets it binds, so that a frame that
-/// retains the draw keeps the sets' owners alive too.
-fn held_by(draw: &ImportedDraw<'_>) -> Vec<Keepalive> {
-    let mut held = draw.owners.to_vec();
-    held.extend(
-        draw.sets
-            .iter()
-            .map(|ready| -> Keepalive { ready.pins.clone() }),
-    );
-    held
-}
-
-fn extent(geometry: &ImportedGeometry) -> Extent {
+pub(crate) fn extent(geometry: &ImportedGeometry) -> Extent {
     match geometry {
         ImportedGeometry::Vertices { first, count } => Extent::Vertices {
             first: *first,
@@ -310,7 +303,7 @@ fn extent(geometry: &ImportedGeometry) -> Extent {
     }
 }
 
-fn prepared_geometry(geometry: &ImportedGeometry) -> PreparedGeometry {
+pub(crate) fn prepared_geometry(geometry: &ImportedGeometry) -> PreparedGeometry {
     match geometry {
         ImportedGeometry::Vertices { first, count } => PreparedGeometry::Vertices {
             first: *first,

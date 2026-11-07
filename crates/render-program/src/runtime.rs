@@ -21,6 +21,9 @@ use crate::resources::{Pins, Store};
 use crate::stats::Counters;
 
 pub use crate::arena::{AdmittedPrograms, ProgramArena};
+pub use crate::batch::{
+    GeometryDraw, PassCommands, PipelineDraw, PreparedPipeline, VertexBufferSpec, VertexLayoutSpec,
+};
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
 pub use crate::import::{

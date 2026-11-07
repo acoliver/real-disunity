@@ -1,7 +1,8 @@
 #[test]
 fn world_anchored_body_parallax_tracks_camera_translation() {
     use crate::view::{CameraPose, OrthographicLens, SceneView, Viewport};
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let lighting = SceneCelestialLighting::new(0, 0, 1_000_000).unwrap();
     let settings = effects(lighting, SceneTint::WHITE);
     let mut atmosphere = settings.atmosphere().unwrap().clone();
@@ -54,7 +55,8 @@ fn world_anchored_body_parallax_tracks_camera_translation() {
 
 #[test]
 fn gpu_hdr_body_tint_preserves_percentage_values_above_one() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let lighting = SceneCelestialLighting::new(0, 0, 1_000_000).unwrap();
     let tint = SceneTint::new([2_550_000, 1_500_000, 500_000]).unwrap();
     let image = scene_tests::render(&context, &scene(lighting, tint), 1.0);
@@ -75,6 +77,7 @@ fn gpu_hdr_body_tint_preserves_percentage_values_above_one() {
 #[test]
 fn coloured_sun_matches_linear_cpu_oracle_and_white_preserves_frame_bytes() {
     use crate::frame::FrameUniform;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let lighting = SceneCelestialLighting::new(1_000_000, 0, 0).unwrap();
     let base = effects(lighting, SceneTint::WHITE);
     let view = scene_tests::view();
@@ -93,7 +96,7 @@ fn coloured_sun_matches_linear_cpu_oracle_and_white_preserves_frame_bytes() {
     );
     assert_eq!(frame.sun_direction, neutral.sun_direction);
     assert_eq!(frame.diffuse_environment, neutral.diffuse_environment);
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let image = scene_tests::render(&context, &scene_with_effects(selected), 1.0);
     let specular = 0.04 / (4.0 * std::f64::consts::PI);
     let expected = [
@@ -112,7 +115,8 @@ use worldrunner_render_plan::*;
 
 #[test]
 fn sun_tint_preserves_roughness_aware_ao_with_fixed_sh() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for intensity in [1_500_000, 3_000_000] {
         let scalar = f64::from(intensity) / 1e6;
         let ao = 64.0 / 255.0 + (1.0 - 64.0 / 255.0) * (scalar / 3.0);
@@ -239,7 +243,8 @@ fn scene_with_effects(effects: SceneEffects) -> RenderScene {
 
 #[test]
 fn gpu_each_body_contribution_matches_an_independent_cpu_oracle() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for values in [
         [1_000_000; 3],
         [0; 3],

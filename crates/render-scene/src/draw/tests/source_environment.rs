@@ -46,6 +46,7 @@ fn source(cube: SceneSpecularCube) -> RenderScene {
 }
 #[test]
 fn environment_source_scene_matches_direct_preparation_for_float_and_bc6h() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for compressed in [false, true] {
         let cube = cube(compressed);
@@ -122,6 +123,7 @@ fn direct(context: &crate::device::GpuContext, source: &wgpu::Texture) -> wgpu::
 }
 #[test]
 fn environment_prefiltered_default_is_byte_identical_and_has_no_job_inventory() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let cube = cube(false);
     let scene = source(cube.clone());

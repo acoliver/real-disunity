@@ -230,6 +230,7 @@ fn pixels(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
 
 #[test]
 fn merged_prepass_writes_the_same_texels_as_separate_normal_and_material_draws() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (name, scene, pose) in scenes() {
         let merged = merged(&context, &scene, pose);
@@ -273,6 +274,7 @@ fn geometry_passes(context: &GpuContext, scene: &RenderScene, ssr: bool) -> Vec<
 
 #[test]
 fn reflections_add_no_geometry_pass() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = ssao::source(0, true, 255);
     let without = geometry_passes(&context, &scene, false);
@@ -282,6 +284,7 @@ fn reflections_add_no_geometry_pass() {
 
 #[test]
 fn prepass_declares_the_material_only_when_one_is_supplied() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut screen = SceneMetadata::new(context.device(), SIZE, crate::ssr::neutral_ao()).unwrap();
     let ssr = crate::ssr::Ssr::new(
@@ -370,6 +373,7 @@ fn differential_frame(
 
 #[test]
 fn alpha_first_metadata_matches_frozen_shader_device_depth_normal_material_and_color_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut covered = 0;
     for (name, scene, pose) in alpha_fixtures::scenes().into_iter().chain(scenes()) {

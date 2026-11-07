@@ -8,6 +8,7 @@ use worldrunner_render_plan::TerrainPageSettings;
 
 #[test]
 fn terrain_pages_gpu_every_mip_matches_cpu_including_odd_borders() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

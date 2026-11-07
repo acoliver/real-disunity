@@ -111,7 +111,8 @@ fn receiver_normal(
 
 #[test]
 fn lighting_strength_and_minified_normals_match_independent_cpu_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for (strength, mip, phased) in [
             (0, false, false),
@@ -160,7 +161,8 @@ fn lighting_strength_and_minified_normals_match_independent_cpu_at_every_support
 
 #[test]
 fn metallic_diffuse_and_direct_composition_match_cpu_without_absorption() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for metal in [0, 100_000, 1_000_000] {
             let mut body = settings();
@@ -181,6 +183,7 @@ fn metallic_diffuse_and_direct_composition_match_cpu_without_absorption() {
 
 #[test]
 fn term_descriptors_validate_ranges_and_disabled_uniform_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     assert_eq!(terms::uniforms(&body, 0).map(f32::to_bits), [0; 32]);
     assert_eq!(terms::mask(&[body.clone()]), 0);
@@ -211,7 +214,8 @@ fn term_descriptors_validate_ranges_and_disabled_uniform_bytes() {
 #[test]
 fn zero_frequency_modes_match_constant_half_or_skip_oracle() {
     use worldrunner_render_plan::SceneWaterZeroFrequency;
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     assert_eq!(
         SceneWaterZeroFrequency::default(),
         SceneWaterZeroFrequency::Skip
@@ -264,7 +268,8 @@ fn zero_frequency_modes_match_constant_half_or_skip_oracle() {
 
 #[test]
 fn edge_noise_and_environment_depth_terms_match_f64_oracle() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = format!(
         "{}\n{}",
         equation_source(),
@@ -342,7 +347,8 @@ fn noise_oracle(point: [f64; 2]) -> f64 {
 
 #[test]
 fn finite_disk_selects_closest_direction_with_wgsl_trigonometric_bounds() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for radius_micro in [2700, 17_453] {
         let radius = f64::from(radius_micro) / 1_000_000.0;
         let source = format!(
@@ -378,7 +384,8 @@ fn finite_disk_selects_closest_direction_with_wgsl_trigonometric_bounds() {
 
 #[test]
 fn finite_highlight_peak_and_zero_amplitudes_match_cpu() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for (input, peak, amplitude) in [
         ([0.000_001f64; 3], 1.0, 1.0),
         ([0.25; 3], 1.0, 1.0),
@@ -419,7 +426,8 @@ fn finite_highlight_peak_and_zero_amplitudes_match_cpu() {
 
 #[test]
 fn metallic_receiver_keeps_rgb_f0_and_oct_normal_with_no_extra_textures() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.color_micro = [250_000, 500_000, 750_000];
@@ -453,7 +461,8 @@ fn metallic_receiver_keeps_rgb_f0_and_oct_normal_with_no_extra_textures() {
 
 #[test]
 fn octahedral_receivers_decode_normal_and_coloured_f0() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = format!(
         "{}\n{}\n{}",
         equation_source(),
@@ -496,7 +505,8 @@ fn octahedral_receivers_decode_normal_and_coloured_f0() {
 
 #[test]
 fn zero_wind_has_identical_pixels_and_receiver_bytes_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.normal = Some(TextureHandle::from_raw(0));
@@ -535,7 +545,8 @@ fn zero_wind_has_identical_pixels_and_receiver_bytes_at_every_supported_sample_c
 
 #[test]
 fn opposing_wind_and_tangent_normal_use_flat_limit_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.normal = Some(TextureHandle::from_raw(0));
@@ -586,7 +597,8 @@ fn assert_finite_half(bytes: &[u8]) {
 
 #[test]
 fn default_disk_uniform_and_rendered_bytes_match_fixed_radius() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut body = settings();
     body.material.sun_disk = Some(worldrunner_render_plan::SceneWaterSunDisk::default());
     let mut expected_uniforms = [0.0f32; 32];
@@ -650,7 +662,8 @@ fn default_disk_uniform_and_rendered_bytes_match_fixed_radius() {
 
 #[test]
 fn water_call_site_uses_each_bodys_radius() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for radius in [2700, 17_453] {
         let mut body = settings();
         body.material.sun_disk = Some(worldrunner_render_plan::SceneWaterSunDisk {

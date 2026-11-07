@@ -8,6 +8,7 @@ use worldrunner_render_plan::*;
 
 #[test]
 fn live_layered_and_cached_anisotropic_footprints_agree() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for level in [1, 2, 4, 8, 16] {
         let source = fixture(level);

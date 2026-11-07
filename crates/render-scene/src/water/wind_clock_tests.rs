@@ -9,7 +9,8 @@ fn scene_band_source() -> &'static str {
 
 #[test]
 fn integer_wind_clock_matches_f64_oracle_and_scene_wind() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for clocks in [
         [0u32, 1, 124, 125, 126],
         [6282, 6283, 6284, 4_000_000_000, 4_000_000_001],
@@ -68,6 +69,7 @@ fn check_clock(actual: &[f32], clock: u32) {
 
 #[test]
 fn default_water_frame_descriptor_is_fragment_only() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let entries = receivers::environment_entries();
     let frame = entries.iter().find(|entry| entry.binding == 3).unwrap();
     assert_eq!(frame.visibility, wgpu::ShaderStages::FRAGMENT);
@@ -76,6 +78,7 @@ fn default_water_frame_descriptor_is_fragment_only() {
 
 #[test]
 fn water_vertex_clock_uses_the_scene_integer_lane() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut frame = FrameUniform::new(&fixture_view(), None).unwrap();
     let mut body = settings();
     body.material.wind = Some(worldrunner_render_plan::SceneWaterWind {

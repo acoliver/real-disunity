@@ -106,6 +106,7 @@ fn sub_micro_fog_matches_independent_beer_lambert_integral() {
 
 #[test]
 fn gpu_sub_micro_fog_and_zero_match_hdr_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     sky.background_distance_millimeters = 4_000_000_000;
     let frame = render_tests::test_frame(1.0);
@@ -129,6 +130,7 @@ fn gpu_sub_micro_fog_and_zero_match_hdr_oracle() {
 
 #[test]
 fn gpu_sky_exposure_leaves_frame_and_direct_sun_unchanged() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     let mut physical = scattering::tests::settings();
     sky.scattering = Some(physical);

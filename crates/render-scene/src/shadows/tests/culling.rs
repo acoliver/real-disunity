@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn gpu_offscreen_upstream_caster_is_culled_from_color_but_shadows_visible_ground() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[1_500, 0, 2_000]], 600_000, None);
     let view = SceneView::new(

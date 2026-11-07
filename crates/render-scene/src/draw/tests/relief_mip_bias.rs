@@ -77,6 +77,7 @@ const DIFFERENT_LEVEL: u8 = 40;
 
 #[test]
 fn a_negative_bias_selects_the_next_finer_relief_normal_level() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = normal_source();
     for level in [1_u32, 2] {

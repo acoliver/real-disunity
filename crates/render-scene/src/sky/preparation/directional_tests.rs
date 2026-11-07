@@ -4,7 +4,8 @@ use worldrunner_render_plan::SceneRoughnessRemap;
 
 #[test]
 fn selected_prefilter_matches_directional_radiance_equations() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let source = directional_source(&context);
     for remap in [
         SceneRoughnessRemap::Perceptual04,

@@ -4,6 +4,7 @@ use worldrunner_render_post::{PassId, TimingMode, TimingSupport};
 
 #[test]
 fn ordinary_material_gpu_sampling_cost() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let base = context();
     let context = pollster::block_on(GpuContext::from_adapter_with_timing(
         base.adapter().clone(),

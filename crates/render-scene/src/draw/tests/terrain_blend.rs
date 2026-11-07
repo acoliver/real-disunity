@@ -78,7 +78,8 @@ fn colored_terrain(reversed: bool, blur_radius_millimeters: u32) -> RenderScene 
 
 #[test]
 fn required_gpu_terrain_palette_permutation_preserves_pixels() {
-    let context = pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
         .expect("terrain blend acceptance requires a GPU adapter");
     let view = SceneView::new(
         CameraPose {

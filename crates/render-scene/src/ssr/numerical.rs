@@ -87,6 +87,7 @@ pub(super) fn resolve_capture_prepared(
 }
 #[test]
 fn gpu_resolve_adds_specular_once_and_misses_roughness_and_water_preserve_existing_radiance() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let baseline: Vec<_> = [0.25, 0.125, 0.0625, 1.0]
         .repeat(9)
@@ -144,6 +145,7 @@ fn resolve_ssr(context: &GpuContext, size: [u32; 2], policy: SceneSsr) -> Ssr {
 
 #[test]
 fn gpu_roughness_fade_has_full_and_zero_endpoints() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         roughness_fade_start_micro: Some(250_000),
@@ -174,6 +176,7 @@ fn gpu_roughness_fade_has_full_and_zero_endpoints() {
 
 #[test]
 fn gpu_scene_selected_replacement_preserves_direct_and_diffuse_energy() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         composition: worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment,

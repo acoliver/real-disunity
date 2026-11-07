@@ -61,6 +61,7 @@ fn upload(context: &GpuContext, layouts: &ScenePipelines, scene: &RenderScene) -
 }
 #[test]
 fn per_pass_cutoffs_produce_distinct_shadow_and_surface_silhouettes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let scene = scene(
@@ -86,6 +87,7 @@ fn per_pass_cutoffs_produce_distinct_shadow_and_surface_silhouettes() {
 }
 #[test]
 fn implicit_atlas_sampling_uses_minification_mips() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut bytes = Vec::new();
@@ -132,6 +134,7 @@ fn implicit_atlas_sampling_uses_minification_mips() {
 }
 #[test]
 fn packed_atlas_surface_and_emission_occlusion_channels_ignore_material_scalars() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let scene = scene(
@@ -171,6 +174,7 @@ fn packed_atlas_surface_and_emission_occlusion_channels_ignore_material_scalars(
 }
 #[test]
 fn translated_capture_center_matches_equivalent_rigid_placement() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let shifted = scene(
@@ -260,6 +264,7 @@ fn mask_oracle(channel: u8, enabled: bool) -> String {
 
 #[test]
 fn lit_and_backlit_packed_translucency_pixels_apply_self_ao_once_at_threshold() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     // 12/255 < 0.05 < 13/255, plus a high-mask control with non-unit self AO.

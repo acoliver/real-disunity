@@ -48,7 +48,8 @@ fn assert_base_output(context: &crate::device::GpuContext, maps: &PreparedEnviro
 
 #[test]
 fn existing_preparation_paths_match_base_half_float_arithmetic() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let source = source_cube(&context);
     let config = EnvironmentPreparation {
         cube_size: 4,

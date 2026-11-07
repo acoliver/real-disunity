@@ -12,6 +12,7 @@ fn with_objects(source: &RenderScene, objects: Vec<SceneObject>) -> RenderScene 
 
 #[test]
 fn gpu_retained_cast_toggle_removes_shadow_and_non_caster_receives() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut objects = base.geometry().objects().to_vec();
@@ -75,6 +76,7 @@ fn render(
 
 #[test]
 fn gpu_strength_and_receiver_bias_have_independent_visibility_oracles() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(&[], 600_000, None),
@@ -108,6 +110,7 @@ fn gpu_strength_and_receiver_bias_have_independent_visibility_oracles() {
 
 #[test]
 fn gpu_explicit_defaults_preserve_image_and_uniform_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let declared = source.effects().unwrap().shadows();
@@ -172,6 +175,7 @@ fn gpu_explicit_defaults_preserve_image_and_uniform_bytes() {
 
 #[test]
 fn gpu_retained_sampling_update_rekeys_caster_slope() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();

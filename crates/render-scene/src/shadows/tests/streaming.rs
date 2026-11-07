@@ -48,6 +48,7 @@ fn assert_one_selection(preparations: &[crate::draw::StreamingPreparation], budg
 #[test]
 fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
     use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -107,6 +108,7 @@ fn multilevel_same_frame_capture_reuses_prefix_chunks_and_upload_budget() {
 
 #[test]
 fn ordinary_shadowed_frame_refines_multilevel_terrain_once_per_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -130,6 +132,7 @@ fn ordinary_shadowed_frame_refines_multilevel_terrain_once_per_frame() {
 
 #[test]
 fn streamed_shadow_depth_matches_forward_surface_and_default_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source =
         super::terrain::terrain_scene(&scene(&[[0, 0, 1000]], 600_000, None), false, false);
@@ -190,6 +193,7 @@ fn screen_source() -> RenderScene {
 
 #[test]
 fn streamed_ssao_ssr_prepass_depth_equals_forward_depth_in_shadowed_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = screen_source();
     let size = [view().viewport().width, view().viewport().height];
@@ -297,6 +301,7 @@ fn cascade_passes() -> usize {
 #[test]
 fn still_streamed_frames_keep_cascades_until_the_resident_chunks_change() {
     use worldrunner_render_shadow::RefreshReason;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = multilevel_source();
     let policy = worldrunner_render_shadow::CascadeRefreshPolicy {

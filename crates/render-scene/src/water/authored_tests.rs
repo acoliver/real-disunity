@@ -4,6 +4,7 @@ mod flow_tests;
 #[test]
 fn endpoint_seed_dimensions_require_two_samples_per_axis() {
     use worldrunner_render_plan::{SceneWaterFlowCoordinates, SceneWaterSeedCoordinates};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     body.material.flow = Some(TextureHandle::from_raw(0));
     body.material.flow_coordinates = Some(SceneWaterFlowCoordinates {
@@ -48,6 +49,7 @@ fn endpoint_seed_dimensions_require_two_samples_per_axis() {
 
 #[test]
 fn authored_map_representations_and_tiles_fail_before_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut body = settings();
     body.material.tile_millimeters = [0, 1000];
     assert!(body.validate().is_err());
@@ -228,7 +230,8 @@ fn map(bytes: Vec<u8>) -> SceneTexture {
 }
 #[test]
 fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let (bodies, source) = authored_scene();
         let pipelines = crate::renderer::ScenePipelines::with_samples(
@@ -280,7 +283,8 @@ fn configured_authored_maps_tile_scroll_and_differ_between_bodies() {
 }
 #[test]
 fn configured_environment_survives_extent_replacement() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let maps = lighting_tests::environment_tests::prepare_environment(&context);
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();

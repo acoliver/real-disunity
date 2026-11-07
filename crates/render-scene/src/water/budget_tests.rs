@@ -21,7 +21,8 @@ fn required(settings: &RendererConfiguration, context: &GpuContext) -> u64 {
 #[test]
 fn endpoint_budget_plan_matches_allocated_geometry() {
     use SceneWaterSeedCoordinates::{EndpointClamped, Repeat};
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let baseline = required(&configuration(seed_tests::body(Repeat)), &context) - 72;
     let pixels = 5 * 3;
     let textures = pixels * (8 + 4 + 3 * 8 + 6 * 4 + 9 * 8) + 6 * 8 + 8;
@@ -57,7 +58,8 @@ fn endpoint_budget_plan_matches_allocated_geometry() {
 #[test]
 fn endpoint_budget_rejects_old_short_total() {
     use SceneWaterSeedCoordinates::{EndpointClamped, Repeat};
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let old = required(&configuration(seed_tests::body(Repeat)), &context);
     let result = ConfiguredFrameRenderer::new(
         &context,
@@ -72,7 +74,8 @@ fn endpoint_budget_rejects_old_short_total() {
 
 #[test]
 fn endpoint_budget_counts_empty_seed_placeholder() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut body = seed_tests::body(SceneWaterSeedCoordinates::EndpointClamped);
     body.surface = SceneWaterSurface::Mesh {
         positions_millimeters: Box::new([]),
@@ -88,7 +91,8 @@ fn endpoint_budget_counts_empty_seed_placeholder() {
 
 #[test]
 fn vertex_seed_budget_matches_allocated_bytes_for_both_address_modes() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for mode in [
         SceneWaterSeedCoordinates::Repeat,
         SceneWaterSeedCoordinates::EndpointClamped,

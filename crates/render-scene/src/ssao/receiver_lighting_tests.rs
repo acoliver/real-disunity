@@ -168,6 +168,7 @@ fn draw_probe(
 
 #[test]
 fn gpu_mesh_terrain_receiver_agree_for_ambient_and_specular_occlusion() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for rough in [false, true] {
         let mut results = Vec::new();
@@ -195,6 +196,7 @@ fn gpu_mesh_terrain_receiver_agree_for_ambient_and_specular_occlusion() {
 
 #[test]
 fn gpu_receiver_variant_preserves_nearest_keys_and_reuses_gather() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = crate::renderer::ScenePipelines::with_ssao(
         context.device(),

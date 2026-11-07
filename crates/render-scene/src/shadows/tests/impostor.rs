@@ -76,6 +76,7 @@ fn camera() -> SceneView {
 
 #[test]
 fn gpu_relief_directional_shadows_use_flat_card_cutout_with_independent_views() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let view = camera();
     let mut maps = Vec::new();
@@ -104,6 +105,7 @@ fn gpu_relief_directional_shadows_use_flat_card_cutout_with_independent_views() 
 
 #[test]
 fn gpu_enlarged_capture_card_extends_upstream_shadow_fit() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source(false, [255; 4], true);
     let view = camera();

@@ -4,6 +4,7 @@ use glam::Vec2;
 
 #[test]
 fn gpu_principal_footprints_are_finite_at_extreme_scales() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = crate::terrain::pages::residency_tests::context();
     let (terrain, resources) = fixture(16, false, 0);
     let source = LayeredGpuSource::new(&terrain, &resources).unwrap();

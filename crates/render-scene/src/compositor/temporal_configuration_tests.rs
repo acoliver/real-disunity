@@ -14,7 +14,7 @@ use worldrunner_render_post::{
 const OUTPUT_EXTENT: [u32; 2] = [64, 64];
 
 pub(super) fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request()).unwrap()
+    GpuContext::shared_for_test().unwrap()
 }
 
 fn render_extent(scale_micro: u32) -> [u32; 2] {
@@ -67,6 +67,7 @@ fn cycle(scale_micro: u32) -> ProjectionJitter {
 
 #[test]
 fn a_configured_temporal_renderer_selects_the_jitter_derived_from_both_extents() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for scale in [500_000, 670_000, 770_000] {
         let renderer = build(&context, temporal(scale));
@@ -79,6 +80,7 @@ fn a_configured_temporal_renderer_selects_the_jitter_derived_from_both_extents()
 
 #[test]
 fn a_configured_native_taa_renderer_selects_the_default_sequence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let renderer = build(
         &context,
@@ -92,6 +94,7 @@ fn a_configured_native_taa_renderer_selects_the_default_sequence() {
 
 #[test]
 fn a_configured_renderer_without_taa_renders_unjittered() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let renderer = build(&context, configuration(PostResolve::None, None, 1_000_000));
     assert_eq!(renderer.projection_jitter(), None);
@@ -99,6 +102,7 @@ fn a_configured_renderer_without_taa_renders_unjittered() {
 
 #[test]
 fn reconfiguring_the_render_scale_rederives_the_jitter_and_drops_the_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = build(&context, temporal(500_000));
     assert_eq!(renderer.projection_jitter(), Some(cycle(500_000)));
@@ -112,6 +116,7 @@ fn reconfiguring_the_render_scale_rederives_the_jitter_and_drops_the_history() {
 
 #[test]
 fn reconfiguring_between_temporal_native_taa_and_no_taa_follows_the_settings() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = build(&context, temporal(500_000));
     renderer

@@ -47,7 +47,7 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
 }
 
 fn render(reflections: bool, velocity: bool) -> Vec<u8> {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let source = source(reflections, velocity);
     let mut renderer = FrameRenderer::hdr(
@@ -133,10 +133,12 @@ fn combined(velocity: bool) {
 
 #[test]
 fn celestial_sky_ssr_without_velocity() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     combined(false);
 }
 
 #[test]
 fn celestial_sky_ssr_with_velocity() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     combined(true);
 }

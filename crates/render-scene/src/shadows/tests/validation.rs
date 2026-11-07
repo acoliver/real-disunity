@@ -3,6 +3,7 @@ use worldrunner_render_plan::SceneDirection;
 
 #[test]
 fn gpu_unsupported_effect_update_preserves_the_active_profile() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = with_effects(sun_z());
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -63,6 +64,7 @@ fn with_effects(effects: SceneEffects) -> RenderScene {
 
 #[test]
 fn translated_focus_fit_is_light_dependent_at_f32_precision_boundary() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let fit = translated_fit();
     fit.validate(&wgpu::Limits::default()).unwrap();
     let matrix = fit.matrix(Vec3::Z).unwrap();
@@ -79,6 +81,7 @@ fn translated_focus_fit_is_light_dependent_at_f32_precision_boundary() {
 
 #[test]
 fn gpu_construction_rejects_invalid_active_light_fit() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = with_effects(sun_x());
     assert!(matches!(
@@ -103,6 +106,7 @@ fn retained_image(
 
 #[test]
 fn gpu_rejected_active_light_fit_updates_leave_rendering_unchanged() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
     let mut renderer = ShadowedScene::new(&context, &with_effects(sun_x()), settings()).unwrap();

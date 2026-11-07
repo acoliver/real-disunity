@@ -43,6 +43,7 @@ fn fixture(context: &GpuContext) -> (ShadowedScene, FrameRenderer, SceneView) {
 
 #[test]
 fn same_frame_capture_declares_velocity_attachment() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut renderer, mut scheduler, view) = fixture(&context);
     renderer

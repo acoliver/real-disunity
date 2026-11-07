@@ -5,6 +5,7 @@ use worldrunner_render_plan::{
 
 #[test]
 fn octahedral_flat_mask_matches_forward_prepass_metadata_and_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for sampling in [SceneAtlasSampling::MipZero, SceneAtlasSampling::Implicit] {
@@ -187,6 +188,7 @@ fn count(bytes: &[u8]) -> usize {
 
 #[test]
 fn octahedral_flat_mask_preserves_varying_alpha_coverage_without_relief() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut reference = None;

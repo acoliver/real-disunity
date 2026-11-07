@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn post_timing_and_reset_follow_output_boundaries_not_slot_selection() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let mut frame = FrameRenderer::hdr(
         &context,
@@ -46,10 +47,10 @@ fn post_timing_and_reset_follow_output_boundaries_not_slot_selection() {
 
 #[test]
 fn cancelled_and_failed_preparations_release_frame_renderer_timing() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::TIMESTAMP_QUERY,
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::TIMESTAMP_QUERY)
+            .unwrap();
     let renderer = FrameRenderer::new(context.device());
     renderer
         .configure_timing(

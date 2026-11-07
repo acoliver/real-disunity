@@ -21,7 +21,7 @@ struct Staged {
 }
 
 fn staged(quads: &[DynamicQuad]) -> Staged {
-    let context = pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
         .expect("actual GPU required");
     let pipelines =
         ScenePipelines::with_samples(context.device(), wgpu::TextureFormat::Rgba8UnormSrgb, 1)
@@ -80,6 +80,7 @@ fn two_groups() -> [DynamicQuad; 2] {
 
 #[test]
 fn staged_quads_are_held_while_staged_and_let_go_when_replaced_with_no_frame_holding_them() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut staged = staged(&two_groups());
     let probes = staged.gpu.dynamic_probes();
     assert_eq!(probes.len(), 2);
@@ -90,6 +91,7 @@ fn staged_quads_are_held_while_staged_and_let_go_when_replaced_with_no_frame_hol
 
 #[test]
 fn a_frame_that_retained_the_quads_holds_them_after_they_are_replaced_until_it_is_cancelled() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut staged = staged(&two_groups());
     let probes = staged.gpu.dynamic_probes();
     let frame = staged
@@ -109,6 +111,7 @@ fn a_frame_that_retained_the_quads_holds_them_after_they_are_replaced_until_it_i
 
 #[test]
 fn a_submitted_frame_holds_the_quads_until_the_gpu_has_completed_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut staged = staged(&two_groups());
     let probes = staged.gpu.dynamic_probes();
     let frame = staged
@@ -133,6 +136,7 @@ fn a_submitted_frame_holds_the_quads_until_the_gpu_has_completed_it() {
 
 #[test]
 fn quads_staged_for_one_pass_are_prepared_for_another_before_its_pass_opens() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut staged = staged(&two_groups());
     let hdr =
         ScenePipelines::with_samples(staged.context.device(), wgpu::TextureFormat::Rgba16Float, 4)
@@ -157,6 +161,7 @@ fn quads_staged_for_one_pass_are_prepared_for_another_before_its_pass_opens() {
 
 #[test]
 fn a_frame_without_quads_retains_and_prepares_nothing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut staged = staged(&[]);
     let frame = staged
         .context

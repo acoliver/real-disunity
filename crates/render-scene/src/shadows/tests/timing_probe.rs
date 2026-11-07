@@ -14,6 +14,7 @@ struct Samples {
 #[test]
 #[ignore = "explicit informational cascade refresh GPU timing probe"]
 fn cascade_refresh_gpu_timing_comparison() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = match pollster::block_on(GpuContext::request_with_features(
         wgpu::Features::TIMESTAMP_QUERY,
     )) {
@@ -159,11 +160,13 @@ fn durations(timing: &FrameTiming) -> Result<(f64, f64), PassId> {
 
 #[test]
 fn available_durations_sum_casters_and_total_including_zero_intervals() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_eq!(durations(&sample_timing()), Ok((8.0, 15.0)));
 }
 
 #[test]
 fn unavailable_duration_rejects_the_entire_sample_with_its_pass_id() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let timing = sample_timing();
     for index in 0..timing.passes.len() {
         let mut incomplete = timing.clone();

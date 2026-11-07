@@ -250,6 +250,7 @@ pub(super) fn pipelines(
 
 #[test]
 fn forward_helpers_preserve_pre_change_source_exactly() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (shadowed, terrain) = crate::shadows::capture_sources(true);
     for source in [crate::shader::ENVIRONMENT_WGSL, shadowed] {
         for helper in [NORMAL, DECALS] {
@@ -286,6 +287,7 @@ fn source_fingerprint(source: &str) -> (usize, u128) {
 
 #[test]
 fn all_forward_assemblies_preserve_complete_pre_change_source() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (shadowed, shadowed_terrain) = crate::shadows::capture_sources(true);
     for (source, expected) in [
         (
@@ -357,6 +359,7 @@ const CELESTIAL_SOURCES: [[(usize, u128); 4]; 4] = [
 #[test]
 fn celestial_forward_assemblies_preserve_complete_pre_change_source() {
     use worldrunner_render_plan::SceneCelestialLighting;
+    let _session = crate::test_support::SceneTestSession::acquire();
     for (composition, index) in [
         ((false, false, false), 0),
         ((false, false, true), 3),
@@ -387,6 +390,7 @@ fn celestial_forward_assemblies_preserve_complete_pre_change_source() {
 
 #[test]
 fn forward_fingerprint_detects_even_unused_source_byte_mutations() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = crate::shader::ENVIRONMENT_WGSL;
     let changed = format!("{source}\n// unused declaration mutation\n");
     assert_ne!(source_fingerprint(source), source_fingerprint(&changed));

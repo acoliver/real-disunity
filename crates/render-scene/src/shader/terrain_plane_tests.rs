@@ -13,10 +13,9 @@ struct Case {
 
 #[test]
 fn terrain_gpu_heightfield_planes_match_original_mesh_at_every_lod_and_skirt() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let terrain = crate::terrain::planes::tests::fixture(TerrainLodPolicy::FullResolution)
         .with_streaming_policy(Some(TerrainStreamingPolicy::new(2, 100, 16, 1000).unwrap()));
     let planes = HeightfieldPlanes::new(&terrain);

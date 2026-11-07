@@ -94,6 +94,7 @@ fn site_source(site: &str) -> String {
 
 #[test]
 fn a_negative_bias_selects_the_next_finer_level_of_a_mip_enabled_atlas() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for site in SITES {
         let source = site_source(site);
@@ -109,6 +110,7 @@ fn a_negative_bias_selects_the_next_finer_level_of_a_mip_enabled_atlas() {
 
 #[test]
 fn a_fixed_level_zero_atlas_ignores_the_bias() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for site in SITES {
         let source = site_source(site);
@@ -124,6 +126,7 @@ fn a_fixed_level_zero_atlas_ignores_the_bias() {
 
 #[test]
 fn bias_zero_matches_the_unbiased_impostor_sampling_on_one_device() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for site in SITES {
         let source = site_source(site);

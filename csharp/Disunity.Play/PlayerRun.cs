@@ -30,6 +30,7 @@ internal static class PlayerRun
         var bridge = Path.GetDirectoryName(typeof(PlayerRun).Assembly.Location);
         var assemblies = new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins, bridge);
         assemblies.Attach(context);
+        assemblies.ServeDefaultContext();
         // Unity's Mono runtime loads a player into one domain, so a lookup by name, such as
         // BinaryFormatter's or Type.GetType's from class-library code, finds the game's assemblies.
         // Entering the player's context makes those lookups resolve there for the rest of the run.

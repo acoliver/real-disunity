@@ -13,7 +13,9 @@ namespace Disunity.Hosting;
 /// .NET. A name that the player neither lists nor ships, and that is not an engine module, resolves to
 /// the host's own library directory when that holds an assembly of the name (see the
 /// <c>hostLibraries</c> constructor argument); any other name is left to .NET. A context asks only for
-/// names it and .NET could not resolve. Each game assembly it loads also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
+/// names it and .NET could not resolve. <see cref="ServeDefaultContext"/> gives the default context the same
+/// host libraries, for types the framework's own facades forward to them. Each game assembly it loads
+/// also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
 /// </summary>
 public sealed class PlayerAssemblies
 {
@@ -82,7 +84,7 @@ public sealed class PlayerAssemblies
         var path = Path.Combine(_managed, simple + ".dll");
         if (ModuleFacades.IsEngineModule(simple))
             return File.Exists(path) ? Facade(context, simple, path) : null;
-        if (!_game.Contains(simple)) return File.Exists(path) ? null : HostLibrary(context, simple);
+        if (!_game.Contains(simple)) return ResolveHostLibrary(context, name);
         if (!File.Exists(path))
             throw new FileNotFoundException($"the player lists {simple} but its Managed directory has no {simple}.dll", path);
         var assembly = context.LoadFromAssemblyPath(path);
@@ -116,9 +118,23 @@ public sealed class PlayerAssemblies
         return loaded;
     }
 
-    private Assembly? HostLibrary(AssemblyLoadContext context, string simple)
+    /// <summary>
+    /// Registers <see cref="ResolveHostLibrary"/> with the default load context. The framework's own facades,
+    /// such as <c>System.Configuration</c>, forward types to the host libraries from inside the default context,
+    /// which the player's context does not serve, so a type a player's package reaches through such a facade needs
+    /// the default context to find the library as well.
+    /// </summary>
+    public void ServeDefaultContext() => AssemblyLoadContext.Default.Resolving += ResolveHostLibrary;
+
+    /// <summary>
+    /// Loads the host library of a name into <paramref name="context"/>, or returns null when the player lists
+    /// the name, ships it, or when it is an engine module or the engine itself, or when the host has no such library.
+    /// </summary>
+    public Assembly? ResolveHostLibrary(AssemblyLoadContext context, AssemblyName name)
     {
-        if (_hostLibraries is null) return null;
+        if (_hostLibraries is null || name.Name is not { Length: > 0 } simple) return null;
+        if (simple == _engine.GetName().Name || ModuleFacades.IsEngineModule(simple) || _game.Contains(simple)) return null;
+        if (File.Exists(Path.Combine(_managed, simple + ".dll"))) return null;
         var path = Path.Combine(_hostLibraries, simple + ".dll");
         return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
     }

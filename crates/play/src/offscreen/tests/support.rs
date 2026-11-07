@@ -14,6 +14,7 @@ use worldrunner_world_simulation::{
     ObjectHandle, World, WorldSettings,
 };
 
+use super::super::defaults::DefaultTexture;
 use super::super::frame::{Available, ShaderInfo};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
@@ -149,12 +150,14 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
                     ShaderInfo {
                         passes,
                         queue: 2000,
+                        texture_defaults: Vec::new(),
                     },
                 )
             })
             .collect(),
         meshes: snapshot.renderers.iter().map(|r| r.mesh).collect(),
         textures: textures.iter().copied().collect::<BTreeSet<_>>(),
+        default_textures: DefaultTexture::ALL.into_iter().collect(),
     }
 }
 

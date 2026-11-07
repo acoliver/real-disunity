@@ -11,6 +11,9 @@ use worldrunner_world_simulation::graphics::{
 
 /// Set in the id of every render texture, never in a stored texture's.
 const RENDER_TEXTURE: u64 = 1 << 63;
+/// The names of the default textures: the last sixteen below the render texture bit, which no
+/// stored texture takes.
+const DEFAULT_TEXTURES: u64 = RENDER_TEXTURE - 16;
 /// Set in the id of a material made from a world material and a renderer's own render queue.
 const QUEUED_MATERIAL: u64 = 1 << 63;
 
@@ -41,7 +44,13 @@ pub fn render_texture(id: RenderTextureId) -> TextureId {
 /// would share.
 #[must_use]
 pub fn stored_texture(identity: u64) -> Option<TextureId> {
-    (identity & RENDER_TEXTURE == 0).then_some(TextureId(identity))
+    (identity < DEFAULT_TEXTURES).then_some(TextureId(identity))
+}
+
+/// The name of the `index`-th default texture, below 16.
+#[must_use]
+pub fn default_texture(index: u64) -> TextureId {
+    TextureId(DEFAULT_TEXTURES + index.min(15))
 }
 
 #[must_use]

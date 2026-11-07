@@ -4,6 +4,7 @@ mod assets;
 mod builtins;
 mod camera;
 mod causes;
+mod defaults;
 mod flush;
 mod frame;
 mod gpu;

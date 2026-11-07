@@ -507,3 +507,77 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
     );
     assert_eq!(texture.camera_unmatched, 0);
 }
+
+/// The heights a camera draws with `_Albedo` at the default its shader declares, which the
+/// material leaves unset: the Gamma pass paints the albedo times the red tint of 0.5 over the
+/// left half, so `white` gives 0.5 and `black` gives 0, each scaled by 2, over a clear color of
+/// 0.25 scaled to 0.5.
+fn heights_with_default(file: &str) -> (FlushOutcome, Vec<f32>) {
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let settings = Settings {
+        light_modes: vec!["Gamma".to_owned()],
+        ..Settings::default()
+    };
+    let mut host = host_with(directory.path(), settings);
+    let mut world = world();
+    let heights = target(&mut world, HEIGHT);
+    camera_render_of(&mut world, heights, file);
+    let shader = scaling(&mut world);
+    let buffer = compute_buffer(&mut world, SIDE * SIDE);
+    dispatch(&mut world, shader, (heights, buffer), [2, 2, 1]);
+    let snapshot = snapshot(&mut world);
+    let outcome = host.flush(&snapshot, &Quad).unwrap();
+    outcome.apply(&mut world).unwrap();
+    (outcome, floats(&world, buffer))
+}
+
+#[test]
+fn an_unset_texture_reads_the_white_its_shader_declares() {
+    let (outcome, heights) = heights_with_default("default_white");
+    assert!(
+        outcome.report.failures.is_empty(),
+        "{:?}",
+        outcome.report.failures
+    );
+    assert_eq!(heights, expected());
+    assert_eq!(outcome.report.traces[0].textures[0].camera_draws, 1);
+    assert_eq!(
+        outcome.report.unresolved_textures,
+        BTreeMap::from([(
+            "_Albedo: no texture set, the shader's default read".to_owned(),
+            1
+        )])
+    );
+}
+
+#[test]
+fn an_unset_texture_reads_the_black_its_shader_declares() {
+    let (outcome, heights) = heights_with_default("default_black");
+    assert!(
+        outcome.report.failures.is_empty(),
+        "{:?}",
+        outcome.report.failures
+    );
+    let predicted: Vec<f32> = (0..SIDE * SIDE)
+        .map(|index| {
+            if index % SIDE < SIDE / 2 {
+                0.0
+            } else {
+                CLEAR * SCALE
+            }
+        })
+        .collect();
+    assert_eq!(heights, predicted);
+}
+
+#[test]
+fn an_unset_texture_whose_default_the_host_does_not_supply_leaves_the_draw_out() {
+    let (outcome, heights) = heights_with_default("default_bump");
+    assert_eq!(outcome.report.failures.get("draw:MissingTexture"), Some(&1));
+    assert_eq!(
+        outcome.report.missing_textures,
+        BTreeMap::from([("_Albedo".to_owned(), 1)])
+    );
+    assert_eq!(heights, vec![CLEAR * SCALE; 16]);
+}

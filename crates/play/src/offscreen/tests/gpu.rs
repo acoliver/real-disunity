@@ -17,6 +17,7 @@ use worldrunner_render_program::offscreen::{OffscreenOperations, OffscreenState,
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
 use worldrunner_render_program::shader::ProgramShader;
 use worldrunner_render_program::synthetic::shaders::{blit_passes, camera_passes};
+use worldrunner_unity_serialized::shader::ShaderProperty;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,
     ShaderSource, TextureRef, WorldRenderTexture, WorldSampler, WorldShader,
@@ -26,6 +27,7 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::{OffscreenAdapter, build};
 use super::super::assets::{AssetError, Assets};
+use super::super::defaults::declared;
 use super::super::frame::{Adapted, Settings};
 use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
 use super::support::{camera, render_texture, renderer_with, world};
@@ -55,13 +57,32 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            // The camera shader with `_Albedo` declared a 2D texture property of the default
+            // named after the file.
+            "default_white" | "default_black" | "default_bump" => {
+                let mut synthetic = camera_passes();
+                let name = source.file.trim_start_matches("default_");
+                synthetic.shader.parsed.properties = vec![ShaderProperty {
+                    name: "_Albedo".to_owned(),
+                    description: String::new(),
+                    attributes: Vec::new(),
+                    kind: 4,
+                    flags: 0,
+                    default_value: [0.0; 4],
+                    default_texture: name.to_owned(),
+                    texture_dimension: 2,
+                }];
+                synthetic
+            }
             _ => return Err(ShaderLoadError::NoVulkanPlatform),
         };
+        let texture_defaults = declared(&synthetic.shader);
         let program = ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap();
         Ok(LoadedShader {
             passes: program.pass_count(),
             program,
             queue: 2000,
+            texture_defaults,
         })
     }
 }
@@ -493,4 +514,35 @@ fn a_record_that_does_not_build_on_its_own_is_dropped_and_counted_by_the_error()
     rig.run(operations);
     let b = reads.into_iter().next().unwrap().bytes(&rig.device);
     assert_eq!(pixel(&b, (0, 0)), WHITE);
+}
+
+#[test]
+fn a_stored_texture_the_engine_does_not_hold_is_counted_as_not_stored() {
+    use super::support::{material, set, snapshot, texture_slot};
+    use worldrunner_world_simulation::graphics::PropertyValue as WorldValue;
+    let mut rig = Rig::new();
+    let mut world = world();
+    let blit = shader(&mut world, "blit");
+    let material = material(&mut world, blit);
+    for (name, identity) in [("_Held", 1_u64 << 40), ("_Other", 1 << 41)] {
+        set(
+            &mut world,
+            material,
+            WorldValue::Texture(name.into(), texture_slot(TextureRef::Asset(identity))),
+        );
+    }
+    let target = render_texture(&mut world, [SIDE, SIDE]);
+    world
+        .record_offscreen(OffscreenWork::Blit {
+            source: TextureRef::Render(target),
+            target,
+            material: Some(material),
+            pass: 0,
+        })
+        .unwrap();
+    let snapshot = snapshot(&mut world);
+    let adapted = rig
+        .adapter
+        .adapt(&snapshot, &Quad, &mut rig.state, &mut rig.runtime);
+    assert_eq!(adapted.report.failures.get("texture:NotStored"), Some(&2));
 }

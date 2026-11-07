@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
 
-use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId};
+use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
@@ -25,8 +25,9 @@ use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::builtins::{camera_layer, draw_layer};
 use super::compute::DispatchTrace;
+use super::defaults::DefaultTexture;
 use super::ids;
-use super::properties::{Textures, layer};
+use super::properties::{Textures, layer, layer_with_defaults};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
 /// The tag key whose value names a pass's purpose.
@@ -85,12 +86,15 @@ impl Settings {
 }
 
 /// What the shader of a material offers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShaderInfo {
     /// The passes of its first sub-shader.
     pub passes: usize,
     /// The queue a material that names none takes.
     pub queue: i32,
+    /// The texture properties whose declared default the host supplies. A material that sets no
+    /// texture for one reads that default.
+    pub texture_defaults: Vec<(String, DefaultTexture)>,
 }
 
 /// What the host can supply for the snapshot: the shaders it loaded, and the identities of the
@@ -100,6 +104,8 @@ pub struct Available {
     pub shaders: BTreeMap<WorldShaderId, ShaderInfo>,
     pub meshes: BTreeSet<u64>,
     pub textures: BTreeSet<u64>,
+    /// The default textures that are registered and can be named.
+    pub default_textures: BTreeSet<DefaultTexture>,
 }
 
 /// Why a record was left out.
@@ -609,7 +615,14 @@ impl<'a> Mapper<'a> {
             None => (ids::material(id), own),
         };
         if !self.frame.materials.contains_key(&named) {
-            let properties = layer(&material.properties, &mut self.textures);
+            let defaults: Vec<(String, TextureId)> = info
+                .texture_defaults
+                .iter()
+                .filter(|(_, texture)| self.available.default_textures.contains(texture))
+                .map(|(name, texture)| (name.clone(), texture.id()))
+                .collect();
+            let properties =
+                layer_with_defaults(&material.properties, &mut self.textures, &defaults);
             self.frame.materials.insert(
                 named,
                 Material {

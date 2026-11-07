@@ -48,6 +48,7 @@ mod builtins;
 mod camera;
 mod census;
 mod compute;
+mod defaults;
 mod flush;
 mod frame;
 mod ids;
@@ -72,6 +73,7 @@ pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     TextureTrace,
 };
+pub use defaults::DefaultTexture;
 pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,

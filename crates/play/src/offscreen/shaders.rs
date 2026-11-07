@@ -19,6 +19,8 @@ use worldrunner_unity_import::{
 use worldrunner_unity_serialized::shader::Shader;
 use worldrunner_world_simulation::graphics::ShaderSource;
 
+use super::defaults::{DefaultTexture, declared};
+
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ShaderLoadError {
     #[error("the shader file {file:?} is not a relative path inside the data directory")]
@@ -95,6 +97,8 @@ pub struct LoadedShader {
     pub passes: usize,
     /// The shader's own render queue, which a material that names none takes.
     pub queue: i32,
+    /// The texture properties whose declared default the host supplies.
+    pub texture_defaults: Vec<(String, DefaultTexture)>,
 }
 
 impl ShaderLoader {
@@ -118,11 +122,13 @@ impl ShaderLoader {
             self.loaded.insert(key.clone(), decoded);
         }
         let loaded = self.loaded[&key].clone()?;
+        let texture_defaults = declared(&loaded.shader);
         let program = ProgramShader::new(loaded.shader, loaded.chunks)?;
         Ok(LoadedShader {
             passes: program.pass_count(),
             program,
             queue: loaded.queue,
+            texture_defaults,
         })
     }
 

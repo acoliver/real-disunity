@@ -20,6 +20,9 @@ use worldrunner_world_simulation::graphics::{
 use super::assets::sampler_of_world;
 use super::ids;
 
+/// Why a texture property is counted that was given its shader's default.
+const DEFAULT_READ: &str = "no texture set, the shader's default read";
+
 /// Which textures a frame can name, and which render textures its properties did.
 pub struct Textures<'a> {
     render: &'a BTreeMap<RenderTextureId, WorldRenderTexture>,
@@ -116,20 +119,60 @@ pub fn values(properties: &ShaderProperties) -> PropertySet {
 
 /// The layer of `properties`.
 pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> PropertyLayer {
+    layer_with_defaults(properties, textures, &[])
+}
+
+/// The layer of a material's `properties`, where a texture property that `defaults` names (the
+/// shader's declared default texture) and that the material sets to no texture, or lists no
+/// slot for, reads the default. A property set to a texture the frame cannot read keeps no
+/// texture, because the default is not what the material holds.
+pub fn layer_with_defaults(
+    properties: &ShaderProperties,
+    textures: &mut Textures<'_>,
+    defaults: &[(String, TextureId)],
+) -> PropertyLayer {
     let mut layer = PropertyLayer {
         values: values(properties),
         ..PropertyLayer::default()
     };
+    let default_of = |name: &str| defaults.iter().find(|(held, _)| held == name);
     for (name, slot) in &properties.textures {
         if let Some((texture, sampler)) = textures.resolve(&slot.texture) {
             layer
                 .textures
                 .insert(name.clone(), TextureInput { texture, sampler });
+        } else if let (TextureRef::None, Some((_, texture))) = (&slot.texture, default_of(name)) {
+            layer.textures.insert(
+                name.clone(),
+                TextureInput {
+                    texture: *texture,
+                    sampler: None,
+                },
+            );
+            *textures
+                .unresolved
+                .entry(format!("{name}: {DEFAULT_READ}"))
+                .or_default() += 1;
         } else {
             let reason = Textures::why_unresolved(&slot.texture);
             *textures
                 .unresolved
                 .entry(format!("{name}: {reason}"))
+                .or_default() += 1;
+        }
+    }
+    for (name, texture) in defaults {
+        if !properties.textures.iter().any(|(held, _)| held == name) {
+            layer.textures.insert(
+                name.clone(),
+                TextureInput {
+                    texture: *texture,
+                    sampler: None,
+                },
+            );
+            *textures
+                .unresolved
+                .entry(format!("{name}: {DEFAULT_READ}"))
                 .or_default() += 1;
         }
     }

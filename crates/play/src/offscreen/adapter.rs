@@ -19,6 +19,7 @@ use worldrunner_world_simulation::graphics::{
 };
 
 use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
+use super::defaults::DefaultTexture;
 use super::frame::{
     Adapted, Available, BLIT_MESH, Report, Settings, ShaderInfo, adapt, textures_of,
 };
@@ -33,6 +34,8 @@ pub struct OffscreenAdapter {
     shaders: BTreeMap<WorldShaderId, (ShaderSource, ShaderInfo)>,
     meshes: BTreeMap<u64, Stored>,
     textures: BTreeMap<u64, Stored>,
+    /// The default textures that were registered.
+    defaults: BTreeSet<DefaultTexture>,
     blit_mesh: bool,
 }
 
@@ -61,6 +64,7 @@ impl OffscreenAdapter {
             shaders: BTreeMap::new(),
             meshes: BTreeMap::new(),
             textures: BTreeMap::new(),
+            defaults: BTreeSet::new(),
             blit_mesh: false,
         }
     }
@@ -79,10 +83,12 @@ impl OffscreenAdapter {
         self.register_shaders(snapshot, state, &mut available, &mut notes);
         let renderers = snapshot.renderers.iter().map(|renderer| renderer.mesh);
         self.register_meshes(renderers.collect(), assets, (state, runtime), &mut notes);
+        self.register_defaults(state, runtime, &mut notes);
         let wanted = stored_textures(snapshot);
         self.register_textures(&wanted, assets, (state, runtime), &mut notes);
         available.meshes = usable(&self.meshes);
         available.textures = usable(&self.textures);
+        available.default_textures = self.defaults.clone();
         if !self.blit_mesh {
             let blit = state.set_mesh(runtime, BLIT_MESH, &blit_mesh());
             self.blit_mesh = blit.is_ok();
@@ -107,7 +113,7 @@ impl OffscreenAdapter {
             if let Some((held, info)) = self.shaders.get(id)
                 && held == source
             {
-                available.shaders.insert(*id, *info);
+                available.shaders.insert(*id, info.clone());
                 continue;
             }
             match self.supply.load(source) {
@@ -115,12 +121,33 @@ impl OffscreenAdapter {
                     let info = ShaderInfo {
                         passes: loaded.passes,
                         queue: loaded.queue,
+                        texture_defaults: loaded.texture_defaults,
                     };
                     state.add_shader(ids::shader(*id), loaded.program);
-                    self.shaders.insert(*id, (source.clone(), info));
+                    self.shaders.insert(*id, (source.clone(), info.clone()));
                     available.shaders.insert(*id, info);
                 }
                 Err(error) => notes.fail("shader", &error),
+            }
+        }
+    }
+
+    /// Registers each default texture once.
+    fn register_defaults(
+        &mut self,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        notes: &mut Report,
+    ) {
+        for texture in DefaultTexture::ALL {
+            if self.defaults.contains(&texture) {
+                continue;
+            }
+            match state.set_texture(runtime, &texture.texture()) {
+                Ok(()) => {
+                    self.defaults.insert(texture);
+                }
+                Err(error) => notes.fail("defaulttexture", &error),
             }
         }
     }
@@ -189,7 +216,10 @@ impl OffscreenAdapter {
                 .map_or(0, |held| held.generation);
             let stored = match assets.texture(identity, known) {
                 Ok(Some(stored)) => stored,
-                Ok(None) => continue,
+                Ok(None) => {
+                    notes.count("texture:NotStored");
+                    continue;
+                }
                 Err(_) => {
                     notes.count("texture:Read");
                     continue;

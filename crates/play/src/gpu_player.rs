@@ -95,6 +95,12 @@ pub struct GpuWorkReport {
     pub nonzero_values: usize,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
+    /// The most bytes the runtime held at any moment, not only after a flush.
+    pub peak_runtime_bytes: u64,
+    /// What the runtime held when the budget first refused an allocation, and the frame it was
+    /// in.
+    pub refusal_holdings: Vec<String>,
+    pub refusal_frame: u64,
     /// The records of frames and flushes the GPU refused whole. Their other counts are not in the
     /// totals above, which a refused piece of work never reaches.
     pub refused_records: usize,
@@ -154,6 +160,10 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.failures {
             *self.failures.entry(name.clone()).or_default() += count;
+        }
+        if self.refusal_holdings.is_empty() && !report.holdings.is_empty() {
+            self.refusal_holdings.clone_from(&report.holdings);
+            self.refusal_frame = self.frames;
         }
         for (cause, count) in &report.causes {
             *self.causes.entry(cause.clone()).or_default() += count;
@@ -272,9 +282,15 @@ impl GpuWorkReport {
             self.refused_works, self.refused_records
         );
         eprintln!(
-            "[gpu] most storage held after a flush {} bytes",
-            self.peak_live_bytes
+            "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
+            self.peak_live_bytes, self.peak_runtime_bytes
         );
+        for line in &self.refusal_holdings {
+            eprintln!(
+                "[gpu] held when the budget first refused, in frame {}: {line}",
+                self.refusal_frame
+            );
+        }
         eprintln!(
             "[gpu] time in the frame path {:?}, in flushes {:?}",
             self.frame_time, self.flush_time
@@ -397,6 +413,7 @@ impl PlayerGpu {
             report.flushes += 1;
             report.flush_time += started.elapsed();
             report.peak_live_bytes = report.peak_live_bytes.max(offscreen.borrow().live_bytes());
+            report.peak_runtime_bytes = offscreen.borrow().peak_bytes();
             let outcome = outcome.inspect_err(|message| {
                 *report.errors.entry(message.clone()).or_default() += 1;
             })?;
@@ -449,6 +466,7 @@ impl PlayerGpu {
                 *report.errors.entry(error.to_string()).or_default() += 1;
             }
         }
+        report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(())

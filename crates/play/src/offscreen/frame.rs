@@ -13,7 +13,8 @@ use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{
-    CameraDraws, CameraPassReport, OffscreenOperations, PartialMipReads, UnmatchedPasses,
+    CameraDraws, CameraPassReport, CameraProbe, OffscreenOperations, PartialMipReads,
+    UnmatchedPasses,
 };
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
@@ -23,7 +24,7 @@ use worldrunner_world_simulation::graphics::{
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
-use super::builtins::{camera_layer, draw_layer};
+use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, camera_layer, draw_layer};
 use super::compute::DispatchTrace;
 use super::defaults::DefaultTexture;
 use super::ids;
@@ -45,6 +46,10 @@ const CAMERA_LIGHT_MODES: [&str; 5] = [
 
 /// The mode a pass with no `LightMode` counts as, the last of [`CAMERA_LIGHT_MODES`].
 const UNTAGGED_LIGHT_MODE: &str = "Always";
+
+/// What a test render clears its scratch target to: values a render is unlikely to write and a
+/// half float, an unsigned 8-bit and a 32-bit float all hold to within a step.
+pub const TEST_CLEAR: [f32; 4] = [0.3125, 0.6875, 0.4375, 0.8125];
 
 /// The mesh a blit draws.
 pub const BLIT_MESH: MeshId = MeshId(u64::MAX);
@@ -183,6 +188,9 @@ pub struct Report {
     pub unsupported_work: BTreeMap<String, usize>,
     /// The textures the world's globals hold when the frame is mapped, by `name: kind`.
     pub global_textures: BTreeMap<String, usize>,
+    /// What the runtime's storage held when the budget first refused an allocation of this work,
+    /// as lines; empty when it refused none.
+    pub holdings: Vec<String>,
 }
 
 impl Report {
@@ -285,6 +293,9 @@ impl Report {
         }
         for (name, count) in other.unresolved_textures {
             *self.unresolved_textures.entry(name).or_default() += count;
+        }
+        if self.holdings.is_empty() {
+            self.holdings = other.holdings;
         }
         self.camera_draws.extend(other.camera_draws);
         self.camera_passes.extend(other.camera_passes);
@@ -404,6 +415,20 @@ fn fills_target(viewport: [f32; 4]) -> bool {
         .all(|(found, whole)| (found - whole).abs() <= f32::EPSILON)
 }
 
+/// Whether `record` is a test render, which draws into one of the frame's test targets and is not
+/// among the records the world listed.
+pub(super) fn is_test_render(
+    record: &Record,
+    test_targets: &BTreeSet<worldrunner_render_program::ids::TextureId>,
+) -> bool {
+    matches!(record, Record::CameraRender { target, .. } if test_targets.contains(target))
+}
+
+/// Whether `record` draws into a scratch copy, as every test render does.
+fn is_scratch_render(record: &Record) -> bool {
+    matches!(record, Record::CameraRender { target, .. } if ids::is_probe_scratch(*target))
+}
+
 /// The textures a record reads or writes.
 pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::ids::TextureId> {
     match *record {
@@ -417,7 +442,23 @@ pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::id
 /// Maps `snapshot`.
 #[must_use]
 pub fn adapt(snapshot: &GraphicsSnapshot, available: &Available, settings: &Settings) -> Adapted {
+    adapt_probing(snapshot, available, settings, false)
+}
+
+/// Maps `snapshot`. With `probe`, the camera renders into the render textures a dispatch binds are
+/// examined: each is looked at on the CPU ([`CameraProbe`]) and drawn again into a scratch copy
+/// cleared to [`TEST_CLEAR`], so the texels the camera wrote show as differing from it.
+#[must_use]
+pub fn adapt_probing(
+    snapshot: &GraphicsSnapshot,
+    available: &Available,
+    settings: &Settings,
+    probe: bool,
+) -> Adapted {
     let mut mapper = Mapper::new(snapshot, available, settings);
+    if probe {
+        mapper.probe_dispatch_targets();
+    }
     mapper.records();
     mapper.renderers();
     mapper.finish()
@@ -433,6 +474,9 @@ struct Mapper<'a> {
     dispatches: Vec<Placed>,
     cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
+    /// The render textures whose camera renders are examined, and those with a scratch copy.
+    probed: BTreeSet<RenderTextureId>,
+    scratch: BTreeSet<RenderTextureId>,
 }
 
 impl<'a> Mapper<'a> {
@@ -460,7 +504,33 @@ impl<'a> Mapper<'a> {
             dispatches: Vec::new(),
             cameras: BTreeMap::new(),
             queued: BTreeMap::new(),
+            probed: BTreeSet::new(),
+            scratch: BTreeSet::new(),
         }
+    }
+
+    /// Asks for a look at every camera render into a render texture some dispatch binds.
+    fn probe_dispatch_targets(&mut self) {
+        for work in &self.snapshot.work {
+            let OffscreenWork::Dispatch { bindings, .. } = work else {
+                continue;
+            };
+            for (_, slot) in &bindings.properties.textures {
+                if let TextureRef::Render(id) = slot.texture {
+                    self.probed.insert(id);
+                }
+            }
+        }
+        self.frame.probe = CameraProbe {
+            targets: self
+                .probed
+                .iter()
+                .map(|id| ids::render_texture(*id))
+                .collect(),
+            test_targets: BTreeSet::new(),
+            object_to_world: OBJECT_TO_WORLD.to_owned(),
+            view_projection: VIEW_PROJECTION.to_owned(),
+        };
     }
 
     fn records(&mut self) {
@@ -471,7 +541,10 @@ impl<'a> Mapper<'a> {
             }
             match self.record(work) {
                 Ok(records) => {
-                    self.report.built += records.len();
+                    self.report.built += records
+                        .iter()
+                        .filter(|record| !is_scratch_render(record))
+                        .count();
                     self.frame.records.extend(records);
                 }
                 Err(skip) => {
@@ -504,9 +577,13 @@ impl<'a> Mapper<'a> {
     fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
         match work {
             OffscreenWork::Dispatch { .. } => unreachable!("dispatches are placed, not mapped"),
-            OffscreenWork::CameraRender { camera, target } => self
-                .camera_render(*camera, *target)
-                .map(|record| vec![record]),
+            OffscreenWork::CameraRender { camera, target } => {
+                let mut records = vec![self.camera_render(*camera, *target)?];
+                if self.probed.contains(target) {
+                    records.push(self.test_render(*camera, *target)?);
+                }
+                Ok(records)
+            }
             OffscreenWork::Blit {
                 source,
                 target,
@@ -592,12 +669,40 @@ impl<'a> Mapper<'a> {
         let id = if let Some(id) = self.cameras.get(&(handle, size)) {
             *id
         } else {
-            let id = CameraId(self.cameras.len() as u64);
+            let id = CameraId(self.frame.cameras.len() as u64);
             self.frame.cameras.insert(id, self.camera(view, size));
             self.cameras.insert((handle, size), id);
             id
         };
         Ok(Record::CameraRender { camera: id, target })
+    }
+
+    /// The camera's render again into a scratch copy of `target`, cleared to [`TEST_CLEAR`], whose
+    /// texels differ from the clear only where a fragment was written.
+    fn test_render(
+        &mut self,
+        handle: ComponentHandle,
+        target: RenderTextureId,
+    ) -> Result<Record, Skip> {
+        let view = self
+            .snapshot
+            .cameras
+            .get(&handle)
+            .ok_or(Skip::StaleCamera)?;
+        let texture = self
+            .snapshot
+            .render_textures
+            .get(&target)
+            .ok_or(Skip::StaleTarget)?;
+        let mut camera = self.camera(view, [texture.width, texture.height]);
+        camera.clear_color = Some(TEST_CLEAR.map(f64::from));
+        let id = CameraId(self.frame.cameras.len() as u64);
+        self.frame.cameras.insert(id, camera);
+        self.scratch.insert(target);
+        Ok(Record::CameraRender {
+            camera: id,
+            target: ids::probe_scratch(ids::render_texture(target)),
+        })
     }
 
     /// What the camera clears, from its clear flags, and what it draws.
@@ -801,6 +906,25 @@ impl<'a> Mapper<'a> {
                 generation: texture.generation,
             });
         }
+        // A scratch copy is made like the render texture it copies.
+        let copies: Vec<_> = self
+            .frame
+            .render_textures
+            .iter()
+            .filter(|spec| {
+                ids::render_texture_of(spec.id).is_some_and(|id| self.scratch.contains(&id))
+            })
+            .map(|spec| RenderTextureSpec {
+                id: ids::probe_scratch(spec.id),
+                ..spec.clone()
+            })
+            .collect();
+        self.frame.render_textures.extend(copies);
+        self.frame.probe.test_targets = self
+            .scratch
+            .iter()
+            .map(|id| ids::probe_scratch(ids::render_texture(*id)))
+            .collect();
         self.report.unresolved_textures = self.textures.unresolved().clone();
         if let Some(global) = &self.snapshot.global {
             for (name, slot) in &global.properties.textures {

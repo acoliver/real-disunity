@@ -14,6 +14,8 @@ const RENDER_TEXTURE: u64 = 1 << 63;
 /// The names of the default textures: the last sixteen below the render texture bit, which no
 /// stored texture takes.
 const DEFAULT_TEXTURES: u64 = RENDER_TEXTURE - 16;
+/// Set in the id of the scratch copy of a render texture that a test render draws into.
+const PROBE_SCRATCH: u64 = 1 << 62;
 /// Set in the id of a material made from a world material and a renderer's own render queue.
 const QUEUED_MATERIAL: u64 = 1 << 63;
 
@@ -40,6 +42,18 @@ pub fn render_texture(id: RenderTextureId) -> TextureId {
     TextureId(id.to_bits() | RENDER_TEXTURE)
 }
 
+/// The scratch copy a test render of the render texture `id` draws into.
+#[must_use]
+pub fn probe_scratch(id: TextureId) -> TextureId {
+    TextureId(id.0 | PROBE_SCRATCH)
+}
+
+/// Whether `id` names a scratch copy.
+#[must_use]
+pub fn is_probe_scratch(id: TextureId) -> bool {
+    id.0 & PROBE_SCRATCH != 0 && id.0 & RENDER_TEXTURE != 0
+}
+
 /// The name of a texture the player stored, or `None` when its identity is one a render texture
 /// would share.
 #[must_use]
@@ -58,8 +72,10 @@ pub fn mesh(identity: u64) -> MeshId {
     MeshId(identity)
 }
 
-/// The render texture a name stands for, or `None` for a stored texture's name.
+/// The render texture a name stands for, or `None` for a stored texture's name and a scratch
+/// copy's.
 #[must_use]
 pub fn render_texture_of(id: TextureId) -> Option<RenderTextureId> {
-    (id.0 & RENDER_TEXTURE != 0).then(|| RenderTextureId::from_bits(id.0 & !RENDER_TEXTURE))
+    (id.0 & RENDER_TEXTURE != 0 && id.0 & PROBE_SCRATCH == 0)
+        .then(|| RenderTextureId::from_bits(id.0 & !RENDER_TEXTURE))
 }

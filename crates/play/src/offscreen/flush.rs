@@ -30,7 +30,8 @@ use worldrunner_world_simulation::graphics::{ComputeBufferId, GraphicsSnapshot, 
 use super::adapter::{OffscreenAdapter, build};
 use super::assets::Assets;
 use super::compute::{ComputeAdapter, DispatchTrace, GpuBuffers, Prepared, nonzero_words};
-use super::frame::{Adapted, Report};
+use super::frame::{Adapted, Report, is_test_render};
+use super::pass_notes;
 use super::probe::{BeforeDispatch, Probe};
 use super::trace::WorkTrace;
 
@@ -109,6 +110,12 @@ impl OffscreenHost {
     #[must_use]
     pub fn storage_budget(&self) -> u64 {
         self.runtime.budget().0
+    }
+
+    /// The most bytes of GPU storage the runtime has held at once.
+    #[must_use]
+    pub fn peak_bytes(&self) -> u64 {
+        self.runtime.peak_bytes()
     }
 
     /// Bytes of GPU storage the runtime holds now: the render textures and uploads it keeps, and
@@ -227,9 +234,9 @@ impl OffscreenHost {
     ) -> Result<FlushOutcome, FlushError> {
         let live_before = self.runtime.live_bytes();
         let started = Instant::now();
-        let mut adapted = self
-            .adapter
-            .adapt(snapshot, assets, &mut self.state, &mut self.runtime);
+        let mut adapted =
+            self.adapter
+                .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
         adapted.report.phases.adapt = started.elapsed();
         let mut buffers = GpuBuffers::default();
         let result = self.run(snapshot, &mut adapted, &mut buffers);
@@ -328,7 +335,12 @@ impl OffscreenHost {
         };
         let built = build(&mut self.state, &mut self.runtime, &self.arena, &mut part);
         // A refused segment still tells how many refusals and probes it cost and how long.
-        let kept = part.frame.records.len();
+        let kept = part
+            .frame
+            .records
+            .iter()
+            .filter(|record| !is_test_render(record, &frame.probe.test_targets))
+            .count();
         report.absorb_failures(part.report);
         Ok((built?, kept))
     }
@@ -379,6 +391,16 @@ impl OffscreenHost {
                     pass.states,
                     pass.without_value
                 ));
+                texture.camera_notes.extend(pass_notes::notes(pass));
+                for source in pass_notes::sampled(pass) {
+                    if !texture
+                        .sampled
+                        .iter()
+                        .any(|held| held.texture == source.texture)
+                    {
+                        texture.sampled.push(source);
+                    }
+                }
             }
         }
         let outcome = match prepared {

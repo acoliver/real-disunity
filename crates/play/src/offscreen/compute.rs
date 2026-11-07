@@ -102,6 +102,18 @@ impl DispatchTrace {
             for note in &texture.camera_notes {
                 lines.push(format!("    {note}"));
             }
+            if let Some(test) = &texture.test_render {
+                lines.push(format!("    test render: {test}"));
+            }
+            for source in &texture.sampled {
+                lines.push(format!(
+                    "    sampled {} (texture {}): uploaded {}, read back from the GPU {}",
+                    source.name,
+                    source.texture.0,
+                    source.uploaded,
+                    source.on_the_gpu.as_deref().unwrap_or("not read")
+                ));
+            }
         }
         for buffer in &self.buffers {
             lines.push(format!(
@@ -136,6 +148,21 @@ pub struct TextureTrace {
     pub before_dispatch: Option<String>,
     /// How each camera render into the texture drew: its target, state and the values it lacked.
     pub camera_notes: Vec<String>,
+    /// How many texels of the camera's test render into a scratch copy differ from its clear,
+    /// which are the texels a fragment was written to, against all the texels.
+    pub test_render: Option<String>,
+    /// The uploaded textures the camera renders into this texture sampled.
+    pub sampled: Vec<SampledSource>,
+}
+
+/// An uploaded texture a camera render sampled: what the bytes uploaded held and what the GPU
+/// copy holds when read back, as counts of texels (blocks, for a block-compressed format).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SampledSource {
+    pub name: String,
+    pub texture: TextureId,
+    pub uploaded: String,
+    pub on_the_gpu: Option<String>,
 }
 
 /// A buffer a kernel declares and what the dispatch bound to it.

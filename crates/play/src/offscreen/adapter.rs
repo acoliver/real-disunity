@@ -25,8 +25,9 @@ use worldrunner_world_simulation::graphics::{
 use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
 use super::defaults::DefaultTexture;
 use super::frame::{
-    Adapted, Available, BLIT_MESH, Report, Settings, ShaderInfo, adapt, textures_of,
+    Adapted, Available, BLIT_MESH, Report, Settings, ShaderInfo, adapt_probing, textures_of,
 };
+use super::holdings;
 use super::ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
@@ -82,6 +83,19 @@ impl OffscreenAdapter {
         state: &mut OffscreenState,
         runtime: &mut ProgramRuntime,
     ) -> Adapted {
+        self.adapt_probing(snapshot, assets, state, runtime, false)
+    }
+
+    /// As [`adapt`](Self::adapt); with `probe`, the camera renders into the render textures a
+    /// dispatch binds are examined ([`adapt_probing`]).
+    pub fn adapt_probing(
+        &mut self,
+        snapshot: &GraphicsSnapshot,
+        assets: &dyn Assets,
+        state: &mut OffscreenState,
+        runtime: &mut ProgramRuntime,
+        probe: bool,
+    ) -> Adapted {
         let mut notes = Report::default();
         let mut available = Available::default();
         // A render texture the script destroyed has nothing left to draw; its storage goes back
@@ -105,7 +119,7 @@ impl OffscreenAdapter {
             let blit = state.set_mesh(runtime, BLIT_MESH, &blit_mesh());
             self.blit_mesh = blit.is_ok();
         }
-        let mut adapted = adapt(snapshot, &available, &self.settings);
+        let mut adapted = adapt_probing(snapshot, &available, &self.settings, probe);
         adapted.report.absorb_failures(notes);
         adapted
     }
@@ -438,6 +452,9 @@ fn rebuild_without_unusable_parts(
     first: OffscreenError,
 ) -> Result<OffscreenOperations, OffscreenError> {
     adapted.report.phases.refusals += 1;
+    if is_over_budget(&first) && adapted.report.holdings.is_empty() {
+        adapted.report.holdings = holdings::describe(runtime);
+    }
     // A refusal that is the whole frame's is not found in a part, and building the parts one at a
     // time costs as much as the frame for each of them.
     if first.is_frame_wide() {

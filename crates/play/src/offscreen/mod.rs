@@ -51,8 +51,10 @@ mod compute;
 mod defaults;
 mod flush;
 mod frame;
+mod holdings;
 mod ids;
 mod kernels;
+mod pass_notes;
 mod probe;
 mod properties;
 mod shaders;
@@ -73,12 +75,13 @@ pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use census::{ShaderCensus, shader_census};
 pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
-    TextureTrace,
+    SampledSource, TextureTrace,
 };
 pub use defaults::DefaultTexture;
 pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
-    Adapted, Available, BLIT_MESH, Placed, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
+    Adapted, Available, BLIT_MESH, Placed, RendererSkip, Report, Settings, ShaderInfo, Skip,
+    TEST_CLEAR, adapt, adapt_probing,
 };
 pub use kernels::PlayerKernels;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};

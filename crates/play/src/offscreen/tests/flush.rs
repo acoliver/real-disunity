@@ -396,6 +396,13 @@ fn the_trace_reads_as_report_lines() {
             "    camera CameraId(0) drew 1 into color Some(R16Float) depth None, states \
              [(\"cull None, depth test LessEqual write true, color mask RGBA, blend off\", 1)], \
              without a value []",
+            "    setup: viewport [4, 4], color clear [0.25, 0.0, 1.0, 1.0] (Some(R16Float)), depth \
+             no depth (None)",
+            "    program shader 4294967296 pass 0: 1 draws, 4 vertices, clip positions inside 0, \
+             outside 0, behind 0, as transposes inside 0, outside 0, behind 0, without positions 0, \
+             without matrices 1; vertex constants without a value [], zero []; fragment constants \
+             without a value [], zero []; textures []",
+            "    test render: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
             "  buffer _Output 64 bytes, non-zero words 0 before, Some(16) after",
         ]
     );

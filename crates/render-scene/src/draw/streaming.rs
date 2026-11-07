@@ -1,5 +1,6 @@
 mod observations;
 mod replacement;
+mod residency;
 mod residents;
 #[cfg(test)]
 pub(in crate::draw) mod schedule_tests;
@@ -23,6 +24,7 @@ pub(super) struct Streaming {
     authority: SubmissionAuthority,
     frozen: Rc<std::cell::Cell<bool>>,
     replacement: RefCell<Option<replacement::Replacement>>,
+    residency: residency::Residency,
 }
 #[derive(Debug)]
 struct Prepared {
@@ -48,6 +50,7 @@ impl Streaming {
             authority: authority.clone(),
             frozen: Rc::default(),
             replacement: RefCell::new(None),
+            residency: residency::Residency::new(),
         }
     }
     fn reuse_prepared(
@@ -124,13 +127,17 @@ impl Streaming {
             .filter(|(key, _)| selection.leaves.contains(key))
             .cloned()
             .collect();
+        let mut uploaded = false;
         for chunk in selection.uploads {
             if !selection.leaves.contains(&chunk) {
                 continue;
             }
             let lod = upload_chunk(context, terrain, chunk)?;
             insert(&mut residents, chunk, lod);
+            uploaded = true;
         }
+        self.residency
+            .observe(residents.iter().map(|(key, _)| *key), uploaded);
         *self.drawing.borrow_mut() = Some(Prepared {
             owner,
             matrix: frame.selection_view_projection(),
@@ -324,10 +331,16 @@ fn buffer(
     buffer
 }
 impl SceneGpu {
-    pub(crate) fn has_streaming_terrain(&self) -> bool {
-        self.terrain
+    /// Changes whenever the casters a shadow cascade would draw change: placements and
+    /// caster membership, or the resident terrain chunk buffers. Both inputs only
+    /// increase, so the sum never repeats a value a retained cascade was rendered with.
+    pub(crate) fn shadow_caster_generation(&self) -> u64 {
+        let terrain = self
+            .terrain
             .as_ref()
-            .is_some_and(|terrain| terrain.streaming.is_some())
+            .and_then(|terrain| terrain.streaming.as_ref())
+            .map_or(0, |streaming| streaming.residency.generation());
+        self.caster_generation().wrapping_add(terrain)
     }
     pub(crate) fn prepare_frame_geometry(
         &self,

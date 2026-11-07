@@ -69,6 +69,16 @@ impl ComputeProgram {
 
 impl GraphicsProgram {
     #[must_use]
+    pub fn vertex(&self) -> &StageProgram {
+        &self.vertex
+    }
+
+    #[must_use]
+    pub fn fragment(&self) -> &StageProgram {
+        &self.fragment
+    }
+
+    #[must_use]
     pub fn layout(&self) -> &ProgramLayout {
         &self.gpu.layout
     }

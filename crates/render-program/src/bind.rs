@@ -291,14 +291,19 @@ fn check_texture(slot: &Slot, texture: &wgpu::Texture) -> Result<(), ProgramErro
         (wanted, Some(found)) => wanted == found,
         (_, None) => false,
     };
-    let is_2d = view_dimension == wgpu::TextureViewDimension::D2 && !multisampled;
-    if suits && is_2d {
+    // A texture is bound with its default view: 2D for one layer, a 2D array for several.
+    let default_dimension = if texture.depth_or_array_layers() > 1 {
+        wgpu::TextureViewDimension::D2Array
+    } else {
+        wgpu::TextureViewDimension::D2
+    };
+    if suits && view_dimension == default_dimension && !multisampled {
         return Ok(());
     }
     Err(ProgramError::WrongResource {
         set: slot.set,
         binding: slot.binding,
         expected: format!("{sample_type:?} {view_dimension:?} multisampled={multisampled}"),
-        found: format!("{:?} 2D texture", texture.format()),
+        found: format!("{:?} {default_dimension:?} texture", texture.format()),
     })
 }

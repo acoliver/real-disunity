@@ -38,7 +38,7 @@ impl PreparedFeature for Resident<'_> {
 /// The caller has already set the frame and flushed instance edits. For staged
 /// frame uploads, snapshots and screen effects use [`super::encode_scene`] instead.
 /// This entry retains the legacy exposed sRGB output, with no new post look. It refuses a scene
-/// that holds admitted player program draws; use [`super::encode_scene`] for those.
+/// that holds admitted player program draws or offscreen operations; use [`super::encode_scene`] for those.
 pub fn encode_resident(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
@@ -50,6 +50,11 @@ pub fn encode_resident(
     if scene.has_programs() {
         return Err(FrameError::UnsupportedEffect(
             "player programs on the resident path",
+        ));
+    }
+    if scene.has_offscreen() {
+        return Err(FrameError::UnsupportedEffect(
+            "offscreen operations on the resident path",
         ));
     }
     renderer.prepare_scene_inputs(device, scene);

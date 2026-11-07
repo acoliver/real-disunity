@@ -15,9 +15,13 @@ pub mod constants;
 mod declare;
 pub mod layout;
 pub mod module;
+pub mod offscreen;
 pub mod runtime;
+pub mod shader;
 mod source;
 pub mod state;
 pub mod structs;
+#[cfg(feature = "test-support")]
+pub mod synthetic;
 pub mod targets;
 pub mod variant;

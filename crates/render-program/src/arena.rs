@@ -39,6 +39,17 @@ impl std::fmt::Debug for ProgramArena {
 }
 
 impl ProgramArena {
+    /// The lease frames hold to keep the arena alive. Resources registered with an executor in
+    /// this arena's name are imported with it.
+    pub(crate) fn lease(&self) -> FrameLease {
+        self.owner.lease()
+    }
+
+    /// Whether `runtime` opened this arena.
+    pub(crate) fn belongs_to(&self, runtime: &ProgramRuntime) -> bool {
+        self.ledger.same(&runtime.ledger)
+    }
+
     /// Stops the runtime allocating under the reservation and gives up the arena's share of
     /// it. The renderer's bytes stay counted until every allocation the runtime still holds,
     /// including released ones the GPU may still use, has gone. A frame that holds the arena,

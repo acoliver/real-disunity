@@ -133,8 +133,12 @@ pub fn encode_scene(
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     validate_effects(renderer, gpu, pipelines)?;
-    let programs =
-        super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    let programs = super::offscreen::encode_player_work(
+        gpu,
+        encoder,
+        renderer,
+        (pipelines, velocity.is_some()),
+    )?;
     gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;

@@ -149,7 +149,17 @@ impl Fixture {
         settings: RendererConfiguration,
         pipelines: impl FnOnce(&Device) -> ScenePipelines,
     ) -> Self {
-        let context = context();
+        Self::with_context(context(), scene, settings, pipelines)
+    }
+
+    /// The same fixture on a device the caller opened, for tests that need a feature the shared
+    /// helper does not request.
+    pub fn with_context(
+        context: GpuContext,
+        scene: &RenderScene,
+        settings: RendererConfiguration,
+        pipelines: impl FnOnce(&Device) -> ScenePipelines,
+    ) -> Self {
         let device = context.device();
         let mut renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 26)).unwrap();

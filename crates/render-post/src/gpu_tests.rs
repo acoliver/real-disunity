@@ -5,22 +5,36 @@ pub(super) fn gpu() -> (wgpu::Device, wgpu::Queue) {
 }
 
 pub(super) fn gpu_with_optional_features(optional: wgpu::Features) -> (wgpu::Device, wgpu::Queue) {
-    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle().with_env();
-    if std::env::var_os("WGPU_BACKEND").is_none() {
-        descriptor.backends = wgpu::Backends::PRIMARY;
+    // Tests own their resources/authorities; concurrent submissions are legal and error scopes
+    // stay on the issuing thread. No lease is needed while device-wide callbacks stay fail-fast.
+    let gpu = worldrunner_render_gpu::test_support::TestGpu::shared(
+        &worldrunner_render_gpu::device::DeviceRequirements {
+            optional_features: optional,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    (gpu.device, gpu.queue)
+}
+
+#[test]
+fn ordinary_helpers_share_devices_without_upgrading_featureless_tests() {
+    let (optional, _) = crate::operations_tests::device();
+    let (first, first_queue) = gpu();
+    let (second, second_queue) = gpu();
+    assert_eq!(first, second);
+    assert_eq!(first_queue, second_queue);
+    assert!(first.features().is_empty());
+    assert_eq!(
+        optional.features(),
+        worldrunner_render_gpu::test_support::TestGpu::shared_adapter()
+            .unwrap()
+            .features()
+            & wgpu::Features::TIMESTAMP_QUERY
+    );
+    if !optional.features().is_empty() {
+        assert_ne!(first, optional);
     }
-    let instance = wgpu::Instance::new(descriptor);
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .expect("post service tests require a PRIMARY GPU; WGPU_BACKEND can override");
-    eprintln!("post service adapter: {:?}", adapter.get_info());
-    let required_features = optional & adapter.features();
-    eprintln!("post service enabled features: {required_features:?}");
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_features,
-        ..Default::default()
-    }))
-    .unwrap()
 }
 
 fn clear(encoder: &mut wgpu::CommandEncoder, targets: &FrameTargets) {

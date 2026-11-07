@@ -1,6 +1,6 @@
 use super::{
-    BufferUse, BufferUseKind, CompiledOperations, ContractError, RasterPass, ResourceRegistry,
-    ResourceUse, TypedOperation, TypedWork,
+    AccessMode, BufferUse, BufferUseKind, CompiledOperations, ContractError, RasterPass,
+    ResourceRegistry, ResourceUse, TypedOperation, TypedWork, UseKind,
 };
 use super::{buffers::BufferVersions, validation::Versions};
 
@@ -11,6 +11,18 @@ impl ResourceRegistry {
         &self,
         device: &wgpu::Device,
         operations: &[TypedOperation],
+    ) -> Result<CompiledOperations, ContractError> {
+        self.compile_operations_with_reads(device, operations, &[])
+    }
+    /// Validates the list and then `reads`: sampled reads in work the list does not contain,
+    /// such as the draws of a stock pass that sample what the list rendered. Each read follows
+    /// every operation, so it must name the version the list leaves, and the encode checks the
+    /// views again with the list's own.
+    pub fn compile_operations_with_reads(
+        &self,
+        device: &wgpu::Device,
+        operations: &[TypedOperation],
+        reads: &[ResourceUse],
     ) -> Result<CompiledOperations, ContractError> {
         let mut textures = Versions::default();
         let mut buffers = BufferVersions::default();
@@ -30,6 +42,10 @@ impl ResourceRegistry {
                 })?;
             accesses.push(usage);
         }
+        self.validate_reads(reads, &mut textures)?;
+        if !reads.is_empty() {
+            accesses.push((reads.to_vec(), Vec::new()));
+        }
         Ok(CompiledOperations {
             operations: operations.to_vec(),
             labels: operations
@@ -39,6 +55,23 @@ impl ResourceRegistry {
             accesses,
             staging: super::operations::stage_uploads(device, operations),
         })
+    }
+    fn validate_reads(
+        &self,
+        reads: &[ResourceUse],
+        textures: &mut Versions,
+    ) -> Result<(), ContractError> {
+        for usage in reads {
+            if usage.access != AccessMode::Read || usage.kind != UseKind::Sampled {
+                return Err(ContractError::Binding(usage.view.allocation));
+            }
+            self.check_view(&usage.view)?;
+            super::validation::validate_usage(self, usage)?;
+        }
+        for usage in reads {
+            super::validation::validate_versions(self, usage, textures)?;
+        }
+        Ok(())
     }
     fn validate_operation(
         &self,
@@ -79,6 +112,13 @@ impl ResourceRegistry {
             for draw in draws {
                 draw.validate(self, pass, &buffer_uses)?;
             }
+        }
+        if let TypedWork::Fullscreen {
+            vertices: Some(vertices),
+            ..
+        } = &operation.work
+        {
+            vertices.validate(self, &buffer_uses)?;
         }
         if let TypedWork::Resolve {
             source,

@@ -315,7 +315,8 @@ fn recipe_set_uses_largest_effective_storage_and_checked_rounding() {
 fn recipe_raster_override_preserves_declared_surface_pool() {
     use super::{COLOR, Presentation, PresentationPolicy};
     use worldrunner_render_scene::{Viewport, device::GpuContext};
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let size = Viewport {
         width: 32,
         height: 24,
@@ -352,6 +353,7 @@ fn recipe_raster_override_preserves_declared_surface_pool() {
 fn derived_capture_pool_keeps_initial_effect_format_on_configuration() {
     use super::{COLOR, Presentation, PresentationPolicy};
     use worldrunner_render_scene::{Viewport, device::GpuContext};
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let recipe = RetainedCaptureRecipe::new(
         1,
         1,
@@ -368,7 +370,7 @@ fn derived_capture_pool_keeps_initial_effect_format_on_configuration() {
         granularity_bytes: 1,
         cap_bytes: None,
     };
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = GpuContext::shared_for_test().unwrap();
     let size = Viewport {
         width: 33,
         height: 2,

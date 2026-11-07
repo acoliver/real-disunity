@@ -244,6 +244,56 @@ impl ProgramRuntime {
         Ok(self.store.add_target(target, reservation))
     }
 
+    /// Creates an empty 2D texture of `layers` array layers and `mips` mip levels, usable as a
+    /// render attachment, as a sampled texture and as a copy source and destination. A new
+    /// texture holds zeros.
+    ///
+    /// # Errors
+    /// Fails when the budget or the device refuses the texture.
+    pub(crate) fn create_empty_texture(
+        &mut self,
+        label: &str,
+        shape: TextureShape,
+    ) -> Result<TextureHandle, ProgramError> {
+        self.authority.check_device()?;
+        let mut allocations = AllocationSet::default();
+        allocations.texture(
+            "render-program render texture",
+            [shape.size[0], shape.size[1], shape.layers],
+            shape.format,
+            [shape.mips, 1],
+            1,
+        );
+        let reservation = self.admit(allocations)?;
+        let texture = self.guarded(|| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: shape.size[0],
+                    height: shape.size[1],
+                    depth_or_array_layers: shape.layers,
+                },
+                mip_level_count: shape.mips,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: shape.format,
+                usage: shape.usage(),
+                view_formats: &[],
+            })
+        })?;
+        Ok(self.store.add_texture(entry(texture), reservation))
+    }
+
+    /// The wgpu texture behind a handle.
+    pub(crate) fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
+        Ok(self.store.texture(handle)?.texture.clone())
+    }
+
+    /// The wgpu buffer behind a handle.
+    pub(crate) fn gpu_buffer(&self, handle: BufferHandle) -> Result<wgpu::Buffer, ProgramError> {
+        Ok(self.store.buffer(handle)?.buffer.clone())
+    }
+
     /// Releases a buffer for new work. Its bytes stay in the budget until the work already
     /// submitted has completed on the GPU. Returns whether the handle was live.
     ///
@@ -297,6 +347,29 @@ impl ProgramRuntime {
             usage,
             view_formats: &[],
         })
+    }
+}
+
+/// The shape of a texture [`ProgramRuntime::create_empty_texture`] makes.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TextureShape {
+    pub(crate) size: [u32; 2],
+    pub(crate) layers: u32,
+    pub(crate) mips: u32,
+    pub(crate) format: wgpu::TextureFormat,
+}
+
+impl TextureShape {
+    fn usage(self) -> wgpu::TextureUsages {
+        let attachment = if self.format.is_compressed() {
+            wgpu::TextureUsages::empty()
+        } else {
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+        };
+        attachment
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST
     }
 }
 

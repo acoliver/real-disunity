@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, error::Error, path::Path, process::ExitCode};
 use worldrunner_unity_import::{
     Guid, ObjectId, Origin, PackageAsset, PackageScript, Project, Reference, Scene, Textures,
     import_scene, input_axes, plan_scene,
+    player_channels::channel_report,
     player_layouts::layout_report,
     player_objects::{
         OpenFile, decode_census, describe_object, describe_shader_programs, shader_chunks,
@@ -38,6 +39,7 @@ const USAGE: &str = "usage: unity-import catalog <project>
        unity-import player-shader-parameters <player data directory>
        unity-import player-shader-layouts <player data directory>
        unity-import player-shader-structs <player data directory>
+       unity-import player-shader-channels <player data directory>
        unity-import player-shader-modules <serialized file> <path ID> <platform index> <output directory>";
 
 fn main() -> ExitCode {
@@ -100,6 +102,9 @@ fn run_shader_reports(args: &[String]) -> Option<Result<(), Box<dyn Error>>> {
         }
         [command, data] if command == "player-shader-structs" => {
             player_shader_structs(Path::new(data))
+        }
+        [command, data] if command == "player-shader-channels" => {
+            player_shader_channels(Path::new(data))
         }
         _ => return None,
     })
@@ -345,6 +350,16 @@ fn player_shader_layouts(data: &Path) -> Result<(), Box<dyn Error>> {
         .map(|entry| data.join(entry.name))
         .collect();
     print!("{}", layout_report(&paths)?);
+    Ok(())
+}
+
+/// Counts which vertex source channels the variants of a player's shaders read, by code.
+fn player_shader_channels(data: &Path) -> Result<(), Box<dyn Error>> {
+    let paths: Vec<_> = read_player(data)?
+        .into_iter()
+        .map(|entry| data.join(entry.name))
+        .collect();
+    print!("{}", channel_report(&paths)?);
     Ok(())
 }
 

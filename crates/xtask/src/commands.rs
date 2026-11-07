@@ -75,13 +75,34 @@ pub fn selection(data: &metadata::Metadata, profile: Profile) -> Result<Vec<Stri
     Ok(args)
 }
 
+/// Cargo job count for validation builds: `XTASK_JOBS` (1 to 64) when set;
+/// otherwise up to 8 under the hub gate runner, which holds the machine and
+/// sets `HN_COMMIT`; otherwise 2, which keeps memory use low next to other
+/// builds (sessions, GitHub workflows).
+pub fn jobs() -> String {
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    jobs_from(
+        std::env::var("XTASK_JOBS").ok().as_deref(),
+        std::env::var_os("HN_COMMIT").is_some(),
+        cores,
+    )
+}
+
+fn jobs_from(value: Option<&str>, hub_gate: bool, cores: usize) -> String {
+    match value.map(str::trim).and_then(|v| v.parse::<u32>().ok()) {
+        Some(n @ 1..=64) => n.to_string(),
+        _ if hub_gate => cores.clamp(2, 8).to_string(),
+        _ => "2".into(),
+    }
+}
+
 pub fn cargo_args(command: &str, selection: &[String], gpu_required: bool) -> Vec<String> {
     let cargo = if command == "lint" || command == "complexity" {
         "clippy"
     } else {
         command
     };
-    let mut args: Vec<String> = [cargo, "--locked", "--jobs", "2"]
+    let mut args: Vec<String> = [cargo, "--locked", "--jobs", &jobs()]
         .into_iter()
         .map(str::to_owned)
         .collect();
@@ -126,6 +147,10 @@ fn preflight(root: &Path) -> Result<(), String> {
     run_command(root, "cargo", &["fmt", "--all", "--check"])
 }
 
+/// Strict lint enforces the complexity limits and type-checks every target, so the CI profiles
+/// run no separate complexity or check pass.
+const CI_STEPS: [&str; 4] = ["lint", "build", "test", "doc"];
+
 const GPU_REQUIRED_NOTICE: &str = "GPU required mode: all selected tests, including ignored tests, run without name filters; missing adapters are errors";
 
 /// Every `ci-gpu` check except the test run, which `ci-gpu-shard` splits across runners.
@@ -134,7 +159,7 @@ pub fn ci_gpu_static(root: &Path) -> Result<(), String> {
     let data = metadata::read(root, &["--locked", "--all-features"])?;
     let selected = selection(&data, Profile::Gpu)?;
     eprintln!("{GPU_REQUIRED_NOTICE}");
-    for command in ["lint", "complexity", "check", "build", "doc"] {
+    for command in CI_STEPS.into_iter().filter(|command| *command != "test") {
         execute(root, command, &selected, true)?;
     }
     Ok(())
@@ -143,6 +168,7 @@ pub fn ci_gpu_static(root: &Path) -> Result<(), String> {
 pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
     preflight(root)?;
     if profile == Profile::Managed {
+        let jobs = jobs();
         run_command(
             root,
             "cargo",
@@ -150,7 +176,7 @@ pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
                 "build",
                 "--locked",
                 "--jobs",
-                "2",
+                &jobs,
                 "--package",
                 "worldrunner-disunity-ffi",
                 "--package",
@@ -176,7 +202,7 @@ pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
     if gpu {
         eprintln!("{GPU_REQUIRED_NOTICE}");
     }
-    for command in ["lint", "complexity", "check", "build", "test", "doc"] {
+    for command in CI_STEPS {
         execute(root, command, &selected, gpu)?;
         if profile == Profile::Cpu {
             execute(
@@ -277,7 +303,25 @@ mod tests {
             "--test-threads=1".into()
         ]));
         assert!(!args.iter().any(|arg| arg == "--skip"));
-        assert!(args.windows(2).any(|pair| pair == ["--jobs", "2"]));
+        // The count depends on the environment; jobs_from is tested below.
+        let jobs = jobs();
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--jobs", jobs.as_str()])
+        );
+    }
+
+    #[test]
+    fn job_count_is_two_except_under_the_hub_gate_or_an_override() {
+        assert_eq!(jobs_from(None, false, 16), "2");
+        assert_eq!(jobs_from(Some("8"), false, 16), "8");
+        assert_eq!(jobs_from(Some(" 12 "), true, 16), "12");
+        for bad in ["0", "65", "-1", "many", ""] {
+            assert_eq!(jobs_from(Some(bad), false, 16), "2", "{bad}");
+        }
+        assert_eq!(jobs_from(None, true, 16), "8");
+        assert_eq!(jobs_from(None, true, 4), "4");
+        assert_eq!(jobs_from(None, true, 1), "2");
     }
 
     #[test]

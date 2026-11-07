@@ -12,6 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libloading::Library;
+mod gpu_assets;
+mod gpu_flush;
+mod gpu_reads;
+mod graphics_snapshot;
 mod managed_entrypoints;
 pub mod signal_stack;
 
@@ -19,6 +23,8 @@ use managed_entrypoints::ManagedBridge;
 
 #[path = "native.g.rs"]
 pub mod native;
+pub use gpu_flush::{GpuFlush, GpuFlushHandler};
+pub use gpu_reads::{GpuComputeBuffer, GpuComputeShader, GpuKernel, GpuScope, GpuShader};
 pub use native::DisunityErrorReason;
 pub use native::DisunityObjectState;
 use native::{DisunityAdvance, DisunityResult};
@@ -53,6 +59,8 @@ pub enum HostError {
     Managed(String),
     #[error("no slice world is loaded")]
     NoWorld,
+    #[error("the graphics snapshot from the engine image is unreadable: {0}")]
+    Snapshot(worldrunner_world_simulation::graphics::snapshot_wire::WireError),
 }
 
 static CLAIMED: AtomicBool = AtomicBool::new(false);
@@ -145,6 +153,8 @@ pub struct DisunityHost {
     world: Option<u64>,
     /// How many mesh renderers the last prepared frame showed.
     last_mesh_objects: u32,
+    /// The GPU flush handler the engine image holds a pointer to, or null.
+    gpu_flush: *mut gpu_flush::FlushContext,
     /// GCHandle pinned for the in-flight run; freed on unload. Kept
     /// engine-side so a leak is observable here, not only in managed memory.
     live_token: Option<isize>,
@@ -191,6 +201,7 @@ impl DisunityHost {
             bridge,
             world: None,
             last_mesh_objects: 0,
+            gpu_flush: std::ptr::null_mut(),
             live_token: None,
             _claim: claim,
             _thread_affinity: std::marker::PhantomData,
@@ -263,7 +274,21 @@ impl DisunityHost {
         if result.code != 0 {
             return Err(self.native_error(result));
         }
-        Ok(())
+        self.render_frame()
+    }
+
+    /// Asks the managed side to render the frame the world just advanced. The managed host calls
+    /// the current render pipeline, if it has one; a bridge without the export has nothing to
+    /// render.
+    fn render_frame(&self) -> Result<(), HostError> {
+        let Some(render) = self.bridge.render_frame else {
+            return Ok(());
+        };
+        if unsafe { render() } == 0 {
+            Ok(())
+        } else {
+            Err(HostError::Managed(self.bridge.failure()))
+        }
     }
 
     fn native_error(&self, result: DisunityResult) -> HostError {
@@ -343,6 +368,9 @@ impl DisunityHost {
     /// Ends the slice: unloads the managed world and frees the run's token.
     pub fn unload_slice(&mut self) -> Result<(), HostError> {
         let token = self.live_token.ok_or(HostError::NoWorld)?;
+        if let Some(world) = self.world {
+            self.detach_gpu_flush(world);
+        }
         let code = unsafe { (self.bridge.unload)() };
         unsafe { (self.bridge.token_free)(token) };
         self.world = None;
@@ -378,6 +406,7 @@ impl Drop for DisunityHost {
         if self.live_token.is_some() {
             let _ = self.unload_slice();
         }
+        self.free_gpu_flush();
     }
 }
 
@@ -445,9 +474,12 @@ mod tests {
 mod sprites;
 
 mod input;
+mod mesh_channels;
 mod meshes;
 mod presentation;
+mod presentation_ui;
 mod textures;
 
+pub use mesh_channels::{MeshChannel, MeshChannels, MeshRange};
 pub use meshes::{MeshObjectView, MeshRun, MeshSlot, PlayerMesh};
-pub use textures::PlayerTexture;
+pub use textures::{PlayerTexture, TextureSampler};

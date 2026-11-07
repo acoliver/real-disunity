@@ -8,6 +8,7 @@ mod geometry;
 mod interpolation;
 mod material;
 mod motion;
+pub(crate) mod population;
 mod queries;
 mod shapes;
 mod sleep;
@@ -128,6 +129,10 @@ impl World {
     pub(crate) fn step_physics_inner(&mut self, dt: f32) -> Result<(), WorldError> {
         if !dt.is_finite() || dt < 0.0 {
             return Err(PhysicsError::InvalidDelta.into());
+        }
+        if self.physics_population.is_empty() {
+            self.step_nothing();
+            return Ok(());
         }
         let before = self.interpolated_bodies()?;
         let base = self.physics_colliders()?;

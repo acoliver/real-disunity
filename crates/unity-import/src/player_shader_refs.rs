@@ -1,9 +1,10 @@
 //! Shaders that script fields and the resource container reference, as plan assets, and the
 //! shaders and materials a scene references (see [`crate::player_materials`]).
 //!
-//! A shader plans as its declared name, render queue and the counts of sub-shaders and of
-//! passes in the first sub-shader. Its programs are not planned: the engine builds the shader
-//! object by name, and drawing with it is later work. A shader that does not decode, or
+//! A shader plans as its declared name, render queue, the count of sub-shaders and the names of
+//! the passes in the first sub-shader, and the serialized file and path id of the shader object. Its
+//! programs are not planned: a host that draws with them reads them from that object. A shader
+//! that does not decode, or
 //! declares a queue the engine cannot read, plans as an error entry and a reference to it
 //! binds `null`.
 
@@ -13,6 +14,7 @@ use worldrunner_unity_serialized::{ClassId, object::PPtr, shader::Shader};
 
 use crate::{
     plan::PlanAsset,
+    player_compute::{decode_compute_shader, unplanned_reference as unplanned_compute_reference},
     player_files::PlayerFiles,
     player_materials::{
         decode_material, plan_material, unplanned_reference as unplanned_material_reference,
@@ -28,7 +30,14 @@ pub(crate) struct ShaderDecl {
     pub(crate) name: String,
     pub(crate) render_queue: i32,
     pub(crate) pass_count: usize,
+    /// The names of the first sub-shader's passes in order, the empty string for a pass with
+    /// none; as many as `pass_count`.
+    pub(crate) pass_names: Vec<String>,
     pub(crate) subshader_count: usize,
+    /// The serialized file the shader object lives in, relative to the player's data directory
+    /// with `/` separators, and the object's path id there.
+    pub(crate) file: String,
+    pub(crate) path_id: i64,
 }
 
 impl ShaderDecl {
@@ -37,7 +46,10 @@ impl ShaderDecl {
             name: self.name,
             render_queue: self.render_queue,
             pass_count: self.pass_count,
+            pass_names: self.pass_names,
             subshader_count: self.subshader_count,
+            file: self.file,
+            path_id: self.path_id,
         }
     }
 }
@@ -107,12 +119,29 @@ pub(crate) fn decode_shader(
         ));
     }
     let first = shader.parsed.sub_shaders.first();
+    let pass_names: Vec<String> = first.map_or_else(Vec::new, |sub| {
+        sub.passes.iter().map(|pass| pass.name.clone()).collect()
+    });
     Ok(ShaderDecl {
         name,
         render_queue: first.map_or(Ok(GEOMETRY_QUEUE), |sub| render_queue(&sub.tags))?,
-        pass_count: first.map_or(0, |sub| sub.passes.len()),
+        pass_count: pass_names.len(),
+        pass_names,
         subshader_count: shader.parsed.sub_shaders.len(),
+        file: file_name(&files.data_dir, file),
+        path_id: *path_id,
     })
+}
+
+/// A serialized file's name as the plan states it: relative to the data directory when it is
+/// inside it, with `/` separators.
+pub(crate) fn file_name(data_dir: &Path, file: &Path) -> String {
+    let relative = file.strip_prefix(data_dir).unwrap_or(file);
+    relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Why a reference to a shader that did not plan is left out.
@@ -176,6 +205,11 @@ impl SceneSource {
                 .map_err(|cause| unplanned_reference(pptr, &cause))?;
             return Ok(decl.into_asset());
         }
+        if class == ClassId::COMPUTE_SHADER {
+            let decl = decode_compute_shader(&mut self.files, key)
+                .map_err(|cause| unplanned_compute_reference(pptr, &cause))?;
+            return Ok(decl.into_asset());
+        }
         let material = decode_material(&mut self.files, key)
             .map_err(|cause| unplanned_material_reference(pptr, &cause))?;
         let mut found = Vec::new();
@@ -218,12 +252,36 @@ impl PlanSource for SceneSource {
             }
         }
         let class = class
-            .filter(|&class| class == ClassId::SHADER || class == ClassId::MATERIAL)
+            .filter(|&class| {
+                class == ClassId::SHADER
+                    || class == ClassId::MATERIAL
+                    || class == ClassId::COMPUTE_SHADER
+            })
             .ok_or_else(|| not_held(pptr))?;
         if let Some((_, index)) = self.planned.iter().find(|(known, _)| *known == key) {
             return Ok(*index);
         }
         let asset = self.plan_asset(&key, class, pptr)?;
         Ok(self.push_asset(key, asset))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_file_in_a_subdirectory_is_named_with_forward_slashes() {
+        let name = file_name(
+            Path::new("data"),
+            &Path::new("data").join("Sub").join("a.assets"),
+        );
+        assert_eq!(name, "Sub/a.assets");
+    }
+
+    #[test]
+    fn a_file_outside_the_data_directory_keeps_its_own_path() {
+        let name = file_name(Path::new("data"), Path::new("other.assets"));
+        assert_eq!(name, "other.assets");
     }
 }

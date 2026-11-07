@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod audio_tests;
+#[cfg(test)]
 pub(crate) mod drop_tests;
 #[cfg(test)]
 mod lifecycle_tests;
@@ -6,6 +8,14 @@ mod lifecycle_tests;
 pub(crate) mod pointer_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod text_tests;
+#[cfg(test)]
+mod timer_tests;
+#[cfg(test)]
+mod window_control_tests;
+#[cfg(test)]
+mod work_tests;
 
 use crate::{
     RetainedDriver, RetainedEvent, RetainedHost, RetainedInput, RetainedTick, ViewerError,
@@ -29,7 +39,7 @@ pub(crate) struct Session<'a> {
 
 impl<'a> Session<'a> {
     pub fn new(host: RetainedHost, driver: &'a mut dyn RetainedDriver) -> Self {
-        let start = Instant::now();
+        let start = host.timer_now();
         Self {
             host,
             driver,
@@ -42,12 +52,25 @@ impl<'a> Session<'a> {
         }
     }
 
-    fn input(&mut self, input: RetainedInput) {
+    fn set_window_controls(&mut self, window: std::sync::Arc<dyn super::input::WindowControls>) {
+        self.host.input_state.window = super::input::WindowControlTarget::Native(window);
+    }
+
+    pub(super) fn input(&mut self, input: RetainedInput) {
         for input in self.host.input(input) {
             if let Err(error) = self.notify(&RetainedEvent::Input(input)) {
                 self.failure = Some(error);
                 break;
             }
+        }
+    }
+
+    fn committed_key_text(&mut self, text: Option<&str>, pressed: bool) {
+        if !self.host.command_modifier_held()
+            && !self.host.input_state.text.composing
+            && let Some(input) = super::input::text::keyboard_text(text, pressed)
+        {
+            self.input(input);
         }
     }
 
@@ -68,7 +91,7 @@ impl<'a> Session<'a> {
     }
 
     fn tick(&mut self) -> Result<(), ViewerError> {
-        let now = Instant::now();
+        let now = self.host.timer_now();
         let tick = RetainedTick {
             frame: self.frame,
             elapsed: now - self.start,
@@ -84,6 +107,60 @@ impl<'a> Session<'a> {
 }
 
 impl Content for Session<'_> {
+    fn accessibility(&mut self) -> Option<&mut super::accessibility::Accessibility> {
+        Some(&mut self.host.accessibility)
+    }
+    fn accessibility_action(&mut self, request: worldrunner_world_simulation::ui::UiAccessRequest) {
+        if let Err(error) = self.notify(&RetainedEvent::Accessibility(request)) {
+            self.failure = Some(error);
+        }
+    }
+    fn set_work_waker(&mut self, waker: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.host.work.set_waker(waker);
+    }
+    fn next_wakeup(&self) -> Option<Instant> {
+        if self.host.exit {
+            return None;
+        }
+        self.host
+            .timers
+            .next_deadline()
+            .into_iter()
+            .chain(self.host.audio.next_wakeup())
+            .min()
+    }
+    fn host_ready(&mut self) -> Result<(), ViewerError> {
+        if self.host.exit {
+            return Ok(());
+        }
+        while let Some(event) = self.host.audio.take_event() {
+            self.notify(&event).map_err(ViewerError::Driver)?;
+            if self.host.exit {
+                return Ok(());
+            }
+        }
+        let now = self.host.timer_now();
+        let due = self.host.timers.due(now);
+        if self.host.work.take_ready() {
+            self.notify(&RetainedEvent::WorkReady)
+                .map_err(ViewerError::Driver)?;
+        }
+        for generation in due {
+            if self.host.exit {
+                break;
+            }
+            if let Some(handle) = self
+                .host
+                .timers
+                .fire(generation, now)
+                .map_err(|error| ViewerError::Driver(error.to_string()))?
+            {
+                self.notify(&RetainedEvent::Timer { handle })
+                    .map_err(ViewerError::Driver)?;
+            }
+        }
+        Ok(())
+    }
     fn poll(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {
         let pending = renderer.collect_retained(&mut self.host)?;
         self.notifications()?;
@@ -95,6 +172,9 @@ impl Content for Session<'_> {
         }
         self.closed = true;
         self.host.exit = true;
+        self.host.timers.shutdown();
+        self.host.audio.shutdown();
+        self.host.work.shutdown();
         self.host.captures.cancel();
         let mut failure = self.failure.take();
         while let Some(event) = self.host.captures.take_event() {
@@ -122,7 +202,15 @@ impl Content for Session<'_> {
         self.host.options.cadence
     }
     fn window_ready(&mut self, window: std::sync::Arc<winit::window::Window>) {
-        self.host.input_state.window = Some(window);
+        let size = window.inner_size();
+        let scale_factor = window.scale_factor();
+        self.set_window_controls(window);
+        self.host.native_clipboard();
+        self.host.apply_text_input_area();
+        self.input(RetainedInput::DisplayChanged {
+            scale_factor,
+            physical_size: [size.width, size.height],
+        });
     }
     fn device_event(&mut self, event: &DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
@@ -142,8 +230,27 @@ impl Content for Session<'_> {
         self.input(RetainedInput::Resized(size));
     }
     fn event(&mut self, event: &WindowEvent, _viewport: Option<Viewport>) {
+        if let WindowEvent::ScaleFactorChanged { scale_factor, .. } = event {
+            let size = self
+                .host
+                .input_state
+                .window
+                .native()
+                .expect("native scale event requires window")
+                .inner_size();
+            self.input(RetainedInput::DisplayChanged {
+                scale_factor: *scale_factor,
+                physical_size: [size.width, size.height],
+            });
+        }
         if let Some(input) = super::input::window_input(event) {
             self.input(input);
+        }
+        if let WindowEvent::KeyboardInput { event, .. } = event {
+            self.committed_key_text(
+                event.text.as_deref(),
+                event.state == winit::event::ElementState::Pressed,
+            );
         }
     }
     fn redraw(&mut self, renderer: &mut Renderer) -> Result<bool, ViewerError> {

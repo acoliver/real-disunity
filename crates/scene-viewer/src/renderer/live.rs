@@ -43,8 +43,8 @@ impl Renderer {
         window: Arc<Window>,
         source: SceneSource<'_>,
     ) -> Result<Self, ViewerError> {
-        Self::surface(display, window, |adapter| {
-            super::startup::resolve(source, adapter)
+        Self::surface(display, window, |adapter, surface_extent| {
+            super::startup::resolve(source, adapter, surface_extent)
         })
         .await
     }
@@ -91,7 +91,8 @@ impl Renderer {
                 .then(|| Capture::new(self.context.device(), view.viewport()))
                 .transpose()?;
             let mut update: crate::SceneUpdate = Box::new(|_| Ok(()));
-            let Some(ticket) = self.render_admitted(view, &mut update, image.as_mut(), None)?
+            let Some(ticket) =
+                self.render_admitted(super::FrameSource::View(view), &mut update, image.as_mut())?
             else {
                 return Ok(None);
             };

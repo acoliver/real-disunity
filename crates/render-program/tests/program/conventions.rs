@@ -7,11 +7,11 @@
 //! normalised 8-bit store of those is exact, so pixels are compared byte for byte.
 
 use wgpu::{FrontFace, VertexFormat};
-use worldrunner_render_program::module::StageKind;
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::module::StageKind;
+use worldrunner_render_program::unity::runtime::{
     DrawRequest, Geometry, GraphicsProgram, ProgramRuntime, TargetHandle, VertexInput,
 };
-use worldrunner_render_program::state::{RenderState, resolve_state};
+use worldrunner_render_program::unity::state::{RenderState, resolve_state};
 use worldrunner_unity_serialized::shader_parameters::VariantParameters;
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
 use worldrunner_unity_serialized::shader_state::ShaderState;

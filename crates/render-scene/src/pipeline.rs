@@ -1,5 +1,6 @@
 //! Material pipeline keys and GPU uniform encoding.
 use wgpu::Face;
+mod channels;
 use worldrunner_render_plan::{SceneAlphaMode, SceneMaterial};
 
 use crate::shader;
@@ -8,7 +9,7 @@ use crate::shader;
 const MICRO_SCALE: f32 = 1_000_000.0;
 
 /// Size in bytes of the shader's `Material` uniform block.
-pub const MATERIAL_UNIFORM_BYTES: usize = 448;
+pub const MATERIAL_UNIFORM_BYTES: usize = 576;
 
 /// The fixed-function and shader-program state one material requires.
 ///
@@ -17,11 +18,26 @@ pub const MATERIAL_UNIFORM_BYTES: usize = 448;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PipelineKey {
     pub coverage: MaskCoverage,
+    /// Selects the atlas shader family independently of alpha coverage.
+    pub sampling: MaterialSampling,
     pub relief: bool,
     /// Whether the fragment shader discards texels below the alpha cutoff.
     pub masked: bool,
     /// Whether back faces are drawn rather than culled.
     pub double_sided: bool,
+}
+
+/// Compile-time sampling family for a material pipeline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MaterialSampling {
+    Surface,
+    Impostor,
+}
+
+impl MaterialSampling {
+    pub const fn is_impostor(self) -> bool {
+        matches!(self, Self::Impostor)
+    }
 }
 
 /// Masked coverage policy, specialized to hard cutoff for single-sample passes.
@@ -36,22 +52,38 @@ impl PipelineKey {
         self.masked && matches!(self.coverage, MaskCoverage::Multisample) && samples > 1
     }
 
+    pub(crate) fn fragment_constants(self, samples: u32) -> [(&'static str, f64); 2] {
+        [
+            (
+                "SCENE_ALPHA_TO_COVERAGE",
+                f64::from(self.alpha_to_coverage(samples)),
+            ),
+            ("SCENE_IMPOSTOR", f64::from(self.sampling.is_impostor())),
+        ]
+    }
+
     /// Every pipeline this renderer can require, in a stable order.
     ///
     /// The stable indices address the shared material-variant cache. Variants
     /// compile on first use so unused relief shaders do not delay ordinary scenes.
-    pub const ALL: [Self; 16] = Self::variants();
+    pub const ALL: [Self; 32] = Self::variants();
 
-    const fn variants() -> [Self; 16] {
+    const fn variants() -> [Self; 32] {
         let mut keys = [Self {
+            sampling: MaterialSampling::Surface,
             relief: false,
             masked: false,
             double_sided: false,
             coverage: MaskCoverage::Cutoff,
-        }; 16];
+        }; 32];
         let mut index = 0;
         while index < keys.len() {
             keys[index] = Self {
+                sampling: if index & 16 != 0 {
+                    MaterialSampling::Impostor
+                } else {
+                    MaterialSampling::Surface
+                },
                 relief: index & 4 != 0,
                 masked: index & 2 != 0,
                 double_sided: index & 1 != 0,
@@ -75,6 +107,11 @@ impl PipelineKey {
             } else {
                 MaskCoverage::Cutoff
             },
+            sampling: if material.impostor().is_some() {
+                MaterialSampling::Impostor
+            } else {
+                MaterialSampling::Surface
+            },
             relief: material.impostor().is_some_and(|a| a.relief().is_some()),
             masked: matches!(material.alpha_mode(), SceneAlphaMode::Mask { .. }),
             double_sided: material.double_sided(),
@@ -90,7 +127,8 @@ impl PipelineKey {
     /// render as opaque rectangles.
     #[must_use]
     pub fn index(self) -> usize {
-        usize::from(self.coverage == MaskCoverage::Multisample) * 8
+        usize::from(self.sampling.is_impostor()) * 16
+            + usize::from(self.coverage == MaskCoverage::Multisample) * 8
             + usize::from(self.relief) * 4
             + usize::from(self.masked) * 2
             + usize::from(self.double_sided)
@@ -121,6 +159,7 @@ impl PipelineKey {
 /// The per-material numbers the shader reads, as distinct from pipeline state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MaterialUniform {
+    pub channels: worldrunner_render_plan::SceneMaterialChannels,
     pub fade_direction: worldrunner_render_plan::SceneFadeDirection,
     pub fade_coverage: worldrunner_render_plan::SceneFadeCoverage,
     pub fade_quantization: worldrunner_render_plan::SceneFadeQuantization,
@@ -172,6 +211,7 @@ impl MaterialUniform {
             texture_flags |= shader::FLAG_SELF_ILLUMINATION;
         }
         Self {
+            channels: material.channels(),
             fade_direction: material.fade_direction(),
             fade_coverage: material.fade_coverage(),
             fade_quantization: material.fade_quantization(),
@@ -229,6 +269,19 @@ impl MaterialUniform {
             self.fade_coverage,
             self.fade_quantization,
             self.fade_direction,
+        );
+        channels::encode(
+            &mut bytes[448..512],
+            self.channels,
+            worldrunner_render_plan::SceneMaterialChannels::default(),
+        );
+        channels::encode(
+            &mut bytes[512..576],
+            self.impostor.map_or(
+                worldrunner_render_plan::SceneMaterialChannels::PACKED_IMPOSTOR,
+                worldrunner_render_plan::SceneImpostor::material_channels,
+            ),
+            worldrunner_render_plan::SceneMaterialChannels::PACKED_IMPOSTOR,
         );
         bytes
     }

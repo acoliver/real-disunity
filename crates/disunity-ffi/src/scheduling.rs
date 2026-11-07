@@ -286,6 +286,7 @@ pub unsafe extern "C" fn disunity_world_advance(
         let elapsed =
             TimeSpan::new(numerator, denominator).map_err(crate::errors::AbiError::from)?;
         crate::commands::flush(session)?;
+        session.graphics_snapshot = None;
         session
             .native
             .advance(elapsed)

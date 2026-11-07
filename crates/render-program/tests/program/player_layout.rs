@@ -2,9 +2,10 @@
 //! slots, texture dimension codes and stage masks.
 
 use wgpu::{BindingType, ShaderStages, TextureViewDimension};
-use worldrunner_render_program::buffers::ParamName;
-use worldrunner_render_program::layout::{LayoutError, ProgramLayout, UnusedParameter};
-use worldrunner_render_program::module::{ResourceBinding, StageKind, StageProgram};
+use worldrunner_render_program::layout::UnusedDeclaration;
+use worldrunner_render_program::unity::buffers::ParamName;
+use worldrunner_render_program::unity::layout::{LayoutError, ProgramLayout};
+use worldrunner_render_program::unity::module::{ResourceBinding, StageKind, StageProgram};
 use worldrunner_unity_serialized::shader_parameters::{
     BufferMember, ConstantBuffer, DescriptorSlot, ResourceKind, VariantParameters,
 };
@@ -325,7 +326,7 @@ fn a_binding_the_module_does_not_use_is_reported_with_its_stage_and_not_bound() 
     assert_eq!(layout.slots().len(), 2);
     assert_eq!(
         layout.unused(),
-        [UnusedParameter {
+        [UnusedDeclaration {
             stage: StageKind::Vertex,
             set: 0,
             binding: 1

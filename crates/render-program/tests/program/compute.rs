@@ -1,10 +1,10 @@
 //! A compute kernel with Unity-style sparse bindings, run on the GPU and read back.
 
-use worldrunner_render_program::constants::pack_layout;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::module::{StageKind, StageParameters, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::constants::pack_layout;
+use worldrunner_render_program::unity::module::{StageKind, StageParameters, StageProgram};
+use worldrunner_render_program::unity::runtime::{
     BoundResource, BufferHandle, ComputeProgram, DispatchRequest, ProgramRuntime,
 };
 use worldrunner_unity_serialized::shader_parameters::{
@@ -187,7 +187,7 @@ fn read_words(runtime: &mut ProgramRuntime, buffer: BufferHandle) -> Vec<u32> {
         .collect()
 }
 
-fn kernel_program(runtime: &ProgramRuntime, form: Form) -> ComputeProgram {
+pub fn kernel_program(runtime: &ProgramRuntime, form: Form) -> ComputeProgram {
     runtime.compute_program(&kernel(form)).unwrap()
 }
 

@@ -40,7 +40,11 @@ impl Objects {
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
                 RetainedUpdate::Camera { .. } => {}
+                RetainedUpdate::Ui(_) => unreachable!("UI updates publish through readiness"),
                 RetainedUpdate::Resources { .. }
+                | RetainedUpdate::AppendResources(_)
+                | RetainedUpdate::ReplaceTexture { .. }
+                | RetainedUpdate::ReplaceMesh { .. }
                 | RetainedUpdate::Terrain(_)
                 | RetainedUpdate::Decal(_) => {
                     return Err(ViewerError::UnsupportedScene(
@@ -98,8 +102,17 @@ impl Renderer {
         self.presentation.scheduler.budget().0
     }
 
+    /// The frame's statistics, consuming its uploads and those of residents it replaced.
     pub(crate) fn take_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
-        self.resident.scene_mut().take_statistics()
+        let carried = std::mem::take(&mut self.streaming.carried);
+        carried.applied(self.resident.scene_mut().take_statistics())
+    }
+
+    /// The frame's statistics without consuming anything.
+    pub(crate) fn scene_statistics(&mut self) -> worldrunner_render_scene::draw::SceneStatistics {
+        self.streaming
+            .carried
+            .applied(self.resident.scene_mut().statistics())
     }
 
     pub fn take_surface_recreated(&mut self) -> bool {
@@ -120,12 +133,12 @@ impl Renderer {
         if self.render_recipe(host)?.is_some() {
             return Ok(false);
         }
-        let Some(view) = host.view()? else {
+        if !host.has_view_extent() {
             return Ok(false);
-        };
+        }
         let mut noop: crate::SceneUpdate = Box::new(|_| Ok(()));
         Ok(self
-            .render_admitted(&view, &mut noop, None, Some(host))?
+            .render_admitted(super::FrameSource::Retained(host), &mut noop, None)?
             .is_some())
     }
 }

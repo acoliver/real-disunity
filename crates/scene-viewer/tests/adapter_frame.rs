@@ -110,7 +110,7 @@ fn startup_host(mode: &str, calls: Arc<AtomicUsize>) -> RetainedHost {
         RetainedHost::with_initial_content(options, move |identity| {
             Ok(InitialContent {
                 scene: scene(),
-                settings: decide(identity)?,
+                settings: decide(identity.adapter)?,
             })
         })
         .unwrap()

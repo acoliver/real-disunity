@@ -118,7 +118,7 @@ impl Captures {
         frame: u64,
         time: std::time::Duration,
         image: RgbaImage,
-        scene: super::statistics::SceneStatistics,
+        scene: &super::statistics::SceneStatistics,
     ) {
         let generation = self.outstanding[&id];
         self.events.push_back(RetainedEvent::Capture {
@@ -128,7 +128,10 @@ impl Captures {
                 frame,
                 time,
                 image,
-                observation: Box::new(RetainedCaptureObservation { generation, scene }),
+                observation: Box::new(RetainedCaptureObservation {
+                    generation,
+                    scene: *scene,
+                }),
             },
         });
     }
@@ -157,7 +160,7 @@ impl Captures {
         frame: u64,
         time: std::time::Duration,
         products: RetainedCaptureProducts,
-        scene: super::statistics::SceneStatistics,
+        scene: &super::statistics::SceneStatistics,
     ) {
         self.events.push_back(RetainedEvent::Capture {
             id,
@@ -168,7 +171,7 @@ impl Captures {
                 products: Box::new(products),
                 observation: Box::new(RetainedCaptureObservation {
                     generation: self.outstanding[&id],
-                    scene,
+                    scene: *scene,
                 }),
             },
         });

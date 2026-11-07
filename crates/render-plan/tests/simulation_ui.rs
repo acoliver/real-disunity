@@ -1,9 +1,9 @@
 #![cfg(feature = "ui")]
 use glam::{UVec2, Vec3};
+use worldrunner_render_plan::SceneTexture;
 use worldrunner_render_plan::simulation::{SpriteTextures, append_ui, extract_world};
 use worldrunner_render_plan::ui::{UiGlyphQuad, UiRenderPlan, UiTextContribution};
-use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
-use worldrunner_world_simulation::presentation::Camera;
+use worldrunner_world_simulation::presentation::{Camera, CoverageTexture};
 use worldrunner_world_simulation::ui::UiLayout;
 use worldrunner_world_simulation::{
     ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
@@ -31,22 +31,24 @@ fn glyphs(object: worldrunner_world_simulation::ObjectHandle, viewport: [u32; 2]
             viewport: UVec2::from_array(viewport),
             rects: vec![],
         },
+        graphics: vec![],
         texts: vec![UiTextContribution {
             object,
             canvas: object,
+            hierarchy_order: 0,
+            clip_rect: [0, 0, viewport[0], viewport[1]],
             overlay: true,
             sorting_layer: 3,
             sorting_order: 5,
             color: [0.5, 1., 1., 0.25],
-            texture: Some(SceneTexture::Texels {
-                format: TexelFormat::R8Unorm,
-                color_space: TextureColorSpace::Linear,
+            texture: Some(CoverageTexture {
                 width: 2,
                 height: 1,
-                mips: 1,
-                bytes: vec![0, 128].into_boxed_slice(),
+                bytes: vec![0, 128].into(),
             }),
             quads: vec![UiGlyphQuad {
+                link: None,
+                color: [1., 0.5, 0.25, 0.5],
                 corners: [[0., 0., 0.], [20., 0., 0.], [20., 10., 0.], [0., 10., 0.]],
                 uv: [[0., 1.], [1., 1.], [1., 0.], [0., 0.]],
             }],
@@ -69,7 +71,7 @@ fn glyph_coverage_tint_and_overlay_pixels_survive_shared_quad_conversion() {
     assert!((corner.x - 20.).abs() < 1e-4 && (corner.y - 30.).abs() < 1e-4);
     assert_eq!(
         plan.quads[0].color.map(f32::to_bits),
-        [0.5, 1., 1., 0.25].map(f32::to_bits)
+        [0.5, 0.5, 0.25, 0.125].map(f32::to_bits)
     );
 }
 #[test]

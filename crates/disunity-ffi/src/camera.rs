@@ -2,6 +2,7 @@
 use crate::{DisunityResult, callbacks::mutate, physics::component};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle,
+    graphics::RenderTextureId,
     presentation::{Camera, CameraClear, CameraFlags, Projection},
 };
 
@@ -9,8 +10,8 @@ use worldrunner_world_simulation::{
 /// 1 Skybox, 2 SolidColor, 3 Depth, 4 Nothing. `orthographic` is 1 for an orthographic lens and 0
 /// for a perspective one with `field_of_view` degrees; both sizes are kept. `culling_mask` is one
 /// bit per layer, the viewport is a normalized rectangle, `depth_texture_mode` and `camera_type`
-/// use Unity's flag values, and `target_texture` is a managed RenderTexture's instance id (0 for
-/// the screen). Custom matrices have their own calls. Boolean settings are 0 or 1.
+/// use Unity's flag values, and `target_texture` is the id of a world render texture (0 for the
+/// screen; see `disunity_render_texture_create`). The id is stored as given and may be stale. Custom matrices have their own calls. Boolean settings are 0 or 1.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityCamera {
@@ -66,7 +67,7 @@ impl DisunityCamera {
             b,
             a,
             field_of_view: camera.field_of_view,
-            target_texture: camera.target_texture,
+            target_texture: camera.target_texture.map_or(0, RenderTextureId::to_bits),
             culling_mask: camera.culling_mask,
             viewport_x,
             viewport_y,
@@ -132,7 +133,8 @@ impl DisunityCamera {
             depth_texture_mode: self.depth_texture_mode,
             flags,
             target_display: self.target_display,
-            target_texture: self.target_texture,
+            target_texture: (self.target_texture != 0)
+                .then(|| RenderTextureId::from_bits(self.target_texture)),
             camera_type: self.camera_type,
             ..current
         };

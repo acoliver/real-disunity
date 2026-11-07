@@ -1,10 +1,10 @@
 //! Values the tests build the way Unity's serialized shader describes them.
 
-pub use worldrunner_render_program::synthetic::{fixed, named, opaque_state};
+pub use worldrunner_render_program::unity::synthetic::{fixed, named, opaque_state};
 
 use naga::back::spv;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
-use worldrunner_render_program::module::{
+use worldrunner_render_program::unity::module::{
     ResourceBinding, StageKind, StageModule, StageParameters, StageProgram,
 };
 use worldrunner_unity_serialized::shader_parameters::{
@@ -278,7 +278,7 @@ use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{ProgramRuntime, TargetHandle, TargetImage};
+use worldrunner_render_program::unity::runtime::{ProgramRuntime, TargetHandle, TargetImage};
 
 /// A budget the tests that are not about budgets never reach.
 pub const AMPLE: AllocationBudget = AllocationBudget(1 << 30);

@@ -1,4 +1,4 @@
-// Metallic-roughness shading: roughness in green, metalness in blue.
+// Scalar maps use per-material integer component indices.
 // Normal maps select stored RGB or XY with reconstructed positive Z.
 
 
@@ -32,6 +32,8 @@ struct Material {
     alpha_factor_reserved: vec4<f32>,
     wind_modifiers: array<vec4<f32>,6>,
     fade_policy: vec4<u32>,
+    scalar_channels: array<vec4<i32>, 4>,
+    packed_atlas_channels: array<vec4<i32>, 4>,
 }
 
 const FLAG_NORMAL: u32 = 1u;
@@ -322,9 +324,15 @@ fn scene_coverage_alpha(alpha: f32, cutoff: f32, width: f32) -> f32 {
     if alpha < cutoff { return min(coverage, bitcast<f32>(0x3effffffu)); }
     return max(coverage, 0.5);
 }
+fn scene_sampled_alpha(input: VertexOutput) -> f32 {
+    let footprint = scene_atlas_footprint(albedo_texture, input);
+    return scene_material_alpha(scene_atlas_sample(albedo_texture, input, footprint).a);
+}
+
 fn scene_mask_alpha(alpha: f32, input: VertexOutput) -> f32 {
+    let width = fwidth(alpha);
     if !SCENE_ALPHA_TO_COVERAGE { return 1.0; }
-    return scene_coverage_alpha(alpha, scene_alpha_cutoff(input, false), fwidth(alpha));
+    return scene_coverage_alpha(alpha, scene_alpha_cutoff(input, false), width);
 }
 
 fn scene_alpha_covered(alpha: f32, input: VertexOutput) -> bool {

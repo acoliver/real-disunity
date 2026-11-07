@@ -1,8 +1,11 @@
+#[cfg(test)]
+mod tests;
+
 use super::{RenderScene, RetainedHost, ViewerError, ViewerOptions, capture, readiness};
-use crate::{AdapterIdentity, InitialContent};
+use crate::{InitialContent, InitialContext};
 
 pub(super) type Supplier =
-    Box<dyn FnOnce(&AdapterIdentity) -> Result<InitialContent, String> + Send>;
+    Box<dyn FnOnce(InitialContext<'_>) -> Result<InitialContent, String> + Send>;
 
 impl RetainedHost {
     pub fn new(scene: RenderScene, options: ViewerOptions) -> Result<Self, ViewerError> {
@@ -12,13 +15,14 @@ impl RetainedHost {
         Self::build(Some(scene), options, None)
     }
 
-    /// Defers content creation until the rendering adapter is selected. The supplier
-    /// runs once, before device creation. It cannot be combined with an adapter callback.
+    /// Defers content creation until the rendering adapter and physical surface
+    /// extent are known. The supplier runs once, before device creation.
+    /// It cannot be combined with an adapter callback.
     /// Until then edits fail with `InitialSceneUnavailable`, `view` returns `None`,
     /// object queries are empty, and generation-zero captures queue for validation.
     pub fn with_initial_content(
         options: ViewerOptions,
-        supplier: impl FnOnce(&AdapterIdentity) -> Result<InitialContent, String> + Send + 'static,
+        supplier: impl FnOnce(InitialContext<'_>) -> Result<InitialContent, String> + Send + 'static,
     ) -> Result<Self, ViewerError> {
         if options.adapter_callback.is_some() {
             return Err(ViewerError::InvalidOptions(
@@ -41,6 +45,12 @@ impl RetainedHost {
             None => 0,
         };
         let mut host = Self {
+            clipboard: super::clipboard::HostClipboard::default(),
+            accessibility: super::accessibility::Accessibility::default(),
+            picking: super::picking::Picking::default(),
+            work: super::work::WorkServices::default(),
+            timers: super::timers::Timers::default(),
+            audio: super::AudioService::default(),
             statistics: None,
             gpu_timing: if options.gpu_timing {
                 super::GpuTiming::Pending
@@ -76,6 +86,7 @@ impl RetainedHost {
                 .enumerate()
                 .map(|(index, object)| (super::ObjectId(index as u64), object))
                 .collect();
+            self.picking.initialize(scene, &self.objects);
             self.decals = scene
                 .decals()
                 .iter()
@@ -88,11 +99,11 @@ impl RetainedHost {
 
     pub(crate) fn resolve_initial_content(
         &mut self,
-        identity: &AdapterIdentity,
+        context: InitialContext<'_>,
     ) -> Result<(), ViewerError> {
         if let Some(scene) = &self.initial_scene {
             return crate::adapter::resolve_startup(
-                identity,
+                context.adapter,
                 scene,
                 &mut self.options,
                 Some((&mut self.capture_pool, &mut self.captures, &self.readiness)),
@@ -102,12 +113,12 @@ impl RetainedHost {
             .initial_content
             .take()
             .ok_or(ViewerError::InitialSceneUnavailable)?;
-        let content = supplier(identity).map_err(ViewerError::InitialContent)?;
+        let selected = supplier(context).map_err(ViewerError::InitialContent)?;
         let mut options = self.options.clone();
-        if let Some(settings) = content.settings {
+        if let Some(settings) = selected.settings {
             crate::adapter::apply_settings(&mut options, settings);
         }
-        let scene = crate::reflection_settings::startup_scene(content.scene, &options)?;
+        let scene = crate::reflection_settings::startup_scene(selected.scene, &options)?;
         crate::validate(&scene, &options)?;
         worldrunner_render_scene::draw::validate_decal_materials(&scene)?;
         let pool = options.capture_pool.effective_bytes(
@@ -118,6 +129,8 @@ impl RetainedHost {
         self.options = options;
         self.capture_pool = pool;
         self.validate_initial_captures()?;
+        self.size = context.surface_extent;
+        self.input_state.surface_extent = Some(context.surface_extent);
         self.initial_scene = Some(scene.clone());
         self.scene = Some(scene);
         self.derive_maps();

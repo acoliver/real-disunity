@@ -8,7 +8,9 @@ mod tests;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use worldrunner_render_plan::{RenderScene, SceneObject, SceneTransform, SceneValidationError};
+use worldrunner_render_plan::{
+    RenderScene, SceneMaterial, SceneObject, SceneTransform, SceneValidationError,
+};
 
 use crate::pipeline::PipelineKey;
 pub(crate) use batch::InstanceBatch;
@@ -74,7 +76,7 @@ pub(crate) struct Instances {
     pub(crate) pipelines: Vec<usize>,
     /// Whether velocity pipelines draw, so batches keep previous-frame transforms.
     pub track_previous: bool,
-    // Per-material tables, fixed after construction. Cached placement bounds depend on them.
+    // Per-material tables; only `extend_resources` grows them. Cached placement bounds depend on them.
     pub wind_extents: Vec<glam::Vec3>,
     pub curved_wind: Vec<Option<glam::Vec3>>,
     pub impostor_extents: Vec<[f32; 3]>,
@@ -89,7 +91,7 @@ impl Instances {
                 value.checked_add(1)
             })
             .expect("resident scene identity exhausted");
-        let (wind_extents, curved_wind) = wind_bounds(scene);
+        let (wind_extents, curved_wind) = wind_bounds(scene.resources().materials());
         let mut instances = Self {
             scene: identity,
             slots: Vec::new(),
@@ -108,29 +110,7 @@ impl Instances {
                 .resources()
                 .materials()
                 .iter()
-                .map(|material| {
-                    material.impostor().map_or([0.0; 3], |atlas| {
-                        let [width, height] = atlas
-                            .plane_size_millimeters()
-                            .map(|v| crate::geometry::millimeter_to_meter(i64::from(v)));
-                        [
-                            if atlas.borders().is_some() {
-                                width.hypot(height) * 0.5
-                            } else {
-                                0.0
-                            },
-                            atlas.relief().map_or(0.0, |(_, scale)| {
-                                crate::geometry::millimeter_to_meter(i64::from(scale))
-                            }),
-                            glam::Vec3::from_array(
-                                atlas
-                                    .capture_center_millimeters()
-                                    .map(|v| crate::geometry::millimeter_to_meter(i64::from(v))),
-                            )
-                            .length(),
-                        ]
-                    })
-                })
+                .map(impostor_extent)
                 .collect(),
             batches: BTreeMap::new(),
         };
@@ -140,6 +120,41 @@ impl Instances {
                 .expect("validated scene object");
         }
         instances
+    }
+
+    /// Rises with every placement edit. Batches are never removed, so the sum never repeats.
+    pub fn edits(&self) -> u64 {
+        self.batches.values().map(InstanceBatch::edits).sum()
+    }
+
+    /// Rises whenever any batch stages buffer bytes or allocates a buffer, like `edits`.
+    pub fn content_generation(&self) -> u64 {
+        self.batches.values().map(InstanceBatch::content).sum()
+    }
+
+    /// Makes `materials` addressable after the ones the scene started with, and sets the mesh
+    /// count. Placements already added keep their batches.
+    pub fn extend_resources(&mut self, materials: &[SceneMaterial], mesh_count: usize) {
+        let (wind, curved) = wind_bounds(materials);
+        self.pipelines.extend(
+            materials
+                .iter()
+                .map(|material| PipelineKey::from_material(material).index()),
+        );
+        self.wind_extents.extend(wind);
+        self.curved_wind.extend(curved);
+        self.impostor_extents
+            .extend(materials.iter().map(impostor_extent));
+        self.mesh_count = mesh_count;
+    }
+
+    /// Discards the cached placement bounds of every batch that draws `mesh`.
+    pub fn forget_mesh_bounds(&mut self, mesh: usize) {
+        for ((_, batch_mesh, _), batch) in &mut self.batches {
+            if *batch_mesh == mesh {
+                batch.forget_bounds();
+            }
+        }
     }
 
     /// Keeps previous-frame transforms for velocity pipelines.
@@ -278,10 +293,32 @@ impl Instances {
     }
 }
 
-fn wind_bounds(scene: &RenderScene) -> (Vec<glam::Vec3>, Vec<Option<glam::Vec3>>) {
-    scene
-        .resources()
-        .materials()
+fn impostor_extent(material: &SceneMaterial) -> [f32; 3] {
+    material.impostor().map_or([0.0; 3], |atlas| {
+        let [width, height] = atlas
+            .plane_size_millimeters()
+            .map(|v| crate::geometry::millimeter_to_meter(i64::from(v)));
+        [
+            if atlas.borders().is_some() {
+                width.hypot(height) * 0.5
+            } else {
+                0.0
+            },
+            atlas.relief().map_or(0.0, |(_, scale)| {
+                crate::geometry::millimeter_to_meter(i64::from(scale))
+            }),
+            glam::Vec3::from_array(
+                atlas
+                    .capture_center_millimeters()
+                    .map(|v| crate::geometry::millimeter_to_meter(i64::from(v))),
+            )
+            .length(),
+        ]
+    })
+}
+
+fn wind_bounds(materials: &[SceneMaterial]) -> (Vec<glam::Vec3>, Vec<Option<glam::Vec3>>) {
+    materials
         .iter()
         .map(|material| {
             let wind = material.features().and_then(|features| features.wind);

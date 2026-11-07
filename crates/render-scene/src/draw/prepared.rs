@@ -107,6 +107,7 @@ impl PreparedScene {
         device: &wgpu::Device,
         pipelines: &super::ScenePipelines,
     ) -> Result<(), DrawError> {
+        super::validate_profile(&self.scene, pipelines)?;
         super::source_environment::allocations(&self.scene)?
             .validate(&device.limits())
             .map_err(|_| crate::sky::preparation::PreparationError::Budget)?;
@@ -192,40 +193,45 @@ fn prepare_meshes(scene: &RenderScene) -> Result<Vec<PreparedMesh>, DrawError> {
         .meshes()
         .iter()
         .enumerate()
-        .map(|(mesh, source)| {
-            let lods = source
-                .lods()
-                .iter()
-                .enumerate()
-                .map(|(level, lod)| {
-                    let error = |source| DrawError::Geometry {
-                        mesh,
-                        level,
-                        source,
-                    };
-                    let transition = lod
-                        .card()
-                        .filter(|_| level > 0)
-                        .map(|card| {
-                            crate::geometry::pack_transition(
-                                &source.lods()[level - 1],
-                                card.coverage_micro(),
-                            )
-                        })
-                        .transpose()
-                        .map_err(error)?;
-                    Ok(PreparedLod {
-                        vertices: pack_vertices(lod).map_err(error)?,
-                        indices: pack_indices(lod),
-                        transition,
-                        index_count: u32::try_from(lod.indices().len())
-                            .expect("validated index count"),
-                    })
+        .map(|(mesh, source)| prepare_mesh(mesh, source))
+        .collect()
+}
+
+/// Packs the levels of mesh `mesh` of the scene's mesh table.
+pub(super) fn prepare_mesh(
+    mesh: usize,
+    source: &worldrunner_render_plan::SceneMesh,
+) -> Result<PreparedMesh, DrawError> {
+    let lods = source
+        .lods()
+        .iter()
+        .enumerate()
+        .map(|(level, lod)| {
+            let error = |source| DrawError::Geometry {
+                mesh,
+                level,
+                source,
+            };
+            let transition = lod
+                .card()
+                .filter(|_| level > 0)
+                .map(|card| {
+                    crate::geometry::pack_transition(
+                        &source.lods()[level - 1],
+                        card.coverage_micro(),
+                    )
                 })
-                .collect::<Result<Vec<_>, DrawError>>()?;
-            Ok(PreparedMesh { lods })
+                .transpose()
+                .map_err(error)?;
+            Ok(PreparedLod {
+                vertices: pack_vertices(lod).map_err(error)?,
+                indices: pack_indices(lod),
+                transition,
+                index_count: u32::try_from(lod.indices().len()).expect("validated index count"),
+            })
         })
-        .collect::<Result<Vec<_>, DrawError>>()
+        .collect::<Result<Vec<_>, DrawError>>()?;
+    Ok(PreparedMesh { lods })
 }
 
 fn terrain_bounds(

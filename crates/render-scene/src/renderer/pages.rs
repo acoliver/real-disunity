@@ -29,17 +29,21 @@ pub(super) fn build_cached(
         bind_group_layouts: &groups,
         immediate_size: 0,
     });
+    let source = cached_source(source);
+    let pipeline = build_terrain(device, &pipeline_layout, &source, buffers, targets, target);
+    (terrain, layout, pipeline)
+}
+
+fn cached_source(source: &str) -> String {
     // Cached pages already contain surface selection; leave its source grid unbound.
     let source = source.replace(
         "let centre_surface = read_surface_at(i32(round(grid.x)), i32(round(grid.y)));",
         "let centre_surface = 0u;",
     );
-    let source = source.replace(
+    source.replace(
         "let blended = blend_surfaces(grid, world_xy, world_xy_dx, world_xy_dy, centre_surface);",
         "let blended = cached_surface(world_xy, world_xy_dx, world_xy_dy);",
-    ) + include_str!("../terrain/pages/sampling.wgsl");
-    let pipeline = build_terrain(device, &pipeline_layout, &source, buffers, targets, target);
-    (terrain, layout, pipeline)
+    ) + include_str!("../terrain/pages/sampling.wgsl")
 }
 
 fn layered_source(source: &str) -> String {
@@ -123,4 +127,17 @@ pub(super) fn build_terrain_set(
         build_cached(device, groups, (source, false), buffers, targets, target);
     let layered = build_layered(device, groups, source, buffers, targets, target);
     (terrain, layout, cached, layered)
+}
+
+#[cfg(test)]
+pub(crate) fn test_sources(source: &str) -> [String; 4] {
+    let prefix = include_str!("../terrain/pages/footprint.wgsl");
+    let plain = format!("{prefix}{source}");
+    let layered = format!("{prefix}{}", layered_source(source));
+    [
+        plain.clone(),
+        cached_source(&plain),
+        layered.clone(),
+        cached_source(&layered),
+    ]
 }

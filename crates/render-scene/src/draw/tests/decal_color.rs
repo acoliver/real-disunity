@@ -348,8 +348,7 @@ fn metadata_pipelines(
         .replace("fn fs_masked(", "fn unused_masked(");
     let object = format!(
         "{object}\n{}",
-        include_str!("../../scene_metadata/geometry.wgsl")
-            .replace("METADATA_OUTPUT", object_output)
+        crate::scene_metadata::single_fragment(object_output)
     );
     let terrain = crate::shader::TERRAIN_WGSL.replace(
         "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);",

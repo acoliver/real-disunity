@@ -34,8 +34,11 @@
 mod capture;
 pub(crate) use capture::capture_sources;
 mod cascades;
+mod compaction;
 mod refresh;
 mod resources;
+#[cfg(test)]
+pub(crate) use resources::receiver_sources;
 mod schedule;
 mod settings;
 
@@ -111,7 +114,7 @@ pub enum ShadowError {
 pub struct ShadowedScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
-    depth_pipelines: [wgpu::RenderPipeline; 16],
+    depth_pipelines: [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     terrain_depth_pipeline: wgpu::RenderPipeline,
     caster_slope_bits: u32,
     depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
@@ -291,6 +294,12 @@ impl ShadowedScene {
         &mut self.gpu
     }
 
+    /// The resident scene with the pipelines its material bind groups are built against, for
+    /// appending resources.
+    pub fn scene_and_pipelines_mut(&mut self) -> (&mut SceneGpu, &ScenePipelines) {
+        (&mut self.gpu, &self.pipelines)
+    }
+
     /// Updates fit/bias, recreating only the map if its resolution changes.
     /// A rejected update leaves the current settings and resources intact.
     pub fn set_settings(
@@ -412,8 +421,16 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
-        self.refuse_programs()?;
+        self.begin_encode(encoder)?;
         self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+    }
+
+    /// Refuses what this path cannot draw and prepares the resident quads for its pass, before
+    /// the frame prepares or records anything else.
+    fn begin_encode(&mut self, encoder: &wgpu::CommandEncoder) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
+        self.gpu.prepare_dynamic(encoder, &self.pipelines)?;
+        Ok(())
     }
 
     /// Admitted player program draws are drawn by the configured compositor only.
@@ -434,7 +451,7 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
-        self.refuse_programs()?;
+        self.begin_encode(encoder)?;
         self.encode_fitted(
             context,
             view,
@@ -501,11 +518,10 @@ impl ShadowedScene {
         self.update_caster_pipelines(context);
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
-        let (scheduler, fitting) = input;
-        let (color, depth) = attachments;
+        let ((scheduler, fitting), (color, depth)) = (input, attachments);
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
-        scheduler.bind_water_inputs(&self.gpu.water_inputs, self.gpu.pass_counters.water.clone());
+        scheduler.prepare_scene_inputs(context.device(), &self.gpu);
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
@@ -538,6 +554,7 @@ impl ShadowedScene {
             depth_frames: &self.depth_frames,
             shadow_group: &map.group,
             cascades,
+            refresh,
             frame,
             shadow_uniform: &map.uniform,
             settings: self.settings,
@@ -599,11 +616,13 @@ struct ShadowFeature<'a> {
     screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
-    depth_pipelines: &'a [wgpu::RenderPipeline; 16],
+    depth_pipelines: &'a [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     terrain_depth_pipeline: &'a wgpu::RenderPipeline,
     depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
     shadow_group: &'a wgpu::BindGroup,
     cascades: cascades::CascadeViews,
+    /// Cascades whose depth pass runs this frame.
+    refresh: [bool; 4],
     frame: FrameUniform,
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
@@ -626,6 +645,8 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.gpu.prepare_view_compaction(context, None, &self.frame);
+        self.prepare_cascade_compaction(context);
         // Each light view has its own immutable uniform range; billboards keep the main eye.
         for (index, &matrix) in self.cascades.matrices.iter().enumerate() {
             let light_frame = light_frame(&self.frame, matrix);
@@ -651,20 +672,14 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
-            let screen = self.screen.as_ref().expect("declared metadata");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.reflection.as_ref().expect("reflection pipelines"),
-                &screen.group,
-            ));
-        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(
-                self.gpu
-                    .draw_prepass(pass, &screen.pipelines, &screen.group),
-            );
+            self.publications.record(self.gpu.draw_prepass(
+                pass,
+                screen.prepass_pipelines(),
+                &screen.group,
+            ));
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;
@@ -729,7 +744,7 @@ fn light_frame(frame: &FrameUniform, matrix: glam::Mat4) -> FrameUniform {
 pub(crate) fn wind_test_pipelines(
     device: &wgpu::Device,
     layouts: &ScenePipelines,
-) -> [wgpu::RenderPipeline; 16] {
+) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
     resources::depth_pipelines(
         device,
         layouts,

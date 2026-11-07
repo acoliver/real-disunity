@@ -69,7 +69,8 @@ pub(super) async fn windowless_context(
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await?;
-    let resolved = super::startup::resolve(super::SceneSource::Retained(host), &adapter)?;
+    let size = host.options.size;
+    let resolved = super::startup::resolve(super::SceneSource::Retained(host), &adapter, size)?;
     let context = super::timing::context(
         adapter,
         required_features(&resolved.scene),

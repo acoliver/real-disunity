@@ -8,7 +8,7 @@ use crate::presentation::extraction::{
 use crate::ui::clip::{CanvasClip, Clipped};
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::ui::{CanvasRenderer, RectLayout, UiLayout};
-use crate::{ComponentDesc, ObjectHandle, ObjectSnapshot, World, WorldError};
+use crate::{ComponentDesc, ObjectHandle, World, WorldError};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -31,8 +31,8 @@ pub struct UiGraphic {
     /// The renderer identity of the texture the quads sample, or none for plain colour.
     pub texture: Option<u64>,
     pub quads: Vec<UiGraphicQuad>,
-    /// Triangles of the mesh that make no quad and are not drawn.
-    pub left_out_triangles: usize,
+    /// Unpaired triangle-list vertices in the same drawn space as quads.
+    pub triangles: Vec<[super::UiVertex; 3]>,
 }
 
 /// The graphics of every canvas renderer that is drawn, in hierarchy order: depth first, siblings
@@ -40,15 +40,14 @@ pub struct UiGraphic {
 /// has a rectangle in `layout` (so it is active under an enabled canvas), it is not culled, it
 /// has a mesh, and the alpha it inherits is above zero.
 pub fn extract_graphics(world: &World, layout: &UiLayout) -> Result<Vec<UiGraphic>, WorldError> {
-    let snapshot = world.snapshot();
-    let groups = groups_by_object(&snapshot.components);
-    let camera = selected_camera(world, &snapshot.components)?.map(|(_, camera)| camera);
+    let groups = groups_by_object(world.published_components());
+    let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
     let rects: BTreeMap<ObjectHandle, &RectLayout> =
         layout.rects.iter().map(|r| (r.object, r)).collect();
-    let order = hierarchy_order(world, &snapshot.objects)?;
-    let roots = root_canvases(world, &snapshot.components)?;
+    let order = hierarchy_order(world)?;
+    let roots = root_canvases(world)?;
     let mut found = Vec::new();
-    for component in &snapshot.components {
+    for component in world.published_components() {
         let ComponentDesc::CanvasRenderer(renderer) = &component.desc else {
             continue;
         };
@@ -118,18 +117,27 @@ fn graphic(
         sorting_order: rect.sorting_order,
         texture: (renderer.graphic_texture != 0).then_some(renderer.graphic_texture),
         quads,
-        left_out_triangles: found.left_out_triangles,
+        triangles: found
+            .triangles
+            .into_iter()
+            .map(|vertices| {
+                vertices.map(|mut v| {
+                    v.position = rect.drawn_point(glam::Vec3::from(v.position)).to_array();
+                    v.color = std::array::from_fn(|i| tint[i] * v.color[i]);
+                    v
+                })
+            })
+            .collect(),
     })
 }
 
 /// The topmost canvas above (or at) each canvas object: the canvas whose space clip rectangles
 /// are measured in.
-fn root_canvases(
+pub(super) fn root_canvases(
     world: &World,
-    components: &[crate::ComponentSnapshot],
 ) -> Result<BTreeMap<ObjectHandle, ObjectHandle>, WorldError> {
-    let canvases: Vec<ObjectHandle> = components
-        .iter()
+    let canvases: Vec<ObjectHandle> = world
+        .published_components()
         .filter(|c| matches!(c.desc, ComponentDesc::Canvas(_)))
         .map(|c| c.object)
         .collect();
@@ -149,16 +157,13 @@ fn root_canvases(
 }
 
 /// Each object's place in a depth-first walk of the hierarchy.
-fn hierarchy_order(
-    world: &World,
-    objects: &[ObjectSnapshot],
-) -> Result<BTreeMap<ObjectHandle, usize>, WorldError> {
+fn hierarchy_order(world: &World) -> Result<BTreeMap<ObjectHandle, usize>, WorldError> {
     let mut order = BTreeMap::new();
-    for object in objects {
-        if world.parent(object.handle)?.is_some() {
+    for object in world.published_objects() {
+        if world.parent(object)?.is_some() {
             continue;
         }
-        for node in world.subtree(object.handle)? {
+        for node in world.subtree(object)? {
             order.insert(node, order.len());
         }
     }
@@ -173,7 +178,15 @@ pub fn append_graphics(
     plan: &mut WorldRenderPlan,
     graphics: Vec<UiGraphic>,
 ) -> Result<(), worldrunner_camera::ViewError> {
-    for graphic in graphics {
+    for mut graphic in graphics {
+        for triangle in &graphic.triangles {
+            let [a, b, c] = *triangle;
+            graphic.quads.push(UiGraphicQuad {
+                corners: [a.position, b.position, c.position, c.position],
+                uv_rect: [a.uv[0], 1. - c.uv[1], c.uv[0], 1. - a.uv[1]],
+                color: a.color,
+            });
+        }
         for quad in graphic.quads {
             plan.quads.push(SpriteQuad {
                 lighting: SpriteLighting::Unlit,

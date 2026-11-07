@@ -3,8 +3,8 @@
 
 use worldrunner_render_post::contracts::TypedWork;
 use worldrunner_render_program::ids::{MaterialId, RendererId, TextureId};
-use worldrunner_render_program::offscreen::OffscreenError;
-use worldrunner_render_program::offscreen::frame::{OffscreenFrame, Record};
+use worldrunner_render_program::unity::offscreen::OffscreenError;
+use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
 
 use super::camera::fixture;
 use super::formats::{blit_frame, blit_setup};

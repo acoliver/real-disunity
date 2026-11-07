@@ -22,15 +22,25 @@ mod cloning_tests;
 mod commands;
 #[cfg(test)]
 mod component_destroy_tests;
+pub mod compute;
+pub mod compute_bindings;
 pub mod construction;
 #[cfg(test)]
 mod construction_tests;
 pub mod errors;
 pub mod faces;
+pub mod gpu_flush;
+pub mod graphics;
+pub mod graphics_commands;
+pub mod graphics_context;
+pub mod graphics_offscreen;
+pub mod graphics_properties;
+pub mod graphics_snapshot;
 pub mod hierarchy;
 pub mod input;
 pub mod input_axes;
 pub mod light;
+pub mod mesh_channels;
 pub mod mesh_renderer;
 pub mod meshes;
 pub mod object_api;
@@ -42,7 +52,9 @@ pub mod physics_materials;
 #[cfg(test)]
 mod physics_tests;
 pub mod presentation;
+pub mod presentation_ui;
 pub mod scheduling;
+pub mod script_messages;
 pub mod sorting_group;
 pub mod sprites;
 mod store;

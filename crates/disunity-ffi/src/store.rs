@@ -15,6 +15,7 @@ pub(crate) struct Session {
     pub native: World,
     pub presentation:
         Option<worldrunner_world_simulation::presentation::extraction::WorldRenderPlan>,
+    pub ui_presentation: Option<worldrunner_world_simulation::ui::presentation::UiPresentation>,
     pub physics_materials:
         BTreeMap<u64, worldrunner_world_simulation::physics2d::PhysicsMaterialHandle>,
     pub fonts: worldrunner_world_simulation::ui::FontBook,
@@ -24,13 +25,22 @@ pub(crate) struct Session {
     /// The mesh renderers the last prepared frame shows.
     pub mesh_objects: Vec<worldrunner_world_simulation::presentation::mesh_objects::MeshObject>,
     pub faces: worldrunner_world_simulation::ui::FaceBook,
-    /// Canvas renderers whose unused triangles a frame has already named on stderr.
-    pub left_out_noted: std::collections::BTreeSet<worldrunner_world_simulation::ObjectHandle>,
     pub clones: BTreeMap<u64, crate::cloning::PendingClone>,
     pub constructions: BTreeMap<u64, crate::construction::PendingConstruction>,
     pub dispatch: crate::scheduling::Dispatch,
     pub objects: crate::object_ids::ObjectIds,
     pub pending_commands: Vec<DisunityCommand>,
+    /// The values the dispatches of the last offscreen take ran with; a record's token is an
+    /// index into this list, plus one.
+    pub dispatch_bindings: Vec<worldrunner_world_simulation::graphics::ComputeBindings>,
+    /// The encoded command records of the last offscreen take; a record's detail token is an
+    /// index into this list, plus one.
+    pub work_details: Vec<Vec<u8>>,
+    /// The encoded graphics snapshot a size query took and no copy has handed out yet.
+    pub graphics_snapshot: Option<Vec<u8>>,
+    /// The host's GPU flush callback and whether it is running.
+    pub gpu_flush: Option<crate::gpu_flush::GpuFlushHook>,
+    pub flushing: bool,
     pub last_error: Option<String>,
 }
 
@@ -42,11 +52,14 @@ struct Entry {
 pub(crate) struct Store {
     worlds: Vec<Option<Entry>>,
     next_handle: u64,
+    /// The GPU flush callback a world made from now on starts with.
+    pub(crate) default_gpu_flush: Option<crate::gpu_flush::GpuFlushHook>,
 }
 
 static STORE: Mutex<Store> = Mutex::new(Store {
     worlds: Vec::new(),
     next_handle: 1,
+    default_gpu_flush: None,
 });
 
 pub(crate) fn lock_store() -> std::sync::MutexGuard<'static, Store> {
@@ -118,6 +131,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
         session: Session {
             native,
             presentation: None,
+            ui_presentation: None,
             physics_materials: BTreeMap::new(),
             fonts: worldrunner_world_simulation::ui::FontBook::new(Default::default())
                 .map_err(|e| AllocationError::Native(e.into()))?,
@@ -126,12 +140,16 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             meshes: BTreeMap::new(),
             mesh_objects: Vec::new(),
             faces: Default::default(),
-            left_out_noted: std::collections::BTreeSet::new(),
             clones: BTreeMap::new(),
             constructions: BTreeMap::new(),
             dispatch: Default::default(),
             objects: crate::object_ids::ObjectIds::default(),
             pending_commands: Vec::new(),
+            dispatch_bindings: Vec::new(),
+            work_details: Vec::new(),
+            graphics_snapshot: None,
+            gpu_flush: store.default_gpu_flush,
+            flushing: false,
             last_error: None,
         },
     });
@@ -221,6 +239,7 @@ mod tests {
         let mut store = Store {
             worlds: Vec::new(),
             next_handle: u64::MAX,
+            default_gpu_flush: None,
         };
         assert!(create_world(&mut store).is_err());
         assert!(store.worlds.is_empty());

@@ -48,6 +48,22 @@ pub(crate) struct ScriptState {
     pub awake: bool,
     pub active: bool,
     pub entered: EnteredState,
+    pub messages: crate::ScriptMessages,
+}
+
+impl ScriptState {
+    /// Applies the object's activity to the script. Returns whether the script woke, and its new
+    /// activity when that changed.
+    fn refresh(&mut self, in_active_hierarchy: bool) -> (bool, Option<bool>) {
+        let woke = in_active_hierarchy && !self.awake;
+        if woke {
+            self.awake = true;
+        }
+        let eligible = in_active_hierarchy && self.enabled;
+        let changed = (eligible != self.active).then_some(eligible);
+        self.active = eligible;
+        (woke, changed)
+    }
 }
 
 impl Default for ScriptState {
@@ -59,6 +75,7 @@ impl Default for ScriptState {
             awake: false,
             active: false,
             entered: EnteredState::Dormant,
+            messages: crate::ScriptMessages::ALL,
         }
     }
 }
@@ -73,13 +90,71 @@ pub(crate) struct Lifecycle {
     next_sequence: usize,
     pub(crate) unpublished: crate::unpublished::Unpublished,
     pub cleanup: Vec<LifecycleWork>,
+    /// The scripts a phase visits, kept equal to a scan of `scripts` by the methods below. Change
+    /// a script's `start`, `awake`, `active`, `messages` or presence only through them.
+    index: crate::phase_index::PhaseIndex,
+    /// Objects the next frame start has to refresh. See `frame_rescan`.
+    pub(crate) unsettled: crate::frame_rescan::Unsettled,
 }
 
 impl Lifecycle {
     /// Stores a script's state and notes it for the scheduler's next look at new scripts.
     pub(crate) fn register(&mut self, script: ComponentHandle, state: ScriptState) {
+        self.remove_script(script);
+        self.index.add(script, crate::phase_index::Key::of(&state));
         self.scripts.insert(script, state);
         self.added.push(script);
+    }
+
+    /// Forgets a removed or retired script.
+    pub(crate) fn remove_script(&mut self, script: ComponentHandle) {
+        if let Some(state) = self.scripts.remove(&script) {
+            self.index
+                .drop_entries(script, crate::phase_index::Key::of(&state));
+        }
+    }
+
+    /// Changes a registered script's state and keeps the phase index equal to it. Change `start`,
+    /// `awake`, `active` and `messages` only here.
+    pub(crate) fn edit_script<R>(
+        &mut self,
+        script: ComponentHandle,
+        change: impl FnOnce(&mut ScriptState) -> R,
+    ) -> Option<R> {
+        let state = self.scripts.get_mut(&script)?;
+        let before = crate::phase_index::Key::of(state);
+        let result = change(state);
+        self.index
+            .retarget(script, before, crate::phase_index::Key::of(state));
+        Some(result)
+    }
+
+    /// Records that the script's `Start` was issued.
+    pub(crate) fn mark_started(&mut self, script: ComponentHandle) {
+        self.edit_script(script, |state| state.start = StartState::Started)
+            .expect("ready script");
+    }
+
+    /// Gives a registered script the per-frame messages it defines.
+    pub(crate) fn set_messages(
+        &mut self,
+        script: ComponentHandle,
+        messages: crate::ScriptMessages,
+    ) {
+        self.edit_script(script, |state| state.messages = messages);
+    }
+
+    /// The scripts a phase for `message` has to look at, in handle order.
+    pub(crate) fn phase_candidates(&self, message: crate::ScriptMessage) -> Vec<ComponentHandle> {
+        match self.index.visit(message) {
+            crate::phase_index::Visit::Listed(scripts) => scripts,
+            crate::phase_index::Visit::All => self.scripts.keys().copied().collect(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_index_matches_scripts(&self) {
+        assert!(self.index.matches(&self.scripts), "phase index drifted");
     }
 }
 
@@ -181,24 +256,20 @@ impl World {
             }
             let active = self.active_in_hierarchy(object).expect("live hierarchy");
             for script in self.object_scripts(object) {
-                let state = self
+                let (woke, changed) = self
                     .lifecycle
-                    .scripts
-                    .get_mut(&script)
+                    .edit_script(script, |state| state.refresh(active))
                     .expect("registered script");
-                if active && !state.awake {
-                    state.awake = true;
+                if woke {
                     awake.push(LifecycleWork {
                         script,
                         message: ScriptMessage::Awake,
                     });
                 }
-                let eligible = active && state.enabled;
                 if !active {
                     self.coroutines.cancel_script(script);
                 }
-                if eligible != state.active {
-                    state.active = eligible;
+                if let Some(eligible) = changed {
                     let message = if eligible {
                         ScriptMessage::OnEnable
                     } else {

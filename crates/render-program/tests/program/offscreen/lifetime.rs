@@ -3,8 +3,8 @@
 use worldrunner_render_gpu::submission::LeaseError;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::offscreen::OffscreenError;
-use worldrunner_render_program::offscreen::frame::OffscreenFrame;
+use worldrunner_render_program::unity::offscreen::OffscreenError;
+use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 
 use super::camera::fixture;
 use super::rig::{RED, Rig, ZERO, pixel};

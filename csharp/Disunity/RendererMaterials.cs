@@ -6,8 +6,9 @@ namespace UnityEngine;
 /// its own copies: the first access builds them with <c>new Material(source)</c>, names each
 /// "&lt;name&gt; (Instance)", assigns them as the shared materials and keeps them, so later accesses return the same
 /// copies. Setting a shared material drops the copies. A clone from <c>Instantiate</c> shares its source's copies
-/// (the engine's choice) until it replaces them. A renderer starts with no material. Property blocks are stored
-/// and nothing reads them yet. Setting the shared materials also sends the host each slot's colour and texture
+/// (the engine's choice) until it replaces them. A renderer starts with no material. A property block set for every
+/// material is also sent to the world, which draws with it; one set for a single material index is stored and
+/// nothing reads it. Setting the shared materials also sends the host each slot's colour and texture
 /// identity (see <see cref="SendDrawnMaterials"/>).
 /// </summary>
 public abstract partial class Renderer
@@ -120,6 +121,7 @@ public abstract partial class Renderer
     {
         if (properties is null) _blocks.Remove(index);
         else _blocks[index] = CopyBlock(properties);
+        if (index == NoMaterialIndex) SendPropertyBlock(properties);
     }
 
     private void GetBlock(MaterialPropertyBlock into, int index)

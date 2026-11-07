@@ -44,12 +44,13 @@ impl Active {
         Ok(true)
     }
     pub(super) fn finish(self, host: &mut RetainedHost) {
+        host.present_captured_pick(self.view.resolved_view());
         host.captures.complete_recipe(
             self.id,
             self.frame,
             self.time,
             self.accumulation.finish(),
-            self.scene.expect("submitted sample"),
+            &self.scene.expect("submitted sample"),
         );
     }
 }
@@ -182,7 +183,7 @@ impl Renderer {
         let ticket = self.execution.submit_capture(ready, prepared)?;
         let frame = self.streaming.captures.next_frame();
         self.streaming.captures.advance_frame();
-        let scene = self.resident.scene_mut().statistics();
+        let scene = self.scene_statistics();
         let active = self
             .streaming
             .captures

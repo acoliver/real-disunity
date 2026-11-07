@@ -64,12 +64,6 @@ pub(crate) const fn neutral_ao() -> SceneSsao {
         horizon_angle_millidegrees: 90_000,
     }
 }
-pub(crate) fn geometry_declaration(declaration: &mut FeatureDeclaration) {
-    let mut pass = FeaturePass::new(PassSlot::ReflectionMaterial);
-    pass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-    pass.depth_format = Some(wgpu::TextureFormat::Depth32Float);
-    declaration.passes.push(pass);
-}
 fn resource(index: u32) -> ResourceRef {
     ResourceRef {
         version: index,
@@ -86,7 +80,6 @@ pub(crate) struct Ssr {
     velocity: bool,
     material: wgpu::Texture,
     application_ao: wgpu::Texture,
-    material_depth: wgpu::Texture,
     source_depth: wgpu::Texture,
     normals: wgpu::Texture,
     hierarchy: Vec<wgpu::Texture>,
@@ -139,7 +132,7 @@ impl Ssr {
     }
 
     pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
-        let mut textures = vec![&self.material, &self.material_depth];
+        let mut textures = vec![&self.material];
         textures.extend(self.forward_products.iter());
         let count = if pyramid::shared(&self.settings) {
             1
@@ -211,9 +204,7 @@ impl Ssr {
             screen,
             (settings.depth_relative_ao, velocity),
         );
-        screen.geometry.reflection =
-            Some(crate::scene_metadata::pipelines(device, &screen.uniform, true).0);
-        // All geometry pipelines use the same explicit group layout as the normal prepass.
+        metadata::install_merged_pipelines(device, screen);
 
         let material = metadata::material_texture(device, config.size, screen)?;
         let final_depth =
@@ -244,11 +235,6 @@ impl Ssr {
             composition: composition(settings.composition),
             water_trace,
             water_resolve,
-            material_depth: crate::ssao::passes::texture(
-                device,
-                config.size,
-                wgpu::TextureFormat::Depth32Float,
-            ),
             material,
             application_ao: screen.passes.filtered.clone(),
             source_depth: screen.passes.depth_levels()[0].clone(),
@@ -389,33 +375,6 @@ impl ReflectionFeature<'_> {
         reads.dedup();
         reads
     }
-    fn schedule_metadata(
-        &self,
-        passes: &mut Vec<PassDeclaration>,
-        views: &mut Vec<AttachmentView>,
-    ) -> Result<(), FrameError> {
-        let ssr = self.ssr;
-        let material = FrameProduct::material().attachment(&ssr.material)?;
-        let depth = AttachmentView::new(
-            ResourceRef::new("reflection metadata depth"),
-            &ssr.material_depth,
-        )?;
-        let mut metadata = PassDeclaration::new(PassSlot::ReflectionMaterial);
-        metadata.color = Some(crate::compositor::attachment(
-            material.resource(),
-            &material,
-            false,
-        ));
-        metadata.depth = Some(crate::compositor::attachment(
-            depth.resource(),
-            &depth,
-            true,
-        ));
-        views.push(depth);
-        passes.push(metadata);
-        views.push(material);
-        Ok(())
-    }
     fn application_reads(&self, feature: &mut FeaturePass) {
         if self.ssr.settings.depth_relative_ao {
             feature.reads.push(ResourceRef::new("ambient occlusion"));
@@ -431,7 +390,6 @@ impl ReflectionFeature<'_> {
             passes: Vec::new(),
             effects: vec!["SSR"],
         };
-        self.schedule_metadata(passes, views)?;
         forward::schedule(&ssr.forward_products, passes, views)?;
         declaration.passes.extend(ssr.final_depth.schedule(
             self.color.texture().sample_count(),

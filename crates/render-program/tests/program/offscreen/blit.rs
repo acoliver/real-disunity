@@ -3,14 +3,14 @@
 use std::collections::BTreeMap;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
-use worldrunner_render_program::offscreen::OffscreenError;
-use worldrunner_render_program::offscreen::frame::{Material, OffscreenFrame, Record};
-use worldrunner_render_program::shader::ProgramShader;
+use worldrunner_render_program::unity::offscreen::OffscreenError;
+use worldrunner_render_program::unity::offscreen::frame::{Material, OffscreenFrame, Record};
+use worldrunner_render_program::unity::shader::ProgramShader;
 
 use super::rig::{
     BLIT_QUAD, BLUE, CYAN, RED, Rig, blit_quad, image, layer, pixel, source, texture,
 };
-use worldrunner_render_program::synthetic::shaders::blit_passes;
+use worldrunner_render_program::unity::synthetic::shaders::blit_passes;
 
 const SHADER: ShaderId = ShaderId(2);
 const SOURCE: TextureId = TextureId(5);
@@ -96,7 +96,7 @@ fn the_pass_the_shader_lacks_is_a_named_error() {
         matches!(
             &error,
             OffscreenError::Resolve(
-                worldrunner_render_program::shader::ResolveError::NoPass { .. }
+                worldrunner_render_program::unity::shader::ResolveError::NoPass { .. }
             )
         ),
         "{error}"

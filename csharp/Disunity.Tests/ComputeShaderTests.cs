@@ -2,8 +2,7 @@ using System.Reflection;
 using UnityEngine;
 
 /// <summary>A compiled game binds the ComputeShader members it calls when a method that uses them is first compiled, so
-/// the members the terrain read-back calls must exist with the signatures the game was built against. The engine builds
-/// no compute shaders, so a script's field binds null and the game's own handler logs the failed call.</summary>
+/// the members the terrain read-back calls must exist with the signatures the game was built against.</summary>
 internal static class ComputeShaderTests
 {
     public static void Run()

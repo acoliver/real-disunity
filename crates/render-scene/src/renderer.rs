@@ -46,7 +46,10 @@
 //! what drives depth fighting on distant coplanar surfaces.
 
 mod objects;
+pub(crate) mod overlay;
 mod pages;
+#[cfg(test)]
+pub(crate) use pages::test_sources as terrain_test_sources;
 mod specular;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
@@ -90,7 +93,9 @@ pub struct ScenePipelines {
     pub(crate) cached_terrain: RenderPipeline,
     pub(crate) layered: Option<pages::LayeredPipelines>,
     pub(crate) cached_terrain_layout: BindGroupLayout,
-    unlit_alpha: RenderPipeline,
+    /// The colour attachments of the pass the dynamic unlit-alpha material draws into, from the
+    /// same target list the object pipelines have.
+    unlit_colors: Vec<TextureFormat>,
     specialization: specular::Specialization,
 }
 
@@ -301,12 +306,28 @@ impl ScenePipelines {
             terrain_layout,
             pipelines,
             terrain,
-            unlit_alpha: unlit::build(device, target, &layout, &buffers, &module, &targets),
+            unlit_colors: targets.iter().flatten().map(|t| t.format).collect(),
         }
     }
 
-    pub const fn unlit_alpha(&self) -> &RenderPipeline {
-        &self.unlit_alpha
+    /// The pass the dynamic unlit-alpha material draws into with these pipelines: their colour
+    /// targets, the scene's depth format and their sample count.
+    pub(crate) fn unlit_signature(
+        &self,
+    ) -> Result<
+        worldrunner_render_program::runtime::TargetSignature,
+        worldrunner_render_program::error::ProgramError,
+    > {
+        worldrunner_render_program::runtime::TargetSignature::attachments(
+            &self.unlit_colors,
+            Some(DEPTH_FORMAT),
+            self.samples,
+        )
+    }
+
+    /// The shader source the dynamic unlit-alpha material's entry points are read from.
+    pub(crate) fn unlit_source(&self) -> &str {
+        self.specialization.source()
     }
 
     pub(crate) const fn object_pipelines(&self) -> &ObjectPipelines {
@@ -594,7 +615,7 @@ pub(crate) fn celestial_pipelines(
     physical: bool,
     separate: bool,
     object_exposure: bool,
-) -> [RenderPipeline; 16] {
+) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
     celestial_specialization(
         device,
         scene,
@@ -604,16 +625,11 @@ pub(crate) fn celestial_pipelines(
         false,
     )
 }
-pub(crate) fn celestial_specialization(
-    device: &Device,
-    scene: &ScenePipelines,
+pub(crate) fn celestial_source(
     composition: (bool, bool, bool),
-    options: ([u32; 7], FrontFace),
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
-) -> [RenderPipeline; 16] {
-    let mut constants = crate::sky::lighting::constants(options.0, lighting);
-    specular::raster_constants(&mut constants, options.1);
+) -> String {
     let source = ENVIRONMENT_WGSL.replace(
         "@location(0) world_position: vec3<f32>,",
         "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
@@ -628,7 +644,19 @@ pub(crate) fn celestial_specialization(
     } else {
         crate::sky::meshes::VERTEX.to_owned()
     };
-    let source = format!("{source}\n{vertex}");
+    format!("{source}\n{vertex}")
+}
+pub(crate) fn celestial_specialization(
+    device: &Device,
+    scene: &ScenePipelines,
+    composition: (bool, bool, bool),
+    options: ([u32; 7], FrontFace),
+    lighting: worldrunner_render_plan::SceneCelestialLighting,
+    anchored: bool,
+) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
+    let mut constants = crate::sky::lighting::constants(options.0, lighting);
+    specular::raster_constants(&mut constants, options.1);
+    let source = celestial_source(composition, lighting, anchored);
     let module = scene_shader(device, "celestial mesh lighting", &source);
     let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
         label: Some("celestial meshes"),
@@ -641,10 +669,7 @@ pub(crate) fn celestial_specialization(
     let targets = color_targets(wgpu::TextureFormat::Rgba16Float);
     PipelineKey::ALL.map(|key| {
         let mut constants = constants.clone();
-        constants.push((
-            "SCENE_ALPHA_TO_COVERAGE",
-            f64::from(key.alpha_to_coverage(scene.samples)),
-        ));
+        constants.extend(key.fragment_constants(scene.samples));
         build_variant(
             device,
             &layout,
@@ -701,6 +726,8 @@ fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTarget
         targets
     } else if source.contains("struct ReflectionOutput") {
         vec![color_targets(format)[0].clone(); 3]
+    } else if source.contains(crate::scene_metadata::MERGED_MARKER) {
+        vec![color_targets(format)[0].clone(); 2]
     } else {
         color_targets(format).to_vec()
     }

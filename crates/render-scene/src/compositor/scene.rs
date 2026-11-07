@@ -40,6 +40,7 @@ impl PreparedFeature for SceneFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.gpu.prepare_view_compaction(context, None, &self.frame);
     }
     fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
         self.publications.publish(context, self.gpu);
@@ -56,19 +57,11 @@ impl PreparedFeature for SceneFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
-            if context.slot == PassSlot::ReflectionMaterial {
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.reflection.as_ref().expect("reflection metadata"),
-                    &screen.group,
-                ));
-                return;
-            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
                 self.publications.record(self.gpu.draw_prepass(
                     pass,
-                    &screen.pipelines,
+                    screen.prepass_pipelines(),
                     &screen.group,
                 ));
                 return;
@@ -109,8 +102,8 @@ pub(crate) fn declare_velocity(
     Ok(())
 }
 
-/// Checks the screen-space, water and post settings the scene was uploaded with against the
-/// renderer, and binds the water inputs.
+/// Checks the effects the scene asks for against the renderer's configuration, before anything
+/// is declared. The water inputs are already bound by `prepare_scene_inputs`.
 fn validate_effects(
     renderer: &mut FrameRenderer,
     gpu: &crate::draw::SceneGpu,
@@ -118,10 +111,8 @@ fn validate_effects(
 ) -> Result<(), FrameError> {
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
-    renderer.bind_water_inputs(&gpu.water_inputs, gpu.pass_counters.water.clone());
     renderer.validate_ssr(gpu.ssr.as_ref())?;
-    renderer.validate_post(gpu.post)?;
-    Ok(())
+    renderer.validate_post(gpu.post)
 }
 
 /// Encodes a resident unshadowed scene through the feature boundary.
@@ -136,6 +127,7 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    renderer.prepare_scene_inputs(device, gpu);
     renderer.validate_taa_depth(attachments.1)?;
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
@@ -147,6 +139,7 @@ pub fn encode_scene(
         renderer,
         (pipelines, velocity.is_some()),
     )?;
+    gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
@@ -160,9 +153,6 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if renderer.ssao.is_some() {
         crate::ssao::passes::geometry_declaration(&mut declaration);
-        if renderer.ssr.is_some() {
-            crate::ssr::geometry_declaration(&mut declaration);
-        }
     }
     let mut views = vec![
         color.with_resource(color_id)?,

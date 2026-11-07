@@ -2,7 +2,7 @@
 //! the caller opened.
 
 use worldrunner_render_program::error::{ProgramError, UnsupportedTarget};
-use worldrunner_render_program::runtime::{DrawPacket, Geometry, TargetSignature};
+use worldrunner_render_program::unity::runtime::{DrawPacket, Geometry, TargetSignature};
 
 use crate::common::Gpu;
 use crate::patch::{patch, rectangle, state};

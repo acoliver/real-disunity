@@ -2,8 +2,8 @@
 
 use worldrunner_render_gpu::tolerance_test_support::assert_code_within;
 use worldrunner_render_program::properties::PropertyValue;
-use worldrunner_render_program::runtime::TargetImage;
-use worldrunner_render_program::state::resolve_state;
+use worldrunner_render_program::unity::runtime::TargetImage;
+use worldrunner_render_program::unity::state::resolve_state;
 
 use crate::common::{FORMS, Form, named, opaque_state};
 use crate::rig::{MULTIPLY, QUAD, Samplers, Scene, TEXELS, TINT_VALUE, pass, properties, render};

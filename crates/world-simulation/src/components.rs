@@ -131,16 +131,19 @@ impl ComponentDesc {
             Self::Script {
                 assembly,
                 type_name,
-            } => {
-                if assembly.is_empty()
-                    || type_name.is_empty()
-                    || assembly.len() > 1024
-                    || type_name.len() > 1024
-                {
-                    return Err(WorldError::InvalidComponent(ComponentError::InvalidScript));
-                }
-                Ok(())
-            }
+            } => validate_script_name(assembly, type_name),
         }
     }
+}
+
+/// Checks that a script type's assembly and type name are 1 to 1024 bytes each.
+fn validate_script_name(assembly: &str, type_name: &str) -> Result<(), WorldError> {
+    if assembly.is_empty()
+        || type_name.is_empty()
+        || assembly.len() > 1024
+        || type_name.len() > 1024
+    {
+        return Err(WorldError::InvalidComponent(ComponentError::InvalidScript));
+    }
+    Ok(())
 }

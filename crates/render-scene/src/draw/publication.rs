@@ -23,10 +23,16 @@ pub(crate) struct ColorDraw {
 pub(crate) struct DrawPublications {
     selections: RefCell<Vec<SelectionPublication>>,
     effects: Cell<super::EffectStatistics>,
+    geometry: Cell<Option<super::TerrainGeometryStatistics>>,
 }
 
 impl DrawPublications {
     pub fn record_color(&self, scene: &super::SceneGpu, draw: ColorDraw) {
+        self.geometry.set(
+            (draw.terrain.calls > 0)
+                .then(|| scene.drawing_geometry_statistics())
+                .flatten(),
+        );
         scene.pass_counters.terrain.record(draw.terrain);
         scene.pass_counters.sky.record(draw.sky);
         let mut effects = self.effects.get();
@@ -71,6 +77,11 @@ impl DrawPublications {
         context: &mut worldrunner_render_post::PrepareContext<'_>,
         scene: &super::SceneGpu,
     ) {
+        let destination = scene.pass_counters.geometry.clone();
+        let geometry = self.geometry.take();
+        crate::compositor::publication::stage(context, &destination.clone(), move || {
+            destination.set(geometry);
+        });
         let destination = scene.effect_statistics.clone();
         let effects = self.effects.get();
         crate::compositor::publication::stage(context, &destination.clone(), move || {

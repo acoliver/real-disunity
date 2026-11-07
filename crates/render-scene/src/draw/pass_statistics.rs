@@ -1,10 +1,11 @@
 use super::{DrawCount, SceneGpu};
 use std::{cell::Cell, rc::Rc};
 
-/// CPU-encoded draws in the main terrain, water and background sky passes,
+/// CPU-encoded draws in native UI, terrain, water and background sky passes,
 /// and each directional shadow cascade. Metadata and celestial passes are excluded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PassDrawStatistics {
+    pub ui: DrawCount,
     pub terrain: DrawCount,
     pub water: DrawCount,
     pub sky: DrawCount,
@@ -45,6 +46,8 @@ impl PassCounter {
 
 #[derive(Debug, Default)]
 pub(crate) struct PassCounters {
+    pub geometry: Rc<Cell<Option<super::TerrainGeometryStatistics>>>,
+    pub ui: PassCounter,
     pub terrain: PassCounter,
     pub water: PassCounter,
     pub sky: PassCounter,
@@ -54,13 +57,14 @@ impl PassCounters {
     pub fn write_keys(
         &self,
     ) -> impl Iterator<Item = worldrunner_render_gpu::submission::capture::WriteKey> + '_ {
-        [&self.terrain, &self.water, &self.sky]
+        [&self.ui, &self.terrain, &self.water, &self.sky]
             .into_iter()
             .chain(&self.shadows)
             .map(|counter| crate::compositor::publication::key(&counter.0))
     }
     pub fn snapshot(&self) -> PassDrawStatistics {
         PassDrawStatistics {
+            ui: self.ui.get(),
             terrain: self.terrain.get(),
             water: self.water.get(),
             sky: self.sky.get(),
@@ -71,6 +75,7 @@ impl PassCounters {
 impl SceneGpu {
     pub(crate) fn reset_pass_statistics(&self) {
         for counter in [
+            &self.pass_counters.ui,
             &self.pass_counters.terrain,
             &self.pass_counters.water,
             &self.pass_counters.sky,

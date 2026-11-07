@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId, ShaderId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::offscreen::OffscreenError;
-use worldrunner_render_program::offscreen::frame::{
+use worldrunner_render_program::unity::offscreen::OffscreenError;
+use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, Renderer,
 };
-use worldrunner_render_program::shader::{PassSelector, ProgramShader};
+use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
 
 use super::rig::{BLUE, CLEAR, QUAD, RED, Rig, layer, pixel, quad, texture};
-use worldrunner_render_program::synthetic::shaders::camera_passes;
+use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 
 const SHADER: ShaderId = ShaderId(1);
 const TARGET: TextureId = TextureId(10);
@@ -245,7 +245,7 @@ fn a_camera_with_a_pass_no_material_shader_has_is_a_named_error() {
         matches!(
             &error,
             OffscreenError::Resolve(
-                worldrunner_render_program::shader::ResolveError::NoPass { .. }
+                worldrunner_render_program::unity::shader::ResolveError::NoPass { .. }
             )
         ),
         "{error}"
@@ -258,7 +258,7 @@ fn a_mesh_without_a_channel_the_shader_reads_is_a_named_error() {
     let mut frame = halves(&mut rig, 1 << LEFT);
     let mut bare = quad(0.5);
     bare.channels.retain(|channel| {
-        channel.source == worldrunner_render_program::synthetic::shaders::POSITION
+        channel.source == worldrunner_render_program::unity::synthetic::shaders::POSITION
     });
     rig.state
         .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &bare)

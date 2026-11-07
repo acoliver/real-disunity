@@ -1,7 +1,7 @@
 //! Draws of a graphics program into a render target.
 
 use crate::error::ProgramError;
-use crate::packet::TargetSignature;
+use crate::packet::{DrawPacket, MaterialParts, TargetSignature};
 use crate::program::GraphicsProgram;
 use crate::resources::{BoundResource, BufferHandle, TargetEntry, TargetHandle};
 use crate::runtime::ProgramRuntime;
@@ -40,8 +40,6 @@ pub enum Geometry {
 pub struct DrawRequest<'a> {
     pub program: &'a GraphicsProgram,
     pub state: &'a RenderState,
-    /// The winding that counts as a front face, in framebuffer space.
-    pub front_face: wgpu::FrontFace,
     pub target: TargetHandle,
     pub vertex_inputs: &'a [VertexInput],
     pub bindings: &'a [BoundResource],
@@ -50,7 +48,9 @@ pub struct DrawRequest<'a> {
 
 impl ProgramRuntime {
     /// Records a fill of a target's color with `color` and its depth, when it has one, with
-    /// `depth`.
+    /// `depth`. The frame retains the target's reservation, so its bytes stay counted until the
+    /// frame is cancelled, dropped or completed on the GPU, even when the runtime is dropped
+    /// first.
     ///
     /// # Errors
     /// Fails on an unknown handle, an encoder that is not the authority's, a lost device or a
@@ -63,6 +63,7 @@ impl ProgramRuntime {
         depth: f32,
     ) -> Result<(), ProgramError> {
         self.recording(encoder)?;
+        self.hold_for_frame(encoder, vec![self.store.target_reservation(target)?])?;
         let target = self.store.target(target)?;
         self.guarded(|| {
             let attachment = wgpu::RenderPassColorAttachment {
@@ -98,7 +99,10 @@ impl ProgramRuntime {
     }
 
     /// Records the geometry's draw with the program, state and bindings into `encoder`; the
-    /// caller submits the frame.
+    /// caller submits the frame. The frame retains the reservations of the buffers and textures
+    /// the draw uses and of the target it draws into, as `PreparedProgramDraw::retain` does, so
+    /// their bytes stay counted until the frame is cancelled, dropped or completed on the GPU,
+    /// even when the runtime is dropped first.
     ///
     /// # Errors
     /// Fails on an unknown handle, a binding that does not fit the program, an encoder that is
@@ -109,15 +113,28 @@ impl ProgramRuntime {
         encoder: &mut wgpu::CommandEncoder,
         request: &DrawRequest<'_>,
     ) -> Result<(), ProgramError> {
+        self.record_into_target(encoder, request.target, &request.packet(), None)
+    }
+
+    /// Prepares `packet` for `target`'s attachments, makes the frame retain what it uses and
+    /// records it into a pass over the target. `parts` are what a material draw adds.
+    pub(crate) fn record_into_target(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: TargetHandle,
+        packet: &DrawPacket<'_>,
+        parts: Option<&MaterialParts<'_>>,
+    ) -> Result<(), ProgramError> {
         self.recording(encoder)?;
-        let target = self.store.target(request.target)?;
+        let entry = self.store.target(target)?;
         let signature = TargetSignature::new(
-            &[target.color.texture.format()],
-            target.depth.as_ref().map(|d| d.texture.format()),
-            target.color.texture.sample_count(),
+            &[entry.color.texture.format()],
+            entry.depth.as_ref().map(|d| d.texture.format()),
+            entry.color.texture.sample_count(),
         )?;
-        let prepared = self.prepare_draw(&request.packet(), signature)?;
-        let target = self.store.target(request.target)?;
+        let prepared = self.prepare_pinned(packet, signature, (Some(target), parts))?;
+        prepared.retain(encoder)?;
+        let target = self.store.target(target)?;
         self.guarded(|| {
             let mut pass = open_pass(encoder, target);
             prepared.record(&mut pass);

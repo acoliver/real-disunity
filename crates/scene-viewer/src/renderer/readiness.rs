@@ -66,13 +66,24 @@ impl Renderer {
 }
 
 impl Renderer {
-    pub(super) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
-        self.streaming.publish(
-            &self.context,
-            &mut self.resident,
-            &mut self.presentation,
-            host,
-        )
+    /// Publishes every generation that is ready, in order. A live driver sends several updates
+    /// a frame (resources, objects, UI, camera), so publishing one a frame would let the queue
+    /// grow until it refuses updates. Publishing stops at the first generation that is not ready
+    /// (a scene still preparing, a page or geometry wait) and at one a capture holds, so a
+    /// requested capture still sees its own generation.
+    pub(crate) fn publish_retained(&mut self, host: &mut RetainedHost) -> Result<(), ViewerError> {
+        loop {
+            let published = host.readiness.published;
+            self.streaming.publish(
+                &self.context,
+                &mut self.resident,
+                &mut self.presentation,
+                host,
+            )?;
+            if host.readiness.published == published {
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -125,10 +136,34 @@ impl Streaming {
                     .zip(next_resident.scene_mut().instance_handles())
                     .collect(),
             );
-            let old_resident = std::mem::replace(resident, next_resident);
+            let mut old_resident = std::mem::replace(resident, next_resident);
+            self.carried
+                .add(&old_resident.scene_mut().take_statistics());
             self.retired.push_back((serial, old_resident));
+        } else {
+            self.apply_in_place(context, resident, presentation, front)?;
+        }
+        host.publish_pick_front();
+        Ok(())
+    }
+
+    /// Applies an update that edits the resident scene in place rather than replacing it.
+    fn apply_in_place(
+        &mut self,
+        context: &super::GpuContext,
+        resident: &mut Resident,
+        presentation: &mut Presentation,
+        front: &mut crate::retained::readiness::Preparation,
+    ) -> Result<(), ViewerError> {
+        if let crate::RetainedUpdate::Ui(overlay) = &front.update {
+            resident
+                .scene_mut()
+                .set_ui_overlay(context.device(), context.submission(), overlay)
+                .map_err(|error| ViewerError::Gpu(error.to_string()))?;
         } else if let crate::RetainedUpdate::Decal(update) = &front.update {
             super::retained::apply_decal(resident.scene_mut(), update)?;
+        } else if let Some(edit) = front.edit.take() {
+            super::resource_edit::publish(context, resident, presentation, edit, &front.update)?;
         } else {
             let effects = self
                 .objects
@@ -137,7 +172,6 @@ impl Streaming {
                 super::retained::configure_effects(context, resident, presentation, &effects)?;
             }
         }
-        host.readiness.publish_front();
         Ok(())
     }
     fn advance_preparation(
@@ -164,7 +198,7 @@ impl Streaming {
         };
         if let Some(prepared) = scene {
             let source = prepared.scene().clone();
-            let reservation = presentation.prepare_scene(context, &source)?;
+            let reservation = presentation.prepare_scene(context, &prepared)?;
             let mut next = self.prepare_retained_scene(context, prepared, resident.scene_mut())?;
             next.scene_mut()
                 .retain_resource_reservation(reservation.resident);
@@ -231,6 +265,8 @@ pub(super) struct Streaming {
     pub retired: std::collections::VecDeque<(u64, Resident)>,
     pub shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
     pub profile: crate::FrameProfile,
+    /// Uploads of residents that retired before a frame reported them.
+    pub carried: CarriedUploads,
     preparing: Option<(
         Resident,
         worldrunner_render_plan::RenderScene,
@@ -248,8 +284,36 @@ impl Streaming {
             retired: std::collections::VecDeque::new(),
             shadows,
             profile,
+            carried: CarriedUploads::default(),
             preparing: None,
         }
+    }
+}
+
+/// Upload bytes of residents replaced in the same frame as their successor. Publishing several
+/// rebuilds in one frame retires a resident before any frame reads its statistics, so its
+/// uploads are kept here and reported once with the frame that shows the last one. Draw and
+/// residency counts are not carried: they describe the resident the frame draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct CarriedUploads {
+    textures: u64,
+    meshes: u64,
+}
+
+impl CarriedUploads {
+    fn add(&mut self, retired: &worldrunner_render_scene::draw::SceneStatistics) {
+        self.textures += retired.textures.uploaded_bytes;
+        self.meshes += retired.mesh_buffers.uploaded_bytes;
+    }
+
+    /// `statistics` with the carried uploads added.
+    pub(super) fn applied(
+        self,
+        mut statistics: worldrunner_render_scene::draw::SceneStatistics,
+    ) -> worldrunner_render_scene::draw::SceneStatistics {
+        statistics.textures.uploaded_bytes += self.textures;
+        statistics.mesh_buffers.uploaded_bytes += self.meshes;
+        statistics
     }
 }
 

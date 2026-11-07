@@ -1,6 +1,6 @@
 use super::{
     FrameError, PrepareContext, Rc, RefCell, RenderScene, Residents, SceneGpu, Streaming,
-    TerrainChunk, upload_chunk,
+    TerrainChunk, insert, upload_chunk,
 };
 use std::cell::Cell;
 use worldrunner_render_plan::SceneTerrain;
@@ -55,6 +55,7 @@ impl Streaming {
         *old.drawing.borrow_mut() = None;
         old.frozen.set(true);
         Some(Self {
+            plane_chunks: crate::terrain::planes::chunk_indices(terrain),
             scene,
             identity: Rc::new(()),
             committed: Rc::new(RefCell::new(reused)),
@@ -121,7 +122,8 @@ impl Streaming {
             .min((policy.maximum_resident_chunks() as usize).saturating_sub(allocated));
         let mut residents = self.committed.borrow().clone();
         for chunk in remaining.iter().take(count) {
-            residents.push((*chunk, upload_chunk(context, terrain, *chunk)?));
+            let lod = upload_chunk(context, terrain, *chunk)?;
+            insert(&mut residents, *chunk, lod);
         }
         let pending = replacement.remaining.clone();
         let destination = self.committed.clone();

@@ -6,6 +6,8 @@
 //! interpretation, no `Default`, no fallback, and no data borrowed from a
 //! publication. Every constructor validates its own closure, so an invalid
 //! scene cannot exist.
+mod material_channels;
+pub use material_channels::{SceneMaterialChannels, TextureChannel};
 mod decal;
 pub use decal::{
     SceneDecal, SceneDecalAlphaMode, SceneDecalAngle, SceneDecalAxis, SceneDecalColorModifier,
@@ -91,6 +93,8 @@ mod foliage_wind_tests;
 mod geometry;
 mod scene_geometry;
 pub use scene_geometry::SceneGeometry;
+mod append;
+pub use append::SceneAppend;
 mod lod_material;
 pub use lod_material::SceneLodMaterialSlot;
 mod lod_policy;
@@ -368,6 +372,7 @@ impl RenderScene {
                 material_limit,
             )?;
         }
+        self.validate_mesh_scalar_channels()?;
         if let Some(terrain) = &self.terrain {
             for surface in terrain.surfaces() {
                 require_handle(
@@ -376,6 +381,10 @@ impl RenderScene {
                     "material",
                     material_limit,
                 )?;
+                if terrain.layered_source().is_none() {
+                    self.resources.materials()[surface.material().raw() as usize]
+                        .require_default_channels("terrain palette")?;
+                }
             }
         }
         if let Some(crate::scene::effects::SceneSky::DomeTexture { texture }) =

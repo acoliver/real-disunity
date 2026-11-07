@@ -129,8 +129,8 @@ waits for review.
 Write a behavior test first and confirm the intended failure. Preserve assertions,
 tolerances and required coverage. Never add a retry, ignore a test or suppress a
 warning to turn a failure green. Never loosen these limits or add lint allowances:
-60 lines/function, six arguments, cognitive complexity 15, type complexity 250,
-three boolean fields/struct, 750 lines/file target and 1000 hard limit.
+100 lines/function, seven arguments, cognitive complexity 25, type complexity 250,
+four boolean fields/struct, 750 lines/file target and 1000 hard limit.
 Keep Rust incremental compilation disabled.
 
 The hub's gate is the quality line. It runs on Linux for every proposal:

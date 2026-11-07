@@ -42,6 +42,22 @@ pub enum TextureFormat {
 }
 
 impl TextureFormat {
+    /// Number of independently stored scalar components, excluding synthesized lanes.
+    pub const fn channel_count(self) -> u32 {
+        match self {
+            Self::Bc4Unorm | Self::Bc4Snorm => 1,
+            Self::Bc5Unorm | Self::Bc5Snorm => 2,
+            Self::Bc1Unorm
+            | Self::Bc1UnormSrgb
+            | Self::Bc3Unorm
+            | Self::Bc3UnormSrgb
+            | Self::Bc7Unorm
+            | Self::Bc7UnormSrgb
+            | Self::R8g8b8a8Unorm
+            | Self::R8g8b8a8UnormSrgb => 4,
+        }
+    }
+
     const fn from_dxgi(value: u32) -> Result<Self, TextureError> {
         match value {
             DXGI_FORMAT_BC1_UNORM => Ok(Self::Bc1Unorm),
@@ -161,6 +177,14 @@ pub struct TextureArtifact {
     pub descriptor: TextureDescriptor,
     pub mips: Vec<MipDescriptor>,
     pub payload: Vec<u8>,
+}
+
+impl TextureFormat {
+    /// Reads the stored DDS format without copying or decoding its payload.
+    /// The same header rules apply as for [`TextureArtifact::from_dx10_dds`].
+    pub fn from_dx10_dds(bytes: &[u8]) -> Result<Self, TextureError> {
+        Ok(Dx10Header::parse(bytes)?.format)
+    }
 }
 
 /// The subset of the DDS/DX10 header pair this crate accepts.

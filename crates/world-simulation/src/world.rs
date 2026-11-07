@@ -88,6 +88,7 @@ pub struct WorldSnapshot {
 }
 
 /// The sole owner of live object and component state for a simulation session.
+#[cfg_attr(test, derive(Clone))]
 pub struct World {
     pub(crate) assets: crate::assets::Assets,
     pub(crate) assets_limit: u32,
@@ -96,6 +97,7 @@ pub struct World {
     pub(crate) coroutines: crate::coroutines::Coroutines,
     pub(crate) scheduler: crate::timeline::Scheduler,
     pub(crate) physics: crate::physics2d::Physics,
+    pub(crate) physics_population: crate::physics2d::population::Population,
     pub(crate) identity: u64,
     pub(crate) objects: Arena<Object>,
     pub(crate) lifetime: crate::lifetime::Lifetime,
@@ -104,6 +106,7 @@ pub struct World {
     pub(crate) journal: crate::journal::Journal,
     pub(crate) spatial: Option<crate::spatial::SpatialIndex>,
     pub(crate) staging: Option<crate::edits::Staging>,
+    pub(crate) graphics: crate::graphics::GraphicsState,
 }
 
 impl World {
@@ -116,6 +119,7 @@ impl World {
             coroutines: crate::coroutines::Coroutines::default(),
             scheduler: crate::timeline::Scheduler::default(),
             physics: crate::physics2d::Physics::default(),
+            physics_population: crate::physics2d::population::Population::default(),
             identity: next_world()?,
             lifetime: crate::lifetime::Lifetime::default(),
             lifecycle: crate::lifecycle::Lifecycle::default(),
@@ -124,6 +128,7 @@ impl World {
             journal: crate::journal::Journal::default(),
             spatial: None,
             staging: None,
+            graphics: crate::graphics::GraphicsState::new(),
         })
     }
 
@@ -310,6 +315,7 @@ impl World {
                 .mesh_instance = Some(handle);
         }
         let script = matches!(desc, ComponentDesc::Script { .. });
+        self.physics_population.note_stored(&desc);
         self.objects
             .get_mut(object.0)
             .expect("validated object")
@@ -335,6 +341,7 @@ impl World {
         script: bool,
     ) {
         if script {
+            self.mark_unsettled(object);
             self.lifecycle
                 .register(handle, crate::lifecycle::ScriptState::default());
         }
@@ -415,17 +422,29 @@ impl World {
     pub fn snapshot(&self) -> WorldSnapshot {
         WorldSnapshot {
             objects: self
-                .objects
-                .iter(self.identity)
-                .filter(|(id, _)| !self.is_unpublished(ObjectHandle(*id)))
-                .map(|(id, _)| self.object(ObjectHandle(id)).expect("live arena entry"))
+                .published_objects()
+                .map(|handle| self.object(handle).expect("live arena entry"))
                 .collect(),
-            components: self
-                .components
-                .iter(self.identity)
-                .filter(|(_, value)| !self.is_unpublished(value.object))
-                .map(|(_, value)| value.clone())
-                .collect(),
+            components: self.published_components().cloned().collect(),
         }
+    }
+
+    /// The handles of the live, published objects in the order `snapshot` lists them, without
+    /// copying anything.
+    pub fn published_objects(&self) -> impl Iterator<Item = ObjectHandle> + '_ {
+        self.objects
+            .iter(self.identity)
+            .map(|(id, _)| ObjectHandle(id))
+            .filter(|&handle| !self.is_unpublished(handle))
+    }
+
+    /// The live components of published objects in the order `snapshot` lists them, lent from
+    /// the world instead of copied. A frame reads every component several times; this keeps
+    /// that from copying the whole world each time.
+    pub fn published_components(&self) -> impl Iterator<Item = &ComponentSnapshot> + '_ {
+        self.components
+            .iter(self.identity)
+            .map(|(_, value)| value)
+            .filter(|value| !self.is_unpublished(value.object))
     }
 }

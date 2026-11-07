@@ -45,10 +45,10 @@ fn completion_while_paused_exits_through_poll_without_another_update() {
         } else {
             run.host_mut().input(crate::RetainedInput::Occluded(true));
         }
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut watchdog = CaptureWatchdog::new(&run, format!("capture {id} exit"));
         while !run.closed {
             run.poll().unwrap();
-            assert!(Instant::now() < deadline, "capture exit timed out");
+            watchdog.check(&run, run.closed);
             std::thread::yield_now();
         }
         assert_eq!(*updates.borrow(), 1);
@@ -100,7 +100,18 @@ fn zero_extent_and_restored_resize_are_delivered_without_frames() {
     assert_eq!(
         *events.borrow(),
         vec![
+            RetainedEvent::Input(RetainedInput::DisplayChanged {
+                scale_factor: 1.,
+                physical_size: [0, 0]
+            }),
             RetainedEvent::Input(RetainedInput::Resized([0, 0])),
+            RetainedEvent::AudioStatusChanged {
+                status: crate::AudioStatus::Unavailable(crate::AudioUnavailable::NullDevice),
+            },
+            RetainedEvent::Input(RetainedInput::DisplayChanged {
+                scale_factor: 1.,
+                physical_size: [32, 48]
+            }),
             RetainedEvent::Input(RetainedInput::Resized([32, 48])),
             RetainedEvent::Shutdown,
         ]

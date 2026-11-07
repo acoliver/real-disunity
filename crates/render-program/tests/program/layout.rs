@@ -3,8 +3,8 @@
 
 use wgpu::{BindingType, BufferBindingType, SamplerBindingType, ShaderStages};
 use wgpu::{TextureSampleType, TextureViewDimension};
-use worldrunner_render_program::layout::{LayoutError, ProgramLayout};
-use worldrunner_render_program::module::{ResourceBinding, StageKind, StageProgram};
+use worldrunner_render_program::unity::layout::{LayoutError, ProgramLayout};
+use worldrunner_render_program::unity::module::{ResourceBinding, StageKind, StageProgram};
 
 use crate::common::{
     Dim, FORMS, Form, Resources, parameters, same, sampler, split_table, stage, stage_in, texture,

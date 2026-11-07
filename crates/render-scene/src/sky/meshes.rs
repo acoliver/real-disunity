@@ -16,7 +16,7 @@ struct CelestialFragment {
     @builtin(frag_depth) depth:f32,
 }
 fn celestial_fragment(input:VertexOutput,front_facing:bool,masked:bool)->CelestialFragment {
-    let shaded=shade(input,front_facing);
+    let shaded=shade(input,front_facing,scene_relief_position(input));
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     let clip=frame.view_projection*vec4(input.world_position,1.0);
     // Clip in the original camera space, but retain distant background surfaces.
@@ -83,12 +83,16 @@ pub(crate) struct MeshDraw {
     pub instance: wgpu::Buffer,
     pub key: crate::pipeline::PipelineKey,
 }
-type PipelineCache =
-    std::cell::RefCell<std::collections::BTreeMap<[u32; 12], [wgpu::RenderPipeline; 16]>>;
+type PipelineCache = std::cell::RefCell<
+    std::collections::BTreeMap<
+        [u32; 12],
+        [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
+    >,
+>;
 
 #[derive(Debug)]
 pub(crate) struct Meshes {
-    pipelines: [wgpu::RenderPipeline; 16],
+    pipelines: [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     device: wgpu::Device,
     scene: crate::renderer::ScenePipelines,
     physical: bool,
@@ -189,7 +193,7 @@ impl Meshes {
         raster: ([u32; 7], wgpu::FrontFace),
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
-    ) -> [wgpu::RenderPipeline; 16] {
+    ) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
         let (options, front_face) = raster;
         if front_face == wgpu::FrontFace::Ccw
             && options == [0; 7]

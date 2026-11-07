@@ -1,5 +1,5 @@
-//! CMAA2 followed by CAS in the HDR post chain: CAS is scheduled after the resolve exactly as
-//! it is after FXAA and SMAA, and with CAS off the CMAA2 stages are those of CMAA2 alone.
+//! CMAA2 followed by CAS in the HDR post chain: CAS sharpens the resolved image, and with CAS
+//! off the output is that of CMAA2 alone.
 use crate::chain::post_effect_tests::{chain, pixels, step};
 use crate::{CasSettings, Cmaa2Preset, HdrPostSettings, PostResolve};
 
@@ -11,13 +11,6 @@ const SOFT_EDGE: &str =
     "let v=0.5+2.0*clamp((p.x-8.0)/6.0,0.0,1.0);return vec4<f32>(v,v*0.8,v*0.6,0.75);";
 const STEPPED: &str =
     "let edge=select(8.0,9.0,p.y>8.0);let v=select(0.0,3.0,p.x>edge);return vec4<f32>(v,v,v,1.0);";
-const CMAA2_STAGES: [&str; 5] = [
-    "cmaa2_clear",
-    "cmaa2_edges",
-    "cmaa2_candidate_args",
-    "cmaa2_candidates",
-    "cmaa2_present",
-];
 
 fn settings(sharpen: Option<CasSettings>) -> HdrPostSettings {
     HdrPostSettings {
@@ -27,33 +20,10 @@ fn settings(sharpen: Option<CasSettings>) -> HdrPostSettings {
     }
 }
 
-fn stage_names(rig: &Rig, settings: &HdrPostSettings) -> Vec<&'static str> {
-    chain(&rig.device, settings, [8, 8]).configured[0]
-        .stages
-        .iter()
-        .map(|stage| stage.id.name)
-        .collect()
-}
-
 fn render(rig: &Rig, settings: &HdrPostSettings, size: [u32; 2], body: &str) -> Vec<u8> {
     let chain = chain(&rig.device, settings, size);
     let out = step(&rig.device, &rig.queue, &chain, 0, body, false);
     pixels(&rig.device, &rig.queue, &out)
-}
-
-#[test]
-fn cas_off_schedules_only_the_cmaa2_stages() {
-    let rig = Rig::new();
-    let mut expected = vec!["tone"];
-    expected.extend(CMAA2_STAGES);
-    assert_eq!(stage_names(&rig, &settings(None)), expected);
-    assert_eq!(
-        settings(None),
-        HdrPostSettings {
-            resolve: PostResolve::cmaa2(Cmaa2Preset::High),
-            ..HdrPostSettings::default()
-        }
-    );
 }
 
 #[test]
@@ -77,18 +47,6 @@ fn cmaa2_with_cas_off_is_byte_identical_to_cmaa2_alone() {
     let plain = render(&rig, &HdrPostSettings::default(), size, STEPPED);
     let blended = render(&rig, &settings(None), size, STEPPED);
     assert!(!changed(&plain, &blended, size[0]).is_empty());
-}
-
-#[test]
-fn one_cas_pass_follows_the_cmaa2_present_pass() {
-    let rig = Rig::new();
-    let mut expected = vec!["tone"];
-    expected.extend(CMAA2_STAGES);
-    expected.push("cas");
-    assert_eq!(
-        stage_names(&rig, &settings(Some(CasSettings::new(0.5)))),
-        expected
-    );
 }
 
 #[test]

@@ -2,9 +2,9 @@
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId, TextureId};
 use worldrunner_render_program::layers::TextureInput;
-use worldrunner_render_program::offscreen::frame::OffscreenFrame;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
-use worldrunner_render_program::shader::PassSelector;
+use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
+use worldrunner_render_program::unity::shader::PassSelector;
 
 use super::camera::fixture;
 use super::rig::{BLUE, Rig, layer, pixel, source, texture};
@@ -173,7 +173,7 @@ fn a_pass_that_samples_the_texture_it_renders_into_is_refused_by_the_executor() 
         _ => false,
     };
     assert!(
-        matches!(&error, worldrunner_render_program::offscreen::OffscreenError::Contract(c) if hazard(c)),
+        matches!(&error, worldrunner_render_program::unity::offscreen::OffscreenError::Contract(c) if hazard(c)),
         "{error}"
     );
     encoder.finish().cancel();

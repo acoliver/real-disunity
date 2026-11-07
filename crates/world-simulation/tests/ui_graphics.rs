@@ -7,8 +7,8 @@ use glam::UVec2;
 use worldrunner_world_simulation::presentation::extraction::{SpriteTextures, extract_world};
 use worldrunner_world_simulation::presentation::{Camera, Projection};
 use worldrunner_world_simulation::ui::{
-    Canvas, CanvasGroup, CanvasMode, CanvasRenderer, RectTransform, UiGeometry, UiGraphic,
-    UiVertex, append_graphics, extract_graphics,
+    Canvas, CanvasGroup, CanvasMode, CanvasRenderer, FontBook, RectTransform, UiGeometry,
+    UiGraphic, UiLimits, UiVertex, append_graphics, extract_graphics,
 };
 use worldrunner_world_simulation::{
     ComponentDesc, ObjectDesc, ObjectHandle, ParentSpace, UiError, World, WorldSettings,
@@ -105,6 +105,39 @@ fn near(actual: &[f32], expected: &[f32]) {
         assert!((a - e).abs() < 1e-4, "{actual:?} is not {expected:?}");
     }
 }
+#[test]
+fn detached_graphics_keep_layout_draw_order_texture_identity_and_clipping() {
+    use worldrunner_world_simulation::ui::{
+        FontBook, UiLimits, contribution::extract_ui, presentation::UiPresentation,
+    };
+    let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
+    let child = element(&mut world, canvas);
+    let parent = element(&mut world, canvas);
+    world
+        .set_parent(child, Some(parent), ParentSpace::KeepLocal)
+        .unwrap();
+    draw(&mut world, parent, renderer(unit_quad()));
+    draw(
+        &mut world,
+        child,
+        CanvasRenderer {
+            clip_rect: Some([-8., -8., 16., 16.]),
+            ..renderer(unit_quad())
+        },
+    );
+    let fonts = FontBook::new(UiLimits::default()).unwrap();
+    let plan = extract_ui(&world, &fonts, VIEWPORT).unwrap();
+    let snapshot = UiPresentation::from_plan(&plan);
+    assert_eq!(snapshot.draws.len(), 2);
+    for (draw, object) in snapshot.draws.iter().zip([parent, child]) {
+        assert_eq!(
+            (draw.sorting_layer, draw.sorting_order, draw.hierarchy_order),
+            plan.layout.rect(object).unwrap().draw_order()
+        );
+        assert_eq!(draw.texture, Some(1 << 40));
+    }
+    assert_eq!(snapshot.draws[1].clip_rect, [392, 292, 16, 16]);
+}
 
 #[test]
 fn a_quad_on_an_overlay_canvas_has_pixel_corners_texture_rectangle_and_colour() {
@@ -120,7 +153,7 @@ fn a_quad_on_an_overlay_canvas_has_pixel_corners_texture_rectangle_and_colour() 
     assert!(graphic.overlay);
     assert_eq!(graphic.object, object);
     assert_eq!(graphic.texture, Some(1 << 40));
-    assert_eq!(graphic.left_out_triangles, 0);
+    assert!(graphic.triangles.is_empty());
     assert_eq!(graphic.quads.len(), 1);
     let quad = graphic.quads[0];
     let centre = [400., 300.];
@@ -156,7 +189,7 @@ fn the_other_winding_makes_the_same_quad() {
     );
     draw(&mut world, object, renderer(other));
     let found = graphics(&world);
-    assert_eq!(found[0].left_out_triangles, 0);
+    assert!(found[0].triangles.is_empty());
     let quad = found[0].quads[0];
     near(&quad.uv_rect, &[0.25, 0., 0.75, 0.5]);
     near(&quad.corners[2], &[450., 350., 0.]);
@@ -175,7 +208,7 @@ fn vertices_listed_lower_left_lower_right_upper_right_upper_left_make_the_same_q
     let listed = geometry(vertices, vec![0, 1, 2, 2, 3, 0]);
     draw(&mut world, object, renderer(listed));
     let found = graphics(&world);
-    assert_eq!(found[0].left_out_triangles, 0);
+    assert!(found[0].triangles.is_empty());
     let quad = found[0].quads[0];
     near(&quad.uv_rect, &[0.25, 0., 0.75, 0.5]);
     near(&quad.corners[0], &[350., 250., 0.]);
@@ -183,7 +216,7 @@ fn vertices_listed_lower_left_lower_right_upper_right_upper_left_make_the_same_q
 }
 
 #[test]
-fn triangles_that_make_no_quad_are_counted_and_not_drawn() {
+fn triangles_that_make_no_quad_are_not_omitted() {
     let (mut world, canvas) = canvas_world(CanvasMode::ScreenSpaceOverlay);
     let object = element(&mut world, canvas);
     let mut vertices = quad_vertices([0., 1.], [0., 1.]);
@@ -192,7 +225,21 @@ fn triangles_that_make_no_quad_are_counted_and_not_drawn() {
     draw(&mut world, object, renderer(geometry(vertices, indices)));
     let found = graphics(&world);
     assert_eq!(found[0].quads.len(), 1);
-    assert_eq!(found[0].left_out_triangles, 1);
+    assert_eq!(found[0].triangles.len(), 1);
+    let fonts = FontBook::new(UiLimits::default()).unwrap();
+    let plan = worldrunner_world_simulation::ui::contribution::extract_ui(&world, &fonts, VIEWPORT)
+        .unwrap();
+    let detached = worldrunner_world_simulation::ui::presentation::UiPresentation::from_plan(&plan);
+    let uv = detached
+        .draws
+        .iter()
+        .find_map(|draw| draw.triangle_uv)
+        .unwrap();
+    assert_eq!(
+        uv,
+        [[0., 0.], [0.5, 0.5], [1., 0.]],
+        "triangle UVs use top-row texture coordinates"
+    );
     let slanted = vec![
         vertex(-50., -50., 0., 0.),
         vertex(-50., 50., 0.2, 1.),
@@ -207,7 +254,7 @@ fn triangles_that_make_no_quad_are_counted_and_not_drawn() {
     );
     let found = graphics(&world);
     assert_eq!(found[1].quads.len(), 0);
-    assert_eq!(found[1].left_out_triangles, 2);
+    assert_eq!(found[1].triangles.len(), 2);
 }
 
 #[test]

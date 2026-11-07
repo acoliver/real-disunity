@@ -19,6 +19,9 @@ internal static class GraphicsTestSupport
         public void Dispose() => Debug.unityLogger.logHandler = _previous;
     }
 
+    /// <summary>The pass names of a shader declared with <paramref name="count"/> unnamed passes.</summary>
+    public static string[] Unnamed(int count) => Enumerable.Repeat("", count).ToArray();
+
     /// <summary>Runs the action on another thread and returns what it threw, or null.</summary>
     public static Exception? OnOtherThread(Action action)
     {

@@ -255,11 +255,11 @@ internal static class PlayerAssemblyTests
         WithManagedDirectory(directory =>
         {
             var host = Directory.CreateDirectory(Path.Combine(directory, "host")).FullName;
-            foreach (var name in new[] { "Host.Library", "System.Package", "System.Core", "Disunity.Engine", "UnityEngine.HostModule" })
+            foreach (var name in new[] { "Host.Library", "System.Package", "System.Core", "Disunity.Engine", "UnityEngine.HostModule", "Listed.Elsewhere" })
                 File.WriteAllBytes(Path.Combine(host, name + ".dll"), new SyntheticAssembly(name).Build());
             File.WriteAllBytes(Path.Combine(directory, "System.Package.dll"), new SyntheticAssembly("System.Package").Build());
             File.WriteAllBytes(Path.Combine(directory, "System.Core.dll"), new SyntheticAssembly("System.Core").Build());
-            var player = new PlayerAssemblies(directory, Engine, new[] { "Game", "System.Package" }, hostLibraries: host);
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Game", "System.Package", "Listed.Elsewhere" }, hostLibraries: host);
             var context = new AssemblyLoadContext("default stand-in", isCollectible: true);
 
             // The framework's own facades (System.Configuration) forward types to these libraries inside the
@@ -267,7 +267,7 @@ internal static class PlayerAssemblyTests
             var library = player.ResolveHostLibrary(context, new AssemblyName("Host.Library"));
             Require(library?.Location == Path.Combine(host, "Host.Library.dll") && context.Assemblies.Contains(library),
                 "a name neither listed nor shipped loads from the host's library directory into the asking context");
-            foreach (var skipped in new[] { "System.Package", "System.Core", "Disunity.Engine", "UnityEngine.HostModule", Module, "Absent.Library" })
+            foreach (var skipped in new[] { "System.Package", "Listed.Elsewhere", "System.Core", "Disunity.Engine", "UnityEngine.HostModule", Module, "Absent.Library" })
                 Require(player.ResolveHostLibrary(context, new AssemblyName(skipped)) is null, $"{skipped} is not a host library for the asking context");
             Require(new PlayerAssemblies(directory, Engine, new[] { "Game" }).ResolveHostLibrary(context, new AssemblyName("Host.Library")) is null,
                 "no host directory leaves the name to .NET");

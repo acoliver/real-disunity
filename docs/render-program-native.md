@@ -156,7 +156,7 @@ A binding falls into one of three groups:
 - A buffer or texture binding without a constant layout takes the property named by its `BindingSource::Property` and expects a resource handle.
 - A sampler binding gets one fixed sampler: linear filtering, clamped to the edge.
 
-The render state must be one a draw supports. Stencil, depth bias, alpha to coverage and anything other than one written colour target are refused by name at registration.
+The render state must be one a draw supports. Stencil, alpha to coverage and anything other than one written colour target are refused by name at registration.
 
 ## Materials and properties
 
@@ -506,6 +506,85 @@ A sibling has no declarations and no overrides, so give it its own with `with_de
 
 - **Registration.** `register_program` makes the stages of a program this way when their sources are equal, across the variants of one program too, so a program written as one WGSL text is parsed once. A `StageDesc` needs no change.
 - **Shader modules.** The runtime compiles one `ShaderModule` for each source, and every entry point of the source, with any overrides, uses it. A program whose two stages share a source adds one module to `RuntimeStats::modules_built` and `cached_modules()`, and a source that two separate parses produced still compiles once, because the key is the text and not the parse. `StageProgram::shares_parse_with` tells whether two stages came from one parse.
+
+## Depth-only passes and vertex-only programs
+
+A shadow map is a pass with a depth attachment and no colour attachment, drawn by a program that needs no fragment stage. `TargetSignature::depth_only(format, samples)` describes the pass, `ProgramRuntime::vertex_only_program` builds a program from a vertex stage alone, and a state with no colour targets and a depth bias fits them:
+
+```rust,no_run
+# use worldrunner_render_program::module::StageProgram;
+# use worldrunner_render_program::runtime::{
+#     GeometryDraw, ImportedGeometry, PipelineDraw, ProgramRuntime, TargetSignature, VertexBufferSpec,
+#     VertexLayoutSpec,
+# };
+# use worldrunner_render_program::state::{DepthState, RasterState, RenderState};
+# fn caster(
+#     runtime: &mut ProgramRuntime,
+#     vertex: &StageProgram,
+#     positions: wgpu::Buffer,
+#     frame: &mut wgpu::CommandEncoder,
+#     pass: &mut wgpu::RenderPass<'_>,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+let program = runtime.vertex_only_program(vertex)?;
+let signature = TargetSignature::depth_only(wgpu::TextureFormat::Depth32Float, 1)?;
+let state = RenderState {
+    raster: RasterState {
+        cull: Some(wgpu::Face::Back),
+        front_face: wgpu::FrontFace::Ccw,
+        alpha_to_coverage: false,
+    },
+    depth: Some(DepthState {
+        test: wgpu::CompareFunction::Less,
+        write: true,
+        bias: wgpu::DepthBiasState { constant: 2, slope_scale: 1.75, clamp: 0.0 },
+    }),
+    colors: Vec::new(),
+    stencil: None,
+};
+let layout = VertexLayoutSpec::new(vec![VertexBufferSpec {
+    stride: 12,
+    step: wgpu::VertexStepMode::Vertex,
+    attributes: wgpu::vertex_attr_array![0 => Float32x3].to_vec(),
+}]);
+let pipeline = runtime.prepare_pipeline(
+    &PipelineDraw {
+        program: &program,
+        state: &state,
+        layout: &layout,
+        bindings: &[],
+        imports: &[],
+        sets: &[],
+        owners: &[],
+    },
+    signature,
+)?;
+let mesh = GeometryDraw::new(&layout, &[positions], &ImportedGeometry::Vertices { first: 0, count: 3 }, 0..1)?;
+pipeline.retain(frame)?;
+pipeline.bind(pass);
+pipeline.draw(pass, &mesh)?;
+# Ok(())
+# }
+```
+
+A signature refuses what a depth pass cannot be, by name, without a device:
+
+```rust
+# use worldrunner_render_program::error::{ProgramError, UnsupportedTarget};
+# use worldrunner_render_program::runtime::TargetSignature;
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let signature = TargetSignature::depth_only(wgpu::TextureFormat::Depth32Float, 4)?;
+assert_eq!((signature.color_count(), signature.samples()), (0, 4));
+assert!(matches!(
+    TargetSignature::depth_only(wgpu::TextureFormat::Depth24PlusStencil8, 1),
+    Err(ProgramError::UnsupportedTarget(UnsupportedTarget::Stencil { .. })),
+));
+# Ok(())
+# }
+```
+
+- **Colour.** A depth-only signature has no colour attachment, so its state has no colour states (`colors: Vec::new()`). A state that describes one is `ProgramError::ColorStatesOnDepthOnly`, and a vertex-only program prepared for a pass that has a colour attachment is `NoFragmentForColors`. A program with a fragment stage may also draw into a depth-only pass, for a fragment stage that discards.
+- **Where.** `prepare_imported_draw` and `prepare_pipeline` take a depth-only signature. `prepare_draw` and materials draw into one colour target, as before. `GraphicsProgram::fragment()` is `None` for a vertex-only program.
+- **Depth bias.** `DepthState::bias` is part of the pipeline: states that differ in it are different pipelines. The offset added to a fragment's depth is `slope_scale * m + constant * r`, where `m` is the largest slope of the primitive's depth along x or y in texels and `r` the smallest difference the format resolves. For a unorm depth format `r` is `2^-n` for `n` bits, so `Depth16Unorm` moves a primitive of constant depth by `constant / 65536`. A float depth format scales `r` with the primitive's depth, and the exact rule is the device's. A `clamp` other than 0 caps the offset. `tests/lent/depth_only.rs` predicts the written depth in `Depth16Unorm` for a primitive of constant depth and for one of constant slope, and the lavapipe and Radeon renders agree with it to the rounding of the code; other formats are not asserted.
 
 ## Override constants
 

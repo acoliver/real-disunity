@@ -1,9 +1,13 @@
 //! The steps of a frame, in call order, before the constants buffer exists: camera passes with
 //! their draws, blits and copies.
 
+use std::collections::BTreeMap;
+use std::ops::Range;
+
 use worldrunner_render_post::contracts::{
-    BufferUse, BufferUseKind, ColorAttachment, DepthAttachment, DrawGeometry, IndexBinding,
-    RasterId, RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation, TypedWork,
+    AllocationKey, BufferUse, BufferUseKind, ColorAttachment, DepthAttachment, DrawGeometry,
+    IndexBinding, RasterId, RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation,
+    TypedWork,
 };
 use worldrunner_render_post::{AttachmentLoad, StageId};
 
@@ -17,6 +21,7 @@ use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::textures::TextureInfo;
+use super::tracker::Tracker;
 use super::{CameraCauses, CameraDraws, CameraPassReport, UnmatchedPasses};
 
 /// One draw of a camera's pass.
@@ -467,6 +472,57 @@ pub(super) fn push_buffer_use(uses: &mut Vec<BufferUse>, usage: BufferUse) {
     };
     if !uses.iter().any(same) {
         uses.push(usage);
+    }
+}
+
+/// The buffer reads of one operation, with the reads of one buffer at one version in one kind
+/// merged into a single use over the span they cover.
+///
+/// The contract checks every use against every other and every binding against the uses, so an
+/// operation of many draws that declared each draw's slice of a shared buffer would cost the
+/// square of its draws. A read is a declaration that the pass may read the span, and reads do not
+/// conflict, so the span stands for each of the reads in it.
+#[derive(Default)]
+pub(super) struct BufferReads {
+    places: BTreeMap<(AllocationKey, u32, u8), usize>,
+    spans: Vec<(BufferUse, Range<u64>)>,
+}
+
+impl BufferReads {
+    pub(super) fn add(&mut self, usage: &BufferUse) {
+        let view = &usage.view;
+        let key = (view.allocation(), view.version(), kind_rank(usage.kind));
+        let range = view.range();
+        if let Some(&place) = self.places.get(&key) {
+            let span = &mut self.spans[place].1;
+            span.start = span.start.min(range.start);
+            span.end = span.end.max(range.end);
+        } else {
+            self.places.insert(key, self.spans.len());
+            self.spans.push((usage.clone(), range));
+        }
+    }
+
+    /// The merged uses, in the order their buffers were first read.
+    pub(super) fn finish(self, tracker: &Tracker) -> Result<Vec<BufferUse>, OffscreenError> {
+        self.spans
+            .into_iter()
+            .map(|(usage, span)| {
+                let view =
+                    tracker.buffer_view(usage.view.allocation(), span, usage.view.version())?;
+                Ok(BufferUse { view, ..usage })
+            })
+            .collect()
+    }
+}
+
+fn kind_rank(kind: BufferUseKind) -> u8 {
+    match kind {
+        BufferUseKind::Uniform => 0,
+        BufferUseKind::Storage => 1,
+        BufferUseKind::Vertex => 2,
+        BufferUseKind::Index => 3,
+        BufferUseKind::Copy => 4,
     }
 }
 

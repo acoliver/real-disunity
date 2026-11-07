@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use worldrunner_render_post::contracts::BufferUseKind;
 use worldrunner_render_program::ids::{MaterialId, RendererId};
 use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 use worldrunner_render_program::unity::offscreen::{OffscreenError, OffscreenOperations};
@@ -200,4 +201,52 @@ fn constants_past_the_most_a_frame_may_hold_are_refused_by_their_sizes() {
         "{error}"
     );
     assert!(error.is_frame_wide());
+}
+
+/// The buffers a pass declares it reads: they are what the contract checks each draw against.
+fn declared_reads(operations: &OffscreenOperations) -> Vec<(BufferUseKind, std::ops::Range<u64>)> {
+    let camera = &operations.operations()[1];
+    camera
+        .buffers
+        .iter()
+        .map(|usage| (usage.kind, usage.view.range()))
+        .collect()
+}
+
+#[test]
+fn a_pass_declares_the_span_it_reads_of_each_buffer_however_many_draws_read_it() {
+    let mut rig = rig();
+    let few = build(&mut rig, &quadrants());
+    let mut frame = quadrants();
+    for id in 5..=12_u8 {
+        let layer = u32::from(id % 4 + 1);
+        let place = [0.1, 0.1, 0.01 * f32::from(id), 0.0];
+        frame
+            .renderers
+            .insert(RendererId(u64::from(id)), renderer(1, layer, place));
+    }
+    let many = build(&mut rig, &frame);
+    let (few, many) = (declared_reads(&few), declared_reads(&many));
+    // One span of the constants, one of the mesh's vertices and one of its indices.
+    let kinds: Vec<_> = few.iter().map(|(kind, _)| *kind).collect();
+    assert_eq!(kinds.len(), 3, "{few:?}");
+    for kind in [
+        BufferUseKind::Uniform,
+        BufferUseKind::Vertex,
+        BufferUseKind::Index,
+    ] {
+        assert!(kinds.contains(&kind), "{kind:?} in {few:?}");
+    }
+    assert_eq!(many.len(), 3, "{many:?}");
+    // The span of the constants reaches the end of the last block any draw reads.
+    let span = |reads: &[(BufferUseKind, std::ops::Range<u64>)]| {
+        reads
+            .iter()
+            .find(|(kind, _)| *kind == BufferUseKind::Uniform)
+            .unwrap()
+            .1
+            .clone()
+    };
+    assert_eq!(span(&few).start, 0);
+    assert!(span(&many).end > span(&few).end);
 }

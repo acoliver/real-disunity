@@ -16,7 +16,7 @@ use crate::state::{ColorState, RenderState};
 
 use super::error::OffscreenError;
 use super::plan::DrawPlan;
-use super::steps::{BlitStep, CameraDraw, Step, push_buffer_use};
+use super::steps::{BlitStep, BufferReads, CameraDraw, Step, push_buffer_use};
 use super::tracker::Tracker;
 
 /// The state turning steps into operations needs, borrowed from the offscreen state.
@@ -49,16 +49,17 @@ impl Finish<'_> {
         pass: RasterPass,
         draws: &[CameraDraw],
     ) -> Result<TypedOperation, OffscreenError> {
-        let mut buffers = Vec::new();
+        let mut reads = BufferReads::default();
         let mut checked = Vec::new();
         for draw in draws {
             let (bindings, uses) = self.bind(&draw.plan)?;
             checked.push(self.checked_draw(draw, bindings)?);
-            for usage in uses.into_iter().chain(draw.vertices.uses.iter().cloned()) {
-                push_buffer_use(&mut buffers, usage);
-            }
-            if let Some(usage) = &draw.index_use {
-                push_buffer_use(&mut buffers, usage.clone());
+            for usage in uses
+                .iter()
+                .chain(&draw.vertices.uses)
+                .chain(&draw.index_use)
+            {
+                reads.add(usage);
             }
         }
         let mut operation = TypedOperation::new(
@@ -68,7 +69,7 @@ impl Finish<'_> {
                 draws: checked,
             },
         );
-        operation.buffers = buffers;
+        operation.buffers = reads.finish(self.tracker)?;
         Ok(operation)
     }
 

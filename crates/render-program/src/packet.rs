@@ -509,13 +509,18 @@ pub(crate) fn with_pipeline_descriptor<T>(
         bias: wgpu::DepthBiasState::default(),
     });
     let program = request.program;
+    let (vertex_constants, fragment_constants) =
+        (program.vertex.constants(), program.fragment.constants());
     create(&wgpu::RenderPipelineDescriptor {
         label: Some("render-program pipeline"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: vertex,
             entry_point: Some(&program.vertex.module().entry_point),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &vertex_constants,
+                ..wgpu::PipelineCompilationOptions::default()
+            },
             buffers: &layouts,
         },
         primitive: wgpu::PrimitiveState {
@@ -537,7 +542,10 @@ pub(crate) fn with_pipeline_descriptor<T>(
         fragment: Some(wgpu::FragmentState {
             module: fragment,
             entry_point: Some(&program.fragment.module().entry_point),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &fragment_constants,
+                ..wgpu::PipelineCompilationOptions::default()
+            },
             targets: &targets,
         }),
         multiview_mask: None,

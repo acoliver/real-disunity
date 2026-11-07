@@ -5,13 +5,15 @@ use worldrunner_render_gpu::texture::UploadError;
 
 use crate::constants::ConstantError;
 use crate::layout::LayoutError;
-use crate::module::ModuleError;
+use crate::module::{ModuleError, OverrideError};
 use crate::variant::VariantError;
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ProgramError {
     #[error(transparent)]
     Module(#[from] ModuleError),
+    #[error(transparent)]
+    Override(#[from] OverrideError),
     #[error(transparent)]
     Layout(#[from] LayoutError),
     #[error(transparent)]

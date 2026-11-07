@@ -200,7 +200,7 @@ impl ProgramRuntime {
         &mut self,
         stage: &StageProgram,
     ) -> Result<wgpu::ShaderModule, ProgramError> {
-        if let Some(module) = self.modules.get(&stage.content_key()) {
+        if let Some(module) = self.modules.get(&stage.module_key()) {
             return Ok(module.clone());
         }
         let module = self.guarded(|| {
@@ -211,7 +211,7 @@ impl ProgramRuntime {
                 })
         })?;
         self.counters.module_built();
-        self.modules.insert(stage.content_key(), module.clone());
+        self.modules.insert(stage.module_key(), module.clone());
         Ok(module)
     }
 

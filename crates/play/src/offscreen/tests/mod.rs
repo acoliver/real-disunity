@@ -8,6 +8,7 @@ mod flush;
 mod frame;
 mod gpu;
 mod kernels;
+mod policy;
 mod properties;
 mod shaders;
 mod support;

@@ -7,7 +7,9 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, Renderer,
 };
-use worldrunner_render_program::offscreen::{CameraDraws, OffscreenError, UnmatchedPasses};
+use worldrunner_render_program::offscreen::{
+    CameraDraws, MissingTextureDraws, OffscreenError, UnmatchedPasses,
+};
 use worldrunner_render_program::shader::{PassSelector, ProgramShader};
 
 use super::rig::{BLUE, CLEAR, QUAD, RED, Rig, layer, pixel, quad, texture};
@@ -355,18 +357,63 @@ fn a_mesh_without_a_channel_the_shader_reads_is_a_named_error() {
 }
 
 #[test]
-fn a_texture_nothing_names_is_a_named_error() {
+fn a_draw_whose_texture_nothing_names_is_left_out_and_counted_by_the_texture() {
     let mut rig = Rig::new();
-    let mut frame = halves(&mut rig, 1 << LEFT);
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {
         key: "LightMode".to_owned(),
         values: vec!["Gamma".to_owned()],
     };
-    let error = rig.build(&frame).err().unwrap();
-    assert!(
-        matches!(&error, OffscreenError::MissingTexture { name } if name == "_Albedo"),
-        "{error}"
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(
+        operations.missing_texture_draws(),
+        vec![MissingTextureDraws {
+            texture: "_Albedo".to_owned(),
+            draws: 2
+        }]
     );
+    assert_eq!(operations.unmatched_draws(), 0);
+    assert_eq!(operations.camera_draws(), drawn(0, 0, 2));
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert!(image.chunks(4).all(|texel| texel == CLEAR));
+}
+
+#[test]
+fn a_draw_without_its_texture_is_left_out_beside_one_that_needs_none() {
+    use worldrunner_render_program::synthetic::shaders::{POSITION_AND_UV, camera_pass_with_table};
+    let mut rig = Rig::new();
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    // Shader 2 has only an `Alpha` pass, which needs no texture; shader 1 has `Gamma`, which
+    // needs `_Albedo`, and the camera prefers `Gamma` where a shader has it.
+    let plain = camera_pass_with_table(&POSITION_AND_UV);
+    rig.state.add_shader(
+        ShaderId(2),
+        ProgramShader::new(plain.shader, plain.chunks).unwrap(),
+    );
+    frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
+    frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {
+        key: "LightMode".to_owned(),
+        values: vec!["Gamma".to_owned(), "Alpha".to_owned()],
+    };
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 1));
+    assert_eq!(operations.missing_texture_draws().len(), 1);
+    drop(operations);
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (1, 3)), CLEAR, "left: Gamma, no _Albedo");
+    assert_eq!(pixel(&image, 8, (5, 3)), BLUE, "right: Alpha, drawn");
+}
+
+/// What one camera render of the fixture recorded.
+fn drawn(drawn: usize, unmatched: usize, missing_texture: usize) -> Vec<CameraDraws> {
+    vec![CameraDraws {
+        camera: CAMERA,
+        target: TARGET,
+        drawn,
+        unmatched,
+        missing_texture,
+    }]
 }
 
 #[test]
@@ -387,17 +434,9 @@ fn each_camera_render_reports_the_draws_it_recorded_and_the_ones_it_left_out() {
     use worldrunner_render_program::synthetic::shaders::blit_passes;
     let mut rig = Rig::new();
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
-    let drawn = |drawn, unmatched| {
-        vec![CameraDraws {
-            camera: CAMERA,
-            target: TARGET,
-            drawn,
-            unmatched,
-        }]
-    };
-    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(2, 0));
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(2, 0, 0));
     frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = 1 << LEFT;
-    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 0));
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 0, 0));
     // The blit shader's passes carry no `LightMode` tag, so the second renderer is left out.
     frame.cameras.get_mut(&CAMERA).unwrap().culling_mask = (1 << LEFT) | (1 << RIGHT);
     let blit = blit_passes("_MainTex");
@@ -406,7 +445,7 @@ fn each_camera_render_reports_the_draws_it_recorded_and_the_ones_it_left_out() {
         ProgramShader::new(blit.shader, blit.chunks).unwrap(),
     );
     frame.materials.get_mut(&MaterialId(2)).unwrap().shader = Some(ShaderId(2));
-    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 1));
+    assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(1, 1, 0));
 }
 
 #[test]

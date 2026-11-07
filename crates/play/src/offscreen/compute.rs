@@ -78,13 +78,15 @@ impl DispatchTrace {
         lines.push(format!("  textures set [{}]", self.textures_set.join(", ")));
         for texture in &self.textures {
             lines.push(format!(
-                "  texture {} from {}, on the GPU {}, camera renders before {} drew {} left out {}",
+                "  texture {} from {}, on the GPU {}, camera renders before {} drew {} left out {} \
+                 for want of a pass and {} for want of a texture",
                 texture.name,
                 texture.source,
                 texture.resolved,
                 texture.camera_renders,
                 texture.camera_draws,
-                texture.camera_unmatched
+                texture.camera_unmatched,
+                texture.camera_missing_texture
             ));
         }
         for buffer in &self.buffers {
@@ -112,6 +114,7 @@ pub struct TextureTrace {
     pub camera_renders: usize,
     pub camera_draws: usize,
     pub camera_unmatched: usize,
+    pub camera_missing_texture: usize,
 }
 
 /// A buffer a kernel declares and what the dispatch bound to it.

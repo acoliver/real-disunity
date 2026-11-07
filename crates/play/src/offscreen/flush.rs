@@ -277,6 +277,7 @@ impl OffscreenHost {
                 texture.camera_renders += 1;
                 texture.camera_draws += camera.drawn;
                 texture.camera_unmatched += camera.unmatched;
+                texture.camera_missing_texture += camera.missing_texture;
             }
         }
         let outcome = match prepared {

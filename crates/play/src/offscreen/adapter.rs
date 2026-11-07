@@ -337,6 +337,14 @@ pub fn build(
         "draw:SampledWrittenLevelsOnly",
         operations.partial_mip_reads(),
     );
+    adapted.report.count_many(
+        "draw:MissingTexture",
+        operations
+            .missing_texture_draws()
+            .iter()
+            .map(|entry| entry.draws)
+            .sum(),
+    );
     adapted.report.absorb_draws(&operations);
     Ok(operations)
 }

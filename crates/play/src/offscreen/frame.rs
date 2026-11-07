@@ -32,6 +32,18 @@ use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, Rende
 /// The tag key whose value names a pass's purpose.
 const PASS_TAG: &str = "LightMode";
 
+/// The `LightMode` values a camera draws, in the order of preference.
+const CAMERA_LIGHT_MODES: [&str; 5] = [
+    "UniversalForward",
+    "UniversalForwardOnly",
+    "SRPDefaultUnlit",
+    "ForwardBase",
+    "Always",
+];
+
+/// The mode a pass with no `LightMode` counts as, the last of [`CAMERA_LIGHT_MODES`].
+const UNTAGGED_LIGHT_MODE: &str = "Always";
+
 /// The mesh a blit draws.
 pub const BLIT_MESH: MeshId = MeshId(u64::MAX);
 
@@ -43,6 +55,33 @@ pub struct Settings {
     pub light_modes: Vec<String>,
     /// The `LightMode` a pass with no such tag counts as having, if it counts as one.
     pub untagged_light_mode: Option<String>,
+}
+
+impl Settings {
+    /// What the player's cameras draw. A pass with no `LightMode` counts as `Always`, the last of
+    /// the modes, so a pass tagged with any other selected mode wins over it and a pass tagged
+    /// with a mode that is not selected is never drawn.
+    #[must_use]
+    pub fn cameras() -> Self {
+        Self {
+            light_modes: CAMERA_LIGHT_MODES.map(str::to_owned).to_vec(),
+            untagged_light_mode: Some(UNTAGGED_LIGHT_MODE.to_owned()),
+        }
+    }
+
+    /// The passes a camera draws.
+    #[must_use]
+    pub fn pass_selector(&self) -> PassSelector {
+        let (key, values) = (PASS_TAG.to_owned(), self.light_modes.clone());
+        match &self.untagged_light_mode {
+            Some(untagged) => PassSelector::TagWithUntagged {
+                key,
+                values,
+                untagged: untagged.clone(),
+            },
+            None => PassSelector::Tag { key, values },
+        }
+    }
 }
 
 /// What the shader of a material offers.
@@ -114,6 +153,9 @@ pub struct Report {
     /// levels written with the base level, each counted by the tags of the pass concerned.
     pub unmatched_passes: Vec<UnmatchedPasses>,
     pub partial_reads: Vec<PartialMipReads>,
+    /// The camera draws left out because no layer names a texture the pass samples, by the
+    /// texture property.
+    pub missing_textures: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
 }
@@ -127,6 +169,9 @@ impl Report {
         }
         for entry in operations.partial_mip_reads_by_pass() {
             self.add_partial(entry);
+        }
+        for entry in operations.missing_texture_draws() {
+            *self.missing_textures.entry(entry.texture).or_default() += entry.draws;
         }
     }
 
@@ -210,6 +255,9 @@ impl Report {
         }
         for entry in other.partial_reads {
             self.add_partial(entry);
+        }
+        for (name, count) in other.missing_textures {
+            *self.missing_textures.entry(name).or_default() += count;
         }
     }
 }
@@ -463,19 +511,6 @@ impl<'a> Mapper<'a> {
         Ok(Record::CameraRender { camera: id, target })
     }
 
-    /// The passes a camera draws.
-    fn pass_selector(&self) -> PassSelector {
-        let (key, values) = (PASS_TAG.to_owned(), self.settings.light_modes.clone());
-        match &self.settings.untagged_light_mode {
-            Some(untagged) => PassSelector::TagWithUntagged {
-                key,
-                values,
-                untagged: untagged.clone(),
-            },
-            None => PassSelector::Tag { key, values },
-        }
-    }
-
     /// What the camera clears, from its clear flags, and what it draws.
     fn camera(&self, view: &CameraView, size: [u32; 2]) -> Camera {
         let (clear_color, clear_depth) = match view.settings.clear {
@@ -487,7 +522,7 @@ impl<'a> Mapper<'a> {
             culling_mask: view.settings.culling_mask,
             clear_color,
             clear_depth,
-            pass: self.pass_selector(),
+            pass: self.settings.pass_selector(),
             values: camera_layer(view, texels(size[0]) / texels(size[1])),
             // Unity winds front faces clockwise as seen with up up. The image is the other way up
             // (see `camera::clip_from_gl`), which reverses a winding.

@@ -125,6 +125,10 @@ pub(super) struct DrawSpec<'a> {
 pub(super) struct DrawCounts {
     /// Camera draws left out because the shader has no pass the camera selects.
     pub(super) unmatched: usize,
+    /// Camera draws left out because no layer names a texture the pass samples, in all and by the
+    /// texture property.
+    pub(super) missing_texture: usize,
+    pub(super) missing_textures: std::collections::BTreeMap<String, usize>,
     /// Texture reads that bound fewer levels than the texture has.
     pub(super) partial_mips: usize,
     /// What each camera render recorded, in call order.
@@ -164,6 +168,9 @@ impl Services<'_> {
             samplers: Vec::new(),
             texture_uses: Vec::new(),
         };
+        // Every texture is looked for before anything is bound, so a draw that lacks one changes
+        // nothing in the frame.
+        Self::require_textures(spec, &entry, &slots)?;
         let mut sampler_states = HashMap::new();
         for slot in &slots {
             match slot.ty {
@@ -185,6 +192,33 @@ impl Services<'_> {
             }
         }
         Ok(plan)
+    }
+
+    /// Checks that a layer names the texture of every texture slot.
+    fn require_textures(
+        spec: &DrawSpec<'_>,
+        entry: &ProgramEntry,
+        slots: &[Slot],
+    ) -> Result<(), OffscreenError> {
+        for slot in slots {
+            if !matches!(slot.ty, wgpu::BindingType::Texture { .. }) {
+                continue;
+            }
+            let Some(target) = entry
+                .textures
+                .iter()
+                .find(|t| (t.set, t.binding) == (slot.set, slot.binding))
+            else {
+                continue;
+            };
+            let name = target.name.resolve(&[])?;
+            if spec.layers.texture(name).is_none() {
+                return Err(OffscreenError::MissingTexture {
+                    name: name.to_owned(),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn choose(

@@ -323,6 +323,16 @@ pub struct CameraDraws {
     pub drawn: usize,
     /// The draws left out because the shader has no pass the camera selects.
     pub unmatched: usize,
+    /// The draws left out because a texture the pass samples is named by no layer.
+    pub missing_texture: usize,
+}
+
+/// Camera draws left out because no layer names a texture the pass samples, counted for one
+/// texture property.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MissingTextureDraws {
+    pub texture: String,
+    pub draws: usize,
 }
 
 /// Camera draws left out for want of a pass, counted for the shaders whose passes carry the same
@@ -347,6 +357,20 @@ impl OffscreenOperations {
     #[must_use]
     pub fn unmatched_draws(&self) -> usize {
         self.counts.unmatched
+    }
+
+    /// The camera draws left out because no layer names a texture the pass samples, by the
+    /// texture property, sorted by name. The rest of the camera's draws are recorded.
+    #[must_use]
+    pub fn missing_texture_draws(&self) -> Vec<MissingTextureDraws> {
+        self.counts
+            .missing_textures
+            .iter()
+            .map(|(texture, draws)| MissingTextureDraws {
+                texture: texture.clone(),
+                draws: *draws,
+            })
+            .collect()
     }
 
     /// What each camera render recorded and left out, in call order.

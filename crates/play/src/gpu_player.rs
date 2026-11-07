@@ -34,15 +34,6 @@ use crate::offscreen::{
 /// Bytes of GPU storage the program runtime may hold.
 const RUNTIME_BUDGET: u64 = 512 << 20;
 
-/// The `LightMode` values a camera draws, in the order of preference.
-const LIGHT_MODES: [&str; 5] = [
-    "UniversalForward",
-    "UniversalForwardOnly",
-    "SRPDefaultUnlit",
-    "ForwardBase",
-    "Always",
-];
-
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
 
@@ -82,6 +73,8 @@ pub struct GpuWorkReport {
     /// the passes concerned.
     pub unmatched_passes: BTreeMap<String, usize>,
     pub partial_reads: BTreeMap<String, usize>,
+    /// The draws left out because no layer names a texture the pass samples, by the property.
+    pub missing_textures: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// Time spent in the frame path and in flushes.
@@ -123,6 +116,9 @@ impl GpuWorkReport {
             .iter()
             .map(|c| c.unmatched)
             .sum::<usize>();
+        for (name, count) in &report.missing_textures {
+            *self.missing_textures.entry(name.clone()).or_default() += count;
+        }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
         }
@@ -169,6 +165,7 @@ impl GpuWorkReport {
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
+            ("draws without a texture", &self.missing_textures),
             (
                 "texture properties without a texture",
                 &self.unresolved_textures,
@@ -257,13 +254,7 @@ impl PlayerGpu {
         let arena = runtime
             .open_arena(reservation)
             .map_err(|error| format!("no arena: {error}"))?;
-        let settings = Settings {
-            light_modes: LIGHT_MODES.map(str::to_owned).to_vec(),
-            // Most of the player's shaders have no `LightMode`, and counting such a pass as
-            // drawable reaches draws whose unset textures the renderer does not default yet; the
-            // records that hold them are then dropped whole, which is worse than drawing none.
-            untagged_light_mode: None,
-        };
+        let settings = Settings::cameras();
         let offscreen = OffscreenHost::new(
             runtime,
             arena,

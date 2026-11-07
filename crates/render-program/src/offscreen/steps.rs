@@ -92,6 +92,7 @@ fn camera_step(
     let signature = svc.signature(target)?;
     let mut draws = Vec::new();
     let unmatched_before = svc.counts.unmatched;
+    let missing_before = svc.counts.missing_texture;
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
             draws.push(draw);
@@ -102,6 +103,7 @@ fn camera_step(
         target,
         drawn: draws.len(),
         unmatched: svc.counts.unmatched - unmatched_before,
+        missing_texture: svc.counts.missing_texture - missing_before,
     });
     let pass = camera_pass(
         svc,
@@ -118,7 +120,8 @@ fn camera_step(
 }
 
 /// Plans one sub-mesh the camera sees as (material, renderer, slot). A sub-mesh with no
-/// indices and a draw whose shader has no pass the camera selects give none; the latter is counted.
+/// indices, a draw whose shader has no pass the camera selects and a draw whose pass samples a
+/// texture no layer names give none; the latter two are counted.
 fn planned_draw(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
@@ -158,6 +161,11 @@ fn planned_draw(
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
             svc.counts.unmatched += 1;
             left_out(svc, spec.shader, &camera.pass);
+            Ok(None)
+        }
+        Err(OffscreenError::MissingTexture { name }) => {
+            svc.counts.missing_texture += 1;
+            *svc.counts.missing_textures.entry(name).or_default() += 1;
             Ok(None)
         }
         Err(error) => Err(error),

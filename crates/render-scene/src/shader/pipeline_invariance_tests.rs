@@ -46,6 +46,11 @@ fn family((object, terrain): (String, String), paired: bool) {
         let object = crate::ssao::receiver::source(&object, receiver);
         let terrain = crate::ssao::receiver::source(&terrain, receiver);
         check(&object, &["vs_main"], paired);
+        check(
+            &crate::renderer::unlit_source(&object),
+            &["vs_unlit"],
+            false,
+        );
         for source in crate::renderer::terrain_test_sources(&terrain) {
             check(&source, &["vs_terrain"], paired);
         }
@@ -158,4 +163,19 @@ fn generated_pipeline_position_qualifiers_match_pairing() {
         family(crate::scene_metadata::sources(output), true);
     }
     independent_families();
+}
+
+#[test]
+fn live_unlit_program_sources_are_non_invariant() {
+    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let format = wgpu::TextureFormat::Rgba16Float;
+    for pipelines in [
+        crate::renderer::ScenePipelines::new(context.device(), format),
+        crate::renderer::ScenePipelines::with_taa_velocity(context.device(), format, 1).unwrap(),
+        crate::renderer::ScenePipelines::with_ssao(context.device(), format, 1).unwrap(),
+        crate::renderer::ScenePipelines::with_ssao_taa_velocity(context.device(), format, 1)
+            .unwrap(),
+    ] {
+        check(pipelines.unlit_source(), &["vs_unlit"], false);
+    }
 }

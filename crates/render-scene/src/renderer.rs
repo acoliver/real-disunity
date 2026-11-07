@@ -52,7 +52,7 @@ pub(crate) use pages::test_sources as terrain_test_sources;
 mod specular;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
-pub(crate) use specular::constants as specular_constants;
+pub(crate) use specular::{constants as specular_constants, unlit_source};
 
 use depth::DepthMode;
 use std::borrow::Cow;

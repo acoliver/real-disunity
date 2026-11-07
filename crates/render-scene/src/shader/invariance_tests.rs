@@ -1,7 +1,7 @@
 //! Qualifier coverage across paired source assemblies.
 use super::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 
-fn assert_positions(source: &str, invariant: bool) {
+fn assert_positions(source: &str, entries: &[&str], invariant: bool) {
     let module = naga::front::wgsl::parse_str(source).unwrap();
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -9,11 +9,12 @@ fn assert_positions(source: &str, invariant: bool) {
     )
     .validate(&module)
     .unwrap();
-    for entry in module
-        .entry_points
-        .iter()
-        .filter(|entry| entry.stage == naga::ShaderStage::Vertex)
-    {
+    for name in entries {
+        let entry = module
+            .entry_points
+            .iter()
+            .find(|entry| entry.stage == naga::ShaderStage::Vertex && entry.name == *name)
+            .unwrap_or_else(|| panic!("missing generated vertex entry {name}"));
         let result = entry.function.result.as_ref().unwrap();
         let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
             panic!("stock vertex outputs are structs");
@@ -40,14 +41,14 @@ fn assert_family((object, terrain): (String, String)) {
     };
     for &receiver in receivers {
         let object = crate::ssao::receiver::source(&object, receiver);
-        assert_positions(&object, true);
+        assert_positions(&object, &["vs_main"], true);
         assert_eq!(
             super::position_dependencies::graph(&object, "vs_main"),
             super::position_dependencies::graph(ENVIRONMENT_WGSL, "vs_main")
         );
         let terrain = crate::ssao::receiver::source(&terrain, receiver);
         for source in crate::renderer::terrain_test_sources(&terrain) {
-            assert_positions(&source, true);
+            assert_positions(&source, &["vs_terrain"], true);
             assert_eq!(
                 super::position_dependencies::graph(&source, "vs_terrain"),
                 super::position_dependencies::graph(TERRAIN_WGSL, "vs_terrain")
@@ -98,15 +99,19 @@ fn paired_assemblies_have_invariant_matching_position_dependency_graphs() {
 }
 
 #[test]
-fn stock_positions_are_invariant() {
-    for source in [ENVIRONMENT_WGSL, TERRAIN_WGSL] {
-        assert_positions(source, true);
-    }
+fn stock_paired_positions_are_invariant() {
+    assert_positions(ENVIRONMENT_WGSL, &["vs_main"], true);
+    assert_positions(TERRAIN_WGSL, &["vs_terrain"], true);
+    assert_positions(
+        &crate::renderer::unlit_source(ENVIRONMENT_WGSL),
+        &["vs_unlit"],
+        false,
+    );
 }
 
 #[test]
 fn directional_shadow_assembly_is_non_invariant() {
     let source = crate::shadows::depth_source();
     assert!(source.contains("fn vs_shadow("));
-    assert_positions(&source, false);
+    assert_positions(&source, &["vs_shadow", "vs_terrain_depth"], false);
 }

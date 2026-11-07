@@ -1,6 +1,10 @@
 use super::ScenePipelines;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+pub(crate) fn unlit_source(source: &str) -> std::borrow::Cow<'_, str> {
+    super::DepthMode::Independent.vertex_source(source)
+}
+
 pub(super) fn raster_constants(
     constants: &mut Vec<(&'static str, f64)>,
     front_face: wgpu::FrontFace,
@@ -35,6 +39,7 @@ type RasterKey = ([u32; 7], u8, super::DepthMode);
 pub(super) struct Specialization {
     device: wgpu::Device,
     source: Rc<str>,
+    unlit: Rc<str>,
     terrain: Rc<str>,
     shadow: Option<wgpu::BindGroupLayout>,
     screen: Option<wgpu::BindGroupLayout>,
@@ -54,6 +59,7 @@ impl Specialization {
         Self {
             device: device.clone(),
             source: source.into(),
+            unlit: super::unlit_source(source).as_ref().into(),
             terrain: terrain.into(),
             shadow: shadow.cloned(),
             screen: screen.cloned(),
@@ -65,7 +71,7 @@ impl Specialization {
 }
 impl Specialization {
     pub(super) fn unlit_source(&self) -> &str {
-        &self.source
+        &self.unlit
     }
 }
 
@@ -196,8 +202,7 @@ impl ScenePipelines {
     #[cfg(test)]
     pub(crate) fn legacy_unlit_alpha(&self) -> wgpu::RenderPipeline {
         let spec = &self.specialization;
-        let source = super::DepthMode::Independent.vertex_source(spec.unlit_source());
-        let module = super::scene_shader(&spec.device, "environment", &source);
+        let module = super::scene_shader(&spec.device, "environment", spec.unlit_source());
         let groups = super::pipeline_groups(
             &self.frame_layout,
             &self.material_layout,

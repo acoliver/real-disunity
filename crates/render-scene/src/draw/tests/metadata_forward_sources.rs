@@ -414,3 +414,56 @@ fn final_forward_assemblies_match_invariant_baseline_fingerprints() {
         }
     }
 }
+
+// Unpaired quad assemblies keep main's non-invariant position compilation.
+const UNLIT_QUAD_SOURCES: &[(usize, u128)] = &[
+    (92_613, 0xdb10_cc54_7145_1b02_22e4_f07c_7455_f5ae),
+    (93_032, 0xed11_b6ec_7e80_e8c9_cf71_a55b_76c8_22aa),
+    (94_426, 0x875f_db96_8909_00b7_6bb0_7387_7191_53b9),
+    (96_647, 0x0eb6_e282_e118_8215_b925_90e3_05eb_9d94),
+    (97_066, 0x0ccd_b7ff_d6e4_ccd4_2e82_4c86_fada_8424),
+    (98_460, 0x5295_727e_50cd_599f_2de6_da99_4820_f037),
+    (105_814, 0x09ba_62a1_7be3_6d3c_1a20_2ca1_d93d_c0ac),
+    (109_848, 0x6f4b_92c5_3ffb_1f1c_aeaf_dfde_1081_ceb2),
+    (109_336, 0x1523_9a22_7cf3_a26a_c011_979f_eb2b_39a2),
+    (110_730, 0x80e6_5792_fc27_d5b1_52c6_865b_c1e2_1df9),
+    (113_684, 0xaa32_59f4_f310_09ee_79f2_5e43_824f_f8c0),
+    (115_078, 0x18cd_710b_0f11_c426_4bcd_2b18_b027_3889),
+    (106_233, 0x46ae_6b4d_fc6c_1a78_7bd7_650e_fee5_b162),
+    (107_627, 0xcafe_2dcb_521d_4a0c_b3bf_36b5_e5f4_ae6d),
+    (110_267, 0x86b5_c51c_aba5_fc93_73d4_3743_d29e_00cc),
+    (111_661, 0x1b22_b298_ac1e_828c_b0e7_4799_957e_0573),
+    (109_336, 0x1523_9a22_7cf3_a26a_c011_979f_eb2b_39a2),
+    (110_730, 0x80e6_5792_fc27_d5b1_52c6_865b_c1e2_1df9),
+    (113_684, 0xaa32_59f4_f310_09ee_79f2_5e43_824f_f8c0),
+    (115_078, 0x18cd_710b_0f11_c426_4bcd_2b18_b027_3889),
+    (96_135, 0xc968_1b75_5ee0_4ff3_cc0e_2db8_c26e_ee08),
+    (97_529, 0x2a2b_6049_acf4_616e_6598_8462_2f76_e70f),
+    (96_201, 0x31a8_4e27_2d66_8c12_d3da_b7be_8c16_2161),
+    (97_595, 0x016e_372c_7487_7008_5817_aa19_f450_32da),
+    (100_483, 0x59ae_5f69_d1aa_51b0_104d_4707_4c0d_3006),
+    (101_877, 0xa94b_5d5b_efab_7344_c909_f0ce_9fa7_993f),
+    (100_549, 0x47d9_f29f_4ba6_9992_2be5_5d57_223c_f58d),
+    (101_943, 0x7b62_c0a7_f58d_4896_0070_8354_d687_e2f8),
+    (109_336, 0x1523_9a22_7cf3_a26a_c011_979f_eb2b_39a2),
+    (110_730, 0x80e6_5792_fc27_d5b1_52c6_865b_c1e2_1df9),
+    (109_402, 0xc531_b64b_5c87_b333_6ab8_9966_c3dd_c383),
+    (110_796, 0x7028_0714_61e7_6de4_bb0c_250b_2be4_3c4c),
+    (113_684, 0xaa32_59f4_f310_09ee_79f2_5e43_824f_f8c0),
+    (115_078, 0x18cd_710b_0f11_c426_4bcd_2b18_b027_3889),
+    (113_750, 0x54f0_b7a1_74a2_ae58_67d3_ac8a_b2f0_de1f),
+    (115_144, 0x4620_77ee_d2de_74d5_57fb_c592_28e6_0b82),
+];
+
+#[test]
+fn unlit_quad_assemblies_preserve_main_fingerprints() {
+    let cases = final_forward_sources();
+    assert_eq!(cases.len(), UNLIT_QUAD_SOURCES.len());
+    for ((label, sources), expected) in cases.into_iter().zip(UNLIT_QUAD_SOURCES) {
+        assert_eq!(
+            super::source_fingerprint(&crate::renderer::unlit_source(&sources[0])),
+            *expected,
+            "{label} unpaired quad source"
+        );
+    }
+}

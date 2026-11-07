@@ -1,6 +1,8 @@
 //! Stage modules: what naga makes of the SPIR-V and the named errors for what it cannot use.
 
-use worldrunner_render_program::module::{ModuleError, StageKind, StageModule, StageProgram};
+use worldrunner_render_program::unity::module::{
+    ModuleError, StageKind, StageModule, StageProgram,
+};
 use worldrunner_unity_serialized::shader_program::ProgramParameters;
 
 use crate::common::{same, spirv};

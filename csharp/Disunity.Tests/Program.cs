@@ -452,6 +452,7 @@ SortingGroupTests.Run();
 AssetBundleTests.Run();
 WebRequestTests.Run();
 RenderTypeTests.Run();
+PlayablesTests.Run();
 JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();

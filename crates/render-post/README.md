@@ -170,6 +170,13 @@ builds a preset. `SmaaSettings::LOW`, `MEDIUM`, `HIGH` and `ULTRA` equal the ref
 | High | 0.1 | 16 | 8 | 25 |
 | Ultra | 0.05 | 32 | 16 | 25 |
 
+Scene consumers author the same resolve through
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` or
+`SceneAntiAlias::Smaa(SceneSmaaSettings { .. })` in `render-plan`.
+`render-scene` converts the threshold from millionths and preserves every search,
+corner and edge-mode setting. This route selects no automatic jitter and rejects
+any second resolve from an HDR post block or frame descriptor.
+
 Custom values are validated: `threshold` is above 0 and at most 0.5, `max_search_steps`
 is 0 through 112, `max_search_steps_diag` is `None` or 0 through 20, and `corner_rounding`
 is `None` or 0 through 100. `None` skips diagonal or corner handling, as the reference does

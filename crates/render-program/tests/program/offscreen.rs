@@ -5,6 +5,7 @@ mod blit;
 mod block_sources;
 mod camera;
 mod copy;
+mod defaults;
 mod depth_only;
 mod formats;
 mod layers;

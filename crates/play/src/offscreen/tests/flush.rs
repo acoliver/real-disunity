@@ -583,10 +583,10 @@ fn an_unset_texture_whose_default_the_host_does_not_supply_leaves_the_draw_out()
     assert_eq!(heights, vec![CLEAR * SCALE; 16]);
 }
 
-/// A camera whose mesh lacks the texture coordinates its shader reads leaves that draw out and
-/// names the channel and the input, and keeps the camera render.
+/// A camera whose mesh lacks the texture coordinates its shader reads draws with zeros for them,
+/// and the report counts the draw by the channel and the input instead of as a failure.
 #[test]
-fn a_camera_draw_whose_mesh_lacks_a_channel_is_counted_by_the_channel_and_not_by_the_record() {
+fn a_camera_draw_whose_mesh_lacks_a_channel_is_drawn_and_counted_by_the_channel() {
     let directory = tempfile::tempdir().unwrap();
     write_compute(directory.path(), "heights", vec![(1, copy_object())]);
     let mut host = host(directory.path());
@@ -601,18 +601,19 @@ fn a_camera_draw_whose_mesh_lacks_a_channel_is_counted_by_the_channel_and_not_by
     let outcome = host.flush(&snapshot, &BareQuad).unwrap();
     outcome.apply(&mut world).unwrap();
     let report = &outcome.report;
-    assert_eq!(report.failures.get("draw:MissingChannel"), Some(&1));
+    assert_eq!(report.failures.get("draw:MissingChannel"), None);
     assert_eq!(report.failures.get("record:MissingChannel"), None);
+    assert_eq!(report.missing_channels, BTreeMap::new());
     assert_eq!(
-        report.missing_channels,
-        BTreeMap::from([("channel 4 for input 1".to_owned(), 1)])
+        report.defaulted_channels,
+        BTreeMap::from([("channel 4 for input 1 as Float32x2".to_owned(), 1)])
     );
     let texture = &report.traces[0].textures[0];
     assert_eq!(
         (texture.camera_draws, texture.camera_missing_channel),
-        (0, 1)
+        (1, 0)
     );
-    assert_eq!(floats(&world, buffer), vec![CLEAR * SCALE; 16]);
+    assert_eq!(floats(&world, buffer), expected());
 }
 
 #[test]

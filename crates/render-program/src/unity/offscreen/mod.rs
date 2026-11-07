@@ -7,6 +7,7 @@
 //! its storage. The scene encodes the admitted operations before its own, with the frame's pass
 //! timer, in the same submission.
 
+mod defaults;
 mod error;
 mod finish;
 mod format;
@@ -37,6 +38,7 @@ use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
 use crate::unity::shader::ProgramShader;
 
+use defaults::DefaultBuffers;
 use finish::Finish;
 use frame::{Mesh, OffscreenFrame, SourceTexture};
 use meshes::MeshTable;
@@ -53,6 +55,8 @@ pub struct OffscreenState {
     programs: HashMap<(ShaderId, usize, u32), Arc<ProgramEntry>>,
     textures: TextureTable,
     meshes: MeshTable,
+    /// The constants inputs a mesh has no channel for read, made when the first frame is built.
+    defaults: Option<DefaultBuffers>,
     samplers: SamplerCache,
     draws: HashMap<blake3::Hash, CheckedDraw>,
     /// The buffer every draw's constants are uploaded into, and its size.
@@ -68,6 +72,7 @@ impl OffscreenState {
             programs: HashMap::new(),
             textures: TextureTable::default(),
             meshes: MeshTable::default(),
+            defaults: None,
             samplers: SamplerCache::new(runtime.device()),
             draws: HashMap::new(),
             constants: None,
@@ -148,6 +153,10 @@ impl OffscreenState {
             return Err(ProgramError::ForeignArena.into());
         }
         self.textures.sync(runtime, &frame.render_textures)?;
+        let defaults = match self.defaults {
+            Some(defaults) => defaults,
+            None => *self.defaults.insert(DefaultBuffers::create(runtime)?),
+        };
         let alignment = runtime
             .device()
             .limits()
@@ -165,6 +174,7 @@ impl OffscreenState {
                 samplers: &mut self.samplers,
                 textures: &self.textures,
                 meshes: &self.meshes,
+                defaults,
                 tracker: &mut tracker,
                 constants: &mut constants,
                 missing: &mut missing,
@@ -362,6 +372,16 @@ pub struct MissingChannelDraws {
     pub draws: usize,
 }
 
+/// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
+/// counted for one source channel, the shader input it feeds and the format the input was given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultedChannelDraws {
+    pub channel: i8,
+    pub input: i8,
+    pub format: wgpu::VertexFormat,
+    pub draws: usize,
+}
+
 /// Camera draws left out because no layer names a texture the pass samples, counted for one
 /// texture property.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -421,6 +441,12 @@ impl OffscreenOperations {
                 draws,
             })
             .collect()
+    }
+
+    /// The draws that read an input their mesh has no channel for, which they got a constant for.
+    #[must_use]
+    pub fn defaulted_channel_draws(&self) -> Vec<DefaultedChannelDraws> {
+        self.counts.defaulted.clone()
     }
 
     /// What each camera render recorded and left out, in call order.

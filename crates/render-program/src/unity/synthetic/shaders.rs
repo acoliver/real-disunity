@@ -245,16 +245,53 @@ pub fn two_passes() -> SyntheticShader {
 
 /// One pass tagged `Alpha` that tints, whose vertex input table is `channels`.
 pub fn camera_pass_with_table(channels: &[[i8; 2]]) -> SyntheticShader {
+    camera_pass_reading(TINT, channels)
+}
+
+/// One pass tagged `Alpha` of `wgsl`, which has the `TINT` entry points and constants and whose
+/// vertex input table is `channels`.
+pub fn camera_pass_reading(wgsl: &str, channels: &[[i8; 2]]) -> SyntheticShader {
     no_cull(shader(
         &[],
         &[PassSpec {
             tags: vec![("LIGHTMODE", "Alpha")],
             variants: vec![VariantSpec {
                 channels: channels.to_vec(),
-                ..tint_variant(&[], "fs_main")
+                ..variant(&[], wgsl, "fs_main", tint_parameters())
             }],
         }],
     ))
+}
+
+/// `TINT` with a third vertex input of type `ty` at location 2, which the fragment stage turns
+/// into its result with `combine`, an expression over `material.tint` and `in.extra`. The input
+/// is passed on flat, so a type of integers needs no interpolation.
+#[must_use]
+pub fn tint_with_extra_input(ty: &str, combine: &str) -> String {
+    format!(
+        "
+struct Material {{ tint: vec4<f32> }}
+struct Draw {{ place: vec4<f32> }}
+@group(0) @binding(0) var<uniform> material: Material;
+@group(0) @binding(1) var<uniform> draw: Draw;
+struct VOut {{
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) @interpolate(flat) extra: {ty},
+}}
+@vertex fn vs_main(
+    @location(0) position: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) extra: {ty},
+) -> VOut {{
+    var out: VOut;
+    out.position = vec4<f32>(position.xy * draw.place.xy + draw.place.zw, position.z, 1.0);
+    out.uv = uv;
+    out.extra = extra;
+    return out;
+}}
+@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {{ return {combine}; }}"
+    )
 }
 
 /// One pass tagged `Alpha` that tints, and one tagged `Gamma` that samples the albedo texture.

@@ -169,6 +169,9 @@ pub struct Report {
     /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by
     /// `channel C for input I`.
     pub missing_channels: BTreeMap<String, usize>,
+    /// The camera draws that read a constant for a vertex channel their mesh lacks, by
+    /// `channel C for input I as FORMAT`. These draws are recorded; they are not failures.
+    pub defaulted_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// Where building the frame spent its time.
@@ -196,6 +199,13 @@ impl Report {
         for entry in operations.missing_channel_draws() {
             let name = format!("channel {} for input {}", entry.channel, entry.input);
             *self.missing_channels.entry(name).or_default() += entry.draws;
+        }
+        for entry in operations.defaulted_channel_draws() {
+            let name = format!(
+                "channel {} for input {} as {:?}",
+                entry.channel, entry.input, entry.format
+            );
+            *self.defaulted_channels.entry(name).or_default() += entry.draws;
         }
     }
 
@@ -292,6 +302,9 @@ impl Report {
         }
         for (name, count) in other.missing_channels {
             *self.missing_channels.entry(name).or_default() += count;
+        }
+        for (name, count) in other.defaulted_channels {
+            *self.defaulted_channels.entry(name).or_default() += count;
         }
     }
 }

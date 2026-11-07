@@ -16,10 +16,10 @@ use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
 use super::rig::{BLUE, CLEAR, QUAD, RED, Rig, layer, pixel, quad, texture};
 use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 
-const SHADER: ShaderId = ShaderId(1);
-const TARGET: TextureId = TextureId(10);
-const CAMERA: CameraId = CameraId(1);
-const LEFT: u32 = 1;
+pub const SHADER: ShaderId = ShaderId(1);
+pub const TARGET: TextureId = TextureId(10);
+pub const CAMERA: CameraId = CameraId(1);
+pub const LEFT: u32 = 1;
 const RIGHT: u32 = 2;
 
 pub fn alpha() -> PassSelector {
@@ -65,7 +65,7 @@ pub fn fixture(rig: &mut Rig, mask: u32) -> OffscreenFrame {
     halves(rig, mask)
 }
 
-fn halves(rig: &mut Rig, mask: u32) -> OffscreenFrame {
+pub fn halves(rig: &mut Rig, mask: u32) -> OffscreenFrame {
     let synthetic = camera_passes();
     rig.state.add_shader(
         SHADER,
@@ -93,7 +93,7 @@ fn halves(rig: &mut Rig, mask: u32) -> OffscreenFrame {
     }
 }
 
-fn render(rig: &mut Rig, frame: &OffscreenFrame) -> Vec<u8> {
+pub fn render(rig: &mut Rig, frame: &OffscreenFrame) -> Vec<u8> {
     rig.run(frame, &[(TARGET, 0, 0)]).unwrap().remove(0)
 }
 
@@ -337,36 +337,36 @@ fn a_draw_whose_mesh_lacks_a_channel_the_shader_reads_is_left_out_and_counted_by
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     let mut bare = quad(0.5);
     bare.channels.retain(|channel| {
-        channel.source == worldrunner_render_program::unity::synthetic::shaders::POSITION
+        channel.source != worldrunner_render_program::unity::synthetic::shaders::POSITION
     });
     rig.state
         .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &bare)
         .unwrap();
     frame.renderers.get_mut(&RendererId(1)).unwrap().mesh = super::rig::NEAR_QUAD;
     let operations = rig.build(&frame).unwrap();
-    // The table feeds shader input 1 from channel 4, which the left renderer's mesh lacks.
+    // The table feeds shader input 0 from channel 0, which the left renderer's mesh lacks.
     assert_eq!(
         operations.missing_channel_draws(),
         vec![MissingChannelDraws {
-            channel: 4,
-            input: 1,
+            channel: 0,
+            input: 0,
             draws: 1
         }]
     );
     assert_eq!(operations.camera_draws(), drawn(1, 0, 0, 1));
     drop(operations);
     let image = render(&mut rig, &frame);
-    assert_eq!(pixel(&image, 8, (1, 3)), CLEAR, "left: no uv channel");
+    assert_eq!(pixel(&image, 8, (1, 3)), CLEAR, "left: no position channel");
     assert_eq!(pixel(&image, 8, (5, 3)), BLUE, "right: drawn");
 }
 
-/// The fixture with its left renderer's mesh lacking the channel the pass reads for its texture
-/// coordinates, so that renderer is left out and the right one drawn.
+/// The fixture with its left renderer's mesh lacking the channel the pass reads for its positions,
+/// which no default stands in for, so that renderer is left out and the right one drawn.
 fn left_without_a_channel(rig: &mut Rig) -> OffscreenFrame {
     let mut frame = halves(rig, (1 << LEFT) | (1 << RIGHT));
     let mut bare = quad(0.5);
     bare.channels.retain(|channel| {
-        channel.source == worldrunner_render_program::unity::synthetic::shaders::POSITION
+        channel.source != worldrunner_render_program::unity::synthetic::shaders::POSITION
     });
     rig.state
         .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &bare)
@@ -392,7 +392,7 @@ fn each_camera_names_the_channels_and_textures_its_left_out_draws_lacked() {
     let mut rig = Rig::new();
     let frame = left_without_a_channel(&mut rig);
     let operations = rig.build(&frame).unwrap();
-    let channels = BTreeMap::from([((4, 1), 1)]);
+    let channels = BTreeMap::from([((0, 0), 1)]);
     assert_eq!(
         operations.camera_causes(),
         vec![CameraCauses {
@@ -475,7 +475,7 @@ fn a_draw_without_its_texture_is_left_out_beside_one_that_needs_none() {
 }
 
 /// What one camera render of the fixture recorded.
-fn drawn(
+pub fn drawn(
     drawn: usize,
     unmatched: usize,
     missing_texture: usize,

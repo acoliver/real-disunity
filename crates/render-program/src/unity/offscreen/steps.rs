@@ -169,7 +169,10 @@ fn planned_draw(
         svc.constants.rollback(constants_mark);
     }
     match planned {
-        Ok(draw) => Ok(Some(draw)),
+        Ok(draw) => {
+            svc.counts.note_defaulted(&draw.vertices.defaulted);
+            Ok(Some(draw))
+        }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
             svc.counts.unmatched += 1;
             left_out(svc, spec.shader, &camera.pass);
@@ -275,7 +278,7 @@ fn camera_draw(
     (signature, front_face): (TargetSignature, wgpu::FrontFace),
 ) -> Result<CameraDraw, OffscreenError> {
     let plan = svc.plan_program(spec)?;
-    let vertices = svc.plan_vertices(mesh, &plan.entry.variant)?;
+    let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     let info = svc.meshes.get(mesh)?;
     let buffer = svc.runtime.gpu_buffer(info.buffer)?;
     let key = svc
@@ -437,7 +440,8 @@ fn blit_step(
         layers: Layers::new(&layers),
     };
     let plan = svc.plan_program(&spec)?;
-    let vertices = svc.plan_vertices(mesh, &plan.entry.variant)?;
+    let vertices = svc.plan_vertices(mesh, &plan.entry)?;
+    svc.counts.note_defaulted(&vertices.defaulted);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

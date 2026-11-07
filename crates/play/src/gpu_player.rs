@@ -85,6 +85,8 @@ pub struct GpuWorkReport {
     pub missing_textures: BTreeMap<String, usize>,
     /// The draws left out because the mesh lacks a vertex channel the pass reads.
     pub missing_channels: BTreeMap<String, usize>,
+    /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
+    pub defaulted_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// The script commands left out, and the textures the globals held, by description.
@@ -146,6 +148,9 @@ impl GpuWorkReport {
         for (name, count) in &report.missing_channels {
             *self.missing_channels.entry(name.clone()).or_default() += count;
         }
+        for (name, count) in &report.defaulted_channels {
+            *self.defaulted_channels.entry(name.clone()).or_default() += count;
+        }
         for (name, count) in &report.unsupported_work {
             *self.unsupported_work.entry(name.clone()).or_default() += count;
         }
@@ -200,6 +205,7 @@ impl GpuWorkReport {
             ("partial texture reads", &self.partial_reads),
             ("draws without a texture", &self.missing_textures),
             ("draws without a mesh channel", &self.missing_channels),
+            ("draw:DefaultedChannel", &self.defaulted_channels),
             ("script commands left out", &self.unsupported_work),
             ("global textures at a flush", &self.global_textures),
             (

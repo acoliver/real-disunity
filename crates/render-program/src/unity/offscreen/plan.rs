@@ -7,8 +7,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use worldrunner_render_post::contracts::{
-    BufferUse, BufferUseKind, BufferView, ResourceLifetime, ResourceUse, SamplerBinding, Semantic,
-    TextureBinding, TextureBindingKind, UseKind,
+    AllocationKey, BufferUse, BufferUseKind, BufferView, ResourceLifetime, ResourceUse,
+    SamplerBinding, Semantic, TextureBinding, TextureBindingKind, UseKind,
 };
 
 use crate::budget::Reservation;
@@ -19,6 +19,7 @@ use crate::layers::Layers;
 use crate::layout::Slot;
 use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
+use crate::resources::BufferHandle;
 use crate::runtime::ProgramRuntime;
 use crate::sampler::{Filter, SamplerCache, SamplerState, Wrap};
 use crate::unity::constants::pack_layout;
@@ -27,6 +28,7 @@ use crate::unity::state::{RenderState, resolve_state};
 use crate::unity::targets::{ConstantBufferTarget, TextureTarget};
 use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 
+use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::error::OffscreenError;
 use super::meshes::MeshTable;
 use super::textures::TextureTable;
@@ -42,6 +44,8 @@ pub(super) struct ProgramEntry {
     textures: Vec<TextureTarget>,
     /// The sampler binding split from the texture at a set and binding.
     samplers: HashMap<(u32, u32), u32>,
+    /// The vertex inputs the vertex stage declares, by location.
+    inputs: DeclaredInputs,
 }
 
 /// The constants of a frame's draws, one slice for each constant buffer binding.
@@ -121,6 +125,9 @@ pub(super) struct VertexPlan {
     pub(super) inputs: Vec<VertexInput>,
     pub(super) views: Vec<BufferView>,
     pub(super) uses: Vec<BufferUse>,
+    /// The (source channel, shader input, format) of each input that reads a constant because the
+    /// mesh lacks the channel.
+    pub(super) defaulted: Vec<(i8, i8, wgpu::VertexFormat)>,
 }
 
 /// What chooses a draw's program and feeds its parameters.
@@ -144,6 +151,8 @@ pub(super) struct DrawCounts {
     /// by (source channel, shader input).
     pub(super) missing_channel: usize,
     pub(super) missing_channels: std::collections::BTreeMap<(i8, i8), usize>,
+    /// Draws that read a constant for a channel their mesh lacks, by channel, input and format.
+    pub(super) defaulted: Vec<super::DefaultedChannelDraws>,
     /// Texture reads that bound fewer levels than the texture has.
     pub(super) partial_mips: usize,
     /// What each camera render recorded, in call order.
@@ -161,6 +170,27 @@ pub(super) struct DrawCounts {
     pub(super) program_time: std::time::Duration,
 }
 
+impl DrawCounts {
+    /// Counts one draw that read a constant for each of `defaulted`.
+    pub(super) fn note_defaulted(&mut self, defaulted: &[(i8, i8, wgpu::VertexFormat)]) {
+        for &(channel, input, format) in defaulted {
+            let found = self.defaulted.iter_mut().find(|entry| {
+                (entry.channel, entry.input, entry.format) == (channel, input, format)
+            });
+            if let Some(entry) = found {
+                entry.draws += 1;
+            } else {
+                self.defaulted.push(super::DefaultedChannelDraws {
+                    channel,
+                    input,
+                    format,
+                    draws: 1,
+                });
+            }
+        }
+    }
+}
+
 /// The parts of the state a draw is planned from, borrowed from it together.
 pub(super) struct Services<'a> {
     pub(super) runtime: &'a mut ProgramRuntime,
@@ -169,6 +199,7 @@ pub(super) struct Services<'a> {
     pub(super) samplers: &'a mut SamplerCache,
     pub(super) textures: &'a TextureTable,
     pub(super) meshes: &'a MeshTable,
+    pub(super) defaults: DefaultBuffers,
     pub(super) tracker: &'a mut Tracker,
     pub(super) constants: &'a mut ConstantsPlan,
     pub(super) missing: &'a mut BTreeSet<String>,
@@ -291,6 +322,7 @@ impl Services<'_> {
             constants,
             textures,
             samplers,
+            inputs: declared_inputs(&variant.vertex),
         })
     }
 
@@ -480,12 +512,12 @@ impl Services<'_> {
         Ok((imported, info.sampler))
     }
 
-    /// The vertex streams `variant` reads from `mesh`, by its table of source channels and the
-    /// shader inputs they feed.
+    /// The vertex streams `entry`'s program reads from `mesh`, by its table of source channels and
+    /// the shader inputs they feed. An optional channel the mesh lacks reads a constant.
     pub(super) fn plan_vertices(
         &mut self,
         mesh: MeshId,
-        variant: &Variant,
+        entry: &ProgramEntry,
     ) -> Result<VertexPlan, OffscreenError> {
         let info = self.meshes.get(mesh)?;
         self.shares
@@ -498,34 +530,64 @@ impl Services<'_> {
             inputs: Vec::new(),
             views: Vec::new(),
             uses: Vec::new(),
+            defaulted: Vec::new(),
         };
-        let base = input_base(&variant.channels.channels)?;
-        for &[source, target] in &variant.channels.channels {
-            let channel = info.channel(source).ok_or(OffscreenError::MissingChannel {
-                mesh,
-                channel: source,
-                input: target,
-            })?;
+        let base = input_base(&entry.variant.channels.channels)?;
+        for &[source, target] in &entry.variant.channels.channels {
             let location = u32::try_from(target - base).map_err(|_| OffscreenError::BadMesh {
                 mesh,
                 reason: format!("the shader input {target} is negative"),
             })?;
-            let view = self.tracker.buffer_view(key, channel.range.clone(), 0)?;
+            let missing = OffscreenError::MissingChannel {
+                mesh,
+                channel: source,
+                input: target,
+            };
+            let (handle, key, range, stride, format) = if let Some(channel) = info.channel(source) {
+                (
+                    info.buffer,
+                    key,
+                    channel.range.clone(),
+                    channel.format.stride(),
+                    channel.format.vertex_format(),
+                )
+            } else {
+                let constant = default_for(source, location, &entry.inputs).ok_or(missing)?;
+                plan.defaulted.push((source, target, constant.format));
+                let (handle, key) = self.import_default(constant.fill)?;
+                (handle, key, 0..DefaultBuffers::LEN, 0, constant.format)
+            };
+            let view = self.tracker.buffer_view(key, range, 0)?;
             plan.uses
                 .push(BufferUse::read(view.clone(), BufferUseKind::Vertex));
             plan.views.push(view);
             plan.inputs.push(VertexInput {
-                buffer: info.buffer,
-                stride: channel.format.stride(),
+                buffer: handle,
+                stride,
                 step: wgpu::VertexStepMode::Vertex,
                 attributes: vec![wgpu::VertexAttribute {
-                    format: channel.format.vertex_format(),
+                    format,
                     offset: 0,
                     shader_location: location,
                 }],
             });
         }
         Ok(plan)
+    }
+
+    /// Imports the buffer of a default's `fill` for reading and has the frame hold it.
+    fn import_default(
+        &mut self,
+        fill: Fill,
+    ) -> Result<(BufferHandle, AllocationKey), OffscreenError> {
+        let handle = self.defaults.buffer(fill);
+        self.shares
+            .push(self.runtime.store.buffer_reservation(handle)?);
+        let buffer = self.runtime.gpu_buffer(handle)?;
+        let key =
+            self.tracker
+                .import_buffer(&buffer, ResourceLifetime::ImportedReadOnly, Some(0))?;
+        Ok((handle, key))
     }
 
     /// The target signature of a pass over a texture's color and depth.

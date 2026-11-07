@@ -409,3 +409,6 @@ fn alpha_first_metadata_matches_frozen_shader_device_depth_normal_material_and_c
         "fixture must apply decal material maps"
     );
 }
+
+#[path = "forward_rejection.rs"]
+mod forward_rejection;

@@ -117,16 +117,7 @@ fn pipelines(
     shadow: Option<&wgpu::BindGroupLayout>,
     screen: Option<&crate::scene_metadata::SceneMetadata>,
 ) -> ScenePipelines {
-    let (object, terrain) = crate::shadows::capture_sources(shadow.is_some());
-    let (mesh_value, terrain_value) = values(term);
-    let object = object.replace(
-        "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
-        &format!("return vec4<f32>({mesh_value}, albedo_sample.a);"),
-    );
-    let terrain = terrain.replace(
-        "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);",
-        &format!("return vec4<f32>({terrain_value}, 1.0);"),
-    );
+    let (object, terrain) = term_sources(crate::shadows::capture_sources(shadow.is_some()), term);
     let reflection = screen.is_some_and(|screen| screen.geometry.forward.is_some());
     let layout = screen.map(|_| {
         if reflection {
@@ -144,6 +135,39 @@ fn pipelines(
         shadow,
         layout.as_ref(),
     )
+}
+
+pub(crate) fn term_sources(stock: (&str, &str), term: CaptureTerm) -> (String, String) {
+    let (mesh_value, terrain_value) = values(term);
+    // Card shadow coordinates and gradients were prepared before coverage rejection.
+    let card_value = if term == CaptureTerm::SunVisibility {
+        "vec3<f32>(direct_sunlight_visibility(raw))"
+    } else {
+        mesh_value
+    };
+    // Frozen forward sources have only the ordinary shading body.
+    let card_start = stock
+        .0
+        .find("fn scene_card_finish_shading(")
+        .unwrap_or(stock.0.len());
+    let (ordinary, card) = stock.0.split_at(card_start);
+    let target = "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);";
+    let object = format!(
+        "{}{}",
+        ordinary.replace(
+            target,
+            &format!("return vec4<f32>({mesh_value}, albedo_sample.a);")
+        ),
+        card.replace(
+            target,
+            &format!("return vec4<f32>({card_value}, albedo_sample.a);")
+        ),
+    );
+    let terrain = stock.1.replace(
+        "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);",
+        &format!("return vec4<f32>({terrain_value}, 1.0);"),
+    );
+    (object, terrain)
 }
 
 fn values(term: CaptureTerm) -> (&'static str, &'static str) {

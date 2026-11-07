@@ -30,6 +30,7 @@ const IDENTITY: [f32; 16] = [
 fn names() -> CameraProbe {
     CameraProbe {
         targets: BTreeSet::from([TARGET]),
+        test_targets: BTreeSet::new(),
         object_to_world: "_ObjectToWorld".to_owned(),
         view_projection: "_ViewProjection".to_owned(),
     }
@@ -217,4 +218,37 @@ fn a_camera_reports_its_viewport_and_what_it_clears() {
     frame.cameras.get_mut(&CAMERA).unwrap().clear_depth = false;
     let setup = rig.build(&frame).unwrap().camera_passes().remove(0).setup;
     assert_eq!(setup.depth, "load");
+}
+
+#[test]
+fn a_test_render_is_drawn_like_the_camera_but_left_out_of_the_frames_counts() {
+    let mut rig = Rig::new();
+    let mut frame = frame(&mut rig, 0);
+    let test_target = TextureId(11);
+    frame.render_textures.push(texture(11, [8, 8]));
+    frame.probe.test_targets = BTreeSet::from([test_target]);
+    frame.records.push(Record::CameraRender {
+        camera: CAMERA,
+        target: test_target,
+    });
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws().len(), 1);
+    assert_eq!(operations.camera_passes().len(), 1);
+    assert_eq!(operations.camera_causes().len(), 1);
+    assert_eq!(operations.camera_draws()[0].target, TARGET);
+    let images = rig
+        .run(&frame, &[(TARGET, 0, 0), (test_target, 0, 0)])
+        .unwrap();
+    // The shader's gain is unset, so a fragment that is drawn writes zeros over the clear.
+    for image in images {
+        let written = image
+            .chunks(4)
+            .filter(|texel| *texel == [0, 0, 0, 0])
+            .count();
+        let cleared = image
+            .chunks(4)
+            .filter(|texel| *texel == [255, 128, 0, 255])
+            .count();
+        assert_eq!((written, cleared), (16, 48));
+    }
 }

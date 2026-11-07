@@ -102,6 +102,11 @@ fn camera_step(
     require_render_texture(svc, target)?;
     let signature = svc.signature(target)?;
     let mut draws = Vec::new();
+    let counted_before = frame
+        .probe
+        .test_targets
+        .contains(&target)
+        .then(|| svc.counts.clone());
     let unmatched_before = svc.counts.unmatched;
     let missing_before = svc.counts.missing_texture;
     let channel_before = svc.counts.missing_channel;
@@ -131,6 +136,9 @@ fn camera_step(
     }
     svc.counts.passes.push(report);
     svc.missing.extend(without_value);
+    if let Some(before) = counted_before {
+        svc.counts.forget_since(before);
+    }
     let pass = camera_pass(
         svc,
         raster_id("offscreen camera", index),

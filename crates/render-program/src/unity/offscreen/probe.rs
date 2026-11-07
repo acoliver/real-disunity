@@ -18,6 +18,10 @@ use crate::unity::constants::packed_members;
 pub struct CameraProbe {
     /// The render textures whose camera renders are examined.
     pub targets: BTreeSet<TextureId>,
+    /// The render textures of test renders: camera renders drawn like any other but left out of
+    /// every count and report of the frame, so a second render of the same draws does not double
+    /// them.
+    pub test_targets: BTreeSet<TextureId>,
     pub object_to_world: String,
     pub view_projection: String,
 }

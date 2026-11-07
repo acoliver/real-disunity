@@ -112,7 +112,7 @@ pub(super) struct DrawSpec<'a> {
 }
 
 /// What planning a frame's draws left out or narrowed, for the host to report.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct DrawCounts {
     /// Camera draws left out because the shader has no pass the camera selects.
     pub(super) unmatched: usize,
@@ -146,6 +146,17 @@ pub(super) struct DrawCounts {
 }
 
 impl DrawCounts {
+    /// Takes the counts back to `before`, as if the draws planned since had not been, except for
+    /// the programs they built and the time they took, which the state keeps.
+    pub(super) fn forget_since(&mut self, before: Self) {
+        let (programs_built, program_time) = (self.programs_built, self.program_time);
+        *self = Self {
+            programs_built,
+            program_time,
+            ..before
+        };
+    }
+
     /// Counts one draw that read a constant for each of `defaulted`.
     pub(super) fn note_defaulted(&mut self, defaulted: &[(i8, i8, wgpu::VertexFormat)]) {
         for &(channel, input, format) in defaulted {

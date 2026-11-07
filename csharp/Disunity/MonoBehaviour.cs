@@ -24,7 +24,9 @@ public abstract class MonoBehaviour : Behaviour
     /// <summary>Stored: the engine draws no OnGUI layer. Defaults to true.</summary>
     public bool useGUILayout { get; set; } = true;
 
-    public Coroutine StartCoroutine(System.Collections.IEnumerator iterator) => Disunity.Hosting.DisunityHost.StartCoroutine(this, iterator);
+    /// <summary>Starts the coroutine, or logs an error and returns null when this script is inactive or being torn down
+    /// (the engine's choice: the caller carries on).</summary>
+    public Coroutine? StartCoroutine(System.Collections.IEnumerator iterator) => Disunity.Hosting.DisunityHost.StartCoroutine(this, iterator);
     public void StopCoroutine(Coroutine routine) => Disunity.Hosting.DisunityHost.StopCoroutine(this, routine);
     public void StopCoroutine(System.Collections.IEnumerator iterator) => Disunity.Hosting.DisunityHost.StopCoroutine(this, iterator);
     public void StopAllCoroutines() => Disunity.Hosting.DisunityHost.StopAllCoroutines(this);

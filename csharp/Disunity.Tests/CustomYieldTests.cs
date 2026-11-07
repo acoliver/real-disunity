@@ -92,7 +92,7 @@ internal static class CustomYieldTests
         DisunityHost.LoadWorld();
         var probe = DisunityHost.AddComponent(new Probe());
         var instruction = new UntilFrame(probe, 2);
-        var routine = probe.StartCoroutine(probe.Wait(instruction));
+        var routine = probe.StartCoroutine(probe.Wait(instruction)) ?? throw new Exception("an active script's coroutine was refused");
         probe.StopCoroutine(routine);
         var checks = instruction.Checks;
         DisunityHost.Step(0.01f);

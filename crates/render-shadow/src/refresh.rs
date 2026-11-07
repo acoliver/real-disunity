@@ -122,12 +122,18 @@ impl CascadeRefreshPolicy {
         if input.resolution != old.resolution {
             return Some(R::Resolution);
         }
-        let dot = input
-            .toward_light
-            .normalize()
-            .dot(old.toward_light.normalize());
-        if dot.clamp(-1.0, 1.0) < self.light_delta_radians.cos() {
-            return Some(R::Light);
+        // A unit vector dotted with itself can round below 1.0, so a zero threshold
+        // must compare the directions themselves.
+        if input.toward_light != old.toward_light {
+            let dot = input
+                .toward_light
+                .normalize()
+                .dot(old.toward_light.normalize());
+            if self.light_delta_radians <= 0.0
+                || dot.clamp(-1.0, 1.0) < self.light_delta_radians.cos()
+            {
+                return Some(R::Light);
+            }
         }
         if input.matrix.transpose().z_axis != old.matrix.transpose().z_axis {
             return Some(R::DepthRange);

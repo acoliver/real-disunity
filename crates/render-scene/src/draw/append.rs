@@ -567,6 +567,8 @@ impl SceneGpu {
         for (at, group) in groups {
             self.materials[at] = group;
         }
+        // Alpha-tested casters cut their shadow from the replaced texels.
+        self.caster_generation = self.caster_generation.wrapping_add(1);
         Ok(())
     }
 

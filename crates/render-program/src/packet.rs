@@ -388,6 +388,7 @@ impl ProgramRuntime {
                 .iter()
                 .map(|snapshot| snapshot.reservation.clone()),
         );
+        self.counters.draw_prepared();
         Ok((draw, shares))
     }
 
@@ -453,6 +454,7 @@ impl ProgramRuntime {
             self.shader_module(&request.program.fragment)?,
         );
         let pipeline = self.guarded(|| self.create_render_pipeline(request, &modules))?;
+        self.counters.pipeline_built();
         self.render_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }

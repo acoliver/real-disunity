@@ -79,6 +79,7 @@ impl ProgramRuntime {
                     entries: &entries,
                 })
             })?;
+            self.counters.bind_group_built();
             groups.push((set, group));
         }
         Ok(groups)

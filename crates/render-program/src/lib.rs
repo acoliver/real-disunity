@@ -32,6 +32,7 @@ mod resources;
 pub mod runtime;
 mod schema;
 pub mod state;
+mod stats;
 pub mod targets;
 #[cfg(feature = "unity")]
 pub mod unity;

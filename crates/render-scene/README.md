@@ -443,6 +443,21 @@ no added display curve. Select the HDR profile explicitly in `ViewerOptions`.
 The procedural viewer example accepts `--hdr`, with optional `--msaa`, alongside
 `--terrain` and `--shadows`.
 
+## Scene-authored SMAA
+
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` selects the existing
+`PostResolve::Smaa(SmaaSettings::ULTRA)` through scene effects, including retained
+HDR consumers. `SceneAntiAlias::Smaa(SceneSmaaSettings { .. })` accepts custom
+integer settings and `SceneSmaaEdgeDetection::Color` as well as the default luma
+edges. The [scene contract](../render-plan/README.md#hdr-post-processing)
+lists the quantity bounds.
+The executor schedules `smaa_edges`, `smaa_weights` and `smaa_blend` after tone
+mapping, before upscaling, with a separate timing slot for each. SMAA requests
+no jitter or temporal history. An explicit descriptor jitter remains explicit.
+Selecting another resolve in `hdr_post` or the frame descriptor is rejected as
+`PostError::UnsupportedProfile("duplicate resolve")`, including zero-weight FXAA.
+CMAA2 remains available through the post descriptor, not the scene recipe.
+
 ## Temporal antialiasing
 
 The TAA resolve (`PostResolve::Taa`, issue 256) accumulates jittered frames; see the

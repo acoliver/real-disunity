@@ -437,10 +437,10 @@ impl Registry {
 
     /// The asset index of a built-in primitive mesh the engine generates, planned when it is new.
     fn admit_primitive(&mut self, key: &ObjectKey) -> Option<usize> {
+        let generated = primitive_mesh(key)?;
         if let Some(&index) = self.planned.get(key) {
             return Some(index);
         }
-        let generated = primitive_mesh(key)?;
         self.meshes.insert(key.clone(), generated);
         self.planned.insert(key.clone(), self.queue.len());
         self.queue.push((key.clone(), ClassId::MESH));

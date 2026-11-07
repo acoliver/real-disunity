@@ -4,8 +4,10 @@
 //! which may name other assets or the asset itself. A script component of a game object is
 //! not an asset, so a reference to one binds null.
 
-use serde_json::Value as Json;
-use worldrunner_unity_serialized::object::PPtr;
+use std::path::Path;
+
+use serde_json::{Value as Json, json};
+use worldrunner_unity_serialized::{ClassId, object::PPtr};
 
 use crate::{
     plan::PlanAsset,
@@ -13,7 +15,7 @@ use crate::{
     player_plan::PlanSource,
     player_resources::ObjectKey,
     player_scripts::{Referenced, referenced_script, script_fields},
-    player_shader_refs::SceneSource,
+    player_shader_refs::{SceneSource, class_of},
     player_values::{FieldWriter, not_held},
 };
 
@@ -62,8 +64,11 @@ impl SceneSource {
             },
         );
         let mut found = Vec::new();
-        let fields = FieldWriter::new(|reference| self.outside(file, reference), &mut found)
-            .fields(&format!("asset {}", data.name), &data.fields);
+        let fields = FieldWriter::new(
+            |reference| self.script_reference(file, reference),
+            &mut found,
+        )
+        .fields(&format!("asset {}", data.name), &data.fields);
         self.differences.append(&mut found);
         self.assets[index] = PlanAsset::Script {
             script: String::new(),
@@ -77,6 +82,22 @@ impl SceneSource {
 }
 
 impl SceneSource {
+    /// The plan reference for a field of a script asset: a texture it holds, such as a font atlas,
+    /// is planned with it; scene materials keep holding no textures.
+    fn script_reference(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
+        let held = self
+            .files_mut()
+            .referenced_file(owner, pptr)
+            .ok()
+            .map(|file| (file, pptr.path_id));
+        if held.is_some_and(|key| class_of(self.files_mut(), &key) == Some(ClassId::TEXTURE_2D)) {
+            return self
+                .texture_asset(owner, pptr)
+                .map(|index| json!({ "$asset": index }));
+        }
+        self.outside(owner, pptr)
+    }
+
     /// The index of the font `pptr` names, planned with the range of its font file when it is
     /// new, or why the scene does not hold it.
     pub(crate) fn font_asset(&mut self, key: &ObjectKey, pptr: PPtr) -> Result<usize, String> {

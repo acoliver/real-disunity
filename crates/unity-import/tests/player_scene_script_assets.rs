@@ -19,15 +19,27 @@ use worldrunner_unity_serialized::{
 #[path = "support/font_bytes.rs"]
 mod font_bytes;
 use font_bytes::font;
+#[path = "support/sprite_bytes.rs"]
+mod sprite_bytes;
+use sprite_bytes::{Pixels, sprite, texture};
+
+const PIXELS: [u8; 16] = [
+    11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+];
+const STREAM: [u8; 24] = [
+    90, 91, 92, 93, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10,
+];
 
 const FONT_FILE: &[u8] = b"\x00\x01\x00\x00 not a real font, only bytes to find again";
 
-const TYPES: [ClassId; 5] = [
+const TYPES: [ClassId; 7] = [
     ClassId::MONO_BEHAVIOUR,
     ClassId::MONO_SCRIPT,
     ClassId::GAME_OBJECT,
     ClassId::TRANSFORM,
     ClassId::FONT,
+    ClassId::TEXTURE_2D,
+    ClassId::SPRITE,
 ];
 
 fn ptr(file_id: i32, path_id: i64) -> PPtr {
@@ -130,6 +142,8 @@ fn layouts() -> ScriptLayouts {
                 },
                 object("next", "Example.Settings"),
                 object("face", "UnityEngine.Font"),
+                object("atlas", "UnityEngine.Texture2D"),
+                object("icon", "UnityEngine.Sprite"),
             ],
         },
     ])
@@ -173,11 +187,15 @@ fn write_player(dir: &Path) {
     );
     let settings = |count: i32, next: i64| {
         behaviour(0, ptr(0, 11), &format!("settings {count}"), |w| {
-            w.i32(count).pptr(ptr(0, next)).pptr(ptr(0, 14));
+            w.i32(count)
+                .pptr(ptr(0, next))
+                .pptr(ptr(0, 14))
+                .pptr(ptr(0, 15))
+                .pptr(ptr(0, 16));
         })
     };
     let owned = behaviour(2, ptr(0, 11), "owned", |w| {
-        w.i32(9).pptr(ptr(0, 0)).pptr(ptr(0, 0));
+        w.i32(9).pptr(ptr(0, 0)).pptr(ptr(0, 0)).pptr(ptr(0, 0));
     });
     write_file(
         dir,
@@ -188,9 +206,26 @@ fn write_player(dir: &Path) {
             object(13, ClassId::MONO_BEHAVIOUR, owned),
             object(11, ClassId::MONO_SCRIPT, script("Settings")),
             object(14, ClassId::FONT, font("Sans", FONT_FILE)),
+            object(
+                15,
+                ClassId::TEXTURE_2D,
+                texture(
+                    "atlas",
+                    1,
+                    2,
+                    &Pixels::Streamed("archive:/CAB-1/sharedassets0.assets.resS", 4, 16),
+                ),
+            ),
+            object(
+                17,
+                ClassId::TEXTURE_2D,
+                texture("sheet", 1, 2, &Pixels::Inline(&PIXELS)),
+            ),
+            object(16, ClassId::SPRITE, sprite("icon", 17, false)),
         ],
         &[],
     );
+    std::fs::write(dir.join("sharedassets0.assets.resS"), STREAM).unwrap();
 }
 
 fn planned_in_dir() -> (tempfile::TempDir, ScenePlan) {
@@ -223,14 +258,14 @@ fn script_fields(plan: &ScenePlan) -> &Value {
 fn a_referenced_script_asset_is_a_scene_asset_with_its_class_name_and_fields() {
     let plan = planned();
     let assets = assets(&plan);
-    assert_eq!(assets.len(), 3, "{assets:?}");
+    assert_eq!(assets.len(), 6, "{assets:?}");
     assert_eq!(assets[0]["type"], "Script");
     assert_eq!(assets[0]["class"], "Example.Settings");
     assert_eq!(assets[0]["assembly"], "Example.Game");
     assert_eq!(assets[0]["name"], "settings 1");
     assert_eq!(
         assets[0]["fields"],
-        json!({"count": "1", "next": {"$asset": 1}, "face": {"$asset": 2}})
+        json!({"count": "1", "next": {"$asset": 1}, "face": {"$asset": 2}, "atlas": {"$asset": 3}, "icon": {"$asset": 5}})
     );
 }
 
@@ -241,7 +276,7 @@ fn assets_that_name_each_other_plan_once_each() {
     assert_eq!(assets[1]["name"], "settings 2");
     assert_eq!(
         assets[1]["fields"],
-        json!({"count": "2", "next": {"$asset": 0}, "face": {"$asset": 2}})
+        json!({"count": "2", "next": {"$asset": 0}, "face": {"$asset": 2}, "atlas": {"$asset": 3}, "icon": {"$asset": 5}})
     );
 }
 
@@ -296,4 +331,26 @@ fn a_font_an_asset_names_is_a_scene_asset_with_the_range_of_its_file() {
     let start = usize::try_from(assets[2]["offset"].as_u64().unwrap()).unwrap();
     let end = start + usize::try_from(assets[2]["length"].as_u64().unwrap()).unwrap();
     assert_eq!(&bytes[start..end], FONT_FILE);
+}
+
+#[test]
+fn a_texture_an_asset_names_is_a_scene_asset_with_its_pixels() {
+    let (dir, plan) = planned_in_dir();
+    let assets = assets(&plan);
+    assert_eq!(
+        (&assets[3]["type"], &assets[3]["name"]),
+        (&json!("Texture2D"), &json!("atlas"))
+    );
+    let data = &assets[3]["data"];
+    let file = data["file"].as_str().unwrap();
+    assert_eq!(
+        Path::new(file),
+        dir.path().join("sharedassets0.assets.resS")
+    );
+    let bytes = std::fs::read(file).unwrap();
+    let start = usize::try_from(data["offset"].as_u64().unwrap()).unwrap();
+    assert_eq!(bytes[start..start + 16], STREAM[4..20]);
+    assert_eq!(assets[4]["name"], "sheet");
+    assert_eq!(assets[5]["type"], "Sprite");
+    assert_eq!(assets[5]["texture"], json!({"$asset": 4}));
 }

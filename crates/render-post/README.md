@@ -26,6 +26,15 @@ output.resize(device, [new_width, new_height])?;
 
 For an authored effect, implement `StageFactory`; compile custom shaders with `fullscreen_pipeline` / `compute_pipeline` and construct explicit bind groups in `build`. For example, return histogram clear, histogram dispatch, exposure dispatch, bloom draws, then an output draw. A diagnostic exposure override is an in-order `CopyBuffer` stage, not a queue write racing the compute schedule. Updating per-frame uniforms remains a caller responsibility, before submission. An output format change requires a correspondingly configured factory/pipeline; device/surface lifecycle and capture publication remain host responsibilities.
 
+Authored diagnostics follow `StageId`, independently of timestamp-query support.
+`Stage::encoder_label()` supplies the cached name to render and compute descriptors:
+`name` at level zero, `name level N` otherwise. Schedule acceptance refreshes
+`Stage::label` from its identity, so a separate descriptive label cannot override
+the timing name. `PassId` display uses the same spelling in timing reports.
+Typed raster/compute/transfer lists cache their full operation identity, including
+level and occurrence, when compiled. Encoding borrows retained labels without
+formatting allocation; wgpu still performs its own backend label conversions.
+
 The required GPU tests exercise exact copy, HDR/MSAA resolve, nonaligned readback, optional output changes, disabled-stage preservation, history across resize/reconfiguration and typed invalid configurations. They use native PRIMARY backends by default and honor `WGPU_BACKEND`; adapter absence fails rather than skips.
 
 ## Ordered host captures
@@ -160,6 +169,13 @@ builds a preset. `SmaaSettings::LOW`, `MEDIUM`, `HIGH` and `ULTRA` equal the ref
 | Medium | 0.1 | 8 | off | off |
 | High | 0.1 | 16 | 8 | 25 |
 | Ultra | 0.05 | 32 | 16 | 25 |
+
+Scene consumers author the same resolve through
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` or
+`SceneAntiAlias::Smaa(SceneSmaaSettings { .. })` in `render-plan`.
+`render-scene` converts the threshold from millionths and preserves every search,
+corner and edge-mode setting. This route selects no automatic jitter and rejects
+any second resolve from an HDR post block or frame descriptor.
 
 Custom values are validated: `threshold` is above 0 and at most 0.5, `max_search_steps`
 is 0 through 112, `max_search_steps_diag` is `None` or 0 through 20, and `corner_rounding`

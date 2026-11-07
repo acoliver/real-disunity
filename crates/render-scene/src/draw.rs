@@ -581,23 +581,6 @@ impl SceneGpu {
         (count, bound)
     }
 
-    pub(crate) fn draw_terrain_depth(
-        &self,
-        pass: &mut RenderPass<'_>,
-        frame: &BindGroup,
-        pipeline: &wgpu::RenderPipeline,
-        matrix: glam::Mat4,
-    ) -> DrawCount {
-        if let Some(terrain) = &self.terrain
-            && visibility::Frustum::new(matrix).intersects(terrain.bounds)
-        {
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(FRAME_GROUP, frame, &[]);
-            return Self::draw_terrain_geometry(pass, terrain);
-        }
-        DrawCount::default()
-    }
-
     fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) -> DrawCount {
         if let Some(streaming) = &terrain.streaming {
             return streaming.draw(pass, &terrain.instances);
@@ -692,6 +675,10 @@ mod environment;
 mod prepared;
 mod resources;
 mod selection_reuse;
+mod slice_hull;
+pub(crate) use slice_hull::SliceHull;
+#[cfg(test)]
+pub(crate) use slice_hull::UNCULLED as UNCULLED_CASCADES;
 pub mod source_environment;
 pub use prepared::PreparedScene;
 

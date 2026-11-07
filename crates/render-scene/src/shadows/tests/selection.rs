@@ -77,6 +77,8 @@ pub(super) fn upload_probe(
         camera_splits,
         near: 0.0,
         view_depth: Vec4::X,
+        slices: Vec::new(),
+        filter_texels: 1.0,
     };
     context.queue().write_buffer(
         &renderer.map.uniform,

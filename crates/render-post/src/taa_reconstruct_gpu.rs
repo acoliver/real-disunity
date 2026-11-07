@@ -145,7 +145,7 @@ fn pass(
     });
     Stage {
         id: StageId::new(name, 0),
-        label: name,
+        label: name.into(),
         enabled: true,
         operation: Operation::Compute {
             pipeline,

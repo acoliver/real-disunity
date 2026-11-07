@@ -473,6 +473,40 @@ pipeline.draw(pass, &chunk)?;
 - **Cost.** Neither `bind` nor `draw` reaches the runtime, so a frame that binds and draws prepared pipelines and geometries adds nothing to `RuntimeStats`. `prepare_pipeline` is not a draw and adds none to `draws_prepared`.
 - **Passes.** `bind` and `draw` take any `PassCommands`, which `wgpu::RenderPass` implements. `PreparedProgramDraw::record` is `bind` then `draw` for one geometry, so existing callers are unchanged.
 
+## One parse for a whole source
+
+A vertex stage and a fragment stage are usually two entry points of one WGSL text. `StageProgram::new` parses and validates the text for the entry point it is given, so building both with it parses twice. `sibling` makes another entry point of the same source from the first stage's parse:
+
+```rust
+# use std::sync::Arc;
+# use worldrunner_render_program::module::{
+#     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
+# };
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+const WGSL: &str = "
+@vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+    return vec4<f32>(f32(index), 0.0, 0.0, 1.0);
+}
+@fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }";
+let vertex = StageProgram::new(
+    StageModule {
+        source: StageSource::Wgsl(Arc::from(WGSL)),
+        entry_point: "vs".to_owned(),
+        kind: StageKind::Vertex,
+    },
+    StageDeclarations::default(),
+)?;
+let fragment = vertex.sibling("fs", StageKind::Fragment)?;
+assert!(fragment.shares_parse_with(&vertex));
+# Ok(())
+# }
+```
+
+A sibling has no declarations and no overrides, so give it its own with `with_declarations` and `with_overrides`. It reads the resources of its own entry point, and an entry point the source lacks for that stage is `ModuleError::EntryPointMissing`.
+
+- **Registration.** `register_program` makes the stages of a program this way when their sources are equal, across the variants of one program too, so a program written as one WGSL text is parsed once. A `StageDesc` needs no change.
+- **Shader modules.** The runtime compiles one `ShaderModule` for each source, and every entry point of the source, with any overrides, uses it. A program whose two stages share a source adds one module to `RuntimeStats::modules_built` and `cached_modules()`, and a source that two separate parses produced still compiles once, because the key is the text and not the parse. `StageProgram::shares_parse_with` tells whether two stages came from one parse.
+
 ## Override constants
 
 A WGSL `override` is a constant the pipeline sets when it is created, so one source serves every value of a switch, a convention or a radius without a second copy of the text. `StageProgram::with_overrides` returns the same stage with values set, and it checks them against the module:

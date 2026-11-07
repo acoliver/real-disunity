@@ -3,10 +3,10 @@
 use glam::{Quat, Vec3};
 use std::collections::BTreeMap;
 use worldrunner_render_program::ids::{CameraId, MeshId, RendererId, ShaderId, TextureId};
-use worldrunner_render_program::offscreen::frame::Record;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
-use worldrunner_render_program::shader::PassSelector;
+use worldrunner_render_program::unity::offscreen::frame::Record;
+use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties,
     TextureRef, WorldRenderTexture, WorldSampler,
@@ -194,6 +194,35 @@ fn records_that_name_what_no_longer_exists_are_skipped_by_reason_and_the_rest_st
     );
     assert_eq!(adapted.frame.records.len(), 1, "only the live blit is left");
     assert_eq!(adapted.report.records, 7);
+}
+
+#[test]
+fn script_commands_the_adapter_does_not_run_are_skipped_by_name_and_the_draws_stay() {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    let object = super::support::object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
+    let handle = world
+        .add_component(
+            object,
+            worldrunner_world_simulation::ComponentDesc::Camera(Camera::default()),
+        )
+        .unwrap();
+    world
+        .record_offscreen(OffscreenWork::SetGlobalKeyword {
+            name: "FOG".to_owned(),
+            enabled: true,
+        })
+        .unwrap();
+    draw(&mut world, handle, target);
+    world
+        .record_offscreen(OffscreenWork::ReleaseTemporary { name_id: 7 })
+        .unwrap();
+    let snapshot = snapshot(&mut world);
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
+    assert_eq!(adapted.report.records, 3);
+    assert_eq!(adapted.report.skipped.get(&Skip::UnsupportedWork), Some(&2));
+    assert_eq!(adapted.frame.records.len(), 1);
+    assert_eq!(adapted.report.built, 1);
 }
 
 #[test]

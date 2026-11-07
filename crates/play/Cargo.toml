@@ -19,7 +19,7 @@ worldrunner-disunity-runtime = { path = "../disunity-runtime" }
 worldrunner-original-games = { path = "../original-games" }
 worldrunner-render-gpu = { path = "../render-gpu" }
 worldrunner-render-plan = { path = "../render-plan", features = ["simulation"] }
-worldrunner-render-program = { path = "../render-program" }
+worldrunner-render-program = { path = "../render-program", features = ["unity"] }
 worldrunner-render-scene = { path = "../render-scene" }
 worldrunner-scene-viewer = { path = "../scene-viewer" }
 worldrunner-unity-import = { path = "../unity-import" }
@@ -29,7 +29,7 @@ worldrunner-world-simulation = { path = "../world-simulation" }
 [dev-dependencies]
 tempfile.workspace = true
 worldrunner-render-gpu = { path = "../render-gpu", features = ["test-support"] }
-worldrunner-render-program = { path = "../render-program", features = ["test-support"] }
+worldrunner-render-program = { path = "../render-program", features = ["unity", "test-support"] }
 
 [[bin]]
 name = "play"

@@ -15,6 +15,7 @@ type Residents = Vec<(TerrainChunk, GpuLod)>;
 #[derive(Debug)]
 pub(super) struct Streaming {
     scene: RenderScene,
+    plane_chunks: std::collections::BTreeMap<TerrainChunk, u32>,
     identity: Rc<()>,
     pub(super) committed: Rc<RefCell<Residents>>,
     drawing: RefCell<Option<Prepared>>,
@@ -38,6 +39,7 @@ impl Streaming {
         let terrain = scene.terrain().expect("terrain");
         let chunk = TerrainChunk::root(terrain, terrain.streaming_policy().expect("policy"));
         Self {
+            plane_chunks: crate::terrain::planes::chunk_indices(terrain),
             scene,
             identity: Rc::new(()),
             committed: Rc::new(RefCell::new(vec![(chunk, root)])),
@@ -247,8 +249,12 @@ impl Streaming {
                     .is_some_and(|current| current.same_transaction(&prepared.owner))
             })
             .map_or(&*committed, |prepared| &prepared.residents);
-        pass.set_vertex_buffer(1, instances.slice(..));
-        for (_, lod) in residents {
+        for (chunk, lod) in residents {
+            let offset = u64::from(self.plane_chunks[chunk]) * crate::geometry::INSTANCE_STRIDE;
+            pass.set_vertex_buffer(
+                1,
+                instances.slice(offset..offset + crate::geometry::INSTANCE_STRIDE),
+            );
             pass.set_vertex_buffer(0, lod.vertices.slice(..));
             pass.set_index_buffer(lod.indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..lod.index_count, 0, 0..1);

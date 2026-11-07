@@ -7,6 +7,9 @@ use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::resource::upload_buffer;
 use worldrunner_render_gpu::texture::{TextureKind, TextureLayer, TextureUpload, packed_mips};
 
+use crate::bind::Snapshot;
+use crate::binding::BindingAddress;
+use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::resources::TextureHandle;
 use crate::resources::{BufferEntry, BufferHandle, TargetEntry, TargetHandle, TextureEntry};
@@ -22,6 +25,38 @@ impl ProgramRuntime {
         label: &str,
         bytes: &[u8],
     ) -> Result<BufferHandle, ProgramError> {
+        let (buffer, reservation) = self.upload(label, bytes)?;
+        let entry = BufferEntry {
+            buffer,
+            len: bytes.len() as u64,
+        };
+        Ok(self.store.add_buffer(entry, reservation))
+    }
+
+    /// A buffer of constants that only a prepared draw uses, with the reservation that counts
+    /// its bytes. The draw and the frames it is recorded into share the reservation, so the
+    /// bytes are counted until the last of them is done and need no release.
+    pub(crate) fn snapshot_buffer(
+        &self,
+        at: BindingAddress,
+        bytes: &[u8],
+    ) -> Result<Snapshot, ProgramError> {
+        let (buffer, reservation) = self.upload("render-program constants", bytes)?;
+        Ok(Snapshot {
+            at,
+            buffer,
+            len: bytes.len() as u64,
+            reservation: Arc::new(reservation),
+        })
+    }
+
+    /// Admits and uploads `bytes` to a new buffer usable as uniform, storage, vertex and index
+    /// data.
+    fn upload(
+        &self,
+        label: &str,
+        bytes: &[u8],
+    ) -> Result<(wgpu::Buffer, Reservation), ProgramError> {
         self.authority.check_device()?;
         let contents = padded(bytes);
         let mut allocations = AllocationSet::default();
@@ -44,11 +79,7 @@ impl ProgramRuntime {
                 &contents,
             )
         })?;
-        let entry = BufferEntry {
-            buffer,
-            len: bytes.len() as u64,
-        };
-        Ok(self.store.add_buffer(entry, reservation))
+        Ok((buffer, reservation))
     }
 
     /// Records an overwrite of part of a buffer into `encoder`; the offset and length must be

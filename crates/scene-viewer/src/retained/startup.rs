@@ -45,9 +45,12 @@ impl RetainedHost {
             None => 0,
         };
         let mut host = Self {
+            clipboard: super::clipboard::HostClipboard::default(),
+            accessibility: super::accessibility::Accessibility::default(),
             picking: super::picking::Picking::default(),
             work: super::work::WorkServices::default(),
             timers: super::timers::Timers::default(),
+            audio: super::AudioService::default(),
             statistics: None,
             gpu_timing: if options.gpu_timing {
                 super::GpuTiming::Pending

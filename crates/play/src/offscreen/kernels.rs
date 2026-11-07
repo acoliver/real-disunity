@@ -12,8 +12,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use worldrunner_render_program::compute_kernel::kernel_stage;
-use worldrunner_render_program::module::StageProgram;
+use worldrunner_render_program::unity::compute_kernel::kernel_stage;
+use worldrunner_render_program::unity::module::StageProgram;
 use worldrunner_unity_import::player_objects::OpenFile;
 use worldrunner_unity_serialized::compute_shader::{ComputeShader, SPIRV_RENDERER};
 use worldrunner_world_simulation::graphics::{ShaderSource, WorldComputeShader};

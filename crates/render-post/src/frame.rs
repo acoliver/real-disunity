@@ -7,7 +7,6 @@ use crate::FrameTargets;
 pub enum PassSlot {
     ShadowCasters(u32),
     DepthNormalPrepass,
-    ReflectionMaterial,
     DepthPyramid(u32),
     OcclusionMetadata(u32),
     Ssao,

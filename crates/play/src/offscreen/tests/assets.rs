@@ -4,8 +4,8 @@ use worldrunner_disunity_runtime::{
     MeshChannel as StoredChannel, MeshChannels, MeshRange, PlayerTexture, TextureSampler,
 };
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::offscreen::frame::{ChannelFormat, MeshIndices};
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
+use worldrunner_render_program::unity::offscreen::frame::{ChannelFormat, MeshIndices};
 use worldrunner_world_simulation::graphics::WorldSampler;
 
 use super::super::assets::{MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of};
@@ -47,7 +47,7 @@ fn floats(bytes: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-fn sources(made: &worldrunner_render_program::offscreen::frame::Mesh) -> Vec<i8> {
+fn sources(made: &worldrunner_render_program::unity::offscreen::frame::Mesh) -> Vec<i8> {
     made.channels.iter().map(|channel| channel.source).collect()
 }
 

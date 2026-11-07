@@ -10,7 +10,7 @@ use std::{
     path::PathBuf,
 };
 
-use worldrunner_render_program::{
+use worldrunner_render_program::unity::{
     buffers::BufferLayout, constants::pack_variant_buffer, structs::StructPlacement,
 };
 use worldrunner_unity_serialized::{

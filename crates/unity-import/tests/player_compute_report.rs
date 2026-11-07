@@ -8,7 +8,7 @@ use layout::{
     Binding, BufferLayout, GLSL, Kernel, Member, Platform, SPIRV, Variant, compute_shader_bytes,
 };
 use naga::ShaderStage;
-use worldrunner_render_program::synthetic::stage_spirv;
+use worldrunner_render_program::unity::synthetic::stage_spirv;
 use worldrunner_unity_import::{
     player_compute_report::{ComputeReport, compute_report},
     shader_prep::Backend,

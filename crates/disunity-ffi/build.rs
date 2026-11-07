@@ -43,6 +43,8 @@ const ABI_SOURCES: &[&str] = &[
     "src/compute_bindings.rs",
     "src/gpu_flush.rs",
     "src/graphics.rs",
+    "src/graphics_commands.rs",
+    "src/graphics_context.rs",
     "src/graphics_offscreen.rs",
     "src/graphics_properties.rs",
     "src/graphics_snapshot.rs",

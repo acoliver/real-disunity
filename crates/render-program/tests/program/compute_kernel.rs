@@ -1,10 +1,12 @@
 //! A compute kernel decoded from a player's compute shader, as the stage program and parameters
 //! a graphics variant would give.
 
-use worldrunner_render_program::compute_kernel::{KernelError, kernel_stage, variant_parameters};
-use worldrunner_render_program::layout::ProgramLayout;
-use worldrunner_render_program::module::StageKind;
-use worldrunner_render_program::synthetic::stage_spirv;
+use worldrunner_render_program::unity::compute_kernel::{
+    KernelError, kernel_stage, variant_parameters,
+};
+use worldrunner_render_program::unity::layout::ProgramLayout;
+use worldrunner_render_program::unity::module::StageKind;
+use worldrunner_render_program::unity::synthetic::stage_spirv;
 use worldrunner_unity_serialized::compute_shader::{
     Code, ComputeBinding, ComputeBuffer, ComputeMember, ComputeSampler, ComputeSlot, ComputeVariant,
 };

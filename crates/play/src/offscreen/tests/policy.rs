@@ -7,9 +7,9 @@
 //! counts as `Always`, the camera's last choice, and any tagged pass the camera selects wins over
 //! it. A pass tagged with a value the camera does not select is never drawn.
 
-use worldrunner_render_program::shader::{ProgramShader, ResolveError};
-use worldrunner_render_program::synthetic::shaders::{no_cull, tint_variant};
-use worldrunner_render_program::synthetic::{PassSpec, shader};
+use worldrunner_render_program::unity::shader::{ProgramShader, ResolveError};
+use worldrunner_render_program::unity::synthetic::shaders::{no_cull, tint_variant};
+use worldrunner_render_program::unity::synthetic::{PassSpec, shader};
 
 use super::super::frame::Settings;
 

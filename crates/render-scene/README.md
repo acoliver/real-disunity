@@ -10,6 +10,40 @@ a normalized material mixture. Reordering a dense palette with the matching grid
 remap does not change the rendered surface. Blur radii, tints, and rotations come
 from scene inputs; no content-specific blur table is embedded.
 
+Terrain material footprints reconstruct their triangle plane from exact packed
+heightfield positions. A draw's sample window and stride select its grid cell
+against the stored f32 axis boundaries, including shortened final intervals.
+Internal boundaries belong to the next cell; the outer edge belongs to the last
+cell. Skirts use their vertical edge plane.
+Terrain uses the standard shared-vertex mesh layout. Each fragment solves its
+quad-aligned adjacent-pixel displacement on that plane without screen derivatives
+or subtraction of world positions. At grazing angles, a relative 1e-5 determinant
+floor and a 1e4-metre displacement cap keep the filter gradients finite.
+
+The named `Frame.raster_viewport.xy` field carries the actual raster extent.
+`FrameUniform` encodes 336 bytes: a 320-byte lighting prefix and a 16-byte raster
+extent vector.
+Perspective and orthographic projections use the same displacement solve.
+Forward, normal prepass, material metadata and reflection replay share this path.
+Non-terrain footprint and sampling logic is unaffected.
+
+Terrain group 1 binding 23 (`terrain_plane_data`) stores exact f32 source
+coordinates and eight-word sample-window descriptors. Its payload is
+`16 + 4 * (columns + rows + columns * rows) + 32 * chunk_count` bytes;
+instances add `INSTANCE_BYTES * chunk_count`. These are immutable scene uploads,
+like the existing terrain mesh, outside the streaming leaf and material-page
+budgets. The triangle source checks both buffer and storage-binding size limits.
+Instance bytes use checked arithmetic and check only the buffer size limit,
+before allocation or freezing a previous streaming generation. Rejection returns
+`DrawError::TerrainInstanceSizeOverflow` or `DrawError::TerrainInstanceLimit`.
+
+Terrain uses one vertex storage buffer. Fragment storage counts for palette,
+cached palette, layered and cached layered draws are 1, 2, 4 and 5 respectively.
+All fit wgpu's default limit of 8, including Linux. Downlevel's limit of 4
+supports palette paths; layered pipelines already require 5 for their compute
+preparation and remain unavailable there. WebGL2's zero-storage limits do not
+support this terrain path. Binding indices require at least 24 slots per group.
+
 Streaming terrain residents remain sorted by `TerrainChunk`'s derived key
 (minimum sample coordinates, maximum coordinates, then stride), including retained
 source replacements. Forward, shadow, depth and metadata passes traverse the same
@@ -75,6 +109,18 @@ A frame with no admitted draws is unchanged: `without_admitted_programs_the_fram
 
 The tests are in `src/draw/tests/program_frame*`. `player_program_and_scene_gpu_draw_composite_in_one_submitted_frame` draws a red unlit engine card and two patches of a synthetic SPIR-V program in one frame, with explicit `ProgramParameters`, and checks engine-only, player-only and overlapping pixels, an unchanged `submitted_serial` while recording and a serial rise of exactly one. The patches' clip depths lie on either side of the card's depth, which is derived from the projection, so the expected pixels do not depend on the shaders. Run them with `cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1`.
 
+## Dynamic quads on the program runtime
+
+Dynamic quads, native sprites and tilemaps, and UI glyphs routed into the world draw with the scene shader's `vs_unlit` and `fs_unlit`. That material is a `render-program` graphics program over the unchanged scene WGSL, and `ScenePipelines` no longer builds a pipeline for it. The runtime builds the pipeline for the pass it is given, with straight alpha over location zero, `LessEqual` depth without a depth write, no culling and an empty write mask on every other colour attachment, so the velocity and reflection targets of a pass keep what other materials wrote. Plain, SSAO, velocity and SSR pipeline sets, `Rgba8UnormSrgb` and `Rgba16Float`, and any sample count the pipelines were built for take the same material.
+
+The runtime borrows what the scene already owns, by semantic: the slot's 320-byte frame uniform at group 0 binding 0 (the frame slot of the transaction that committed the frame, not a copy), and for each group of adjacent compatible quads its vertex, instance, tint and material buffers, its albedo texture and its sampler. Each group is one instanced draw over `0..instance_count`. The stable `(overlay, sorting_layer, sorting_order, hierarchy_order)` order and adjacent-only batching are unchanged. A group is adjacent quads with the same clip rectangle, texture, corners, rectangle and UV rectangle, so quads with different clip rectangles are separate draws. The scene counts none of these buffers against an allocation set and neither does the runtime: that accounting does not exist for dynamic geometry, and this change adds none.
+
+Staging quads prepares a draw for each frame slot, which can fail and allocate, beside the buffers' upload. `encode_scene` and `ShadowedScene` prepare the quads for a pass the staging pipelines did not describe, if there are any, and retain the staged draws on the frame before the pass opens. `encode_resident` takes a shared scene, so it retains and refuses a pass the quads were not prepared for. Recording is state setting at the position the fixed pipeline's draw had: objects, terrain, sky and celestial meshes, then quads. The staged quads own what they lent through a `Keepalive`, so replacing or clearing them while a frame that recorded them is unfinished leaves the buffers alive until that frame is cancelled or completed on the GPU.
+
+The scene's pass does not clip: `DynamicQuad::clip_rect` splits draws there and is applied only by the retained-UI overlay. The overlay keeps its own fixed pipeline (`vs_ui_overlay`, `fs_ui_overlay`) over the same staged quad buffers, with a material bind group per draw and a scissor per draw taken from the clip rectangle (clamped to the output, flipped to the top-left origin, skipped when nothing is left). Its draw returns the calls and instances it recorded for the UI pass statistics. `src/dynamic/capture_tests/clipping.rs` draws partial, disjoint, full, oversized, outside and mixed clip rectangles in every target set and requires the scene's pass to match the unscissored fixed draw and the overlay's draw, recorded with the fixed unlit pipeline, to match the scissored fixed draw and its counts byte for byte.
+
+`src/dynamic/capture_tests.rs` draws quads, sprites and glyphs with this path and with a test-only copy of the former fixed pipeline and material bind group, on one device, under each target set above with the auxiliary attachments pre-filled, and requires every attachment to match byte for byte. It prints a hash per attachment, which was identical before and after the change on the Radeon 780M and on llvmpipe.
+
 ## Player offscreen operations
 
 `SceneGpu::admit_offscreen` carries an `AdmittedOffscreen` from `worldrunner-render-program` into the next frame encoded with this scene: camera renders into render textures, `Graphics.Blit` material passes and texture copies, already checked by the render-post executor's contract as `TypedOperation`s. `compositor::encode_scene` takes them after it has checked the admitted draws and before it declares the stock passes, so they are the first commands the frame records in the same encoder and so the same submission. They are encoded through the frame's pass timer, so with timing configured each one is a `PassId::Operation` at the head of `FrameTiming::passes`, ahead of the stock opaque pass. No second scheduler was added: the scene's only change is where it calls `AdmittedOffscreen::encode`.
@@ -88,6 +134,20 @@ A draw admitted with `admit_programs` can sample a render texture that the offsc
 The test is `src/draw/tests/program_frame/offscreen.rs`: a camera renders two of three renderers (selected by layer) over a clear color, a blit inverts the result, a copy puts it in element 2 of a texture array and an admitted scene draw samples that element in the opaque pass, with a readback after each stage, exactly one submission and the offscreen passes listed in the frame's timing. See the [program crate](../render-program/README.md#offscreen-work-through-the-checked-operations).
 
 ## Material sampling
+
+Mesh and impostor scalar selectors use direct component indexing with uniform integers,
+without selector-dependent fragment branches or additional pipelines. The shared
+material uniform is 576 bytes: its first 448 bytes retain their layout, followed
+by four 16-byte surface index slots and four packed-atlas index slots. Each slot's
+first signed integer is an offset from the default component; the rest is padding.
+Default uniform tails stay zero, and selection performs no arithmetic on texels. Forward and material metadata sampling share these selectors. See the
+[material channel contract](../render-plan/README.md#material-scalar-channels)
+for defaults, map roles and typed admission errors.
+
+DDS DXGI formats 98 and 99 upload as BC7 UNORM and BC7 sRGB without CPU decoding,
+including supplied mip tails. Layered terrain source arrays accept both BC7
+formats. BC7 requires the same `TEXTURE_COMPRESSION_BC` feature as BC1/3/4/5;
+colour-space disagreements and truncated block payloads are rejected.
 
 Resident mesh and impostor materials share one sampler across all channels.
 `SceneMaterial::with_anisotropy` selects 1, 2, 4, 8 or 16, defaulting to 1;
@@ -106,7 +166,7 @@ gutter-safe page lookup. See the
 [terrain source contract](../../dev-docs/rendering/terrain-pages.md#portable-source-anisotropy) and the
 [sampling contract](../../dev-docs/rendering/2d.md#texture-sampling).
 
-`FrameUniform::material_mip_bias` (the last f32 of the frame block, bytes 316 to 320) is the mip
+`FrameUniform::material_mip_bias` (`lighting_options.w`, bytes 316 to 320) is the mip
 bias of the scene's texture sampling, and `FrameRenderer::jitter_frame` sets it from
 `HdrPostSettings::material_mip_bias`, which returns exactly `+0.0` in every mode, so no bias is
 active and every frame keeps its bytes. The sites that use the lane are the explicit-gradient
@@ -126,11 +186,21 @@ atlas. Atlas footprints are computed in uniform control flow, before
 fragment-dependent branches or returns. Optional maps are sampled only when their
 material feature is enabled. A material-uniform gate skips atlas coordinates and
 derivatives entirely for ordinary materials, and relief depth is sampled only
-when relief is enabled. Sampling uses
-explicit gradients with the material mip bias, or explicit level zero according
-to the atlas policy. Clamped UVs and per-texture insets determine each footprint.
-Coverage is resolved after shading, and relief depth before discard, so normal
-frames and atlas derivatives retain their complete fragment quad.
+when relief is enabled. Relief fragments reconstruct their position once and share
+it between depth output and surface shading in forward and metadata passes. Sampling
+uses mutually exclusive explicit-gradient and explicit-level-zero branches according
+to the atlas policy. Gradients include the material mip bias; clamped UVs and
+per-texture insets determine each footprint. CPU Naga-IR tests bound reconstruction
+calls and require blended level-zero samples to exclude the gradient branch.
+Forward coverage is resolved after shading. Metadata captures atlas footprints,
+normal frames and decal position gradients with the complete fragment quad, then
+samples albedo once and rejects alpha, distance-fade and invisible relief fragments.
+Only survivors sample normal and surface maps or traverse decal volumes. All samples
+after metadata rejection use explicit gradients or levels; relief depth is reconstructed
+before rejection and reused by shading and depth output. Normal, surface-channel
+and decal evaluation expand from shared source bodies. Preparation and prepared
+evaluation declarations belong only to metadata assembly; forward source bytes
+remain unchanged because preparation wrappers change rendered bytes on Metal.
 
 Surface and impostor materials specialize `SCENE_IMPOSTOR` independently of alpha
 coverage. Surface variants exclude atlas selection and relief sampling at compilation,
@@ -394,7 +464,7 @@ rasterizes with, and fills `FrameUniform::temporal` with a `TemporalView`: the u
 matrix, the previous submitted frame's unjittered matrix, both jitter offsets in pixels and
 whether the history is valid. `TemporalView::to_bytes` is a separate 176-byte block (it also carries the previous published frame's animation clock and camera position; a clock that moves backwards discards the history).
 `encode_frame` turns it into the 96-byte `TaaUniform` (reprojection in f64, depth terms read off the unjittered view-projection) that `encode_output`
-uploads for the frame slot. Draw into `targets().depth()` while TAA is resident. The 320-byte scene block keeps its layout, so with jitter on only its first sixty-four
+uploads for the frame slot. Draw into `targets().depth()` while TAA is resident. The 336-byte scene block keeps its layout, so with jitter on only its first sixty-four
 bytes change.
 
 Velocity pipelines (`ScenePipelines::with_taa_velocity`) also write the motion of moving instances. While a pass draws them, each instance batch keeps a previous-transform buffer (same layout as the instance buffer, bound as a third vertex buffer at locations 12 to 15 of velocity variants only). Editing a slot copies its last published transform there before the new one is uploaded; a slot untouched for a frame converges to previous equal to current; added or reused slots start equal to current; a cancelled frame changes neither buffer. Billboards and impostors do not yet follow their transform.
@@ -527,6 +597,13 @@ all maps fresh. The desktop viewer and same-frame depth-fitting capture do this
 automatically. One-shot `capture_scene_shadowed` starts with fresh resources.
 The procedural viewer accepts `--shadows --staggered-shadows` for the example
 policy above. `ViewerOptions::shadows` also accepts an explicit refresh policy.
+
+The ignored `cascade_refresh_gpu_timing_comparison` test is an informational
+probe, run serially with `--include-ignored --nocapture`. It reports a comparison
+only when every sampled pass has a resolvable timestamp pair. Missing timestamp
+capability or an unavailable sampled pair prints `SKIP` and omits the comparison;
+an unavailable pair is never counted as zero or dropped from a partial total.
+Device acquisition, encoding and readback errors still fail the probe.
 
 ## Submitted geometry statistics
 

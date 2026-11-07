@@ -221,9 +221,29 @@ public partial class Material : Object
         return _passEnabled.GetValueOrDefault(passName, true);
     }
 
-    public string GetPassName(int pass) => throw Unsupported(nameof(GetPassName));
+    /// <summary>The name of a pass of the shader's first sub-shader, as a player's plan declares it (empty for an unnamed pass).
+    /// A pass outside 0 to <see cref="passCount"/> - 1 logs an error naming the material, the pass and the count and returns the
+    /// empty string (the engine's choice, as <see cref="SetPass"/> logs). A shader whose pass names are not declared throws
+    /// <see cref="NotSupportedException"/>.</summary>
+    public string GetPassName(int pass)
+    {
+        var names = shader.PassNames("Material.GetPassName");
+        if (pass >= 0 && pass < names.Count) return names[pass];
+        Debug.LogError($"Material.GetPassName: pass {pass} is out of range for material '{name}', whose shader has {names.Count} passes");
+        return "";
+    }
 
-    public int FindPass(string passName) => throw Unsupported(nameof(FindPass));
+    /// <summary>The index of the first pass of the shader's first sub-shader whose name equals <paramref name="passName"/>, ignoring
+    /// case (the engine's choice), or -1 when none does. A shader whose pass names are not declared throws
+    /// <see cref="NotSupportedException"/>.</summary>
+    public int FindPass(string passName)
+    {
+        ArgumentNullException.ThrowIfNull(passName);
+        var names = shader.PassNames("Material.FindPass");
+        for (var pass = 0; pass < names.Count; pass++)
+            if (string.Equals(names[pass], passName, StringComparison.OrdinalIgnoreCase)) return pass;
+        return -1;
+    }
 
     /// <summary>An empty value removes the override.</summary>
     public void SetOverrideTag(string tag, string val)
@@ -245,8 +265,22 @@ public partial class Material : Object
 
     public string GetTag(string tag, bool searchFallbacks) => GetTag(tag, searchFallbacks, "");
 
-    /// <summary>Binds the pass for drawing, which needs a GPU.</summary>
-    public bool SetPass(int pass) => throw Unsupported(nameof(SetPass));
+    /// <summary>Makes <paramref name="pass"/> the active pass of the immediate-mode draws that follow and records it in the
+    /// native world, making the material's world material on first use as a blit does. A pass outside 0 to <see cref="passCount"/> - 1 logs an error
+    /// and returns false (the engine's choice) and leaves the earlier active pass. A shader whose pass count is not declared
+    /// throws <see cref="NotSupportedException"/> from <see cref="Shader.passCount"/>. Immediate-mode draws are not supported
+    /// yet, so nothing draws with the active pass.</summary>
+    public bool SetPass(int pass)
+    {
+        var count = passCount;
+        if (pass < 0 || pass >= count)
+        {
+            Debug.LogError($"Material.SetPass: pass {pass} is out of range for material '{name}', whose shader has {count} passes");
+            return false;
+        }
+        WorldGraphics.WriteActivePass(WorldLink, (uint)pass);
+        return true;
+    }
 
     /// <summary>Copies the shader, every property, the keywords, the render queue and the other settings from <paramref name="mat"/>.</summary>
     public void CopyPropertiesFromMaterial(Material mat)

@@ -72,10 +72,8 @@ pub fn play_player_window(
     let mut host = DisunityHost::boot(&prepared.config)?;
     host.run_slice(&prepared.request)?;
     let mut driver = PlayerRetainedDriver::new(host, window)?;
-    let scene = driver
-        .tables
-        .initial_scene()
-        .map_err(|error| scene_error("the initial scene", &error))?;
+    let scene =
+        SceneTables::initial_scene().map_err(|error| scene_error("the initial scene", &error))?;
     let viewer = RetainedHost::new(scene, viewer_options(&driver.window))
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
     viewer
@@ -90,7 +88,7 @@ fn scene_error(what: &str, error: &SceneValidationError) -> PlayError {
 
 /// The viewer's settings before the first mesh object: a view over the origin the window shows
 /// until the game's own camera replaces it.
-fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
+pub(crate) fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
     ViewerOptions {
         activity_reason: worldrunner_scene_viewer::ActivityReason::default(),
         presentation_budget: PresentationBudget::default().into(),
@@ -222,10 +220,7 @@ impl PlayerRetainedDriver {
             meshes: &self.meshes,
             textures: &self.sprites,
         };
-        let update = self
-            .tables
-            .update(&objects, &content, &changes)
-            .map_err(|error| scene_error("the frame", &error))?;
+        let update = self.tables.update(&objects, &content, &changes);
         self.report(&update.skipped);
         apply(viewer, update)?;
         if let Some(update) = self.ui.update(
@@ -342,18 +337,12 @@ impl PlayerRetainedDriver {
     }
 }
 
-/// Sends the resource tables, when a frame changed them, and then the object edits.
+/// Sends the frame's new and changed resources, and then its object edits.
 fn apply(viewer: &mut RetainedHost, update: FrameUpdate) -> Result<(), PlayError> {
-    let rejected = |error| PlayError::Invalid(format!("the viewer rejects the frame: {error}"));
-    if let Some((resources, meshes)) = update.resources {
-        viewer
-            .apply(RetainedUpdate::Resources { resources, meshes })
-            .map_err(rejected)?;
-    }
-    if !update.edits.is_empty() {
-        viewer
-            .apply(RetainedUpdate::Objects(update.edits))
-            .map_err(rejected)?;
+    for update in update.into_updates() {
+        viewer.apply(update).map_err(|error| {
+            PlayError::Invalid(format!("the viewer rejects the frame: {error}"))
+        })?;
     }
     Ok(())
 }
@@ -393,7 +382,12 @@ impl RetainedDriver for PlayerRetainedDriver {
             }
             RetainedEvent::Presented { frame } => self.presented = frame + 1,
             RetainedEvent::Capture { id, outcome, .. } => self.delivered(*id, outcome),
-            RetainedEvent::Shutdown | RetainedEvent::WorkReady | RetainedEvent::Timer { .. } => {}
+            RetainedEvent::Shutdown
+            | RetainedEvent::WorkReady
+            | RetainedEvent::Timer { .. }
+            | RetainedEvent::AudioFinished { .. }
+            | RetainedEvent::AudioStatusChanged { .. }
+            | RetainedEvent::Accessibility(_) => {}
         }
         if self.finished() {
             viewer.request_exit();

@@ -58,6 +58,7 @@ pub fn encode_resident(
         ));
     }
     renderer.prepare_scene_inputs(device, scene);
+    scene.retain_dynamic(encoder, pipelines)?;
     let (color, depth) = attachments;
     scene.prepare_terrain_geometry(device, encoder, &scene.resident_frame(), color.size())?;
     scene.prepare_sky(device, encoder, &scene.resident_frame())?;

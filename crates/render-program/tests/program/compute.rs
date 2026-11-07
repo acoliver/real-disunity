@@ -1,10 +1,10 @@
 //! A compute kernel with Unity-style sparse bindings, run on the GPU and read back.
 
-use worldrunner_render_program::constants::pack_layout;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::module::{StageKind, StageParameters, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::constants::pack_layout;
+use worldrunner_render_program::unity::module::{StageKind, StageParameters, StageProgram};
+use worldrunner_render_program::unity::runtime::{
     BoundResource, BufferHandle, ComputeProgram, DispatchRequest, ProgramRuntime,
 };
 use worldrunner_unity_serialized::shader_parameters::{
@@ -355,7 +355,7 @@ fn a_stage_of_the_wrong_kind_is_a_named_error() {
 
 #[test]
 fn the_storage_buffers_a_kernel_names_come_with_their_places_in_either_form() {
-    use worldrunner_render_program::buffers::ParamName;
+    use worldrunner_render_program::unity::buffers::ParamName;
     each_form(|form| {
         let targets = kernel(form).buffer_targets().unwrap();
         let places: Vec<_> = targets

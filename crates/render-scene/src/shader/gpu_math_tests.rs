@@ -156,6 +156,7 @@ pub(crate) fn configured_frame(
         animation_time_milliseconds: 0,
         temporal: None,
         material_mip_bias: 0.0,
+        raster_viewport: [1, 1],
         view: glam::Mat4::IDENTITY,
         view_projection: Mat4::IDENTITY,
         camera_position: Vec3::Z,

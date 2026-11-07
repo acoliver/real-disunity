@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll, Waker};
 
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
@@ -14,15 +15,24 @@ use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
 use crate::budget::{Ledger, Reservation};
 use crate::error::ProgramError;
 use crate::module::StageProgram;
+use crate::registry::Registry;
 use crate::resources::{Pins, Store};
 
 pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
-pub use crate::packet::{DrawPacket, PreparedProgramDraw, TargetSignature};
+pub use crate::import::{
+    Import, ImportedDraw, ImportedGeometry, ImportedIndices, ImportedResource, ImportedTexture,
+    ImportedVertexInput,
+};
+pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
+pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
 pub use crate::program::{ComputeProgram, GraphicsProgram};
 pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
-pub use crate::resources::{BoundResource, BufferHandle, Resource, TargetHandle, TextureHandle};
+pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
+pub use crate::resources::{
+    BoundResource, BufferHandle, Keepalive, Resource, TargetHandle, TextureHandle,
+};
 
 /// Shares the caller's wgpu device and `SubmissionAuthority`, owns the resources it creates by
 /// handle, and caches shader modules and pipelines keyed by their content.
@@ -39,6 +49,8 @@ pub struct ProgramRuntime {
     pub(crate) device: wgpu::Device,
     pub(crate) authority: SubmissionAuthority,
     pub(crate) store: Store,
+    /// Registered programs and the materials made from them.
+    pub(crate) registry: Registry,
     pub(crate) ledger: Ledger,
     pub(crate) budget: AllocationBudget,
     /// The one sampler every sampler binding gets: linear filtering, clamped to the edge.
@@ -47,6 +59,9 @@ pub struct ProgramRuntime {
     pub(crate) render_pipelines: HashMap<blake3::Hash, wgpu::RenderPipeline>,
     pub(crate) compute_pipelines: HashMap<blake3::Hash, wgpu::ComputePipeline>,
 }
+
+/// Gives each runtime its own number, so a handle from another runtime is refused.
+static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(1);
 
 impl ProgramRuntime {
     #[must_use]
@@ -60,6 +75,7 @@ impl ProgramRuntime {
             device,
             authority,
             store: Store::default(),
+            registry: Registry::new(NEXT_RUNTIME.fetch_add(1, Ordering::Relaxed)),
             ledger: Ledger::default(),
             budget,
             sampler,

@@ -16,6 +16,7 @@ mod programs;
 pub(crate) mod publication;
 mod temporal;
 mod validation;
+use crate::ssao::passes::ScreenFeature;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 use output::FrameOutput;
@@ -552,10 +553,7 @@ impl FrameRenderer {
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         self.set_water_input(device, &frame, shadow, encoder)?;
         let mut combined = reborrow_features(features);
-        let mut screen = self
-            .ssao
-            .as_ref()
-            .map(|ssao| crate::ssao::passes::ScreenFeature { ssao, frame });
+        let mut screen = ScreenFeature::installed(self.ssao.as_ref(), self.ssr.as_ref(), &frame);
         if let Some(screen) = &mut screen {
             let declaration = screen.schedule(&mut passes, &mut views)?;
             combined.push(BorrowedFeature {

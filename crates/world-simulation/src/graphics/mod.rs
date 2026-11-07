@@ -11,7 +11,10 @@
 //! render texture reads as [`TextureRef::None`] through [`World::live_texture`]. Offscreen work
 //! that names a destroyed render texture stays in the list, and the host skips it when the id no
 //! longer resolves.
+mod active_pass;
+mod commands;
 mod compute;
+mod context;
 mod material;
 mod offscreen;
 mod properties;
@@ -20,10 +23,13 @@ mod slab;
 pub mod snapshot;
 pub mod snapshot_wire;
 
+pub use active_pass::ActivePass;
+pub use commands::{MAX_COLOR_TARGETS, TargetRef};
 pub use compute::{
     ComputeBindings, ComputeKernel, MAX_COMPUTE_BUFFER_BYTES, MAX_COMPUTE_TOTAL_BYTES,
     WorldComputeBuffer, WorldComputeShader,
 };
+pub use context::MAX_CULL_PLANES;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
@@ -187,12 +193,17 @@ pub(crate) struct GraphicsState {
     compute_bytes: u64,
     global: GlobalShaderState,
     offscreen: Vec<OffscreenWork>,
+    /// The handles the frame's records issued, which later records of the frame may name.
+    handles: std::collections::BTreeSet<u64>,
+    /// The pass immediate-mode draws use; not part of the snapshot.
+    active_pass: Option<ActivePass>,
 }
 
 impl GraphicsState {
     /// Drops the offscreen work of the previous frame that nobody took.
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
+        self.handles.clear();
     }
 
     pub(crate) const fn new() -> Self {
@@ -205,6 +216,8 @@ impl GraphicsState {
             compute_bytes: 0,
             global: GlobalShaderState::new(),
             offscreen: Vec::new(),
+            handles: std::collections::BTreeSet::new(),
+            active_pass: None,
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use worldrunner_render_program::ids::{MaterialId, RendererId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::offscreen::frame::OffscreenFrame;
+use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
 
 use super::camera::fixture;
 use super::rig::{BLUE, GREEN, Rig, layer, pixel};

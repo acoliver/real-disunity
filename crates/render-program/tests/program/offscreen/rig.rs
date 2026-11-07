@@ -3,15 +3,15 @@
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_program::ids::{MeshId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::offscreen::frame::{
+use worldrunner_render_program::properties::PropertyValue;
+use worldrunner_render_program::unity::offscreen::frame::{
     OffscreenFrame, RenderTextureSpec, SourceTexture,
 };
-use worldrunner_render_program::offscreen::{OffscreenError, OffscreenState};
-use worldrunner_render_program::properties::PropertyValue;
-use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::unity::offscreen::{OffscreenError, OffscreenState};
+use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime};
 
 use crate::common::Gpu;
-pub use worldrunner_render_program::synthetic::shaders::{blit_quad, quad};
+pub use worldrunner_render_program::unity::synthetic::shaders::{blit_quad, quad};
 
 pub const RGBA8: u32 = 8;
 pub const BUDGET: u64 = 64 << 20;
@@ -59,7 +59,8 @@ impl Rig {
     pub fn build(
         &mut self,
         frame: &OffscreenFrame,
-    ) -> Result<worldrunner_render_program::offscreen::OffscreenOperations, OffscreenError> {
+    ) -> Result<worldrunner_render_program::unity::offscreen::OffscreenOperations, OffscreenError>
+    {
         self.state.build(&mut self.runtime, &self.arena, frame)
     }
 

@@ -69,7 +69,7 @@ pub struct WorldRenderTexture {
 }
 
 impl WorldRenderTexture {
-    fn validate(&self) -> Result<(), GraphicsError> {
+    pub(super) fn validate(&self) -> Result<(), GraphicsError> {
         let sized = (1..=MAX_SIZE).contains(&self.width) && (1..=MAX_SIZE).contains(&self.height);
         let depth = matches!(self.depth_bits, 0 | 16 | 24 | 32);
         if sized && depth && (1..=MAX_MIPS).contains(&self.mip_count) && self.sampler.is_valid() {

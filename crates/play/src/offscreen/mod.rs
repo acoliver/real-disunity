@@ -1,5 +1,5 @@
 //! The host adapter that turns the offscreen work a Unity player recorded in the world into
-//! render-program's [`OffscreenFrame`](worldrunner_render_program::offscreen::frame::OffscreenFrame),
+//! render-program's [`OffscreenFrame`](worldrunner_render_program::unity::offscreen::frame::OffscreenFrame),
 //! so a camera render, a blit or a texture copy of the player runs with the game's own shaders.
 //!
 //! # Placement

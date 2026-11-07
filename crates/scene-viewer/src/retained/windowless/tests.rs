@@ -1,3 +1,4 @@
+mod audio;
 mod budget;
 mod celestial;
 mod convention;
@@ -10,7 +11,9 @@ mod picking;
 mod terrain;
 mod timers;
 mod timing;
+mod watchdog;
 mod work;
+use watchdog::CaptureWatchdog;
 #[test]
 fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
     let mut driver = Driver::default();
@@ -35,13 +38,16 @@ fn typed_hdr_recipe_completes_without_more_frames_and_shutdown_cancels_it() {
         .request_capture_recipe(0, recipe.clone())
         .unwrap();
     assert!(run.frame().unwrap());
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut watchdog = CaptureWatchdog::new(&run, format!("HDR recipe capture {id}"));
     loop {
         run.poll().unwrap();
-        if events.borrow().iter().any(|event| matches!(event, RetainedEvent::Capture {
+        let delivered = events.borrow().iter().any(|event| matches!(event, RetainedEvent::Capture {
             id: actual, outcome: RetainedCaptureOutcome::RecipeCompleted { products, time, .. }, ..
-        } if *actual == id && products.srgb8.is_none() && products.linear_hdr.as_ref().unwrap().pixels.len() == 4096 && *time == Duration::ZERO)) { break; }
-        assert!(Instant::now() < deadline);
+        } if *actual == id && products.srgb8.is_none() && products.linear_hdr.as_ref().unwrap().pixels.len() == 4096 && *time == Duration::ZERO));
+        watchdog.check(&run, delivered);
+        if delivered {
+            break;
+        }
         std::thread::yield_now();
     }
     let id = run.host_mut().request_capture_recipe(0, recipe).unwrap();
@@ -217,7 +223,8 @@ fn capture(
 ) -> (Duration, RgbaImage) {
     let generation = run.host().accepted_generation();
     let request = run.host_mut().request_capture(generation).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut watchdog =
+        CaptureWatchdog::new(run, format!("capture {request} generation {generation}"));
     loop {
         run.frame().unwrap();
         run.poll().unwrap();
@@ -232,10 +239,10 @@ fn capture(
             }
             _ => None,
         });
+        watchdog.check(run, result.is_some());
         if let Some(result) = result {
             return result;
         }
-        assert!(Instant::now() < deadline, "capture timed out");
         std::thread::yield_now();
     }
 }

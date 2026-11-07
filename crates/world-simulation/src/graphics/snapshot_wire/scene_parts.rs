@@ -1,6 +1,7 @@
 //! The encodings of the cameras, renderers, offscreen work and the snapshot itself.
 use super::WireError;
 use super::codec::{Reader, Wire, Writer, wire_struct};
+use super::command_parts::{read_command, write_command};
 use crate::ComponentHandle;
 use crate::graphics::{CameraView, GraphicsSnapshot, OffscreenWork, RenderTextureId, RendererView};
 use crate::handles::Identity;
@@ -102,6 +103,12 @@ const WORK_CAMERA_RENDER: u8 = 0;
 const WORK_BLIT: u8 = 1;
 const WORK_COPY_TEXTURE: u8 = 2;
 const WORK_DISPATCH: u8 = 3;
+pub(super) const WORK_SET_RENDER_TARGET: u8 = 4;
+pub(super) const WORK_CLEAR_RENDER_TARGET: u8 = 5;
+pub(super) const WORK_SET_GLOBAL: u8 = 6;
+pub(super) const WORK_SET_GLOBAL_KEYWORD: u8 = 7;
+pub(super) const WORK_ALLOCATE_TEMPORARY: u8 = 8;
+pub(super) const WORK_RELEASE_TEMPORARY: u8 = 9;
 
 impl Wire for OffscreenWork {
     fn write(&self, out: &mut Writer) -> Result<(), WireError> {
@@ -149,6 +156,7 @@ impl Wire for OffscreenWork {
                 groups.write(out)?;
                 bindings.write(out)
             }
+            command => write_command(command, out),
         }
     }
 
@@ -171,7 +179,7 @@ impl Wire for OffscreenWork {
                 groups: Wire::read(input)?,
                 bindings: Wire::read(input)?,
             }),
-            other => Err(WireError::UnknownTag(u32::from(other))),
+            other => read_command(other, input),
         }
     }
 }

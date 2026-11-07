@@ -122,6 +122,33 @@ Page callbacks supply already-unrotated directions. See the public
 [`TerrainPageSource::sample`](../render-scene/src/terrain/pages/scene.rs) contracts
 and the [terrain page contract](../../dev-docs/rendering/terrain-pages.md).
 
+## Material scalar channels
+
+`SceneMaterial::with_channels(SceneMaterialChannels)` selects `TextureChannel::R`,
+`G`, `B` or `A` for roughness, metalness, ambient occlusion and self-illumination.
+The default is G/B/R/R. Roughness and metalness share the roughness-metallic map;
+the other two selectors address their respective maps. Scalar factors still
+multiply the selected values. Translucency masks reinterpret selected metalness.
+
+Packed impostors use `SceneImpostor::with_material_channels` independently of
+mesh sampling. Their default is R/G/G/R: roughness and metalness/translucency
+from RT, then occlusion and emission from the ambient-occlusion map. Material-mode
+impostors and fixed mesh LODs use `SceneMaterial::channels` instead. Decals reject
+non-default material selectors with `UnsupportedMaterialChannels` and keep their
+separate R/B roughness/metalness layout. Ordinary terrain palettes also reject
+non-default selectors with that typed error and keep G/B sampling. Layered terrain
+keeps its independent `TerrainLayerChannelMap` contract.
+
+Scalars may share a stored channel, with their factors applied independently.
+For example, R8 and BC4 can provide R for both roughness and metalness.
+`TextureChannel::try_from(u32)` rejects indices outside 0..4 with
+`InvalidTextureChannel`. Resource admission rejects absent stored channels with
+`MissingTextureChannel`, including BC4's non-R lanes and BC5's B/A lanes. DDS
+header parsing reads metadata without copying or decoding blocks; malformed scalar
+map headers return `InvalidMaterialTextureFormat`. Scene closure also checks any
+packed-impostor material used on a fixed mesh against its mesh-channel selectors.
+Unsupported encoded container types remain the renderer's texture-admission errors.
+
 ## Material anisotropy
 
 `SceneMaterial::with_anisotropy` accepts a validated `TextureAnisotropy` and applies

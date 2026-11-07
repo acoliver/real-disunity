@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use worldrunner_render_program::{
+use worldrunner_render_program::unity::{
     compute_kernel::{KernelError, kernel_stage},
     layout::ProgramLayout,
     module::StageProgram,

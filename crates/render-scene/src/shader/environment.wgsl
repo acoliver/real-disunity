@@ -1,29 +1,3 @@
-// Decode source channels before scaling tangent-space XY.
-fn sample_normal(input: VertexOutput, geometric: vec3<f32>, position: vec3<f32>, tangent: vec4<f32>) -> vec3<f32> {
-    if (material.texture_flags & FLAG_NORMAL) == 0u {
-        return geometric;
-    }
-    let footprint = scene_atlas_footprint(normal_texture, input);
-    var frame_basis = cotangent_frame(geometric, position, input.texcoord);
-    if SCENE_IMPOSTOR {
-        if material.impostor_grid.w != 0.0 {
-            if input.atlas_eye.w != 0.0 && (material.impostor_relief.x != 0.0 || scene_packed_atlas(input)) { return scene_relief_normal(input, footprint); }
-        }
-    }
-    let sampled = scene_atlas_sample(normal_texture, input, footprint).rgb * 2.0 - 1.0;
-    var xy = sampled.xy;
-    var z = sqrt(max(0.0, 1.0 - dot(xy, xy)));
-    if (material.geometry_flags.w & 1u) != 0u { z = sampled.z; }
-    if (material.geometry_flags.w & 2u) != 0u { xy.y = -xy.y; }
-    let scale = bitcast<f32>(material.geometry_flags.z);
-    if scale == 0.0 { return geometric; }
-    xy *= scale;
-    if tangent.w != 0.0 {
-        let t = normalize(tangent.xyz - geometric * dot(geometric, tangent.xyz));
-        frame_basis = mat3x3<f32>(t, cross(geometric, t) * tangent.w, geometric);
-    }
-    return normalize(frame_basis * vec3<f32>(xy, z));
-}
 
 fn scene_shading_occlusion(input: VertexOutput, sampled: f32) -> vec2<f32> {
     var ambient_occlusion = sampled;
@@ -44,11 +18,14 @@ fn scene_occlusion_sample(input: VertexOutput) -> vec2<f32> {
     let footprint = scene_atlas_footprint(ambient_occlusion_texture, input);
     if SCENE_IMPOSTOR {
         if material.impostor_grid.w != 0.0 {
-            if scene_packed_atlas(input) { return scene_atlas_first(ambient_occlusion_texture, footprint).gr; }
+            if scene_packed_atlas(input) {
+                let sampled = scene_atlas_first(ambient_occlusion_texture, footprint);
+                return vec2<f32>(sampled[material.packed_atlas_channels[2].x + 1], sampled[material.packed_atlas_channels[3].x + 0]);
+            }
         }
     }
     if (material.texture_flags & FLAG_AMBIENT_OCCLUSION) != 0u {
-        return vec2<f32>(scene_atlas_sample(ambient_occlusion_texture, input, footprint).r, 0.0);
+        return vec2<f32>(scene_atlas_sample(ambient_occlusion_texture, input, footprint)[material.scalar_channels[2].x + 0], 0.0);
     }
     return vec2<f32>(1.0, 0.0);
 }
@@ -56,7 +33,7 @@ fn scene_emission_sample(input: VertexOutput) -> f32 {
     if (material.texture_flags & FLAG_SELF_ILLUMINATION) == 0u { return 0.0; }
     let footprint = scene_atlas_footprint(self_illumination_texture, input);
     if scene_packed_atlas(input) { return 0.0; }
-    return scene_atlas_sample(self_illumination_texture, input, footprint).r;
+    return scene_atlas_sample(self_illumination_texture, input, footprint)[material.scalar_channels[3].x + 0];
 }
 fn scene_auxiliary_samples(input: VertexOutput) -> vec2<f32> {
     let occlusion = scene_occlusion_sample(input);
@@ -90,9 +67,9 @@ struct SceneShadingSurface {
 
 // Shades one fragment. Both entry points funnel here so that the masked and
 // opaque pipelines cannot drift apart in anything except the cutout test.
-fn shade(original: VertexOutput, front_facing: bool) -> vec4<f32> {
+fn shade(original: VertexOutput, front_facing: bool, position: vec3<f32>) -> vec4<f32> {
     var input = original;
-    input.world_position = scene_relief_position(original);
+    input.world_position = position;
     let albedo_footprint = scene_atlas_footprint(albedo_texture, input);
     var albedo_sample = scene_albedo(scene_atlas_sample(albedo_texture, input, albedo_footprint), input.tint);
     let surface = scene_surface_channels(input);
@@ -175,7 +152,7 @@ fn scene_finish_shading(input: VertexOutput, geometric_normal: vec3<f32>, surfac
 @fragment
 fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let depth = scene_relief_depth(input);
-    let shaded = shade(input, front_facing);
+    let shaded = shade(input, front_facing, depth.position);
     scene_apply_coverage(input);
     if !depth.visible { discard; }
     return SceneSurfaceOutput(vec4<f32>(shaded.rgb, 1.0), depth.value);
@@ -185,7 +162,7 @@ fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bo
 @fragment
 fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let depth = scene_relief_depth(input);
-    let shaded = shade(input, front_facing);
+    let shaded = shade(input, front_facing, depth.position);
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a, input) || !depth.visible {
         discard;
@@ -202,13 +179,13 @@ fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
-    let shaded = shade(input,front_facing);
+    let shaded = shade(input,front_facing,scene_relief_position(input));
     scene_apply_coverage(input);
     return vec4<f32>(shaded.rgb,1.0);
 }
 @fragment
 fn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
-    let shaded = shade(input,front_facing);
+    let shaded = shade(input,front_facing,scene_relief_position(input));
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a,input) { discard; }
     return vec4<f32>(shaded.rgb,coverage_alpha);

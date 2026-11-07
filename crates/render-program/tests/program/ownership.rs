@@ -4,7 +4,7 @@
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::submission::{LeaseError, PreparedFrame};
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::runtime::{
     BoundResource, DispatchRequest, DrawRequest, Geometry, ProgramArena, ProgramRuntime,
     TargetHandle,
 };

@@ -17,9 +17,11 @@
 
 use worldrunner_disunity_runtime::GpuFlush;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::offscreen::frame::OffscreenFrame;
-use worldrunner_render_program::offscreen::{OffscreenError, OffscreenOperations, OffscreenState};
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
+use worldrunner_render_program::unity::offscreen::{
+    OffscreenError, OffscreenOperations, OffscreenState,
+};
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{ComputeBufferId, GraphicsSnapshot, OffscreenWork};
 
@@ -228,7 +230,7 @@ impl OffscreenHost {
     fn build_segment(
         &mut self,
         frame: &OffscreenFrame,
-        segment: &[worldrunner_render_program::offscreen::frame::Record],
+        segment: &[worldrunner_render_program::unity::offscreen::frame::Record],
         report: &mut Report,
     ) -> Result<(OffscreenOperations, usize), FlushError> {
         let mut part = Adapted {

@@ -13,10 +13,12 @@ use worldrunner_disunity_runtime::{
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
-use worldrunner_render_program::offscreen::{OffscreenOperations, OffscreenState, PendingImage};
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
-use worldrunner_render_program::shader::ProgramShader;
-use worldrunner_render_program::synthetic::shaders::{blit_passes, camera_passes};
+use worldrunner_render_program::unity::offscreen::{
+    OffscreenOperations, OffscreenState, PendingImage,
+};
+use worldrunner_render_program::unity::shader::ProgramShader;
+use worldrunner_render_program::unity::synthetic::shaders::{blit_passes, camera_passes};
 use worldrunner_unity_serialized::shader::ShaderProperty;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,

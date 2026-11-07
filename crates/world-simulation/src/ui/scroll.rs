@@ -132,6 +132,7 @@ impl UiLayoutRules {
         world: &World,
         layout: &UiLayout,
         object: ObjectHandle,
+        bounds: Option<[Vec2; 2]>,
     ) -> Result<(), WorldError> {
         let path = world.ancestry(object)?;
         let mut current = layout.clone();
@@ -144,13 +145,7 @@ impl UiLayoutRules {
             }
             let view = current.rect(viewport).ok_or(UiError::MissingLayout)?;
             let target = current.rect(object).ok_or(UiError::MissingLayout)?;
-            let inverse = view.local_to_world.inverse();
-            let points = target
-                .corners
-                .map(|p| inverse.transform_point3(p).truncate() + view.pivot * view.size);
-            let low = points.into_iter().fold(Vec2::INFINITY, Vec2::min);
-            let high = points.into_iter().fold(Vec2::NEG_INFINITY, Vec2::max);
-            let shift = low.min(Vec2::ZERO) + (high - view.size).max(Vec2::ZERO);
+            let shift = reveal_shift(view, target, bounds);
             let max = (current
                 .rect(scroll.content)
                 .ok_or(UiError::MissingLayout)?
@@ -163,4 +158,37 @@ impl UiLayoutRules {
         }
         Ok(())
     }
+}
+
+fn reveal_shift(
+    view: &super::RectLayout,
+    target: &super::RectLayout,
+    bounds: Option<[Vec2; 2]>,
+) -> Vec2 {
+    let inverse = view.local_to_world.inverse();
+    let corners = bounds.map_or(target.corners, |[low, high]| {
+        [
+            low,
+            Vec2::new(high.x, low.y),
+            high,
+            Vec2::new(low.x, high.y),
+        ]
+        .map(|p| {
+            target
+                .local_to_world
+                .transform_point3((p - target.pivot * target.size).extend(0.))
+        })
+    });
+    let points = corners.map(|p| inverse.transform_point3(p).truncate() + view.pivot * view.size);
+    let mut low = points.into_iter().fold(Vec2::INFINITY, Vec2::min);
+    let high = points.into_iter().fold(Vec2::NEG_INFINITY, Vec2::max);
+    if bounds.is_some() && high.y - low.y > view.size.y {
+        // Keep the reading start visible when the whole link cannot fit.
+        low.y = if high.y > 0. {
+            (high.y - view.size.y).max(0.)
+        } else {
+            high.y - view.size.y
+        };
+    }
+    low.min(Vec2::ZERO) + (high - view.size).max(Vec2::ZERO)
 }

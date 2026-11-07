@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use worldrunner_render_program::module::StageKind;
-use worldrunner_render_program::synthetic::compute_spirv;
+use worldrunner_render_program::unity::synthetic::compute_spirv;
 use worldrunner_unity_serialized::{
     ClassId, SerializedType,
     write::{FileContents, ObjectData},

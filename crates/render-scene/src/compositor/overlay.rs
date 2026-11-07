@@ -49,12 +49,11 @@ impl OverlayStage {
                 })],
                 ..Default::default()
             });
-            count = geometry.geometry.draw_with_pipeline(
-                &mut pass,
-                None,
-                &self.pipeline.as_ref().expect("prepared overlay pipeline").2,
-                Some(self.pipeline.as_ref().expect("prepared overlay pipeline").0),
-            );
+            let (viewport, _, pipeline) =
+                self.pipeline.as_ref().expect("prepared overlay pipeline");
+            count = geometry
+                .geometry
+                .draw_overlay(&mut pass, pipeline, *viewport);
         }
         if let Some(counter) = &self.counter {
             counter.record(count);

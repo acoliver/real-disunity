@@ -58,19 +58,11 @@ impl PreparedFeature for SceneFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
-            if context.slot == PassSlot::ReflectionMaterial {
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.reflection.as_ref().expect("reflection metadata"),
-                    &screen.group,
-                ));
-                return;
-            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
                 self.publications.record(self.gpu.draw_prepass(
                     pass,
-                    &screen.pipelines,
+                    screen.prepass_pipelines(),
                     &screen.group,
                 ));
                 return;
@@ -121,8 +113,7 @@ fn validate_effects(
     renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
     renderer.validate_water(&gpu.water)?;
     renderer.validate_ssr(gpu.ssr.as_ref())?;
-    renderer.validate_post(gpu.post)?;
-    Ok(())
+    renderer.validate_post(gpu.post)
 }
 
 /// Encodes a resident unshadowed scene through the feature boundary.
@@ -144,6 +135,7 @@ pub fn encode_scene(
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     validate_effects(renderer, gpu, pipelines)?;
     let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
@@ -157,9 +149,6 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if renderer.ssao.is_some() {
         crate::ssao::passes::geometry_declaration(&mut declaration);
-        if renderer.ssr.is_some() {
-            crate::ssr::geometry_declaration(&mut declaration);
-        }
     }
     let mut views = vec![
         color.with_resource(color_id)?,

@@ -11,7 +11,7 @@
 //! Only 2D properties get a default; the player also has array and cube properties, which would
 //! need a texture of their own dimension.
 
-use worldrunner_render_program::offscreen::frame::SourceTexture;
+use worldrunner_render_program::unity::offscreen::frame::SourceTexture;
 use worldrunner_unity_serialized::shader::Shader;
 
 use super::ids;

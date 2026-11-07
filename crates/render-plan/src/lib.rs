@@ -64,6 +64,7 @@ pub use plan::{
     build_discovered_render_world_plan, build_render_world_plan, compose_render_world_plan,
     prepare_discovered_render_world_payloads, prepare_render_world_payloads,
 };
+pub use scene::SceneAppend;
 pub use scene::TextureAnisotropy;
 pub use scene::{
     BillboardPolicy, DEFAULT_TAA_CLIP_SCALE_MICRO, DIRECTION_MICRO_SCALE, DocumentSceneInput,
@@ -82,6 +83,7 @@ pub use scene::{
     SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy, TexelFormat,
     TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler, TextureWrap,
 };
+pub use scene::{SceneMaterialChannels, TextureChannel};
 pub use scene::{
     TerrainPagePolicy, TerrainPageSettings, TerrainPageSettingsError, TerrainPageSettingsParts,
     TerrainStreamingPolicy,

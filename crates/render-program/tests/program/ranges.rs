@@ -2,8 +2,10 @@
 
 use worldrunner_render_gpu::tolerance_test_support::assert_code_within;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{Geometry, ProgramRuntime, TargetImage, VertexInput};
-use worldrunner_render_program::state::{RenderState, resolve_state};
+use worldrunner_render_program::unity::runtime::{
+    Geometry, ProgramRuntime, TargetImage, VertexInput,
+};
+use worldrunner_render_program::unity::state::{RenderState, resolve_state};
 
 use crate::common::{Form, opaque_state, runtime};
 use crate::rig::{

@@ -2,21 +2,29 @@
 
 use std::collections::BTreeMap;
 
+use crate::resources::Resource;
+
 /// A value a shader property holds.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyValue {
     Float(f32),
-    /// An integer or boolean (0 or 1).
+    /// A signed integer. A member that stores an unsigned integer or a boolean accepts the
+    /// values that fit it: zero or more for the first, 0 or 1 for the second.
     Int(i32),
+    Uint(u32),
+    Bool(bool),
     /// A vector or color; a vector of fewer components uses the leading ones.
     Vector([f32; 4]),
-    /// Sixteen floats, copied to the constant buffer in the order given.
+    /// Sixteen floats of a 4 by 4 matrix, element `(row, column)` at index `column * 4 + row`:
+    /// the logical values, which a constant layout's storage order places in the buffer.
     Matrix([f32; 16]),
     VectorArray(Vec<[f32; 4]>),
     MatrixArray(Vec<[f32; 16]>),
     /// An integer vector; one of fewer components uses the leading ones.
     IntVector([i32; 4]),
     IntVectorArray(Vec<[i32; 4]>),
+    /// A buffer or texture the runtime owns, for a binding to take.
+    Resource(Resource),
 }
 
 /// Named property values, such as a material's or the globals'.
@@ -40,6 +48,13 @@ impl PropertySet {
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&PropertyValue> {
         self.values.get(name)
+    }
+
+    /// The values in name order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &PropertyValue)> {
+        self.values
+            .iter()
+            .map(|(name, value)| (name.as_str(), value))
     }
 }
 

@@ -10,10 +10,10 @@ use worldrunner_disunity_runtime::{
     DisunityHost, GpuFlush, MeshChannels, PlayerTexture, TextureSampler,
 };
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::offscreen::frame::{
+use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
+use worldrunner_render_program::unity::offscreen::frame::{
     ChannelFormat, Mesh, MeshChannel, MeshIndices, SourceTexture, SubMesh,
 };
-use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_world_simulation::MAX_RENDERER_MATERIALS;
 use worldrunner_world_simulation::graphics::WorldSampler;
 

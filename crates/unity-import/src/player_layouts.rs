@@ -4,10 +4,10 @@
 
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
-use worldrunner_render_program::{
+use worldrunner_render_program::unity::{
     constants::pack_variant_buffer,
     layout::{LayoutError, ProgramLayout},
-    module::{ModuleError, Reflected, StageKind, StageModule, StageProgram},
+    module::{ModuleError, Reflected, StageKind, StageModule, StageProgram, stage_bit},
 };
 use worldrunner_unity_serialized::{
     shader_parameters::{
@@ -138,6 +138,7 @@ pub(crate) fn layout_cause(error: &LayoutError) -> String {
             format!("multisampled texture, code {code}")
         }
         LayoutError::StageMismatch { .. } => "stage mismatch".to_owned(),
+        LayoutError::Other { .. } => "layout rejected after the checks above".to_owned(),
     }
 }
 
@@ -370,7 +371,7 @@ impl LayoutReport {
 
     /// Counts each texture binding the stage uses by its dimension code and the module's image.
     fn add_texture_codes(&mut self, program: &StageProgram, parameters: &VariantParameters) {
-        let Some(bit) = program.module().kind.stage_bit() else {
+        let Some(bit) = stage_bit(program.module().kind) else {
             return;
         };
         for binding in &parameters.bindings {

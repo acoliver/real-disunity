@@ -12,7 +12,7 @@ namespace UnityEngine;
 /// only after something needs one (a renderer slot, a blit, a camera target), is sent whole then, and follows every
 /// later change. A resource belongs to one world, so one made for a world that was unloaded is made again.
 /// </summary>
-internal static unsafe class WorldGraphics
+internal static unsafe partial class WorldGraphics
 {
     internal const uint ScopeMaterial = 0, ScopeGlobal = 1, ScopeBlock = 2;
     private const uint TextureNone = 0, TextureAsset = 1, TextureRender = 2;
@@ -71,6 +71,8 @@ internal static unsafe class WorldGraphics
     internal static void WriteMaterialShader(Link material, Link shader) => Check(NativeBindings.disunity_material_shader_write(material.World, material.Id, shader.Id));
 
     internal static void WriteRenderQueue(Link material, int queue) => Check(NativeBindings.disunity_material_render_queue_write(material.World, material.Id, queue));
+
+    internal static void WriteActivePass(Link material, uint pass) => Check(NativeBindings.disunity_material_set_pass(material.World, material.Id, pass));
 
     internal static void WritePass(Link material, string pass, bool enabled)
     {

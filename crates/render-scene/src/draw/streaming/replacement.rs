@@ -55,6 +55,7 @@ impl Streaming {
         *old.drawing.borrow_mut() = None;
         old.frozen.set(true);
         Some(Self {
+            plane_chunks: crate::terrain::planes::chunk_indices(terrain),
             scene,
             identity: Rc::new(()),
             committed: Rc::new(RefCell::new(reused)),

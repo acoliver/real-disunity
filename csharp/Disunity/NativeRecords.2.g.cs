@@ -338,6 +338,17 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  The active pass: `active` is 1 when a pass is active, and then `material` and `pass` name it.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityActivePass
+    {
+        public ulong material;
+        public uint pass;
+        public uint active;
+    }
+
+    /// <summary>
     ///  What a material holds besides its properties. `generation` rises with every edit.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -374,6 +385,19 @@ namespace Disunity.Native
     }
 
     /// <summary>
+    ///  A target. `kind` is 0 for a render texture (`render` is its id), 1 for a temporary render
+    ///  texture (`name_id` is the property name id it was allocated under), 2 for the camera's
+    ///  target and 3 for none. Fields a kind does not use must be 0.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityTargetRef
+    {
+        public uint kind;
+        public int name_id;
+        public ulong render;
+    }
+
+    /// <summary>
     ///  One piece of offscreen work. `kind` is 0 for a camera render (`camera` is the camera
     ///  component, `target` the render texture), 1 for a blit, 2 for a texture copy and 3 for a
     ///  compute dispatch. A blit and a copy read `source_kind` and `source` as a texture property
@@ -383,7 +407,9 @@ namespace Disunity.Native
     ///  groups it launches; `bindings` is the token that [`crate::compute_bindings`] reads the values
     ///  it ran with by, valid until the next take. A dispatch is recorded by
     ///  `disunity_compute_dispatch`, never by [`disunity_offscreen_record`], and only taking returns
-    ///  one. Fields a kind does not use are ignored.
+    ///  one. The commands of `graphics_commands` take kinds 4 to 9 and a `bindings` token for
+    ///  `disunity_offscreen_detail`, which reads the record's encoded bytes; they are recorded by
+    ///  their own calls. Fields a kind does not use are ignored.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityOffscreenWork
@@ -450,7 +476,7 @@ namespace Disunity.Native
     internal unsafe partial struct DisunityUiDraw
     {
         /// <summary>
-        ///  0: image/solid graphic; 1: text sampling prepared R8 coverage.
+        ///  0: quad graphic; 1: text coverage; 2: triangle graphic (first three quad corners).
         /// </summary>
         public uint kind;
         public ulong hierarchy_order;
@@ -458,6 +484,15 @@ namespace Disunity.Native
         public uint clip_y;
         public uint clip_width;
         public uint clip_height;
+        /// <summary>
+        ///  Top-row-origin UV pairs for kind 2, in corner order; zero for kinds 0 and 1.
+        /// </summary>
+        public float triangle_u0;
+        public float triangle_v0;
+        public float triangle_u1;
+        public float triangle_v1;
+        public float triangle_u2;
+        public float triangle_v2;
     }
 
 }

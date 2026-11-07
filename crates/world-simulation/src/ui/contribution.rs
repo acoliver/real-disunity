@@ -3,21 +3,27 @@
 //! vertices are pixels, other vertices use the native world basis. Rendering
 //! and GPU resource lifetimes remain the scene renderer's responsibility.
 
-mod clip;
+pub(super) mod clip;
+mod glyph;
+mod underline;
 
+use super::text_geometry::snap_offset;
 use crate::presentation::CoverageTexture as SceneTexture;
 use crate::presentation::extraction::{camera_admits, selected_camera};
 use crate::ui::group::{effective_alpha, groups_by_object};
 use crate::ui::{Canvas, CanvasMode, FontBook, RectLayout, TextLayout, UiError, UiLayout};
 use crate::{ComponentDesc, ObjectHandle, World, WorldError};
-use glam::{Vec2, Vec3};
+use glam::Vec2;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiGlyphQuad {
+    pub link: Option<crate::ui::UiLinkId>,
     /// Bottom-left, bottom-right, top-right, top-left.
     pub corners: [[f32; 3]; 4],
     /// Normalized UVs in matching order; atlas rows start at the top.
     pub uv: [[f32; 2]; 4],
+    /// Span tint, multiplied by the contribution tint at presentation.
+    pub color: [f32; 4],
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -38,6 +44,7 @@ pub struct UiTextContribution {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiGraphicContribution {
+    pub link: Option<crate::ui::UiLinkId>,
     pub graphic: crate::ui::UiGraphic,
     pub hierarchy_order: usize,
     /// Lower-left pixel clip bounds: x, y, width, height.
@@ -68,6 +75,7 @@ pub fn extract_ui_layout(
 ) -> Result<UiRenderPlan, WorldError> {
     let roots = super::graphics::root_canvases(world)?;
     let mut texts = Vec::new();
+    let mut underlines = Vec::new();
     let mut budget = FrameBudget::default();
     let groups = groups_by_object(world.published_components());
     let camera = selected_camera(world, world.published_components())?.map(|(_, camera)| camera);
@@ -82,13 +90,7 @@ pub fn extract_ui_layout(
             validate_hidden_text(world, component.object)?;
             continue;
         };
-        let canvas = world
-            .published_components()
-            .find_map(|c| match c.desc {
-                ComponentDesc::Canvas(canvas) if c.object == rect.canvas => Some(canvas),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let canvas = super::text_geometry::canvas(world, rect.canvas);
         let overlay = rect.mode == CanvasMode::ScreenSpaceOverlay;
         if !overlay && !camera_admits(world, camera, component.object)? {
             continue;
@@ -101,13 +103,29 @@ pub fn extract_ui_layout(
         )?;
         let mut color = run.color;
         color[3] *= effective_alpha(world, &groups, component.object)?;
-        let mut text = contribution(rect, text, overlay, color);
-        text.clip_rect = clip::screen_clip(world, &layout, rect, &roots);
-        snap_to_pixels(&mut text, rect, canvas);
+        let clip = clip::text_clip(clip::screen_clip(world, &layout, rect, &roots), rect);
+        underlines.extend(underline::contributions(
+            rect,
+            &text,
+            snap_offset(&text, rect, canvas),
+            run.font_size,
+            color,
+            clip,
+        ));
+        let mut text = contribution(rect, &text, overlay, color, canvas);
+        text.clip_rect = clip;
         texts.push(text);
     }
     texts.sort_by_key(|t| (t.sorting_layer, t.sorting_order, t.hierarchy_order));
-    let graphics = graphics(world, &layout, &roots)?;
+    let mut graphics = graphics(world, &layout, &roots)?;
+    graphics.extend(underlines);
+    graphics.sort_by_key(|c| {
+        (
+            c.graphic.sorting_layer,
+            c.graphic.sorting_order,
+            c.hierarchy_order,
+        )
+    });
     Ok(UiRenderPlan {
         layout,
         texts,
@@ -115,41 +133,28 @@ pub fn extract_ui_layout(
     })
 }
 
-fn contribution(
+pub(super) fn contribution(
     rect: &RectLayout,
-    text: TextLayout,
+    text: &TextLayout,
     overlay: bool,
     color: [f32; 4],
+    canvas: Canvas,
 ) -> UiTextContribution {
     let (sorting_layer, sorting_order, hierarchy_order) = rect.draw_order();
     let atlas_size = text.atlas.size.as_vec2();
-    let mut quads = Vec::new();
-    for glyph in text.glyphs {
-        let min = glyph.rect_min - rect.pivot * rect.size;
-        let max = glyph.rect_max - rect.pivot * rect.size;
-        let positions = [min, [max.x, min.y].into(), max, [min.x, max.y].into()];
-        let corners = positions.map(|p| {
-            rect.local_to_world
-                .transform_point3(p.extend(0.))
-                .to_array()
-        });
-        let uv_min = glyph.atlas_min.as_vec2() / atlas_size;
-        let uv_max = (glyph.atlas_min + glyph.atlas_size).as_vec2() / atlas_size;
-        let uv = [
-            [uv_min.x, uv_max.y],
-            [uv_max.x, uv_max.y],
-            [uv_max.x, uv_min.y],
-            [uv_min.x, uv_min.y],
-        ];
-        quads.push(UiGlyphQuad { corners, uv });
-    }
+    let shift = snap_offset(text, rect, canvas);
+    let quads = text
+        .glyphs
+        .iter()
+        .filter_map(|g| glyph::quad(rect, g, atlas_size, shift))
+        .collect();
     let texture = if text.atlas.alpha.is_empty() {
         None
     } else {
         Some(SceneTexture {
             width: text.atlas.size.x,
             height: text.atlas.size.y,
-            bytes: text.atlas.alpha.into_boxed_slice(),
+            bytes: text.atlas.alpha.clone(),
         })
     };
     UiTextContribution {
@@ -163,26 +168,6 @@ fn contribution(
         color,
         texture,
         quads,
-    }
-}
-
-/// Unity's `Text` on a pixel-perfect canvas: the first vertex (the first glyph's top-left
-/// corner) moves to the nearest whole screen pixel, and every glyph moves with it, so glyphs
-/// keep their subpixel spacing.
-fn snap_to_pixels(text: &mut UiTextContribution, rect: &RectLayout, canvas: Canvas) {
-    let Some(pixels) = rect.pixels_from_world.filter(|_| canvas.pixel_perfect) else {
-        return;
-    };
-    let Some(first) = text.quads.first().map(|quad| Vec3::from(quad.corners[3])) else {
-        return;
-    };
-    let screen = pixels.transform_point3(first);
-    let offset = (screen.round() - screen) * Vec3::new(1., 1., 0.);
-    let shift = pixels.inverse().transform_vector3(offset);
-    for quad in &mut text.quads {
-        for corner in &mut quad.corners {
-            *corner = (Vec3::from(*corner) + shift).to_array();
-        }
     }
 }
 
@@ -244,6 +229,7 @@ fn graphics(
                 .rect(graphic.object)
                 .expect("extracted graphic rectangle");
             Ok(UiGraphicContribution {
+                link: None,
                 hierarchy_order: rect.draw_order().2,
                 clip_rect: clip::screen_clip(world, layout, rect, roots),
                 graphic,
@@ -258,4 +244,13 @@ fn graphics(
         )
     });
     Ok(graphics)
+}
+
+pub(super) fn field_clip(
+    world: &World,
+    layout: &UiLayout,
+    rect: &RectLayout,
+) -> Result<[u32; 4], WorldError> {
+    let roots = super::graphics::root_canvases(world)?;
+    Ok(clip::screen_clip(world, layout, rect, &roots))
 }

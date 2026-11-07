@@ -12,14 +12,16 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use worldrunner_render_program::constants::pack_layout;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::module::StageProgram;
-use worldrunner_render_program::offscreen::OffscreenState;
 use worldrunner_render_program::runtime::{
     BoundResource, BufferHandle, ComputeProgram, ProgramRuntime,
 };
-use worldrunner_render_program::targets::{BufferTarget, ConstantBufferTarget, TextureTarget};
+use worldrunner_render_program::unity::constants::pack_layout;
+use worldrunner_render_program::unity::module::StageProgram;
+use worldrunner_render_program::unity::offscreen::OffscreenState;
+use worldrunner_render_program::unity::targets::{
+    BufferTarget, ConstantBufferTarget, TextureTarget,
+};
 use worldrunner_world_simulation::graphics::{
     ComputeBindings, ComputeBufferId, ComputeShaderId, GraphicsSnapshot, TextureRef,
     WorldComputeShader,
@@ -431,8 +433,10 @@ impl ComputeAdapter {
             .supply
             .load(shader, index)
             .map_err(|error| error.name().to_owned())?;
-        let program = runtime
-            .compute_program(&stage)
+        let program = stage
+            .neutral()
+            .map_err(worldrunner_render_program::error::ProgramError::from)
+            .and_then(|neutral| runtime.compute_program(&neutral))
             .map_err(|_| "ProgramLayout".to_owned())?;
         let layout = |_| "TargetLayout".to_owned();
         Ok(Rc::new(Kernel {

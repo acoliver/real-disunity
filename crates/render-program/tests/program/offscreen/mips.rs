@@ -5,10 +5,10 @@
 use std::collections::BTreeMap;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
-use worldrunner_render_program::offscreen::PartialMipReads;
-use worldrunner_render_program::offscreen::frame::{Material, OffscreenFrame, Record};
-use worldrunner_render_program::shader::ProgramShader;
-use worldrunner_render_program::synthetic::shaders::blit_passes;
+use worldrunner_render_program::unity::offscreen::PartialMipReads;
+use worldrunner_render_program::unity::offscreen::frame::{Material, OffscreenFrame, Record};
+use worldrunner_render_program::unity::shader::ProgramShader;
+use worldrunner_render_program::unity::synthetic::shaders::blit_passes;
 
 use super::camera::fixture;
 use super::rig::{BLIT_QUAD, BLUE, CLEAR, RED, Rig, blit_quad, layer, pixel, texture};

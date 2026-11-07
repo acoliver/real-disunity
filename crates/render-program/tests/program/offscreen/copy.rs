@@ -1,8 +1,8 @@
 //! `Graphics.CopyTexture`: whole-mip copies between elements of texture arrays.
 
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::offscreen::OffscreenError;
-use worldrunner_render_program::offscreen::frame::{OffscreenFrame, Record};
+use worldrunner_render_program::unity::offscreen::OffscreenError;
+use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
 
 use super::rig::{BLUE, GREEN, RED, Rig, ZERO, image, pixel, source, texture};
 

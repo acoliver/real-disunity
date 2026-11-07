@@ -4,16 +4,16 @@ use std::collections::BTreeMap;
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, RendererId, ShaderId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::offscreen::frame::{
+use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, Renderer,
 };
-use worldrunner_render_program::offscreen::{
+use worldrunner_render_program::unity::offscreen::{
     CameraDraws, MissingChannelDraws, MissingTextureDraws, OffscreenError, UnmatchedPasses,
 };
-use worldrunner_render_program::shader::{PassSelector, ProgramShader};
+use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
 
 use super::rig::{BLUE, CLEAR, QUAD, RED, Rig, layer, pixel, quad, texture};
-use worldrunner_render_program::synthetic::shaders::camera_passes;
+use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 
 const SHADER: ShaderId = ShaderId(1);
 const TARGET: TextureId = TextureId(10);
@@ -251,7 +251,7 @@ fn a_camera_with_a_pass_no_material_shader_has_draws_nothing_and_counts_the_draw
 
 #[test]
 fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_left_out_beside_one_that_has() {
-    use worldrunner_render_program::synthetic::shaders::blit_passes;
+    use worldrunner_render_program::unity::synthetic::shaders::blit_passes;
     let mut rig = Rig::new();
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     // The blit shader's passes carry no `LightMode` tag, so the camera has none to draw of it.
@@ -279,7 +279,7 @@ fn a_renderer_whose_shader_has_no_pass_for_the_camera_is_left_out_beside_one_tha
 
 #[test]
 fn a_table_that_numbers_the_shader_inputs_from_13_feeds_the_locations_from_0() {
-    use worldrunner_render_program::synthetic::shaders::{
+    use worldrunner_render_program::unity::synthetic::shaders::{
         POSITION_AND_UV_FROM_13, camera_pass_with_table,
     };
     let mut rig = Rig::new();
@@ -305,7 +305,7 @@ fn a_table_that_numbers_the_shader_inputs_from_13_feeds_the_locations_from_0() {
 
 #[test]
 fn a_table_that_numbers_inputs_both_ways_is_a_named_error() {
-    use worldrunner_render_program::synthetic::shaders::camera_pass_with_table;
+    use worldrunner_render_program::unity::synthetic::shaders::camera_pass_with_table;
     let mut rig = Rig::new();
     let frame = halves(&mut rig, 1 << LEFT);
     let mixed = camera_pass_with_table(&[[0, 0], [4, 14]]);
@@ -336,7 +336,7 @@ fn a_draw_whose_mesh_lacks_a_channel_the_shader_reads_is_left_out_and_counted_by
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     let mut bare = quad(0.5);
     bare.channels.retain(|channel| {
-        channel.source == worldrunner_render_program::synthetic::shaders::POSITION
+        channel.source == worldrunner_render_program::unity::synthetic::shaders::POSITION
     });
     rig.state
         .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &bare)
@@ -384,7 +384,9 @@ fn a_draw_whose_texture_nothing_names_is_left_out_and_counted_by_the_texture() {
 
 #[test]
 fn a_draw_without_its_texture_is_left_out_beside_one_that_needs_none() {
-    use worldrunner_render_program::synthetic::shaders::{POSITION_AND_UV, camera_pass_with_table};
+    use worldrunner_render_program::unity::synthetic::shaders::{
+        POSITION_AND_UV, camera_pass_with_table,
+    };
     let mut rig = Rig::new();
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     // Shader 2 has only an `Alpha` pass, which needs no texture; shader 1 has `Gamma`, which
@@ -440,7 +442,7 @@ fn the_pass_and_the_draws_are_listed_in_call_order_with_the_constants_upload_fir
 
 #[test]
 fn each_camera_render_reports_the_draws_it_recorded_and_the_ones_it_left_out() {
-    use worldrunner_render_program::synthetic::shaders::blit_passes;
+    use worldrunner_render_program::unity::synthetic::shaders::blit_passes;
     let mut rig = Rig::new();
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     assert_eq!(rig.build(&frame).unwrap().camera_draws(), drawn(2, 0, 0, 0));
@@ -459,7 +461,7 @@ fn each_camera_render_reports_the_draws_it_recorded_and_the_ones_it_left_out() {
 
 #[test]
 fn draws_left_out_are_counted_by_the_tags_the_shaders_passes_have_against_the_ones_selected() {
-    use worldrunner_render_program::synthetic::shaders::blit_passes;
+    use worldrunner_render_program::unity::synthetic::shaders::blit_passes;
     let mut rig = Rig::new();
     let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
     frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {

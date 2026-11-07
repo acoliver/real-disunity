@@ -37,6 +37,8 @@ mod cascades;
 mod compaction;
 mod refresh;
 mod resources;
+#[cfg(test)]
+pub(crate) use resources::receiver_sources;
 mod schedule;
 mod settings;
 
@@ -292,6 +294,12 @@ impl ShadowedScene {
         &mut self.gpu
     }
 
+    /// The resident scene with the pipelines its material bind groups are built against, for
+    /// appending resources.
+    pub fn scene_and_pipelines_mut(&mut self) -> (&mut SceneGpu, &ScenePipelines) {
+        (&mut self.gpu, &self.pipelines)
+    }
+
     /// Updates fit/bias, recreating only the map if its resolution changes.
     /// A rejected update leaves the current settings and resources intact.
     pub fn set_settings(
@@ -413,8 +421,16 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
-        self.refuse_programs()?;
+        self.begin_encode(encoder)?;
         self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
+    }
+
+    /// Refuses what this path cannot draw and prepares the resident quads for its pass, before
+    /// the frame prepares or records anything else.
+    fn begin_encode(&mut self, encoder: &wgpu::CommandEncoder) -> Result<(), ShadowError> {
+        self.refuse_programs()?;
+        self.gpu.prepare_dynamic(encoder, &self.pipelines)?;
+        Ok(())
     }
 
     /// Admitted player program draws are drawn by the configured compositor only.
@@ -435,7 +451,7 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
-        self.refuse_programs()?;
+        self.begin_encode(encoder)?;
         self.encode_fitted(
             context,
             view,
@@ -656,20 +672,14 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::ReflectionMaterial {
-            let screen = self.screen.as_ref().expect("declared metadata");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.reflection.as_ref().expect("reflection pipelines"),
-                &screen.group,
-            ));
-        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(
-                self.gpu
-                    .draw_prepass(pass, &screen.pipelines, &screen.group),
-            );
+            self.publications.record(self.gpu.draw_prepass(
+                pass,
+                screen.prepass_pipelines(),
+                &screen.group,
+            ));
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;

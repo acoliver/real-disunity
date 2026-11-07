@@ -17,11 +17,29 @@ use crate::{
     renderer::{Renderer, SceneSource},
 };
 
+mod accessibility;
 mod cadence;
+pub(crate) enum UserEvent {
+    WorkReady,
+    Accessibility(accesskit_winit::Event),
+}
+impl From<accesskit_winit::Event> for UserEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        Self::Accessibility(event)
+    }
+}
 mod static_scene;
 mod surface;
 
 pub(super) trait Content {
+    fn accessibility(&mut self) -> Option<&mut crate::retained::accessibility::Accessibility> {
+        None
+    }
+    fn accessibility_action(
+        &mut self,
+        _request: worldrunner_world_simulation::ui::UiAccessRequest,
+    ) {
+    }
     fn title(&self) -> &str;
     fn size(&self) -> [u32; 2];
     fn window_size_unit(&self) -> crate::WindowSizeUnit {
@@ -91,13 +109,14 @@ pub(super) fn run_retained(
 
 fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
     let mut app = App::new(content);
-    let result = EventLoop::<()>::with_user_event()
+    let result = EventLoop::<UserEvent>::with_user_event()
         .build()
         .and_then(|event_loop| {
             let proxy = event_loop.create_proxy();
+            app.proxy = Some(proxy.clone());
             app.content.set_work_waker(Arc::new(move || {
                 // A closed loop means the host is shutting down.
-                let _ = proxy.send_event(());
+                let _ = proxy.send_event(UserEvent::WorkReady);
             }));
             event_loop.run_app(&mut app)
         });
@@ -121,6 +140,7 @@ struct App<'a> {
     content: Box<dyn Content + 'a>,
     renderer: Option<Renderer>,
     failure: Option<ViewerError>,
+    proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
     occluded: bool,
     suspended: bool,
     next_frame: Instant,
@@ -132,6 +152,7 @@ impl<'a> App<'a> {
             content,
             renderer: None,
             failure: None,
+            proxy: None,
             occluded: false,
             suspended: false,
             next_frame: Instant::now(),
@@ -166,8 +187,11 @@ impl<'a> App<'a> {
     }
 }
 
-impl ApplicationHandler for App<'_> {
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, (): ()) {
+impl ApplicationHandler<UserEvent> for App<'_> {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        if let UserEvent::Accessibility(event) = event {
+            self.accessibility_event(event);
+        }
         if let Err(error) = self.content.host_ready() {
             self.fail(event_loop, error);
             return;
@@ -179,22 +203,7 @@ impl ApplicationHandler for App<'_> {
         let result = if let Some(renderer) = &mut self.renderer {
             surface::resume(&mut *self.content, renderer)
         } else {
-            let size = self.content.size();
-            event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title(self.content.title())
-                        .with_inner_size(self.content.window_size_unit().creation_size(size)),
-                )
-                .map_err(ViewerError::from)
-                .and_then(|window| {
-                    pollster::block_on(Renderer::from_source(
-                        event_loop.owned_display_handle(),
-                        Arc::new(window),
-                        self.content.source(),
-                    ))
-                    .map(|renderer| self.renderer = Some(renderer))
-                })
+            self.create_renderer(event_loop)
         };
         if let Err(error) = result {
             self.fail(event_loop, error);
@@ -237,6 +246,10 @@ impl ApplicationHandler for App<'_> {
         };
         if renderer.window.as_ref().expect("windowed renderer").id() != id {
             return;
+        }
+        if let Some(accessibility) = self.content.accessibility() {
+            accessibility
+                .process_event(renderer.window.as_ref().expect("windowed renderer"), &event);
         }
         self.content.event(&event, renderer.viewport);
         if let Some(error) = self.content.take_failure() {

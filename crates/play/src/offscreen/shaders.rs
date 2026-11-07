@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 
-use worldrunner_render_program::shader::{ProgramShader, ResolveError};
+use worldrunner_render_program::unity::shader::{ProgramShader, ResolveError};
 use worldrunner_unity_import::{
     PlayerError,
     player_objects::{OpenFile, VulkanShader, vulkan_shader},

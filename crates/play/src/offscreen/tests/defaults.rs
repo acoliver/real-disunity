@@ -1,7 +1,7 @@
 //! The default textures a shader declares, with predicted names, texels and ids.
 
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::synthetic::shaders::camera_passes;
+use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 use worldrunner_unity_serialized::shader::{Shader, ShaderProperty};
 
 use super::super::defaults::{DefaultTexture, declared};

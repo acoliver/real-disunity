@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
-use worldrunner_render_program::shader::{PassSelector, ProgramShader, ResolveError};
+use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader, ResolveError};
 
-use worldrunner_render_program::synthetic::shaders::{POSITION_AND_UV, two_passes};
+use worldrunner_render_program::unity::synthetic::shaders::{POSITION_AND_UV, two_passes};
 
 fn shader() -> ProgramShader {
     let synthetic = two_passes();
@@ -120,7 +120,7 @@ fn a_resolved_variant_carries_its_stage_programs_parameters_and_vertex_inputs() 
         .collect();
     assert_eq!(names, ["Material", "Draw"]);
     assert!(
-        worldrunner_render_program::layout::ProgramLayout::build(&[
+        worldrunner_render_program::unity::layout::ProgramLayout::build(&[
             &variant.vertex,
             &variant.fragment
         ])

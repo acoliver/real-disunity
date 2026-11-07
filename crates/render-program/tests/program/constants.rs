@@ -1,7 +1,7 @@
 //! Constant buffer contents packed from named property values at Unity's byte offsets.
 
-use worldrunner_render_program::constants::{ConstantError, pack_constant_buffer};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
+use worldrunner_render_program::unity::constants::{ConstantError, pack_constant_buffer};
 use worldrunner_unity_serialized::shader_program::{ConstantBuffer, StructParam, ValueParam};
 
 const FLOAT: i8 = 0;

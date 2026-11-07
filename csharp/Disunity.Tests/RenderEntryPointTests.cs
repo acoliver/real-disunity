@@ -10,7 +10,7 @@ internal static class RenderEntryPointTests
     {
         Context();
         Lists();
-        Console.WriteLine("PASS: ScriptableRenderContext members throw NotSupportedException naming the member; RendererList is never valid");
+        Console.WriteLine("PASS: ScriptableRenderContext members other than ExecuteCommandBuffer and Submit throw NotSupportedException naming the member; RendererList is never valid");
         Manager();
         Console.WriteLine("PASS: RenderPipelineManager accepts and drops event handlers; no pipeline is current");
         Samplers();
@@ -26,17 +26,12 @@ internal static class RenderEntryPointTests
     private static void Context()
     {
         var context = default(ScriptableRenderContext);
-        var culling = default(ScriptableCullingParameters);
         var drawing = default(DrawingSettings);
         var filtering = FilteringSettings.defaultValue;
         var block = new RenderStateBlock(RenderStateMask.Nothing);
         var list = new RendererListParams(default, drawing, filtering);
-        Unsupported(() => context.Submit(), "Submit");
         Unsupported(() => context.SubmitForRenderPassValidation(), "SubmitForRenderPassValidation");
-        Unsupported(() => context.ExecuteCommandBuffer(new CommandBuffer()), "ExecuteCommandBuffer");
         Unsupported(() => context.ExecuteCommandBufferAsync(new CommandBuffer(), ComputeQueueType.Default), "ExecuteCommandBufferAsync");
-        Unsupported(() => context.Cull(ref culling), "Cull");
-        Unsupported(() => context.SetupCameraProperties(null!), "SetupCameraProperties");
         Unsupported(() => context.DrawSkybox(null!), "DrawSkybox");
         Unsupported(() => context.DrawGizmos(null!, GizmoSubset.PreImageEffects), "DrawGizmos");
         Unsupported(() => context.DrawUIOverlay(null!), "DrawUIOverlay");

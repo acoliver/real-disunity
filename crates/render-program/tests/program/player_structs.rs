@@ -3,8 +3,10 @@
 //! element's members sit at offsets from the element's start, the elements are the struct's size
 //! apart, and a member is named by its own name.
 
-use worldrunner_render_program::constants::{ConstantError, PackedConstants, pack_variant_buffer};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
+use worldrunner_render_program::unity::constants::{
+    ConstantError, PackedConstants, pack_variant_buffer,
+};
 use worldrunner_unity_serialized::shader_parameters::{BufferMember, ConstantBuffer, StructLayout};
 
 const FLOAT: i32 = 0;

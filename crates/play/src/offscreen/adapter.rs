@@ -8,12 +8,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use worldrunner_render_program::offscreen::frame::{
+use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::unity::offscreen::frame::{
     ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, Record, RenderTextureSpec,
     SubMesh,
 };
-use worldrunner_render_program::offscreen::{OffscreenError, OffscreenOperations, OffscreenState};
-use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::unity::offscreen::{
+    OffscreenError, OffscreenOperations, OffscreenState,
+};
 use worldrunner_world_simulation::graphics::{
     OffscreenWork, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
@@ -293,7 +295,7 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
                     note(&slot.texture);
                 }
             }
-            OffscreenWork::CameraRender { .. } => {}
+            _ => {}
         }
     }
     found

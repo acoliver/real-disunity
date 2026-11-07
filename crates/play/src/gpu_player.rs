@@ -344,7 +344,7 @@ impl PlayerGpu {
     /// Records the operations into a frame of their own, submits it and waits for it.
     fn run(
         &self,
-        operations: worldrunner_render_program::offscreen::OffscreenOperations,
+        operations: worldrunner_render_program::unity::offscreen::OffscreenOperations,
     ) -> Result<(), String> {
         let mut frame = self
             .authority

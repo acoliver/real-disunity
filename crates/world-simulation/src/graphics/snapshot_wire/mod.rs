@@ -9,14 +9,16 @@
 //! A decoder refuses truncated or corrupt input with a named [`WireError`]; it never panics and
 //! never allocates more than the input it was given can fill.
 mod codec;
+mod command_parts;
+mod context_parts;
 mod graphics_parts;
 mod scene_parts;
 
-use super::GraphicsSnapshot;
+use super::{GraphicsSnapshot, OffscreenWork};
 use codec::{Reader, Wire, Writer};
 
 /// The version of the encoding this module reads and writes.
-pub const WIRE_VERSION: u32 = 1;
+pub const WIRE_VERSION: u32 = 3;
 /// Most bytes the body of a snapshot holds.
 pub const MAX_SNAPSHOT_BYTES: u32 = 1 << 31;
 
@@ -99,4 +101,30 @@ pub fn decode(bytes: &[u8]) -> Result<GraphicsSnapshot, WireError> {
         return Err(WireError::TrailingBytes);
     }
     Ok(snapshot)
+}
+
+/// Encodes one record of offscreen work in the encoding the snapshot holds it in, without the
+/// header. A host that takes records one by one reads the variants with variable-length parts
+/// from these bytes.
+///
+/// # Errors
+/// Fails when the record holds a list or string over its limit.
+pub fn encode_work(work: &OffscreenWork) -> Result<Vec<u8>, WireError> {
+    let mut out = Writer::new();
+    work.write(&mut out)?;
+    Ok(out.into_bytes())
+}
+
+/// Decodes a record that [`encode_work`] wrote.
+///
+/// # Errors
+/// Fails on input that is truncated, holds a value no encoder writes, or has bytes after the
+/// record.
+pub fn decode_work(bytes: &[u8]) -> Result<OffscreenWork, WireError> {
+    let mut input = Reader::new(bytes);
+    let work = OffscreenWork::read(&mut input)?;
+    if input.remaining() != 0 {
+        return Err(WireError::TrailingBytes);
+    }
+    Ok(work)
 }

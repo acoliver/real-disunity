@@ -9,13 +9,13 @@ use std::fmt::{Debug, Display};
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::offscreen::frame::{
+use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
 };
-use worldrunner_render_program::offscreen::{
+use worldrunner_render_program::unity::offscreen::{
     CameraDraws, OffscreenOperations, PartialMipReads, UnmatchedPasses,
 };
-use worldrunner_render_program::shader::PassSelector;
+use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
     ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
@@ -121,6 +121,9 @@ pub enum Skip {
     PartialViewport,
     /// A copy or blit source that names a global texture, which a record never does.
     GlobalSource,
+    /// A script command the adapter does not run: a render target, clear, global, temporary
+    /// texture, camera setup or culling record.
+    UnsupportedWork,
 }
 
 /// Why a renderer was left out of the frame.
@@ -459,6 +462,7 @@ impl<'a> Mapper<'a> {
                     target_mip: *target_mip,
                 }])
             }
+            _ => Err(Skip::UnsupportedWork),
         }
     }
 

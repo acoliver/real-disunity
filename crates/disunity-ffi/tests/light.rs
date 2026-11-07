@@ -50,6 +50,7 @@ fn distinct() -> DisunityLight {
         use_color_temperature: 1,
         cookie_size: 4.,
         lightmap_bake_type: 2,
+        shadow_resolution: 2,
     }
 }
 
@@ -79,6 +80,7 @@ fn fields(value: DisunityLight) -> (Vec<u32>, Vec<u32>, u64) {
         value.rendering_layer_mask,
         value.use_color_temperature,
         value.lightmap_bake_type,
+        value.shadow_resolution as u32,
     ];
     (
         floats.iter().map(|v| v.to_bits()).collect(),
@@ -204,6 +206,14 @@ fn unknown_enumerations_and_booleans_are_rejected() {
         },
         DisunityLight {
             lightmap_bake_type: 3,
+            ..distinct()
+        },
+        DisunityLight {
+            shadow_resolution: 4,
+            ..distinct()
+        },
+        DisunityLight {
+            shadow_resolution: -2,
             ..distinct()
         },
         DisunityLight {

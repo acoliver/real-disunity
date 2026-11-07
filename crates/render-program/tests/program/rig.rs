@@ -3,18 +3,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use worldrunner_render_program::buffers::ParamName;
-use worldrunner_render_program::constants::pack_layout;
-use worldrunner_render_program::module::{
+use worldrunner_render_program::properties::{PropertySet, PropertyValue};
+use worldrunner_render_program::unity::buffers::ParamName;
+use worldrunner_render_program::unity::constants::pack_layout;
+use worldrunner_render_program::unity::module::{
     ResourceBinding, StageKind, StageModule, StageParameters, StageProgram,
 };
-use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::runtime::{
     BoundResource, BufferHandle, DrawRequest, Geometry, GraphicsProgram, ProgramRuntime,
     TargetHandle, TargetImage, VertexInput,
 };
-use worldrunner_render_program::state::RenderState;
-use worldrunner_render_program::variant::{select_player_sub_program, select_sub_program};
+use worldrunner_render_program::unity::state::RenderState;
+use worldrunner_render_program::unity::variant::{select_player_sub_program, select_sub_program};
 use worldrunner_unity_serialized::shader_parameters::{
     BufferMember, ConstantBuffer as PlayerBuffer, DescriptorSlot, ResourceKind, VariantParameters,
 };

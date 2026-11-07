@@ -3,8 +3,8 @@
 //! A material plans once, whoever references it: its name, the asset index of its planned
 //! shader, the queue and keywords it sets, its tags and disabled passes, and every saved
 //! property. A texture slot holds the asset index of the planned texture. A reference the plan
-//! cannot hold (a shader that did not plan, a texture the engine does not build, a scene plan,
-//! which holds no textures) plans as `null` and is listed once per material. A material that
+//! cannot hold (a shader that did not plan, a texture the engine does not build) plans as `null`
+//! and is listed once per material. A material that
 //! does not decode is an error entry, and a reference to it binds `null`.
 
 use serde::Serialize;

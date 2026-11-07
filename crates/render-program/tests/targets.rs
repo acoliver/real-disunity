@@ -317,8 +317,11 @@ fn a_signature_hands_back_the_depth_format_it_was_given_and_refuses_the_ones_it_
         TextureFormat::Depth24PlusStencil8,
         TextureFormat::Depth32FloatStencil8,
     ] {
-        let signature = TargetSignature::attachments(&[RGBA8], Some(format), 1).unwrap();
-        assert_eq!(signature.depth(), Some(format));
+        for samples in [1, 2, 4, 8, 16] {
+            let signature = TargetSignature::attachments(&[RGBA8], Some(format), samples).unwrap();
+            assert_eq!(signature.depth(), Some(format));
+            assert_eq!(signature.samples(), samples);
+        }
     }
     assert_eq!(
         TargetSignature::attachments(&[RGBA8], None, 1)

@@ -107,22 +107,25 @@ impl TargetSignature {
     /// [`vertex_only_program`]: crate::runtime::ProgramRuntime::vertex_only_program
     ///
     /// # Errors
-    /// Fails by name for a depth format with a stencil aspect, for a format that has no depth and
-    /// for a sample count that is not a power of two up to 16.
+    /// Fails by name for any format with a stencil aspect, including combined depth/stencil,
+    /// for a format that has no depth and for a sample count that is not a power of two up to 16.
     pub fn depth_only(depth: wgpu::TextureFormat, samples: u32) -> Result<Self, ProgramError> {
         check_samples(samples)?;
+        if depth.has_stencil_aspect() {
+            return Err(UnsupportedTarget::Stencil { format: depth }.into());
+        }
         Self::build(&[], Some(depth), samples)
     }
 
     /// The signature of a pass a renderer opens: one to four colour attachments, the first of
     /// which the fragment stage writes and the others of which a draw may leave unwritten with
-    /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with the same attachments
-    /// and one sample is equal to [`new`](Self::new)'s.
+    /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with one colour
+    /// attachment, one sample and no stencil aspect is equal to [`new`](Self::new)'s.
+    /// Combined depth/stencil formats are admitted; program draws neither test nor write stencil.
     ///
     /// # Errors
     /// Fails by name for a count of colour attachments outside one to four, a sample count
     /// that is not a power of two up to 16, and an attachment format without depth.
-    /// Combined depth/stencil formats are admitted; program draws neither test nor write stencil.
     pub fn attachments(
         colors: &[wgpu::TextureFormat],
         depth: Option<wgpu::TextureFormat>,

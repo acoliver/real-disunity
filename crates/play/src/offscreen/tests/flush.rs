@@ -26,7 +26,8 @@ use super::super::kernels::PlayerKernels;
 use super::gpu::{BareQuad, MESH, Quad, SIDE, Synthetic, gpu, shader, target, vector};
 use super::kernels::{copy_object, text_object, write_compute};
 use super::support::{
-    camera, compute_buffer, compute_shader, dispatch, renderer_with, snapshot, world,
+    camera, compute_buffer, compute_shader, dispatch, render_texture, renderer_with, snapshot,
+    world,
 };
 
 /// `GraphicsFormat` 45, one 16-bit float channel.
@@ -612,4 +613,124 @@ fn a_camera_draw_whose_mesh_lacks_a_channel_is_counted_by_the_channel_and_not_by
         (0, 1)
     );
     assert_eq!(floats(&world, buffer), vec![CLEAR * SCALE; 16]);
+}
+
+#[test]
+fn flushing_the_same_camera_render_again_holds_no_more_storage_than_the_first_flush_did() {
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
+    let mut world = world();
+    let heights = target(&mut world, HEIGHT);
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        camera_render(&mut world, heights);
+        let snapshot = snapshot(&mut world);
+        let outcome = host.flush(&snapshot, &Quad).unwrap();
+        assert!(
+            outcome.report.failures.is_empty(),
+            "{:?}",
+            outcome.report.failures
+        );
+        held.push(host.live_bytes());
+    }
+    assert!(held[0] > 0, "the first flush holds the height map");
+    assert_eq!(
+        held,
+        vec![held[0]; 4],
+        "the render texture and the constants buffer are reused: {held:?}"
+    );
+}
+
+#[test]
+fn a_render_texture_the_world_destroyed_gives_its_storage_back_at_the_next_flush() {
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
+    let mut world = world();
+    let mut held = Vec::new();
+    let mut previous = None;
+    for _ in 0..4 {
+        // A temporary: each flush draws into a new render texture and the script destroys it
+        // when the next frame begins.
+        let heights = target(&mut world, HEIGHT);
+        camera_render(&mut world, heights);
+        if let Some(old) = previous.replace(heights) {
+            world.destroy_render_texture(old).unwrap();
+        }
+        let snapshot = snapshot(&mut world);
+        let outcome = host.flush(&snapshot, &Quad).unwrap();
+        assert!(
+            outcome.report.failures.is_empty(),
+            "{:?}",
+            outcome.report.failures
+        );
+        held.push(host.live_bytes());
+    }
+    // The destroyed texture goes back before the new one is made, and a finished flush leaves
+    // nothing released but still counted, so every flush ends holding one render texture.
+    assert!(held[0] > 0, "{held:?}");
+    assert_eq!(held, vec![held[0]; 4], "{held:?}");
+}
+
+#[test]
+fn a_render_texture_too_big_for_the_budget_is_dropped_and_the_rest_of_the_frame_runs() {
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
+    let mut world = world();
+    // The runtime may hold 64 MiB and this render texture alone is 64 MiB of RGBA8.
+    let huge = render_texture(&mut world, [4096, 4096]);
+    camera_render(&mut world, huge);
+    let small = target(&mut world, HEIGHT);
+    camera_render(&mut world, small);
+    let snapshot = snapshot(&mut world);
+    let outcome = host.flush(&snapshot, &Quad).unwrap();
+    assert_eq!(
+        outcome.report.failures.get("rendertexture:Program"),
+        Some(&1)
+    );
+    assert_eq!(
+        outcome.report.failures.get("record:UnusableRenderTexture"),
+        Some(&1)
+    );
+    let traces = host.take_traces();
+    let trace = traces.last().unwrap();
+    assert_eq!((trace.records, trace.built), (2, 1));
+    // One whole-frame refusal, then each of the two render textures built alone. The record that
+    // remains is not built alone: no record allocates storage, so a budget cannot be its fault.
+    assert_eq!(
+        (trace.phases.refusals, trace.phases.probes),
+        (1, 2),
+        "{trace:?}"
+    );
+}
+
+#[test]
+fn render_textures_that_each_fit_the_budget_but_not_together_keep_the_first_and_search_no_record() {
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
+    let mut world = world();
+    // Three render textures of 36 MB each: any one fits the 64 MiB budget and no two do.
+    for _ in 0..3 {
+        let part = render_texture(&mut world, [3000, 3000]);
+        camera_render(&mut world, part);
+    }
+    let snapshot = snapshot(&mut world);
+    let outcome = host.flush(&snapshot, &Quad).unwrap();
+    assert_eq!(
+        outcome.report.failures.get("rendertexture:Program"),
+        Some(&2)
+    );
+    let traces = host.take_traces();
+    let trace = traces.last().unwrap();
+    assert_eq!((trace.records, trace.built), (3, 1));
+    // The whole frame was refused once and the three render textures were built alone; none of
+    // the records was, since a budget is no record's fault.
+    assert_eq!(
+        (trace.phases.refusals, trace.phases.probes),
+        (1, 3),
+        "{trace:?}"
+    );
 }

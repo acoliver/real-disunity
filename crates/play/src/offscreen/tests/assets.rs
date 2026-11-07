@@ -329,3 +329,33 @@ fn a_stored_texture_is_read_with_the_sampler_it_is_given() {
     let made = texture_of(TextureId(1), &texture(4, false, vec![0; 8]), Some(state)).unwrap();
     assert_eq!(made.sampler, Some(state));
 }
+
+#[test]
+fn a_bc6h_texture_keeps_the_blocks_of_its_base_level_as_unsigned_float_blocks() {
+    // 8x4 texels are two 16-byte blocks; the stored bytes go on with the one block of the next level.
+    let bytes: Vec<u8> = (0..48).collect();
+    let mut stored = texture(24, true, bytes.clone());
+    (stored.width, stored.height, stored.mips) = (8, 4, 2);
+    let made = texture_of(TextureId(3), &stored, None).unwrap();
+    assert_eq!((made.size, made.graphics_format), ([8, 4], 106));
+    assert_eq!(made.bytes, bytes[..32]);
+    assert!(made.sampler.is_none());
+}
+
+#[test]
+fn a_bc6h_texture_cut_short_of_its_base_level_is_an_error() {
+    let mut stored = texture(24, true, vec![0; 31]);
+    (stored.width, stored.height) = (8, 4);
+    let error = texture_of(TextureId(3), &stored, None).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            crate::textures::PlayerTextureError::Short {
+                needed: 32,
+                actual: 31,
+                ..
+            }
+        ),
+        "{error}"
+    );
+}

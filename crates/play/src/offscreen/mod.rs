@@ -55,6 +55,7 @@ mod ids;
 mod kernels;
 mod properties;
 mod shaders;
+mod trace;
 
 #[cfg(test)]
 mod tests;
@@ -80,3 +81,4 @@ pub use frame::{
 };
 pub use kernels::PlayerKernels;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
+pub use trace::{Phases, WorkTrace};

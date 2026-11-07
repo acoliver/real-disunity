@@ -4,7 +4,7 @@ use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::unity::synthetic::shaders::camera_passes;
 use worldrunner_unity_serialized::shader::{Shader, ShaderProperty};
 
-use super::super::defaults::{DefaultTexture, declared};
+use super::super::defaults::{DefaultTexture, declared, declared_names};
 use super::super::ids;
 
 fn property(name: &str, kind: i32, default: &str, dimension: i32) -> ShaderProperty {
@@ -77,6 +77,26 @@ fn a_shader_declares_a_default_for_each_2d_texture_property_that_names_one_the_h
         vec![
             ("_Main".to_owned(), DefaultTexture::White),
             ("_Tiles".to_owned(), DefaultTexture::Black),
+        ]
+    );
+}
+
+#[test]
+fn a_shader_lists_the_default_name_of_every_2d_texture_property_whether_or_not_the_host_supplies_it()
+ {
+    let shader = shader_with(vec![
+        property("_Main", 4, "white", 2),
+        property("_Normals", 4, "bump", 2),
+        property("_Plain", 4, "", 2),
+        property("_Layers", 4, "white", 5),
+        property("_Tint", 0, "white", 2),
+    ]);
+    assert_eq!(
+        declared_names(&shader),
+        vec![
+            ("_Main".to_owned(), "white".to_owned()),
+            ("_Normals".to_owned(), "bump".to_owned()),
+            ("_Plain".to_owned(), String::new()),
         ]
     );
 }

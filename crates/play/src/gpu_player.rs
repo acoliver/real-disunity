@@ -28,7 +28,8 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Report, Settings,
+    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Report,
+    Settings, WorkTrace,
 };
 
 /// Bytes of GPU storage the program runtime may hold.
@@ -36,6 +37,9 @@ const RUNTIME_BUDGET: u64 = 512 << 20;
 
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
+
+/// The most frame and flush traces a report keeps.
+const MAX_WORK_TRACES: usize = 64;
 
 /// What the offscreen work of a run did.
 #[derive(Debug, Default)]
@@ -61,6 +65,10 @@ pub struct GpuWorkReport {
     pub nonzero_values: usize,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
+    /// The records of frames and flushes the GPU refused whole. Their other counts are not in the
+    /// totals above, which a refused piece of work never reaches.
+    pub refused_records: usize,
+    pub refused_works: usize,
     /// Why a frame's work or a flush failed, by message.
     pub errors: BTreeMap<String, usize>,
     /// How the first dispatches were bound and what came of them.
@@ -79,12 +87,26 @@ pub struct GpuWorkReport {
     pub missing_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The script commands left out, and the textures the globals held, by description.
+    pub unsupported_work: BTreeMap<String, usize>,
+    pub global_textures: BTreeMap<String, usize>,
     /// Time spent in the frame path and in flushes.
     pub frame_time: Duration,
     pub flush_time: Duration,
+    /// Each frame's and flush's own steps, in order, up to `MAX_WORK_TRACES`.
+    pub work: Vec<WorkTrace>,
 }
 
 impl GpuWorkReport {
+    pub(crate) fn keep_traces(&mut self, traces: Vec<WorkTrace>) {
+        for trace in traces.iter().filter(|trace| trace.error.is_some()) {
+            self.refused_records += trace.records;
+            self.refused_works += 1;
+        }
+        let room = MAX_WORK_TRACES.saturating_sub(self.work.len());
+        self.work.extend(traces.into_iter().take(room));
+    }
+
     fn add(&mut self, report: &Report) {
         self.records += report.records;
         self.built += report.built;
@@ -123,6 +145,12 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.missing_channels {
             *self.missing_channels.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.unsupported_work {
+            *self.unsupported_work.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.global_textures {
+            *self.global_textures.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
@@ -172,6 +200,8 @@ impl GpuWorkReport {
             ("partial texture reads", &self.partial_reads),
             ("draws without a texture", &self.missing_textures),
             ("draws without a mesh channel", &self.missing_channels),
+            ("script commands left out", &self.unsupported_work),
+            ("global textures at a flush", &self.global_textures),
             (
                 "texture properties without a texture",
                 &self.unresolved_textures,
@@ -191,6 +221,10 @@ impl GpuWorkReport {
             self.buffers_written, self.nonzero_values
         );
         eprintln!(
+            "[gpu] refused whole: {} frames or flushes with {} records",
+            self.refused_works, self.refused_records
+        );
+        eprintln!(
             "[gpu] most storage held after a flush {} bytes",
             self.peak_live_bytes
         );
@@ -198,13 +232,19 @@ impl GpuWorkReport {
             "[gpu] time in the frame path {:?}, in flushes {:?}",
             self.frame_time, self.flush_time
         );
+        for (index, work) in self.work.iter().enumerate() {
+            eprintln!("[gpu] {}", work.line(index));
+        }
     }
 }
 
-/// The device the headless player asks for: the default limits, except that one buffer may hold
+/// The device the headless player asks for: the default limits and block compression where offered, except that one buffer may hold
 /// the whole storage budget, since the program arena is reserved as one buffer of that size.
 fn device_requirements() -> DeviceRequirements {
     DeviceRequirements {
+        // The player stores some textures block-compressed; a device without the feature leaves
+        // them out by name.
+        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
         required_limits: wgpu::Limits {
             max_buffer_size: RUNTIME_BUDGET,
             ..wgpu::Limits::default()
@@ -290,6 +330,7 @@ impl PlayerGpu {
                 .flush(&snapshot, &*flush)
                 .map_err(|error| error.to_string());
             let mut report = report.borrow_mut();
+            report.keep_traces(offscreen.borrow_mut().take_traces());
             report.flushes += 1;
             report.flush_time += started.elapsed();
             report.peak_live_bytes = report.peak_live_bytes.max(offscreen.borrow().live_bytes());
@@ -324,13 +365,20 @@ impl PlayerGpu {
         let mut report = self.report.borrow_mut();
         report.frames_with_work += 1;
         let built = self.offscreen.borrow_mut().frame(&snapshot, &*host);
+        report.keep_traces(self.offscreen.borrow_mut().take_traces());
         match built {
             Ok((operations, frame_report)) => {
                 report.add(&frame_report);
-                if let Some(operations) = operations
-                    && let Err(message) = self.run(operations)
-                {
-                    *report.errors.entry(message).or_default() += 1;
+                if let Some(operations) = operations {
+                    let submitted = Instant::now();
+                    let ran = self.run(operations);
+                    self.offscreen.borrow_mut().settle();
+                    if let Some(work) = report.work.last_mut() {
+                        work.phases.submit += submitted.elapsed();
+                    }
+                    if let Err(message) = ran {
+                        *report.errors.entry(message).or_default() += 1;
+                    }
                 }
             }
             Err(error) => {
@@ -376,6 +424,26 @@ impl PlayerGpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn trace(records: usize, error: Option<&str>) -> WorkTrace {
+        WorkTrace {
+            records,
+            error: error.map(str::to_owned),
+            ..WorkTrace::default()
+        }
+    }
+
+    #[test]
+    fn work_the_gpu_refused_whole_is_counted_with_its_records_and_the_rest_is_not() {
+        let mut report = GpuWorkReport::default();
+        report.keep_traces(vec![
+            trace(2513, Some("over its budget")),
+            trace(27, None),
+            trace(30, Some("a shader")),
+        ]);
+        assert_eq!((report.refused_works, report.refused_records), (2, 2543));
+        assert_eq!(report.work.len(), 3, "every piece of work keeps its trace");
+    }
 
     #[test]
     fn the_headless_device_can_hold_the_whole_storage_budget_in_one_arena_buffer() {

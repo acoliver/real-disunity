@@ -8,7 +8,8 @@ use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{
-    CameraDraws, MissingChannelDraws, MissingTextureDraws, OffscreenError, UnmatchedPasses,
+    CameraCauses, CameraDraws, MissingChannelDraws, MissingTextureDraws, OffscreenError,
+    UnmatchedPasses,
 };
 use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
 
@@ -357,6 +358,69 @@ fn a_draw_whose_mesh_lacks_a_channel_the_shader_reads_is_left_out_and_counted_by
     let image = render(&mut rig, &frame);
     assert_eq!(pixel(&image, 8, (1, 3)), CLEAR, "left: no uv channel");
     assert_eq!(pixel(&image, 8, (5, 3)), BLUE, "right: drawn");
+}
+
+/// The fixture with its left renderer's mesh lacking the channel the pass reads for its texture
+/// coordinates, so that renderer is left out and the right one drawn.
+fn left_without_a_channel(rig: &mut Rig) -> OffscreenFrame {
+    let mut frame = halves(rig, (1 << LEFT) | (1 << RIGHT));
+    let mut bare = quad(0.5);
+    bare.channels.retain(|channel| {
+        channel.source == worldrunner_render_program::unity::synthetic::shaders::POSITION
+    });
+    rig.state
+        .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &bare)
+        .unwrap();
+    frame.renderers.get_mut(&RendererId(1)).unwrap().mesh = super::rig::NEAR_QUAD;
+    frame
+}
+
+#[test]
+fn a_draw_left_out_for_want_of_a_channel_leaves_none_of_its_constants_in_the_upload() {
+    let mut rig = Rig::new();
+    let frame = left_without_a_channel(&mut rig);
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(operations.camera_draws(), drawn(1, 0, 0, 1));
+    // The right renderer's draw alone: the material's 16 bytes at 0 and the draw's 16 bytes one
+    // uniform alignment on, since each buffer starts on the alignment.
+    let alignment = u64::from(rig.gpu.device.limits().min_uniform_buffer_offset_alignment);
+    assert_eq!(operations.constants_bytes(), alignment + 16);
+}
+
+#[test]
+fn each_camera_names_the_channels_and_textures_its_left_out_draws_lacked() {
+    let mut rig = Rig::new();
+    let frame = left_without_a_channel(&mut rig);
+    let operations = rig.build(&frame).unwrap();
+    let channels = BTreeMap::from([((4, 1), 1)]);
+    assert_eq!(
+        operations.camera_causes(),
+        vec![CameraCauses {
+            textures: BTreeMap::new(),
+            channels
+        }]
+    );
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    frame.cameras.get_mut(&CAMERA).unwrap().pass = PassSelector::Tag {
+        key: "LightMode".to_owned(),
+        values: vec!["Gamma".to_owned()],
+    };
+    let operations = rig.build(&frame).unwrap();
+    assert_eq!(
+        operations.camera_causes(),
+        vec![CameraCauses {
+            textures: BTreeMap::from([("_Albedo".to_owned(), 2)]),
+            channels: BTreeMap::new()
+        }]
+    );
+}
+
+#[test]
+fn the_program_two_draws_share_is_built_once_and_found_by_the_next_frame() {
+    let mut rig = Rig::new();
+    let frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    assert_eq!(rig.build(&frame).unwrap().programs_built(), 1);
+    assert_eq!(rig.build(&frame).unwrap().programs_built(), 0);
 }
 
 #[test]

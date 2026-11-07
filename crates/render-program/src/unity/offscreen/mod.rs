@@ -116,6 +116,19 @@ impl OffscreenState {
             .map(textures::TextureInfo::primary)
     }
 
+    /// Gives back the storage of the render textures that `live` does not name. A render texture
+    /// the frames named earlier and its owner has since destroyed holds storage for as long as the
+    /// state keeps it, so a host calls this with the render textures that exist before it builds.
+    /// Call it while no frame is being recorded; storage the runtime cannot release yet is
+    /// released by the next call.
+    pub fn retain_render_textures(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        live: &BTreeSet<TextureId>,
+    ) {
+        self.textures.retain_render_textures(runtime, live);
+    }
+
     /// Resolves and packs one frame into the typed operations that run it, in call order.
     ///
     /// Nothing is recorded and nothing is submitted. Call it while no frame is being recorded,
@@ -164,6 +177,7 @@ impl OffscreenState {
             let steps = steps::plan_steps(&mut services, frame)?;
             (steps, later_reads(&mut services, frame)?)
         };
+        let constants_bytes = constants.bytes.len() as u64;
         let mut operations = Vec::new();
         let mut constants_key = None;
         if let Some((key, upload)) =
@@ -189,6 +203,7 @@ impl OffscreenState {
             shares,
             missing: missing.into_iter().collect(),
             counts,
+            constants_bytes,
         })
     }
 
@@ -296,6 +311,7 @@ pub struct OffscreenOperations {
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
+    constants_bytes: u64,
 }
 
 /// Texture reads that bound only the levels written with the base level, counted for one
@@ -327,6 +343,14 @@ pub struct CameraDraws {
     pub missing_texture: usize,
     /// The draws left out because the mesh lacks a vertex channel the pass reads.
     pub missing_channel: usize,
+}
+
+/// Why one camera render left draws out: the texture properties no layer named and the
+/// (source channel, shader input) pairs its meshes lacked, each with the draws it cost.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CameraCauses {
+    pub textures: std::collections::BTreeMap<String, usize>,
+    pub channels: std::collections::BTreeMap<(i8, i8), usize>,
 }
 
 /// Camera draws left out because the mesh lacks a vertex channel the pass reads, counted for one
@@ -403,6 +427,32 @@ impl OffscreenOperations {
     #[must_use]
     pub fn camera_draws(&self) -> Vec<CameraDraws> {
         self.counts.cameras.clone()
+    }
+
+    /// Why each camera render left draws out, in the order of [`camera_draws`](Self::camera_draws).
+    #[must_use]
+    pub fn camera_causes(&self) -> Vec<CameraCauses> {
+        self.counts.camera_causes.clone()
+    }
+
+    /// The bytes of the frame's constants upload: the constants of the draws that were kept, each
+    /// buffer starting at the device's uniform offset alignment. Zero when no draw has constants.
+    #[must_use]
+    pub fn constants_bytes(&self) -> u64 {
+        self.constants_bytes
+    }
+
+    /// The programs this frame's draws built because the state had none for their shader, pass and
+    /// variant yet. A frame whose draws all find theirs built none.
+    #[must_use]
+    pub fn programs_built(&self) -> usize {
+        self.counts.programs_built
+    }
+
+    /// The time this frame's draws spent choosing and building their programs.
+    #[must_use]
+    pub fn program_time(&self) -> std::time::Duration {
+        self.counts.program_time
     }
 
     /// The camera draws left out for want of a pass, by the tags the shader's passes have

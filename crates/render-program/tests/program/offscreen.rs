@@ -2,6 +2,7 @@
 //! layers and building the operations of a frame.
 
 mod blit;
+mod block_sources;
 mod camera;
 mod copy;
 mod depth_only;

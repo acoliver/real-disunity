@@ -17,7 +17,7 @@ use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::textures::TextureInfo;
-use super::{CameraDraws, UnmatchedPasses};
+use super::{CameraCauses, CameraDraws, UnmatchedPasses};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
@@ -94,6 +94,7 @@ fn camera_step(
     let unmatched_before = svc.counts.unmatched;
     let missing_before = svc.counts.missing_texture;
     let channel_before = svc.counts.missing_channel;
+    svc.counts.current = CameraCauses::default();
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
             draws.push(draw);
@@ -107,6 +108,8 @@ fn camera_step(
         missing_texture: svc.counts.missing_texture - missing_before,
         missing_channel: svc.counts.missing_channel - channel_before,
     });
+    let causes = std::mem::take(&mut svc.counts.current);
+    svc.counts.camera_causes.push(causes);
     let pass = camera_pass(
         svc,
         raster_id("offscreen camera", index),
@@ -153,13 +156,19 @@ fn planned_draw(
     if sub.count == 0 {
         return Ok(None);
     }
-    match camera_draw(
+    // A draw left out after its constants were packed leaves none of them in the frame.
+    let constants_mark = svc.constants.mark();
+    let planned = camera_draw(
         svc,
         &spec,
         renderer.mesh,
         sub,
         (signature, camera.front_face),
-    ) {
+    );
+    if planned.is_err() {
+        svc.constants.rollback(constants_mark);
+    }
+    match planned {
         Ok(draw) => Ok(Some(draw)),
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
             svc.counts.unmatched += 1;
@@ -168,11 +177,17 @@ fn planned_draw(
         }
         Err(OffscreenError::MissingTexture { name }) => {
             svc.counts.missing_texture += 1;
+            *svc.counts.current.textures.entry(name.clone()).or_default() += 1;
             *svc.counts.missing_textures.entry(name).or_default() += 1;
             Ok(None)
         }
         Err(OffscreenError::MissingChannel { channel, input, .. }) => {
             svc.counts.missing_channel += 1;
+            *svc.counts
+                .current
+                .channels
+                .entry((channel, input))
+                .or_default() += 1;
             *svc.counts
                 .missing_channels
                 .entry((channel, input))

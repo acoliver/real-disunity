@@ -58,6 +58,16 @@ impl ConstantsPlan {
         }
     }
 
+    /// Where the next draw's constants start, to give back to [`rollback`](Self::rollback).
+    pub(super) fn mark(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// Drops the constants pushed since `mark`, for a draw that was left out after packing them.
+    pub(super) fn rollback(&mut self, mark: usize) {
+        self.bytes.truncate(mark);
+    }
+
     fn push(&mut self, slice: &[u8]) -> u64 {
         let start = self.bytes.len().next_multiple_of(self.alignment);
         self.bytes.resize(start, 0);
@@ -142,6 +152,13 @@ pub(super) struct DrawCounts {
     pub(super) unmatched_passes: Vec<super::UnmatchedPasses>,
     /// The partial texture reads, by what read them.
     pub(super) partial_reads: Vec<super::PartialMipReads>,
+    /// Why each camera render left draws out, in the order of `cameras`, and the camera now being
+    /// planned.
+    pub(super) camera_causes: Vec<super::CameraCauses>,
+    pub(super) current: super::CameraCauses,
+    /// Programs built because the state had none, and the time draws spent choosing programs.
+    pub(super) programs_built: usize,
+    pub(super) program_time: std::time::Duration,
 }
 
 /// The parts of the state a draw is planned from, borrowed from it together.
@@ -230,6 +247,7 @@ impl Services<'_> {
         &mut self,
         spec: &DrawSpec<'_>,
     ) -> Result<(Arc<ProgramEntry>, RenderState), OffscreenError> {
+        let started = std::time::Instant::now();
         let shader = self
             .shaders
             .get_mut(&spec.shader)
@@ -241,8 +259,10 @@ impl Services<'_> {
         } else {
             let entry = Arc::new(self.runtime_program(&resolved.variant, resolved.pass)?);
             self.programs.insert(key, entry.clone());
+            self.counts.programs_built += 1;
             entry
         };
+        self.counts.program_time += started.elapsed();
         let state = resolve_state(&resolved.state, &spec.layers.values())?;
         self.missing.extend(state.defaulted);
         Ok((entry, state.state))

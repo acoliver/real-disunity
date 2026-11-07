@@ -15,6 +15,8 @@
 //! Each run of records is its own submission because the buffer a run's constants share is
 //! rewritten for the next run, and a submission fixes what its commands read.
 
+use std::time::Instant;
+
 use worldrunner_disunity_runtime::GpuFlush;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
@@ -29,6 +31,7 @@ use super::adapter::{OffscreenAdapter, build};
 use super::assets::Assets;
 use super::compute::{ComputeAdapter, DispatchTrace, GpuBuffers, Prepared, nonzero_words};
 use super::frame::{Adapted, Report};
+use super::trace::WorkTrace;
 
 /// Why a flush stopped. The world logs it once and the read that asked for the flush returns the
 /// contents the CPU holds.
@@ -97,6 +100,7 @@ pub struct OffscreenHost {
     state: OffscreenState,
     adapter: OffscreenAdapter,
     compute: ComputeAdapter,
+    traces: Vec<WorkTrace>,
 }
 
 impl OffscreenHost {
@@ -127,7 +131,40 @@ impl OffscreenHost {
             state,
             adapter,
             compute,
+            traces: Vec::new(),
         }
+    }
+
+    /// The traces of the frames and flushes since the last call, in order, whether they were
+    /// refused or not.
+    pub fn take_traces(&mut self) -> Vec<WorkTrace> {
+        std::mem::take(&mut self.traces)
+    }
+
+    /// Notes one piece of work: its report's counts, the time its adaptation took and the bytes
+    /// the runtime held before it and holds now.
+    fn note(
+        &mut self,
+        (kind, live_before): (&'static str, u64),
+        report: &Report,
+        error: Option<String>,
+    ) {
+        self.traces.push(WorkTrace {
+            kind,
+            records: report.records,
+            built: report.built,
+            camera_renders: report.camera_draws.len(),
+            drawn: report.camera_draws.iter().map(|c| c.drawn).sum(),
+            left_out: report
+                .camera_draws
+                .iter()
+                .map(|c| c.unmatched + c.missing_texture + c.missing_channel)
+                .sum(),
+            live_before,
+            live_after: self.runtime.live_bytes(),
+            phases: report.phases,
+            error,
+        });
     }
 
     /// The runtime, for a caller that draws with the same device.
@@ -145,19 +182,25 @@ impl OffscreenHost {
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
     ) -> Result<(Option<OffscreenOperations>, Report), OffscreenError> {
+        let live_before = self.runtime.live_bytes();
+        let started = Instant::now();
         let mut adapted = self
             .adapter
             .adapt(snapshot, assets, &mut self.state, &mut self.runtime);
+        adapted.report.phases.adapt = started.elapsed();
         if adapted.frame.records.is_empty() {
+            self.note(("frame", live_before), &adapted.report, None);
             return Ok((None, adapted.report));
         }
-        let operations = build(
+        let built = build(
             &mut self.state,
             &mut self.runtime,
             &self.arena,
             &mut adapted,
-        )?;
-        Ok((Some(operations), adapted.report))
+        );
+        let error = built.as_ref().err().map(ToString::to_string);
+        self.note(("frame", live_before), &adapted.report, error);
+        Ok((Some(built?), adapted.report))
     }
 
     /// Runs the work of `snapshot` to completion and returns the compute buffers it changed.
@@ -170,20 +213,41 @@ impl OffscreenHost {
         snapshot: &GraphicsSnapshot,
         assets: &dyn Assets,
     ) -> Result<FlushOutcome, FlushError> {
+        let live_before = self.runtime.live_bytes();
+        let started = Instant::now();
         let mut adapted = self
             .adapter
             .adapt(snapshot, assets, &mut self.state, &mut self.runtime);
+        adapted.report.phases.adapt = started.elapsed();
         let mut buffers = GpuBuffers::default();
         let result = self.run(snapshot, &mut adapted, &mut buffers);
-        let outcome = result.map(|writes| FlushOutcome {
-            writes,
-            report: std::mem::take(&mut adapted.report),
-        });
-        // The submissions have completed or never happened, so the buffers can go.
+        let error = result.as_ref().err().map(ToString::to_string);
+        // The buffers can go once the GPU has finished with them, and the next flush then
+        // allocates on top of what is live, not of what this one released.
         for handle in buffers.handles() {
             let _ = self.runtime.release_buffer(handle);
         }
-        outcome
+        self.settle();
+        self.note(("flush", live_before), &adapted.report, error);
+        result.map(|writes| FlushOutcome {
+            writes,
+            report: std::mem::take(&mut adapted.report),
+        })
+    }
+
+    /// Waits for the GPU to finish every submission so far and frees the storage released
+    /// meanwhile. The runtime counts released storage against its budget until the GPU is done
+    /// with it, so a host that does not wait lets the next piece of work allocate on top of the
+    /// last one's temporaries.
+    pub fn settle(&mut self) {
+        let waited = self.runtime.device().poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        // A device that cannot be waited on has nothing further to collect.
+        if waited.is_ok() {
+            self.runtime.collect();
+        }
     }
 
     fn run(
@@ -216,7 +280,9 @@ impl OffscreenHost {
             let prepared = placements.get(index).and_then(|placed| {
                 self.prepare(snapshot, placed.work, buffers, &mut adapted.report)
             });
+            let submitted = Instant::now();
             self.submit(operations, prepared.as_ref())?;
+            adapted.report.phases.submit += submitted.elapsed();
             if prepared.is_some()
                 && let Some(trace) = adapted.report.traces.last_mut()
             {

@@ -26,6 +26,9 @@ pub struct ShaderCensus {
     pub light_modes: BTreeMap<String, usize>,
     /// Loaded shaders none of whose passes has a `LightMode` tag.
     pub shaders_without_light_mode: usize,
+    /// For each 2D texture property, the shaders that declare it by the name of the default they
+    /// give it (empty for none).
+    pub declared_defaults: BTreeMap<String, BTreeMap<String, usize>>,
 }
 
 /// The tag a pass is selected by.
@@ -75,6 +78,14 @@ pub fn shader_census(data_directory: &Path) -> Result<ShaderCensus, PlayerError>
                             .or_default() += 1;
                     }
                     census.shaders_without_light_mode += usize::from(!tagged);
+                    for (property, default) in program.declared_defaults {
+                        *census
+                            .declared_defaults
+                            .entry(property)
+                            .or_default()
+                            .entry(default)
+                            .or_default() += 1;
+                    }
                 }
                 Err(error) => *census.failed.entry(error.name()).or_default() += 1,
             }

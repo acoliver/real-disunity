@@ -27,6 +27,11 @@ pub const TEXTURE_COORDINATES: i8 = 4;
 
 /// `GraphicsFormat` codes of 8-bit RGBA, in linear and in sRGB.
 const RGBA8_LINEAR: u32 = 8;
+/// The engine's `TextureFormat` of BC6H, and the `GraphicsFormat` of its unsigned-float form,
+/// which the managed engine maps it to. High dynamic range data does not fit RGBA8, so the
+/// blocks go to the device as they are.
+const BC6H: u32 = 24;
+const BC6H_UFLOAT: u32 = 106;
 const RGBA8_SRGB: u32 = 4;
 
 #[derive(Debug, thiserror::Error)]
@@ -279,6 +284,15 @@ pub fn texture_of(
     stored: &PlayerTexture,
     sampler: Option<SamplerState>,
 ) -> Result<SourceTexture, PlayerTextureError> {
+    if stored.format == BC6H {
+        return Ok(SourceTexture {
+            id,
+            size: [stored.width, stored.height],
+            graphics_format: BC6H_UFLOAT,
+            bytes: bc6h_base_level(stored)?,
+            sampler,
+        });
+    }
     Ok(SourceTexture {
         id,
         size: [stored.width, stored.height],
@@ -290,4 +304,24 @@ pub fn texture_of(
         bytes: player_rgba8(stored)?,
         sampler,
     })
+}
+
+/// The blocks of a BC6H texture's base level, rows as the engine stores them. The texture holds
+/// 4x4 texel blocks of 16 bytes; the levels after the base are not carried.
+fn bc6h_base_level(stored: &PlayerTexture) -> Result<Vec<u8>, PlayerTextureError> {
+    const BLOCK_BYTES: usize = 16;
+    const BLOCK_SIDE: u32 = 4;
+    let blocks = |side: u32| side.div_ceil(BLOCK_SIDE) as usize;
+    let needed = blocks(stored.width) * blocks(stored.height) * BLOCK_BYTES;
+    stored
+        .bytes
+        .get(..needed)
+        .map(<[u8]>::to_vec)
+        .ok_or(PlayerTextureError::Short {
+            format: "BC6H",
+            width: stored.width,
+            height: stored.height,
+            needed,
+            actual: stored.bytes.len(),
+        })
 }

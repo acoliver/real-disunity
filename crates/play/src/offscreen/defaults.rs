@@ -84,10 +84,10 @@ impl DefaultTexture {
     }
 }
 
-/// The 2D texture properties of `shader` whose declared default is one the host supplies, by
-/// property name.
+/// The 2D texture properties of `shader` with the name of the default each declares, empty for
+/// none, whether or not the host supplies it.
 #[must_use]
-pub fn declared(shader: &Shader) -> Vec<(String, DefaultTexture)> {
+pub fn declared_names(shader: &Shader) -> Vec<(String, String)> {
     shader
         .parsed
         .properties
@@ -95,9 +95,18 @@ pub fn declared(shader: &Shader) -> Vec<(String, DefaultTexture)> {
         .filter(|property| {
             property.kind == TEXTURE_PROPERTY && property.texture_dimension == TEXTURE_2D
         })
-        .filter_map(|property| {
-            DefaultTexture::named(&property.default_texture)
-                .map(|texture| (property.name.clone(), texture))
+        .map(|property| (property.name.clone(), property.default_texture.clone()))
+        .collect()
+}
+
+/// The 2D texture properties of `shader` whose declared default is one the host supplies, by
+/// property name.
+#[must_use]
+pub fn declared(shader: &Shader) -> Vec<(String, DefaultTexture)> {
+    declared_names(shader)
+        .into_iter()
+        .filter_map(|(name, default)| {
+            DefaultTexture::named(&default).map(|texture| (name, texture))
         })
         .collect()
 }

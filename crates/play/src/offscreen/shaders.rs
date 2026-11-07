@@ -19,7 +19,7 @@ use worldrunner_unity_import::{
 use worldrunner_unity_serialized::shader::Shader;
 use worldrunner_world_simulation::graphics::ShaderSource;
 
-use super::defaults::{DefaultTexture, declared};
+use super::defaults::{DefaultTexture, declared, declared_names};
 
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum ShaderLoadError {
@@ -99,6 +99,8 @@ pub struct LoadedShader {
     pub queue: i32,
     /// The texture properties whose declared default the host supplies.
     pub texture_defaults: Vec<(String, DefaultTexture)>,
+    /// Every 2D texture property with the name of the default it declares, empty for none.
+    pub declared_defaults: Vec<(String, String)>,
 }
 
 impl ShaderLoader {
@@ -123,12 +125,14 @@ impl ShaderLoader {
         }
         let loaded = self.loaded[&key].clone()?;
         let texture_defaults = declared(&loaded.shader);
+        let declared_defaults = declared_names(&loaded.shader);
         let program = ProgramShader::new(loaded.shader, loaded.chunks)?;
         Ok(LoadedShader {
             passes: program.pass_count(),
             program,
             queue: loaded.queue,
             texture_defaults,
+            declared_defaults,
         })
     }
 

@@ -18,8 +18,8 @@ use worldrunner_render_program::unity::offscreen::{
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
-    ShaderId as WorldShaderId, TextureRef,
+    ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, PropertyValue as WorldValue,
+    RenderTextureId, ShaderId as WorldShaderId, TextureRef,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
@@ -28,6 +28,7 @@ use super::compute::DispatchTrace;
 use super::defaults::DefaultTexture;
 use super::ids;
 use super::properties::{Textures, layer, layer_with_defaults};
+use super::trace::Phases;
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
 /// The tag key whose value names a pass's purpose.
@@ -170,6 +171,13 @@ pub struct Report {
     pub missing_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// Where building the frame spent its time.
+    pub phases: Phases,
+    /// The script commands the adapter does not run, by what they are: `SetGlobal texture _Name
+    /// (render)`, `SetRenderTarget`, and so on.
+    pub unsupported_work: BTreeMap<String, usize>,
+    /// The textures the world's globals hold when the frame is mapped, by `name: kind`.
+    pub global_textures: BTreeMap<String, usize>,
 }
 
 impl Report {
@@ -266,6 +274,13 @@ impl Report {
             *self.unresolved_textures.entry(name).or_default() += count;
         }
         self.camera_draws.extend(other.camera_draws);
+        self.phases.add(&other.phases);
+        for (name, count) in other.unsupported_work {
+            *self.unsupported_work.entry(name).or_default() += count;
+        }
+        for (name, count) in other.global_textures {
+            *self.global_textures.entry(name).or_default() += count;
+        }
         for entry in other.unmatched_passes {
             self.add_unmatched(entry);
         }
@@ -311,6 +326,34 @@ pub(super) fn variant_chain(error: &dyn Debug) -> String {
         }
     }
     names.join("/")
+}
+
+/// What kind of texture a reference names, for reports.
+fn texture_kind(texture: &TextureRef) -> &'static str {
+    match texture {
+        TextureRef::None => "none",
+        TextureRef::Global(_) => "global",
+        TextureRef::Render(_) => "render",
+        TextureRef::Asset(_) => "asset",
+    }
+}
+
+/// A script command the adapter does not run, named by what it is.
+fn describe(work: &OffscreenWork) -> String {
+    match work {
+        OffscreenWork::SetGlobal(WorldValue::Texture(name, slot)) => {
+            format!("SetGlobal texture {name} ({})", texture_kind(&slot.texture))
+        }
+        OffscreenWork::SetGlobal(_) => "SetGlobal value".to_owned(),
+        OffscreenWork::SetGlobalKeyword { .. } => "SetGlobalKeyword".to_owned(),
+        OffscreenWork::SetRenderTarget { .. } => "SetRenderTarget".to_owned(),
+        OffscreenWork::ClearRenderTarget { .. } => "ClearRenderTarget".to_owned(),
+        OffscreenWork::AllocateTemporary { .. } => "AllocateTemporary".to_owned(),
+        OffscreenWork::ReleaseTemporary { .. } => "ReleaseTemporary".to_owned(),
+        OffscreenWork::SetupCamera { .. } => "SetupCamera".to_owned(),
+        OffscreenWork::Cull { .. } => "Cull".to_owned(),
+        _ => "work the adapter maps".to_owned(),
+    }
 }
 
 /// Where a dispatch sits among the frame's records.
@@ -414,7 +457,16 @@ impl<'a> Mapper<'a> {
                     self.report.built += records.len();
                     self.frame.records.extend(records);
                 }
-                Err(skip) => *self.report.skipped.entry(skip).or_default() += 1,
+                Err(skip) => {
+                    *self.report.skipped.entry(skip).or_default() += 1;
+                    if skip == Skip::UnsupportedWork {
+                        *self
+                            .report
+                            .unsupported_work
+                            .entry(describe(work))
+                            .or_default() += 1;
+                    }
+                }
             }
         }
     }
@@ -733,6 +785,16 @@ impl<'a> Mapper<'a> {
             });
         }
         self.report.unresolved_textures = self.textures.unresolved().clone();
+        if let Some(global) = &self.snapshot.global {
+            for (name, slot) in &global.properties.textures {
+                let kind = texture_kind(&slot.texture);
+                *self
+                    .report
+                    .global_textures
+                    .entry(format!("{name}: {kind}"))
+                    .or_default() += 1;
+            }
+        }
         Adapted {
             frame: self.frame,
             report: self.report,

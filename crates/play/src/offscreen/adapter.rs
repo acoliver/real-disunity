@@ -7,7 +7,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::time::Instant;
 
+use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
 use worldrunner_render_program::unity::offscreen::frame::{
     ChannelFormat, Mesh, MeshChannel, MeshIndices, OffscreenFrame, Record, RenderTextureSpec,
@@ -82,6 +84,14 @@ impl OffscreenAdapter {
     ) -> Adapted {
         let mut notes = Report::default();
         let mut available = Available::default();
+        // A render texture the script destroyed has nothing left to draw; its storage goes back
+        // to the budget before this snapshot's textures are made.
+        let live_targets: BTreeSet<_> = snapshot
+            .render_textures
+            .keys()
+            .map(|id| ids::render_texture(*id))
+            .collect();
+        state.retain_render_textures(runtime, &live_targets);
         self.register_shaders(snapshot, state, &mut available, &mut notes);
         let renderers = snapshot.renderers.iter().map(|renderer| renderer.mesh);
         self.register_meshes(renderers.collect(), assets, (state, runtime), &mut notes);
@@ -238,6 +248,13 @@ impl OffscreenAdapter {
                     .is_ok(),
                 Err(error) => {
                     notes.fail("texture", &error);
+                    notes.count(&format!(
+                        "textureformat:{} {}x{}, {} bytes",
+                        crate::textures::format_name(stored.format),
+                        stored.width,
+                        stored.height,
+                        stored.bytes.len()
+                    ));
                     false
                 }
             };
@@ -358,13 +375,22 @@ pub fn build(
     arena: &ProgramArena,
     adapted: &mut Adapted,
 ) -> Result<OffscreenOperations, OffscreenError> {
-    let operations = if let Ok(operations) = state.build(runtime, arena, &adapted.frame) {
-        operations
-    } else {
-        drop_unusable_textures(state, runtime, arena, adapted);
-        drop_unusable_records(state, runtime, arena, adapted);
-        state.build(runtime, arena, &adapted.frame)?
+    let started = Instant::now();
+    let operations = match state.build(runtime, arena, &adapted.frame) {
+        Ok(operations) => operations,
+        Err(first) => {
+            let rebuilt = rebuild_without_unusable_parts(state, runtime, arena, adapted, &first);
+            adapted.report.phases.build += started.elapsed();
+            rebuilt?
+        }
     };
+    let phases = &mut adapted.report.phases;
+    if phases.refusals == 0 {
+        phases.build += started.elapsed();
+    }
+    phases.programs += operations.program_time();
+    phases.programs_built += operations.programs_built();
+    phases.constants_bytes += operations.constants_bytes();
     adapted
         .report
         .count_many("draw:NoPassForCamera", operations.unmatched_draws());
@@ -390,6 +416,42 @@ pub fn build(
     );
     adapted.report.absorb_draws(&operations);
     Ok(operations)
+}
+
+/// Builds the frame again after `first` refused it, without the parts that do not build alone.
+///
+/// The render textures come first, since the state creates them before it plans a record, so
+/// `first` may be one of theirs. A refusal for the budget is retried once with the textures that
+/// did not fit gone, and the records are tried alone only if that retry fails for another reason:
+/// a record allocates no storage, so the budget is never its fault, and building each alone costs
+/// as much as the frame.
+fn rebuild_without_unusable_parts(
+    state: &mut OffscreenState,
+    runtime: &mut ProgramRuntime,
+    arena: &ProgramArena,
+    adapted: &mut Adapted,
+    first: &OffscreenError,
+) -> Result<OffscreenOperations, OffscreenError> {
+    adapted.report.phases.refusals += 1;
+    adapted.report.phases.probes += adapted.frame.render_textures.len();
+    drop_unusable_textures(state, runtime, arena, adapted);
+    if is_over_budget(first) {
+        match state.build(runtime, arena, &adapted.frame) {
+            Ok(operations) => return Ok(operations),
+            Err(error) if is_over_budget(&error) => return Err(error),
+            Err(_) => {}
+        }
+    }
+    adapted.report.phases.probes += adapted.frame.records.len();
+    drop_unusable_records(state, runtime, arena, adapted);
+    state.build(runtime, arena, &adapted.frame)
+}
+
+fn is_over_budget(error: &OffscreenError) -> bool {
+    matches!(
+        error,
+        OffscreenError::Program(ProgramError::OverBudget { .. })
+    )
 }
 
 /// The frame with `records` only, and `textures` as its render textures.

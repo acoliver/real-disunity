@@ -85,6 +85,7 @@ impl ShaderSupply for Synthetic {
             program,
             queue: 2000,
             texture_defaults,
+            declared_defaults: Vec::new(),
         })
     }
 }

@@ -16,7 +16,7 @@ const WINDOW_SIZE: [u32; 2] = [1920, 1080];
 
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
-       play shader-census <player data directory>
+       play shader-census <player data directory> [texture property]...
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
             [--gpu-work on|off]";
@@ -231,7 +231,7 @@ fn play(arguments: Arguments) -> Result<(), String> {
 
 /// `play shader-census <player data directory>`: loads every shader of the player through the
 /// offscreen adapter's loader and prints counts.
-fn shader_census(directory: &str) -> ExitCode {
+fn shader_census(directory: &str, properties: &[String]) -> ExitCode {
     match worldrunner_play::offscreen::shader_census(std::path::Path::new(directory)) {
         Ok(census) => {
             println!(
@@ -242,6 +242,12 @@ fn shader_census(directory: &str) -> ExitCode {
                 "{} loaded shaders have no pass with a LightMode tag; passes by LightMode: {:?}",
                 census.shaders_without_light_mode, census.light_modes
             );
+            for property in properties {
+                println!(
+                    "{property}: shaders by declared default {:?}",
+                    census.declared_defaults.get(property)
+                );
+            }
             ExitCode::SUCCESS
         }
         Err(error) => {
@@ -253,10 +259,10 @@ fn shader_census(directory: &str) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let [command, directory] = args.as_slice()
+    if let [command, directory, properties @ ..] = args.as_slice()
         && command == "shader-census"
     {
-        return shader_census(directory);
+        return shader_census(directory, properties);
     }
     match parse(std::env::args().skip(1)).and_then(play) {
         Ok(()) => ExitCode::SUCCESS,

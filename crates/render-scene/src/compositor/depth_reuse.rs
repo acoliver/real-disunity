@@ -38,12 +38,39 @@ impl FrameRenderer {
         }
     }
 
+    pub(crate) fn prepare_metadata_depth(&mut self, device: &wgpu::Device, gpu: &SceneGpu) {
+        if self.targets().scene_depth() != SceneDepth::Ownership {
+            return;
+        }
+        if gpu.has_relief() {
+            if let Some(screen) = &mut self.ssao
+                && screen.depth.format().has_stencil_aspect()
+            {
+                let depth = crate::ssao::passes::texture(
+                    device,
+                    screen.size,
+                    wgpu::TextureFormat::Depth32Float,
+                );
+                screen.share_depth(device, &depth);
+            }
+        } else {
+            self.share_metadata_depth(device);
+        }
+    }
+
     pub(crate) fn forward_depth(&self, gpu: &SceneGpu, depth: &AttachmentView) -> DepthMode {
-        let paired = self.ssao.as_ref().is_some_and(|screen| {
-            screen.depth == *depth.texture()
-                && depth.format() == wgpu::TextureFormat::Depth32FloatStencil8
-        });
-        mode(depth.texture().sample_count(), paired, gpu.has_relief())
+        if !depth.format().has_stencil_aspect() {
+            return DepthMode::Independent;
+        }
+        let paired = self
+            .ssao
+            .as_ref()
+            .is_some_and(|screen| screen.depth == *depth.texture());
+        if paired {
+            mode(depth.texture().sample_count(), true, gpu.has_relief())
+        } else {
+            DepthMode::Shared
+        }
     }
 
     pub(crate) fn color_pipelines(

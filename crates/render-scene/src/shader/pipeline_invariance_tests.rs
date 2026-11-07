@@ -1,8 +1,7 @@
 //! Enumerate the final modules and active vertex entries of every stock geometry consumer.
 use super::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
-use crate::renderer::depth::DepthMode;
 
-fn check(source: &str, entries: &[&str], paired: bool) {
+fn check(source: &str, entries: &[&str]) {
     let module = naga::front::wgsl::parse_str(source).unwrap();
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -29,17 +28,14 @@ fn check(source: &str, entries: &[&str], paired: bool) {
                 _ => None,
             })
             .expect("position output");
-        assert_eq!(
-            invariant, paired,
-            "{name}: only paired draws may be invariant"
+        assert!(
+            !invariant,
+            "{name}: position compilation must preserve frozen depth and velocity bytes"
         );
-        if paired {
-            assert!(matches!(*name, "vs_main" | "vs_terrain"));
-        }
     }
 }
 
-fn family((object, terrain): (String, String), modes: &[DepthMode]) {
+fn family((object, terrain): (String, String)) {
     use worldrunner_render_plan::SceneSsaoReceiver::{DepthAwareGather, Nearest};
     let receivers: &[_] = if object.contains("fn screen_ao(") {
         &[Nearest, DepthAwareGather]
@@ -49,29 +45,15 @@ fn family((object, terrain): (String, String), modes: &[DepthMode]) {
     for &receiver in receivers {
         let object = crate::ssao::receiver::source(&object, receiver);
         let terrain = crate::ssao::receiver::source(&terrain, receiver);
-        for &mode in modes {
-            let paired = matches!(mode, DepthMode::Prepass | DepthMode::Reuse);
-            let (object, terrain) = crate::renderer::pipeline_sources((&object, &terrain), mode);
-            check(&object, &["vs_main"], paired);
-            for source in crate::renderer::terrain_test_sources(&terrain) {
-                check(&source, &["vs_terrain"], paired);
-            }
+        check(&object, &["vs_main", "vs_unlit"]);
+        for source in crate::renderer::terrain_test_sources(&terrain) {
+            check(&source, &["vs_terrain"]);
         }
-        // Dynamic unlit programs compile a separate Independent module even in paired frames.
-        check(
-            &crate::renderer::unlit_test_source(&object),
-            &["vs_unlit"],
-            false,
-        );
     }
 }
 
 fn forward_families() {
-    let modes = [DepthMode::Independent, DepthMode::Shared, DepthMode::Reuse];
-    family(
-        (ENVIRONMENT_WGSL.to_owned(), TERRAIN_WGSL.to_owned()),
-        &modes,
-    );
+    family((ENVIRONMENT_WGSL.to_owned(), TERRAIN_WGSL.to_owned()));
     for velocity in [false, true] {
         let stock = if velocity {
             (
@@ -81,32 +63,23 @@ fn forward_families() {
         } else {
             (ENVIRONMENT_WGSL.to_owned(), TERRAIN_WGSL.to_owned())
         };
-        family(stock.clone(), &modes);
-        family(
-            (
-                crate::ssao::ambient_source(&stock.0),
-                crate::ssao::ambient_source(&stock.1),
-            ),
-            &modes,
-        );
+        family(stock.clone());
+        family((
+            crate::ssao::ambient_source(&stock.0),
+            crate::ssao::ambient_source(&stock.1),
+        ));
         for ssao in [false, true] {
             for reflection in [false, true] {
-                family(
-                    crate::shadows::receiver_sources(ssao, reflection, velocity),
-                    &modes,
-                );
+                family(crate::shadows::receiver_sources(ssao, reflection, velocity));
             }
         }
         for shadowed in [false, true] {
             for application_ao in [false, true] {
-                family(
-                    crate::ssr::forward::velocity_sources(
-                        crate::shadows::capture_sources(shadowed),
-                        velocity,
-                        application_ao,
-                    ),
-                    &modes,
-                );
+                family(crate::ssr::forward::velocity_sources(
+                    crate::shadows::capture_sources(shadowed),
+                    velocity,
+                    application_ao,
+                ));
             }
         }
     }
@@ -115,13 +88,9 @@ fn forward_families() {
 fn independent_families() {
     use crate::compositor::terms::{CaptureTerm, term_sources};
     let source = crate::shadows::depth_source();
-    check(&source, &["vs_shadow", "vs_terrain_depth"], false);
+    check(&source, &["vs_shadow", "vs_terrain_depth"]);
     for depth in [false, true] {
-        check(
-            &crate::renderer::overlay::source(depth),
-            &["vs_ui_overlay"],
-            false,
-        );
+        check(&crate::renderer::overlay::source(depth), &["vs_ui_overlay"]);
     }
     for physical in [false, true] {
         for separate in [false, true] {
@@ -139,7 +108,7 @@ fn independent_families() {
                             lighting,
                             anchored,
                         );
-                        check(&source, &["vs_celestial"], false);
+                        check(&source, &["vs_celestial"]);
                     }
                 }
             }
@@ -156,34 +125,25 @@ fn independent_families() {
         ] {
             let stock = term_sources(crate::shadows::capture_sources(shadowed), term);
             for (screen, reflection) in [(false, false), (true, false), (true, true)] {
-                family(
-                    crate::compositor::terms::sources(stock.clone(), screen, reflection),
-                    &[DepthMode::Independent],
-                );
+                family(crate::compositor::terms::sources(
+                    stock.clone(),
+                    screen,
+                    reflection,
+                ));
             }
         }
     }
 }
 
 #[test]
-fn every_generated_geometry_pipeline_is_invariant_only_for_paired_entries() {
+fn every_generated_geometry_pipeline_preserves_original_position_compilation() {
     forward_families();
     for output in [
         crate::scene_metadata::MetadataOutput::Normal,
         crate::scene_metadata::MetadataOutput::Merged,
+        crate::scene_metadata::MetadataOutput::Material,
     ] {
-        family(
-            crate::scene_metadata::sources(output),
-            &[
-                DepthMode::Independent,
-                DepthMode::Shared,
-                DepthMode::Prepass,
-            ],
-        );
+        family(crate::scene_metadata::sources(output));
     }
-    family(
-        crate::scene_metadata::sources(crate::scene_metadata::MetadataOutput::Material),
-        &[DepthMode::Independent],
-    );
     independent_families();
 }

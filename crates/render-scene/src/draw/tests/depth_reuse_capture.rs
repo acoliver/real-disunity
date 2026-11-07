@@ -181,6 +181,31 @@ pub(super) fn transformed_frame(
     products
 }
 
+fn cache_terrain(
+    context: &GpuContext,
+    gpu: &mut SceneGpu,
+    pipelines: &ScenePipelines,
+    frame: &FrameUniform,
+) {
+    let mut source = layered_terrain::page_source();
+    source.sample = Box::new(|_| {
+        vec![crate::terrain::pages::composition::LayerSample {
+            color: [100, 150, 70, 255],
+            normal: [0, 0, i16::MAX],
+            roughness: 160,
+            weight: 1,
+        }]
+    });
+    gpu.enable_terrain_pages(context.device(), context.submission(), pipelines, source)
+        .unwrap();
+    // Page residency publishes at submission, before the differential draw uses it.
+    let mut encoder = context.submission().begin(context.device()).unwrap();
+    gpu.prepare_terrain_pages(context.device(), &mut encoder, frame, SIZE)
+        .unwrap();
+    encoder.finish().submit().unwrap();
+    assert!(gpu.terrain_pages_ready());
+}
+
 fn apply_transform(
     context: &GpuContext,
     gpu: &mut SceneGpu,
@@ -190,19 +215,7 @@ fn apply_transform(
 ) {
     match transform {
         Transform::World => {}
-        Transform::CachedTerrain => {
-            let mut source = layered_terrain::page_source();
-            source.sample = Box::new(|_| {
-                vec![crate::terrain::pages::composition::LayerSample {
-                    color: [100, 150, 70, 255],
-                    normal: [0, 0, i16::MAX],
-                    roughness: 160,
-                    weight: 1,
-                }]
-            });
-            gpu.enable_terrain_pages(context.device(), context.submission(), pipelines, source)
-                .unwrap();
-        }
+        Transform::CachedTerrain => cache_terrain(context, gpu, pipelines, frame),
         Transform::Quads => {
             gpu.set_dynamic_contribution(
                 context.device(),
@@ -308,7 +321,15 @@ fn depth(view: &TextureView, load: bool, stencil: bool) -> RenderPassDepthStenci
 
 pub(super) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
     if !texture.usage().contains(TextureUsages::COPY_SRC) {
-        return super::super::forward_rejection::samples::read(context, texture);
+        let samples = super::super::forward_rejection::samples::read(context, texture);
+        return if texture.format().has_depth_aspect() {
+            samples
+                .chunks_exact(16)
+                .flat_map(|pixel| pixel[..4].iter().copied())
+                .collect()
+        } else {
+            samples
+        };
     }
     let mut encoder = context
         .device()

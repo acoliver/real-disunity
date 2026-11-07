@@ -1,6 +1,8 @@
 //! Stock scheduling, temporal identity and immutable products across water, resize and slots.
 use super::*;
 use worldrunner_render_post::{AttachmentView, ResourceRef, ToneMap};
+#[path = "depth_reuse_transitions.rs"]
+mod transitions;
 
 fn source() -> RenderScene {
     let base = terrain_scene(1);

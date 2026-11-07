@@ -559,9 +559,24 @@ impl AttachmentView {
     pub fn texture(&self) -> &wgpu::Texture {
         self.view.texture()
     }
-    /// The exact checked subresource, suitable for a declared sampled input.
+    /// The exact checked attachment view, including both aspects of combined depth/stencil.
     pub fn view(&self) -> &wgpu::TextureView {
         &self.view
+    }
+    /// A sampled view of the checked mip and layer, selecting only depth for combined formats.
+    pub fn sampled_view(&self) -> wgpu::TextureView {
+        if !self.format.has_stencil_aspect() || !self.format.has_depth_aspect() {
+            return self.view.clone();
+        }
+        self.texture().create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            aspect: wgpu::TextureAspect::DepthOnly,
+            base_mip_level: self.resource.mip,
+            mip_level_count: Some(1),
+            base_array_layer: self.resource.layer,
+            array_layer_count: Some(1),
+            ..Default::default()
+        })
     }
     /// The checked view's attachment format, not an inferred pipeline format.
     pub const fn format(&self) -> wgpu::TextureFormat {

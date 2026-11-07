@@ -163,6 +163,16 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
             [1, 1],
             1,
         );
+        if settings.frame.samples == 1 {
+            // Combined scene depth costs two float planes; relief also retains its own prepass.
+            set.texture(
+                "scene depth ownership reserve",
+                [w, h, 1],
+                wgpu::TextureFormat::Depth32Float,
+                [1, 1],
+                1,
+            );
+        }
         occlusion_allocations(settings, set);
         screen_hierarchy_allocations(settings, set);
         set.buffer("screen uniform", 224, 1);

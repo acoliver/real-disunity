@@ -53,8 +53,6 @@ mod specular;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::constants as specular_constants;
-#[cfg(test)]
-pub(crate) use specular::unlit_source as unlit_test_source;
 
 use depth::DepthMode;
 use std::borrow::Cow;
@@ -253,8 +251,7 @@ impl ScenePipelines {
         let mut constants = specular::constants(options.0).to_vec();
         specular::raster_constants(&mut constants, options.1);
         let (color_format, samples) = target;
-        let (object, terrain_shader) = pipeline_sources((source, terrain_source), options.2);
-        let module = scene_shader(device, "environment", &object);
+        let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
         let terrain_layout = terrain_bind_group_layout(device);
@@ -283,7 +280,7 @@ impl ScenePipelines {
         let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
             device,
             &groups,
-            &terrain_shader,
+            terrain_source,
             &buffers,
             &targets,
             (samples, &constants, options.1, options.2),
@@ -567,13 +564,6 @@ pub fn depth_texture(device: &Device, viewport: Viewport) -> Texture {
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn pipeline_sources<'a>(
-    (object, terrain): (&'a str, &'a str),
-    depth: DepthMode,
-) -> (Cow<'a, str>, Cow<'a, str>) {
-    (depth.vertex_source(object), depth.vertex_source(terrain))
-}
-
 fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModule {
     device.create_shader_module(ShaderModuleDescriptor {
         label: Some(label),
@@ -627,13 +617,10 @@ pub(crate) fn celestial_source(
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
 ) -> String {
-    // Celestial visibility is unpaired and keeps its own vertex compilation contract.
-    let source = DepthMode::Independent
-        .vertex_source(ENVIRONMENT_WGSL)
-        .replace(
-            "@location(0) world_position: vec3<f32>,",
-            "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
-        );
+    let source = ENVIRONMENT_WGSL.replace(
+        "@location(0) world_position: vec3<f32>,",
+        "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
+    );
     let source = crate::sky::lighting::composition_source(source, composition);
     let source = crate::sky::lighting::source(source, lighting);
     let vertex = if anchored {

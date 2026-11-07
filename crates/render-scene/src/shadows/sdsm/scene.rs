@@ -179,6 +179,8 @@ impl ShadowedScene {
             .into());
         }
         state.select_time(self.scheduler.selected_time);
+        self.scheduler
+            .prepare_scene_inputs(context.device(), &self.gpu);
         let metadata = state.bind(context, &self.scheduler, attachments.0.size())?;
         let frame = self
             .scheduler

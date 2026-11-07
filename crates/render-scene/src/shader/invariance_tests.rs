@@ -1,4 +1,4 @@
-//! Cross-pipeline position invariance is required before paired depth can be consumed.
+//! Position compilation must preserve the independent programs' depth and velocity bytes.
 use super::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 
 fn assert_positions(source: &str, invariant: bool) {
@@ -39,16 +39,16 @@ fn assert_family((object, terrain): (String, String)) {
         &[Nearest]
     };
     for &receiver in receivers {
-        assert_positions(&crate::ssao::receiver::source(&object, receiver), true);
+        assert_positions(&crate::ssao::receiver::source(&object, receiver), false);
         let terrain = crate::ssao::receiver::source(&terrain, receiver);
         for source in crate::renderer::terrain_test_sources(&terrain) {
-            assert_positions(&source, true);
+            assert_positions(&source, false);
         }
     }
 }
 
 #[test]
-fn paired_vertex_positions_are_invariant_in_every_assembly() {
+fn paired_vertex_positions_preserve_original_compilation_in_every_assembly() {
     let stock = (ENVIRONMENT_WGSL, TERRAIN_WGSL);
     assert_family((stock.0.to_owned(), stock.1.to_owned()));
     for velocity in [false, true] {
@@ -89,15 +89,9 @@ fn paired_vertex_positions_are_invariant_in_every_assembly() {
 }
 
 #[test]
-fn unpaired_positions_retain_original_compilation_contract() {
-    use crate::renderer::depth::DepthMode;
+fn stock_positions_retain_original_compilation_contract() {
     for source in [ENVIRONMENT_WGSL, TERRAIN_WGSL] {
-        for mode in [DepthMode::Independent, DepthMode::Shared] {
-            assert_positions(&mode.vertex_source(source), false);
-        }
-        for mode in [DepthMode::Prepass, DepthMode::Reuse] {
-            assert_eq!(mode.vertex_source(source), source);
-        }
+        assert_positions(source, false);
     }
 }
 

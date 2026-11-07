@@ -25,6 +25,7 @@ pub(super) fn attachment(device: &Device, format: TextureFormat, samples: u32) -
 pub(crate) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
     let device = context.device();
     let samples = texture.sample_count();
+    let [width, height] = [texture.width(), texture.height()];
     let depth = texture.format().is_depth_stencil_format();
     let kind = match (depth, samples) {
         (true, 1) => "texture_depth_2d",
@@ -43,8 +44,7 @@ pub(crate) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
         load.to_owned()
     };
     let source = format!(
-        "@group(0) @binding(0) var input: {kind};\n@group(0) @binding(1) var<storage, read_write> output: array<vec4<u32>>;\n@compute @workgroup_size(1) fn read(@builtin(global_invocation_id) id: vec3<u32>) {{ output[(id.y * {}u + id.x) * {samples}u + id.z] = bitcast<vec4<u32>>({value}); }}",
-        SIZE[0]
+        "@group(0) @binding(0) var input: {kind};\n@group(0) @binding(1) var<storage, read_write> output: array<vec4<u32>>;\n@compute @workgroup_size(1) fn read(@builtin(global_invocation_id) id: vec3<u32>) {{ output[(id.y * {width}u + id.x) * {samples}u + id.z] = bitcast<vec4<u32>>({value}); }}"
     );
     let module = device.create_shader_module(ShaderModuleDescriptor {
         label: Some("per-sample bit copy"),
@@ -58,7 +58,7 @@ pub(crate) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
         compilation_options: PipelineCompilationOptions::default(),
         cache: None,
     });
-    let size = u64::from(SIZE[0] * SIZE[1] * samples * 16);
+    let size = u64::from(width * height * samples * 16);
     let output = device.create_buffer(&BufferDescriptor {
         label: None,
         size,
@@ -98,7 +98,7 @@ pub(crate) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &group, &[]);
-        pass.dispatch_workgroups(SIZE[0], SIZE[1], samples);
+        pass.dispatch_workgroups(width, height, samples);
     }
     encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, size);
     context.queue().submit([encoder.finish()]);

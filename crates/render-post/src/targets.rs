@@ -261,7 +261,8 @@ impl FrameTargets {
                 dimension: wgpu::TextureDimension::D2,
                 format: scene_depth.format(),
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             })
             .create_view(&wgpu::TextureViewDescriptor {

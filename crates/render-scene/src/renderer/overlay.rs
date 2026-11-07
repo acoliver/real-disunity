@@ -109,7 +109,5 @@ pub(crate) fn source(depth: bool) -> String {
             "UI_DEPTH_TEST",
             if depth { "test_ui_depth(input);" } else { "" },
         );
-    super::depth::DepthMode::Independent
-        .vertex_source(&format!("{}\n{}", crate::shader::ENVIRONMENT_WGSL, source))
-        .into_owned()
+    format!("{}\n{source}", crate::shader::ENVIRONMENT_WGSL)
 }

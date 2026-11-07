@@ -313,6 +313,8 @@ fn a_signature_hands_back_the_depth_format_it_was_given_and_refuses_the_ones_it_
         TextureFormat::Depth16Unorm,
         TextureFormat::Depth24Plus,
         TextureFormat::Depth32Float,
+        TextureFormat::Depth24PlusStencil8,
+        TextureFormat::Depth32FloatStencil8,
     ] {
         let signature = TargetSignature::attachments(&[RGBA8], Some(format), 1).unwrap();
         assert_eq!(signature.depth(), Some(format));
@@ -323,11 +325,6 @@ fn a_signature_hands_back_the_depth_format_it_was_given_and_refuses_the_ones_it_
             .depth(),
         None
     );
-    assert!(matches!(
-        TargetSignature::attachments(&[RGBA8], Some(TextureFormat::Depth24PlusStencil8), 1)
-            .unwrap_err(),
-        ProgramError::UnsupportedTarget(UnsupportedTarget::Stencil { .. })
-    ));
     assert!(matches!(
         TargetSignature::attachments(&[RGBA8], Some(RGBA8), 1).unwrap_err(),
         ProgramError::UnsupportedTarget(UnsupportedTarget::NotDepth { .. })

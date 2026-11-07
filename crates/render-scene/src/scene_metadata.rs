@@ -118,13 +118,6 @@ impl SceneMetadata {
         self.depth = depth.clone();
         self.passes
             .rebind_depth(device, &self.uniform, depth, self.depth_resource());
-        self.geometry.pipelines = self
-            .geometry
-            .pipelines
-            .for_depth(crate::renderer::depth::DepthMode::Prepass);
-        if let Some(merged) = &mut self.geometry.merged {
-            *merged = merged.for_depth(crate::renderer::depth::DepthMode::Prepass);
-        }
     }
 
     pub fn upload(&self, context: &mut PrepareContext<'_>, frame: &FrameUniform) {

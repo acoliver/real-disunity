@@ -45,20 +45,6 @@ fn gpu_forward_depth_reuse_matches_frozen_all_attachment_bytes() {
 }
 
 #[test]
-fn gpu_relief_depth_reuse_matches_frozen_all_attachment_bytes() {
-    let context = context();
-    for (name, scene, pose) in super::forward_rejection::fixtures::scenes() {
-        for jitter in [0.0, 0.375] {
-            let old = capture::frame(&context, (&scene, pose), (false, jitter));
-            let new = capture::frame(&context, (&scene, pose), (true, jitter));
-            for (index, (old, new)) in old.iter().zip(new).enumerate() {
-                assert_eq!(*old, new, "{name}, jitter={jitter}, attachment={index}");
-            }
-        }
-    }
-}
-
-#[test]
 fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
     let context = context();
     for (name, scene, pose) in fixtures::ties() {

@@ -15,17 +15,6 @@ pub(crate) enum DepthMode {
 }
 
 impl DepthMode {
-    pub(crate) fn vertex_source(self, source: &str) -> std::borrow::Cow<'_, str> {
-        if matches!(self, Self::Prepass | Self::Reuse) {
-            std::borrow::Cow::Borrowed(source)
-        } else {
-            // Unpaired pipelines keep their original vertex compilation contract.
-            std::borrow::Cow::Owned(
-                source.replace("@invariant @builtin(position)", "@builtin(position)"),
-            )
-        }
-    }
-
     pub(crate) const fn format(self) -> TextureFormat {
         match self {
             Self::Independent => TextureFormat::Depth32Float,

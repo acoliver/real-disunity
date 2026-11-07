@@ -24,7 +24,8 @@ pub const MAX_COLOR_ATTACHMENTS: usize = 4;
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
 /// A signature exists only for what the runtime draws into: one to four colour attachments of
-/// one sample count (1, 2, 4, 8 or 16) and, optionally, a depth attachment without stencil.
+/// one sample count (1, 2, 4, 8 or 16) and, optionally, a depth attachment. Renderer-owned
+/// stencil is preserved by program draws.
 /// [`new`](Self::new) describes the pass the runtime opens for its own targets, one
 /// single-sample colour attachment, and [`attachments`](Self::attachments) the passes a
 /// renderer opens.
@@ -35,14 +36,15 @@ pub struct TargetSignature {
     samples: u32,
 }
 
-/// The depth formats a signature admits, which are the ones without a stencil aspect. Keeping
-/// them as a byte holds a signature, and so an error that names two of them, within the size
-/// the workspace lints allow a returned error.
+/// Keeping depth formats as a byte holds a signature, and so an error that names two of them,
+/// within the size the workspace lints allow a returned error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum DepthFormat {
     Depth16Unorm,
     Depth24Plus,
     Depth32Float,
+    Depth24PlusStencil8,
+    Depth32FloatStencil8,
 }
 
 impl DepthFormat {
@@ -51,6 +53,8 @@ impl DepthFormat {
             wgpu::TextureFormat::Depth16Unorm => Some(Self::Depth16Unorm),
             wgpu::TextureFormat::Depth24Plus => Some(Self::Depth24Plus),
             wgpu::TextureFormat::Depth32Float => Some(Self::Depth32Float),
+            wgpu::TextureFormat::Depth24PlusStencil8 => Some(Self::Depth24PlusStencil8),
+            wgpu::TextureFormat::Depth32FloatStencil8 => Some(Self::Depth32FloatStencil8),
             _ => None,
         }
     }
@@ -60,6 +64,8 @@ impl DepthFormat {
             Self::Depth16Unorm => wgpu::TextureFormat::Depth16Unorm,
             Self::Depth24Plus => wgpu::TextureFormat::Depth24Plus,
             Self::Depth32Float => wgpu::TextureFormat::Depth32Float,
+            Self::Depth24PlusStencil8 => wgpu::TextureFormat::Depth24PlusStencil8,
+            Self::Depth32FloatStencil8 => wgpu::TextureFormat::Depth32FloatStencil8,
         }
     }
 }
@@ -84,6 +90,9 @@ impl TargetSignature {
             }
             .into());
         }
+        if let Some(format) = depth.filter(wgpu::TextureFormat::has_stencil_aspect) {
+            return Err(UnsupportedTarget::Stencil { format }.into());
+        }
         Self::build(colors, depth, samples)
     }
 
@@ -94,8 +103,8 @@ impl TargetSignature {
     ///
     /// # Errors
     /// Fails by name for a count of colour attachments outside one to four, a sample count
-    /// that is not a power of two up to 16, a depth format with a stencil aspect, and a depth attachment that has
-    /// no depth.
+    /// that is not a power of two up to 16, and an attachment format without depth.
+    /// Combined depth/stencil formats are admitted; program draws neither test nor write stencil.
     pub fn attachments(
         colors: &[wgpu::TextureFormat],
         depth: Option<wgpu::TextureFormat>,
@@ -160,9 +169,6 @@ impl TargetSignature {
 fn depth_format(format: wgpu::TextureFormat) -> Result<DepthFormat, ProgramError> {
     if !format.has_depth_aspect() {
         return Err(UnsupportedTarget::NotDepth { format }.into());
-    }
-    if format.has_stencil_aspect() {
-        return Err(UnsupportedTarget::Stencil { format }.into());
     }
     DepthFormat::of(format).ok_or_else(|| UnsupportedTarget::NotDepth { format }.into())
 }

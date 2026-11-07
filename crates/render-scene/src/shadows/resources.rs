@@ -181,12 +181,10 @@ fn depth_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
 }
 
 pub(crate) fn depth_source() -> String {
-    crate::renderer::depth::DepthMode::Independent
-        .vertex_source(&format!(
-            "{ENVIRONMENT_WGSL}\n{}",
-            include_str!("../shader/shadow_depth.wgsl")
-        ))
-        .into_owned()
+    format!(
+        "{ENVIRONMENT_WGSL}\n{}",
+        include_str!("../shader/shadow_depth.wgsl")
+    )
 }
 
 #[derive(Debug)]

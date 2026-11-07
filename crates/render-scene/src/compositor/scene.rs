@@ -127,15 +127,15 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    validate_effects(renderer, gpu, pipelines)?;
+    renderer.prepare_scene_inputs(device, gpu);
     let depth_mode = renderer.forward_depth(gpu, attachments.1);
     let selected = renderer.color_pipelines(pipelines, depth_mode);
     let pipelines = &selected;
-    renderer.prepare_scene_inputs(device, gpu);
     renderer.validate_taa_depth(attachments.1)?;
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
-    validate_effects(renderer, gpu, pipelines)?;
     let programs =
         super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;

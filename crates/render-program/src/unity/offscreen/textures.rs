@@ -2,6 +2,8 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use worldrunner_render_gpu::configuration::AllocationSet;
+
 use crate::create::TextureShape;
 use crate::error::ProgramError;
 use crate::ids::TextureId;
@@ -29,6 +31,8 @@ pub(super) struct TextureInfo {
     /// For an uploaded source, its texels (blocks, for a block-compressed format) and how many of
     /// them hold a byte other than zero.
     pub(super) counts: Option<(usize, usize)>,
+    /// For an uploaded source, the bytes it holds in the budget.
+    pub(super) held_bytes: u64,
 }
 
 impl TextureInfo {
@@ -79,6 +83,7 @@ impl TextureTable {
             sampler: source.sampler,
             spec: None,
             counts: Some(nonzero_texels(&source.bytes, format)),
+            held_bytes: source.bytes.len() as u64,
         };
         self.replace(runtime, source.id, info);
         Ok(())
@@ -120,6 +125,38 @@ impl TextureTable {
             }
         }
         self.release_waiting(runtime);
+    }
+
+    /// Gives back the storage of the uploaded source `id` and returns its bytes. A render texture
+    /// is not released here, and nothing is for an id that names none.
+    pub(super) fn release_source(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        id: TextureId,
+    ) -> Option<u64> {
+        if self.textures.get(&id)?.spec.is_some() {
+            return None;
+        }
+        let old = self.textures.remove(&id)?;
+        self.retired.extend(old.handles());
+        self.release_waiting(runtime);
+        Some(old.held_bytes)
+    }
+
+    /// The bytes the render textures of `specs` would add: those the table has not made or made
+    /// from another spec. The storage a replaced texture held is given back later and is not
+    /// subtracted.
+    pub(super) fn new_render_bytes(
+        &self,
+        runtime: &ProgramRuntime,
+        specs: &[RenderTextureSpec],
+    ) -> u64 {
+        let limits = runtime.device().limits();
+        specs
+            .iter()
+            .filter(|spec| self.textures.get(&spec.id).and_then(|t| t.spec.as_ref()) != Some(*spec))
+            .map(|spec| render_bytes(spec, &limits))
+            .sum()
     }
 
     fn replace(&mut self, runtime: &mut ProgramRuntime, id: TextureId, info: TextureInfo) {
@@ -204,7 +241,45 @@ fn create_render_texture(
         sampler: None,
         spec: Some(spec.clone()),
         counts: None,
+        held_bytes: 0,
     })
+}
+
+/// The bytes a render texture of `spec` takes: its color levels and its depth buffer. A spec the
+/// state cannot make takes none.
+fn render_bytes(spec: &RenderTextureSpec, limits: &wgpu::Limits) -> u64 {
+    let (Ok(color), Ok(depth)) = (
+        render_color_format(spec.graphics_format),
+        depth_format(spec.depth_bits),
+    ) else {
+        return 0;
+    };
+    let mut allocations = AllocationSet::default();
+    if let Some(format) = color {
+        allocations.texture(
+            "render texture",
+            [spec.size[0], spec.size[1], spec.layers],
+            format,
+            [spec.mips, 1],
+            1,
+        );
+    }
+    if let Some(format) = depth {
+        // Under a color texture the depth is one layer and one level, else it is the texture.
+        let (layers, mips) = if color.is_some() {
+            (1, 1)
+        } else {
+            (spec.layers, spec.mips)
+        };
+        allocations.texture(
+            "render texture depth",
+            [spec.size[0], spec.size[1], layers],
+            format,
+            [mips, 1],
+            1,
+        );
+    }
+    allocations.validate(limits).unwrap_or(0)
 }
 
 /// How many texels `bytes` holds of `format`, and how many have a byte other than zero.

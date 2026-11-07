@@ -139,6 +139,36 @@ impl OffscreenState {
         self.meshes.set(runtime, id, mesh)
     }
 
+    /// Gives back the storage of the uploaded source texture `id` and returns its bytes, or `None`
+    /// for an id that names no uploaded source. The storage counts against the budget until the
+    /// GPU has finished with it and the runtime collects it. A render texture is released by
+    /// [`retain_render_textures`](Self::retain_render_textures), not here.
+    pub fn release_source_texture(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        id: TextureId,
+    ) -> Option<u64> {
+        self.textures.release_source(runtime, id)
+    }
+
+    /// Gives back the storage of mesh `id` and returns its bytes, or `None` for a mesh the state
+    /// does not hold. The storage counts against the budget until the runtime collects it.
+    pub fn release_mesh(&mut self, runtime: &mut ProgramRuntime, id: MeshId) -> Option<u64> {
+        self.meshes.release(runtime, id)
+    }
+
+    /// The bytes the render textures of `specs` would add to the runtime's storage: those the
+    /// state has not made, or made from another spec. A host that must make room asks before it
+    /// builds the frame.
+    #[must_use]
+    pub fn new_render_texture_bytes(
+        &self,
+        runtime: &ProgramRuntime,
+        specs: &[frame::RenderTextureSpec],
+    ) -> u64 {
+        self.textures.new_render_bytes(runtime, specs)
+    }
+
     /// The runtime texture behind an id, for a draw that samples it after the offscreen work: the
     /// color of a render texture, or its depth when it has no color.
     #[must_use]

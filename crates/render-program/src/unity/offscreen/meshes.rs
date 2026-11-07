@@ -32,6 +32,8 @@ pub(super) struct MeshInfo {
     pub(super) vertex_count: u32,
     /// The positions as x, y, z triples, kept on the CPU for the probe of a camera render.
     pub(super) positions: Option<Vec<f32>>,
+    /// The bytes of the mesh's buffer, which it holds in the budget.
+    pub(super) bytes: u64,
     pub(super) channels: Vec<ChannelInfo>,
     pub(super) index: Option<IndexInfo>,
     pub(super) sub_meshes: Vec<SubMesh>,
@@ -54,6 +56,15 @@ pub(super) struct MeshTable {
 impl MeshTable {
     pub(super) fn get(&self, id: MeshId) -> Result<&MeshInfo, OffscreenError> {
         self.meshes.get(&id).ok_or(OffscreenError::UnknownMesh(id))
+    }
+
+    /// Gives back the storage of mesh `id` and returns its bytes.
+    pub(super) fn release(&mut self, runtime: &mut ProgramRuntime, id: MeshId) -> Option<u64> {
+        let old = self.meshes.remove(&id)?;
+        self.retired.push(old.buffer);
+        self.retired
+            .retain(|buffer| matches!(runtime.release_buffer(*buffer), Err(ProgramError::Busy)));
+        Some(old.bytes)
     }
 
     /// Uploads a mesh, replacing the one of that id.
@@ -94,6 +105,7 @@ impl MeshTable {
             buffer,
             vertex_count: mesh.vertex_count,
             positions,
+            bytes: (bytes.len() as u64).next_multiple_of(4),
             channels,
             index,
             sub_meshes: mesh.sub_meshes.clone(),

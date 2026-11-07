@@ -2,7 +2,7 @@
 
 use wgpu::{BlendFactor, BlendOperation, ColorWrites, CompareFunction, Face};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::state::{StateError, resolve_state};
+use worldrunner_render_program::unity::state::{StateError, resolve_state};
 use worldrunner_unity_serialized::shader_state::ShaderState;
 
 use crate::common::{fixed, named, opaque_state};

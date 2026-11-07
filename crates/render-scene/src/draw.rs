@@ -25,6 +25,7 @@ mod append;
 pub use append::{
     PreparedAppend, PreparedMeshReplacement, PreparedTextureReplacement, ResourceBase,
 };
+mod caster_edits;
 mod celestial;
 mod compaction;
 mod contact;
@@ -241,7 +242,7 @@ pub struct SceneGpu {
     decals: decals::Decals,
     sky: Option<crate::sky::Sky>,
     celestial: Option<crate::sky::meshes::Meshes>,
-    caster_generation: u64,
+    casters: caster_edits::CasterEdits,
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
@@ -250,7 +251,8 @@ pub struct SceneGpu {
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
-    committed_frame_group: std::rc::Rc<RefCell<BindGroup>>,
+    /// The committed frame group and the frame slot whose uniform it binds.
+    committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
     materials: Vec<BindGroup>,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
@@ -267,6 +269,7 @@ pub struct SceneGpu {
     terrain: Option<GpuTerrain>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
+    unlit: crate::dynamic::UnlitRuntime,
     programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
     retained: Retained,
 }
@@ -337,7 +340,6 @@ impl SceneGpu {
             prepared_terrain(device, authority, &prepared, pipelines, &sampler, previous)?;
         let (decals, frame_slots) =
             decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
-        let (frame_buffer, frame_group) = frame_slots[0].clone();
         let gpu = Self {
             pass_counters: pass_statistics::PassCounters::default(),
             effect_statistics: std::rc::Rc::default(),
@@ -346,16 +348,16 @@ impl SceneGpu {
             decals,
             celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
-            caster_generation: 0,
+            casters: caster_edits::CasterEdits::default(),
             post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             water: water_bodies(scene),
             water_inputs: crate::water::surface::inputs(scene, &views),
-            committed_frame_group: std::rc::Rc::new(RefCell::new(frame_group.clone())),
+            committed_frame_group: std::rc::Rc::new(RefCell::new((frame_slots[0].1.clone(), 0))),
+            frame_buffer: frame_slots[0].0.clone(),
+            frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            frame_buffer,
-            frame_group,
             materials,
             meshes,
             mesh_selection: prepared.selection,
@@ -367,6 +369,7 @@ impl SceneGpu {
             terrain,
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
+            unlit: crate::dynamic::UnlitRuntime::default(),
             programs: None,
             retained: Retained {
                 contact_heights,
@@ -385,7 +388,7 @@ impl SceneGpu {
         self.decal_counts
             .set([decals::selected_count(&bytes), self.decals.count()]);
         self.frame.set(Some(frame));
-        *self.committed_frame_group.borrow_mut() = self.decals.group();
+        *self.committed_frame_group.borrow_mut() = (self.decals.group(), self.decals.slot);
         *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
         queue.write_buffer(
@@ -415,7 +418,11 @@ impl SceneGpu {
     /// [`crate::compositor::encode_resident`] to schedule their internal visibility pass.
     ///
     /// # Panics
-    /// Panics when celestial meshes are present, before recording any draws.
+    /// Panics when celestial meshes are present, before recording any draws, and when resident
+    /// dynamic quads were staged with pipelines for a pass other than the one `pipelines`
+    /// describe: staging prepares their draws for the pass of the pipelines it is given. The
+    /// frame entry points ([`crate::compositor::encode_scene`] and the shadowed scene) prepare
+    /// them for their own pass instead.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
         assert!(
             self.celestial.is_none(),
@@ -481,22 +488,6 @@ impl SceneGpu {
             .expect("set frame before drawing")
     }
 
-    fn drawing_frame_group(&self) -> BindGroup {
-        let transaction_frame = self
-            .drawing_frame
-            .borrow()
-            .as_ref()
-            .is_some_and(|(owner, _)| {
-                worldrunner_render_gpu::submission::Publications::current()
-                    .is_some_and(|current| current.same_transaction(owner))
-            });
-        if transaction_frame {
-            self.decals.group()
-        } else {
-            self.committed_frame_group.borrow().clone()
-        }
-    }
-
     fn draw_color_pass(
         &self,
         pass: &mut RenderPass<'_>,
@@ -528,7 +519,8 @@ impl SceneGpu {
                     .bind_background(pass, &frame_group);
                 meshes.draw(pass, pipelines.sky_targets());
             }
-            self.dynamic.draw(pass, &frame_group, pipelines);
+            self.dynamic
+                .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
             selection,

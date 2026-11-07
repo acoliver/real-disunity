@@ -152,22 +152,30 @@ fn scene_finish_shading(input: VertexOutput, geometric_normal: vec3<f32>, surfac
 @fragment
 fn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let depth = scene_relief_depth(input);
+    if SCENE_IMPOSTOR {
+        return SceneSurfaceOutput(scene_card_shade(input, front_facing, depth.position, false, depth.visible), depth.value);
+    } else {
     let shaded = shade(input, front_facing, depth.position);
     scene_apply_coverage(input);
     if !depth.visible { discard; }
     return SceneSurfaceOutput(vec4<f32>(shaded.rgb, 1.0), depth.value);
+    }
 }
 
 
 @fragment
 fn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput {
     let depth = scene_relief_depth(input);
+    if SCENE_IMPOSTOR {
+        return SceneSurfaceOutput(scene_card_shade(input, front_facing, depth.position, true, depth.visible), depth.value);
+    } else {
     let shaded = shade(input, front_facing, depth.position);
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a, input) || !depth.visible {
         discard;
     }
     return SceneSurfaceOutput(vec4<f32>(shaded.rgb, coverage_alpha), depth.value);
+    }
 }
 
 @fragment
@@ -179,14 +187,22 @@ fn fs_unlit(input: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    if SCENE_IMPOSTOR {
+        return scene_card_shade(input, front_facing, scene_relief_position(input), false, true);
+    } else {
     let shaded = shade(input,front_facing,scene_relief_position(input));
     scene_apply_coverage(input);
     return vec4<f32>(shaded.rgb,1.0);
+    }
 }
 @fragment
 fn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    if SCENE_IMPOSTOR {
+        return scene_card_shade(input, front_facing, scene_relief_position(input), true, true);
+    } else {
     let shaded = shade(input,front_facing,scene_relief_position(input));
     let coverage_alpha = scene_mask_alpha(shaded.a, input);
     if !scene_alpha_covered(shaded.a,input) { discard; }
     return vec4<f32>(shaded.rgb,coverage_alpha);
+    }
 }

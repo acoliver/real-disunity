@@ -389,3 +389,6 @@ fn metadata_rejection_has_no_reachable_derivatives_or_implicit_samples_after_it(
     let implicit = "@group(0) @binding(0) var tex: texture_2d<f32>; @group(0) @binding(1) var smp: sampler; fn normal(uv: vec2<f32>) -> vec4<f32> { return textureSample(tex, smp, uv); } @fragment fn fs_masked(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> { if uv.x == 0.0 { discard; } return normal(uv); }";
     assert!(!metadata_derivatives_before_rejection(implicit));
 }
+
+#[path = "forward_uniformity_tests.rs"]
+mod forward;

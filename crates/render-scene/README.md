@@ -109,6 +109,18 @@ A frame with no admitted draws is unchanged: `without_admitted_programs_the_fram
 
 The tests are in `src/draw/tests/program_frame*`. `player_program_and_scene_gpu_draw_composite_in_one_submitted_frame` draws a red unlit engine card and two patches of a synthetic SPIR-V program in one frame, with explicit `ProgramParameters`, and checks engine-only, player-only and overlapping pixels, an unchanged `submitted_serial` while recording and a serial rise of exactly one. The patches' clip depths lie on either side of the card's depth, which is derived from the projection, so the expected pixels do not depend on the shaders. Run them with `cargo test -p worldrunner-render-scene --lib -- program_frame --test-threads=1`.
 
+## Dynamic quads on the program runtime
+
+Dynamic quads, native sprites and tilemaps, and UI glyphs routed into the world draw with the scene shader's `vs_unlit` and `fs_unlit`. That material is a `render-program` graphics program over the unchanged scene WGSL, and `ScenePipelines` no longer builds a pipeline for it. The runtime builds the pipeline for the pass it is given, with straight alpha over location zero, `LessEqual` depth without a depth write, no culling and an empty write mask on every other colour attachment, so the velocity and reflection targets of a pass keep what other materials wrote. Plain, SSAO, velocity and SSR pipeline sets, `Rgba8UnormSrgb` and `Rgba16Float`, and any sample count the pipelines were built for take the same material.
+
+The runtime borrows what the scene already owns, by semantic: the slot's 320-byte frame uniform at group 0 binding 0 (the frame slot of the transaction that committed the frame, not a copy), and for each group of adjacent compatible quads its vertex, instance, tint and material buffers, its albedo texture and its sampler. Each group is one instanced draw over `0..instance_count`. The stable `(overlay, sorting_layer, sorting_order, hierarchy_order)` order and adjacent-only batching are unchanged. A group is adjacent quads with the same clip rectangle, texture, corners, rectangle and UV rectangle, so quads with different clip rectangles are separate draws. The scene counts none of these buffers against an allocation set and neither does the runtime: that accounting does not exist for dynamic geometry, and this change adds none.
+
+Staging quads prepares a draw for each frame slot, which can fail and allocate, beside the buffers' upload. `encode_scene` and `ShadowedScene` prepare the quads for a pass the staging pipelines did not describe, if there are any, and retain the staged draws on the frame before the pass opens. `encode_resident` takes a shared scene, so it retains and refuses a pass the quads were not prepared for. Recording is state setting at the position the fixed pipeline's draw had: objects, terrain, sky and celestial meshes, then quads. The staged quads own what they lent through a `Keepalive`, so replacing or clearing them while a frame that recorded them is unfinished leaves the buffers alive until that frame is cancelled or completed on the GPU.
+
+The scene's pass does not clip: `DynamicQuad::clip_rect` splits draws there and is applied only by the retained-UI overlay. The overlay keeps its own fixed pipeline (`vs_ui_overlay`, `fs_ui_overlay`) over the same staged quad buffers, with a material bind group per draw and a scissor per draw taken from the clip rectangle (clamped to the output, flipped to the top-left origin, skipped when nothing is left). Its draw returns the calls and instances it recorded for the UI pass statistics. `src/dynamic/capture_tests/clipping.rs` draws partial, disjoint, full, oversized, outside and mixed clip rectangles in every target set and requires the scene's pass to match the unscissored fixed draw and the overlay's draw, recorded with the fixed unlit pipeline, to match the scissored fixed draw and its counts byte for byte.
+
+`src/dynamic/capture_tests.rs` draws quads, sprites and glyphs with this path and with a test-only copy of the former fixed pipeline and material bind group, on one device, under each target set above with the auxiliary attachments pre-filled, and requires every attachment to match byte for byte. It prints a hash per attachment, which was identical before and after the change on the Radeon 780M and on llvmpipe.
+
 ## Material sampling
 
 Mesh and impostor scalar selectors use direct component indexing with uniform integers,
@@ -168,15 +180,19 @@ uses mutually exclusive explicit-gradient and explicit-level-zero branches accor
 to the atlas policy. Gradients include the material mip bias; clamped UVs and
 per-texture insets determine each footprint. CPU Naga-IR tests bound reconstruction
 calls and require blended level-zero samples to exclude the gradient branch.
-Forward coverage is resolved after shading. Metadata captures atlas footprints,
-normal frames and decal position gradients with the complete fragment quad, then
-samples albedo once and rejects alpha, distance-fade and invisible relief fragments.
-Only survivors sample normal and surface maps or traverse decal volumes. All samples
-after metadata rejection use explicit gradients or levels; relief depth is reconstructed
-before rejection and reused by shading and depth output. Normal, surface-channel
-and decal evaluation expand from shared source bodies. Preparation and prepared
-evaluation declarations belong only to metadata assembly; forward source bytes
-remain unchanged because preparation wrappers change rendered bytes on Metal.
+Forward cards filter alpha and capture its width, auxiliary footprints, normal frames,
+decal position gradients and shadow gradients before rejecting fragments. Shadow
+preparation uses the decal-modified normal and its opposite for transmission. Under
+alpha-to-coverage, only zero computed coverage is rejected; below-cutoff or raw zero
+alpha can still own samples. Survivors sample AO, emission, shadows and environment
+and evaluate lighting. Card term captures reuse the prepared shadow inputs for
+sun visibility; every term assembly is covered by the forward derivative guard.
+Ordinary materials retain their shading path.
+Metadata captures atlas footprints, normal frames and decal gradients before alpha,
+distance-fade and relief-visibility rejection. Only survivors sample normal/surface
+maps and project decals. Samples after either rejection use explicit gradients or
+levels. Relief position is reconstructed once and reused by shading and depth output.
+Normal, surface-channel and decal evaluation expand from shared source bodies.
 
 Surface and impostor materials specialize `SCENE_IMPOSTOR` independently of alpha
 coverage. Surface variants exclude atlas selection and relief sampling at compilation,

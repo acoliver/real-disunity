@@ -1,68 +1,37 @@
-//! Where a stage's named constant buffers and textures are bound in the prepared module.
+//! Where a stage's named constant buffers and textures are bound.
 
-use worldrunner_unity_serialized::shader_program::ConstantBuffer;
-
-use crate::declare::entry;
-use crate::layout::LayoutError;
+use crate::binding::{BindingAddress, BindingSource, PropertyId, ResourceKind};
+use crate::constants::BoundConstantLayout;
 use crate::module::StageProgram;
 
-/// A constant buffer's layout and the binding it fills.
-#[derive(Clone, Copy, Debug)]
-pub struct ConstantBufferTarget<'a> {
-    pub set: u32,
-    pub binding: u32,
-    pub buffer: &'a ConstantBuffer,
-}
-
-/// A texture property's name index and the binding it fills.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A texture property and the binding it fills.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextureTarget {
-    pub name_index: i32,
-    pub set: u32,
-    pub binding: u32,
+    pub property: PropertyId,
+    pub at: BindingAddress,
 }
 
 impl StageProgram {
-    /// The constant buffers the parameters describe, each with its prepared set and binding.
-    ///
-    /// # Errors
-    /// Fails on a binding outside the binding table, or one with no constant buffer record.
-    pub fn constant_buffer_targets(&self) -> Result<Vec<ConstantBufferTarget<'_>>, LayoutError> {
-        let parameters = self.parameters();
-        let mut targets = Vec::new();
-        for binding in &parameters.constant_buffer_bindings {
-            let buffer = parameters
-                .constant_buffers
-                .iter()
-                .find(|buffer| buffer.name_index == binding.name_index)
-                .ok_or(LayoutError::UndescribedConstantBuffer {
-                    name_index: binding.name_index,
-                })?;
-            let placed = entry(&self.module().bindings, binding.index)?;
-            targets.push(ConstantBufferTarget {
-                set: placed.set,
-                binding: placed.binding,
-                buffer,
-            });
-        }
-        Ok(targets)
+    /// The constant buffers the stage declares, each with the binding it fills.
+    #[must_use]
+    pub fn constant_targets(&self) -> &[BoundConstantLayout] {
+        &self.declarations().constants
     }
 
-    /// The texture parameters with their prepared set and binding.
-    ///
-    /// # Errors
-    /// Fails on a binding outside the binding table.
-    pub fn texture_targets(&self) -> Result<Vec<TextureTarget>, LayoutError> {
-        self.parameters()
-            .textures
+    /// The textures the stage declares by property name, in declaration order.
+    #[must_use]
+    pub fn texture_targets(&self) -> Vec<TextureTarget> {
+        self.declarations()
+            .resources
+            .bindings
             .iter()
-            .map(|texture| {
-                let placed = entry(&self.module().bindings, texture.index)?;
-                Ok(TextureTarget {
-                    name_index: texture.name_index,
-                    set: placed.set,
-                    binding: placed.binding,
-                })
+            .filter(|binding| matches!(binding.kind, ResourceKind::Texture { .. }))
+            .filter_map(|binding| match &binding.source {
+                BindingSource::Property(property) => Some(TextureTarget {
+                    property: property.clone(),
+                    at: binding.at,
+                }),
+                BindingSource::Engine(_) | BindingSource::Unnamed => None,
             })
             .collect()
     }

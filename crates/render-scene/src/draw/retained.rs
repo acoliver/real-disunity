@@ -50,7 +50,7 @@ impl SceneGpu {
     }
 
     pub(crate) fn caster_generation(&self) -> u64 {
-        self.caster_generation
+        self.casters.generation
     }
 
     /// Provisions bounded page uploads and declares stock geometry's capture writes.
@@ -130,7 +130,8 @@ impl SceneGpu {
         visible: bool,
     ) -> Result<InstanceHandle, InstanceError> {
         let handle = self.instances.add(object, visible)?;
-        self.caster_generation = self.caster_generation.wrapping_add(1);
+        let added = self.caster_bounds(handle);
+        self.record_caster_change(None, added);
         Ok(handle)
     }
 
@@ -147,8 +148,9 @@ impl SceneGpu {
 
     /// Removes a placement without moving surviving batch slots or rewriting bytes.
     pub fn remove_instance(&mut self, handle: InstanceHandle) -> Result<(), InstanceError> {
+        let removed = self.caster_bounds(handle);
         self.instances.remove(handle)?;
-        self.caster_generation = self.caster_generation.wrapping_add(1);
+        self.record_caster_change(removed, None);
         Ok(())
     }
 
@@ -158,10 +160,12 @@ impl SceneGpu {
         handle: InstanceHandle,
         transform: SceneTransform,
     ) -> Result<(), InstanceError> {
-        let (old, visible) = self.instances.get(handle)?;
+        let old = *self.instances.get(handle)?.0.transform();
+        let before = self.caster_bounds(handle);
         self.instances.set_transform(handle, transform)?;
-        if visible && old.casts_shadow() && *old.transform() != transform {
-            self.caster_generation = self.caster_generation.wrapping_add(1);
+        if old != transform {
+            let after = self.caster_bounds(handle);
+            self.record_caster_change(before, after);
         }
         Ok(())
     }
@@ -173,15 +177,15 @@ impl SceneGpu {
         handle: InstanceHandle,
         object: SceneObject,
     ) -> Result<(), InstanceError> {
-        let (old, visible) = self.instances.get(handle)?;
+        let old = self.instances.get(handle)?.0;
+        let before = self.caster_bounds(handle);
         self.instances.set_object(handle, object)?;
-        // A moved caster leaves its old shadow in every retained cascade.
-        let moved = visible && old.casts_shadow() && old.transform() != object.transform();
-        if moved
-            || old.lod_distance_scale_millionths() != object.lod_distance_scale_millionths()
-            || old.casts_shadow() != object.casts_shadow()
-        {
-            self.caster_generation = self.caster_generation.wrapping_add(1);
+        if old.lod_distance_scale_millionths() != object.lod_distance_scale_millionths() {
+            self.casters.global();
+        } else if old != object {
+            // A changed caster leaves its old shadow in the cascades that hold it.
+            let after = self.caster_bounds(handle);
+            self.record_caster_change(before, after);
         }
         Ok(())
     }
@@ -192,10 +196,12 @@ impl SceneGpu {
         handle: InstanceHandle,
         visible: bool,
     ) -> Result<(), InstanceError> {
+        let before = self.caster_bounds(handle);
         let changed = self.instances.get(handle)?.1 != visible;
         self.instances.set_visible(handle, visible)?;
         if changed {
-            self.caster_generation = self.caster_generation.wrapping_add(1);
+            let after = self.caster_bounds(handle);
+            self.record_caster_change(before, after);
         }
         Ok(())
     }
@@ -282,6 +288,7 @@ impl SceneGpu {
         *self.drawing_frame.borrow_mut() = Some((context.publications(), frame));
         let published = self.frame.clone();
         let committed_group = self.committed_frame_group.clone();
+        let slot = self.decals.slot;
         let bytes = self.decals.prepare(&frame, &self.frame_buffer);
         let group = self.decals.group();
         let counts = self.decal_counts.clone();
@@ -289,7 +296,7 @@ impl SceneGpu {
         crate::compositor::publication::stage(context, &published.clone(), move || {
             published.set(Some(frame));
             counts.set(count);
-            *committed_group.borrow_mut() = group;
+            *committed_group.borrow_mut() = (group, slot);
         });
         context.upload_buffer(&self.frame_buffer, 0, &frame.to_bytes());
         context.upload_buffer(
@@ -298,6 +305,37 @@ impl SceneGpu {
             &frame.previous_frame_bytes(),
         );
         context.upload_buffer(&self.decals.buffers[self.decals.slot], 0, &bytes);
+    }
+}
+
+impl SceneGpu {
+    /// Whether the draw in progress belongs to the transaction that committed the frame.
+    pub(super) fn drawing_in_transaction(&self) -> bool {
+        self.drawing_frame
+            .borrow()
+            .as_ref()
+            .is_some_and(|(owner, _)| {
+                worldrunner_render_gpu::submission::Publications::current()
+                    .is_some_and(|current| current.same_transaction(owner))
+            })
+    }
+
+    pub(super) fn drawing_frame_group(&self) -> wgpu::BindGroup {
+        if self.drawing_in_transaction() {
+            self.decals.group()
+        } else {
+            self.committed_frame_group.borrow().0.clone()
+        }
+    }
+
+    /// The frame slot whose uniform the group [`drawing_frame_group`](Self::drawing_frame_group)
+    /// binds, which is the one the dynamic quads' draws bind their frame buffer from.
+    pub(super) fn drawing_frame_slot(&self) -> usize {
+        if self.drawing_in_transaction() {
+            self.decals.slot
+        } else {
+            self.committed_frame_group.borrow().1
+        }
     }
 }
 

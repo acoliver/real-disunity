@@ -102,6 +102,19 @@ pub(crate) fn declare_velocity(
     Ok(())
 }
 
+/// Checks the effects the scene asks for against the renderer's configuration, before anything
+/// is declared. The water inputs are already bound by `prepare_scene_inputs`.
+fn validate_effects(
+    renderer: &mut FrameRenderer,
+    gpu: &crate::draw::SceneGpu,
+    pipelines: &crate::renderer::ScenePipelines,
+) -> Result<(), FrameError> {
+    renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
+    renderer.validate_water(&gpu.water)?;
+    renderer.validate_ssr(gpu.ssr.as_ref())?;
+    renderer.validate_post(gpu.post)
+}
+
 /// Encodes a resident unshadowed scene through the feature boundary.
 /// Checked attachments retain their selected mip, array layer and view format.
 /// The submission and abandonment rules of [`FrameRenderer`] apply.
@@ -119,12 +132,10 @@ pub fn encode_scene(
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
-    renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
-    renderer.validate_water(&gpu.water)?;
-    renderer.validate_ssr(gpu.ssr.as_ref())?;
-    renderer.validate_post(gpu.post)?;
+    validate_effects(renderer, gpu, pipelines)?;
     let programs =
         super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;

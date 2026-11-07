@@ -2,8 +2,8 @@
 
 use worldrunner_render_gpu::submission::TransactionError;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::module::StageKind;
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::module::StageKind;
+use worldrunner_render_program::unity::runtime::{
     BoundResource, ComputeProgram, DispatchRequest, ProgramRuntime,
 };
 use worldrunner_unity_serialized::shader_program::{ProgramParameters, UavParam};

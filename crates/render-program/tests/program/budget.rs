@@ -2,7 +2,7 @@
 
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{ProgramRuntime, TargetHandle};
+use worldrunner_render_program::unity::runtime::{ProgramRuntime, TargetHandle};
 
 use crate::common::{Gpu, run, submit};
 

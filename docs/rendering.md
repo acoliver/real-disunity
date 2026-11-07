@@ -63,7 +63,21 @@ Prefer SMAA over FXAA when the image is dominated by long high-contrast edges (U
 
 Choose CMAA2 (`PostResolve::cmaa2(Cmaa2Preset::High)`) when the scene mixes long edges with text or thin detail that must stay crisp and the adapter runs compute shaders. It is a port of Intel's CMAA2 2.3 single-sample path and works on the image after tone mapping, like FXAA and SMAA. The four presets differ only in the edge threshold (0.15, 0.10, 0.07 and 0.05, with `High` the default), and `Cmaa2Settings::with_extra_sharpness` keeps more small detail. On a Radeon 780M at 1920x1080 the CMAA2 passes took about 3.5 ms, SMAA 1.9 to 2.4 ms and FXAA 1.1 ms, so it is the most expensive of the three. Its MSAA path is not ported; the post chain receives the resolved image, so that path is not needed here. The shader is Apache-2.0 licensed; see the [post crate README](../crates/render-post/README.md#cmaa2) for the deviations and the license.
 
-FXAA, SMAA and CMAA2 are alternatives, because `resolve` holds one choice. If the scene effects already author FXAA, leave `resolve` at `None`; setting both is rejected. `PostResolve::taa` is a fourth alternative and is described below.
+FXAA, SMAA and CMAA2 are alternatives, because `resolve` holds one choice. If the scene effects already author a resolve, leave the descriptor's `resolve` at `None`; setting both is rejected. `PostResolve::taa` is a fourth alternative and is described below.
+
+Retained HDR scenes can select `SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)`
+through their effects without a frame-profile override. The four scene presets
+map exactly to `SmaaSettings::{LOW, MEDIUM, HIGH, ULTRA}` and default to luma
+edges. For color edges or custom parameters use
+`SceneAntiAlias::Smaa(SceneSmaaSettings { edge_detection: SceneSmaaEdgeDetection::Color, ..SceneSmaaSettings::ULTRA })`.
+Threshold is authored in millionths (`1..=500_000`); horizontal/vertical search
+steps are `0..=112`, optional diagonal steps `0..=20`, and optional corner
+rounding `0..=100`. `None` skips a feature, while `Some(0)` keeps it enabled.
+Out-of-range settings fail effects construction with a field-specific
+`SceneValidationError::RangeViolation`. SMAA selects no automatic jitter and runs
+`smaa_edges`, `smaa_weights` and `smaa_blend`, each with its own timing identity.
+The programmatic scene policy has no JSON field. CMAA2 currently requires the
+post descriptor; it is not a `SceneAntiAlias` variant.
 
 Contrast adaptive sharpening is a separate setting, `AntiAliasing::sharpen`, and works with any resolve: `AntiAliasing::new(MsaaSamples::X4, PostResolve::fxaa(1.0)).with_sharpen(CasSettings::new(0.5))`. It is AMD FidelityFX CAS in its no-scaling form. For each pixel it compares the pixel with its four neighbours and sharpens where there is headroom to black and white, so flat areas and edges that already reach black or white are left alone. `sharpness` runs from 0 (the reference default, least ringing, still sharpens) to 1 (strongest). It is off by default and then costs nothing. Use it after FXAA or SMAA, which soften fine detail, or at native resolution when the image looks soft. It runs at the render extent before any upscale. RCAS, the sharpening pass of the FSR 1 upscale, is a different stage: it runs at the output extent after reconstruction, is set with `UpscaleSettings::sharpness` in stops and exists only when an upscale is configured. Use RCAS to recover detail lost by upscaling and CAS to offset the softness of the antialiasing resolve. Both can be on, but check that the combination does not over-sharpen.
 

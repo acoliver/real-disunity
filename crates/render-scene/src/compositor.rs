@@ -153,7 +153,7 @@ impl FrameRenderer {
     ///
     /// A sample count the adapter cannot render for the scene formats fails with
     /// [`PostError::SampleCount`] before any target is allocated; it is never reduced.
-    /// A resolve other than [`PostResolve::None`] conflicts with a resolve (FXAA or TAA)
+    /// A resolve other than [`PostResolve::None`] conflicts with a resolve
     /// authored in `effects` and is rejected rather than merged.
     ///
     /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;

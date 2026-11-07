@@ -81,11 +81,10 @@ impl OverlayStage {
             if let Some(depth) = &self.depth {
                 pass.set_bind_group(0, depth, &[]);
             }
-            (count, tested) = geometry.geometry.draw_with_pipeline(
+            (count, tested) = geometry.geometry.draw_overlay(
                 &mut pass,
-                None,
                 &pipelines.always,
-                Some(pipelines.size),
+                pipelines.size,
                 pipelines.tested.as_ref(),
             );
         }

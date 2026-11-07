@@ -1,6 +1,6 @@
 use super::SceneGpu;
 use crate::{
-    dynamic::{DynamicBindings, DynamicError, DynamicGpu},
+    dynamic::{DynamicBindings, DynamicError, DynamicGpu, QuadTarget},
     simulation::UiOverlay,
 };
 use std::rc::Rc;
@@ -26,9 +26,9 @@ impl SceneGpu {
             device,
             authority.queue(),
             DynamicBindings {
-                layout: &layout,
                 placeholder: &self.retained.placeholder,
                 sampler: &self.retained.sampler,
+                target: QuadTarget::Overlay(&layout),
             },
             &overlay.quads,
         )?;

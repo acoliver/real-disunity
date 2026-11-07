@@ -406,6 +406,73 @@ Ok(runtime.variant_program(handle, &features)?)
 
 A feature no variant differs by is `VariantError::UnknownFeature`, and a set no variant has is `VariantError::NoMatch`.
 
+## Many geometries through one pipeline
+
+A draw over lent resources binds its pipeline and groups every time it records. A renderer with hundreds of meshes that share a material wants to bind once and draw each mesh. Split the draw in two: a `PreparedPipeline` holds the program, state, vertex layout, prepared sets and owners, and a `GeometryDraw` holds one mesh's buffers and ranges and nothing else.
+
+```rust,no_run
+# use worldrunner_render_program::runtime::{
+#     GeometryDraw, GraphicsProgram, ImportedGeometry, PipelineDraw, PreparedSet, ProgramRuntime,
+#     TargetSignature, VertexBufferSpec, VertexLayoutSpec,
+# };
+# use worldrunner_render_program::state::RenderState;
+# fn batch(
+#     runtime: &mut ProgramRuntime,
+#     device: &wgpu::Device,
+#     frame: &mut wgpu::CommandEncoder,
+#     program: &GraphicsProgram,
+#     material: &PreparedSet,
+#     signature: TargetSignature,
+#     chunk: (&wgpu::Buffer, &wgpu::Buffer, &ImportedGeometry),
+#     pass: &mut wgpu::RenderPass<'_>,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// Once per material and pass context: the layout of the vertex buffers, then the pipeline.
+let layout = VertexLayoutSpec::new(vec![
+    VertexBufferSpec {
+        stride: 56,
+        step: wgpu::VertexStepMode::Vertex,
+        attributes: wgpu::vertex_attr_array![0 => Float32x3].to_vec(),
+    },
+    VertexBufferSpec {
+        stride: 80,
+        step: wgpu::VertexStepMode::Instance,
+        attributes: wgpu::vertex_attr_array![3 => Float32x4].to_vec(),
+    },
+]);
+let state = RenderState::opaque_depth();
+let pipeline = runtime.prepare_pipeline(
+    &PipelineDraw {
+        program,
+        state: &state,
+        layout: &layout,
+        bindings: &[],
+        imports: &[],
+        sets: &[material],
+        owners: &[],
+    },
+    signature,
+)?;
+
+// When a mesh is uploaded: pure data, with the extent checks made here.
+let (vertices, instances, geometry) = chunk;
+let chunk = GeometryDraw::new(&layout, &[vertices.clone(), instances.clone()], geometry, 7..8)?;
+
+// Each frame: retain once, bind once, draw each mesh.
+pipeline.retain(frame)?;
+pipeline.bind(pass);
+pipeline.draw(pass, &chunk)?;
+# let _ = device;
+# Ok(())
+# }
+```
+
+- **Commands.** `bind` records `set_pipeline` and one `set_bind_group` for each group the pipeline holds. `draw` records one `set_vertex_buffer` for each vertex buffer, `set_index_buffer` for indexed geometry and the draw call. C indexed geometries over two vertex buffers and one prepared set are `2 + 4 * C` commands, where a `PreparedProgramDraw` for each geometry records `6 * C`. The sets the pass owner binds are not recorded by either call.
+- **Instances.** The instance range selects records of an instance-rate buffer that many geometries share: range `k..k + 1` draws record `k`. `GeometryDraw::new` checks that the buffer holds `k + 1` strides, so a range past the buffer is refused when the geometry is made, with the buffer's slot named.
+- **Layouts.** A geometry is made for a layout and a pipeline is prepared for one, and `draw` refuses a geometry of another layout with `ProgramError::GeometryLayoutMismatch` before it records a command. Layouts compare by content, so two layouts built from equal buffers are one layout. A geometry given the wrong number of buffers for its layout is `VertexBufferCount`.
+- **Retention.** A frame that calls `PreparedPipeline::retain` once holds the pipeline's owners and the owners of its prepared sets until it is cancelled, dropped or completed on the GPU, however many geometries it draws. Put whatever keeps the geometry's buffers alive in the pipeline's `owners`; wgpu itself keeps a buffer that a recorded command uses.
+- **Cost.** Neither `bind` nor `draw` reaches the runtime, so a frame that binds and draws prepared pipelines and geometries adds nothing to `RuntimeStats`. `prepare_pipeline` is not a draw and adds none to `draws_prepared`.
+- **Passes.** `bind` and `draw` take any `PassCommands`, which `wgpu::RenderPass` implements. `PreparedProgramDraw::record` is `bind` then `draw` for one geometry, so existing callers are unchanged.
+
 ## Clip space and depth
 
 A WGSL position is used as written. Clip Y is up, so positive Y lands in the top rows of the target, and depth runs from 0 at the near plane to 1 at the far plane, as wgpu defines them. A counter-clockwise triangle in clip space is a front face under `RenderState::opaque_depth`. SPIR-V stages keep the convention of the SPIR-V reader the crate uses, which flips the position's Y: the same vertices land in the bottom rows. Pick one source format per program and test an asymmetric scene when you switch.

@@ -1,4 +1,4 @@
-//! Position compilation must preserve the independent programs' depth and velocity bytes.
+//! Qualifier coverage across paired source assemblies.
 use super::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 
 fn assert_positions(source: &str, invariant: bool) {
@@ -39,16 +39,25 @@ fn assert_family((object, terrain): (String, String)) {
         &[Nearest]
     };
     for &receiver in receivers {
-        assert_positions(&crate::ssao::receiver::source(&object, receiver), false);
+        let object = crate::ssao::receiver::source(&object, receiver);
+        assert_positions(&object, true);
+        assert_eq!(
+            super::position_dependencies::graph(&object, "vs_main"),
+            super::position_dependencies::graph(ENVIRONMENT_WGSL, "vs_main")
+        );
         let terrain = crate::ssao::receiver::source(&terrain, receiver);
         for source in crate::renderer::terrain_test_sources(&terrain) {
-            assert_positions(&source, false);
+            assert_positions(&source, true);
+            assert_eq!(
+                super::position_dependencies::graph(&source, "vs_terrain"),
+                super::position_dependencies::graph(TERRAIN_WGSL, "vs_terrain")
+            );
         }
     }
 }
 
 #[test]
-fn paired_vertex_positions_preserve_original_compilation_in_every_assembly() {
+fn paired_assemblies_have_invariant_matching_position_dependency_graphs() {
     let stock = (ENVIRONMENT_WGSL, TERRAIN_WGSL);
     assert_family((stock.0.to_owned(), stock.1.to_owned()));
     for velocity in [false, true] {
@@ -89,9 +98,9 @@ fn paired_vertex_positions_preserve_original_compilation_in_every_assembly() {
 }
 
 #[test]
-fn stock_positions_retain_original_compilation_contract() {
+fn stock_positions_are_invariant() {
     for source in [ENVIRONMENT_WGSL, TERRAIN_WGSL] {
-        assert_positions(source, false);
+        assert_positions(source, true);
     }
 }
 

@@ -1,11 +1,6 @@
 use super::super::forward_rejection::{moving_frame, samples};
 use super::*;
 
-fn frozen(source: &str) -> String {
-    // The complete production-assembly fingerprint guards pin every other source byte.
-    source.replace("@invariant @builtin(position)", "@builtin(position)")
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum Transform {
     World,
@@ -26,24 +21,26 @@ struct Pair {
 }
 
 impl Pair {
-    fn new(context: &GpuContext, reuse: bool) -> Self {
+    fn new(context: &GpuContext, reuse: bool, invariant: bool) -> Self {
         let device = context.device();
         let (object, terrain) = crate::ssr::forward::velocity_sources(
             (crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL),
             true,
             true,
         );
-        let sources = if reuse {
-            (object, terrain)
-        } else {
-            (frozen(&object), frozen(&terrain))
-        };
+        let sources = [object, terrain].map(|s| {
+            if invariant {
+                s
+            } else {
+                s.replace("@invariant @builtin(position)", "@builtin(position)")
+            }
+        });
         let layout = crate::ssr::forward::layout(device);
         let forward = ScenePipelines::with_screen_space(
             device,
             (TextureFormat::Rgba16Float, 1),
-            &sources.0,
-            &sources.1,
+            &sources[0],
+            &sources[1],
             None,
             Some(&layout),
         )
@@ -54,13 +51,18 @@ impl Pair {
         });
         let screen = SceneMetadata::new(device, SIZE, crate::ssr::neutral_ao()).unwrap();
         let (object, terrain) = crate::scene_metadata::sources(MetadataOutput::Merged);
-        let sources = if reuse {
-            (object, terrain)
-        } else {
-            (frozen(&object), frozen(&terrain))
-        };
-        let (metadata, metadata_group) =
-            crate::scene_metadata::pipelines_from_sources(device, &screen.uniform, &sources);
+        let sources = [object, terrain].map(|s| {
+            if invariant {
+                s
+            } else {
+                s.replace("@invariant @builtin(position)", "@builtin(position)")
+            }
+        });
+        let (metadata, metadata_group) = crate::scene_metadata::pipelines_from_sources(
+            device,
+            &screen.uniform,
+            &(sources[0].clone(), sources[1].clone()),
+        );
         Self {
             forward,
             metadata: metadata.for_depth(if reuse {
@@ -149,8 +151,19 @@ pub(super) fn transformed_frame(
     options: (bool, f32),
     transform: Transform,
 ) -> Vec<Vec<u8>> {
+    positions_frame(context, shot, options, transform, true)
+}
+
+pub(super) fn positions_frame(
+    context: &GpuContext,
+    shot: (&RenderScene, CameraPose),
+    options: (bool, f32),
+    transform: Transform,
+    invariant: bool,
+) -> Vec<Vec<u8>> {
     let (reuse, jitter) = options;
-    let pair = Pair::new(context, reuse);
+    assert!(invariant || !reuse);
+    let pair = Pair::new(context, reuse, invariant);
     let scene = lit(shot.0, true);
     let mut gpu = SceneGpu::upload(
         context.device(),

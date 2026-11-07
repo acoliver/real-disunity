@@ -1,4 +1,4 @@
-//! Resolve-free byte comparison against the forward path before depth ownership.
+//! Exact attachment comparison against invariant positions with depth reuse disabled.
 use super::*;
 use crate::renderer::depth::DepthMode;
 #[path = "depth_reuse_capture.rs"]
@@ -7,7 +7,7 @@ mod capture;
 mod fixtures;
 
 #[test]
-fn gpu_forward_depth_reuse_matches_frozen_all_attachment_bytes() {
+fn gpu_forward_depth_reuse_matches_invariant_baseline_all_attachment_bytes() {
     let context = context();
     let mut covered = 0;
     let mut moving = 0;
@@ -92,7 +92,7 @@ fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
 }
 
 #[test]
-fn gpu_negative_scale_depth_reuse_matches_frozen_all_attachment_bytes() {
+fn gpu_negative_scale_depth_reuse_matches_invariant_baseline_all_attachment_bytes() {
     let context = context();
     let scene = scene(SceneAlphaMode::Opaque, true, 1);
     let old = capture::transformed_frame(
@@ -112,7 +112,7 @@ fn gpu_negative_scale_depth_reuse_matches_frozen_all_attachment_bytes() {
 }
 
 #[test]
-fn gpu_terrain_pages_and_skirts_depth_reuse_matches_frozen_bytes() {
+fn gpu_terrain_pages_and_skirts_depth_reuse_matches_invariant_baseline_bytes() {
     let context = context();
     for source in [
         terrain_scene(2),
@@ -202,3 +202,6 @@ fn gpu_depth_reuse_distinguishes_one_ulp_depth_separation() {
     assert_eq!(old, new);
     assert!(new[6].chunks_exact(4).any(|p| p == 0.5_f32.to_le_bytes()));
 }
+
+#[path = "depth_reuse_baseline.rs"]
+mod baseline;

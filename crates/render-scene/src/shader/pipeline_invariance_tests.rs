@@ -1,7 +1,7 @@
 //! Enumerate the final modules and active vertex entries of every stock geometry consumer.
 use super::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 
-fn check(source: &str, entries: &[&str]) {
+fn check(source: &str, entries: &[&str], expected: bool) {
     let module = naga::front::wgsl::parse_str(source).unwrap();
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
@@ -29,13 +29,13 @@ fn check(source: &str, entries: &[&str]) {
             })
             .expect("position output");
         assert!(
-            !invariant,
-            "{name}: position compilation must preserve frozen depth and velocity bytes"
+            invariant == expected,
+            "{name}: position qualifier must match the pairing contract"
         );
     }
 }
 
-fn family((object, terrain): (String, String)) {
+fn family((object, terrain): (String, String), paired: bool) {
     use worldrunner_render_plan::SceneSsaoReceiver::{DepthAwareGather, Nearest};
     let receivers: &[_] = if object.contains("fn screen_ao(") {
         &[Nearest, DepthAwareGather]
@@ -45,15 +45,15 @@ fn family((object, terrain): (String, String)) {
     for &receiver in receivers {
         let object = crate::ssao::receiver::source(&object, receiver);
         let terrain = crate::ssao::receiver::source(&terrain, receiver);
-        check(&object, &["vs_main", "vs_unlit"]);
+        check(&object, &["vs_main"], paired);
         for source in crate::renderer::terrain_test_sources(&terrain) {
-            check(&source, &["vs_terrain"]);
+            check(&source, &["vs_terrain"], paired);
         }
     }
 }
 
 fn forward_families() {
-    family((ENVIRONMENT_WGSL.to_owned(), TERRAIN_WGSL.to_owned()));
+    family((ENVIRONMENT_WGSL.to_owned(), TERRAIN_WGSL.to_owned()), true);
     for velocity in [false, true] {
         let stock = if velocity {
             (
@@ -63,23 +63,32 @@ fn forward_families() {
         } else {
             (ENVIRONMENT_WGSL.to_owned(), TERRAIN_WGSL.to_owned())
         };
-        family(stock.clone());
-        family((
-            crate::ssao::ambient_source(&stock.0),
-            crate::ssao::ambient_source(&stock.1),
-        ));
+        family(stock.clone(), true);
+        family(
+            (
+                crate::ssao::ambient_source(&stock.0),
+                crate::ssao::ambient_source(&stock.1),
+            ),
+            true,
+        );
         for ssao in [false, true] {
             for reflection in [false, true] {
-                family(crate::shadows::receiver_sources(ssao, reflection, velocity));
+                family(
+                    crate::shadows::receiver_sources(ssao, reflection, velocity),
+                    true,
+                );
             }
         }
         for shadowed in [false, true] {
             for application_ao in [false, true] {
-                family(crate::ssr::forward::velocity_sources(
-                    crate::shadows::capture_sources(shadowed),
-                    velocity,
-                    application_ao,
-                ));
+                family(
+                    crate::ssr::forward::velocity_sources(
+                        crate::shadows::capture_sources(shadowed),
+                        velocity,
+                        application_ao,
+                    ),
+                    true,
+                );
             }
         }
     }
@@ -88,9 +97,13 @@ fn forward_families() {
 fn independent_families() {
     use crate::compositor::terms::{CaptureTerm, term_sources};
     let source = crate::shadows::depth_source();
-    check(&source, &["vs_shadow", "vs_terrain_depth"]);
+    check(&source, &["vs_shadow", "vs_terrain_depth"], false);
     for depth in [false, true] {
-        check(&crate::renderer::overlay::source(depth), &["vs_ui_overlay"]);
+        check(
+            &crate::renderer::overlay::source(depth),
+            &["vs_ui_overlay"],
+            false,
+        );
     }
     for physical in [false, true] {
         for separate in [false, true] {
@@ -108,7 +121,7 @@ fn independent_families() {
                             lighting,
                             anchored,
                         );
-                        check(&source, &["vs_celestial"]);
+                        check(&source, &["vs_celestial"], false);
                     }
                 }
             }
@@ -125,25 +138,24 @@ fn independent_families() {
         ] {
             let stock = term_sources(crate::shadows::capture_sources(shadowed), term);
             for (screen, reflection) in [(false, false), (true, false), (true, true)] {
-                family(crate::compositor::terms::sources(
-                    stock.clone(),
-                    screen,
-                    reflection,
-                ));
+                family(
+                    crate::compositor::terms::sources(stock.clone(), screen, reflection),
+                    false,
+                );
             }
         }
     }
 }
 
 #[test]
-fn every_generated_geometry_pipeline_preserves_original_position_compilation() {
+fn generated_pipeline_position_qualifiers_match_pairing() {
     forward_families();
     for output in [
         crate::scene_metadata::MetadataOutput::Normal,
         crate::scene_metadata::MetadataOutput::Merged,
         crate::scene_metadata::MetadataOutput::Material,
     ] {
-        family(crate::scene_metadata::sources(output));
+        family(crate::scene_metadata::sources(output), true);
     }
     independent_families();
 }

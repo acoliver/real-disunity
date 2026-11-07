@@ -196,7 +196,8 @@ impl ScenePipelines {
     #[cfg(test)]
     pub(crate) fn legacy_unlit_alpha(&self) -> wgpu::RenderPipeline {
         let spec = &self.specialization;
-        let module = super::scene_shader(&spec.device, "environment", spec.unlit_source());
+        let source = super::DepthMode::Independent.vertex_source(spec.unlit_source());
+        let module = super::scene_shader(&spec.device, "environment", &source);
         let groups = super::pipeline_groups(
             &self.frame_layout,
             &self.material_layout,

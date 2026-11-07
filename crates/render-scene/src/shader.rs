@@ -171,3 +171,6 @@ mod invariance_tests;
 
 #[cfg(test)]
 mod pipeline_invariance_tests;
+
+#[cfg(test)]
+mod position_dependencies;

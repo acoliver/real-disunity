@@ -274,7 +274,7 @@ fn forward_helpers_preserve_pre_change_source_exactly() {
     }
 }
 
-// Freeze the original assemblies on hub main 8bc6456e, before depth reuse.
+// Freeze production assemblies with invariant paired positions. Unpaired hashes stay unchanged.
 // Hash every byte, including unreachable declarations, to detect changes shared by both GPU runs.
 fn source_fingerprint(source: &str) -> (usize, u128) {
     let hash = source.bytes().fold(
@@ -285,24 +285,24 @@ fn source_fingerprint(source: &str) -> (usize, u128) {
 }
 
 #[test]
-fn all_forward_assemblies_preserve_complete_pre_change_source() {
+fn forward_assemblies_match_invariant_baseline_fingerprints() {
     let (shadowed, shadowed_terrain) = crate::shadows::capture_sources(true);
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (92_613, 0xdb10_cc54_7145_1b02_22e4_f07c_7455_f5ae),
+            (92_624, 0x13f7_772b_8a0c_c723_48a1_1235_fc7c_e642),
         ),
         (
             crate::shader::TERRAIN_WGSL,
-            (48_111, 0x375a_5a96_35f7_5f92_c33b_f52a_0571_01a5),
+            (48_122, 0xa5b9_71f2_f89d_69d5_2594_003f_fb58_598b),
         ),
         (
             shadowed,
-            (105_814, 0x09ba_62a1_7be3_6d3c_1a20_2ca1_d93d_c0ac),
+            (105_825, 0x7808_77e5_02c6_db5c_2eaf_ce2d_c15d_192c),
         ),
         (
             shadowed_terrain,
-            (61_312, 0x7527_e442_7bc5_d4b3_b822_e1e6_adc9_e86b),
+            (61_323, 0x8db4_3d7d_4395_a68e_16dd_8dc3_1045_6365),
         ),
     ] {
         assert_eq!(source_fingerprint(source), expected);
@@ -313,11 +313,11 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (92_848, 0xd979_0a23_f1de_2ede_c089_a9b0_67a7_acd0),
+            (92_859, 0x26ff_64bf_20ce_c8fe_2638_9abb_6209_a776),
         ),
         (
             shadowed,
-            (106_049, 0xd7b2_0873_f011_1a80_aab7_25f1_8369_fab2),
+            (106_060, 0x972b_c7f5_ea4d_c442_63b7_d831_8b9e_5364),
         ),
     ] {
         assert_eq!(

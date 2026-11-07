@@ -617,10 +617,12 @@ pub(crate) fn celestial_source(
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
 ) -> String {
-    let source = ENVIRONMENT_WGSL.replace(
-        "@location(0) world_position: vec3<f32>,",
-        "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
-    );
+    let source = DepthMode::Independent
+        .vertex_source(ENVIRONMENT_WGSL)
+        .replace(
+            "@location(0) world_position: vec3<f32>,",
+            "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
+        );
     let source = crate::sky::lighting::composition_source(source, composition);
     let source = crate::sky::lighting::source(source, lighting);
     let vertex = if anchored {

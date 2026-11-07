@@ -15,6 +15,16 @@ pub(crate) enum DepthMode {
 }
 
 impl DepthMode {
+    pub(crate) fn vertex_source(self, source: &str) -> std::borrow::Cow<'_, str> {
+        if self == Self::Independent {
+            std::borrow::Cow::Owned(
+                source.replace("@invariant @builtin(position)", "@builtin(position)"),
+            )
+        } else {
+            std::borrow::Cow::Borrowed(source)
+        }
+    }
+
     pub(crate) const fn format(self) -> TextureFormat {
         match self {
             Self::Independent => TextureFormat::Depth32Float,

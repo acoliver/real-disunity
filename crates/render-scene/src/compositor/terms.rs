@@ -167,7 +167,11 @@ pub(crate) fn term_sources(stock: (&str, &str), term: CaptureTerm) -> (String, S
         "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);",
         &format!("return vec4<f32>({terrain_value}, 1.0);"),
     );
-    (object, terrain)
+    let independent = crate::renderer::depth::DepthMode::Independent;
+    (
+        independent.vertex_source(&object).into_owned(),
+        independent.vertex_source(&terrain).into_owned(),
+    )
 }
 
 fn values(term: CaptureTerm) -> (&'static str, &'static str) {

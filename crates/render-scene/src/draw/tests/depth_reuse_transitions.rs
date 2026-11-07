@@ -30,6 +30,7 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
     if independent {
         renderer.independent_depth_for_test(device);
     }
+    let depth = renderer.targets().depth().texture().clone();
     sources
         .iter()
         .zip([0.0, 0.125, 0.25])
@@ -49,15 +50,17 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
                 )
                 .unwrap()
             });
+            // Skip the helper's resize frames so reallocation cannot hide a missing restore.
             let products = draw_frame(
                 context,
                 &mut renderer,
                 (&mut gpu, &pipelines),
                 shadowed.as_mut(),
                 source,
-                index,
+                index + 4,
                 time,
             );
+            assert_eq!(renderer.targets().depth().texture(), &depth);
             assert_eq!(
                 renderer.ssao.as_ref().unwrap().depth == *renderer.targets().depth().texture(),
                 !independent && index != 1,

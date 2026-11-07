@@ -278,7 +278,7 @@ pub extern "C" fn disunity_coroutine_ready(world: u64, identity: u64) -> Disunit
             .handle_of(identity)
             .ok_or("script binding missing")?;
         if !s.native.coroutine_eligible(script) {
-            return Err("script is not ready for coroutine execution".into());
+            return Err(worldrunner_world_simulation::WorldError::NotReady.into());
         }
         Ok(())
     })

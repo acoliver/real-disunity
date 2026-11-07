@@ -88,9 +88,10 @@ internal static class AssetCloneTests
         var clone = UnityEngine.Object.Instantiate(original);
         UnityEngine.Object.Destroy(clone);
         DisunityHost.Step(0);
+        var asBase = UnityEngine.Object.Instantiate<ScriptableObject>(original);
         Expect.That(clone == null, "a destroyed clone is null");
-        Expect.That(original != null, "and the original stays alive");
-        Expect.That(UnityEngine.Object.Instantiate<ScriptableObject>(original) is Settings, "the clone has the original's class when asked for the base type");
+        Expect.That(!(original == null), "and the original stays alive");
+        Expect.That(asBase is Settings, "the clone has the original's class when asked for the base type");
         Console.WriteLine("PASS: a cloned ScriptableObject lives and dies on its own");
     }
 }

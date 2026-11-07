@@ -15,6 +15,7 @@ mod format;
 pub mod frame;
 mod meshes;
 mod plan;
+mod probe;
 mod readback;
 mod steps;
 mod textures;
@@ -49,6 +50,7 @@ use textures::TextureTable;
 use tracker::Tracker;
 
 pub use error::OffscreenError;
+pub use probe::{CameraProbe, ClipCounts, PassSetup, ProgramProbe, SampledTexture};
 pub use readback::PendingImage;
 
 /// What offscreen work keeps between frames: shaders, meshes, textures, programs and pipelines.
@@ -206,6 +208,7 @@ impl OffscreenState {
                 missing: &mut missing,
                 counts: &mut counts,
                 shares: &mut shares,
+                probing: false,
             };
             for spec in &frame.render_textures {
                 services.import(spec.id)?;
@@ -475,6 +478,10 @@ pub struct CameraPassReport {
     pub states: Vec<(String, usize)>,
     /// The names of the values no layer gave, which the draws read as zero or the pass's default.
     pub without_value: Vec<String>,
+    /// How the target was set up: its viewport and what the pass clears.
+    pub setup: PassSetup,
+    /// What the draws did, by program, when the host asked about this render; else empty.
+    pub programs: Vec<ProgramProbe>,
 }
 
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,

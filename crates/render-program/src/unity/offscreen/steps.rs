@@ -20,12 +20,18 @@ use crate::unity::shader::{PassSelector, ResolveError};
 use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
+use super::probe::{MeshPositions, ProgramProbes};
 use super::textures::TextureInfo;
 use super::tracker::Tracker;
-use super::{CameraCauses, CameraDraws, CameraPassReport, UnmatchedPasses};
+use super::{
+    CameraCauses, CameraDraws, CameraPassReport, CameraProbe, PassSetup, ProgramProbe,
+    SampledTexture, UnmatchedPasses,
+};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
+    pub(super) shader: ShaderId,
+    pub(super) mesh: MeshId,
     pub(super) plan: DrawPlan,
     pub(super) vertices: VertexPlan,
     pub(super) geometry: DrawGeometry,
@@ -101,11 +107,13 @@ fn camera_step(
     let channel_before = svc.counts.missing_channel;
     svc.counts.current = CameraCauses::default();
     let outer_missing = std::mem::take(svc.missing);
+    svc.probing = frame.probe.targets.contains(&target);
     for visible in visible_draws(svc, frame, camera)? {
         if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
             draws.push(draw);
         }
     }
+    let probed = std::mem::take(&mut svc.probing);
     svc.counts.cameras.push(CameraDraws {
         camera: camera_id,
         target,
@@ -117,7 +125,10 @@ fn camera_step(
     let causes = std::mem::take(&mut svc.counts.current);
     svc.counts.camera_causes.push(causes);
     let without_value = std::mem::replace(svc.missing, outer_missing);
-    let report = pass_report((camera_id, target), svc, &draws, &without_value);
+    let mut report = pass_report((camera_id, target), (&*svc, camera), &draws, &without_value);
+    if probed {
+        report.programs = program_probes(svc, &frame.probe, &draws);
+    }
     svc.counts.passes.push(report);
     svc.missing.extend(without_value);
     let pass = camera_pass(
@@ -137,8 +148,8 @@ fn camera_step(
 /// How the camera's draws were set up: the target's formats, the states of the draws and the names
 /// the draws read with no value.
 fn pass_report(
-    (camera, target): (CameraId, TextureId),
-    svc: &Services<'_>,
+    (camera_id, target): (CameraId, TextureId),
+    (svc, camera): (&Services<'_>, &Camera),
     draws: &[CameraDraw],
     without_value: &std::collections::BTreeSet<String>,
 ) -> CameraPassReport {
@@ -157,13 +168,76 @@ fn pass_report(
         *states.entry(words).or_default() += 1;
     }
     CameraPassReport {
-        camera,
+        camera: camera_id,
         target,
         color: info.and_then(|info| info.color.map(|_| info.format)),
         depth: info.and_then(|info| info.depth_format),
         states: states.into_iter().collect(),
         without_value: without_value.iter().cloned().collect(),
+        setup: PassSetup {
+            viewport: info.map_or([0, 0], |info| info.size),
+            color: match (
+                info.is_some_and(|info| info.color.is_some()),
+                camera.clear_color,
+            ) {
+                (false, _) => "no color".to_owned(),
+                (true, Some(c)) => {
+                    format!("clear [{:?}, {:?}, {:?}, {:?}]", c[0], c[1], c[2], c[3])
+                }
+                (true, None) => "load".to_owned(),
+            },
+            depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
+                (None, _) => "no depth".to_owned(),
+                (Some(_), true) => format!("clear {DEPTH_CLEAR:?}"),
+                (Some(_), false) => "load".to_owned(),
+            },
+        },
+        programs: Vec::new(),
     }
+}
+
+/// The depth a camera that clears depth clears to.
+const DEPTH_CLEAR: f32 = 1.0;
+
+/// What the probed camera's draws did, by program.
+fn program_probes(
+    svc: &Services<'_>,
+    names: &CameraProbe,
+    draws: &[CameraDraw],
+) -> Vec<ProgramProbe> {
+    let mut probes = ProgramProbes::default();
+    for draw in draws {
+        let Some(facts) = &draw.plan.facts else {
+            continue;
+        };
+        let Ok(mesh) = svc.meshes.get(draw.mesh) else {
+            continue;
+        };
+        let positions = MeshPositions {
+            vertices: u64::from(mesh.vertex_count),
+            positions: mesh.positions.as_deref(),
+        };
+        let textures = facts.textures.iter().map(|(name, texture)| {
+            let info = svc.textures.get(*texture).ok();
+            SampledTexture {
+                name: name.clone(),
+                texture: *texture,
+                uploaded: info.is_some_and(|info| info.spec.is_none()),
+                texels: info.and_then(|info| info.counts).map(|(texels, _)| texels),
+                nonzero: info
+                    .and_then(|info| info.counts)
+                    .map(|(_, nonzero)| nonzero),
+            }
+        });
+        probes.add(
+            (draw.shader, draw.plan.entry.pass),
+            names,
+            facts,
+            &positions,
+            textures,
+        );
+    }
+    probes.finish()
 }
 
 /// The channels a color write mask lets through, as `RGBA` with the ones it blocks left out, or
@@ -368,6 +442,8 @@ fn camera_draw(
         instances: 0..1,
     };
     Ok(CameraDraw {
+        shader: spec.shader,
+        mesh,
         plan,
         vertices,
         geometry,

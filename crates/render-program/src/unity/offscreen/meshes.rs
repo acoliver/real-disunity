@@ -24,9 +24,14 @@ pub(super) struct IndexInfo {
     pub(super) format: wgpu::IndexFormat,
 }
 
+/// The channel a player's vertex tables number 0, which holds the positions.
+const POSITION_CHANNEL: i8 = 0;
+
 pub(super) struct MeshInfo {
     pub(super) buffer: BufferHandle,
     pub(super) vertex_count: u32,
+    /// The positions as x, y, z triples, kept on the CPU for the probe of a camera render.
+    pub(super) positions: Option<Vec<f32>>,
     pub(super) channels: Vec<ChannelInfo>,
     pub(super) index: Option<IndexInfo>,
     pub(super) sub_meshes: Vec<SubMesh>,
@@ -71,11 +76,24 @@ impl MeshTable {
                 range: start..bytes.len() as u64,
             });
         }
+        let positions = mesh
+            .channels
+            .iter()
+            .find(|channel| channel.source == POSITION_CHANNEL)
+            .filter(|channel| channel.format == ChannelFormat::Float32x3)
+            .map(|channel| {
+                channel
+                    .bytes
+                    .chunks_exact(4)
+                    .map(|float| f32::from_le_bytes([float[0], float[1], float[2], float[3]]))
+                    .collect()
+            });
         let index = write_indices(&mut bytes, &mesh.indices);
         let buffer = runtime.create_buffer("offscreen mesh", &bytes)?;
         let info = MeshInfo {
             buffer,
             vertex_count: mesh.vertex_count,
+            positions,
             channels,
             index,
             sub_meshes: mesh.sub_meshes.clone(),

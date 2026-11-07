@@ -151,6 +151,37 @@ pub fn texel_stats(bytes: &[u8], format: wgpu::TextureFormat) -> TexelStats {
     }
 }
 
+/// How far a decoded channel may be from the value a texel was cleared to and still count as
+/// that value: more than the step of an 8-bit channel.
+const CLEARED_WITHIN: f32 = 0.005;
+
+/// Counts the texels of `bytes`, tightly packed rows of `format`, with a channel that is not the
+/// value in `cleared` (indexed by channel, as many as the format has) to within [`CLEARED_WITHIN`].
+/// A render that cleared its target to `cleared` and wrote nothing leaves none. `None` for a
+/// format this module does not decode.
+#[must_use]
+pub fn texels_differing(
+    bytes: &[u8],
+    format: wgpu::TextureFormat,
+    cleared: [f32; 4],
+) -> Option<usize> {
+    let (channel, count) = layout(format)?;
+    let width = channel.bytes();
+    Some(
+        bytes
+            .chunks_exact(width * count)
+            .filter(|texel| {
+                texel
+                    .chunks_exact(width)
+                    .zip(cleared)
+                    .any(|(bytes, expected)| {
+                        (channel.value(bytes) - expected).abs() > CLEARED_WITHIN
+                    })
+            })
+            .count(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +236,35 @@ mod tests {
         assert_eq!((stats.texels, stats.nonzero), (2, 1));
         assert!(stats.channels.is_empty());
         assert_eq!(stats.range(), None);
+    }
+
+    #[test]
+    fn texels_differing_from_the_clear_are_the_ones_a_render_wrote_to() {
+        // Two RGBA8 texels: the clear (0.25, 0.5, 0.75, 1.0) and one written with zeros.
+        let clear = [0.25, 0.5, 0.75, 1.0];
+        let bytes = [64, 128, 191, 255, 0, 0, 0, 0];
+        assert_eq!(
+            texels_differing(&bytes, wgpu::TextureFormat::Rgba8Unorm, clear),
+            Some(1)
+        );
+        // A texel that differs in one channel only counts, once.
+        let bytes = [64, 128, 191, 0, 64, 128, 191, 255];
+        assert_eq!(
+            texels_differing(&bytes, wgpu::TextureFormat::Rgba8Unorm, clear),
+            Some(1)
+        );
+        // A one-channel format compares its channel with the first value.
+        assert_eq!(
+            texels_differing(
+                &halves(&[0x3400, 0x0000]),
+                wgpu::TextureFormat::R16Float,
+                clear
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            texels_differing(&[0; 4], wgpu::TextureFormat::R32Uint, clear),
+            None
+        );
     }
 }

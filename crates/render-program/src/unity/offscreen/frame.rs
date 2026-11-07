@@ -11,6 +11,8 @@ use crate::layers::PropertyLayer;
 use crate::sampler::SamplerState;
 use crate::unity::shader::PassSelector;
 
+use super::probe::CameraProbe;
+
 /// The name a blit binds its source under unless the frame says otherwise.
 pub const DEFAULT_MAIN_TEXTURE: &str = "_MainTex";
 
@@ -119,6 +121,8 @@ pub struct OffscreenFrame {
     pub cameras: BTreeMap<CameraId, Camera>,
     pub records: Vec<Record>,
     pub later_reads: Vec<ReadRange>,
+    /// The camera renders to examine in detail; none by default.
+    pub probe: CameraProbe,
 }
 
 impl Default for OffscreenFrame {
@@ -134,6 +138,7 @@ impl Default for OffscreenFrame {
             cameras: BTreeMap::new(),
             records: Vec::new(),
             later_reads: Vec::new(),
+            probe: CameraProbe::default(),
         }
     }
 }

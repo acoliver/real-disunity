@@ -26,6 +26,9 @@ pub(super) struct TextureInfo {
     pub(super) sampler: Option<SamplerState>,
     /// The spec a render texture was made from; `None` for an uploaded source.
     pub(super) spec: Option<RenderTextureSpec>,
+    /// For an uploaded source, its texels (blocks, for a block-compressed format) and how many of
+    /// them hold a byte other than zero.
+    pub(super) counts: Option<(usize, usize)>,
 }
 
 impl TextureInfo {
@@ -75,6 +78,7 @@ impl TextureTable {
             depth_format: None,
             sampler: source.sampler,
             spec: None,
+            counts: Some(nonzero_texels(&source.bytes, format)),
         };
         self.replace(runtime, source.id, info);
         Ok(())
@@ -199,5 +203,17 @@ fn create_render_texture(
         depth_format,
         sampler: None,
         spec: Some(spec.clone()),
+        counts: None,
     })
+}
+
+/// How many texels `bytes` holds of `format`, and how many have a byte other than zero.
+fn nonzero_texels(bytes: &[u8], format: wgpu::TextureFormat) -> (usize, usize) {
+    let stride = format.block_copy_size(None).map_or(1, |size| size as usize);
+    let texels = bytes.chunks_exact(stride);
+    let total = texels.len();
+    let nonzero = texels
+        .filter(|texel| texel.iter().any(|byte| *byte != 0))
+        .count();
+    (total, nonzero)
 }

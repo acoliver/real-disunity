@@ -25,6 +25,7 @@ mod append;
 pub use append::{
     PreparedAppend, PreparedMeshReplacement, PreparedTextureReplacement, ResourceBase,
 };
+mod caster_edits;
 mod celestial;
 mod compaction;
 mod contact;
@@ -241,7 +242,7 @@ pub struct SceneGpu {
     decals: decals::Decals,
     sky: Option<crate::sky::Sky>,
     celestial: Option<crate::sky::meshes::Meshes>,
-    caster_generation: u64,
+    casters: caster_edits::CasterEdits,
     pub(crate) ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub(crate) post: worldrunner_render_post::HdrPostSettings,
     pub(crate) ssr: Option<worldrunner_render_plan::SceneSsr>,
@@ -346,7 +347,7 @@ impl SceneGpu {
             decals,
             celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
-            caster_generation: 0,
+            casters: caster_edits::CasterEdits::default(),
             post: resources::post_settings(scene)?,
             ssr: scene.effects().and_then(|effects| effects.ssr()).copied(),
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),

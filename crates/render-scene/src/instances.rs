@@ -227,7 +227,10 @@ impl Instances {
         }
     }
 
-    fn location(&self, handle: InstanceHandle) -> Result<(BatchKey, usize), InstanceError> {
+    pub(crate) fn location(
+        &self,
+        handle: InstanceHandle,
+    ) -> Result<(BatchKey, usize), InstanceError> {
         if handle.scene != self.scene {
             return Err(InstanceError::ForeignHandle);
         }

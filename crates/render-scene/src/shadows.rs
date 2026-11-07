@@ -524,6 +524,7 @@ impl ShadowedScene {
             fitting,
         )?;
         let refresh = next_refresh.prepare(
+            &self.gpu,
             &mut cascades,
             self.settings,
             frame.shadow_direction,

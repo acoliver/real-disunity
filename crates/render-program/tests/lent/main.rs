@@ -5,4 +5,5 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod common;
 mod external;

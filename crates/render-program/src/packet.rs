@@ -218,6 +218,8 @@ pub(crate) struct RecordableDraw {
     pub(crate) signature: TargetSignature,
     pub(crate) pipeline: wgpu::RenderPipeline,
     pub(crate) groups: Vec<(u32, wgpu::BindGroup)>,
+    /// The sets the pass owner binds, which this draw neither builds nor binds.
+    pub(crate) external: Vec<u32>,
     pub(crate) vertex_buffers: Vec<wgpu::Buffer>,
     pub(crate) geometry: PreparedGeometry,
     pub(crate) instances: Range<u32>,
@@ -281,6 +283,12 @@ impl PreparedProgramDraw {
     #[must_use]
     pub fn signature(&self) -> TargetSignature {
         self.draw.signature
+    }
+
+    /// The sets that the pass owner binds and this draw does not.
+    #[must_use]
+    pub fn external_sets(&self) -> &[u32] {
+        &self.draw.external
     }
 
     /// Makes the frame `encoder` records hold the draw's resource reservations until the frame
@@ -378,6 +386,7 @@ impl ProgramRuntime {
             signature,
             pipeline,
             groups,
+            external: packet.program.gpu.external_sets.clone(),
             vertex_buffers,
             geometry,
             instances,
@@ -564,6 +573,10 @@ impl PipelineRequest<'_> {
         key.hash(self.program.vertex.content_key());
         key.hash(self.program.fragment.content_key());
         key.debug(&self.program.gpu.layout);
+        for lent in &self.program.gpu.external {
+            key.debug(&lent.set);
+            key.identity(&lent.layout);
+        }
         key.debug(&(self.state, self.signature));
         for layout in self.layouts {
             key.debug(&(layout.stride, layout.step, layout.attributes));

@@ -28,7 +28,7 @@ pub use crate::import::{
 };
 pub use crate::material::{MaterialDraw, MaterialHandle, MaterialPacket};
 pub use crate::packet::{DrawPacket, MAX_COLOR_ATTACHMENTS, PreparedProgramDraw, TargetSignature};
-pub use crate::program::{ComputeProgram, GraphicsProgram};
+pub use crate::program::{ComputeProgram, ExternalSet, GraphicsProgram};
 pub use crate::readback::{PendingBufferRead, PendingTargetRead, TargetImage};
 pub use crate::registry::{ProgramDesc, ProgramHandle, StageDesc, VariantDesc};
 pub use crate::resources::{

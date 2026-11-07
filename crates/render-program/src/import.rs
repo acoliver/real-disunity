@@ -201,6 +201,7 @@ impl ProgramRuntime {
             signature,
             pipeline,
             groups,
+            external: draw.program.gpu.external_sets.clone(),
             vertex_buffers: draw
                 .vertex_inputs
                 .iter()

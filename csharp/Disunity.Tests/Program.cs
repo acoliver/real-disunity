@@ -384,6 +384,8 @@ PlayerScreenTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();
+AssetCloneTests.Run();
+PlayerSceneAssetTests.Run();
 
 CameraLayerTests.Run();
 PendingCameraComponentTests.Run();

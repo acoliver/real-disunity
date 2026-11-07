@@ -582,7 +582,7 @@ impl<F: StageFactory> PostChain<F> {
                 slot: declaration.slot,
             };
             let stamp = self.stamp(crate::PassId::Geometry(declaration.slot));
-            raster.encode_stock_pass(index, encoder, stamp.as_ref(), |pass| {
+            raster.encode_stock_pass(index, declaration.slot, encoder, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature
                         .declaration
@@ -643,8 +643,11 @@ fn build_slots<F: StageFactory>(
     }
     let built = (0..factory.frame_slots())
         .map(|slot| {
-            let set = factory.build_for_slot(device, targets, persistent, slot)?;
+            let mut set = factory.build_for_slot(device, targets, persistent, slot)?;
             set.validate(device)?;
+            for stage in &mut set.stages {
+                stage.label = stage.id.diagnostic_label();
+            }
             Ok(set)
         })
         .collect::<Result<Vec<_>, PostError>>();

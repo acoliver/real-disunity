@@ -13,7 +13,7 @@ use worldrunner_render_gpu::submission::{FrameLease, FrameOwner, Publications};
 
 use crate::budget::{Backing, Ledger};
 use crate::error::ProgramError;
-use crate::packet::{DrawPacket, RecordableDraw, TargetSignature};
+use crate::packet::{DrawPacket, MaterialParts, RecordableDraw, TargetSignature};
 use crate::resources::Pins;
 use crate::runtime::ProgramRuntime;
 
@@ -130,7 +130,7 @@ impl ProgramRuntime {
     #[must_use]
     pub fn arena_allocations(bytes: u64) -> AllocationSet {
         let mut set = AllocationSet::default();
-        set.buffer("player program arena", bytes, 1);
+        set.buffer("program arena", bytes, 1);
         set
     }
 
@@ -182,14 +182,27 @@ impl ProgramRuntime {
         signature: TargetSignature,
         packets: &[DrawPacket<'_>],
     ) -> Result<AdmittedPrograms, ProgramError> {
+        let items: Vec<_> = packets.iter().map(|packet| (*packet, None)).collect();
+        self.admit_parts(encoder, arena, signature, &items)
+    }
+
+    /// Admits packets with the parts a material draw adds, under the rules of
+    /// [`admit_draws`](Self::admit_draws).
+    pub(crate) fn admit_parts(
+        &mut self,
+        encoder: &wgpu::CommandEncoder,
+        arena: &ProgramArena,
+        signature: TargetSignature,
+        items: &[(DrawPacket<'_>, Option<MaterialParts<'_>>)],
+    ) -> Result<AdmittedPrograms, ProgramError> {
         self.recording(encoder)?;
         if !arena.ledger.same(&self.ledger) {
             return Err(ProgramError::ForeignArena);
         }
-        let mut draws = Vec::with_capacity(packets.len());
+        let mut draws = Vec::with_capacity(items.len());
         let mut shares = Vec::new();
-        for packet in packets {
-            let (draw, held) = self.prepare_recordable(packet, signature)?;
+        for (packet, parts) in items {
+            let (draw, held) = self.prepare_recordable(packet, signature, parts.as_ref())?;
             draws.push(draw);
             shares.extend(held);
         }

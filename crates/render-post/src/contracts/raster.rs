@@ -105,10 +105,11 @@ impl RasterPass {
                 .map(|usage| super::capture::write_key(usage.view.allocation())),
         )
     }
-    pub(super) fn encode(
+    pub(super) fn encode_named(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
+        label: &str,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) {
         let colors: Vec<_> = self
@@ -118,7 +119,7 @@ impl RasterPass {
             .collect();
         let depth = self.depth.as_ref().map(depth_attachment);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(self.id.stage.name),
+            label: Some(label),
             timestamp_writes: stamp.map(crate::timing::Stamp::render),
             color_attachments: &colors,
             depth_stencil_attachment: depth,
@@ -156,19 +157,33 @@ fn attachment_use(
 /// A validated snapshot. Generation checks are repeated before any encoding.
 pub struct CompiledRaster {
     pub(super) passes: Vec<RasterPass>,
+    pub(super) labels: Vec<String>,
 }
-impl CompiledRaster {
+/// Stock schedules select a geometry identity at encode time, without owned labels.
+pub(crate) struct StockRaster {
+    pub(super) passes: Vec<RasterPass>,
+}
+impl StockRaster {
+    #[cfg(test)]
+    pub(crate) fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
+        self.passes.iter().map(|pass| pass.id)
+    }
+
     pub(crate) fn encode_stock_pass(
         &self,
         index: usize,
+        slot: crate::PassSlot,
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) -> Result<(), ContractError> {
         self.passes[index].validate_writes(encoder)?;
-        self.passes[index].encode(encoder, stamp, draw);
+        let label = crate::PassId::Geometry(slot).encoder_label();
+        self.passes[index].encode_named(encoder, stamp, label.as_ref(), draw);
         Ok(())
     }
+}
+impl CompiledRaster {
     pub fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
         self.passes.iter().map(|pass| pass.id)
     }
@@ -187,8 +202,8 @@ impl CompiledRaster {
                 bindings.validate(registry, pass)?;
             }
         }
-        for pass in &self.passes {
-            pass.encode(encoder, None, |render| draw(pass.id, render));
+        for (pass, label) in self.passes.iter().zip(&self.labels) {
+            pass.encode_named(encoder, None, label, |render| draw(pass.id, render));
         }
         Ok(())
     }

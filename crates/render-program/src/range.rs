@@ -9,9 +9,35 @@ use crate::draw::{Geometry, VertexInput};
 use crate::error::ProgramError;
 use crate::resources::Store;
 
+/// How a draw reads one bound vertex buffer, and how many bytes it holds.
+#[derive(Clone, Copy)]
+pub(crate) struct Fetch<'a> {
+    pub(crate) stride: u64,
+    pub(crate) step: wgpu::VertexStepMode,
+    pub(crate) attributes: &'a [wgpu::VertexAttribute],
+    pub(crate) len: u64,
+}
+
+/// The vertices a draw reads, with the byte length of the index buffer an indexed draw binds.
+#[derive(Clone, Copy)]
+pub(crate) enum Extent {
+    Vertices {
+        first: u32,
+        count: u32,
+    },
+    Indexed {
+        buffer_len: u64,
+        format: wgpu::IndexFormat,
+        first: u32,
+        count: u32,
+        base_vertex: i32,
+    },
+}
+
 impl Store {
     /// Checks `geometry` against the vertex buffers of `inputs` and, for an indexed draw, its
-    /// index buffer. A draw has one instance, so an instance-rate buffer must hold one stride.
+    /// index buffer. The draw reads instances up to but not including `instance_end`, so an
+    /// instance-rate buffer must hold that many strides; a draw of one instance passes 1.
     ///
     /// The index values themselves are not read: they live in GPU memory. The base vertex is
     /// checked only against the vertices the buffers hold, which refuses a draw whose every
@@ -19,82 +45,121 @@ impl Store {
     ///
     /// # Errors
     /// Fails on an unknown handle, a range whose end overflows, and a range past a buffer.
-    pub(crate) fn check_geometry(
+    pub(crate) fn check_instanced_geometry(
         &self,
         inputs: &[VertexInput],
         geometry: Geometry,
+        instance_end: u32,
     ) -> Result<(), ProgramError> {
-        match geometry {
-            Geometry::Vertices { first, count } => {
-                let end = range_end(first, count)?;
-                self.check_vertex_buffers(inputs, u64::from(end))
-            }
+        let fetches = inputs
+            .iter()
+            .map(|input| {
+                Ok(Fetch {
+                    stride: input.stride,
+                    step: input.step,
+                    attributes: &input.attributes,
+                    len: self.buffer(input.buffer)?.len,
+                })
+            })
+            .collect::<Result<Vec<_>, ProgramError>>()?;
+        let extent = match geometry {
+            Geometry::Vertices { first, count } => Extent::Vertices { first, count },
             Geometry::Indexed {
                 buffer,
                 format,
                 first,
                 count,
                 base_vertex,
-            } => {
-                let end = range_end(first, count)?;
-                let available = self.buffer(buffer)?.len / index_size(format);
-                if u64::from(end) > available {
-                    return Err(ProgramError::IndexRangePastBuffer {
-                        end: u64::from(end),
-                        available,
-                    });
-                }
-                self.check_vertex_buffers(inputs, 0)?;
-                self.check_base_vertex(inputs, count, base_vertex)
-            }
-        }
-    }
-
-    /// Every vertex-rate buffer must hold `vertices` vertices and every instance-rate buffer
-    /// one instance.
-    fn check_vertex_buffers(
-        &self,
-        inputs: &[VertexInput],
-        vertices: u64,
-    ) -> Result<(), ProgramError> {
-        for (slot, input) in inputs.iter().enumerate() {
-            let have = self.buffer(input.buffer)?.len;
-            let strides = match input.step {
-                wgpu::VertexStepMode::Vertex => vertices,
-                wgpu::VertexStepMode::Instance => 1,
-            };
-            let needed = bytes_read(input, strides);
-            if needed > have {
-                return Err(ProgramError::VertexRangePastBuffer { slot, needed, have });
-            }
-        }
-        Ok(())
-    }
-
-    fn check_base_vertex(
-        &self,
-        inputs: &[VertexInput],
-        count: u32,
-        base_vertex: i32,
-    ) -> Result<(), ProgramError> {
-        let Ok(base) = u64::try_from(base_vertex) else {
-            return Ok(());
+            } => Extent::Indexed {
+                buffer_len: self.buffer(buffer)?.len,
+                format,
+                first,
+                count,
+                base_vertex,
+            },
         };
-        for (slot, input) in inputs.iter().enumerate() {
-            if input.step != wgpu::VertexStepMode::Vertex {
-                continue;
-            }
-            let vertices = vertices_held(input, self.buffer(input.buffer)?.len);
-            if count > 0 && base >= vertices {
-                return Err(ProgramError::BaseVertexPastBuffer {
-                    slot,
-                    base_vertex,
-                    vertices,
+        check_extent(&fetches, extent, instance_end)
+    }
+}
+
+/// The rules of [`Store::check_instanced_geometry`] for buffers whose lengths are known.
+pub(crate) fn check_extent(
+    fetches: &[Fetch<'_>],
+    extent: Extent,
+    instance_end: u32,
+) -> Result<(), ProgramError> {
+    let instances = u64::from(instance_end);
+    match extent {
+        Extent::Vertices { first, count } => {
+            let end = range_end(first, count)?;
+            check_vertex_buffers(fetches, (u64::from(end), instances))
+        }
+        Extent::Indexed {
+            buffer_len,
+            format,
+            first,
+            count,
+            base_vertex,
+        } => {
+            let end = range_end(first, count)?;
+            let available = buffer_len / index_size(format);
+            if u64::from(end) > available {
+                return Err(ProgramError::IndexRangePastBuffer {
+                    end: u64::from(end),
+                    available,
                 });
             }
+            check_vertex_buffers(fetches, (0, instances))?;
+            check_base_vertex(fetches, count, base_vertex)
         }
-        Ok(())
     }
+}
+
+/// Every vertex-rate buffer must hold `vertices` vertices and every instance-rate buffer
+/// `instances` instances.
+fn check_vertex_buffers(
+    fetches: &[Fetch<'_>],
+    (vertices, instances): (u64, u64),
+) -> Result<(), ProgramError> {
+    for (slot, fetch) in fetches.iter().enumerate() {
+        let strides = match fetch.step {
+            wgpu::VertexStepMode::Vertex => vertices,
+            wgpu::VertexStepMode::Instance => instances,
+        };
+        let needed = bytes_read(fetch, strides);
+        if needed > fetch.len {
+            return Err(ProgramError::VertexRangePastBuffer {
+                slot,
+                needed,
+                have: fetch.len,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn check_base_vertex(
+    fetches: &[Fetch<'_>],
+    count: u32,
+    base_vertex: i32,
+) -> Result<(), ProgramError> {
+    let Ok(base) = u64::try_from(base_vertex) else {
+        return Ok(());
+    };
+    for (slot, fetch) in fetches.iter().enumerate() {
+        if fetch.step != wgpu::VertexStepMode::Vertex {
+            continue;
+        }
+        let vertices = vertices_held(fetch);
+        if count > 0 && base >= vertices {
+            return Err(ProgramError::BaseVertexPastBuffer {
+                slot,
+                base_vertex,
+                vertices,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn range_end(first: u32, count: u32) -> Result<u32, ProgramError> {
@@ -112,7 +177,7 @@ fn index_size(format: wgpu::IndexFormat) -> u64 {
 
 /// How far into one stride the attributes reach: the last stride of a buffer needs only that
 /// much, not the whole stride.
-fn reach(input: &VertexInput) -> u64 {
+fn reach(input: &Fetch<'_>) -> u64 {
     input
         .attributes
         .iter()
@@ -122,7 +187,7 @@ fn reach(input: &VertexInput) -> u64 {
 }
 
 /// The bytes of the buffer that reading `strides` strides touches.
-fn bytes_read(input: &VertexInput, strides: u64) -> u64 {
+fn bytes_read(input: &Fetch<'_>, strides: u64) -> u64 {
     match strides.checked_sub(1) {
         None => 0,
         Some(whole) => whole
@@ -131,11 +196,13 @@ fn bytes_read(input: &VertexInput, strides: u64) -> u64 {
     }
 }
 
-/// The vertices a buffer of `len` bytes serves; a zero stride serves any number.
-fn vertices_held(input: &VertexInput, len: u64) -> u64 {
+/// The vertices a buffer serves; a zero stride serves any number.
+fn vertices_held(input: &Fetch<'_>) -> u64 {
     if input.stride == 0 {
         return u64::MAX;
     }
-    len.checked_sub(reach(input))
+    input
+        .len
+        .checked_sub(reach(input))
         .map_or(0, |spare| spare / input.stride + 1)
 }

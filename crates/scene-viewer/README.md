@@ -548,6 +548,18 @@ normal nonblocking device polls deliver completions. Reading retains only the
 newest completed sample and never waits or consumes it. Resize and settings
 changes preserve the timing ring and its unread samples.
 
+## Scene antialiasing
+
+Retained HDR hosts take their post resolve from `SceneEffects::anti_alias()`.
+Set `SceneEffectsParts::anti_alias` to
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` for SMAA 1x with luma edges;
+`SceneAntiAlias::Smaa(SceneSmaaSettings { .. })` also supports color edges and
+custom quantities. No `FrameProfile` override is needed. Scene construction
+validates the integer controls before GPU preparation, and SMAA selects no
+projection jitter. The timing sample includes `smaa_edges`, `smaa_weights` and
+`smaa_blend` as separate stage identities. See the
+[scene resolve contract](../render-scene/README.md#scene-authored-smaa).
+
 ## Native-resolution sharpening
 
 Use `FrameProfile::HdrNativeRcas { samples, tone_map, rcas }` for interactive

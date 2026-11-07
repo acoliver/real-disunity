@@ -384,6 +384,8 @@ PlayerScreenTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();
+AssetCloneTests.Run();
+PlayerSceneAssetTests.Run();
 
 CameraLayerTests.Run();
 PendingCameraComponentTests.Run();
@@ -452,6 +454,7 @@ SortingGroupTests.Run();
 AssetBundleTests.Run();
 WebRequestTests.Run();
 RenderTypeTests.Run();
+PlayablesTests.Run();
 JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();

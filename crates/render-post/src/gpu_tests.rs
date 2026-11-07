@@ -184,7 +184,7 @@ impl StageFactory for AuthoredEffect {
                 0,
                 Stage {
                     id: crate::StageId::new("disabled history reset", 0),
-                    label: "disabled history reset",
+                    label: "disabled history reset".into(),
                     enabled: false,
                     operation: Operation::Clear(persistent.buffers[0].clone()),
                 },
@@ -218,7 +218,7 @@ impl StageFactory for AuthoredEffect {
             stages: vec![
                 Stage {
                     id: crate::StageId::new("authored history update", 0),
-                    label: "authored history update",
+                    label: "authored history update".into(),
                     enabled: true,
                     operation: Operation::Compute {
                         pipeline: self.compute.clone(),

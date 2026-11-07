@@ -8,6 +8,7 @@
 //! between the two is the work that has no timing slot (clears, copies, scene passes of the
 //! test scene). Pass names are printed as the timing API reports them: a stage by its declared
 //! name (with its level when that is not zero), any other pass by the `Debug` form of its id.
+//! The shared `PassId` display spelling also selects the encoder label.
 //!
 //! The scene rasterisation of the test scene sits inside the envelope but outside every timed
 //! pass. Each frame is submitted and waited for alone, so the numbers are per-frame latency on
@@ -34,11 +35,7 @@ struct StageMedian {
 }
 
 fn pass_name(id: &PassId) -> String {
-    match id {
-        PassId::Stage(stage) if stage.level == 0 => stage.name.to_owned(),
-        PassId::Stage(stage) => format!("{} level {}", stage.name, stage.level),
-        other => format!("{other:?}"),
-    }
+    id.to_string()
 }
 
 /// One frame's samples in encoding order. Passes without a duration are left out, and passes that
@@ -223,6 +220,36 @@ mod tests {
             .collect();
         assert_eq!(summary, [("b", 7.0, 3), ("a", 2.0, 3), ("c", 4.0, 1)]);
         assert!(median_by_name(&[]).is_empty());
+    }
+
+    #[test]
+    fn authored_report_names_match_encoder_labels_without_merging_levels_or_occurrences() {
+        use worldrunner_render_post::contracts::RasterId;
+        let ids = [
+            PassId::Stage(StageId::new("gaussian_downsample", 1)),
+            PassId::Stage(StageId::new("gaussian_downsample", 2)),
+            PassId::Stage(StageId::new("tone", 0)),
+            PassId::Operation(RasterId::new(StageId::new("blur", 2), 0)),
+            PassId::Operation(RasterId::new(StageId::new("blur", 2), 1)),
+        ];
+        let timing = FrameTiming {
+            frame_id: 1,
+            passes: ids
+                .map(|pass_id| PassTiming {
+                    pass_id,
+                    duration_ns: Some(1.0e6),
+                })
+                .into(),
+        };
+        let samples = frame_samples(&timing);
+        assert_eq!(samples.len(), ids.len());
+        for ((name, milliseconds), id) in samples.iter().zip(ids) {
+            assert_eq!(name, id.encoder_label().as_ref());
+            assert_eq!(milliseconds.to_bits(), 1.0_f64.to_bits());
+        }
+        assert_eq!(samples[0].0, "gaussian_downsample level 1");
+        assert_eq!(samples[1].0, "gaussian_downsample level 2");
+        assert_eq!(samples[2].0, "tone");
     }
 
     #[test]

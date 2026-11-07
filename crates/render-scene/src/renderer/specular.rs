@@ -63,6 +63,11 @@ impl Specialization {
         }
     }
 }
+impl Specialization {
+    pub(super) fn source(&self) -> &str {
+        &self.source
+    }
+}
 impl ScenePipelines {
     pub(crate) fn has_ao_receiver(&self) -> bool {
         self.specialization.screen.is_some()
@@ -146,6 +151,36 @@ impl ScenePipelines {
                 selected
             })
             .clone()
+    }
+}
+
+impl ScenePipelines {
+    /// The fixed unlit-alpha pipeline these pipelines carried before dynamic quads drew through
+    /// the program runtime, rebuilt from the same shader source, layouts and targets. It is the
+    /// reference the byte-equality captures compare the runtime's output with.
+    #[cfg(test)]
+    pub(crate) fn legacy_unlit_alpha(&self) -> wgpu::RenderPipeline {
+        let spec = &self.specialization;
+        let module = super::scene_shader(&spec.device, "environment", &spec.source);
+        let groups = super::pipeline_groups(
+            &self.frame_layout,
+            &self.material_layout,
+            spec.shadow.as_ref(),
+            spec.screen.as_ref(),
+        );
+        let layout = super::scene_layout(&spec.device, "environment", &groups);
+        let vertices = crate::geometry::vertex_attributes();
+        let instances = crate::geometry::instance_attributes();
+        let buffers = super::vertex_buffers(&vertices, &instances);
+        let targets = super::source_targets(&spec.source, self.color_format);
+        super::unlit::build(
+            &spec.device,
+            (self.color_format, self.samples),
+            &layout,
+            &buffers,
+            &module,
+            &targets,
+        )
     }
 }
 

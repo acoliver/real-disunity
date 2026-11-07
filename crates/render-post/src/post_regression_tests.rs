@@ -248,7 +248,7 @@ fn gpu_empty_policy_removes_all_stages_and_restores_fixed_bytes() {
     assert_eq!(c.configured[0].stages.len(), 1);
     assert_eq!(
         c.configured[0].stages[0].label,
-        "fixed exposure and tone mapping"
+        crate::StageId::new("tone", 0).diagnostic_label()
     );
     let fresh = chain(&device, &HdrPostSettings::default(), [17, 13]);
     for body in [body, "return vec4<f32>(0.75,0.75,0.75,1.0);"] {

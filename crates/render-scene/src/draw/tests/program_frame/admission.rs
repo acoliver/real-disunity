@@ -14,7 +14,7 @@ use worldrunner_render_post::{
     AttachmentView, FrameConfig, FrameError, HdrPostSettings, PostResolve, ResourceRef, ToneMap,
 };
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{Geometry, ProgramRuntime, TargetSignature};
+use worldrunner_render_program::unity::runtime::{Geometry, ProgramRuntime, TargetSignature};
 
 const HDR: TextureFormat = TextureFormat::Rgba16Float;
 

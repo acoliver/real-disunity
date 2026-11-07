@@ -52,6 +52,8 @@ mod post_bloom_tests;
 #[cfg(test)]
 mod post_fxaa_tests;
 #[cfg(test)]
+mod post_smaa_tests;
+#[cfg(test)]
 mod post_taa_tests;
 #[cfg(test)]
 mod quality_metrics;

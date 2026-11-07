@@ -5,8 +5,10 @@
 //! attachment formats and sample count, the bind groups and the buffer references. Recording is
 //! then only state setting and a draw call, so it cannot fail halfway through a pass.
 
+use std::ops::Range;
 use std::sync::Arc;
 
+use crate::bind::Snapshot;
 use crate::budget::Reservation;
 use crate::draw::{DrawRequest, Geometry, VertexInput};
 use crate::error::{ProgramError, UnsupportedTarget};
@@ -14,17 +16,52 @@ use crate::pipeline_key::Key;
 use crate::program::GraphicsProgram;
 use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
-use crate::state::RenderState;
+use crate::state::{ColorState, DepthState, RenderState};
+
+/// The most colour attachments a signature describes.
+pub const MAX_COLOR_ATTACHMENTS: usize = 4;
 
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
-/// A signature exists only for what the runtime draws into: one single-sample color attachment
-/// and, optionally, a depth attachment without stencil.
+/// A signature exists only for what the runtime draws into: one to four colour attachments of
+/// one sample count (1, 2, 4, 8 or 16) and, optionally, a depth attachment without stencil.
+/// [`new`](Self::new) describes the pass the runtime opens for its own targets, one
+/// single-sample colour attachment, and [`attachments`](Self::attachments) the passes a
+/// renderer opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TargetSignature {
-    color: wgpu::TextureFormat,
-    depth: Option<wgpu::TextureFormat>,
+    colors: [Option<wgpu::TextureFormat>; MAX_COLOR_ATTACHMENTS],
+    depth: Option<DepthFormat>,
     samples: u32,
+}
+
+/// The depth formats a signature admits, which are the ones without a stencil aspect. Keeping
+/// them as a byte holds a signature, and so an error that names two of them, within the size
+/// the workspace lints allow a returned error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum DepthFormat {
+    Depth16Unorm,
+    Depth24Plus,
+    Depth32Float,
+}
+
+impl DepthFormat {
+    fn of(format: wgpu::TextureFormat) -> Option<Self> {
+        match format {
+            wgpu::TextureFormat::Depth16Unorm => Some(Self::Depth16Unorm),
+            wgpu::TextureFormat::Depth24Plus => Some(Self::Depth24Plus),
+            wgpu::TextureFormat::Depth32Float => Some(Self::Depth32Float),
+            _ => None,
+        }
+    }
+
+    fn format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Depth16Unorm => wgpu::TextureFormat::Depth16Unorm,
+            Self::Depth24Plus => wgpu::TextureFormat::Depth24Plus,
+            Self::Depth32Float => wgpu::TextureFormat::Depth32Float,
+        }
+    }
 }
 
 impl TargetSignature {
@@ -41,35 +78,77 @@ impl TargetSignature {
         if samples != 1 {
             return Err(UnsupportedTarget::Multisampled { samples }.into());
         }
-        let &[color] = colors else {
+        if colors.len() != 1 {
             return Err(UnsupportedTarget::ColorAttachments {
                 count: colors.len(),
             }
             .into());
-        };
-        if let Some(format) = depth {
-            if !format.has_depth_aspect() {
-                return Err(UnsupportedTarget::NotDepth { format }.into());
+        }
+        Self::build(colors, depth, samples)
+    }
+
+    /// The signature of a pass a renderer opens: one to four colour attachments, the first of
+    /// which the fragment stage writes and the others of which a draw may leave unwritten with
+    /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with the same attachments
+    /// and one sample is equal to [`new`](Self::new)'s.
+    ///
+    /// # Errors
+    /// Fails by name for a count of colour attachments outside one to four, a sample count
+    /// that is not a power of two up to 16, a depth format with a stencil aspect, and a depth attachment that has
+    /// no depth.
+    pub fn attachments(
+        colors: &[wgpu::TextureFormat],
+        depth: Option<wgpu::TextureFormat>,
+        samples: u32,
+    ) -> Result<Self, ProgramError> {
+        if !matches!(samples, 1 | 2 | 4 | 8 | 16) {
+            return Err(UnsupportedTarget::SampleCount { samples }.into());
+        }
+        if !(1..=MAX_COLOR_ATTACHMENTS).contains(&colors.len()) {
+            return Err(UnsupportedTarget::ColorAttachments {
+                count: colors.len(),
             }
-            if format.has_stencil_aspect() {
-                return Err(UnsupportedTarget::Stencil { format }.into());
-            }
+            .into());
+        }
+        Self::build(colors, depth, samples)
+    }
+
+    fn build(
+        colors: &[wgpu::TextureFormat],
+        depth: Option<wgpu::TextureFormat>,
+        samples: u32,
+    ) -> Result<Self, ProgramError> {
+        let depth = depth.map(depth_format).transpose()?;
+        let mut slots = [None; MAX_COLOR_ATTACHMENTS];
+        for (slot, format) in slots.iter_mut().zip(colors) {
+            *slot = Some(*format);
         }
         Ok(Self {
-            color,
+            colors: slots,
             depth,
             samples,
         })
     }
 
+    /// The first colour attachment, which every signature has.
     #[must_use]
     pub fn color(&self) -> wgpu::TextureFormat {
-        self.color
+        self.colors[0].expect("a signature has a first colour attachment")
+    }
+
+    /// The colour attachments in order.
+    pub fn colors(&self) -> impl Iterator<Item = wgpu::TextureFormat> + '_ {
+        self.colors.iter().copied().flatten()
+    }
+
+    #[must_use]
+    pub fn color_count(&self) -> usize {
+        self.colors().count()
     }
 
     #[must_use]
     pub fn depth(&self) -> Option<wgpu::TextureFormat> {
-        self.depth
+        self.depth.map(DepthFormat::format)
     }
 
     #[must_use]
@@ -78,13 +157,21 @@ impl TargetSignature {
     }
 }
 
+fn depth_format(format: wgpu::TextureFormat) -> Result<DepthFormat, ProgramError> {
+    if !format.has_depth_aspect() {
+        return Err(UnsupportedTarget::NotDepth { format }.into());
+    }
+    if format.has_stencil_aspect() {
+        return Err(UnsupportedTarget::Stencil { format }.into());
+    }
+    DepthFormat::of(format).ok_or_else(|| UnsupportedTarget::NotDepth { format }.into())
+}
+
 /// One draw of triangles, without the target it draws into.
 #[derive(Clone, Copy)]
 pub struct DrawPacket<'a> {
     pub program: &'a GraphicsProgram,
     pub state: &'a RenderState,
-    /// The winding that counts as a front face, in framebuffer space.
-    pub front_face: wgpu::FrontFace,
     pub vertex_inputs: &'a [VertexInput],
     pub bindings: &'a [BoundResource],
     pub geometry: Geometry,
@@ -95,7 +182,6 @@ impl<'a> DrawRequest<'a> {
         DrawPacket {
             program: self.program,
             state: self.state,
-            front_face: self.front_face,
             vertex_inputs: self.vertex_inputs,
             bindings: self.bindings,
             geometry: self.geometry,
@@ -103,8 +189,15 @@ impl<'a> DrawRequest<'a> {
     }
 }
 
+/// What a material draw adds to a plain packet: the constants its properties packed and the
+/// instances it draws.
+pub(crate) struct MaterialParts<'a> {
+    pub(crate) snapshots: &'a [Snapshot],
+    pub(crate) instances: Range<u32>,
+}
+
 #[derive(Debug)]
-enum PreparedGeometry {
+pub(crate) enum PreparedGeometry {
     Vertices {
         first: u32,
         count: u32,
@@ -122,11 +215,12 @@ enum PreparedGeometry {
 /// Recording it touches no runtime state.
 #[derive(Debug)]
 pub(crate) struct RecordableDraw {
-    signature: TargetSignature,
-    pipeline: wgpu::RenderPipeline,
-    groups: Vec<(u32, wgpu::BindGroup)>,
-    vertex_buffers: Vec<wgpu::Buffer>,
-    geometry: PreparedGeometry,
+    pub(crate) signature: TargetSignature,
+    pub(crate) pipeline: wgpu::RenderPipeline,
+    pub(crate) groups: Vec<(u32, wgpu::BindGroup)>,
+    pub(crate) vertex_buffers: Vec<wgpu::Buffer>,
+    pub(crate) geometry: PreparedGeometry,
+    pub(crate) instances: Range<u32>,
 }
 
 impl RecordableDraw {
@@ -139,7 +233,9 @@ impl RecordableDraw {
             pass.set_vertex_buffer(slot, buffer.slice(..));
         }
         match &self.geometry {
-            PreparedGeometry::Vertices { first, count } => pass.draw(*first..*first + *count, 0..1),
+            PreparedGeometry::Vertices { first, count } => {
+                pass.draw(*first..*first + *count, self.instances.clone());
+            }
             PreparedGeometry::Indexed {
                 buffer,
                 format,
@@ -148,7 +244,11 @@ impl RecordableDraw {
                 base_vertex,
             } => {
                 pass.set_index_buffer(buffer.slice(..), *format);
-                pass.draw_indexed(*first..*first + *count, *base_vertex, 0..1);
+                pass.draw_indexed(
+                    *first..*first + *count,
+                    *base_vertex,
+                    self.instances.clone(),
+                );
             }
         }
     }
@@ -164,8 +264,8 @@ impl RecordableDraw {
 /// the draw, until that frame is cancelled or the GPU has completed it. A frame that records the
 /// draw without retaining it leaves nothing counted for it once the draw is dropped.
 pub struct PreparedProgramDraw {
-    pins: Pins,
-    draw: RecordableDraw,
+    pub(crate) pins: Pins,
+    pub(crate) draw: RecordableDraw,
 }
 
 impl std::fmt::Debug for PreparedProgramDraw {
@@ -212,7 +312,7 @@ impl ProgramRuntime {
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
-        self.prepare_pinned(packet, signature, None)
+        self.prepare_pinned(packet, signature, (None, None))
     }
 
     /// The prepared draw, whose pins also cover `target` when the draw is recorded into it.
@@ -220,9 +320,9 @@ impl ProgramRuntime {
         &mut self,
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
-        target: Option<TargetHandle>,
+        (target, parts): (Option<TargetHandle>, Option<&MaterialParts<'_>>),
     ) -> Result<PreparedProgramDraw, ProgramError> {
-        let (draw, mut shares) = self.prepare_recordable(packet, signature)?;
+        let (draw, mut shares) = self.prepare_recordable(packet, signature, parts)?;
         if let Some(target) = target {
             shares.push(self.store.target_reservation(target)?);
         }
@@ -233,22 +333,66 @@ impl ProgramRuntime {
     }
 
     /// The draw and the reservation shares of the resources it uses, for the caller to pin.
+    /// `parts` are what a material draw adds: its constant snapshots and instance range.
     pub(crate) fn prepare_recordable(
         &mut self,
         packet: &DrawPacket<'_>,
         signature: TargetSignature,
+        parts: Option<&MaterialParts<'_>>,
     ) -> Result<(RecordableDraw, Vec<Arc<Reservation>>), ProgramError> {
         self.authority.check_device()?;
-        self.store
-            .check_geometry(packet.vertex_inputs, packet.geometry)?;
-        let pipeline = self.render_pipeline(packet, signature)?;
-        let groups = self.bind_groups(&packet.program.gpu, packet.bindings)?;
+        check_plain(signature)?;
+        let color = packet.state.check_drawable()?;
+        let (snapshots, instances) = parts.map_or((&[][..], 0..1), |parts| {
+            (parts.snapshots, parts.instances.clone())
+        });
+        self.store.check_instanced_geometry(
+            packet.vertex_inputs,
+            packet.geometry,
+            instance_end(&instances),
+        )?;
+        let layouts: Vec<_> = packet
+            .vertex_inputs
+            .iter()
+            .map(|input| VertexLayout {
+                stride: input.stride,
+                step: input.step,
+                attributes: &input.attributes,
+            })
+            .collect();
+        let pipeline = self.render_pipeline(&PipelineRequest {
+            program: packet.program,
+            state: packet.state,
+            layouts: &layouts,
+            signature,
+            colors: &[color],
+        })?;
+        let groups = self.bind_groups_with(&packet.program.gpu, packet.bindings, snapshots)?;
         let vertex_buffers = packet
             .vertex_inputs
             .iter()
             .map(|input| Ok(self.store.buffer(input.buffer)?.buffer.clone()))
             .collect::<Result<_, ProgramError>>()?;
-        let geometry = match packet.geometry {
+        let geometry = self.prepared_geometry(packet.geometry)?;
+        let draw = RecordableDraw {
+            signature,
+            pipeline,
+            groups,
+            vertex_buffers,
+            geometry,
+            instances,
+        };
+        let mut shares = self.reservation_shares(packet)?;
+        shares.extend(
+            snapshots
+                .iter()
+                .map(|snapshot| snapshot.reservation.clone()),
+        );
+        Ok((draw, shares))
+    }
+
+    fn prepared_geometry(&self, geometry: Geometry) -> Result<PreparedGeometry, ProgramError> {
+        Ok(match geometry {
             Geometry::Vertices { first, count } => PreparedGeometry::Vertices { first, count },
             Geometry::Indexed {
                 buffer,
@@ -263,15 +407,7 @@ impl ProgramRuntime {
                 count,
                 base_vertex,
             },
-        };
-        let draw = RecordableDraw {
-            signature,
-            pipeline,
-            groups,
-            vertex_buffers,
-            geometry,
-        };
-        Ok((draw, self.reservation_shares(packet)?))
+        })
     }
 
     /// Shares of the reservations of every buffer and texture the packet draws with.
@@ -303,68 +439,59 @@ impl ProgramRuntime {
             .collect()
     }
 
-    fn render_pipeline(
+    /// The pipeline for `request`, built on first use and cached by content.
+    pub(crate) fn render_pipeline(
         &mut self,
-        packet: &DrawPacket<'_>,
-        signature: TargetSignature,
+        request: &PipelineRequest<'_>,
     ) -> Result<wgpu::RenderPipeline, ProgramError> {
-        let key = pipeline_key(packet, signature);
+        let key = request.key();
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
         }
         let modules = (
-            self.shader_module(&packet.program.vertex)?,
-            self.shader_module(&packet.program.fragment)?,
+            self.shader_module(&request.program.vertex)?,
+            self.shader_module(&request.program.fragment)?,
         );
-        let pipeline = self.guarded(|| self.create_render_pipeline(packet, &modules, signature))?;
+        let pipeline = self.guarded(|| self.create_render_pipeline(request, &modules))?;
         self.render_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }
 
     fn create_render_pipeline(
         &self,
-        packet: &DrawPacket<'_>,
+        request: &PipelineRequest<'_>,
         (vertex, fragment): &(wgpu::ShaderModule, wgpu::ShaderModule),
-        signature: TargetSignature,
     ) -> wgpu::RenderPipeline {
-        let layouts: Vec<Option<wgpu::VertexBufferLayout<'_>>> = packet
-            .vertex_inputs
-            .iter()
-            .map(|input| {
-                Some(wgpu::VertexBufferLayout {
-                    array_stride: input.stride,
-                    step_mode: input.step,
-                    attributes: &input.attributes,
-                })
-            })
-            .collect();
-        let state = packet.state;
-        let targets = [Some(wgpu::ColorTargetState {
-            format: signature.color,
-            blend: state.blend,
-            write_mask: state.color_write,
-        })];
+        let layouts = request.vertex_buffers();
+        let targets = request.color_targets();
+        let (state, signature) = (request.state, request.signature);
+        let depth = state.depth.unwrap_or(DepthState {
+            test: wgpu::CompareFunction::Always,
+            write: false,
+            bias: wgpu::DepthBiasState::default(),
+        });
+        let program = request.program;
         self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("render-program pipeline"),
-                layout: Some(&packet.program.gpu.pipeline),
+                layout: Some(&program.gpu.pipeline),
                 vertex: wgpu::VertexState {
                     module: vertex,
-                    entry_point: Some(&packet.program.vertex.module().entry_point),
+                    entry_point: Some(&program.vertex.module().entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     buffers: &layouts,
                 },
                 primitive: wgpu::PrimitiveState {
-                    front_face: packet.front_face,
-                    cull_mode: state.cull,
+                    front_face: state.raster.front_face,
+                    cull_mode: state.raster.cull,
                     ..wgpu::PrimitiveState::default()
                 },
-                depth_stencil: signature.depth.map(|format| wgpu::DepthStencilState {
+                depth_stencil: signature.depth().map(|format| wgpu::DepthStencilState {
                     format,
-                    depth_write_enabled: Some(state.depth_write),
-                    depth_compare: Some(state.depth_compare),
+                    depth_write_enabled: Some(depth.write),
+                    depth_compare: Some(depth.test),
                     stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+                    bias: depth.bias,
                 }),
                 multisample: wgpu::MultisampleState {
                     count: signature.samples,
@@ -372,7 +499,7 @@ impl ProgramRuntime {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: fragment,
-                    entry_point: Some(&packet.program.fragment.module().entry_point),
+                    entry_point: Some(&program.fragment.module().entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &targets,
                 }),
@@ -382,15 +509,89 @@ impl ProgramRuntime {
     }
 }
 
-/// Everything a render pipeline is built from, as a content key.
-fn pipeline_key(packet: &DrawPacket<'_>, signature: TargetSignature) -> blake3::Hash {
-    let mut key = Key::new("render");
-    key.hash(packet.program.vertex.content_key());
-    key.hash(packet.program.fragment.content_key());
-    key.debug(&packet.program.gpu.layout);
-    key.debug(&(packet.state, packet.front_face, signature));
-    for input in packet.vertex_inputs {
-        key.debug(&(input.stride, input.step, &input.attributes));
+/// How a draw reads one vertex buffer.
+#[derive(Clone, Copy)]
+pub(crate) struct VertexLayout<'a> {
+    pub(crate) stride: u64,
+    pub(crate) step: wgpu::VertexStepMode,
+    pub(crate) attributes: &'a [wgpu::VertexAttribute],
+}
+
+/// Everything a render pipeline is built from. `colors` has one state per colour attachment of
+/// the signature.
+pub(crate) struct PipelineRequest<'a> {
+    pub(crate) program: &'a GraphicsProgram,
+    pub(crate) state: &'a RenderState,
+    pub(crate) layouts: &'a [VertexLayout<'a>],
+    pub(crate) signature: TargetSignature,
+    pub(crate) colors: &'a [ColorState],
+}
+
+impl PipelineRequest<'_> {
+    fn vertex_buffers(&self) -> Vec<Option<wgpu::VertexBufferLayout<'_>>> {
+        self.layouts
+            .iter()
+            .map(|layout| {
+                Some(wgpu::VertexBufferLayout {
+                    array_stride: layout.stride,
+                    step_mode: layout.step,
+                    attributes: layout.attributes,
+                })
+            })
+            .collect()
     }
-    key.finish()
+
+    fn color_targets(&self) -> Vec<Option<wgpu::ColorTargetState>> {
+        self.signature
+            .colors()
+            .zip(self.colors)
+            .map(|(format, color)| {
+                Some(wgpu::ColorTargetState {
+                    format,
+                    blend: color.blend,
+                    write_mask: color.write_mask,
+                })
+            })
+            .collect()
+    }
+
+    /// The pipeline's content key: stage sources, layout, the whole state, the target signature
+    /// and the vertex layouts.
+    fn key(&self) -> blake3::Hash {
+        let mut key = Key::new("render");
+        key.hash(self.program.vertex.content_key());
+        key.hash(self.program.fragment.content_key());
+        key.debug(&self.program.gpu.layout);
+        key.debug(&(self.state, self.signature));
+        for layout in self.layouts {
+            key.debug(&(layout.stride, layout.step, layout.attributes));
+        }
+        key.finish()
+    }
+}
+
+/// The plain and material draws record into one single-sample colour attachment.
+fn check_plain(signature: TargetSignature) -> Result<(), ProgramError> {
+    if signature.samples() != 1 {
+        return Err(UnsupportedTarget::Multisampled {
+            samples: signature.samples(),
+        }
+        .into());
+    }
+    if signature.color_count() != 1 {
+        return Err(UnsupportedTarget::ColorAttachments {
+            count: signature.color_count(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+/// The instance strides an instance-rate vertex buffer must hold for `instances`.
+pub(crate) fn instance_end(instances: &Range<u32>) -> u32 {
+    if instances.is_empty() {
+        0
+    } else {
+        instances.end
+    }
 }

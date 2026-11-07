@@ -105,6 +105,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             {
                 "PhysicsMaterial2D" => Material(asset),
                 "Script" => Asset(asset),
+                "Font" => PlayerFonts.Build(asset),
                 "Shader" => PlayerShaders.Build(asset, differences.Add),
                 "ComputeShader" => PlayerComputeShaders.Build(asset),
                 "Material" => PlayerMaterials.Build(asset, PlannedAsset),

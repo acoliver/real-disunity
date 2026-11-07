@@ -18,7 +18,20 @@ pub(super) struct Key {
     edits: u64,
     matrix: [u32; 16],
     eye: [i64; 3],
+    fade_eye: [u32; 3],
     casters_only: bool,
+}
+
+impl Key {
+    fn new(edits: u64, matrix: glam::Mat4, frame: &FrameUniform, casters_only: bool) -> Self {
+        Self {
+            edits,
+            matrix: matrix.to_cols_array().map(f32::to_bits),
+            eye: frame.camera_position_millimeters,
+            fade_eye: frame.camera_position.to_array().map(f32::to_bits),
+            casters_only,
+        }
+    }
 }
 
 /// The selection a view last published and the one it last built.
@@ -57,14 +70,12 @@ impl SceneGpu {
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Key {
-        Key {
-            edits: self.instances.edits(),
-            matrix: Self::view_matrix(shadow_matrix, frame)
-                .to_cols_array()
-                .map(f32::to_bits),
-            eye: frame.camera_position_millimeters,
-            casters_only: shadow_matrix.is_some(),
-        }
+        Key::new(
+            self.instances.edits(),
+            Self::view_matrix(shadow_matrix, frame),
+            frame,
+            shadow_matrix.is_some(),
+        )
     }
 
     /// Selects the camera view, or a cascade when `shadow_matrix` is given.
@@ -84,7 +95,13 @@ impl SceneGpu {
         view.rebuilds.set(view.rebuilds.get() + 1);
         let mut selection = view.published.borrow().clone();
         selection.casters_only = key.casters_only;
-        selection.rebuild(&self.instances, &self.mesh_selection, matrix, key.eye);
+        selection.rebuild_with_eye(
+            &self.instances,
+            &self.mesh_selection,
+            matrix,
+            key.eye,
+            frame.camera_position,
+        );
         *built = Some((key, selection.clone()));
         selection
     }
@@ -117,3 +134,6 @@ impl SceneGpu {
         fit
     }
 }
+
+#[cfg(test)]
+mod key_tests;

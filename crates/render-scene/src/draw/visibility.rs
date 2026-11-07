@@ -7,6 +7,7 @@ use crate::geometry::{millimeters_to_meters, model_matrix};
 use crate::instances::{BatchKey, Instances};
 use placement::BatchBounds;
 
+mod fade;
 mod placement;
 
 /// Object placement counts for one recorded view, excluding terrain.
@@ -15,7 +16,7 @@ mod placement;
 pub struct ViewStats {
     /// Number of live placements examined.
     pub considered: usize,
-    /// Hidden or outside the view volume.
+    /// Hidden, outside the view volume, or guaranteed to reject every faded fragment.
     pub culled: usize,
     /// Submitted placements by zero-based LOD index, across all meshes.
     pub drawn_per_lod: Vec<usize>,
@@ -60,6 +61,7 @@ pub(super) struct MeshSelection {
     bounds: Bounds,
     billboard_radius: Option<f32>,
     ceilings_squared: Vec<u128>,
+    transitions: Vec<bool>,
 }
 
 impl MeshSelection {
@@ -82,6 +84,12 @@ impl MeshSelection {
             )
         });
         Self {
+            transitions: mesh
+                .lods()
+                .iter()
+                .enumerate()
+                .map(|(level, lod)| level > 0 && lod.card().is_some())
+                .collect(),
             material_slots: mesh
                 .lods()
                 .iter()
@@ -306,12 +314,30 @@ impl Selection {
         self.stats.drawn_per_lod.fill(0);
     }
 
+    #[cfg(test)]
     pub fn rebuild(
         &mut self,
         instances: &Instances,
         meshes: &[MeshSelection],
         matrix: Mat4,
         eye_millimeters: [i64; 3],
+    ) {
+        self.rebuild_with_eye(
+            instances,
+            meshes,
+            matrix,
+            eye_millimeters,
+            millimeters_to_meters(eye_millimeters),
+        );
+    }
+
+    pub fn rebuild_with_eye(
+        &mut self,
+        instances: &Instances,
+        meshes: &[MeshSelection],
+        matrix: Mat4,
+        eye_millimeters: [i64; 3],
+        fade_eye: Vec3,
     ) {
         self.reset(meshes);
         let frustum = Frustum::new(matrix);
@@ -345,6 +371,10 @@ impl Selection {
                 let distance_squared =
                     distance_squared(object.transform().position_millimeters, eye_millimeters);
                 let lod = mesh.lod(distance_squared, object.lod_distance_scale_millionths());
+                if mesh.fade_empty(instances, object, lod, fade_eye) {
+                    self.stats.culled += 1;
+                    continue;
+                }
                 self.push(key, lod, slot);
             }
         }
@@ -461,3 +491,6 @@ mod caster_tests;
 
 #[cfg(test)]
 mod cache_tests;
+
+#[cfg(test)]
+mod fade_tests;

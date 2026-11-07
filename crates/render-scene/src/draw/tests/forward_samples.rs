@@ -22,10 +22,10 @@ pub(super) fn attachment(device: &Device, format: TextureFormat, samples: u32) -
     })
 }
 
-pub(super) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
+pub(crate) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
     let device = context.device();
     let samples = texture.sample_count();
-    let depth = texture.format() == DEPTH_FORMAT;
+    let depth = texture.format().is_depth_stencil_format();
     let kind = match (depth, samples) {
         (true, 1) => "texture_depth_2d",
         (true, _) => "texture_depth_multisampled_2d",
@@ -71,7 +71,14 @@ pub(super) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
         usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let view = texture.create_view(&TextureViewDescriptor::default());
+    let view = texture.create_view(&TextureViewDescriptor {
+        aspect: if texture.format().is_depth_stencil_format() {
+            wgpu::TextureAspect::DepthOnly
+        } else {
+            wgpu::TextureAspect::All
+        },
+        ..Default::default()
+    });
     let group = device.create_bind_group(&BindGroupDescriptor {
         label: None,
         layout: &pipeline.get_bind_group_layout(0),
@@ -105,7 +112,7 @@ pub(super) fn read(context: &GpuContext, texture: &Texture) -> Vec<u8> {
     pixels
 }
 
-pub(super) fn screen_group(
+pub(crate) fn screen_group(
     context: &GpuContext,
     layout: &wgpu::BindGroupLayout,
 ) -> wgpu::BindGroup {

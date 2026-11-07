@@ -39,12 +39,11 @@
 //!
 //! # Depth
 //!
-//! Depth is a plain 32-bit float with no stencil, because nothing here uses
-//! stencil and the alternative worth considering, 24-bit unorm depth, spends
-//! its precision badly for this world: the authored terrain spans kilometres
-//! while the near plane is governed in millimetres, and that ratio is exactly
-//! what drives depth fighting on distant coplanar surfaces.
+//! Independent draws use 32-bit float depth. Paired single-sample metadata and
+//! forward draws add stencil ownership to the same float depth representation.
+//! Stencil consumption preserves the first primitive at a tied minimum depth.
 
+pub(crate) mod depth;
 mod objects;
 pub(crate) mod overlay;
 mod pages;
@@ -54,15 +53,17 @@ mod specular;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::constants as specular_constants;
+#[cfg(test)]
+pub(crate) use specular::unlit_source as unlit_test_source;
 
+use depth::DepthMode;
 use std::borrow::Cow;
 
 use wgpu::{
-    BindGroupLayout, ColorTargetState, ColorWrites, CompareFunction, DepthBiasState,
-    DepthStencilState, Device, Extent3d, Face, FragmentState, FrontFace, MultisampleState,
-    PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor, PolygonMode,
-    PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor,
-    ShaderModuleDescriptor, ShaderSource, StencilState, Texture, TextureDescriptor,
+    BindGroupLayout, ColorTargetState, ColorWrites, Device, Extent3d, Face, FragmentState,
+    FrontFace, MultisampleState, PipelineCompilationOptions, PipelineLayout,
+    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline,
+    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, Texture, TextureDescriptor,
     TextureDimension, TextureFormat, TextureUsages, VertexBufferLayout, VertexState,
     VertexStepMode,
 };
@@ -75,7 +76,7 @@ use crate::upload::{
 };
 use crate::view::Viewport;
 
-/// Depth format every pipeline here writes.
+/// Depth format for independent scene draws and light-space depth.
 pub const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 
 /// The complete, closed set of pipelines a governed scene can require.
@@ -85,6 +86,7 @@ pub struct ScenePipelines {
     pub(crate) samples: u32,
     pub(crate) ssao: bool,
     velocity: bool,
+    pub(crate) depth: DepthMode,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
@@ -235,7 +237,7 @@ impl ScenePipelines {
             (source, terrain_source),
             shadow_layout,
             screen_layout,
-            ([0; 7], FrontFace::Ccw),
+            ([0; 7], FrontFace::Ccw, DepthMode::Independent),
         )
     }
 
@@ -245,13 +247,14 @@ impl ScenePipelines {
         sources: (&str, &str),
         shadow_layout: Option<&BindGroupLayout>,
         screen_layout: Option<&BindGroupLayout>,
-        options: ([u32; 7], FrontFace),
+        options: ([u32; 7], FrontFace, DepthMode),
     ) -> Self {
         let (source, terrain_source) = sources;
         let mut constants = specular::constants(options.0).to_vec();
         specular::raster_constants(&mut constants, options.1);
         let (color_format, samples) = target;
-        let module = scene_shader(device, "environment", source);
+        let (object, terrain_shader) = pipeline_sources((source, terrain_source), options.2);
+        let module = scene_shader(device, "environment", &object);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
         let terrain_layout = terrain_bind_group_layout(device);
@@ -274,16 +277,16 @@ impl ScenePipelines {
             &targets,
             &module,
             (samples, &constants, options.1),
-            source.contains(crate::velocity::MARKER),
+            (source.contains(crate::velocity::MARKER), options.2),
         );
         groups[1] = Some(&terrain_layout);
         let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
             device,
             &groups,
-            terrain_source,
+            &terrain_shader,
             &buffers,
             &targets,
-            (samples, &constants, options.1),
+            (samples, &constants, options.1, options.2),
         );
         Self {
             layered,
@@ -299,6 +302,7 @@ impl ScenePipelines {
             cached_terrain,
             color_format,
             samples,
+            depth: options.2,
             ssao: screen_layout.is_some(),
             velocity: source.contains(crate::velocity::MARKER),
             frame_layout,
@@ -320,14 +324,14 @@ impl ScenePipelines {
     > {
         worldrunner_render_program::runtime::TargetSignature::attachments(
             &self.unlit_colors,
-            Some(DEPTH_FORMAT),
+            Some(self.depth.format()),
             self.samples,
         )
     }
 
     /// The shader source the dynamic unlit-alpha material's entry points are read from.
     pub(crate) fn unlit_source(&self) -> &str {
-        self.specialization.source()
+        self.specialization.unlit_source()
     }
 
     pub(crate) const fn object_pipelines(&self) -> &ObjectPipelines {
@@ -406,7 +410,7 @@ pub(crate) fn build(
     key: PipelineKey,
     layout: &PipelineLayout,
     buffers: &[Option<VertexBufferLayout<'_>>],
-    target: (u32, FrontFace),
+    target: (u32, FrontFace, DepthMode),
     fragment: FragmentState<'_>,
 ) -> RenderPipeline {
     build_variant(
@@ -419,6 +423,7 @@ pub(crate) fn build(
             samples: target.0,
             front_face: target.1,
             depth_write: true,
+            depth: target.2,
             vertex_entry: shader::VERTEX_ENTRY_POINT,
         },
     )
@@ -431,6 +436,7 @@ pub(super) struct ObjectState {
     front_face: FrontFace,
     depth_write: bool,
     vertex_entry: &'static str,
+    depth: DepthMode,
 }
 
 pub(super) fn build_variant(
@@ -458,17 +464,7 @@ pub(super) fn build_variant(
             polygon_mode: PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: Some(DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(state.depth_write),
-            depth_compare: Some(if state.depth_write {
-                CompareFunction::Less
-            } else {
-                CompareFunction::LessEqual
-            }),
-            stencil: StencilState::default(),
-            bias: DepthBiasState::default(),
-        }),
+        depth_stencil: Some(state.depth.state(state.depth_write)),
         multisample: MultisampleState {
             count: state.samples,
             alpha_to_coverage_enabled: state.key.alpha_to_coverage(state.samples),
@@ -503,9 +499,9 @@ fn build_terrain(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], FrontFace),
+    target: (u32, &[(&str, f64)], FrontFace, DepthMode),
 ) -> RenderPipeline {
-    let (samples, constants, front_face) = target;
+    let (samples, constants, front_face, depth) = target;
     let module = scene_shader(device, "terrain", source);
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -526,13 +522,7 @@ fn build_terrain(
             polygon_mode: PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: Some(DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(CompareFunction::Less),
-            stencil: StencilState::default(),
-            bias: DepthBiasState::default(),
-        }),
+        depth_stencil: Some(depth.state(true)),
         multisample: MultisampleState {
             count: samples,
             ..Default::default()
@@ -576,6 +566,13 @@ pub fn depth_texture(device: &Device, viewport: Viewport) -> Texture {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn pipeline_sources<'a>(
+    (object, terrain): (&'a str, &'a str),
+    depth: DepthMode,
+) -> (Cow<'a, str>, Cow<'a, str>) {
+    (depth.vertex_source(object), depth.vertex_source(terrain))
+}
 
 fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModule {
     device.create_shader_module(ShaderModuleDescriptor {
@@ -630,10 +627,13 @@ pub(crate) fn celestial_source(
     lighting: worldrunner_render_plan::SceneCelestialLighting,
     anchored: bool,
 ) -> String {
-    let source = ENVIRONMENT_WGSL.replace(
-        "@location(0) world_position: vec3<f32>,",
-        "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
-    );
+    // Celestial visibility is unpaired and keeps its own vertex compilation contract.
+    let source = DepthMode::Independent
+        .vertex_source(ENVIRONMENT_WGSL)
+        .replace(
+            "@location(0) world_position: vec3<f32>,",
+            "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
+        );
     let source = crate::sky::lighting::composition_source(source, composition);
     let source = crate::sky::lighting::source(source, lighting);
     let vertex = if anchored {
@@ -693,6 +693,7 @@ pub(crate) fn celestial_specialization(
                 front_face: options.1,
                 depth_write: true,
                 vertex_entry: "vs_celestial",
+                depth: DepthMode::Independent,
             },
         )
     })

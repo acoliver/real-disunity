@@ -187,7 +187,7 @@ fn values(term: CaptureTerm) -> (&'static str, &'static str) {
     }
 }
 
-fn sources(stock: (String, String), screen: bool, reflection: bool) -> (String, String) {
+pub(crate) fn sources(stock: (String, String), screen: bool, reflection: bool) -> (String, String) {
     let apply = |source: String, terrain| {
         let source = if screen {
             crate::ssao::ambient_source(&source)

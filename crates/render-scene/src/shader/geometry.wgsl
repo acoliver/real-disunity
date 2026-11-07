@@ -129,7 +129,7 @@ fn billboard_basis(mode: u32, pivot: vec3<f32>) -> mat3x3<f32> {
 }
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @invariant @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) texcoord: vec2<f32>,

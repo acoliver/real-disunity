@@ -276,7 +276,11 @@ fn pass_pipelines(
             key,
             &layout,
             &buffers,
-            (1, wgpu::FrontFace::Ccw),
+            (
+                1,
+                wgpu::FrontFace::Ccw,
+                crate::renderer::depth::DepthMode::Independent,
+            ),
             wgpu::FragmentState {
                 module: &module,
                 entry_point: Some(entry),

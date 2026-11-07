@@ -444,6 +444,8 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         group: &BindGroup,
     ) -> SelectionPublication {
+        // Both passes consume the same camera selection, compacted instances and terrain stream.
+        // The forward-only draws are appended after that paired prefix.
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, false).selection
     }
@@ -488,6 +490,8 @@ impl SceneGpu {
             .expect("set frame before drawing")
     }
 
+    // Pair both passes here so object batches, compacted instances and terrain primitives
+    // retain the same API order. Stencil consumption depends on that order for depth ties.
     fn draw_color_pass(
         &self,
         pass: &mut RenderPass<'_>,
@@ -495,6 +499,9 @@ impl SceneGpu {
         shadow: Option<&BindGroup>,
         dynamic: bool,
     ) -> ColorDraw {
+        if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
+            pass.set_stencil_reference(1);
+        }
         let frame = self.drawing_uniform();
         let receiver = self
             .ssao
@@ -671,6 +678,11 @@ impl SceneGpu {
     /// Owned statistics for one of the four supported shadow view indices.
     pub fn cascade_view_stats(&self, index: usize) -> ViewStats {
         self.views[index + 1].published.borrow().stats.clone()
+    }
+
+    /// Relief fragment-depth equivalence must be proved before consuming its metadata winner.
+    pub(crate) fn has_relief(&self) -> bool {
+        visibility::has_relief(&self.instances, &self.mesh_selection)
     }
 
     /// Returns live mesh/material batch counts per pipeline variant.

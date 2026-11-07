@@ -608,7 +608,17 @@ fn build(
     let mut renderer = FrameRenderer {
         overlay: super::overlay::OverlayStage::default(),
         output_format: settings.output_format,
-        chain: PostChain::new(device, settings.frame, Resources::default(), factory)?,
+        chain: PostChain::with_scene_depth(
+            device,
+            settings.frame,
+            Resources::default(),
+            factory,
+            super::depth_reuse::allocation(
+                device,
+                settings.frame,
+                settings.ssao.is_some() || settings.ssr.is_some_and(|ssr| ssr.enabled),
+            ),
+        )?,
         environment_conventions: [None; 2],
         water: None,
         water_state: std::rc::Rc::default(),
@@ -635,6 +645,7 @@ fn build(
         ssr_requested: settings.ssr,
     };
     renderer.install_reflections(device, settings.frame.size)?;
+    renderer.share_metadata_depth(device);
     install_jitter(&mut renderer, settings)?;
     renderer.install_water_bodies(device, settings.water.clone())?;
     if (settings.ui_depth || renderer.ssr.is_some()) && renderer.snapshots.is_none() {

@@ -239,7 +239,8 @@ pub use chain::{
 pub use copy::CopyOutput;
 pub use readback::{BufferReadback, Readback, ReadbackError, unpad_rows, wait_for_map};
 pub use targets::{
-    FrameConfig, FrameTargets, TEMPORAL_MASK_FORMAT, TargetOptions, VELOCITY_FORMAT, color_texture,
+    FrameConfig, FrameTargets, SceneDepth, TEMPORAL_MASK_FORMAT, TargetOptions, VELOCITY_FORMAT,
+    color_texture,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

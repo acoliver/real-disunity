@@ -5,6 +5,8 @@ mod output;
 use crate::{frame::FrameUniform, renderer::ScenePipelines};
 pub(crate) use geometry::pipelines;
 #[cfg(test)]
+pub(crate) use geometry::{pipelines_from_sources, sources};
+#[cfg(test)]
 pub(crate) use output::single_fragment;
 pub(crate) use output::{MERGED_MARKER, MetadataOutput};
 use worldrunner_render_plan::SceneSsao;
@@ -74,6 +76,55 @@ impl SceneMetadata {
             passes,
             uniform,
         })
+    }
+
+    pub(crate) fn geometry_for_depth(&self, depth: crate::renderer::depth::DepthMode) -> Geometry {
+        use crate::renderer::depth::DepthMode;
+        let mut geometry = self.geometry.clone();
+        let metadata = if self.depth.format().has_stencil_aspect() {
+            if depth == DepthMode::Reuse {
+                DepthMode::Prepass
+            } else {
+                DepthMode::Shared
+            }
+        } else {
+            DepthMode::Independent
+        };
+        geometry.pipelines = geometry.pipelines.for_depth(metadata);
+        geometry.merged = geometry
+            .merged
+            .as_ref()
+            .map(|pipelines| pipelines.for_depth(metadata));
+        if let Some((pipelines, _)) = &mut geometry.forward {
+            *pipelines = pipelines.for_depth(depth);
+        }
+        geometry
+    }
+
+    pub(crate) fn depth_resource(&self) -> worldrunner_render_post::ResourceRef {
+        if self.depth.format().has_stencil_aspect() {
+            worldrunner_render_post::ResourceRef::new("scene depth")
+        } else {
+            crate::frame::metadata::FrameProduct::prepass_depth().resource()
+        }
+    }
+
+    pub(crate) fn share_depth(&mut self, device: &wgpu::Device, depth: &wgpu::Texture) {
+        assert_eq!(depth.sample_count(), 1);
+        assert_eq!([depth.width(), depth.height()], self.size);
+        if self.depth == *depth {
+            return;
+        }
+        self.depth = depth.clone();
+        self.passes
+            .rebind_depth(device, &self.uniform, depth, self.depth_resource());
+        self.geometry.pipelines = self
+            .geometry
+            .pipelines
+            .for_depth(crate::renderer::depth::DepthMode::Prepass);
+        if let Some(merged) = &mut self.geometry.merged {
+            *merged = merged.for_depth(crate::renderer::depth::DepthMode::Prepass);
+        }
     }
 
     pub fn upload(&self, context: &mut PrepareContext<'_>, frame: &FrameUniform) {

@@ -192,7 +192,7 @@ fn scene_rejects_a_level_material_outside_the_resource_table() {
     ));
 }
 
-fn transition_scene(coverage: u32) -> RenderScene {
+pub(super) fn transition_scene(coverage: u32) -> RenderScene {
     use worldrunner_render_plan::SceneCard;
     let near = card(None).lods()[0]
         .clone()

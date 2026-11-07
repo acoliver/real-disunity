@@ -12,6 +12,7 @@ struct Objects {
     module: wgpu::ShaderModule,
     targets: Vec<Option<wgpu::ColorTargetState>>,
     previous_transforms: bool,
+    depth: super::DepthMode,
     samples: u32,
     front_face: wgpu::FrontFace,
     constants: Vec<(String, f64)>,
@@ -25,14 +26,15 @@ impl ObjectPipelines {
         targets: &[Option<wgpu::ColorTargetState>],
         module: &wgpu::ShaderModule,
         target: (u32, &[(&str, f64)], wgpu::FrontFace),
-        previous_transforms: bool,
+        options: (bool, super::DepthMode),
     ) -> Self {
         Self(Rc::new(Objects {
             device: device.clone(),
             layout: layout.clone(),
             module: module.clone(),
             targets: targets.to_vec(),
-            previous_transforms,
+            previous_transforms: options.0,
+            depth: options.1,
             samples: target.0,
             front_face: target.2,
             constants: target
@@ -75,7 +77,7 @@ impl Index<usize> for ObjectPipelines {
                 key,
                 &state.layout,
                 &buffers,
-                (state.samples, state.front_face),
+                (state.samples, state.front_face, state.depth),
                 wgpu::FragmentState {
                     module: &state.module,
                     entry_point: Some(entry),

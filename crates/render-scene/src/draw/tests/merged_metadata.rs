@@ -412,3 +412,6 @@ fn alpha_first_metadata_matches_frozen_shader_device_depth_normal_material_and_c
 
 #[path = "forward_rejection.rs"]
 mod forward_rejection;
+
+#[path = "depth_reuse.rs"]
+mod depth_reuse;

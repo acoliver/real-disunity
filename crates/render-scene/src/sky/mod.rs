@@ -42,9 +42,9 @@ pub fn disc_uv(ray: Vec3, direction: Vec3, radius: f32, rotation: f32) -> Option
     Some([0.5 + (c * x + s * y) * 0.5, 0.5 + (c * y - s * x) * 0.5])
 }
 
-pub(crate) fn depth_state() -> wgpu::DepthStencilState {
+pub(crate) fn depth_state(depth: crate::renderer::depth::DepthMode) -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
-        format: crate::renderer::DEPTH_FORMAT,
+        format: depth.format(),
         depth_write_enabled: Some(false),
         depth_compare: Some(wgpu::CompareFunction::LessEqual),
         stencil: wgpu::StencilState::default(),
@@ -98,7 +98,7 @@ pub(crate) fn pipeline(
     device: &wgpu::Device,
     frame: &wgpu::BindGroupLayout,
     target: (wgpu::TextureFormat, u32, bool),
-    reflection: bool,
+    reflection: (bool, crate::renderer::depth::DepthMode),
 ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
     let group = layout(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -120,7 +120,7 @@ pub(crate) fn pipeline(
             buffers: &[],
         },
         primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(depth_state()),
+        depth_stencil: Some(depth_state(reflection.1)),
         multisample: wgpu::MultisampleState {
             count: target.1,
             ..Default::default()
@@ -135,7 +135,7 @@ pub(crate) fn pipeline(
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 },
-                (target.2, reflection),
+                (target.2, reflection.0, reflection.1),
             ),
         }),
         multiview_mask: None,
@@ -146,7 +146,8 @@ pub(crate) fn pipeline(
 
 #[derive(Debug)]
 pub(crate) struct Sky {
-    variants: RefCell<BTreeMap<(bool, bool), wgpu::RenderPipeline>>,
+    variants:
+        RefCell<BTreeMap<(bool, bool, crate::renderer::depth::DepthMode), wgpu::RenderPipeline>>,
     device: wgpu::Device,
     frame_layout: wgpu::BindGroupLayout,
     target: (wgpu::TextureFormat, u32, bool),
@@ -202,7 +203,12 @@ impl Sky {
     ) -> Self {
         settings.validate().expect("validated atmosphere");
         let (views, white) = textures;
-        let (pipeline, layout) = pipeline(device, frame, target, false);
+        let (pipeline, layout) = pipeline(
+            device,
+            frame,
+            target,
+            (false, crate::renderer::depth::DepthMode::Independent),
+        );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("celestial sampling"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -250,7 +256,14 @@ impl Sky {
             })
             .collect();
         Self {
-            variants: RefCell::new(BTreeMap::from([((target.2, false), pipeline)])),
+            variants: RefCell::new(BTreeMap::from([(
+                (
+                    target.2,
+                    false,
+                    crate::renderer::depth::DepthMode::Independent,
+                ),
+                pipeline,
+            )])),
             device: device.clone(),
             frame_layout: frame.clone(),
             target,
@@ -290,13 +303,21 @@ impl Sky {
     }
     #[cfg(test)]
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, frame: &wgpu::BindGroup) {
-        self.draw_targets(pass, frame, (self.target.2, false));
+        self.draw_targets(
+            pass,
+            frame,
+            (
+                self.target.2,
+                false,
+                crate::renderer::depth::DepthMode::Independent,
+            ),
+        );
     }
     pub fn draw_targets(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         frame: &wgpu::BindGroup,
-        key: (bool, bool),
+        key: (bool, bool, crate::renderer::depth::DepthMode),
     ) -> crate::draw::DrawCount {
         let mut count = crate::draw::DrawCount::default();
         let mut variants = self.variants.borrow_mut();
@@ -305,7 +326,7 @@ impl Sky {
                 &self.device,
                 &self.frame_layout,
                 (self.target.0, self.target.1, key.0),
-                key.1,
+                (key.1, key.2),
             )
             .0
         });
@@ -390,7 +411,7 @@ mod tests;
 pub(crate) mod render_tests;
 
 #[cfg(test)]
-mod scene_tests;
+pub(crate) mod scene_tests;
 
 fn celestial_parameters(settings: &SceneAtmosphere, lanes: &mut [[f32; 4]]) {
     lanes[2][1] = match settings.celestial_composition {
@@ -478,7 +499,7 @@ mod review_tests;
 
 fn targets(
     colour: wgpu::ColorTargetState,
-    key: (bool, bool),
+    key: (bool, bool, crate::renderer::depth::DepthMode),
 ) -> Vec<Option<wgpu::ColorTargetState>> {
     let mut targets = vec![Some(colour)];
     if key.1 {

@@ -6,24 +6,7 @@ pub(crate) fn build(
     depth: bool,
 ) -> wgpu::RenderPipeline {
     let depth_layout = depth.then(|| depth_layout(device));
-    let source = include_str!("../shader/overlay.wgsl")
-        .replace(
-            "UI_DEPTH_BINDINGS",
-            if depth {
-                include_str!("../shader/overlay_depth.wgsl")
-            } else {
-                ""
-            },
-        )
-        .replace(
-            "UI_DEPTH_TEST",
-            if depth { "test_ui_depth(input);" } else { "" },
-        );
-    let module = super::scene_shader(
-        device,
-        "native UI overlay",
-        &format!("{}\n{}", crate::shader::ENVIRONMENT_WGSL, source),
-    );
+    let module = super::scene_shader(device, "native UI overlay", &source(depth));
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("native UI overlay"),
         bind_group_layouts: &[depth_layout.as_ref(), Some(material)],
@@ -110,4 +93,23 @@ pub(crate) fn depth_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
             },
         ],
     })
+}
+
+pub(crate) fn source(depth: bool) -> String {
+    let source = include_str!("../shader/overlay.wgsl")
+        .replace(
+            "UI_DEPTH_BINDINGS",
+            if depth {
+                include_str!("../shader/overlay_depth.wgsl")
+            } else {
+                ""
+            },
+        )
+        .replace(
+            "UI_DEPTH_TEST",
+            if depth { "test_ui_depth(input);" } else { "" },
+        );
+    super::depth::DepthMode::Independent
+        .vertex_source(&format!("{}\n{}", crate::shader::ENVIRONMENT_WGSL, source))
+        .into_owned()
 }

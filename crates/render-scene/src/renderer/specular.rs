@@ -1,5 +1,9 @@
-use super::ScenePipelines;
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use super::{ScenePipelines, depth::DepthMode};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::BTreeMap,
+    rc::Rc,
+};
 
 pub(super) fn raster_constants(
     constants: &mut Vec<(&'static str, f64)>,
@@ -29,16 +33,17 @@ pub(crate) fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
     ]
 }
 
-type RasterKey = ([u32; 7], u8);
+type RasterKey = ([u32; 7], u8, super::DepthMode);
 
 #[derive(Clone, Debug)]
 pub(super) struct Specialization {
     device: wgpu::Device,
     source: Rc<str>,
+    unlit: Rc<OnceCell<String>>,
     terrain: Rc<str>,
     shadow: Option<wgpu::BindGroupLayout>,
     screen: Option<wgpu::BindGroupLayout>,
-    options: ([u32; 7], wgpu::FrontFace),
+    options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
     cache: Rc<RefCell<BTreeMap<RasterKey, ScenePipelines>>>,
     gather: Rc<RefCell<Option<ScenePipelines>>>,
 }
@@ -49,11 +54,12 @@ impl Specialization {
         terrain: &str,
         shadow: Option<&wgpu::BindGroupLayout>,
         screen: Option<&wgpu::BindGroupLayout>,
-        options: ([u32; 7], wgpu::FrontFace),
+        options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
     ) -> Self {
         Self {
             device: device.clone(),
             source: source.into(),
+            unlit: Rc::default(),
             terrain: terrain.into(),
             shadow: shadow.cloned(),
             screen: screen.cloned(),
@@ -64,11 +70,40 @@ impl Specialization {
     }
 }
 impl Specialization {
-    pub(super) fn source(&self) -> &str {
-        &self.source
+    pub(super) fn unlit_source(&self) -> &str {
+        self.unlit.get_or_init(|| unlit_source(&self.source))
     }
 }
+pub(crate) fn unlit_source(source: &str) -> String {
+    DepthMode::Independent.vertex_source(source).into_owned()
+}
+
 impl ScenePipelines {
+    pub(crate) fn for_depth(&self, depth: super::DepthMode) -> Self {
+        if depth == self.depth {
+            return self.clone();
+        }
+        assert!(depth == super::DepthMode::Independent || self.samples == 1);
+        let spec = &self.specialization;
+        let options = (spec.options.0, spec.options.1, depth);
+        spec.cache
+            .borrow_mut()
+            .entry((options.0, u8::from(options.1 == wgpu::FrontFace::Cw), depth))
+            .or_insert_with(|| {
+                let mut selected = Self::with_constants(
+                    &spec.device,
+                    (self.color_format, self.samples),
+                    (&spec.source, &spec.terrain),
+                    spec.shadow.as_ref(),
+                    spec.screen.as_ref(),
+                    options,
+                );
+                selected.ssao = self.ssao;
+                selected
+            })
+            .clone()
+    }
+
     pub(crate) fn has_ao_receiver(&self) -> bool {
         self.specialization.screen.is_some()
     }
@@ -108,12 +143,17 @@ impl ScenePipelines {
             .clone()
     }
 
-    pub(crate) fn sky_targets(&self) -> (bool, bool) {
+    pub(crate) fn sky_targets(&self) -> (bool, bool, super::DepthMode) {
         (
             self.writes_velocity(),
             self.specialization
                 .source
                 .contains("struct ReflectionOutput"),
+            if self.depth == super::DepthMode::Independent {
+                self.depth
+            } else {
+                super::DepthMode::Shared
+            },
         )
     }
 
@@ -130,14 +170,18 @@ impl ScenePipelines {
         convention: worldrunner_render_plan::SceneSpecularConvention,
         front_face: wgpu::FrontFace,
     ) -> Self {
-        let options = (convention.shader_options(), front_face);
+        let options = (convention.shader_options(), front_face, self.depth);
         let spec = &self.specialization;
         if options == spec.options {
             return self.clone();
         }
         spec.cache
             .borrow_mut()
-            .entry((options.0, u8::from(front_face == wgpu::FrontFace::Cw)))
+            .entry((
+                options.0,
+                u8::from(front_face == wgpu::FrontFace::Cw),
+                options.2,
+            ))
             .or_insert_with(|| {
                 let mut selected = Self::with_constants(
                     &spec.device,
@@ -161,7 +205,7 @@ impl ScenePipelines {
     #[cfg(test)]
     pub(crate) fn legacy_unlit_alpha(&self) -> wgpu::RenderPipeline {
         let spec = &self.specialization;
-        let module = super::scene_shader(&spec.device, "environment", &spec.source);
+        let module = super::scene_shader(&spec.device, "environment", spec.unlit_source());
         let groups = super::pipeline_groups(
             &self.frame_layout,
             &self.material_layout,

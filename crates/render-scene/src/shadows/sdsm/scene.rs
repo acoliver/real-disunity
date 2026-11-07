@@ -247,7 +247,7 @@ impl ShadowedScene {
         for term in input.terms {
             suffix.extend(self.scheduler.capture_texture_keys(&term.textures())?);
         }
-        let mut prefix = scene_keys;
+        let prefix = scene_keys;
         // With reflections installed the prefix prepass also writes the reflection material.
         let material = self
             .scheduler
@@ -261,10 +261,10 @@ impl ShadowedScene {
         ];
         written.extend(material.as_ref());
         let metadata = self.scheduler.capture_texture_keys(&written)?;
-        suffix.retain(|key| !metadata.contains(key));
-        prefix.extend(metadata);
-        prefix.push(key);
-        Ok(CaptureWrites::new(prefix, suffix.clone(), suffix).map_err(SdsmError::from)?)
+        let scene_depth = self
+            .scheduler
+            .capture_texture_keys(&[input.attachments.1.texture()])?[0];
+        Ok(capture_writes(prefix, suffix, metadata, scene_depth, key).map_err(SdsmError::from)?)
     }
 
     fn render_capture(
@@ -487,3 +487,26 @@ fn drain_capture(context: &GpuContext) -> Result<(), ShadowError> {
         .drain_captures(context.device())
         .map_err(capture_error)
 }
+
+fn capture_writes(
+    mut prefix: Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+    mut suffix: Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+    metadata: Vec<worldrunner_render_gpu::submission::capture::WriteKey>,
+    scene_depth: worldrunner_render_gpu::submission::capture::WriteKey,
+    reduction: worldrunner_render_gpu::submission::capture::WriteKey,
+) -> Result<CaptureWrites, worldrunner_render_gpu::submission::capture::WriteError> {
+    // Opaque consumes stencil and water writes depth after the metadata prefix.
+    suffix.retain(|key| *key == scene_depth || !metadata.contains(key));
+    prefix.extend(metadata);
+    prefix.push(reduction);
+    let owned = prefix
+        .iter()
+        .copied()
+        .filter(|key| suffix.contains(key))
+        .collect::<Vec<_>>();
+    CaptureWrites::new(prefix, suffix, owned)
+}
+
+#[cfg(test)]
+#[path = "capture_contract_tests.rs"]
+mod contract_tests;

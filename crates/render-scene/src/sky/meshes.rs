@@ -100,7 +100,12 @@ pub(crate) struct Meshes {
     object_exposure: bool,
     specializations: PipelineCache,
     draws: Vec<MeshDraw>,
-    composites: std::cell::RefCell<std::collections::BTreeMap<(bool, bool), wgpu::RenderPipeline>>,
+    composites: std::cell::RefCell<
+        std::collections::BTreeMap<
+            (bool, bool, crate::renderer::depth::DepthMode),
+            wgpu::RenderPipeline,
+        >,
+    >,
     samples: u32,
     layout: wgpu::BindGroupLayout,
     target: std::cell::RefCell<Option<super::mesh_target::Target>>,
@@ -174,7 +179,11 @@ impl Meshes {
             target.depth.texture().clone(),
         ]
     }
-    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, key: (bool, bool)) {
+    pub fn draw(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        key: (bool, bool, crate::renderer::depth::DepthMode),
+    ) {
         let target = self.target.borrow();
         let target = target
             .as_ref()

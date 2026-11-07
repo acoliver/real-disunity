@@ -173,14 +173,20 @@ fn terrain_depth_pipeline(
 }
 
 fn depth_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
-    let source = format!(
-        "{ENVIRONMENT_WGSL}\n{}",
-        include_str!("../shader/shadow_depth.wgsl")
-    );
+    let source = depth_source();
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shadow caster"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     })
+}
+
+pub(crate) fn depth_source() -> String {
+    crate::renderer::depth::DepthMode::Independent
+        .vertex_source(&format!(
+            "{ENVIRONMENT_WGSL}\n{}",
+            include_str!("../shader/shadow_depth.wgsl")
+        ))
+        .into_owned()
 }
 
 #[derive(Debug)]

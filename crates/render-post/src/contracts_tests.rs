@@ -150,10 +150,16 @@ fn encode_stock_fixture(
         ]
     );
     compiled
-        .encode_stock_pass(0, encoder, None, |_| {})
+        .encode_stock_pass(
+            0,
+            crate::PassSlot::DepthNormalPrepass,
+            encoder,
+            None,
+            |_| {},
+        )
         .unwrap();
     compiled
-        .encode_stock_pass(1, encoder, None, |_| {})
+        .encode_stock_pass(1, crate::PassSlot::Opaque, encoder, None, |_| {})
         .unwrap();
 }
 

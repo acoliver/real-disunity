@@ -388,7 +388,7 @@ impl FrameTargets {
     ) {
         if let Some(resolve) = self.resolve() {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frame MSAA resolve"),
+                label: Some(crate::PassId::Resolve.encoder_label().as_ref()),
                 timestamp_writes: stamp.map(crate::timing::Stamp::render),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.scene(),

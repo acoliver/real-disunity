@@ -21,7 +21,7 @@ impl StageFactory for Host {
         let mut set = StageSet::default();
         set.stages.push(Stage {
             id: StageId::new("host exposure", 0),
-            label: "host exposure",
+            label: "host exposure".into(),
             enabled: true,
             operation: Operation::CopyBuffer {
                 source: self.upload.clone(),

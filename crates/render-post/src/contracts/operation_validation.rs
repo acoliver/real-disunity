@@ -32,6 +32,10 @@ impl ResourceRegistry {
         }
         Ok(CompiledOperations {
             operations: operations.to_vec(),
+            labels: operations
+                .iter()
+                .map(|operation| crate::PassId::Operation(operation.id).to_string())
+                .collect(),
             accesses,
             staging: super::operations::stage_uploads(device, operations),
         })

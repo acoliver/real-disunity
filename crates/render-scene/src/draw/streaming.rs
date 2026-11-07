@@ -246,6 +246,17 @@ impl Streaming {
         pass: &mut wgpu::RenderPass<'_>,
         instances: &wgpu::Buffer,
     ) -> super::DrawCount {
+        self.draw_where(pass, instances, |_| true)
+    }
+
+    /// Draws the resident chunks whose world bounds `keep` accepts.
+    pub fn draw_where(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        instances: &wgpu::Buffer,
+        keep: impl Fn(super::visibility::Bounds) -> bool,
+    ) -> super::DrawCount {
+        let terrain = self.scene.terrain().expect("terrain");
         let mut count = super::DrawCount::default();
         let drawing = self.drawing.borrow();
         let committed = self.committed.borrow();
@@ -257,6 +268,10 @@ impl Streaming {
             })
             .map_or(&*committed, |prepared| &prepared.residents);
         for (chunk, lod) in residents {
+            let [min, max] = crate::terrain::streaming::chunk_bounds(terrain, *chunk);
+            if !keep(super::visibility::Bounds { min, max }) {
+                continue;
+            }
             let offset = u64::from(self.plane_chunks[chunk]) * crate::geometry::INSTANCE_STRIDE;
             pass.set_vertex_buffer(
                 1,

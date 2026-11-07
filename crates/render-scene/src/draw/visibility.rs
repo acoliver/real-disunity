@@ -35,7 +35,7 @@ impl Bounds {
         }
     }
 
-    fn transformed(self, matrix: Mat4) -> Self {
+    pub(super) fn transformed(self, matrix: Mat4) -> Self {
         let center = matrix.transform_point3((self.min + self.max) * 0.5);
         let half = (self.max - self.min) * 0.5;
         let extent = matrix.x_axis.truncate().abs() * half.x
@@ -286,6 +286,8 @@ pub(super) struct SelectedRange {
 #[derive(Clone, Debug, Default)]
 pub(super) struct Selection {
     pub casters_only: bool,
+    /// Light-space slice a cascade's receivers sample; casters missing it are culled.
+    pub slice: Option<super::slice_hull::SliceHull>,
     pub ranges: Vec<SelectedRange>,
     pub stats: ViewStats,
 }
@@ -333,11 +335,11 @@ impl Selection {
                 self.stats.considered += 1;
                 if !visible
                     || (self.casters_only && !object.casts_shadow())
-                    || !frustum.intersects(bounds.placement(
-                        slot,
-                        object.transform(),
-                        relief_stretch,
-                    ))
+                    || !self.admits(
+                        &frustum,
+                        matrix,
+                        bounds.placement(slot, object.transform(), relief_stretch),
+                    )
                 {
                     self.stats.culled += 1;
                     continue;
@@ -348,6 +350,14 @@ impl Selection {
                 self.push(key, lod, slot);
             }
         }
+    }
+
+    fn admits(&self, frustum: &Frustum, matrix: Mat4, placement: Bounds) -> bool {
+        frustum.intersects(placement)
+            && self
+                .slice
+                .as_ref()
+                .is_none_or(|slice| slice.overlaps(placement, matrix))
     }
 
     fn push(&mut self, key: BatchKey, lod: usize, slot: usize) {

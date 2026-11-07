@@ -131,6 +131,10 @@ impl ConfiguredFrameRenderer {
     pub fn reset_temporal_history(&self) {
         self.state.current().reset_temporal_history();
     }
+    /// Sequence position of the next frame, counting submitted frames since the last reset.
+    pub fn projection_jitter_index(&self) -> u64 {
+        self.state.current().projection_jitter_index()
+    }
     /// Whether the next frame has a previous camera to reproject from.
     pub fn has_temporal_history(&self) -> bool {
         self.state.current().has_temporal_history()

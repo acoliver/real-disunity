@@ -319,8 +319,14 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
         decals_total: 4,
         ..Default::default()
     };
-    host.captures
-        .complete(id, 7, std::time::Duration::ZERO, image, &scene);
+    host.captures.complete(
+        id,
+        7,
+        std::time::Duration::ZERO,
+        image,
+        &scene,
+        crate::TemporalHistoryReset::CameraCut,
+    );
     host.readiness.published = 1;
     let RetainedEvent::Capture {
         outcome: RetainedCaptureOutcome::Completed {
@@ -336,4 +342,8 @@ fn capture_completion_keeps_submitted_readiness_and_generation() {
     assert_eq!(generation, 0);
     assert_eq!(observation.generation, 0);
     assert_eq!(observation.scene, scene);
+    assert_eq!(
+        observation.temporal_history_reset,
+        crate::TemporalHistoryReset::CameraCut
+    );
 }

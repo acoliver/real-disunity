@@ -9,6 +9,7 @@ pub(in crate::renderer) struct Active {
     id: u64,
     frame: u64,
     scene: Option<worldrunner_render_scene::draw::SceneStatistics>,
+    temporal_history_reset: crate::TemporalHistoryReset,
     time: Duration,
     view: SceneView,
     size: Viewport,
@@ -51,6 +52,7 @@ impl Active {
             self.time,
             self.accumulation.finish(),
             &self.scene.expect("submitted sample"),
+            self.temporal_history_reset,
         );
     }
 }
@@ -104,6 +106,7 @@ impl Renderer {
                 id,
                 frame: self.streaming.captures.next_frame(),
                 scene: None,
+                temporal_history_reset: crate::TemporalHistoryReset::None,
                 time: self.clock.time(),
                 view,
                 size,
@@ -152,7 +155,12 @@ impl Renderer {
         let waits_pages = !pages && host.captures.waiting.iter().any(|r| r.0 == id && r.2);
         let waits_geometry = host.captures.geometry.contains(&id) && !host.captures.geometry_ready;
         if waits_pages || waits_geometry {
-            return self.warm_recipe_pages(&view, ready);
+            self.prepare_camera_history(host);
+            let submitted = self.warm_recipe_pages(&view, ready)?;
+            if submitted {
+                self.submitted_camera_history(host);
+            }
+            return Ok(submitted);
         }
         self.resident.select_frame_slot(ready.admission.slot());
         self.presentation
@@ -160,10 +168,12 @@ impl Renderer {
             .select_frame_slot(ready.admission.slot());
         self.frame_time = time;
         self.presentation.scheduler.set_frame_time_duration(time)?;
-        self.encode_recipe_sample(&view, ready, &outputs)
+        self.prepare_camera_history(host);
+        self.encode_recipe_sample(host, &view, ready, &outputs)
     }
     fn encode_recipe_sample(
         &mut self,
+        host: &mut RetainedHost,
         view: &SceneView,
         ready: crate::renderer::execution::ReadyFrame,
         outputs: &[crate::CaptureOutput],
@@ -181,6 +191,8 @@ impl Renderer {
             .create_view(&wgpu::TextureViewDescriptor::default());
         let prepared = self.encode_frame(view, None, &output, Some(&mut image))?;
         let ticket = self.execution.submit_capture(ready, prepared)?;
+        self.submitted_camera_history(host);
+        let temporal_history_reset = self.temporal_history_reset();
         let frame = self.streaming.captures.next_frame();
         self.streaming.captures.advance_frame();
         let scene = self.scene_statistics();
@@ -193,6 +205,7 @@ impl Renderer {
         if active.sample == 0 {
             active.frame = frame;
             active.scene = Some(scene);
+            active.temporal_history_reset = temporal_history_reset;
         }
         image.begin()?;
         self.streaming

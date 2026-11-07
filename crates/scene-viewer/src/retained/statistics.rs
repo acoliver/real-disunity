@@ -14,6 +14,8 @@ pub struct RetainedFrameStatistics {
     pub generation: u64,
     /// Submitted draws, resources and installed shadow/SSAO receiver state.
     pub scene: SceneStatistics,
+    /// Reset applied before this submitted frame, independent of GPU completion.
+    pub temporal_history_reset: super::TemporalHistoryReset,
     /// Effective descriptor-byte admission budget for the presentation configuration.
     pub presentation_budget_bytes: u64,
     /// Effective retained capture recipe storage capacity.

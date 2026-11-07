@@ -1,5 +1,9 @@
 //! CPU scene ownership and ordered edits for the shared native viewer.
+mod camera;
+#[cfg(test)]
+mod camera_tests;
 use crate::{ViewerError, ViewerOptions};
+pub use camera::{CameraContinuity, TemporalHistoryReset};
 use std::{collections::BTreeMap, time::Duration};
 use worldrunner_render_plan::{RenderScene, SceneCamera, SceneEffects, SceneObject};
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
@@ -94,7 +98,15 @@ pub enum RetainedUpdate {
     /// invalid, the error names its index (`object edit N`) and the host is
     /// unchanged. An empty batch is accepted without taking a slot.
     Objects(Vec<SceneObjectEdit>),
+    /// Updates the camera while preserving temporal history.
     Camera {
+        pose: CameraPose,
+        lens: SceneCamera,
+        convention: worldrunner_camera::ViewConvention,
+    },
+    /// A camera update that explicitly selects whether temporal history survives.
+    CameraWithContinuity {
+        continuity: CameraContinuity,
         pose: CameraPose,
         lens: SceneCamera,
         convention: worldrunner_camera::ViewConvention,
@@ -301,16 +313,11 @@ impl RetainedHost {
         if let RetainedUpdate::Decal(edit) = &update {
             return self.apply_decal(edit.clone());
         }
-        if let RetainedUpdate::Camera {
-            pose,
-            lens,
-            convention,
-        } = &update
-        {
-            Self::validate_camera(*pose, *lens, *convention)?;
-            self.options.camera_convention = *convention;
-            self.options.pose = *pose;
-            self.options.camera = *lens;
+        if let Some((pose, lens, convention, _)) = update.camera_update() {
+            Self::validate_camera(pose, lens, convention)?;
+            self.options.camera_convention = convention;
+            self.options.pose = pose;
+            self.options.camera = lens;
             self.enqueue(update, false);
             return Ok(());
         }

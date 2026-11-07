@@ -18,6 +18,7 @@ public sealed class PlayerAssemblies
     private readonly string _managed;
     private readonly Assembly _engine;
     private readonly HashSet<string> _game;
+    private readonly IReadOnlyList<string> _listed;
     private readonly PlayerNativePlugins? _native;
     private readonly Dictionary<string, Assembly> _facades = new(StringComparer.Ordinal);
     // Resolution can run on any thread that first touches a type; the lock makes each
@@ -42,7 +43,8 @@ public sealed class PlayerAssemblies
             throw new DirectoryNotFoundException($"no player Managed directory at {managedDirectory}");
         _managed = managedDirectory;
         _engine = engine;
-        _game = new HashSet<string>(gameAssemblies, StringComparer.Ordinal);
+        _listed = gameAssemblies.ToList();
+        _game = new HashSet<string>(_listed, StringComparer.Ordinal);
         _native = nativePlugins;
     }
 
@@ -78,6 +80,32 @@ public sealed class PlayerAssemblies
         var assembly = context.LoadFromAssemblyPath(path);
         _native?.Register(assembly);
         return assembly;
+    }
+
+    /// <summary>
+    /// Loads every listed game and package assembly into the attached context, in the order the player lists them,
+    /// as a player's runtime does at startup, so code that enumerates the loaded assemblies to discover types sees
+    /// them all before it first runs (the engine's choice is to load them before any startup hook). A listed name
+    /// that cannot be loaded (missing from Managed, not a .NET image, or failing to load) is passed to
+    /// <paramref name="report"/> with the reason and skipped. Returns how many loaded.
+    /// </summary>
+    public int LoadListed(Action<string> report)
+    {
+        var context = _context ?? throw new InvalidOperationException("PlayerAssemblies.LoadListed needs an attached load context");
+        var loaded = 0;
+        foreach (var name in _listed)
+        {
+            try
+            {
+                context.LoadFromAssemblyName(new AssemblyName(name));
+                loaded++;
+            }
+            catch (Exception error) when (error is FileNotFoundException or BadImageFormatException or FileLoadException)
+            {
+                report($"listed assembly {name} did not load: {error.GetType().Name}: {error.Message}");
+            }
+        }
+        return loaded;
     }
 
     private Assembly Facade(AssemblyLoadContext context, string name, string path)

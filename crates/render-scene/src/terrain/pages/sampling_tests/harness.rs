@@ -50,6 +50,46 @@ pub(in crate::terrain::pages) fn sample_with(
     points: &[[f32; 4]],
     mode: Mode,
 ) -> Vec<u8> {
+    dispatch(
+        device,
+        authority,
+        cache,
+        leaves,
+        points,
+        (mode, shader(mode)),
+    )
+}
+
+/// Samples through the earlier page filter, which always fetched and mixed two levels.
+pub(in crate::terrain::pages) fn sample_two_level(
+    device: &wgpu::Device,
+    authority: &SubmissionAuthority,
+    cache: &ResidentPages,
+    leaves: &[PageKey],
+    points: &[[f32; 4]],
+    mode: Mode,
+) -> Vec<u8> {
+    let source = shader(mode);
+    let start = source.find("fn page_filtered(").expect("page filter");
+    let end = start + source[start..].find("\n}\n").expect("filter end") + 3;
+    let two_level = "fn page_filtered(uv: vec2<f32>, layer: i32, lod: f32) -> vec4<f32> {
+    let low = u32(floor(lod));
+    let high = min(low + 1u, page_table.shape.w);
+    return mix(page_bilinear(uv, layer, low), page_bilinear(uv, layer, high), fract(lod));
+}
+";
+    let source = format!("{}{two_level}{}", &source[..start], &source[end..]);
+    dispatch(device, authority, cache, leaves, points, (mode, source))
+}
+
+fn dispatch(
+    device: &wgpu::Device,
+    authority: &SubmissionAuthority,
+    cache: &ResidentPages,
+    leaves: &[PageKey],
+    points: &[[f32; 4]],
+    (mode, source): (Mode, String),
+) -> Vec<u8> {
     let table = table(device, cache, leaves, mode);
     let input = buffer(
         device,
@@ -71,7 +111,7 @@ pub(in crate::terrain::pages) fn sample_with(
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let (pipeline, group, empty) = pipeline(device, cache, &table, &input, &output, mode);
+    let (pipeline, group, empty) = pipeline(device, cache, &table, &input, &output, source);
     let mut frame = authority.begin(device).unwrap();
     {
         let mut pass = frame.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
@@ -106,9 +146,8 @@ fn pipeline(
     table: &wgpu::Buffer,
     input: &wgpu::Buffer,
     output: &wgpu::Buffer,
-    mode: Mode,
+    source: String,
 ) -> (wgpu::ComputePipeline, wgpu::BindGroup, wgpu::BindGroup) {
-    let source = shader(mode);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shared terrain sampling test"),
         source: wgpu::ShaderSource::Wgsl(source.into()),

@@ -2,7 +2,7 @@
 use crate::device::{DeviceRequirements, NegotiatedDevice, negotiate, request_device};
 use std::{
     collections::{HashMap, hash_map::Entry},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, PoisonError},
 };
 use thiserror::Error;
 use wgpu::{Adapter, Device, Features, Instance, Limits, Queue};
@@ -62,8 +62,22 @@ struct SharedGpu {
 }
 
 static SHARED: OnceLock<Result<SharedGpu, String>> = OnceLock::new();
+static TEARDOWN_FAILURE: OnceLock<String> = OnceLock::new();
+
+/// Permanently rejects shared GPU reuse after the first failed session teardown.
+pub fn record_shared_gpu_failure(reason: String) {
+    let _ = TEARDOWN_FAILURE.set(reason);
+}
+
+/// Panics with the original teardown failure before accessing cached GPU state.
+pub fn assert_shared_gpu_usable() {
+    if let Some(reason) = TEARDOWN_FAILURE.get() {
+        panic!("shared GPU state unusable: {reason}");
+    }
+}
 
 fn shared() -> Result<&'static SharedGpu, TestGpuError> {
+    assert_shared_gpu_usable();
     SHARED
         .get_or_init(|| {
             let instance = crate::device::headless_instance();
@@ -102,6 +116,7 @@ impl TestGpu {
 
     /// Negotiates before lookup, then serializes exact-profile cache misses.
     /// Never destroys cached devices or replaces their callbacks outside a session.
+    /// Panics with the original failure if any shared session teardown failed.
     pub fn shared(requirements: &DeviceRequirements) -> Result<Self, TestGpuError> {
         let shared = shared()?;
         let negotiated = negotiate(
@@ -109,10 +124,11 @@ impl TestGpu {
             &shared.adapter.limits(),
             requirements,
         )?;
+        // Creation finishes before insertion; unwinding leaves existing cached handles intact.
         let (device, queue) = shared
             .profiles
             .lock()
-            .expect("test GPU profile cache poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .get_or_try_insert_with(DeviceProfile::from(&negotiated), || {
                 let (device, queue, _) =
                     pollster::block_on(request_device(&shared.adapter, requirements))?;

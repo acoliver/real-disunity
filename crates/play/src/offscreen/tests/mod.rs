@@ -22,4 +22,5 @@ mod reclaim;
 mod refusal;
 mod script;
 mod shaders;
+mod storage;
 mod support;

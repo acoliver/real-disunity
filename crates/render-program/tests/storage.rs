@@ -5,6 +5,7 @@
 //! expected byte is predicted from the formula in the kernel and none is read back from a
 //! reference run.
 
+use std::fmt::Write;
 use std::sync::Arc;
 
 use wgpu::{
@@ -895,16 +896,23 @@ fn more_storage_images_than_the_device_allows_in_a_stage_are_refused_by_name() {
     let runtime = gpu.runtime();
     let limit = gpu.device.limits().max_storage_textures_per_shader_stage;
     let count = limit + 1;
-    let declarations_text: String = (0..count)
-        .map(|index| {
-            format!("@group(0) @binding({index}) var image{index}: texture_storage_2d<r32float, write>;\n")
-        })
-        .collect();
-    let stores: String = (0..count)
-        .map(|index| format!("textureStore(image{index}, vec2<i32>(0, 0), vec4<f32>(1.0));\n"))
-        .collect();
-    let source =
-        format!("{declarations_text} @compute @workgroup_size(1) fn main() {{ {stores} }}");
+    let mut source = String::new();
+    for index in 0..count {
+        writeln!(
+            source,
+            "@group(0) @binding({index}) var image{index}: texture_storage_2d<r32float, write>;"
+        )
+        .unwrap();
+    }
+    source.push_str("@compute @workgroup_size(1) fn main() {\n");
+    for index in 0..count {
+        writeln!(
+            source,
+            "textureStore(image{index}, vec2<i32>(0, 0), vec4<f32>(1.0));"
+        )
+        .unwrap();
+    }
+    source.push('}');
     let kinds: Vec<_> = (0..count)
         .map(|_| {
             (

@@ -20,7 +20,7 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     let terrain = terrain(5);
     let children = root(&terrain).children().unwrap();
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
-    let blocked = select_with_retired(&terrain, &children, matrix, [128; 2], 1);
+    let blocked = select_with_retired(&terrain, &children, matrix, [128; 2], 1, &|_| true);
     let before = crate::draw::geometry_statistics::measure(&blocked.leaves, blocked.observation);
     let mut expected = children;
     expected.sort();
@@ -29,7 +29,7 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     assert_eq!(before.selected_leaves, 1);
     assert_eq!(before.unresolved_leaves, 1);
     assert!(!before.complete);
-    let admitted = select_with_retired(&terrain, &blocked.leaves, matrix, [128; 2], 0);
+    let admitted = select_with_retired(&terrain, &blocked.leaves, matrix, [128; 2], 0, &|_| true);
     let after = crate::draw::geometry_statistics::measure(&admitted.leaves, admitted.observation);
     assert_eq!(admitted.leaves, [root(&terrain)]);
     assert_eq!(admitted.uploads, [root(&terrain)]);
@@ -341,4 +341,88 @@ fn upload_budget_and_hysteresis_preserve_complete_leaf_sets() {
             leaves = plan.leaves;
         }
     }
+}
+
+fn budgeted(uploads: u32) -> SceneTerrain {
+    terrain(1000).with_streaming_policy(Some(
+        TerrainStreamingPolicy::new(8, 1000, uploads, 12000).unwrap(),
+    ))
+}
+
+#[test]
+fn unbuilt_children_keep_the_parent_and_are_requested_in_admission_order() {
+    let terrain = budgeted(4);
+    let leaves = [root(&terrain)];
+    let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
+    let built = select(&terrain, &leaves, matrix, [128; 2]);
+    let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| false);
+    assert_eq!(built.uploads.len(), 4);
+    assert_eq!(waiting.leaves, leaves);
+    assert!(waiting.uploads.is_empty());
+    assert!(waiting.held.is_empty());
+    assert_eq!(waiting.unready, built.uploads);
+    assert_eq!(waiting.observation.drawn_coarse, 1);
+    assert_eq!(waiting.observation.unresolved_leaves, 4);
+}
+
+#[test]
+fn one_unbuilt_child_holds_back_the_whole_replacement() {
+    let terrain = budgeted(4);
+    let leaves = [root(&terrain)];
+    let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
+    let children = select(&terrain, &leaves, matrix, [128; 2]).uploads;
+    let missing = children[3];
+    let ready = |chunk: TerrainChunk| chunk != missing;
+    let plan = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &ready);
+    assert_eq!(plan.leaves, leaves);
+    assert!(plan.uploads.is_empty());
+    assert_eq!(plan.unready, [missing]);
+    assert_eq!(plan.held, children[..3]);
+}
+
+#[test]
+fn built_children_are_admitted_as_before() {
+    let terrain = budgeted(4);
+    let leaves = [root(&terrain)];
+    let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
+    let expected = select(&terrain, &leaves, matrix, [128; 2]);
+    let plan = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| true);
+    assert_eq!(plan.leaves, expected.leaves);
+    assert_eq!(plan.uploads, expected.uploads);
+    assert!(plan.unready.is_empty() && plan.held.is_empty());
+}
+
+#[test]
+fn unbuilt_merge_keeps_the_children_until_the_parent_is_built() {
+    let terrain = terrain(5);
+    let children = root(&terrain).children().unwrap();
+    let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
+    let waiting = select_with_retired(&terrain, &children, matrix, [128; 2], 0, &|_| false);
+    let mut expected = children.clone();
+    expected.sort();
+    assert_eq!(waiting.leaves, expected);
+    assert!(waiting.uploads.is_empty());
+    assert_eq!(waiting.unready, [root(&terrain)]);
+    let built = select_with_retired(&terrain, &children, matrix, [128; 2], 0, &|_| true);
+    assert_eq!(built.leaves, [root(&terrain)]);
+    assert_eq!(built.uploads, [root(&terrain)]);
+}
+
+#[test]
+fn requests_stay_within_the_budget_that_would_admit_the_uploads() {
+    let matrix = ortho(16.0, [16.0, 32.0, 100.0]);
+    let terrain = budgeted(4);
+    let mut leaves = vec![root(&terrain)];
+    for _ in 0..3 {
+        leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
+    }
+    for retired in [0, 995, 1000] {
+        let built = select_with_retired(&terrain, &leaves, matrix, [128; 2], retired, &|_| true);
+        let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], retired, &|_| false);
+        assert!(waiting.unready.len() <= 4, "{}", waiting.unready.len());
+        assert_eq!(waiting.unready, built.uploads);
+        assert_eq!(waiting.leaves, leaves);
+    }
+    let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
+    assert!(blocked.unready.is_empty());
 }

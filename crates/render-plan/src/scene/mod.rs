@@ -290,6 +290,13 @@ impl RenderScene {
         self.terrain.as_deref()
     }
 
+    /// Returns the terrain handle itself, so a worker thread can read the immutable terrain
+    /// without cloning the scene.
+    #[must_use]
+    pub const fn shared_terrain(&self) -> Option<&std::sync::Arc<SceneTerrain>> {
+        self.terrain.as_ref()
+    }
+
     /// Returns the optional environmental profile.
     #[must_use]
     pub const fn effects(&self) -> Option<&SceneEffects> {

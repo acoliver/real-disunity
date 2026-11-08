@@ -19,7 +19,7 @@ use wgpu::{BindGroup, CommandEncoder, RenderPass, TextureFormat};
 use worldrunner_render_plan::{RenderScene, SceneSsao, SceneSsaoReceiver};
 
 use crate::device::GpuContext;
-use crate::draw::{DrawCount, SceneGpu};
+use crate::draw::{DrawCount, SceneGpu, terrain_paths};
 use crate::dynamic::capture_tests::{
     Attachments, CONFIGS, Config, SIZE, build, context, copy_results, digest, fill, read_results,
     supported,
@@ -65,7 +65,7 @@ impl Source {
         matches!(self, Self::Pages | Self::LayeredPages)
     }
 
-    fn scene(self) -> RenderScene {
+    pub(super) fn scene(self) -> RenderScene {
         if self.layered() {
             scenes::layered()
         } else {
@@ -205,20 +205,7 @@ pub(super) fn render_depth(
     let attachments = Attachments::new(device, target.formats, target.samples);
     let combined = (mode != DepthMode::Independent).then(|| {
         assert_eq!(target.samples, 1, "paired depth is single sample");
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("terrain capture depth and stencil"),
-            size: wgpu::Extent3d {
-                width: SIZE,
-                height: SIZE,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: TextureFormat::Depth32FloatStencil8,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        })
+        combined_texture(device)
     });
     let combined_view = combined
         .as_ref()
@@ -232,14 +219,7 @@ pub(super) fn render_depth(
     before(&mut encoder);
     let seeded = seed.is_some();
     if let (Some(seed), Some(view)) = (seed, combined_view.as_ref()) {
-        let scratch = Attachments::new(device, target.formats, 1);
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("terrain capture seed"),
-            color_attachments: &colors(target, (&scratch.views, &[])),
-            depth_stencil_attachment: Some(depth_attachment(view, false)),
-            ..wgpu::RenderPassDescriptor::default()
-        });
-        seed(&mut pass);
+        seed_pass((device, &mut encoder), target, view, seed);
     }
     {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -262,21 +242,50 @@ pub(super) fn render_depth(
     }
     let mut staging = copy_results(device, &mut encoder, attachments.results());
     if let Some(texture) = &combined {
-        staging.push(copy_plane(
-            device,
-            &mut encoder,
-            texture,
+        for aspect in [
             wgpu::TextureAspect::DepthOnly,
-        ));
-        staging.push(copy_plane(
-            device,
-            &mut encoder,
-            texture,
             wgpu::TextureAspect::StencilOnly,
-        ));
+        ] {
+            staging.push(copy_plane(device, &mut encoder, texture, aspect));
+        }
     }
     let index = encoder.finish().submit().unwrap();
     read_results(device, index, staging)
+}
+
+/// The combined depth and stencil attachment of the paired depth modes.
+fn combined_texture(device: &wgpu::Device) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("terrain capture depth and stencil"),
+        size: wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::Depth32FloatStencil8,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
+/// Records `seed` into a pass that clears `depth` and leaves it for the next pass to load.
+fn seed_pass(
+    (device, encoder): (&wgpu::Device, &mut CommandEncoder),
+    target: Target<'_>,
+    depth: &wgpu::TextureView,
+    seed: Seed<'_>,
+) {
+    let scratch = Attachments::new(device, target.formats, 1);
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("terrain capture seed"),
+        color_attachments: &colors(target, (&scratch.views, &[])),
+        depth_stencil_attachment: Some(depth_attachment(depth, false)),
+        ..wgpu::RenderPassDescriptor::default()
+    });
+    seed(&mut pass);
 }
 
 /// The colour attachments of a pass over `views`, cleared to [`fill`].
@@ -412,68 +421,101 @@ pub(super) fn capture(rig: &Rig<'_>, case: &Case<'_>) -> Captured {
 /// winners in the stencil, and reuse terrain draws exactly those winners, leaves the depth as
 /// the prepass wrote it and consumes every stencil mark.
 pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -> Captured {
-    let context = rig.context;
+    let frame = Frame::new(rig, case);
     let mode = case.pipelines.depth;
-    let bind = |pass: &mut RenderPass<'_>| {
-        if let Some(screen) = case.screen {
-            pass.set_bind_group(3, screen, &[]);
-        }
-    };
-    // The prepass the forward draw reuses: the fixed prepass terrain over the same frame.
-    let prepass = (mode == DepthMode::Reuse).then(|| {
-        let selected = rig.selected(&case.pipelines.for_depth(DepthMode::Prepass));
-        Legacy::new(context, &rig.gpu, &selected)
-    });
-    let seed = |pass: &mut RenderPass<'_>| {
-        bind(pass);
-        pass.set_stencil_reference(1);
-        pass.set_bind_group(0, &rig.gpu.legacy_frame_group(), &[]);
-        prepass
-            .as_ref()
-            .expect("a reuse capture builds its prepass")
-            .draw(pass, &rig.gpu, case.shadow);
-    };
-    let seeded: Option<Seed<'_>> = prepass.is_some().then_some(&seed);
     let mut scene_count = DrawCount::default();
-    let scene = render_depth(
-        context,
-        case.target,
-        (mode, seeded),
-        |encoder| rig.prepare(encoder),
-        |pass| {
-            bind(pass);
-            let drawn = rig.gpu.draw_color(pass, case.pipelines, case.shadow);
-            assert_eq!(drawn.sky, DrawCount::default(), "the fixture draws no sky");
-            scene_count = drawn.terrain;
-        },
+    let recorded = terrain_paths::recorded();
+    let scene = frame.render(|pass| {
+        frame.bind(pass);
+        let drawn = rig.gpu.draw_color(pass, case.pipelines, case.shadow);
+        assert_eq!(drawn.sky, DrawCount::default(), "the fixture draws no sky");
+        scene_count = drawn.terrain;
+    });
+    assert_recorded_by_runtime(
+        &format!("{} {} {:?}", case.name, case.source, case.pipelines.depth),
+        case.pipelines,
+        recorded,
     );
     let mut fixed_count = DrawCount::default();
-    let fixed = render_depth(
-        context,
-        case.target,
-        (mode, seeded),
-        |encoder| rig.prepare(encoder),
-        |pass| {
-            bind(pass);
-            if mode != DepthMode::Independent {
-                pass.set_stencil_reference(1);
-            }
-            pass.set_bind_group(0, &rig.gpu.legacy_frame_group(), &[]);
-            fixed_count = legacy.draw(pass, &rig.gpu, case.shadow);
-        },
+    let fixed = frame.render(|pass| {
+        frame.bind(pass);
+        if mode != DepthMode::Independent {
+            pass.set_stencil_reference(1);
+        }
+        pass.set_bind_group(0, &rig.gpu.legacy_frame_group(), &[]);
+        fixed_count = legacy.draw(pass, &rig.gpu, case.shadow);
+    });
+    let untouched = frame.render(|_| {});
+    compare(case, [&scene, &fixed, &untouched]);
+    assert_eq!(
+        scene_count, fixed_count,
+        "{} {}: draw counts differ",
+        case.name, case.source
     );
-    let untouched = render_depth(
-        context,
-        case.target,
-        (mode, seeded),
-        |encoder| rig.prepare(encoder),
-        |_| {},
-    );
+    report(rig.context, case, &scene);
+    Captured {
+        images: scene,
+        scene: scene_count,
+    }
+}
+
+/// What a capture draws around the terrain: the group bound at set three, and the prepass that
+/// a reuse draw loads its depth and stencil from.
+struct Frame<'a> {
+    rig: &'a Rig<'a>,
+    case: &'a Case<'a>,
+    prepass: Option<Legacy>,
+}
+
+impl<'a> Frame<'a> {
+    fn new(rig: &'a Rig<'a>, case: &'a Case<'a>) -> Self {
+        // The prepass the forward draw reuses: the fixed prepass terrain over the same frame.
+        let prepass = (case.pipelines.depth == DepthMode::Reuse).then(|| {
+            let selected = rig.selected(&case.pipelines.for_depth(DepthMode::Prepass));
+            Legacy::new(rig.context, &rig.gpu, &selected)
+        });
+        Self { rig, case, prepass }
+    }
+
+    fn bind(&self, pass: &mut RenderPass<'_>) {
+        if let Some(screen) = self.case.screen {
+            pass.set_bind_group(3, screen, &[]);
+        }
+    }
+
+    /// The pass ahead of the drawn one, which leaves the prepass's depth and stencil.
+    fn seed(&self, pass: &mut RenderPass<'_>, prepass: &Legacy) {
+        self.bind(pass);
+        pass.set_stencil_reference(1);
+        pass.set_bind_group(0, &self.rig.gpu.legacy_frame_group(), &[]);
+        prepass.draw(pass, &self.rig.gpu, self.case.shadow);
+    }
+
+    /// Renders one pass over fresh attachments, preceded by the seed when there is a prepass.
+    fn render(&self, draw: impl FnOnce(&mut RenderPass<'_>)) -> Vec<Vec<u8>> {
+        let seed = |pass: &mut RenderPass<'_>| {
+            let prepass = self.prepass.as_ref().expect("only a reuse capture seeds");
+            self.seed(pass, prepass);
+        };
+        let seeded: Option<Seed<'_>> = self.prepass.is_some().then_some(&seed);
+        render_depth(
+            self.rig.context,
+            self.case.target,
+            (self.case.pipelines.depth, seeded),
+            |encoder| self.rig.prepare(encoder),
+            draw,
+        )
+    }
+}
+
+/// Checks the scene's attachments against the fixed path's, byte for byte, that terrain changed
+/// the colour from an untouched render, and the planes the depth mode leaves.
+fn compare(case: &Case<'_>, [scene, fixed, untouched]: [&[Vec<u8>]; 3]) {
+    let mode = case.pipelines.depth;
     let colors = case.target.formats.len();
     let planes = if mode == DepthMode::Independent { 0 } else { 2 };
     assert_eq!(scene.len(), colors + planes);
-    for (index, ((scene, fixed), untouched)) in scene.iter().zip(&fixed).zip(&untouched).enumerate()
-    {
+    for (index, ((scene, fixed), untouched)) in scene.iter().zip(fixed).zip(untouched).enumerate() {
         assert!(
             scene == fixed,
             "{} {} {mode:?}: {} differs from the fixed pipeline's output",
@@ -497,16 +539,35 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
             &untouched[colors..],
         );
     }
+}
+
+/// The scene's terrain draw went through the program runtime, once, and the fixed terrain
+/// pipelines of its context were neither used nor built. Without this a fixed-path fallback
+/// would draw the same bytes as the frozen copy and pass.
+pub(super) fn assert_recorded_by_runtime(
+    name: &str,
+    pipelines: &ScenePipelines,
+    before: terrain_paths::Recorded,
+) {
+    let after = terrain_paths::recorded();
     assert_eq!(
-        scene_count, fixed_count,
-        "{} {}: draw counts differ",
-        case.name, case.source
+        after.runtime,
+        before.runtime + 1,
+        "{name}: terrain was not recorded through the program runtime"
     );
-    report(context, case, &scene);
-    Captured {
-        images: scene,
-        scene: scene_count,
-    }
+    assert_eq!(
+        after.fixed, before.fixed,
+        "{name}: terrain fell back to the fixed path"
+    );
+    assert!(
+        !pipelines.fixed_terrain_built(),
+        "{name}: a fixed terrain pipeline was built"
+    );
+    let stats = pipelines.terrain_runtime_stats();
+    assert!(
+        stats.pipelines_built > 0 && stats.sets_prepared > 0,
+        "{name}: the context's runtime prepared no terrain pipeline or set: {stats:?}"
+    );
 }
 
 fn attachment_name(index: usize, colors: usize) -> String {

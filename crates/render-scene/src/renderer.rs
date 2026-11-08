@@ -310,10 +310,8 @@ impl ScenePipelines {
             layered,
             specialization: specular::Specialization::new(
                 device,
-                source,
-                terrain_source,
-                shadow_layout,
-                screen_layout,
+                (source, terrain_source),
+                (shadow_layout, screen_layout),
                 options,
                 family,
             ),

@@ -28,8 +28,8 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Report,
-    Settings, WorkTrace,
+    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
+    Report, Settings, WorkTrace,
 };
 
 /// Bytes of GPU storage the program runtime may hold.
@@ -93,8 +93,19 @@ pub struct GpuWorkReport {
     /// Compute buffers written back and the bytes of them that are not zero.
     pub buffers_written: usize,
     pub nonzero_values: usize,
+    /// Pixel reads of render textures answered, and left unanswered by the reason.
+    pub pixel_reads: usize,
+    pub pixel_reads_refused: BTreeMap<String, usize>,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
+    /// The most bytes the runtime held at any moment, not only after a flush.
+    pub peak_runtime_bytes: u64,
+    /// What the runtime held when the budget first refused an allocation, and the frame it was
+    /// in.
+    pub refusal_holdings: Vec<String>,
+    pub refusal_frame: u64,
+    /// The uploaded textures and meshes given back to make room.
+    pub reclaimed: Reclaimed,
     /// The records of frames and flushes the GPU refused whole. Their other counts are not in the
     /// totals above, which a refused piece of work never reaches.
     pub refused_records: usize,
@@ -119,6 +130,8 @@ pub struct GpuWorkReport {
     pub defaulted_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// What the adapter mapped, by description (see `Report::census`).
+    pub census: BTreeMap<String, usize>,
     /// The script commands left out, and the textures the globals held, by description.
     pub unsupported_work: BTreeMap<String, usize>,
     pub global_textures: BTreeMap<String, usize>,
@@ -154,6 +167,11 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.failures {
             *self.failures.entry(name.clone()).or_default() += count;
+        }
+        self.reclaimed.add(report.reclaimed);
+        if self.refusal_holdings.is_empty() && !report.holdings.is_empty() {
+            self.refusal_holdings.clone_from(&report.holdings);
+            self.refusal_frame = self.frames;
         }
         for (cause, count) in &report.causes {
             *self.causes.entry(cause.clone()).or_default() += count;
@@ -196,6 +214,13 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.census {
+            *self.census.entry(name.clone()).or_default() += count;
+        }
+        self.pixel_reads += report.pixel_reads;
+        for (reason, count) in &report.pixel_reads_refused {
+            *self.pixel_reads_refused.entry(reason.clone()).or_default() += count;
         }
         for entry in &report.unmatched_passes {
             let name = format!(
@@ -246,6 +271,7 @@ impl GpuWorkReport {
             ("draw:DefaultedChannel", &self.defaulted_channels),
             ("script commands left out", &self.unsupported_work),
             ("global textures at a flush", &self.global_textures),
+            ("census", &self.census),
             (
                 "texture properties without a texture",
                 &self.unresolved_textures,
@@ -267,14 +293,28 @@ impl GpuWorkReport {
             "[gpu] compute buffers written {}, non-zero values {}",
             self.buffers_written, self.nonzero_values
         );
+        eprintln!("[gpu] pixel reads answered {}", self.pixel_reads);
+        for (reason, count) in &self.pixel_reads_refused {
+            eprintln!("[gpu] pixel reads refused: {reason}: {count}");
+        }
         eprintln!(
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records
         );
         eprintln!(
-            "[gpu] most storage held after a flush {} bytes",
-            self.peak_live_bytes
+            "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
+            self.peak_live_bytes, self.peak_runtime_bytes
         );
+        eprintln!(
+            "[gpu] given back to make room: {} textures, {} meshes, {} bytes",
+            self.reclaimed.textures, self.reclaimed.meshes, self.reclaimed.bytes
+        );
+        for line in &self.refusal_holdings {
+            eprintln!(
+                "[gpu] held when the budget first refused, in frame {}: {line}",
+                self.refusal_frame
+            );
+        }
         eprintln!(
             "[gpu] time in the frame path {:?}, in flushes {:?}",
             self.frame_time, self.flush_time
@@ -397,6 +437,7 @@ impl PlayerGpu {
             report.flushes += 1;
             report.flush_time += started.elapsed();
             report.peak_live_bytes = report.peak_live_bytes.max(offscreen.borrow().live_bytes());
+            report.peak_runtime_bytes = offscreen.borrow().peak_bytes();
             let outcome = outcome.inspect_err(|message| {
                 *report.errors.entry(message.clone()).or_default() += 1;
             })?;
@@ -449,6 +490,7 @@ impl PlayerGpu {
                 *report.errors.entry(error.to_string()).or_default() += 1;
             }
         }
+        report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(())

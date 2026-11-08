@@ -10,6 +10,8 @@ pub(super) struct CascadeViews {
     pub depth_bias: [f32; 4],
     pub splits: [f32; 4],
     pub blend: f32,
+    /// Fraction of the shadow distance, ending at the last cascade, that fades to lit.
+    pub fade_out: f32,
     pub recurrence: Option<Vec<worldrunner_render_shadow::CascadeInterval>>,
     pub multiplier: f32,
     pub camera_splits: bool,
@@ -84,6 +86,7 @@ impl CascadeViews {
                 worldrunner_render_plan::SceneShadowFilter::Bilinear2 => 1.0,
             },
             blend: meters(declared.blend_band_micro())? / 1000.0,
+            fade_out: meters(declared.fade_out_micro())? / 1000.0,
             view_depth: -view
                 .resolved_view()
                 .reconstruction_view_matrix()

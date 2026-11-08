@@ -5,10 +5,10 @@
 use wgpu::BindGroup;
 
 use super::shadow::Shadow;
-use super::{Legacy, Rig, Source, drawable, scenes};
+use super::{Legacy, Rig, Source, assert_recorded_by_runtime, drawable, scenes};
 use crate::compositor::terms::{CaptureTerm, TermCapture, pipelines_for};
 use crate::device::GpuContext;
-use crate::draw::DrawCount;
+use crate::draw::{DrawCount, terrain_paths};
 use crate::dynamic::capture_tests::{
     SIZE, ambient_group, context, copy_results, digest, read_results, reflection_group,
 };
@@ -113,6 +113,7 @@ fn terms(source: Source) -> usize {
             let pipelines = pipelines_for(device, term, layout, screen_kind);
             let group = layout.map(|_| &shadow.groups[0]);
             let legacy = Legacy::new(&context, &rig.gpu, &rig.selected(&pipelines));
+            let recorded = terrain_paths::recorded();
             let scene = read(
                 &context,
                 &rig,
@@ -120,6 +121,11 @@ fn terms(source: Source) -> usize {
                     capture.replay(encoder, &rig.gpu, &pipelines, (group, screen.as_ref()));
                 },
                 term,
+            );
+            assert_recorded_by_runtime(
+                &format!("{name} {label} {}", source.name()),
+                &pipelines,
+                recorded,
             );
             let mut drawn = DrawCount::default();
             let fixed = read(

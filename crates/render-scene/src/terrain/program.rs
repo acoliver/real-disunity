@@ -176,7 +176,7 @@ fn filtering() -> ResourceKind {
 /// The bindings of the terrain's own set, the set 1 the material owns. The vertex stage reads
 /// the triangle source; everything else is fragment-stage.
 pub(crate) fn material_bindings(surface: Surface) -> Vec<ResourceBinding> {
-    use wgpu::TextureViewDimension::{D2, D2Array};
+    use wgpu::TextureViewDimension::D2;
     let (fragment, both) = (ShaderStages::FRAGMENT, ShaderStages::VERTEX_FRAGMENT);
     let mut bindings = vec![
         declare(
@@ -195,18 +195,7 @@ pub(crate) fn material_bindings(surface: Surface) -> Vec<ResourceBinding> {
         ),
     ];
     if surface.pages() {
-        bindings.push(declare(
-            (1, 6),
-            semantic::PAGES,
-            fragment,
-            texture(D2Array, wgpu::TextureSampleType::Uint),
-        ));
-        bindings.push(declare(
-            (1, 7),
-            semantic::PAGE_TABLE,
-            fragment,
-            read_only(48),
-        ));
+        bindings.extend(page_bindings());
         return bindings;
     }
     bindings.push(declare(
@@ -215,43 +204,83 @@ pub(crate) fn material_bindings(surface: Surface) -> Vec<ResourceBinding> {
         fragment,
         texture(D2, wgpu::TextureSampleType::Uint),
     ));
-    if surface.layered() {
-        for (binding, name) in [
-            (8, semantic::LAYERED_SOURCE),
-            (9, semantic::LAYERED_GRID),
-            (10, semantic::LAYERED_IMAGES),
-        ] {
-            bindings.push(declare((1, binding), name, fragment, read_only(4)));
-        }
-        for index in 0..crate::terrain::pages::layered_gpu::textures::ARRAY_LIMIT {
-            bindings.push(declare(
-                (1, 11 + index),
-                &semantic::layered_array(index),
-                fragment,
-                float(D2Array),
-            ));
-        }
-        bindings.push(declare(
-            (1, 21),
-            semantic::LAYERED_REPEAT,
+    bindings.extend(if surface.layered() {
+        layered_bindings()
+    } else {
+        palette_bindings()
+    });
+    bindings
+}
+
+/// The baked pages and the table that finds them.
+fn page_bindings() -> [ResourceBinding; 2] {
+    let fragment = ShaderStages::FRAGMENT;
+    [
+        declare(
+            (1, 6),
+            semantic::PAGES,
             fragment,
-            filtering(),
-        ));
+            texture(
+                wgpu::TextureViewDimension::D2Array,
+                wgpu::TextureSampleType::Uint,
+            ),
+        ),
+        declare((1, 7), semantic::PAGE_TABLE, fragment, read_only(48)),
+    ]
+}
+
+/// The layered source: its tables, its arrays and its two samplers.
+fn layered_bindings() -> Vec<ResourceBinding> {
+    let fragment = ShaderStages::FRAGMENT;
+    let mut bindings: Vec<_> = [
+        (8, semantic::LAYERED_SOURCE),
+        (9, semantic::LAYERED_GRID),
+        (10, semantic::LAYERED_IMAGES),
+    ]
+    .into_iter()
+    .map(|(binding, name)| declare((1, binding), name, fragment, read_only(4)))
+    .collect();
+    for index in 0..crate::terrain::pages::layered_gpu::textures::ARRAY_LIMIT {
         bindings.push(declare(
-            (1, 22),
-            semantic::LAYERED_CLAMP,
+            (1, 11 + index),
+            &semantic::layered_array(index),
             fragment,
-            filtering(),
+            float(wgpu::TextureViewDimension::D2Array),
         ));
-        return bindings;
     }
-    for (binding, name) in [
+    bindings.push(declare(
+        (1, 21),
+        semantic::LAYERED_REPEAT,
+        fragment,
+        filtering(),
+    ));
+    bindings.push(declare(
+        (1, 22),
+        semantic::LAYERED_CLAMP,
+        fragment,
+        filtering(),
+    ));
+    bindings
+}
+
+/// The palette arrays and their sampler.
+fn palette_bindings() -> Vec<ResourceBinding> {
+    let fragment = ShaderStages::FRAGMENT;
+    let mut bindings: Vec<_> = [
         (2, semantic::PALETTE_ALBEDO),
         (3, semantic::PALETTE_NORMAL),
         (4, semantic::PALETTE_ROUGH_METAL),
-    ] {
-        bindings.push(declare((1, binding), name, fragment, float(D2Array)));
-    }
+    ]
+    .into_iter()
+    .map(|(binding, name)| {
+        declare(
+            (1, binding),
+            name,
+            fragment,
+            float(wgpu::TextureViewDimension::D2Array),
+        )
+    })
+    .collect();
     bindings.push(declare((1, 5), semantic::SAMPLER, fragment, filtering()));
     bindings
 }
@@ -292,7 +321,9 @@ fn shadow_bindings() -> ResourceLayout {
             (2, 0),
             semantic::SHADOW,
             fragment,
-            ResourceKind::Uniform { min_size: 336 },
+            ResourceKind::Uniform {
+                min_size: crate::shadows::SHADOW_UNIFORM_BYTES as u64,
+            },
         ),
         declare(
             (2, 1),
@@ -478,7 +509,8 @@ impl std::fmt::Debug for Family {
 }
 
 impl Family {
-    /// Names the runtime, which prepared sets are built against and cannot be used with another.
+    /// Names the runtime, which no other family and no later one shares. A prepared set belongs
+    /// to the runtime that built it, so anything that keeps sets keys them by this.
     pub(crate) fn id(&self) -> u64 {
         self.0.id
     }

@@ -5,16 +5,13 @@
 //! becomes one record for each pass of its material's shader, in pass order.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{Debug, Display};
 
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
 };
-use worldrunner_render_program::unity::offscreen::{
-    CameraDraws, CameraPassReport, OffscreenOperations, PartialMipReads, UnmatchedPasses,
-};
+use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
@@ -23,12 +20,13 @@ use worldrunner_world_simulation::graphics::{
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
-use super::builtins::{camera_layer, draw_layer};
-use super::compute::DispatchTrace;
-use super::defaults::DefaultTexture;
+use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, camera_layer, draw_layer};
+use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
-use super::properties::{Textures, layer, layer_with_defaults};
-use super::trace::Phases;
+use super::pixels::{self, Wanted};
+use super::properties::{Textures, fallback_layer, layer, layer_with_defaults};
+
+pub use super::report::{Reclaimed, Report};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
 /// The tag key whose value names a pass's purpose.
@@ -45,6 +43,71 @@ const CAMERA_LIGHT_MODES: [&str; 5] = [
 
 /// The mode a pass with no `LightMode` counts as, the last of [`CAMERA_LIGHT_MODES`].
 const UNTAGGED_LIGHT_MODE: &str = "Always";
+
+/// What a test render clears its scratch target to: values a render is unlikely to write and a
+/// half float, an unsigned 8-bit and a 32-bit float all hold to within a step.
+pub const TEST_CLEAR: [f32; 4] = [0.3125, 0.6875, 0.4375, 0.8125];
+
+/// The changed test renders, in the order of their numbers in [`ids::probe_variant`]: what each
+/// changes in the state the passes declare, to find what leaves a render with no written texel.
+/// The first three change one part of the state each, the fourth replaces the fragment stage, and
+/// the last two combine them.
+pub const TEST_VARIANTS: [(&str, StateVariant); 6] = [
+    (
+        "cull None",
+        StateVariant {
+            cull_none: true,
+            blend_off: false,
+            depth_always: false,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "blend off",
+        StateVariant {
+            cull_none: false,
+            blend_off: true,
+            depth_always: false,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "depth test Always",
+        StateVariant {
+            cull_none: false,
+            blend_off: false,
+            depth_always: true,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "a fragment stage that writes a constant",
+        StateVariant {
+            cull_none: false,
+            blend_off: false,
+            depth_always: false,
+            constant_fragment: true,
+        },
+    ),
+    (
+        "cull None, blend off and depth test Always",
+        StateVariant {
+            cull_none: true,
+            blend_off: true,
+            depth_always: true,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "cull None, blend off, depth test Always and a constant fragment stage",
+        StateVariant {
+            cull_none: true,
+            blend_off: true,
+            depth_always: true,
+            constant_fragment: true,
+        },
+    ),
+];
 
 /// The mesh a blit draws.
 pub const BLIT_MESH: MeshId = MeshId(u64::MAX);
@@ -87,7 +150,7 @@ impl Settings {
 }
 
 /// What the shader of a material offers.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ShaderInfo {
     /// The passes of its first sub-shader.
     pub passes: usize,
@@ -96,6 +159,8 @@ pub struct ShaderInfo {
     /// The texture properties whose declared default the host supplies. A material that sets no
     /// texture for one reads that default.
     pub texture_defaults: Vec<(String, DefaultTexture)>,
+    /// The properties it declares and their defaults, which a material that sets none reads.
+    pub fill: ShaderFill,
 }
 
 /// What the host can supply for the snapshot: the shaders it loaded, and the identities of the
@@ -107,6 +172,9 @@ pub struct Available {
     pub textures: BTreeSet<u64>,
     /// The default textures that are registered and can be named.
     pub default_textures: BTreeSet<DefaultTexture>,
+    /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
+    /// each into a scratch copy of its own.
+    pub test_variants: bool,
 }
 
 /// Why a record was left out.
@@ -133,216 +201,6 @@ pub enum RendererSkip {
     MeshUnavailable,
     NoMaterial,
     EmptySlot,
-}
-
-/// What the mapping did.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Report {
-    /// The records the world listed.
-    pub records: usize,
-    /// The records of the frame, after a blit of every pass became one for each pass.
-    pub built: usize,
-    /// The dispatches among the records. They are not frame records; see [`Placed`].
-    pub dispatches: usize,
-    pub skipped: BTreeMap<Skip, usize>,
-    pub renderers_skipped: BTreeMap<RendererSkip, usize>,
-    /// The `GraphicsFormat` codes of the render textures the frame uses.
-    pub formats: BTreeSet<u32>,
-    /// What could not be loaded, uploaded or built, by the kind of thing and the name of the
-    /// error, such as `shader:NoVulkanPlatform`.
-    pub failures: BTreeMap<String, usize>,
-    /// The same failures by the chain of variant names inside the error, such as
-    /// `texture:Program/Layout/UnsupportedParameter`, and the first message of each chain.
-    pub causes: BTreeMap<String, usize>,
-    pub examples: BTreeMap<String, String>,
-    /// How each dispatch was bound and what came of it, in call order.
-    pub traces: Vec<DispatchTrace>,
-    /// What each camera render recorded and left out.
-    pub camera_draws: Vec<CameraDraws>,
-    /// How each of those camera renders drew, in the same order.
-    pub camera_passes: Vec<CameraPassReport>,
-    /// The camera draws left out for want of a pass, and the texture reads that bound only the
-    /// levels written with the base level, each counted by the tags of the pass concerned.
-    pub unmatched_passes: Vec<UnmatchedPasses>,
-    pub partial_reads: Vec<PartialMipReads>,
-    /// The camera draws left out because no layer names a texture the pass samples, by the
-    /// texture property.
-    pub missing_textures: BTreeMap<String, usize>,
-    /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by
-    /// `channel C for input I`.
-    pub missing_channels: BTreeMap<String, usize>,
-    /// The camera draws that read a constant for a vertex channel their mesh lacks, by
-    /// `channel C for input I as FORMAT`. These draws are recorded; they are not failures.
-    pub defaulted_channels: BTreeMap<String, usize>,
-    /// The texture properties that named no texture the frame can read, by `name: reason`.
-    pub unresolved_textures: BTreeMap<String, usize>,
-    /// Where building the frame spent its time.
-    pub phases: Phases,
-    /// The script commands the adapter does not run, by what they are: `SetGlobal texture _Name
-    /// (render)`, `SetRenderTarget`, and so on.
-    pub unsupported_work: BTreeMap<String, usize>,
-    /// The textures the world's globals hold when the frame is mapped, by `name: kind`.
-    pub global_textures: BTreeMap<String, usize>,
-}
-
-impl Report {
-    /// Takes what `operations` counted of the draws it holds.
-    pub fn absorb_draws(&mut self, operations: &OffscreenOperations) {
-        self.camera_draws.extend(operations.camera_draws());
-        self.camera_passes.extend(operations.camera_passes());
-        for entry in operations.unmatched_passes() {
-            self.add_unmatched(entry);
-        }
-        for entry in operations.partial_mip_reads_by_pass() {
-            self.add_partial(entry);
-        }
-        for entry in operations.missing_texture_draws() {
-            *self.missing_textures.entry(entry.texture).or_default() += entry.draws;
-        }
-        for entry in operations.missing_channel_draws() {
-            let name = format!("channel {} for input {}", entry.channel, entry.input);
-            *self.missing_channels.entry(name).or_default() += entry.draws;
-        }
-        for entry in operations.defaulted_channel_draws() {
-            let name = format!(
-                "channel {} for input {} as {:?}",
-                entry.channel, entry.input, entry.format
-            );
-            *self.defaulted_channels.entry(name).or_default() += entry.draws;
-        }
-    }
-
-    fn add_unmatched(&mut self, entry: UnmatchedPasses) {
-        let same = |held: &&mut UnmatchedPasses| {
-            (&held.key, &held.selected, &held.tags, held.passes)
-                == (&entry.key, &entry.selected, &entry.tags, entry.passes)
-        };
-        if let Some(held) = self.unmatched_passes.iter_mut().find(|held| same(held)) {
-            held.draws += entry.draws;
-        } else {
-            self.unmatched_passes.push(entry);
-        }
-    }
-
-    fn add_partial(&mut self, entry: PartialMipReads) {
-        let same = |held: &&mut PartialMipReads| {
-            (
-                &held.texture,
-                held.written,
-                held.total,
-                &held.key,
-                &held.tag,
-            ) == (
-                &entry.texture,
-                entry.written,
-                entry.total,
-                &entry.key,
-                &entry.tag,
-            )
-        };
-        if let Some(held) = self.partial_reads.iter_mut().find(|held| same(held)) {
-            held.reads += entry.reads;
-        } else {
-            self.partial_reads.push(entry);
-        }
-    }
-
-    /// Counts a failure of `kind` by the name of `error` and by the chain of names inside it.
-    pub fn fail(&mut self, kind: &str, error: &(impl Debug + Display)) {
-        let name = format!("{kind}:{}", variant_name(error));
-        *self.failures.entry(name).or_default() += 1;
-        let cause = format!("{kind}:{}", variant_chain(error));
-        *self.causes.entry(cause.clone()).or_default() += 1;
-        self.examples
-            .entry(cause)
-            .or_insert_with(|| error.to_string());
-    }
-
-    /// Counts a failure that has no error behind it, by the whole of its name.
-    pub fn count(&mut self, name: &str) {
-        self.count_many(name, 1);
-    }
-
-    /// Counts `times` failures of the same name. Nothing is counted for zero.
-    pub fn count_many(&mut self, name: &str, times: usize) {
-        if times > 0 {
-            *self.failures.entry(name.to_owned()).or_default() += times;
-            *self.causes.entry(name.to_owned()).or_default() += times;
-        }
-    }
-
-    /// Adds the failures, causes and examples of `other` to this report's, keeping the first
-    /// example of each cause.
-    pub fn absorb_failures(&mut self, other: Self) {
-        for (name, count) in other.failures {
-            *self.failures.entry(name).or_default() += count;
-        }
-        for (cause, count) in other.causes {
-            *self.causes.entry(cause).or_default() += count;
-        }
-        for (cause, example) in other.examples {
-            self.examples.entry(cause).or_insert(example);
-        }
-        for (name, count) in other.unresolved_textures {
-            *self.unresolved_textures.entry(name).or_default() += count;
-        }
-        self.camera_draws.extend(other.camera_draws);
-        self.camera_passes.extend(other.camera_passes);
-        self.phases.add(&other.phases);
-        for (name, count) in other.unsupported_work {
-            *self.unsupported_work.entry(name).or_default() += count;
-        }
-        for (name, count) in other.global_textures {
-            *self.global_textures.entry(name).or_default() += count;
-        }
-        for entry in other.unmatched_passes {
-            self.add_unmatched(entry);
-        }
-        for entry in other.partial_reads {
-            self.add_partial(entry);
-        }
-        for (name, count) in other.missing_textures {
-            *self.missing_textures.entry(name).or_default() += count;
-        }
-        for (name, count) in other.missing_channels {
-            *self.missing_channels.entry(name).or_default() += count;
-        }
-        for (name, count) in other.defaulted_channels {
-            *self.defaulted_channels.entry(name).or_default() += count;
-        }
-    }
-}
-
-/// The leading identifier of an error's `Debug` form: the name of its variant.
-pub(super) fn variant_name(error: &dyn Debug) -> String {
-    variant_chain(error)
-        .split('/')
-        .next()
-        .unwrap_or_default()
-        .to_owned()
-}
-
-/// The names of the variants nested in an error's `Debug` form, outermost first and joined by
-/// `/`: `Program(Layout(UnsupportedParameter { kind: ".." }))` is `Program/Layout/UnsupportedParameter`.
-/// The chain ends at a variant whose payload is not another variant.
-pub(super) fn variant_chain(error: &dyn Debug) -> String {
-    let text = format!("{error:?}");
-    let mut names = Vec::new();
-    let mut rest = text.as_str();
-    loop {
-        let end = rest
-            .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-            .unwrap_or(rest.len());
-        if end == 0 {
-            break;
-        }
-        names.push(&rest[..end]);
-        match rest[end..].strip_prefix('(') {
-            Some(inner) => rest = inner,
-            None => break,
-        }
-    }
-    names.join("/")
 }
 
 /// What kind of texture a reference names, for reports.
@@ -373,7 +231,7 @@ fn describe(work: &OffscreenWork) -> String {
     }
 }
 
-/// Where a dispatch sits among the frame's records.
+/// Where a dispatch or a pixel read sits among the frame's records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Placed {
     /// How many of the frame's records come before it.
@@ -386,9 +244,9 @@ pub struct Placed {
 pub struct Adapted {
     pub frame: OffscreenFrame,
     pub report: Report,
-    /// The dispatches of the snapshot, in call order. The frame holds none: a host that runs
-    /// them splits `frame.records` at these places.
-    pub dispatches: Vec<Placed>,
+    /// The dispatches and pixel reads of the snapshot, in call order. The frame holds none: a
+    /// host that runs them splits `frame.records` at these places.
+    pub placements: Vec<Placed>,
 }
 
 /// A render texture's side as a float. Sides above 65535 saturate, and none reaches them.
@@ -404,6 +262,20 @@ fn fills_target(viewport: [f32; 4]) -> bool {
         .all(|(found, whole)| (found - whole).abs() <= f32::EPSILON)
 }
 
+/// Whether `record` is a test render, which draws into one of the frame's test targets and is not
+/// among the records the world listed.
+pub(super) fn is_test_render(
+    record: &Record,
+    test_targets: &BTreeSet<worldrunner_render_program::ids::TextureId>,
+) -> bool {
+    matches!(record, Record::CameraRender { target, .. } if test_targets.contains(target))
+}
+
+/// Whether `record` draws into a scratch copy, as every test render does.
+fn is_scratch_render(record: &Record) -> bool {
+    matches!(record, Record::CameraRender { target, .. } if ids::is_probe_scratch(*target))
+}
+
 /// The textures a record reads or writes.
 pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::ids::TextureId> {
     match *record {
@@ -417,7 +289,23 @@ pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::id
 /// Maps `snapshot`.
 #[must_use]
 pub fn adapt(snapshot: &GraphicsSnapshot, available: &Available, settings: &Settings) -> Adapted {
+    adapt_probing(snapshot, available, settings, false)
+}
+
+/// Maps `snapshot`. With `probe`, the camera renders into the render textures a dispatch binds are
+/// examined: each is looked at on the CPU ([`CameraProbe`]) and drawn again into a scratch copy
+/// cleared to [`TEST_CLEAR`], so the texels the camera wrote show as differing from it.
+#[must_use]
+pub fn adapt_probing(
+    snapshot: &GraphicsSnapshot,
+    available: &Available,
+    settings: &Settings,
+    probe: bool,
+) -> Adapted {
     let mut mapper = Mapper::new(snapshot, available, settings);
+    if probe {
+        mapper.probe_dispatch_targets();
+    }
     mapper.records();
     mapper.renderers();
     mapper.finish()
@@ -430,9 +318,14 @@ struct Mapper<'a> {
     textures: Textures<'a>,
     frame: OffscreenFrame,
     report: Report,
-    dispatches: Vec<Placed>,
+    placements: Vec<Placed>,
     cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
+    /// The render textures whose camera renders are examined, and those with a scratch copy.
+    probed: BTreeSet<RenderTextureId>,
+    scratch: BTreeSet<RenderTextureId>,
+    /// How many changed test renders each scratch copy has.
+    variants: usize,
 }
 
 impl<'a> Mapper<'a> {
@@ -457,10 +350,38 @@ impl<'a> Mapper<'a> {
                 records: snapshot.work.len(),
                 ..Report::default()
             },
-            dispatches: Vec::new(),
+            placements: Vec::new(),
             cameras: BTreeMap::new(),
             queued: BTreeMap::new(),
+            probed: BTreeSet::new(),
+            scratch: BTreeSet::new(),
+            variants: 0,
         }
+    }
+
+    /// Asks for a look at every camera render into a render texture some dispatch binds.
+    fn probe_dispatch_targets(&mut self) {
+        for work in &self.snapshot.work {
+            let OffscreenWork::Dispatch { bindings, .. } = work else {
+                continue;
+            };
+            for (_, slot) in &bindings.properties.textures {
+                if let TextureRef::Render(id) = slot.texture {
+                    self.probed.insert(id);
+                }
+            }
+        }
+        self.frame.probe = CameraProbe {
+            targets: self
+                .probed
+                .iter()
+                .map(|id| ids::render_texture(*id))
+                .collect(),
+            test_targets: BTreeSet::new(),
+            object_to_world: OBJECT_TO_WORLD.to_owned(),
+            view_projection: VIEW_PROJECTION.to_owned(),
+            variants: BTreeMap::new(),
+        };
     }
 
     fn records(&mut self) {
@@ -469,9 +390,16 @@ impl<'a> Mapper<'a> {
                 self.dispatch(index, bindings);
                 continue;
             }
+            if let Some(wanted) = Wanted::of(work) {
+                self.pixel_read(index, wanted);
+                continue;
+            }
             match self.record(work) {
                 Ok(records) => {
-                    self.report.built += records.len();
+                    self.report.built += records
+                        .iter()
+                        .filter(|record| !is_scratch_render(record))
+                        .count();
                     self.frame.records.extend(records);
                 }
                 Err(skip) => {
@@ -492,7 +420,7 @@ impl<'a> Mapper<'a> {
     /// frame, so they exist when the dispatch binds them.
     fn dispatch(&mut self, work: usize, bindings: &ComputeBindings) {
         self.report.dispatches += 1;
-        self.dispatches.push(Placed {
+        self.placements.push(Placed {
             after: self.frame.records.len(),
             work,
         });
@@ -501,12 +429,41 @@ impl<'a> Mapper<'a> {
         }
     }
 
+    /// Notes where a pixel read sits and brings its render texture into the frame, so it exists
+    /// when the read is made. A texture of integers or one the snapshot lacks is refused here.
+    fn pixel_read(&mut self, work: usize, wanted: Wanted) {
+        let refusal = match self.snapshot.render_textures.get(&wanted.texture) {
+            None => Some(pixels::REFUSED_NO_TEXTURE),
+            Some(texture) if pixels::is_integer_format(texture.format) => {
+                Some(pixels::REFUSED_INTEGER)
+            }
+            Some(_) => None,
+        };
+        if let Some(reason) = refusal {
+            *self
+                .report
+                .pixel_reads_refused
+                .entry(reason.to_owned())
+                .or_default() += 1;
+            return;
+        }
+        self.textures.resolve(&TextureRef::Render(wanted.texture));
+        self.placements.push(Placed {
+            after: self.frame.records.len(),
+            work,
+        });
+    }
+
     fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
         match work {
             OffscreenWork::Dispatch { .. } => unreachable!("dispatches are placed, not mapped"),
-            OffscreenWork::CameraRender { camera, target } => self
-                .camera_render(*camera, *target)
-                .map(|record| vec![record]),
+            OffscreenWork::CameraRender { camera, target } => {
+                let mut records = vec![self.camera_render(*camera, *target)?];
+                if self.probed.contains(target) {
+                    records.extend(self.test_renders(*camera, *target)?);
+                }
+                Ok(records)
+            }
             OffscreenWork::Blit {
                 source,
                 target,
@@ -592,12 +549,60 @@ impl<'a> Mapper<'a> {
         let id = if let Some(id) = self.cameras.get(&(handle, size)) {
             *id
         } else {
-            let id = CameraId(self.cameras.len() as u64);
+            let id = CameraId(self.frame.cameras.len() as u64);
             self.frame.cameras.insert(id, self.camera(view, size));
             self.cameras.insert((handle, size), id);
             id
         };
         Ok(Record::CameraRender { camera: id, target })
+    }
+
+    /// The camera's render again into a scratch copy of `target`, cleared to [`TEST_CLEAR`], whose
+    /// texels differ from the clear only where a fragment was written; and, when the caller asks
+    /// for them, the same render made as each of [`TEST_VARIANTS`] says into a scratch copy of its
+    /// own.
+    fn test_renders(
+        &mut self,
+        handle: ComponentHandle,
+        target: RenderTextureId,
+    ) -> Result<Vec<Record>, Skip> {
+        let view = self
+            .snapshot
+            .cameras
+            .get(&handle)
+            .ok_or(Skip::StaleCamera)?;
+        let texture = self
+            .snapshot
+            .render_textures
+            .get(&target)
+            .ok_or(Skip::StaleTarget)?;
+        let mut camera = self.camera(view, [texture.width, texture.height]);
+        camera.clear_color = Some(TEST_CLEAR.map(f64::from));
+        self.scratch.insert(target);
+        let variants = if self.available.test_variants {
+            TEST_VARIANTS.len()
+        } else {
+            0
+        };
+        self.variants = self.variants.max(variants);
+        let base = ids::render_texture(target);
+        let mut targets = vec![ids::probe_scratch(base)];
+        for (number, (_, variant)) in (0..).zip(TEST_VARIANTS.iter().take(variants)) {
+            let scratch = ids::probe_variant(base, number);
+            self.frame.probe.variants.insert(scratch, *variant);
+            targets.push(scratch);
+        }
+        Ok(targets
+            .into_iter()
+            .map(|scratch| {
+                let id = CameraId(self.frame.cameras.len() as u64);
+                self.frame.cameras.insert(id, camera.clone());
+                Record::CameraRender {
+                    camera: id,
+                    target: scratch,
+                }
+            })
+            .collect())
     }
 
     /// What the camera clears, from its clear flags, and what it draws.
@@ -706,12 +711,14 @@ impl<'a> Mapper<'a> {
                 .collect();
             let properties =
                 layer_with_defaults(&material.properties, &mut self.textures, &defaults);
+            let fallback = fallback_layer(&material.properties, &info.fill, &mut self.textures);
             self.frame.materials.insert(
                 named,
                 Material {
                     shader: Some(ids::shader(material.shader)),
                     keywords: material.keywords.clone(),
                     properties,
+                    fallback,
                     render_queue: queue,
                 },
             );
@@ -801,7 +808,46 @@ impl<'a> Mapper<'a> {
                 generation: texture.generation,
             });
         }
+        // A scratch copy is made like the render texture it copies.
+        let copies: Vec<_> = self
+            .frame
+            .render_textures
+            .iter()
+            .filter(|spec| {
+                ids::render_texture_of(spec.id).is_some_and(|id| self.scratch.contains(&id))
+            })
+            .flat_map(|spec| {
+                let variants = (0..)
+                    .take(self.variants)
+                    .map(|number| ids::probe_variant(spec.id, number));
+                std::iter::once(ids::probe_scratch(spec.id))
+                    .chain(variants)
+                    .map(|id| RenderTextureSpec { id, ..spec.clone() })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        self.frame.render_textures.extend(copies);
+        let variants = self.variants;
+        self.frame.probe.test_targets = self
+            .scratch
+            .iter()
+            .flat_map(|id| {
+                let base = ids::render_texture(*id);
+                std::iter::once(ids::probe_scratch(base)).chain(
+                    (0..)
+                        .take(variants)
+                        .map(move |number| ids::probe_variant(base, number)),
+                )
+            })
+            .collect();
         self.report.unresolved_textures = self.textures.unresolved().clone();
+        for (rule, count) in self.textures.filled() {
+            *self
+                .report
+                .census
+                .entry(format!("constants filled by {rule}"))
+                .or_default() += count;
+        }
         if let Some(global) = &self.snapshot.global {
             for (name, slot) in &global.properties.textures {
                 let kind = texture_kind(&slot.texture);
@@ -815,7 +861,7 @@ impl<'a> Mapper<'a> {
         Adapted {
             frame: self.frame,
             report: self.report,
-            dispatches: self.dispatches,
+            placements: self.placements,
         }
     }
 }

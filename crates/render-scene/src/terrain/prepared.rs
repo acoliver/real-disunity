@@ -1,8 +1,9 @@
 //! The terrain's draws on the program runtime, prepared once and recorded every frame.
 //!
 //! A frame records one prepared pipeline and, for each chunk, one geometry. Nothing is built in
-//! a steady-state frame: the pipelines, the material sets and the geometry of every resident
-//! chunk are made the first time a draw needs them and kept as long as the terrain.
+//! a steady-state frame: the pipelines and the material sets are made the first time a draw needs
+//! them and kept as long as the terrain, and the geometry of a streamed chunk is made when the
+//! chunk is uploaded and kept as long as the chunk is resident.
 //!
 //! Recording stays `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map), the fixed
 //! path's count: the pipeline and the material group once, then per chunk two vertex buffers,
@@ -62,7 +63,7 @@ pub(crate) struct Request<'a> {
 /// The family or context, surface source and page-table slot a set or pipeline is made for.
 type SetKey = (u64, Surface, usize);
 
-/// The pipelines, sets and geometry a terrain has prepared.
+/// The pipelines, sets and mesh geometry a terrain has prepared.
 #[derive(Debug, Default)]
 pub(crate) struct PreparedTerrain {
     /// Sets are built against one runtime, so they are kept per family of pipelines and dropped
@@ -72,6 +73,15 @@ pub(crate) struct PreparedTerrain {
     /// replay makes for one frame do not accumulate in the terrain of a long-lived scene.
     pipelines: RefCell<BTreeMap<SetKey, (WeakContext, Rc<PreparedPipeline>)>>,
     mesh: RefCell<Option<GeometryDraw>>,
+}
+
+/// The geometry of the chunks of a streamed terrain, which holds their vertex and index buffers.
+///
+/// Whoever owns the chunks' residency owns this and keeps it to the chunks that are committed or
+/// being drawn: a hold on a retired chunk's buffers is outside the streaming budget, which counts
+/// that chunk until its frames complete.
+#[derive(Debug, Default)]
+pub(crate) struct ChunkGeometry {
     chunks: RefCell<BTreeMap<TerrainChunk, (Buffer, GeometryDraw)>>,
 }
 
@@ -97,7 +107,7 @@ fn named(name: &str) -> EngineSemantic {
 
 /// The resources each binding of a surface's material set is filled from.
 fn imports(surface: Surface, resources: &Resources, pages: Option<&Pages>) -> ImportTable {
-    let mut table = ImportTable::new()
+    let table = ImportTable::new()
         .with(Import::buffer(
             named(semantic::BLOCK),
             resources.uniform.clone(),
@@ -118,41 +128,51 @@ fn imports(surface: Surface, resources: &Resources, pages: Option<&Pages>) -> Im
                 pages.table.clone(),
             ));
     }
-    table.insert(Import::texture(
+    let mut table = table.with(Import::texture(
         named(semantic::TYPE_GRID),
         resources.grid.clone(),
         resources.grid_view.clone(),
     ));
-    if let Some(source) = resources.layered.as_ref().filter(|_| surface.layered()) {
-        for (name, buffer) in [
-            semantic::LAYERED_SOURCE,
-            semantic::LAYERED_GRID,
-            semantic::LAYERED_IMAGES,
-        ]
-        .into_iter()
-        .zip(&source.buffers)
-        {
-            table.insert(Import::buffer(named(name), buffer.clone()));
-        }
-        // The source fills every array slot of the layout, repeating its last array's texture.
-        for (index, view) in (0_u32..).zip(&source.views) {
-            let texture = &source.textures[usize::try_from(index)
-                .expect("slot index")
-                .min(source.textures.len() - 1)];
-            table.insert(Import::texture_array(
-                named(&semantic::layered_array(index)),
-                texture.clone(),
-                view.clone(),
-            ));
-        }
-        for (name, sampler) in [semantic::LAYERED_REPEAT, semantic::LAYERED_CLAMP]
-            .into_iter()
-            .zip(&source.samplers)
-        {
-            table.insert(Import::sampler(named(name), sampler.clone()));
-        }
-        return table;
+    match resources.layered.as_ref().filter(|_| surface.layered()) {
+        Some(source) => layered_imports(&mut table, source),
+        None => palette_imports(&mut table, resources),
     }
+    table
+}
+
+/// The layered source's tables, arrays and samplers.
+fn layered_imports(table: &mut ImportTable, source: &ResidentSource) {
+    for (name, buffer) in [
+        semantic::LAYERED_SOURCE,
+        semantic::LAYERED_GRID,
+        semantic::LAYERED_IMAGES,
+    ]
+    .into_iter()
+    .zip(&source.buffers)
+    {
+        table.insert(Import::buffer(named(name), buffer.clone()));
+    }
+    // The source fills every array slot of the layout, repeating its last array's texture.
+    for (index, view) in (0_u32..).zip(&source.views) {
+        let texture = &source.textures[usize::try_from(index)
+            .expect("slot index")
+            .min(source.textures.len() - 1)];
+        table.insert(Import::texture_array(
+            named(&semantic::layered_array(index)),
+            texture.clone(),
+            view.clone(),
+        ));
+    }
+    for (name, sampler) in [semantic::LAYERED_REPEAT, semantic::LAYERED_CLAMP]
+        .into_iter()
+        .zip(&source.samplers)
+    {
+        table.insert(Import::sampler(named(name), sampler.clone()));
+    }
+}
+
+/// The palette arrays and their sampler.
+fn palette_imports(table: &mut ImportTable, resources: &Resources) {
     for (name, (texture, view)) in [
         semantic::PALETTE_ALBEDO,
         semantic::PALETTE_NORMAL,
@@ -171,7 +191,6 @@ fn imports(surface: Surface, resources: &Resources, pages: Option<&Pages>) -> Im
         named(semantic::SAMPLER),
         resources.sampler.clone(),
     ));
-    table
 }
 
 impl PreparedTerrain {
@@ -274,11 +293,19 @@ impl PreparedTerrain {
             .expect("the mesh was made for the terrain's vertex layout");
     }
 
-    /// Makes the geometry of one chunk of a streamed terrain if it has none for these buffers:
-    /// its record `record` of the shared instance buffer is selected by the instance range, so
-    /// no slice of the buffer is bound. The streaming state calls this for the chunks it uploads,
-    /// in the transaction that uploads them.
-    pub(crate) fn prepare_chunk(
+    /// How many pipelines and sets are kept, for the tests that hold the caches bounded.
+    #[cfg(test)]
+    pub(crate) fn kept(&self) -> (usize, usize) {
+        (self.pipelines.borrow().len(), self.sets.borrow().len())
+    }
+}
+
+impl ChunkGeometry {
+    /// Makes the geometry of one chunk if it has none for these buffers: its record `record` of
+    /// the shared instance buffer is selected by the instance range, so no slice of the buffer
+    /// is bound. The streaming state calls this for the chunks it uploads, in the transaction
+    /// that uploads them.
+    pub(crate) fn prepare(
         &self,
         chunk: (TerrainChunk, u32),
         (vertices, indices, index_count): (&Buffer, &Buffer, u32),
@@ -308,9 +335,9 @@ impl PreparedTerrain {
         chunks.insert(chunk, (vertices.clone(), geometry));
     }
 
-    /// Draws one chunk of a streamed terrain through its prepared geometry, which a raw draw
-    /// that no preparation preceded makes first.
-    pub(crate) fn draw_chunk<P: worldrunner_render_program::runtime::PassCommands>(
+    /// Draws one chunk through its prepared geometry, which a raw draw that no preparation
+    /// preceded makes first.
+    pub(crate) fn draw<P: worldrunner_render_program::runtime::PassCommands>(
         &self,
         pass: &mut P,
         pipeline: &PreparedPipeline,
@@ -318,27 +345,27 @@ impl PreparedTerrain {
         lod: (&Buffer, &Buffer, u32),
         instances: &Buffer,
     ) {
-        self.prepare_chunk(chunk, lod, instances);
+        self.prepare(chunk, lod, instances);
         let chunks = self.chunks.borrow();
         pipeline
             .draw(pass, &chunks[&chunk.0].1)
             .expect("the chunk was made for the terrain's vertex layout");
     }
 
-    /// How many pipelines and sets are kept, for the tests that hold the caches bounded.
+    /// Forgets the geometry of every chunk whose vertex buffer `keep` refuses.
+    pub(crate) fn retain(&self, keep: impl Fn(&TerrainChunk, &Buffer) -> bool) {
+        self.chunks
+            .borrow_mut()
+            .retain(|chunk, (vertices, _)| keep(chunk, vertices));
+    }
+
+    /// The vertex buffers the chunk geometry holds.
     #[cfg(test)]
-    pub(crate) fn kept(&self) -> (usize, usize) {
-        (self.pipelines.borrow().len(), self.sets.borrow().len())
-    }
-
-    /// How many chunks have prepared geometry.
-    pub(crate) fn chunk_count(&self) -> usize {
-        self.chunks.borrow().len()
-    }
-
-    /// Forgets the geometry of chunks that left residency, keeping what a frame in flight may
-    /// still draw.
-    pub(crate) fn retain_chunks(&self, resident: impl Fn(&TerrainChunk) -> bool) {
-        self.chunks.borrow_mut().retain(|chunk, _| resident(chunk));
+    pub(crate) fn buffers(&self) -> Vec<Buffer> {
+        self.chunks
+            .borrow()
+            .values()
+            .map(|(vertices, _)| vertices.clone())
+            .collect()
     }
 }

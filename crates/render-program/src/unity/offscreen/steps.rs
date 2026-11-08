@@ -20,12 +20,18 @@ use crate::unity::shader::{PassSelector, ResolveError};
 use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
+use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
 use super::textures::TextureInfo;
 use super::tracker::Tracker;
-use super::{CameraCauses, CameraDraws, CameraPassReport, UnmatchedPasses};
+use super::{
+    CameraCauses, CameraDraws, CameraPassReport, CameraProbe, PassSetup, ProgramProbe,
+    SampledTexture, UnmatchedPasses,
+};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
+    pub(super) shader: ShaderId,
+    pub(super) mesh: MeshId,
     pub(super) plan: DrawPlan,
     pub(super) vertices: VertexPlan,
     pub(super) geometry: DrawGeometry,
@@ -96,16 +102,29 @@ fn camera_step(
     require_render_texture(svc, target)?;
     let signature = svc.signature(target)?;
     let mut draws = Vec::new();
+    let counted_before = frame
+        .probe
+        .test_targets
+        .contains(&target)
+        .then(|| svc.counts.clone());
     let unmatched_before = svc.counts.unmatched;
     let missing_before = svc.counts.missing_texture;
     let channel_before = svc.counts.missing_channel;
     svc.counts.current = CameraCauses::default();
     let outer_missing = std::mem::take(svc.missing);
+    svc.probing = frame.probe.targets.contains(&target);
+    let variant = frame.probe.variants.get(&target).copied();
+    svc.constant_fragment = variant.is_some_and(|variant| variant.constant_fragment);
     for visible in visible_draws(svc, frame, camera)? {
-        if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+        if let Some(mut draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+            if let Some(variant) = variant {
+                variant.apply(&mut draw.plan.state);
+            }
             draws.push(draw);
         }
     }
+    svc.constant_fragment = false;
+    let probed = std::mem::take(&mut svc.probing);
     svc.counts.cameras.push(CameraDraws {
         camera: camera_id,
         target,
@@ -117,9 +136,15 @@ fn camera_step(
     let causes = std::mem::take(&mut svc.counts.current);
     svc.counts.camera_causes.push(causes);
     let without_value = std::mem::replace(svc.missing, outer_missing);
-    let report = pass_report((camera_id, target), svc, &draws, &without_value);
+    let mut report = pass_report((camera_id, target), (&*svc, camera), &draws, &without_value);
+    if probed {
+        report.programs = program_probes(svc, &frame.probe, &draws);
+    }
     svc.counts.passes.push(report);
     svc.missing.extend(without_value);
+    if let Some(before) = counted_before {
+        svc.counts.forget_since(before);
+    }
     let pass = camera_pass(
         svc,
         raster_id("offscreen camera", index),
@@ -137,8 +162,8 @@ fn camera_step(
 /// How the camera's draws were set up: the target's formats, the states of the draws and the names
 /// the draws read with no value.
 fn pass_report(
-    (camera, target): (CameraId, TextureId),
-    svc: &Services<'_>,
+    (camera_id, target): (CameraId, TextureId),
+    (svc, camera): (&Services<'_>, &Camera),
     draws: &[CameraDraw],
     without_value: &std::collections::BTreeSet<String>,
 ) -> CameraPassReport {
@@ -152,18 +177,120 @@ fn pass_report(
             state.depth_compare,
             state.depth_write,
             write_mask(state.color_write),
-            if state.blend.is_some() { "on" } else { "off" }
+            blend_words(state.blend)
         );
         *states.entry(words).or_default() += 1;
     }
     CameraPassReport {
-        camera,
+        camera: camera_id,
         target,
         color: info.and_then(|info| info.color.map(|_| info.format)),
         depth: info.and_then(|info| info.depth_format),
         states: states.into_iter().collect(),
         without_value: without_value.iter().cloned().collect(),
+        setup: PassSetup {
+            viewport: info.map_or([0, 0], |info| info.size),
+            color: match (
+                info.is_some_and(|info| info.color.is_some()),
+                camera.clear_color,
+            ) {
+                (false, _) => "no color".to_owned(),
+                (true, Some(c)) => {
+                    format!("clear [{:?}, {:?}, {:?}, {:?}]", c[0], c[1], c[2], c[3])
+                }
+                (true, None) => "load".to_owned(),
+            },
+            depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
+                (None, _) => "no depth".to_owned(),
+                (Some(_), true) => format!("clear {DEPTH_CLEAR:?}"),
+                (Some(_), false) => "load".to_owned(),
+            },
+        },
+        programs: Vec::new(),
     }
+}
+
+/// The layers of a camera draw's values, highest first: the names of the places in an
+/// [`Origin::Layer`](super::Origin).
+pub const DRAW_LAYERS: [&str; 6] = [
+    "per-draw",
+    "camera",
+    "property block",
+    "material",
+    "material fallback",
+    "globals",
+];
+
+/// The depth a camera that clears depth clears to.
+const DEPTH_CLEAR: f32 = 1.0;
+
+/// What the probed camera's draws did, by program.
+fn program_probes(
+    svc: &Services<'_>,
+    names: &CameraProbe,
+    draws: &[CameraDraw],
+) -> Vec<ProgramProbe> {
+    let mut probes = ProgramProbes::default();
+    for draw in draws {
+        let Some(facts) = &draw.plan.facts else {
+            continue;
+        };
+        let Ok(mesh) = svc.meshes.get(draw.mesh) else {
+            continue;
+        };
+        let positions = MeshPositions {
+            vertices: u64::from(mesh.vertex_count),
+            positions: mesh.positions.as_deref(),
+        };
+        let textures = facts.textures.iter().map(|(name, texture)| {
+            let info = svc.textures.get(*texture).ok();
+            SampledTexture {
+                name: name.clone(),
+                texture: *texture,
+                uploaded: info.is_some_and(|info| info.spec.is_none()),
+                texels: info.and_then(|info| info.counts).map(|(texels, _)| texels),
+                nonzero: info
+                    .and_then(|info| info.counts)
+                    .map(|(_, nonzero)| nonzero),
+            }
+        });
+        let triangles = DrawTriangles {
+            indices: mesh.cpu_indices.as_deref(),
+            elements: draw.geometry.elements.clone(),
+            base_vertex: draw.geometry.base_vertex,
+            cull: draw.plan.state.cull,
+            front_face: draw.front_face,
+        };
+        probes.add(
+            (draw.shader, draw.plan.entry.pass),
+            names,
+            facts,
+            (&positions, &triangles),
+            textures,
+        );
+    }
+    probes.finish()
+}
+
+/// A blend state in words: `off`, or its color and alpha equations as `operation source
+/// destination`.
+fn blend_words(blend: Option<wgpu::BlendState>) -> String {
+    let equation = |part: wgpu::BlendComponent| {
+        format!(
+            "{:?} {:?} {:?}",
+            part.operation, part.src_factor, part.dst_factor
+        )
+    };
+    blend.map_or_else(
+        || "off".to_owned(),
+        |blend| {
+            format!(
+                "on (color {}, alpha {})",
+                equation(blend.color),
+                equation(blend.alpha)
+            )
+        },
+    )
 }
 
 /// The channels a color write mask lets through, as `RGBA` with the ones it blocks left out, or
@@ -207,6 +334,7 @@ fn planned_draw(
         &camera.values,
         &renderer.block,
         &material.properties,
+        &material.fallback,
         &frame.globals,
     ];
     let spec = DrawSpec {
@@ -368,6 +496,8 @@ fn camera_draw(
         instances: 0..1,
     };
     Ok(CameraDraw {
+        shader: spec.shader,
+        mesh,
         plan,
         vertices,
         geometry,
@@ -546,7 +676,12 @@ fn blit_step(
         .ok_or(OffscreenError::NoShader(material_id))?;
     let mesh = frame.blit_mesh.ok_or(OffscreenError::NoBlitMesh)?;
     let overlay = source_layer(svc, frame, source)?;
-    let layers = [&overlay, &material.properties, &frame.globals];
+    let layers = [
+        &overlay,
+        &material.properties,
+        &material.fallback,
+        &frame.globals,
+    ];
     let spec = DrawSpec {
         shader,
         keywords: keywords(material, frame),

@@ -34,6 +34,7 @@ pub fn material(tint: [f32; 4], queue: i32) -> Material {
         shader: Some(SHADER),
         keywords: Vec::new(),
         properties: layer(&[("_Tint", tint)]),
+        fallback: PropertyLayer::default(),
         render_queue: queue,
     }
 }

@@ -81,8 +81,9 @@ fn cascade_bias_preserves_reference_texels_across_box_and_sphere_fits_and_caster
         assert!(depth_scale(caster.matrices[3]) < depth_scale(caster.matrices[2]));
         assert!(texel_width(receiver.matrices[3]) > texel_width(receiver.matrices[0]));
         let bytes = resources::uniform_bytes(&caster, settings());
-        assert_eq!(bytes.len(), 336);
-        for (encoded, expected) in bytes[320..].chunks_exact(4).zip(caster.depth_bias) {
+        assert_eq!(bytes.len(), 352);
+        assert_eq!(&bytes[336..], &[0; 16], "no fade by default");
+        for (encoded, expected) in bytes[320..336].chunks_exact(4).zip(caster.depth_bias) {
             assert_eq!(encoded, expected.to_le_bytes());
         }
     }

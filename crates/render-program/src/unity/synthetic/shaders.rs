@@ -3,7 +3,7 @@
 
 use super::{
     FRAGMENT, PassSpec, SyntheticShader, VERTEX, VariantSpec, binding, constant_buffer, fixed,
-    shader, slot, vector_member,
+    matrix_member, shader, slot, vector_member,
 };
 use crate::unity::offscreen::frame::{ChannelFormat, Mesh, MeshChannel, MeshIndices, SubMesh};
 use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParameters};
@@ -47,6 +47,65 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
 @fragment fn fs_shifted(in: VOut) -> @location(0) vec4<f32> {
     return textureSample(albedo, albedo_sampler, in.uv + vec2<f32>(0.5, 0.0)) * material.tint;
 }";
+
+/// A camera pass that places its vertices by the draw's object-to-world and view-projection
+/// matrices, and whose fragment stage reads three material vectors and a texture.
+pub const MATRICES: &str = "
+struct Material { tint: vec4<f32>, gain: vec4<f32>, bias: vec4<f32> }
+struct Draw { object_to_world: mat4x4<f32>, view_projection: mat4x4<f32> }
+@group(0) @binding(0) var<uniform> material: Material;
+@group(0) @binding(1) var<uniform> draw: Draw;
+@group(0) @binding(2) var albedo: texture_2d<f32>;
+@group(0) @binding(3) var albedo_sampler: sampler;
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
+    var out: VOut;
+    out.position = draw.view_projection * (draw.object_to_world * vec4<f32>(position, 1.0));
+    out.uv = uv;
+    return out;
+}
+@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+    return textureSample(albedo, albedo_sampler, in.uv) * material.tint * material.gain
+        + material.bias;
+}";
+
+/// The constants of [`MATRICES`]: the material's `_Tint`, `_Gain` and `_Bias` in the fragment
+/// stage, the draw's `_ObjectToWorld` and `_ViewProjection` in the vertex stage and an `_Albedo`
+/// texture.
+pub fn matrices_parameters() -> VariantParameters {
+    let mut parameters = albedo_parameters();
+    parameters.constant_buffers = vec![
+        constant_buffer(
+            "Material",
+            48,
+            vec![
+                vector_member("_Tint", 0),
+                vector_member("_Gain", 16),
+                vector_member("_Bias", 32),
+            ],
+        ),
+        constant_buffer(
+            "Draw",
+            128,
+            vec![
+                matrix_member("_ObjectToWorld", 0),
+                matrix_member("_ViewProjection", 64),
+            ],
+        ),
+    ];
+    parameters
+}
+
+/// One pass tagged `Alpha` that draws with [`MATRICES`].
+pub fn camera_matrices() -> SyntheticShader {
+    no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: vec![("LIGHTMODE", "Alpha")],
+            variants: vec![variant(&[], MATRICES, "fs_main", matrices_parameters())],
+        }],
+    ))
+}
 
 /// A blit pass: the source texture times the tint, and a variant that shows the texel size.
 pub const BLIT: &str = "

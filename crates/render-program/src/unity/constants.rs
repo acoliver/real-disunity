@@ -163,6 +163,28 @@ pub fn pack_layout(
     )?)
 }
 
+/// The named members of `bytes`, a buffer [`pack_layout`] packed for `layout` with no name table,
+/// each with the bytes the packer wrote for it: a matrix takes all of its registers. Members the
+/// layout cannot place are left out.
+#[must_use]
+pub fn packed_members<'a>(layout: &BufferLayout, bytes: &'a [u8]) -> Vec<(String, &'a [u8])> {
+    let Ok(neutral) = neutral_layout(layout, &[], bytes.len()) else {
+        return Vec::new();
+    };
+    neutral
+        .members
+        .iter()
+        .filter_map(|member| {
+            let BindingSource::Property(id) = &member.source else {
+                return None;
+            };
+            let start = usize::try_from(member.offset).ok()?;
+            let end = start.checked_add(usize::try_from(member.extent()).ok()?)?;
+            Some((id.as_str().to_owned(), bytes.get(start..end)?))
+        })
+        .collect()
+}
+
 /// Integers a 32-bit float holds exactly.
 const FLOAT_EXACT: u32 = 1 << 24;
 

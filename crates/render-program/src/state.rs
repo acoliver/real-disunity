@@ -2,7 +2,9 @@
 //!
 //! The state describes more than the runtime draws today: stencil, alpha to coverage and several
 //! colour targets are representable, and [`RenderState::check_drawable`] names the ones a draw
-//! refuses. A depth bias is drawn: it is part of [`DepthState`] and of the pipeline.
+//! refuses. A depth bias is drawn: it is part of [`DepthState`] and of the pipeline. Stencil is
+//! drawn by the prepared pipelines of a renderer's own pass ([`RenderState::check_targets`]),
+//! whose depth attachment has a stencil aspect, and refused by the plain and material draws.
 
 use crate::error::ProgramError;
 
@@ -28,6 +30,11 @@ pub struct DepthState {
     pub bias: wgpu::DepthBiasState,
 }
 
+/// The stencil test and operations of a pipeline, and the reference the pass is expected to set.
+///
+/// `ops` is the pipeline's. `reference` is not: it belongs to the pass, which the owner sets with
+/// `set_stencil_reference` once for the pass, as the runtime binds no state the owner holds. It is
+/// carried so that a state says what its test compares against.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StencilState {
     pub ops: wgpu::StencilState,
@@ -75,6 +82,7 @@ impl RenderState {
     /// # Errors
     /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses.
     pub fn check_drawable(&self) -> Result<ColorState, ProgramError> {
+        self.check_no_stencil()?;
         self.check_fixed_function()?;
         match self.colors.as_slice() {
             [Some(color)] => Ok(*color),
@@ -88,7 +96,8 @@ impl RenderState {
     /// Checks that a draw into `count` colour targets can use this state and returns each
     /// target's state, in target order. A target the fragment stage does not write is
     /// expressed by an empty write mask, which keeps the attachment compatible with the pass.
-    /// A depth-only pass has `count` 0 and takes a state with no colour targets.
+    /// A depth-only pass has `count` 0 and takes a state with no colour targets. A stencil state
+    /// is accepted here; the pipeline checks it against the pass's depth attachment.
     ///
     /// # Errors
     /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses,
@@ -114,12 +123,17 @@ impl RenderState {
     }
 
     fn check_fixed_function(&self) -> Result<(), ProgramError> {
-        let refuse = |what| Err(ProgramError::UnsupportedState { what });
-        if self.stencil.is_some() {
-            return refuse("stencil");
-        }
         if self.raster.alpha_to_coverage {
-            return refuse("alpha to coverage");
+            return Err(ProgramError::UnsupportedState {
+                what: "alpha to coverage",
+            });
+        }
+        Ok(())
+    }
+
+    fn check_no_stencil(&self) -> Result<(), ProgramError> {
+        if self.stencil.is_some() {
+            return Err(ProgramError::UnsupportedState { what: "stencil" });
         }
         Ok(())
     }
@@ -168,6 +182,19 @@ mod tests {
         let mut state = RenderState::opaque_depth();
         state.raster.alpha_to_coverage = true;
         assert_eq!(refused(&state), "alpha to coverage");
+    }
+
+    #[test]
+    fn a_stencil_state_describes_prepared_targets_and_is_refused_by_the_plain_draw() {
+        let mut state = RenderState::opaque_depth();
+        state.stencil = Some(StencilState {
+            ops: wgpu::StencilState::default(),
+            reference: 1,
+        });
+        assert_eq!(refused(&state), "stencil");
+        assert!(state.check_targets(1).is_ok());
+        state.raster.alpha_to_coverage = true;
+        assert_eq!(refused_targets(&state, 1), "alpha to coverage");
     }
 
     #[test]

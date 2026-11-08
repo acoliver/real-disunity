@@ -102,7 +102,7 @@ fn named(name: &str) -> EngineSemantic {
 
 /// The resources each binding of a surface's material set is filled from.
 fn imports(surface: Surface, resources: &Resources, pages: Option<&Pages>) -> ImportTable {
-    let mut table = ImportTable::new()
+    let table = ImportTable::new()
         .with(Import::buffer(
             named(semantic::BLOCK),
             resources.uniform.clone(),
@@ -123,41 +123,51 @@ fn imports(surface: Surface, resources: &Resources, pages: Option<&Pages>) -> Im
                 pages.table.clone(),
             ));
     }
-    table.insert(Import::texture(
+    let mut table = table.with(Import::texture(
         named(semantic::TYPE_GRID),
         resources.grid.clone(),
         resources.grid_view.clone(),
     ));
-    if let Some(source) = resources.layered.as_ref().filter(|_| surface.layered()) {
-        for (name, buffer) in [
-            semantic::LAYERED_SOURCE,
-            semantic::LAYERED_GRID,
-            semantic::LAYERED_IMAGES,
-        ]
-        .into_iter()
-        .zip(&source.buffers)
-        {
-            table.insert(Import::buffer(named(name), buffer.clone()));
-        }
-        // The source fills every array slot of the layout, repeating its last array's texture.
-        for (index, view) in (0_u32..).zip(&source.views) {
-            let texture = &source.textures[usize::try_from(index)
-                .expect("slot index")
-                .min(source.textures.len() - 1)];
-            table.insert(Import::texture_array(
-                named(&semantic::layered_array(index)),
-                texture.clone(),
-                view.clone(),
-            ));
-        }
-        for (name, sampler) in [semantic::LAYERED_REPEAT, semantic::LAYERED_CLAMP]
-            .into_iter()
-            .zip(&source.samplers)
-        {
-            table.insert(Import::sampler(named(name), sampler.clone()));
-        }
-        return table;
+    match resources.layered.as_ref().filter(|_| surface.layered()) {
+        Some(source) => layered_imports(&mut table, source),
+        None => palette_imports(&mut table, resources),
     }
+    table
+}
+
+/// The layered source's tables, arrays and samplers.
+fn layered_imports(table: &mut ImportTable, source: &ResidentSource) {
+    for (name, buffer) in [
+        semantic::LAYERED_SOURCE,
+        semantic::LAYERED_GRID,
+        semantic::LAYERED_IMAGES,
+    ]
+    .into_iter()
+    .zip(&source.buffers)
+    {
+        table.insert(Import::buffer(named(name), buffer.clone()));
+    }
+    // The source fills every array slot of the layout, repeating its last array's texture.
+    for (index, view) in (0_u32..).zip(&source.views) {
+        let texture = &source.textures[usize::try_from(index)
+            .expect("slot index")
+            .min(source.textures.len() - 1)];
+        table.insert(Import::texture_array(
+            named(&semantic::layered_array(index)),
+            texture.clone(),
+            view.clone(),
+        ));
+    }
+    for (name, sampler) in [semantic::LAYERED_REPEAT, semantic::LAYERED_CLAMP]
+        .into_iter()
+        .zip(&source.samplers)
+    {
+        table.insert(Import::sampler(named(name), sampler.clone()));
+    }
+}
+
+/// The palette arrays and their sampler.
+fn palette_imports(table: &mut ImportTable, resources: &Resources) {
     for (name, (texture, view)) in [
         semantic::PALETTE_ALBEDO,
         semantic::PALETTE_NORMAL,
@@ -176,7 +186,6 @@ fn imports(surface: Surface, resources: &Resources, pages: Option<&Pages>) -> Im
         named(semantic::SAMPLER),
         resources.sampler.clone(),
     ));
-    table
 }
 
 impl PreparedTerrain {

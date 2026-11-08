@@ -127,45 +127,7 @@ fn uniform(scale: f32) -> Vec<u8> {
 impl Shadow {
     fn new(context: &GpuContext) -> Self {
         let device = context.device();
-        let layout = crate::shadows::water_layout(device);
-        let depth = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("capture shadow depth"),
-            size: wgpu::Extent3d {
-                width: 32,
-                height: 32,
-                depth_or_array_layers: 4,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let mut encoder = context.submission().begin(device).unwrap();
-        for layer in 0..4 {
-            let view = depth.create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                base_array_layer: layer,
-                array_layer_count: Some(1),
-                ..wgpu::TextureViewDescriptor::default()
-            });
-            drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("capture shadow clear"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.5),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..wgpu::RenderPassDescriptor::default()
-            }));
-        }
-        encoder.finish().submit().unwrap();
-        let view = depth.create_view(&wgpu::TextureViewDescriptor {
+        let view = cleared_depth(context).create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..wgpu::TextureViewDescriptor::default()
         });
@@ -176,35 +138,89 @@ impl Shadow {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..wgpu::SamplerDescriptor::default()
         });
-        let groups = [0.25_f32, 0.2].map(|scale| {
-            let buffer = crate::upload::upload_buffer(
-                device,
-                context.queue(),
-                "capture shadow uniform",
-                wgpu::BufferUsages::UNIFORM,
-                &uniform(scale),
-            );
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("capture shadow"),
-                layout: &layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                ],
-            })
-        });
+        let layout = crate::shadows::water_layout(device);
+        let groups =
+            [0.25_f32, 0.2].map(|scale| shadow_group(context, &layout, scale, (&view, &sampler)));
         Self { groups }
     }
+}
+
+/// Four layers of depth, each cleared to one half.
+fn cleared_depth(context: &GpuContext) -> wgpu::Texture {
+    let device = context.device();
+    let depth = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("capture shadow depth"),
+        size: wgpu::Extent3d {
+            width: 32,
+            height: 32,
+            depth_or_array_layers: 4,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let mut encoder = context.submission().begin(device).unwrap();
+    for layer in 0..4 {
+        let view = depth.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: layer,
+            array_layer_count: Some(1),
+            ..wgpu::TextureViewDescriptor::default()
+        });
+        drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("capture shadow clear"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0.5),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            ..wgpu::RenderPassDescriptor::default()
+        }));
+    }
+    encoder.finish().submit().unwrap();
+    depth
+}
+
+/// The shadow group of one frame slot: its uniform of `scale` and the shared map.
+fn shadow_group(
+    context: &GpuContext,
+    layout: &wgpu::BindGroupLayout,
+    scale: f32,
+    (view, sampler): (&wgpu::TextureView, &wgpu::Sampler),
+) -> BindGroup {
+    let device = context.device();
+    let buffer = crate::upload::upload_buffer(
+        device,
+        context.queue(),
+        "capture shadow uniform",
+        wgpu::BufferUsages::UNIFORM,
+        &uniform(scale),
+    );
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("capture shadow"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
 }
 
 /// Pipelines whose terrain and objects sample the shadow map, with the group they need at set

@@ -63,10 +63,11 @@ pub(super) struct Specialization {
 impl Specialization {
     pub fn new(
         device: &wgpu::Device,
-        source: &str,
-        terrain: &str,
-        shadow: Option<&wgpu::BindGroupLayout>,
-        screen: Option<&wgpu::BindGroupLayout>,
+        (source, terrain): (&str, &str),
+        (shadow, screen): (
+            Option<&wgpu::BindGroupLayout>,
+            Option<&wgpu::BindGroupLayout>,
+        ),
         options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
         family: &crate::terrain::program::Family,
     ) -> Self {

@@ -33,18 +33,7 @@ impl SceneGpu {
             None => None,
         };
         let surface = Surface::new(terrain.layered.is_some(), slot.is_some());
-        let pages = || {
-            let pages = terrain
-                .pages
-                .as_ref()
-                .expect("a pages surface has pages")
-                .borrow();
-            crate::terrain::prepared::Pages {
-                texture: pages.cache.texture(),
-                view: pages.cache.texture_view(),
-                table: pages.tables[slot.expect("a pages surface has a slot")].clone(),
-            }
-        };
+        let pages = || terrain_pages(terrain, slot);
         let pipeline = terrain
             .prepared
             .pipeline(&crate::terrain::prepared::Request {
@@ -147,6 +136,20 @@ impl SceneGpu {
             calls: 1,
             instances: 1,
         }
+    }
+}
+
+/// The page cache and the page table of `slot` that a pages surface's material set reads.
+fn terrain_pages(terrain: &GpuTerrain, slot: Option<usize>) -> crate::terrain::prepared::Pages {
+    let pages = terrain
+        .pages
+        .as_ref()
+        .expect("a pages surface has pages")
+        .borrow();
+    crate::terrain::prepared::Pages {
+        texture: pages.cache.texture(),
+        view: pages.cache.texture_view(),
+        table: pages.tables[slot.expect("a pages surface has a slot")].clone(),
     }
 }
 

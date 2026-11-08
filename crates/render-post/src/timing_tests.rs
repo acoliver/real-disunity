@@ -345,7 +345,7 @@ fn gpu_synthetic_counter_wraps_are_unavailable_counted_and_release_slots() {
         slot.readback
             .slice(..16)
             .map_async(wgpu::MapMode::Read, move |result| {
-                send.send(result).unwrap();
+                let _ = send.send(result);
             });
         slot.pending = Some(receive);
         device

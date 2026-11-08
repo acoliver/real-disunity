@@ -380,7 +380,7 @@ fn read_lookup(lookup: &Lookup) -> Vec<u8> {
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            sender.send(result).unwrap();
+            let _ = sender.send(result);
         });
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     receiver.recv().unwrap().unwrap();

@@ -83,7 +83,7 @@ impl SceneSource {
 
 impl SceneSource {
     /// The plan reference for a field of a script asset: a texture it holds, such as a font atlas,
-    /// is planned with it; scene materials keep holding no textures.
+    /// is planned with it, as a texture a scene material binds is.
     fn script_reference(&mut self, owner: &Path, pptr: PPtr) -> Result<Json, String> {
         let held = self
             .files_mut()

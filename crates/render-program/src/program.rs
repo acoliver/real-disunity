@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::binding::ResourceLayout;
-use crate::error::ProgramError;
+use crate::error::{ProgramError, StorageImageError};
 use crate::layout::ProgramLayout;
 use crate::module::{StageKind, StageProgram};
 use crate::pipeline_key::Key;
@@ -276,6 +276,15 @@ impl ProgramRuntime {
                 return Err(ProgramError::UnsupportedSampler {
                     set,
                     binding: slot.binding,
+                });
+            }
+            if let wgpu::BindingType::StorageTexture { access, format, .. } = slot.ty
+                && !self.supports_storage_image(format, access)
+            {
+                return Err(ProgramError::StorageImage {
+                    set,
+                    binding: slot.binding,
+                    error: StorageImageError::Unsupported { format, access },
                 });
             }
             entries.push(wgpu::BindGroupLayoutEntry {

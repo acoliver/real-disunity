@@ -67,6 +67,8 @@ pub struct ProgramRuntime {
     /// Bind group layouts by the slots they were made for, so programs with equal slots at a set
     /// share one. Programs are built through `&self`, hence the lock.
     set_layouts: Mutex<HashMap<blake3::Hash, wgpu::BindGroupLayout>>,
+    /// Whether the device binds a format as a storage image with an access, found by trying it.
+    storage_support: Mutex<HashMap<(wgpu::TextureFormat, wgpu::StorageTextureAccess), bool>>,
     pub(crate) render_pipelines: HashMap<blake3::Hash, wgpu::RenderPipeline>,
     pub(crate) compute_pipelines: HashMap<blake3::Hash, wgpu::ComputePipeline>,
     pub(crate) counters: Counters,
@@ -93,6 +95,7 @@ impl ProgramRuntime {
             sampler,
             modules: HashMap::new(),
             set_layouts: Mutex::new(HashMap::new()),
+            storage_support: Mutex::new(HashMap::new()),
             render_pipelines: HashMap::new(),
             compute_pipelines: HashMap::new(),
             counters: Counters::default(),
@@ -180,6 +183,67 @@ impl ProgramRuntime {
         shares: Vec<Arc<Reservation>>,
     ) -> Result<(), ProgramError> {
         Pins::new(&self.authority, shares).retain(encoder)
+    }
+
+    /// Whether the device binds `format` as a storage image with `access`, which also decides
+    /// whether a texture of the format may be created for it. The device is asked once for each
+    /// pair, by creating a layout entry and a one-texel texture and seeing whether it validates,
+    /// so the answer includes the adapter's own format features and the features the device was
+    /// made with.
+    #[must_use]
+    pub fn supports_storage_image(
+        &self,
+        format: wgpu::TextureFormat,
+        access: wgpu::StorageTextureAccess,
+    ) -> bool {
+        let known = self
+            .storage_support
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&(format, access))
+            .copied();
+        if let Some(known) = known {
+            return known;
+        }
+        let supported = self
+            .guarded(|| {
+                let entry = wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access,
+                        format,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                };
+                let _layout =
+                    self.device
+                        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                            label: Some("render-program storage probe"),
+                            entries: &[entry],
+                        });
+                let _texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("render-program storage probe"),
+                    size: wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                });
+            })
+            .is_ok();
+        self.storage_support
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((format, access), supported);
+        supported
     }
 
     /// Shader modules compiled so far; stages of one source share one.

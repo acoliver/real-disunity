@@ -299,6 +299,65 @@ impl ProgramRuntime {
         Ok(self.store.add_texture(entry(texture), reservation))
     }
 
+    /// Creates a texture that kernels bind as a storage image and draws sample, holding zeros.
+    /// `size` is width, height and, for a 2D texture, the number of array layers or, for a 3D
+    /// texture, the depth; `dimension` is 2D or 3D. It has one mip level, can be copied from and
+    /// to, and is bound for storage through its first and only mip level.
+    ///
+    /// # Errors
+    /// Fails with `UnsupportedStorageFormat` when the device cannot bind `format` as a storage
+    /// image, and when the dimension is not 2D or 3D, the size has a zero, or the budget
+    /// or the device refuses the texture.
+    pub fn create_storage_texture(
+        &mut self,
+        label: &str,
+        size: [u32; 3],
+        dimension: wgpu::TextureDimension,
+        format: wgpu::TextureFormat,
+    ) -> Result<TextureHandle, ProgramError> {
+        self.authority.check_device()?;
+        if dimension == wgpu::TextureDimension::D1 || size.contains(&0) {
+            return Err(ProgramError::InvalidAllocation(
+                "a storage texture is 2D or 3D and has no empty side",
+            ));
+        }
+        // A texture that one access can bind may be bound with any weaker one.
+        let access = wgpu::StorageTextureAccess::WriteOnly;
+        if !self.supports_storage_image(format, access) {
+            return Err(ProgramError::UnsupportedStorageFormat { format, access });
+        }
+        let mut allocations = AllocationSet::default();
+        allocations.texture("render-program storage texture", size, format, [1, 1], 1);
+        let note = Note::new(
+            label,
+            format!(
+                "{}x{}x{} {dimension:?} {format:?} storage",
+                size[0], size[1], size[2]
+            ),
+        );
+        let reservation = self.admit(allocations, note)?;
+        let texture = self.guarded(|| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: size[0],
+                    height: size[1],
+                    depth_or_array_layers: size[2],
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension,
+                format,
+                usage: wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            })
+        })?;
+        Ok(self.store.add_texture(entry(texture), reservation))
+    }
+
     /// The wgpu texture behind a handle.
     pub(crate) fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
         Ok(self.store.texture(handle)?.texture.clone())

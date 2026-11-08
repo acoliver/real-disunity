@@ -101,6 +101,13 @@ pub enum ResourceKind {
     },
     /// Filtering, non-filtering and comparison samplers are distinct kinds.
     Sampler(SamplerBindingType),
+    /// A texture a shader reads or writes texel by texel. The access, the format and the
+    /// dimension of the view are all the shader's declaration.
+    StorageImage {
+        access: wgpu::StorageTextureAccess,
+        format: wgpu::TextureFormat,
+        dimension: wgpu::TextureViewDimension,
+    },
 }
 
 impl ResourceKind {
@@ -134,6 +141,15 @@ impl ResourceKind {
                 multisampled: *multisampled,
             }),
             BindingType::Sampler(kind) => Some(Self::Sampler(*kind)),
+            BindingType::StorageTexture {
+                access,
+                format,
+                view_dimension,
+            } => Some(Self::StorageImage {
+                access: *access,
+                format: *format,
+                dimension: *view_dimension,
+            }),
             _ => None,
         }
     }
@@ -143,7 +159,7 @@ impl ResourceKind {
     pub fn min_size(&self) -> u64 {
         match self {
             Self::Uniform { min_size } | Self::Storage { min_size, .. } => *min_size,
-            Self::Texture { .. } | Self::Sampler(_) => 0,
+            Self::Texture { .. } | Self::Sampler(_) | Self::StorageImage { .. } => 0,
         }
     }
 
@@ -291,6 +307,44 @@ mod tests {
         assert!(!texture(unfilterable, d2, true).same_class(&shader));
         let sampler = ResourceKind::Sampler(SamplerBindingType::NonFiltering);
         assert!(!sampler.same_class(&BindingType::Sampler(SamplerBindingType::Filtering)));
+    }
+
+    #[test]
+    fn a_storage_image_kind_names_access_format_and_dimension() {
+        let shader = BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::WriteOnly,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            view_dimension: wgpu::TextureViewDimension::D2,
+        };
+        let kind = ResourceKind::of_binding_type(&shader, 0).unwrap();
+        assert!(kind.matches(&shader));
+        assert!(kind.same_class(&shader));
+        for other in [
+            BindingType::StorageTexture {
+                access: wgpu::StorageTextureAccess::ReadWrite,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                view_dimension: wgpu::TextureViewDimension::D2,
+            },
+            BindingType::StorageTexture {
+                access: wgpu::StorageTextureAccess::WriteOnly,
+                format: wgpu::TextureFormat::R32Float,
+                view_dimension: wgpu::TextureViewDimension::D2,
+            },
+            BindingType::StorageTexture {
+                access: wgpu::StorageTextureAccess::WriteOnly,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                view_dimension: wgpu::TextureViewDimension::D3,
+            },
+            BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+        ] {
+            assert!(!kind.matches(&other), "{other:?}");
+            assert!(!kind.same_class(&other), "{other:?}");
+        }
+        assert_eq!(kind.min_size(), 0);
     }
 
     #[test]

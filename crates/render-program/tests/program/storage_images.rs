@@ -100,7 +100,7 @@ fn a_storage_image_reflects_with_its_access_format_and_dimension() {
 
 #[test]
 fn a_storage_image_the_entry_point_does_not_use_is_not_reflected() {
-    let stage = kernel("@group(0) @binding(0) var image: texture_storage_2d<rgba8unorm, write>;")
-        .unwrap();
+    let stage =
+        kernel("@group(0) @binding(0) var image: texture_storage_2d<rgba8unorm, write>;").unwrap();
     assert!(stage.resources().is_empty());
 }

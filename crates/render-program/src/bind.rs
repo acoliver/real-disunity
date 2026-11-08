@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use crate::binding::{BindingAddress, BindingSource, EngineSemantic};
 use crate::budget::Reservation;
-use crate::error::ProgramError;
+use crate::error::{ProgramError, StorageImageError};
 use crate::import::{Import, ImportedResource, default_dimension};
 use crate::layout::Slot;
-use crate::program::GpuLayout;
+use crate::program::{ComputeProgram, GpuLayout};
 use crate::resources::{BoundResource, Resource};
 use crate::runtime::ProgramRuntime;
 use crate::set::{ImportTable, PreparedSet};
@@ -79,6 +79,7 @@ impl ProgramRuntime {
         check_prepared(gpu, prepared, self.registry.runtime())?;
         check_bound(gpu, bound, snapshots, prepared)?;
         check_imports(gpu, imports, prepared)?;
+        self.check_aliasing(gpu, bound, imports)?;
         let sources = Sources {
             bound,
             snapshots,
@@ -106,13 +107,17 @@ impl ProgramRuntime {
         (set, layout): (u32, &wgpu::BindGroupLayout),
         sources: Sources<'_>,
     ) -> Result<wgpu::BindGroup, ProgramError> {
-        let mut entries = Vec::new();
+        let mut resolved = Vec::new();
         for slot in gpu.layout.slots().iter().filter(|s| s.set == set) {
-            entries.push(wgpu::BindGroupEntry {
-                binding: slot.binding,
-                resource: self.slot_resource(slot, sources)?,
-            });
+            resolved.push((slot.binding, self.slot_resource(slot, sources)?));
         }
+        let entries: Vec<_> = resolved
+            .iter()
+            .map(|(binding, resource)| wgpu::BindGroupEntry {
+                binding: *binding,
+                resource: resource.entry(),
+            })
+            .collect();
         let group = self.guarded(|| {
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("render-program bind group"),
@@ -132,7 +137,7 @@ impl ProgramRuntime {
             snapshots,
             imports,
         }: Sources<'a>,
-    ) -> Result<wgpu::BindingResource<'a>, ProgramError> {
+    ) -> Result<Resolved<'a>, ProgramError> {
         if let BindingSource::Engine(semantic) = &slot.source {
             let import = imports
                 .find(semantic)
@@ -141,17 +146,19 @@ impl ProgramRuntime {
                     set: slot.set,
                     binding: slot.binding,
                 })?;
-            return imported_resource(slot, import);
+            return imported_resource(slot, import).map(Resolved::Borrowed);
         }
         if matches!(slot.ty, wgpu::BindingType::Sampler(_)) {
-            return Ok(wgpu::BindingResource::Sampler(&self.sampler));
+            return Ok(Resolved::Borrowed(wgpu::BindingResource::Sampler(
+                &self.sampler,
+            )));
         }
         let address = BindingAddress {
             set: slot.set,
             binding: slot.binding,
         };
         if let Some(snapshot) = snapshots.iter().find(|snapshot| snapshot.at == address) {
-            return snapshot_resource(slot, snapshot);
+            return snapshot_resource(slot, snapshot).map(Resolved::Borrowed);
         }
         let missing = ProgramError::MissingBinding {
             set: slot.set,
@@ -172,12 +179,32 @@ impl ProgramRuntime {
                         have: entry.len,
                     });
                 }
-                Ok(entry.buffer.as_entire_binding())
+                Ok(Resolved::Borrowed(entry.buffer.as_entire_binding()))
             }
             (wgpu::BindingType::Texture { .. }, Resource::Texture(handle)) => {
                 let entry = self.store.texture(handle)?;
                 check_texture(slot, &entry.texture, default_dimension(&entry.texture))?;
-                Ok(wgpu::BindingResource::TextureView(&entry.view))
+                Ok(Resolved::Borrowed(wgpu::BindingResource::TextureView(
+                    &entry.view,
+                )))
+            }
+            (
+                wgpu::BindingType::StorageTexture { view_dimension, .. },
+                Resource::Texture(handle),
+            ) => {
+                let entry = self.store.texture(handle)?;
+                check_storage_image(slot, &entry.texture, None)?;
+                // A storage binding takes one mip level, so the view is made for the slot.
+                let view = self.guarded(|| {
+                    entry.texture.create_view(&wgpu::TextureViewDescriptor {
+                        label: Some("render-program storage view"),
+                        dimension: Some(*view_dimension),
+                        base_mip_level: 0,
+                        mip_level_count: Some(1),
+                        ..wgpu::TextureViewDescriptor::default()
+                    })
+                })?;
+                Ok(Resolved::Owned(view))
             }
             (expected, found) => Err(ProgramError::WrongResource {
                 set: slot.set,
@@ -185,6 +212,22 @@ impl ProgramRuntime {
                 expected: format!("{expected:?}"),
                 found: format!("{found:?}"),
             }),
+        }
+    }
+}
+
+/// What a slot's bind group entry holds: a resource that outlives the group's construction, or a
+/// view made for the slot, which does not.
+enum Resolved<'a> {
+    Borrowed(wgpu::BindingResource<'a>),
+    Owned(wgpu::TextureView),
+}
+
+impl Resolved<'_> {
+    fn entry(&self) -> wgpu::BindingResource<'_> {
+        match self {
+            Self::Borrowed(resource) => resource.clone(),
+            Self::Owned(view) => wgpu::BindingResource::TextureView(view),
         }
     }
 }
@@ -208,6 +251,10 @@ fn imported_resource<'a>(
         }
         (wgpu::BindingType::Texture { .. }, ImportedResource::Texture(texture)) => {
             check_texture(slot, &texture.texture, texture.dimension)?;
+            Ok(wgpu::BindingResource::TextureView(&texture.view))
+        }
+        (wgpu::BindingType::StorageTexture { .. }, ImportedResource::Texture(texture)) => {
+            check_storage_image(slot, &texture.texture, Some(texture.dimension))?;
             Ok(wgpu::BindingResource::TextureView(&texture.view))
         }
         (wgpu::BindingType::Sampler(_), ImportedResource::Sampler(sampler)) => {
@@ -416,4 +463,145 @@ fn check_texture(
             texture.format()
         ),
     })
+}
+
+/// Whether the slot lets the shader write the texture.
+fn writes(slot: &Slot) -> bool {
+    matches!(
+        slot.ty,
+        wgpu::BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::WriteOnly
+                | wgpu::StorageTextureAccess::ReadWrite
+                | wgpu::StorageTextureAccess::Atomic,
+            ..
+        }
+    )
+}
+
+impl ProgramRuntime {
+    /// Checks the storage images of a dispatch or draw without recording anything: every texture
+    /// bound to a storage image slot suits it, and no texture a pass writes is bound twice.
+    ///
+    /// # Errors
+    /// Fails with `StorageImage` for a texture that does not suit its slot, with
+    /// `AliasedTexture` for a texture bound to two slots of which one writes it, and on a handle
+    /// the runtime does not hold.
+    pub fn check_storage_images(
+        &self,
+        program: &ComputeProgram,
+        bound: &[BoundResource],
+    ) -> Result<(), ProgramError> {
+        let gpu = &program.gpu;
+        for item in bound {
+            let Some(slot) = gpu.layout.slot(item.set, item.binding) else {
+                continue;
+            };
+            if let (wgpu::BindingType::StorageTexture { .. }, Resource::Texture(handle)) =
+                (slot.ty, item.resource)
+            {
+                check_storage_image(slot, &self.store.texture(handle)?.texture, None)?;
+            }
+        }
+        self.check_aliasing(gpu, bound, &[])
+    }
+
+    /// A pass cannot use one texture as a storage image it writes and as anything else, so the
+    /// textures bound to the program's slots must differ wherever one of the slots writes.
+    fn check_aliasing(
+        &self,
+        gpu: &GpuLayout,
+        bound: &[BoundResource],
+        imports: &[Import],
+    ) -> Result<(), ProgramError> {
+        let mut uses: Vec<(&Slot, wgpu::Texture)> = Vec::new();
+        for item in bound {
+            if let (Some(slot), Resource::Texture(handle)) =
+                (gpu.layout.slot(item.set, item.binding), item.resource)
+            {
+                uses.push((slot, self.store.texture(handle)?.texture.clone()));
+            }
+        }
+        for import in imports {
+            let semantic = BindingSource::Engine(import.semantic.clone());
+            let slot = gpu.layout.slots().iter().find(|s| s.source == semantic);
+            if let (Some(slot), ImportedResource::Texture(texture)) = (slot, &import.resource) {
+                uses.push((slot, texture.texture.clone()));
+            }
+        }
+        uses.sort_by_key(|(slot, _)| (slot.set, slot.binding));
+        for (index, (first, texture)) in uses.iter().enumerate() {
+            let clash = uses[index + 1..]
+                .iter()
+                .find(|(second, other)| other == texture && (writes(first) || writes(second)));
+            if let Some((second, _)) = clash {
+                return Err(ProgramError::AliasedTexture {
+                    set: first.set,
+                    binding: first.binding,
+                    other_set: second.set,
+                    other_binding: second.binding,
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A bound texture suits a storage image slot when its format is the one the shader names, it
+/// allows storage binding, it has one sample per texel and its shape is the one the slot's view
+/// dimension takes: a 2D slot a texture of one layer, an array slot a 2D texture of any layers
+/// and a 3D slot a 3D texture. `view` is how a lent texture's view was made, when the owner
+/// states it; it must be the slot's dimension.
+fn check_storage_image(
+    slot: &Slot,
+    texture: &wgpu::Texture,
+    view: Option<wgpu::TextureViewDimension>,
+) -> Result<(), ProgramError> {
+    let wgpu::BindingType::StorageTexture {
+        format,
+        view_dimension,
+        ..
+    } = slot.ty
+    else {
+        return Ok(());
+    };
+    let refuse = |error| ProgramError::StorageImage {
+        set: slot.set,
+        binding: slot.binding,
+        error,
+    };
+    if texture.format() != format {
+        return Err(refuse(StorageImageError::Format {
+            declared: format,
+            found: texture.format(),
+        }));
+    }
+    if !texture
+        .usage()
+        .contains(wgpu::TextureUsages::STORAGE_BINDING)
+    {
+        return Err(refuse(StorageImageError::Usage {
+            usage: texture.usage(),
+        }));
+    }
+    if texture.sample_count() > 1 {
+        return Err(refuse(StorageImageError::Multisampled {
+            samples: texture.sample_count(),
+        }));
+    }
+    let layers = texture.depth_or_array_layers();
+    let shape = match (view_dimension, texture.dimension()) {
+        (wgpu::TextureViewDimension::D1, wgpu::TextureDimension::D1)
+        | (wgpu::TextureViewDimension::D2Array, wgpu::TextureDimension::D2)
+        | (wgpu::TextureViewDimension::D3, wgpu::TextureDimension::D3) => true,
+        (wgpu::TextureViewDimension::D2, wgpu::TextureDimension::D2) => layers == 1,
+        _ => false,
+    };
+    if !shape || view.is_some_and(|made| made != view_dimension) {
+        return Err(refuse(StorageImageError::Dimension {
+            declared: view_dimension,
+            found: texture.dimension(),
+            layers,
+        }));
+    }
+    Ok(())
 }

@@ -99,6 +99,29 @@ pub enum ProgramError {
         have: u64,
     },
     #[error(
+        "set {set} binding {binding} is a storage image the bound texture does not suit: {error}"
+    )]
+    StorageImage {
+        set: u32,
+        binding: u32,
+        error: StorageImageError,
+    },
+    #[error("the device cannot bind {format:?} as a storage image with {access:?} access")]
+    UnsupportedStorageFormat {
+        format: wgpu::TextureFormat,
+        access: wgpu::StorageTextureAccess,
+    },
+    #[error(
+        "set {set} binding {binding} and set {other_set} binding {other_binding} bind one texture \
+         and at least one of them writes it, which one pass cannot do"
+    )]
+    AliasedTexture {
+        set: u32,
+        binding: u32,
+        other_set: u32,
+        other_binding: u32,
+    },
+    #[error(
         "set {set} binding {binding} is a comparison sampler, which this renderer does not create"
     )]
     UnsupportedSampler { set: u32, binding: u32 },
@@ -172,6 +195,33 @@ pub enum ProgramError {
     Gpu(String),
     #[error("reading back from the GPU failed: {0}")]
     Readback(String),
+}
+
+/// Why a texture does not suit the storage image a shader declares.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum StorageImageError {
+    #[error("the shader declares {declared:?} and the texture is {found:?}")]
+    Format {
+        declared: wgpu::TextureFormat,
+        found: wgpu::TextureFormat,
+    },
+    #[error("the texture's usage {usage:?} does not include storage binding")]
+    Usage { usage: wgpu::TextureUsages },
+    #[error(
+        "the shader's {declared:?} view needs a texture of another shape than a {found:?} texture of {layers} layers"
+    )]
+    Dimension {
+        declared: wgpu::TextureViewDimension,
+        found: wgpu::TextureDimension,
+        layers: u32,
+    },
+    #[error("the texture has {samples} samples per texel and a storage image has one")]
+    Multisampled { samples: u32 },
+    #[error("the device cannot bind {format:?} as a storage image with {access:?} access")]
+    Unsupported {
+        format: wgpu::TextureFormat,
+        access: wgpu::StorageTextureAccess,
+    },
 }
 
 /// A pass the runtime does not draw into.

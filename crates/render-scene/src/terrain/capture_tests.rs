@@ -19,7 +19,7 @@ use wgpu::{BindGroup, CommandEncoder, RenderPass, TextureFormat};
 use worldrunner_render_plan::{RenderScene, SceneSsao, SceneSsaoReceiver};
 
 use crate::device::GpuContext;
-use crate::draw::{DrawCount, SceneGpu};
+use crate::draw::{DrawCount, SceneGpu, terrain_paths};
 use crate::dynamic::capture_tests::{
     Attachments, CONFIGS, Config, SIZE, build, context, copy_results, digest, fill, read_results,
     supported,
@@ -433,6 +433,7 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
     };
     let seeded: Option<Seed<'_>> = prepass.is_some().then_some(&seed);
     let mut scene_count = DrawCount::default();
+    let recorded = terrain_paths::recorded();
     let scene = render_depth(
         context,
         case.target,
@@ -445,6 +446,7 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
             scene_count = drawn.terrain;
         },
     );
+    assert_recorded_by_runtime(case, recorded);
     let mut fixed_count = DrawCount::default();
     let fixed = render_depth(
         context,
@@ -505,6 +507,32 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
         images: scene,
         scene: scene_count,
     }
+}
+
+/// The scene's terrain draw went through the program runtime, once, and the fixed terrain
+/// pipelines of its context were neither used nor built. Without this a fixed-path fallback
+/// would draw the same bytes as the frozen copy and pass.
+fn assert_recorded_by_runtime(case: &Case<'_>, before: terrain_paths::Recorded) {
+    let after = terrain_paths::recorded();
+    let name = format!("{} {} {:?}", case.name, case.source, case.pipelines.depth);
+    assert_eq!(
+        after.runtime,
+        before.runtime + 1,
+        "{name}: terrain was not recorded through the program runtime"
+    );
+    assert_eq!(
+        after.fixed, before.fixed,
+        "{name}: terrain fell back to the fixed path"
+    );
+    assert!(
+        !case.pipelines.fixed_terrain_built(),
+        "{name}: a fixed terrain pipeline was built"
+    );
+    let stats = case.pipelines.terrain_runtime_stats();
+    assert!(
+        stats.pipelines_built > 0 && stats.sets_prepared > 0,
+        "{name}: the context's runtime prepared no terrain pipeline or set: {stats:?}"
+    );
 }
 
 fn attachment_name(index: usize, colors: usize) -> String {

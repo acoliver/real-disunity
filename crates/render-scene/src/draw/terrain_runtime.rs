@@ -75,6 +75,8 @@ impl SceneGpu {
                 instances: 1,
             }
         };
+        #[cfg(test)]
+        paths::runtime();
         (count, true)
     }
 
@@ -121,6 +123,8 @@ impl SceneGpu {
                     pass.set_bind_group(2, shadow, &[]);
                 }
                 bound = true;
+                #[cfg(test)]
+                paths::fixed();
                 count = Self::draw_terrain_geometry(pass, terrain);
             }
         }
@@ -143,5 +147,42 @@ impl SceneGpu {
             calls: 1,
             instances: 1,
         }
+    }
+}
+
+/// How many times this thread recorded terrain through each path, for tests that prove a draw
+/// took the path it names. A terrain that draws nothing counts nowhere.
+#[cfg(test)]
+pub(crate) mod paths {
+    use std::cell::Cell;
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(crate) struct Recorded {
+        pub runtime: u64,
+        pub fixed: u64,
+    }
+
+    thread_local! {
+        static RECORDED: Cell<Recorded> = const { Cell::new(Recorded { runtime: 0, fixed: 0 }) };
+    }
+
+    pub(crate) fn recorded() -> Recorded {
+        RECORDED.get()
+    }
+
+    pub(super) fn runtime() {
+        let now = RECORDED.get();
+        RECORDED.set(Recorded {
+            runtime: now.runtime + 1,
+            ..now
+        });
+    }
+
+    pub(super) fn fixed() {
+        let now = RECORDED.get();
+        RECORDED.set(Recorded {
+            fixed: now.fixed + 1,
+            ..now
+        });
     }
 }

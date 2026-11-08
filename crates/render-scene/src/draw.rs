@@ -58,6 +58,8 @@ pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPage
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
+#[cfg(test)]
+pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};

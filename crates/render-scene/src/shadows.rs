@@ -514,9 +514,16 @@ impl ShadowedScene {
         let ((scheduler, fitting), (color, depth)) = (input, attachments);
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
+        scheduler.prepare_receiver_gradients(
+            context.device(),
+            &self.gpu,
+            self.settings.normal_bias_meters,
+        )?;
         scheduler.prepare_scene_inputs(context.device(), &self.gpu);
         let depth_mode = scheduler.forward_depth(&self.gpu, depth);
-        let selected = self.pipelines.for_depth(depth_mode);
+        let selected = scheduler
+            .receiver_pipelines(&self.pipelines)
+            .for_depth(depth_mode);
         self.gpu.prepare_dynamic(encoder, &selected)?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
@@ -537,6 +544,22 @@ impl ShadowedScene {
         );
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
+        let shadow_group = scheduler
+            .ssao
+            .as_ref()
+            .and_then(|screen| screen.receiver.as_ref())
+            .map_or_else(
+                || map.group.clone(),
+                |receiver| {
+                    crate::scene_metadata::receiver::group(
+                        context.device(),
+                        receiver,
+                        &map.uniform,
+                        map.depth.receiver_view(),
+                        &map.sampler,
+                    )
+                },
+            );
         let mut schedule =
             schedule::ShadowSchedule::new(&map.depth, color, depth, &selected, refresh)?;
         schedule.screen_space(scheduler, selected.writes_velocity(), depth_mode)?;
@@ -549,7 +572,7 @@ impl ShadowedScene {
             depth_pipelines: &self.depth_pipelines,
             terrain_depth_pipeline: &self.terrain_depth_pipeline,
             depth_frames: &self.depth_frames,
-            shadow_group: &map.group,
+            shadow_group: &shadow_group,
             cascades,
             refresh,
             frame,

@@ -42,6 +42,8 @@ fn presentation(context: &GpuContext, options: &crate::ViewerOptions) -> Present
         options.frame_profile,
         None,
         &PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: options.presentation_budget,
             capture_pool: crate::CapturePoolPolicy::default(),
             recipes: true,

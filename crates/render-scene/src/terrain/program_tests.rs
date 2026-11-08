@@ -162,3 +162,46 @@ fn terrain_uniform_declaration_covers_the_shader_block() {
         crate::frame::FRAME_UNIFORM_BYTES
     );
 }
+#[test]
+fn receiver_terrain_programs_load_payload_in_every_surface_and_depth_policy() {
+    use crate::renderer::depth::DepthMode;
+    use crate::scene_metadata::receiver::ReceiverLayout;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let layout = crate::shadows::water_layout(context.device());
+    let (object, terrain) = crate::shadows::receiver_sources(true, true, true);
+    let screen = crate::ssr::forward::layout(context.device());
+    let built = crate::renderer::ScenePipelines::with_screen_space(
+        context.device(),
+        (wgpu::TextureFormat::Rgba16Float, 1),
+        &object,
+        &terrain,
+        Some(&layout),
+        Some(&screen),
+    );
+    for receiver in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
+        for depth in [DepthMode::Independent, DepthMode::Shared, DepthMode::Reuse] {
+            let selected = built.for_receiver_gradients(receiver).for_depth(depth);
+            assert!(selected.terrain_on_runtime());
+            let terrain = selected.terrain_context();
+            for surface in SURFACES {
+                terrain
+                    .family()
+                    .with((context.device(), context.submission()), |runtime| {
+                        let program = terrain.program(runtime, surface).unwrap();
+                        let mut bindings: Vec<_> = program
+                            .fragment()
+                            .unwrap()
+                            .reflected()
+                            .iter()
+                            .filter(|slot| slot.set == 2)
+                            .map(|slot| slot.binding)
+                            .collect();
+                        bindings.sort_unstable();
+                        assert_eq!(bindings, vec![0, 1, 2, 3, 4], "{surface:?} {depth:?}");
+                        assert!(program.external_sets().contains(&2));
+                    });
+            }
+        }
+    }
+}

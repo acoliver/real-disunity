@@ -120,16 +120,20 @@ fn textured_resources(base: &RenderScene, terrain: bool) -> SceneResources {
 pub(super) fn reference_receiver() -> String {
     let current = include_str!("../../shader/shadows.wgsl");
     let original = include_str!("../../draw/tests/forward_reference/shadows.wgsl");
-    let section = |text: &str| {
-        text.split_once("fn single_shadow_visibility")
-            .unwrap()
-            .1
-            .split_once("fn direct_sunlight_visibility")
-            .unwrap()
-            .0
-            .to_owned()
-    };
-    current.replace(&section(current), &section(original))
+    let function = crate::scene_metadata::receiver::function_source;
+    let mut reference = current.to_owned();
+    for (name, frozen) in [
+        ("single_shadow_visibility", "single_shadow_visibility"),
+        ("cascaded_sunlight_visibility", "raw_sunlight_visibility"),
+    ] {
+        let replacement = function(original, frozen).replacen(
+            &format!("fn {frozen}("),
+            &format!("fn {name}("),
+            1,
+        );
+        reference = reference.replace(function(current, name), &replacement);
+    }
+    reference
 }
 
 fn reference_pipelines(context: &GpuContext, renderer: &ShadowedScene) -> ScenePipelines {
@@ -148,6 +152,30 @@ fn reference_pipelines(context: &GpuContext, renderer: &ShadowedScene) -> SceneP
     pipelines
 }
 
+#[test]
+fn frozen_receiver_keeps_its_solver_inside_the_current_visibility_fade() {
+    let current = include_str!("../../shader/shadows.wgsl");
+    let frozen = include_str!("../../draw/tests/forward_reference/shadows.wgsl");
+    let reference = reference_receiver();
+    let function = crate::scene_metadata::receiver::function_source;
+    assert_eq!(
+        function(&reference, "cascaded_sunlight_visibility"),
+        function(frozen, "raw_sunlight_visibility").replacen(
+            "fn raw_sunlight_visibility(",
+            "fn cascaded_sunlight_visibility(",
+            1,
+        ),
+    );
+    assert_eq!(
+        function(&reference, "single_shadow_visibility"),
+        function(frozen, "single_shadow_visibility"),
+    );
+    assert_eq!(
+        function(&reference, "raw_sunlight_visibility"),
+        function(current, "raw_sunlight_visibility"),
+    );
+}
+
 fn capture(
     context: &GpuContext,
     source: &RenderScene,
@@ -155,6 +183,7 @@ fn capture(
     options: (bool, bool),
 ) -> Vec<u8> {
     let (independent, reference) = options;
+
     let size = [view.viewport().width, view.viewport().height];
     let mut frame = FrameRenderer::hdr(
         context,

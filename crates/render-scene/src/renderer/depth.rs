@@ -19,7 +19,11 @@ pub(crate) enum DepthMode {
 
 impl DepthMode {
     pub(crate) fn vertex_source(self, source: &str) -> std::borrow::Cow<'_, str> {
-        if self == Self::Independent {
+        // Paired displacement producers and consumers retain one raster-position contract.
+        if self == Self::Independent
+            && !source.contains("fn scene_receiver_load(")
+            && !source.contains("fn scene_capture_receiver(")
+        {
             std::borrow::Cow::Owned(
                 source.replace("@invariant @builtin(position)", "@builtin(position)"),
             )
@@ -109,6 +113,44 @@ mod tests {
             );
             assert_eq!(mode.state(false).depth_write_enabled, Some(false));
             assert_eq!(mode.state(true).stencil, StencilState::default());
+        }
+    }
+
+    #[test]
+    fn stored_receiver_pairs_keep_invariant_positions_on_independent_depth() {
+        use crate::scene_metadata::{
+            MetadataOutput,
+            receiver::{ReceiverLayout, consumer_source, producer_sources},
+        };
+        for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
+            for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
+                let (object, terrain) = producer_sources(output, layout, 0.012);
+                for source in [&object, &terrain] {
+                    assert_eq!(
+                        DepthMode::Independent.vertex_source(source).as_ref(),
+                        source.as_str()
+                    );
+                }
+            }
+        }
+        for reflection in [false, true] {
+            for velocity in [false, true] {
+                let (object, terrain) =
+                    crate::shadows::receiver_sources(true, reflection, velocity);
+                for (source, terrain) in [(&object, false), (&terrain, true)] {
+                    let paired = consumer_source(source, ReceiverLayout::Front, terrain);
+                    assert!(paired.contains("@invariant @builtin(position)"));
+                    assert_eq!(
+                        DepthMode::Independent.vertex_source(&paired).as_ref(),
+                        paired.as_str()
+                    );
+                    assert!(
+                        !DepthMode::Independent
+                            .vertex_source(source)
+                            .contains("@invariant @builtin(position)")
+                    );
+                }
+            }
         }
     }
 }

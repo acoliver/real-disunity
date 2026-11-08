@@ -123,7 +123,6 @@ impl ScenePipelines {
                     (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
-                selected.terrain_on_runtime = self.terrain_on_runtime;
                 selected
             })
             .clone()
@@ -162,7 +161,6 @@ impl ScenePipelines {
                     (spec.options, &spec.family),
                 );
                 selected.ssao = self.ssao;
-                selected.terrain_on_runtime = self.terrain_on_runtime;
                 selected
             })
             .clone()
@@ -216,7 +214,6 @@ impl ScenePipelines {
                     (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
-                selected.terrain_on_runtime = self.terrain_on_runtime;
                 selected
             })
             .clone()

@@ -29,9 +29,11 @@ use crate::renderer::ScenePipelines;
 use crate::renderer::depth::DepthMode;
 
 mod legacy;
+pub(in crate::terrain) mod prepass;
 pub(super) mod scenes;
 mod shadow;
 pub(super) mod streaming;
+mod terms;
 mod variants;
 
 pub(super) use legacy::Legacy;

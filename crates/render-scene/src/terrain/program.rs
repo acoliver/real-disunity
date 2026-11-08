@@ -57,6 +57,7 @@ pub(crate) mod semantic {
     pub(crate) const SHADOW: &str = "scene.shadow";
     pub(crate) const SHADOW_DEPTH: &str = "scene.shadow.depth";
     pub(crate) const SHADOW_SAMPLER: &str = "scene.shadow.sampler";
+    pub(crate) const SCREEN: &str = "scene.screen";
     pub(crate) const AMBIENT: &str = "scene.ao";
     pub(crate) const AMBIENT_RECEIVER: &str = "scene.ao.receiver";
     pub(crate) const ENVIRONMENT_SPECULAR: &str = "scene.environment.specular";
@@ -311,7 +312,14 @@ fn shadow_bindings() -> ResourceLayout {
     ])
 }
 
-/// What the screen group at set 3 holds in a forward context.
+/// How the prepass terrain source declares its camera uniform, which `ssao/camera.wgsl` owns.
+const CAMERA_DECLARATION: &str = "var<uniform> screen: ScreenCamera;";
+
+/// The view, projection and inverse projection matrices and the two settings vectors of the
+/// camera uniform: `ScreenCamera` in `ssao/camera.wgsl`.
+const CAMERA_BYTES: u64 = 3 * 64 + 2 * 16;
+
+/// What the screen group at set 3 holds in a context.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Screen {
     /// The filtered ambient occlusion, read at the fragment's own texel.
@@ -322,14 +330,16 @@ pub(crate) enum Screen {
     Reflection,
     /// The reflection environment and the gather's view matrix.
     ReflectionGather,
+    /// The camera uniform the metadata prepass reads to write view-space normals.
+    Camera,
 }
 
 impl Screen {
     /// The screen of a context whose terrain source is `source`, or `None` for a source no
-    /// forward context makes (the metadata prepass).
+    /// context makes.
     pub(crate) fn of(source: &str) -> Option<Self> {
         let gather = source.contains("fn receiver_gather(");
-        if source.contains("struct ReflectionOutput") {
+        if source.contains("struct ReflectionOutput") || source.contains("fn forward_reflection(") {
             Some(if gather {
                 Self::ReflectionGather
             } else {
@@ -341,6 +351,8 @@ impl Screen {
             } else {
                 Self::Ambient
             })
+        } else if source.contains(CAMERA_DECLARATION) {
+            Some(Self::Camera)
         } else {
             None
         }
@@ -349,6 +361,16 @@ impl Screen {
     fn bindings(self) -> ResourceLayout {
         use wgpu::TextureViewDimension::{Cube, D2};
         let fragment = ShaderStages::FRAGMENT;
+        if self == Self::Camera {
+            return ResourceLayout::new(vec![declare(
+                (3, 0),
+                semantic::SCREEN,
+                fragment,
+                ResourceKind::Uniform {
+                    min_size: CAMERA_BYTES,
+                },
+            )]);
+        }
         let ambient = declare(
             (3, 0),
             semantic::AMBIENT,
@@ -412,9 +434,39 @@ pub(crate) struct Description {
 #[derive(Clone, Default)]
 pub(crate) struct Family(Rc<FamilyState>);
 
-#[derive(Default)]
 struct FamilyState {
+    id: u64,
     runtime: RefCell<Option<ProgramRuntime>>,
+}
+
+impl Default for FamilyState {
+    fn default() -> Self {
+        Self {
+            id: FAMILIES.fetch_add(1, Ordering::Relaxed),
+            runtime: RefCell::default(),
+        }
+    }
+}
+
+/// A family that does not keep its runtime alive, for a draw's caches to tell when the pipelines
+/// they were made for are gone.
+#[derive(Clone, Debug)]
+pub(crate) struct WeakFamily(std::rc::Weak<FamilyState>);
+
+impl WeakFamily {
+    pub(crate) fn alive(&self) -> bool {
+        self.0.strong_count() > 0
+    }
+}
+
+/// A context that does not keep its programs alive.
+#[derive(Clone, Debug)]
+pub(crate) struct WeakContext(std::rc::Weak<ContextState>);
+
+impl WeakContext {
+    pub(crate) fn alive(&self) -> bool {
+        self.0.strong_count() > 0
+    }
 }
 
 impl std::fmt::Debug for Family {
@@ -426,6 +478,15 @@ impl std::fmt::Debug for Family {
 }
 
 impl Family {
+    /// Names the runtime, which prepared sets are built against and cannot be used with another.
+    pub(crate) fn id(&self) -> u64 {
+        self.0.id
+    }
+
+    pub(crate) fn downgrade(&self) -> WeakFamily {
+        WeakFamily(Rc::downgrade(&self.0))
+    }
+
     /// What the runtime has built so far.
     pub(crate) fn stats(&self) -> RuntimeStats {
         self.0
@@ -450,6 +511,7 @@ impl Family {
 }
 
 static CONTEXTS: AtomicU64 = AtomicU64::new(0);
+static FAMILIES: AtomicU64 = AtomicU64::new(0);
 
 /// The terrain programs of one `ScenePipelines`: made on first use, one per surface source.
 #[derive(Clone)]
@@ -491,6 +553,10 @@ impl Context {
         self.0.id
     }
 
+    pub(crate) fn downgrade(&self) -> WeakContext {
+        WeakContext(Rc::downgrade(&self.0))
+    }
+
     pub(crate) fn family(&self) -> &Family {
         &self.0.family
     }
@@ -499,8 +565,8 @@ impl Context {
         &self.0.description.device
     }
 
-    /// Whether the context's screen group is one a forward context makes. A group of any other
-    /// shape, such as the metadata prepass's camera uniform, is drawn with the fixed pipelines.
+    /// Whether the context's screen group is one the program lends. A group of any other shape is
+    /// drawn with the fixed pipelines.
     pub(crate) fn on_runtime(&self) -> bool {
         self.0.description.screen.is_none() || self.0.screen.is_some()
     }

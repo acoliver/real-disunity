@@ -1,5 +1,5 @@
 //! How a [`ScenePipelines`] reaches its terrain: the programs on the runtime and the fixed
-//! pipelines it keeps for the passes that have not moved.
+//! pipelines it keeps for contexts whose screen group the program does not lend.
 
 use wgpu::{BindGroupLayout, RenderPipeline};
 
@@ -47,14 +47,6 @@ impl ScenePipelines {
 
     /// Whether terrain draws through the program runtime in this context.
     pub(crate) fn terrain_on_runtime(&self) -> bool {
-        self.terrain_on_runtime && self.terrain_context.on_runtime()
-    }
-
-    /// These pipelines with terrain kept on the fixed pipelines, for the passes that have not
-    /// moved to the program runtime.
-    #[must_use]
-    pub(crate) fn with_fixed_terrain(mut self) -> Self {
-        self.terrain_on_runtime = false;
-        self
+        self.terrain_context.on_runtime()
     }
 }

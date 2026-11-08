@@ -98,9 +98,6 @@ pub struct ScenePipelines {
     pub(crate) layered: Option<pages::Pair>,
     /// Terrain programs of this context on the program runtime.
     terrain_context: crate::terrain::program::Context,
-    /// Whether this context's terrain draws through the program runtime. The metadata prepass
-    /// and the capture terms keep the fixed pipelines until they move.
-    terrain_on_runtime: bool,
     /// The colour attachments of the pass the dynamic unlit-alpha material draws into, from the
     /// same target list the object pipelines have.
     unlit_colors: Vec<TextureFormat>,
@@ -321,7 +318,6 @@ impl ScenePipelines {
                 family,
             ),
             terrain_context,
-            terrain_on_runtime: true,
             color_format,
             samples,
             depth: options.2,

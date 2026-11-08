@@ -497,6 +497,23 @@ impl SceneGpu {
             .expect("set frame before drawing")
     }
 
+    /// The pipelines a draw in `frame` records with: the sibling of `pipelines` that matches the
+    /// scene's AO receiver and the frame's specular convention and winding.
+    fn selected_pipelines(
+        &self,
+        pipelines: &ScenePipelines,
+        frame: &FrameUniform,
+    ) -> ScenePipelines {
+        let receiver = self
+            .ssao
+            .map_or(worldrunner_render_plan::SceneSsaoReceiver::Nearest, |ao| {
+                ao.receiver
+            });
+        pipelines
+            .for_receiver(receiver)
+            .for_raster(frame.specular_convention, frame.front_face())
+    }
+
     // Pair both passes here so object batches, compacted instances and terrain primitives
     // retain the same API order. Stencil consumption depends on that order for depth ties.
     fn draw_color_pass(
@@ -510,13 +527,7 @@ impl SceneGpu {
             pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
         }
         let frame = self.drawing_uniform();
-        let receiver = self
-            .ssao
-            .map_or(worldrunner_render_plan::SceneSsaoReceiver::Nearest, |ao| {
-                ao.receiver
-            });
-        let selected = pipelines.for_receiver(receiver);
-        let selected = selected.for_raster(frame.specular_convention, frame.front_face());
+        let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);

@@ -127,13 +127,19 @@ fn derived_terrain_bindings_equal_the_declared_binding_table_for_each_surface_so
     }
 }
 
-/// The screen groups the forward contexts make are the ones the program lends, and the
-/// metadata prepass's camera uniform is not one of them.
+/// The screen groups the contexts make are the ones the program lends, recognized from the
+/// terrain source of the context, and a source with no screen group has none.
 #[test]
 fn screen_groups_are_recognized_from_the_terrain_source_of_their_context() {
+    use crate::scene_metadata::{MetadataOutput, sources};
     let ambient = crate::ssao::ambient_source(crate::shader::TERRAIN_WGSL);
     assert_eq!(Screen::of(&ambient), Some(Screen::Ambient));
     assert_eq!(Screen::of(crate::shader::TERRAIN_WGSL), None);
+    for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
+        assert_eq!(Screen::of(&sources(output).1), Some(Screen::Camera));
+    }
+    let replay = crate::ssr::forward::replay_source(&ambient, true);
+    assert_eq!(Screen::of(&replay), Some(Screen::Reflection));
 }
 
 fn struct_size(source: &str, name: &str) -> u32 {

@@ -520,6 +520,12 @@ impl ShadowedScene {
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
+        let screen = scheduler.geometry_for_depth(depth_mode);
+        if let Some(screen) = &screen {
+            self.gpu
+                .prepare_terrain(screen.prepass_pipelines(), &frame)?;
+        }
+        self.gpu.prepare_terrain(&selected, &frame)?;
         let mut cascades = Self::prepare_cascades(
             (&self.gpu, &self.effects, self.settings),
             view,
@@ -542,7 +548,7 @@ impl ShadowedScene {
         schedule.celestial(&self.gpu, context.device(), color.size());
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),
-            screen: scheduler.geometry_for_depth(depth_mode),
+            screen,
             gpu: &mut self.gpu,
             pipelines: &selected,
             depth_pipelines: &self.depth_pipelines,

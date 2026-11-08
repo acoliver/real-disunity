@@ -295,6 +295,19 @@ impl ScenePages {
         self.draw_slot().map(|slot| self.groups[slot].clone())
     }
 
+    /// The frame slot whose page table the draw that follows [`prepare`](Self::prepare) will
+    /// read, for preparing the draw before the frame commits. `None` when nothing was prepared
+    /// or the root page is not resident, which is also when the draw skips the surface. Unlike
+    /// [`draw_slot`](Self::draw_slot) it can be asked outside the drawing transaction, and it
+    /// does not check the pages against the cache, which the draw does.
+    pub fn prepared_slot(&self) -> Option<usize> {
+        self.selection.as_ref()?;
+        self.draw_residents
+            .iter()
+            .any(|page| page.key() == PageKey::ROOT)
+            .then_some(self.frame_slot)
+    }
+
     /// The frame slot whose page table the draw reads, or `None` when the root page is not
     /// resident and the surface is skipped for the frame.
     pub fn draw_slot(&self) -> Option<usize> {

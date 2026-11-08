@@ -7,7 +7,10 @@
 //! draw. The runtime path is held to the same arithmetic and to a steady state that builds no
 //! pipeline, module, bind group or set.
 
-use super::capture_tests::{Rig, Source, Target, render, scenes, streaming::settle};
+use super::capture_tests::{
+    Rig, Source, Target, prepass::pipelines as prepass_pipelines, render, render_depth, scenes,
+    streaming::settle,
+};
 use crate::dynamic::capture_tests::{CONFIGS, build, context};
 use crate::renderer::legacy_terrain::Counted;
 use std::ops::Range;
@@ -230,4 +233,118 @@ fn a_second_scene_shares_the_compiled_pipeline_and_the_fixed_pipelines_stay_unbu
         "each scene prepares its own material set"
     );
     assert!(!built.pipelines.fixed_terrain_built());
+}
+
+/// The metadata prepass prepares its pipeline before the pass opens, so the pass builds nothing,
+/// and frames after the first build nothing either, for both outputs and all depth modes the
+/// prepass is drawn in.
+#[test]
+fn the_prepass_prepares_before_its_pass_and_steady_state_frames_build_nothing() {
+    use crate::renderer::depth::DepthMode;
+    use crate::scene_metadata::MetadataOutput;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let frame = scenes::frame(scenes::pose());
+    for (name, output) in [
+        ("normal", MetadataOutput::Normal),
+        ("merged", MetadataOutput::Merged),
+    ] {
+        for mode in [DepthMode::Independent, DepthMode::Shared] {
+            let (built, group, formats) = prepass_pipelines(&context, &frame, output);
+            let rig = Rig::new(&context, &built, &scenes::plain(), (Source::Plain, frame));
+            let prepass = built.for_depth(mode);
+            let before = prepass.terrain_runtime_stats();
+            rig.gpu.prepare_terrain(&prepass, &frame).unwrap();
+            let prepared = prepass.terrain_runtime_stats();
+            assert!(
+                prepared.pipelines_built > before.pipelines_built,
+                "{name}: preparing builds the prepass pipeline: {prepared:?}"
+            );
+            let target = Target {
+                formats: &formats,
+                samples: 1,
+            };
+            let draw = || {
+                render_depth(
+                    &context,
+                    target,
+                    (mode, None),
+                    |_| {},
+                    |pass| {
+                        rig.gpu.draw_prepass(pass, &prepass, &group);
+                    },
+                );
+            };
+            draw();
+            assert_eq!(
+                prepass.terrain_runtime_stats(),
+                prepared,
+                "{name} {mode:?}: the pass found everything prepared"
+            );
+            for _ in 0..4 {
+                rig.gpu.prepare_terrain(&prepass, &frame).unwrap();
+                draw();
+            }
+            assert_eq!(
+                prepass.terrain_runtime_stats(),
+                prepared,
+                "{name} {mode:?}: steady-state prepass frames build nothing"
+            );
+            println!(
+                "TERRAIN-COST prepass output={name} depth={mode:?} before={before:?} after_prepare={prepared:?} after_five_frames=unchanged"
+            );
+        }
+    }
+}
+
+/// A term replay prepares before its pass opens, and a capture that replays again with the same
+/// pipelines builds nothing. Pipelines made for one replay and dropped do not accumulate in the
+/// terrain's caches.
+#[test]
+fn term_replays_prepare_before_the_pass_build_nothing_in_steady_state_and_leave_no_residue() {
+    use crate::compositor::terms::{CaptureTerm, TermCapture, pipelines_for};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let device = context.device();
+    let frame = scenes::frame(scenes::pose());
+    let seed = pipelines_for(device, CaptureTerm::Albedo, None, None);
+    let rig = Rig::new(&context, &seed, &scenes::plain(), (Source::Plain, frame));
+    let replay = |capture: &TermCapture, pipelines: &crate::renderer::ScenePipelines| {
+        let mut encoder = context.submission().begin(device).unwrap();
+        capture.replay(&mut encoder, &rig.gpu, pipelines, (None, None));
+        encoder.finish().submit().unwrap();
+    };
+    let capture = TermCapture::new(
+        device,
+        [crate::dynamic::capture_tests::SIZE; 2],
+        CaptureTerm::Albedo,
+    );
+    let pipelines = pipelines_for(device, CaptureTerm::Albedo, None, None);
+    let before = pipelines.terrain_runtime_stats();
+    replay(&capture, &pipelines);
+    let first = pipelines.terrain_runtime_stats();
+    assert!(first.pipelines_built > before.pipelines_built, "{first:?}");
+    for _ in 0..4 {
+        replay(&capture, &pipelines);
+    }
+    assert_eq!(pipelines.terrain_runtime_stats(), first);
+    drop(pipelines);
+    for term in [
+        CaptureTerm::DirectDiffuse,
+        CaptureTerm::SunSpecular,
+        CaptureTerm::Albedo,
+        CaptureTerm::AmbientDiffuse,
+        CaptureTerm::SunVisibility,
+    ] {
+        let fresh = pipelines_for(device, term, None, None);
+        replay(&capture, &fresh);
+    }
+    let (pipelines_kept, sets_kept) = rig.gpu.kept_terrain();
+    assert!(
+        pipelines_kept <= 2 && sets_kept <= 2,
+        "replays of dropped pipelines left {pipelines_kept} pipelines and {sets_kept} sets"
+    );
+    println!(
+        "TERRAIN-COST term_replay first={first:?} after_four_more=unchanged kept_after_five_fresh_replays=({pipelines_kept}, {sets_kept})"
+    );
 }

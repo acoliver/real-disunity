@@ -432,7 +432,12 @@ The default reserves both receivers for dynamic scene admission; `Front` reserve
 24 bytes per metadata pixel and `None` excludes paired shadow receivers. The
 viewer selects `None` without shadows, `Front` for zero normal bias and `Opposing`
 for biased shadows that can gain transmission materials. Textures are created
-only when live shadow receivers need them. Admission rejects a layout
+at the reserved maximum layout when live shadow receivers first need them, and
+remain owned by that metadata allocation generation even while receivers are
+absent. Front/opposing layout, bias and output changes specialize the producer
+and select views of the same backing without allocating replacement textures.
+Reconfiguration or resize replaces the metadata generation through its existing
+allocation accounting. Admission rejects a layout
 that exceeds the reservation, device colour-attachment count and byte limits, or
 the complete forward context's fragment sampled-texture limit, before receiver
 pipeline creation or drawing. Uncached layered terrain with reflections and a
@@ -448,7 +453,7 @@ loops or varying control flow. A relief-depth dependency guard compares shared
 reconstruction inputs and return paths. These source guards do not establish
 cross-pipeline fragment arithmetic invariance on every backend. GPU attachment
 differentials check forward colour, metadata, depth, velocity and receiver payloads.
-The blend fraction is in millionths; zero disables blending. Array layer count
+The blend fraction is in millionths; zero disables blending. Active receiver layout
 changes take effect at the next encode without replacing resident scene handles.
 Coverage values exceeding the adapter's u32 millimetre range are rejected during fit.
 

@@ -24,50 +24,24 @@ impl ReceiverPayload {
         metadata: &super::super::SceneMetadata,
         layout: ReceiverLayout,
         bias: f32,
-    ) -> Result<Self, FrameError> {
+    ) -> Self {
         let output = Self::output_for(metadata);
-        layout
-            .validate(
-                &device.limits(),
-                if metadata.geometry.merged.is_some() {
-                    2
-                } else {
-                    1
-                },
-            )
-            .map_err(FrameError::UnsupportedEffect)?;
         let sources = super::producer_sources(output, layout, bias);
         let pipelines =
             super::super::geometry::pipelines_from_sources(device, &metadata.uniform, &sources).0;
-        let textures = [
-            wgpu::TextureFormat::Rgba32Float,
-            wgpu::TextureFormat::Rg32Float,
-        ]
-        .map(|format| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("receiver displacements"),
-                size: wgpu::Extent3d {
-                    width: metadata.size[0],
-                    height: metadata.size[1],
-                    depth_or_array_layers: layout.sides(),
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
-            })
-        });
-        Ok(Self {
+        let textures = metadata
+            .receiver_backing
+            .as_ref()
+            .expect("admitted receiver backing")
+            .textures
+            .clone();
+        Self {
             layout,
             bias,
             output,
             textures,
             pipelines,
-        })
+        }
     }
     pub(crate) fn resource(index: u32, side: u32) -> ResourceRef {
         ResourceRef {
@@ -106,6 +80,7 @@ impl ReceiverPayload {
         self.textures.each_ref().map(|texture| {
             texture.create_view(&wgpu::TextureViewDescriptor {
                 dimension: Some(wgpu::TextureViewDimension::D2Array),
+                array_layer_count: Some(self.layout.sides()),
                 ..Default::default()
             })
         })

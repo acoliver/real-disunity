@@ -1,5 +1,7 @@
 //! Lossless primitive receiver displacements, produced once at pixel centres.
 mod admission;
+mod backing;
+pub(crate) use backing::ReceiverBacking;
 mod bindings;
 mod reservation;
 pub(crate) use bindings::{group, shadow_layout};
@@ -191,12 +193,19 @@ impl crate::compositor::FrameRenderer {
                 },
                 gpu.terrain_surface(),
             )?;
+            let reserved = self
+                .receiver_gradients
+                .layout()
+                .expect("admitted receiver layout");
+            screen
+                .receiver_backing
+                .get_or_insert_with(|| ReceiverBacking::new(device, screen.size, reserved));
             if screen.receiver.as_ref().is_none_or(|receiver| {
                 receiver.layout != layout
                     || receiver.bias.to_bits() != bias.to_bits()
                     || receiver.output != output
             }) {
-                screen.receiver = Some(ReceiverPayload::new(device, screen, layout, bias)?);
+                screen.receiver = Some(ReceiverPayload::new(device, screen, layout, bias));
             }
         }
         Ok(())

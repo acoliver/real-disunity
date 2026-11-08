@@ -33,6 +33,7 @@ pub(crate) struct SceneMetadata {
     pub(crate) independent_depth: wgpu::Texture,
     pub geometry: Geometry,
     pub(crate) receiver: Option<receiver::ReceiverPayload>,
+    pub(crate) receiver_backing: Option<receiver::ReceiverBacking>,
     pub passes: crate::ssao::passes::ScreenPasses,
     pub(crate) uniform: wgpu::Buffer,
 }
@@ -79,6 +80,7 @@ impl SceneMetadata {
             },
             passes,
             receiver: None,
+            receiver_backing: None,
             uniform,
         })
     }

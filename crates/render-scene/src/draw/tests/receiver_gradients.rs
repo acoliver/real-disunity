@@ -7,6 +7,8 @@ use worldrunner_render_post::ToneMap;
 
 const OFFSET: [i64; 2] = [973_000, 887_000];
 const TERRAIN_SIDE: u32 = 129;
+#[path = "receiver_gradient_backing.rs"]
+mod backing;
 #[path = "receiver_gradient_control.rs"]
 mod streamed;
 
@@ -492,6 +494,12 @@ fn gpu_receiver_payload_allocation_tracks_live_receivers_samples_and_reservation
         );
         assert!(renderer.ssao.as_ref().unwrap().receiver.is_none());
         renderer.receiver_gradients = ReceiverGradientReservation::Front;
+        assert!(
+            renderer
+                .prepare_receiver_gradients(device, &gpu, 0.012)
+                .is_err()
+        );
+        renderer.receiver_gradients = ReceiverGradientReservation::Opposing;
         renderer
             .prepare_receiver_gradients(device, &gpu, 0.0)
             .unwrap();
@@ -506,6 +514,7 @@ fn gpu_receiver_payload_allocation_tracks_live_receivers_samples_and_reservation
                 .layout,
             ReceiverLayout::Front
         );
+        renderer.receiver_gradients = ReceiverGradientReservation::Front;
         assert!(
             renderer
                 .prepare_receiver_gradients(device, &gpu, 0.012)

@@ -1,7 +1,8 @@
 use super::ReceiverLayout;
 
 /// Maximum receiver displacement storage admitted by a renderer configuration.
-/// Actual textures are allocated only for shadowed, paired single-sample metadata.
+/// Backing is allocated at this maximum on first use by shadowed, paired
+/// single-sample metadata, and retained until that metadata generation is replaced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReceiverGradientReservation {
     /// No paired shadow receivers are admitted.

@@ -76,6 +76,11 @@ pub struct Report {
     /// The script commands the adapter does not run, by what they are: `SetGlobal texture _Name
     /// (render)`, `SetRenderTarget`, and so on.
     pub unsupported_work: BTreeMap<String, usize>,
+    /// The records of the world's list the adapter ran or built, by the kind of work. A command
+    /// that sets the running state counts as one and builds none of the frame's records.
+    pub built_by_kind: BTreeMap<String, usize>,
+    /// The records it left out, by `kind: reason`.
+    pub skipped_by_kind: BTreeMap<String, usize>,
     /// The textures the world's globals hold when the frame is mapped, by `name: kind`.
     pub global_textures: BTreeMap<String, usize>,
     /// What the runtime's storage held when the budget first refused an allocation of this work,

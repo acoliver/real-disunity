@@ -61,6 +61,7 @@ mod pixels;
 mod probe;
 mod properties;
 mod report;
+mod script;
 mod shaders;
 mod trace;
 
@@ -92,5 +93,6 @@ pub use pixels::{
     PixelAnswer, REFUSED_INTEGER, REFUSED_NO_COPY, REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED,
     REFUSED_NOT_READ, is_integer_format,
 };
+pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
 pub use trace::{Phases, WorkTrace};

@@ -19,7 +19,7 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState,
 };
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, ShaderId as WorldShaderId, ShaderSource, TextureRef,
+    OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
 
 use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
@@ -30,6 +30,7 @@ use super::frame::{
 };
 use super::holdings;
 use super::ids;
+use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
@@ -122,11 +123,12 @@ impl OffscreenAdapter {
         let mut available = Available::default();
         // A render texture the script destroyed has nothing left to draw; its storage goes back
         // to the budget before this snapshot's textures are made.
-        let live_targets: BTreeSet<_> = snapshot
+        let mut live_targets: BTreeSet<_> = snapshot
             .render_textures
             .keys()
             .map(|id| ids::render_texture(*id))
             .collect();
+        live_targets.extend(temporary_ids(&snapshot.work));
         state.retain_render_textures(runtime, &live_targets);
         self.register_shaders(snapshot, state, &mut available, &mut notes);
         let meshes: BTreeSet<u64> = snapshot
@@ -498,6 +500,7 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
                     note(&slot.texture);
                 }
             }
+            OffscreenWork::SetGlobal(PropertyValue::Texture(_, slot)) => note(&slot.texture),
             _ => {}
         }
     }
@@ -718,11 +721,18 @@ fn drop_unusable_records(
 ) {
     let records = std::mem::take(&mut adapted.frame.records);
     let mut kept = Vec::new();
+    // A record stands alone with the globals that were in force for it.
+    let mut globals = None;
     for record in records {
+        if matches!(record, Record::Globals(_)) {
+            globals = Some(record.clone());
+            kept.push(record);
+            continue;
+        }
         let alone = part(
             &adapted.frame,
             &adapted.frame.render_textures,
-            vec![record.clone()],
+            globals.iter().cloned().chain([record.clone()]).collect(),
         );
         match state.build(runtime, arena, &alone) {
             Ok(_) => kept.push(record),

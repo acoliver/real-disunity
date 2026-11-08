@@ -15,7 +15,7 @@ use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::sampler::SamplerState;
 use worldrunner_world_simulation::graphics::{
-    RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
+    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
 };
 
 use super::assets::sampler_of_world;
@@ -126,6 +126,27 @@ pub fn values(properties: &ShaderProperties) -> PropertySet {
         set.set(name, PropertyValue::Matrix(*value));
     }
     set
+}
+
+/// Sets `value` in the global `layer`: a texture the frame can read replaces the one of its name
+/// and one it cannot read takes the name away, since a global names one texture at most.
+pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut Textures<'_>) {
+    match value {
+        WorldValue::Float(name, held) => layer.values.set(name, PropertyValue::Float(*held)),
+        WorldValue::Int(name, held) => layer.values.set(name, PropertyValue::Int(*held)),
+        WorldValue::Vector(name, held) => layer.values.set(name, PropertyValue::Vector(*held)),
+        WorldValue::Matrix(name, held) => layer.values.set(name, PropertyValue::Matrix(*held)),
+        WorldValue::Texture(name, slot) => match textures.resolve(&slot.texture) {
+            Some((texture, sampler)) => {
+                layer
+                    .textures
+                    .insert(name.clone(), TextureInput { texture, sampler });
+            }
+            None => {
+                layer.textures.remove(name);
+            }
+        },
+    }
 }
 
 /// The layer of `properties`.

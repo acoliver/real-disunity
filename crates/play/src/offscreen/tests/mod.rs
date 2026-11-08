@@ -17,5 +17,6 @@ mod probe;
 mod properties;
 mod reclaim;
 mod refusal;
+mod script;
 mod shaders;
 mod support;

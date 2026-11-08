@@ -200,7 +200,7 @@ fn records_that_name_what_no_longer_exists_are_skipped_by_reason_and_the_rest_st
 }
 
 #[test]
-fn script_commands_the_adapter_does_not_run_are_skipped_by_name_and_the_draws_stay() {
+fn a_release_of_a_temporary_nobody_allocated_is_skipped_by_reason_and_the_draws_stay() {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     let object = super::support::object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
@@ -223,8 +223,18 @@ fn script_commands_the_adapter_does_not_run_are_skipped_by_name_and_the_draws_st
     let snapshot = snapshot(&mut world);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
     assert_eq!(adapted.report.records, 3);
-    assert_eq!(adapted.report.skipped.get(&Skip::UnsupportedWork), Some(&2));
-    assert_eq!(adapted.frame.records.len(), 1);
+    assert_eq!(
+        adapted.report.skipped.get(&Skip::UnknownTemporary),
+        Some(&1)
+    );
+    assert_eq!(adapted.report.skipped.len(), 1);
+    // The keyword reaches the camera render through a globals record in front of it.
+    assert_eq!(adapted.frame.records.len(), 2);
+    assert!(matches!(adapted.frame.records[0], Record::Globals(_)));
+    assert!(matches!(
+        adapted.frame.records[1],
+        Record::CameraRender { .. }
+    ));
     assert_eq!(adapted.report.built, 1);
 }
 
@@ -331,7 +341,7 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
 }
 
 #[test]
-fn the_script_commands_the_adapter_does_not_run_are_counted_by_kind() {
+fn the_script_commands_the_adapter_runs_are_counted_by_kind_and_the_rest_are_named() {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     let object = super::support::object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
@@ -344,29 +354,35 @@ fn the_script_commands_the_adapter_does_not_run_are_counted_by_kind() {
     every_script_command(&mut world, handle, target);
     let snapshot = snapshot(&mut world);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
-    let expected: BTreeMap<String, usize> = [
-        ("AllocateTemporary", 1),
-        ("ClearRenderTarget", 1),
-        ("Cull", 2),
-        ("CreateRendererList", 1),
-        ("DrawRendererList", 1),
-        ("ReleaseTemporary", 1),
-        ("SetGlobal texture _Map (render)", 1),
-        ("SetGlobal value", 3),
-        ("SetGlobalKeyword", 2),
-        ("SetRenderTarget", 2),
-        ("SetupCamera", 1),
-    ]
-    .into_iter()
-    .map(|(kind, count)| (kind.to_owned(), count))
-    .collect();
-    assert_eq!(adapted.report.unsupported_work, expected);
-    assert_eq!(adapted.report.records, 16);
+    let counts = |pairs: &[(&str, usize)]| -> BTreeMap<String, usize> {
+        pairs
+            .iter()
+            .map(|(kind, count)| ((*kind).to_owned(), *count))
+            .collect()
+    };
     assert_eq!(
-        adapted.report.skipped.get(&Skip::UnsupportedWork),
-        Some(&16)
+        adapted.report.unsupported_work,
+        counts(&[
+            ("CreateRendererList", 1),
+            ("Cull", 2),
+            ("DrawRendererList", 1)
+        ])
     );
-    assert!(adapted.frame.records.is_empty());
+    assert_eq!(
+        adapted.report.built_by_kind,
+        counts(&[
+            ("AllocateTemporary", 1),
+            ("ClearRenderTarget", 1),
+            ("ReleaseTemporary", 1),
+            ("SetGlobal", 4),
+            ("SetGlobalKeyword", 2),
+            ("SetRenderTarget", 2),
+            ("SetupCamera", 1),
+        ])
+    );
+    assert_eq!(adapted.report.records, 16);
+    assert_eq!(adapted.report.skipped.get(&Skip::UnsupportedWork), Some(&4));
+    assert_eq!(adapted.frame.records.len(), 1, "the one clear");
 }
 
 #[test]

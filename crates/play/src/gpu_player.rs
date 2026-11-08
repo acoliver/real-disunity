@@ -134,6 +134,9 @@ pub struct GpuWorkReport {
     pub census: BTreeMap<String, usize>,
     /// The script commands left out, and the textures the globals held, by description.
     pub unsupported_work: BTreeMap<String, usize>,
+    /// The world's records the adapter ran or built, and those it left out as `kind: reason`.
+    pub built_by_kind: BTreeMap<String, usize>,
+    pub skipped_by_kind: BTreeMap<String, usize>,
     pub global_textures: BTreeMap<String, usize>,
     /// Time spent in the frame path and in flushes.
     pub frame_time: Duration,
@@ -201,6 +204,12 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.unsupported_work {
             *self.unsupported_work.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.built_by_kind {
+            *self.built_by_kind.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.skipped_by_kind {
+            *self.skipped_by_kind.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.global_textures {
             *self.global_textures.entry(name.clone()).or_default() += count;
@@ -270,6 +279,8 @@ impl GpuWorkReport {
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
             ("script commands left out", &self.unsupported_work),
+            ("records built, by kind", &self.built_by_kind),
+            ("records skipped, by kind", &self.skipped_by_kind),
             ("global textures at a flush", &self.global_textures),
             ("census", &self.census),
             (

@@ -24,7 +24,7 @@ use std::time::Instant;
 use worldrunner_disunity_runtime::GpuFlush;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
-use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
+use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
 use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState,
 };
@@ -136,6 +136,22 @@ struct Submitted {
     before: Option<BeforeDispatch>,
     read: Option<Result<Copied, &'static str>>,
     submission: Option<wgpu::SubmissionIndex>,
+}
+
+/// Whether `record` only sets the state the records after it draw with.
+fn is_state(record: &Record) -> bool {
+    matches!(record, Record::Globals(_))
+}
+
+/// `segment` with the last globals record before it in front, unless it starts with one: a
+/// segment is built alone, and the globals in force at its start are set by an earlier segment.
+fn with_globals(before: &[Record], segment: &[Record]) -> Vec<Record> {
+    let mut records = Vec::with_capacity(segment.len() + 1);
+    if !segment.first().is_some_and(is_state) {
+        records.extend(before.iter().rev().find(|record| is_state(record)).cloned());
+    }
+    records.extend_from_slice(segment);
+    records
 }
 
 /// Counts a pixel read left unanswered.
@@ -346,17 +362,18 @@ impl OffscreenHost {
             .chain(std::iter::once(records.len()))
             .enumerate()
         {
-            let segment = &records[from..until];
+            let segment = with_globals(&records[..from], &records[from..until]);
             from = until;
             // The first build also creates the render textures the dispatches bind.
-            let mut operations = if segment.is_empty() && (index > 0 || placements.is_empty()) {
-                None
-            } else {
-                let (operations, kept) =
-                    self.build_segment(&adapted.frame, segment, &mut adapted.report)?;
-                built += kept;
-                Some(operations)
-            };
+            let mut operations =
+                if segment.iter().all(is_state) && (index > 0 || placements.is_empty()) {
+                    None
+                } else {
+                    let (operations, kept) =
+                        self.build_segment(&adapted.frame, segment, &mut adapted.report)?;
+                    built += kept;
+                    Some(operations)
+                };
             let prepared = placements.get(index).and_then(|placed| {
                 self.prepare(snapshot, placed.work, buffers, &mut adapted.report)
             });
@@ -403,12 +420,12 @@ impl OffscreenHost {
     fn build_segment(
         &mut self,
         frame: &OffscreenFrame,
-        segment: &[worldrunner_render_program::unity::offscreen::frame::Record],
+        segment: Vec<Record>,
         report: &mut Report,
     ) -> Result<(OffscreenOperations, usize), FlushError> {
         let mut part = Adapted {
             frame: OffscreenFrame {
-                records: segment.to_vec(),
+                records: segment,
                 ..frame.clone()
             },
             report: Report::default(),
@@ -420,7 +437,9 @@ impl OffscreenHost {
             .frame
             .records
             .iter()
-            .filter(|record| !is_test_render(record, &frame.probe.test_targets))
+            .filter(|record| {
+                !is_test_render(record, &frame.probe.test_targets) && !is_state(record)
+            })
             .count();
         report.absorb_failures(part.report);
         Ok((built?, kept))

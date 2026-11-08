@@ -83,3 +83,7 @@ A `TerrainResidencyRequest` records scene identity, source generation and an exa
 Tests compare every texel of every mip against the CPU reference for rectangular odd/even padded extents, including borders and nonflat normals. They cover composition-to-resident execution, distinct array slots, slot reuse, exhaustive small-tree neighbor/ancestor mapping, filter-safe ancestor lookup, edit footprints, pending invalidation, eviction, cancellation, foreign authority, exact replacement peaks, per-frame limits and scratch held across submissions.
 
 GPU sampling tests pin ancestor fallback, LOD transitions and nonconstant adjacent-page gutters at base, fractional and integer mip levels. Standalone capture tests pin exact sRGB bytes away from rounding boundaries for two configurations, source-generation invalidation and unchanged disabled output/pass identities. Sources remain pathless decoded inputs; compressed palette decoding is outside this optional source API.
+
+## Draw path
+
+Cached pages and layered sources draw through the program runtime like the palette terrain does. Each page table has a prepared material set (page cache texture and that table's buffer) beside the pipeline's other sets, and `ScenePages::draw_slot` names the frame slot whose set a draw reads, or `None` when the root page is not resident and the surface is skipped for the frame. See [Terrain on the program runtime](../../crates/render-scene/README.md#terrain-on-the-program-runtime).

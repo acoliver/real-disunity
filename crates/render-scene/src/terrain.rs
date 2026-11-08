@@ -3,6 +3,8 @@
 pub(crate) mod chunks;
 pub mod pages;
 pub(crate) mod planes;
+pub(crate) mod prepared;
+pub(crate) mod program;
 pub mod streaming;
 use glam::{DVec3, Vec3};
 use thiserror::Error;

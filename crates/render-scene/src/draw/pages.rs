@@ -100,13 +100,13 @@ impl SceneGpu {
             pages.groups.push(super::resources::terrain_bind_group(
                 device,
                 if terrain.layered.is_some() {
-                    &pipelines
+                    pipelines
                         .layered
                         .as_ref()
                         .expect("validated layered device")
-                        .cached_layout
+                        .cached_layout()
                 } else {
-                    &pipelines.cached_terrain_layout
+                    pipelines.cached_terrain_layout()
                 },
                 &terrain.sampler,
                 (

@@ -135,6 +135,7 @@ fn pipelines(
         shadow,
         layout.as_ref(),
     )
+    .with_fixed_terrain()
 }
 
 pub(crate) fn term_sources(stock: (&str, &str), term: CaptureTerm) -> (String, String) {

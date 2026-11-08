@@ -91,10 +91,15 @@ pub struct ScenePipelines {
     material_layout: BindGroupLayout,
     terrain_layout: BindGroupLayout,
     pipelines: ObjectPipelines,
-    terrain: RenderPipeline,
-    pub(crate) cached_terrain: RenderPipeline,
-    pub(crate) layered: Option<pages::LayeredPipelines>,
-    pub(crate) cached_terrain_layout: BindGroupLayout,
+    /// The fixed terrain pipelines, built on first use. Forward contexts draw terrain through
+    /// the program runtime instead.
+    terrain: pages::Pair,
+    pub(crate) layered: Option<pages::Pair>,
+    /// Terrain programs of this context on the program runtime.
+    terrain_context: crate::terrain::program::Context,
+    /// Whether this context's terrain draws through the program runtime. The metadata prepass
+    /// and the capture terms keep the fixed pipelines until they move.
+    terrain_on_runtime: bool,
     /// The colour attachments of the pass the dynamic unlit-alpha material draws into, from the
     /// same target list the object pipelines have.
     unlit_colors: Vec<TextureFormat>,
@@ -235,9 +240,11 @@ impl ScenePipelines {
             device,
             target,
             (source, terrain_source),
-            shadow_layout,
-            screen_layout,
-            ([0; 7], FrontFace::Ccw, DepthMode::Independent),
+            (shadow_layout, screen_layout),
+            (
+                ([0; 7], FrontFace::Ccw, DepthMode::Independent),
+                &crate::terrain::program::Family::default(),
+            ),
         )
     }
 
@@ -245,10 +252,13 @@ impl ScenePipelines {
         device: &Device,
         target: (TextureFormat, u32),
         sources: (&str, &str),
-        shadow_layout: Option<&BindGroupLayout>,
-        screen_layout: Option<&BindGroupLayout>,
-        options: ([u32; 7], FrontFace, DepthMode),
+        layouts: (Option<&BindGroupLayout>, Option<&BindGroupLayout>),
+        (options, family): (
+            ([u32; 7], FrontFace, DepthMode),
+            &crate::terrain::program::Family,
+        ),
     ) -> Self {
+        let (shadow_layout, screen_layout) = layouts;
         let (source, terrain_source) = sources;
         let mut constants = specular::constants(options.0).to_vec();
         specular::raster_constants(&mut constants, options.1);
@@ -265,9 +275,6 @@ impl ScenePipelines {
         );
         let layout = scene_layout(device, "environment", &groups);
 
-        let vertex_attributes = vertex_attributes();
-        let instance_attributes = instance_attributes();
-        let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
         let targets = source_targets(source, color_format);
 
         let pipelines = ObjectPipelines::new(
@@ -279,13 +286,27 @@ impl ScenePipelines {
             (source.contains(crate::velocity::MARKER), options.2),
         );
         groups[1] = Some(&terrain_layout);
-        let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
+        let (terrain, layered) = pages::build_terrain_set(
             device,
             &groups,
             terrain_source,
-            &buffers,
             &targets,
             (samples, &constants, options.1, options.2),
+        );
+        let terrain_context = crate::terrain::program::Context::new(
+            crate::terrain::program::Description {
+                device: device.clone(),
+                terrain_source: terrain_source.into(),
+                colors: targets.iter().flatten().map(|t| t.format).collect(),
+                samples,
+                front_face: options.1,
+                depth: options.2,
+                constants: constants.clone(),
+                frame: frame_layout.clone(),
+                shadow: shadow_layout.cloned(),
+                screen: screen_layout.cloned(),
+            },
+            family,
         );
         Self {
             layered,
@@ -296,9 +317,10 @@ impl ScenePipelines {
                 shadow_layout,
                 screen_layout,
                 options,
+                family,
             ),
-            cached_terrain_layout,
-            cached_terrain,
+            terrain_context,
+            terrain_on_runtime: true,
             color_format,
             samples,
             depth: options.2,
@@ -355,23 +377,52 @@ impl ScenePipelines {
         &self.material_layout
     }
 
-    /// What the program runtime that records terrain has built. Terrain still draws through
-    /// the fixed pipelines, so nothing is built there yet.
+    /// What the program runtime that records terrain has built.
     #[cfg(test)]
-    #[expect(
-        clippy::unused_self,
-        reason = "the runtime is per pipelines once terrain draws through it"
-    )]
     pub(crate) fn terrain_runtime_stats(
         &self,
     ) -> worldrunner_render_program::runtime::RuntimeStats {
-        worldrunner_render_program::runtime::RuntimeStats::default()
+        self.terrain_context.family().stats()
     }
 
-    /// Returns the pipeline the terrain surface draws through.
+    /// Returns the fixed pipeline the terrain surface draws through, building it on first use.
     #[must_use]
-    pub const fn terrain(&self) -> &RenderPipeline {
-        &self.terrain
+    pub fn terrain(&self) -> &RenderPipeline {
+        self.terrain.terrain()
+    }
+
+    /// The fixed pipeline that reads cached material pages, built on first use.
+    pub(crate) fn cached_terrain(&self) -> &RenderPipeline {
+        self.terrain.cached()
+    }
+
+    /// The layout of the fixed cached-page group.
+    pub(crate) fn cached_terrain_layout(&self) -> &BindGroupLayout {
+        self.terrain.cached_layout()
+    }
+
+    /// Whether any fixed terrain pipeline of these pipelines has been compiled.
+    #[cfg(test)]
+    pub(crate) fn fixed_terrain_built(&self) -> bool {
+        self.terrain.is_built() || self.layered.as_ref().is_some_and(pages::Pair::is_built)
+    }
+
+    /// The terrain programs of this context.
+    pub(crate) fn terrain_context(&self) -> &crate::terrain::program::Context {
+        &self.terrain_context
+    }
+
+    /// Whether terrain draws through the program runtime in this context.
+    pub(crate) fn terrain_on_runtime(&self) -> bool {
+        self.terrain_on_runtime && self.terrain_context.on_runtime()
+    }
+
+    /// These pipelines with terrain kept on the fixed pipelines, for the passes that have not
+    /// moved to the program runtime.
+    #[must_use]
+    pub(crate) fn with_fixed_terrain(mut self) -> Self {
+        self.terrain_on_runtime = false;
+        self
     }
 
     /// Returns the layout terrain bind groups must be built against.

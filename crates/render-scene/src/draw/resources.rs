@@ -271,10 +271,33 @@ pub(super) fn upload_terrain(
         ),
         None,
     );
+    let resources = std::sync::Arc::new(crate::terrain::prepared::Resources {
+        uniform: uniform_buffer.clone(),
+        planes: planes.clone(),
+        sampler: sampler.clone(),
+        grid_view: grid.create_view(&TextureViewDescriptor::default()),
+        grid: grid.clone(),
+        // The dimension is stated for the same reason as in the fixed bind group: a palette
+        // of one surface would otherwise get a plain 2D view.
+        palettes: palettes
+            .iter()
+            .map(|texture| {
+                let view = texture.create_view(&TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..TextureViewDescriptor::default()
+                });
+                (texture.clone(), view)
+            })
+            .collect(),
+        layered: layered.clone(),
+    });
     let mut retained = palettes;
     retained.push(grid);
     let (lod, streaming) = terrain_geometry(device, authority, scene, mesh, previous);
     Ok(Some(GpuTerrain {
+        resources,
+        prepared: crate::terrain::prepared::PreparedTerrain::default(),
+        authority: authority.clone(),
         page_bounds: page_bounds(terrain),
         page_elevation: prepared.elevation,
         uniform: uniform_buffer,
@@ -497,11 +520,11 @@ pub(super) fn prepared_terrain(
             .as_ref()
             .is_some_and(|terrain| terrain.layered.is_some())
         {
-            &pipelines
+            pipelines
                 .layered
                 .as_ref()
                 .ok_or(DrawError::LayeredLimit)?
-                .layout
+                .layout()
         } else {
             pipelines.terrain_layout()
         },

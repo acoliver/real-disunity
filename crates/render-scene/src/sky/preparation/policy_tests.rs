@@ -170,7 +170,7 @@ fn read_value(device: &wgpu::Device, readback: &wgpu::Buffer) -> f32 {
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {

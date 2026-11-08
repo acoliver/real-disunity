@@ -358,6 +358,9 @@ pub(crate) fn prepass(
         ));
         views.push(material);
     }
+    if let Some(receiver) = &ssao.receiver {
+        receiver.attach(&mut pass, views)?;
+    }
     passes.push(pass);
     Ok(())
 }

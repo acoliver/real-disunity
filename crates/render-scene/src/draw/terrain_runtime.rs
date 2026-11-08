@@ -3,6 +3,15 @@ use crate::renderer::ScenePipelines;
 use wgpu::{BindGroup, IndexFormat, RenderPass};
 
 impl SceneGpu {
+    pub(crate) fn terrain_surface(&self) -> Option<crate::terrain::program::Surface> {
+        self.terrain.as_ref().map(|terrain| {
+            crate::terrain::program::Surface::new(
+                terrain.layered.is_some(),
+                terrain.pages.is_some(),
+            )
+        })
+    }
+
     /// Records the terrain through the program runtime: the prepared pipeline and material set
     /// once, the shadow group when there is one, then the geometry. The frame group and the
     /// screen group are the pass's, bound before this.

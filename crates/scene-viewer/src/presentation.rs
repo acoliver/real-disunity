@@ -33,6 +33,18 @@ pub(crate) struct PresentationPolicy {
     pub budget: crate::PresentationBudgetPolicy,
     pub recipes: bool,
     pub capture_pool: crate::CapturePoolPolicy,
+    pub receiver_gradients: worldrunner_render_scene::compositor::ReceiverGradientReservation,
+}
+
+pub(crate) fn receiver_reservation(
+    shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
+) -> worldrunner_render_scene::compositor::ReceiverGradientReservation {
+    use worldrunner_render_scene::compositor::ReceiverGradientReservation;
+    match shadows {
+        None => ReceiverGradientReservation::None,
+        Some(settings) if settings.normal_bias_meters == 0.0 => ReceiverGradientReservation::Front,
+        Some(_) => ReceiverGradientReservation::Opposing,
+    }
 }
 
 impl PresentationPolicy {
@@ -52,6 +64,7 @@ impl PresentationPolicy {
         capture_size: Viewport,
         limits: &wgpu::Limits,
     ) -> Result<(RendererConfiguration, Option<u64>), ViewerError> {
+        settings.receiver_gradients = self.receiver_gradients;
         let pool = self.pool_bytes(&settings)?;
         settings.additional = planning::additional(capture_size, pool);
         let required = settings
@@ -121,6 +134,8 @@ impl Presentation {
             profile,
             effects,
             &PresentationPolicy {
+                receiver_gradients:
+                    worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
                 budget: crate::PresentationBudget::default().into(),
                 capture_pool: crate::CapturePoolPolicy::default(),
                 recipes: true,

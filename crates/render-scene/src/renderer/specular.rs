@@ -59,6 +59,8 @@ pub(super) struct Specialization {
     /// The program runtime every sibling of these pipelines shares, so a terrain pipeline
     /// compiles once per context however many scenes and specializations draw with it.
     family: crate::terrain::program::Family,
+    receivers:
+        Rc<RefCell<BTreeMap<crate::scene_metadata::receiver::ReceiverLayout, ScenePipelines>>>,
 }
 impl Specialization {
     pub fn new(
@@ -81,6 +83,7 @@ impl Specialization {
             cache: Rc::default(),
             gather: Rc::default(),
             family: family.clone(),
+            receivers: Rc::default(),
         }
     }
 }
@@ -104,6 +107,78 @@ impl Specialization {
 }
 
 impl ScenePipelines {
+    pub(crate) fn for_receiver_gradients(
+        &self,
+        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+    ) -> Self {
+        let spec = &self.specialization;
+        spec.receivers
+            .borrow_mut()
+            .entry(receiver)
+            .or_insert_with(|| {
+                let source =
+                    crate::scene_metadata::receiver::consumer_source(&spec.source, receiver, false);
+                let terrain =
+                    crate::scene_metadata::receiver::consumer_source(&spec.terrain, receiver, true);
+                let layout = crate::scene_metadata::receiver::shadow_layout(&spec.device);
+                let mut selected = Self::with_constants(
+                    &spec.device,
+                    (self.color_format, self.samples),
+                    (&source, &terrain),
+                    (Some(&layout), spec.screen.as_ref()),
+                    (spec.options, &spec.family),
+                );
+                selected.ssao = self.ssao;
+                selected.terrain_on_runtime = self.terrain_on_runtime;
+                selected
+            })
+            .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_receiver_reference(
+        &self,
+        reference: crate::scene_metadata::receiver::ReceiverReference,
+        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+    ) -> Self {
+        let spec = &self.specialization;
+        let sources = [&spec.source, &spec.terrain].map(|source| {
+            assert!(!source.contains("scene_receiver_load("));
+            assert!(source.contains("dpdx(position) + dpdx(normal) * shadow.bias.y"));
+            if reference.probe() {
+                let source = crate::scene_metadata::receiver::probe_source(source);
+                if matches!(
+                    reference,
+                    crate::scene_metadata::receiver::ReceiverReference::BlackShared
+                ) {
+                    source.replace(
+                        "scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
+                        "scene_probe_dx = vec3<f32>(0.0); scene_probe_dy = vec3<f32>(0.0);",
+                    )
+                } else {
+                    source
+                }
+            } else {
+                source.to_string()
+            }
+        });
+        let layout = crate::scene_metadata::receiver::shadow_layout(&spec.device);
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (&sources[0], &sources[1]),
+            (Some(&layout), spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        selected.terrain_on_runtime = self.terrain_on_runtime;
+        if reference.local() {
+            selected
+        } else {
+            selected.for_receiver_gradients(receiver)
+        }
+    }
+
     pub(crate) fn for_depth(&self, depth: super::DepthMode) -> Self {
         if depth == self.depth {
             return self.clone();

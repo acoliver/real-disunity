@@ -144,6 +144,8 @@ fn setup(
         profile,
         old.effects(),
         &crate::presentation::PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(2 * 1024 * 1024).into(),
             recipes: false,
             capture_pool: crate::CapturePoolPolicy::default(),

@@ -151,7 +151,7 @@ fn read_values(device: &wgpu::Device, readback: &wgpu::Buffer) -> Vec<f32> {
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {

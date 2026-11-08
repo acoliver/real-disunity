@@ -19,6 +19,7 @@ pub(crate) mod publication;
 mod snapshots;
 mod temporal;
 mod validation;
+pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 use crate::ssao::passes::ScreenFeature;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
@@ -49,6 +50,9 @@ pub struct FrameRenderer {
     post_requested: worldrunner_render_post::HdrPostSettings,
     elapsed_seconds: f32,
     pub(crate) selected_time: Option<std::time::Duration>,
+    pub(crate) receiver_gradients: ReceiverGradientReservation,
+    #[cfg(test)]
+    pub(crate) receiver_reference: Option<crate::scene_metadata::receiver::ReceiverReference>,
     animation_time: Option<u32>,
     frame_delta: f32,
     post_time: std::rc::Rc<std::cell::Cell<f32>>,
@@ -115,6 +119,9 @@ impl FrameRenderer {
             post_requested: worldrunner_render_post::HdrPostSettings::default(),
             elapsed_seconds: 0.0,
             selected_time: None,
+            receiver_gradients: ReceiverGradientReservation::Opposing,
+            #[cfg(test)]
+            receiver_reference: None,
             animation_time: None,
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
@@ -203,6 +210,9 @@ impl FrameRenderer {
             post_requested: post,
             elapsed_seconds: 0.0,
             selected_time: None,
+            receiver_gradients: ReceiverGradientReservation::Opposing,
+            #[cfg(test)]
+            receiver_reference: None,
             animation_time: None,
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),

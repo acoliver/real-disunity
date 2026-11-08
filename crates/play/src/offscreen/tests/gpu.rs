@@ -18,7 +18,12 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
-use worldrunner_render_program::unity::synthetic::shaders::{blit_passes, camera_passes};
+use worldrunner_render_program::unity::synthetic::shaders::{
+    BLIT, blit_parameters, blit_passes, camera_passes, no_cull, variant,
+};
+use worldrunner_render_program::unity::synthetic::{
+    PassSpec, SyntheticShader, shader as synthetic_shader,
+};
 use worldrunner_unity_serialized::shader::ShaderProperty;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,
@@ -59,6 +64,7 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            "gradient" => gradient_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
             // named after the file.
             "default_white" | "default_black" | "default_bump" => {
@@ -89,6 +95,32 @@ impl ShaderSupply for Synthetic {
             fill: ShaderFill::default(),
         })
     }
+}
+
+/// A fragment stage that writes the texture coordinates as red and green over blue and alpha of
+/// one, and one that writes the tint. The blit's texture and tint are read with a weight of zero
+/// so that both passes bind what the blit's other passes do.
+const GRADIENT: &str = "
+@fragment fn fs_gradient(in: VOut) -> @location(0) vec4<f32> {
+    let unused = textureSample(main_tex, main_sampler, in.uv) * material.tint * 0.0;
+    return unused + vec4<f32>(in.uv.x, in.uv.y, 1.0, 1.0);
+}
+@fragment fn fs_flat(in: VOut) -> @location(0) vec4<f32> {
+    let unused = textureSample(main_tex, main_sampler, in.uv) * 0.0;
+    return unused + material.tint;
+}
+";
+
+/// A blit shader of two passes: 0 writes the texture coordinates as red and green, 1 the tint.
+fn gradient_passes() -> SyntheticShader {
+    let wgsl = format!("{BLIT}{GRADIENT}");
+    no_cull(synthetic_shader(
+        &[],
+        &["fs_gradient", "fs_flat"].map(|fragment| PassSpec {
+            tags: Vec::new(),
+            variants: vec![variant(&[], &wgsl, fragment, blit_parameters("_MainTex"))],
+        }),
+    ))
 }
 
 /// One quad of two triangles over clip space at depth 0.5, as the managed engine would store it.

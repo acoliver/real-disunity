@@ -12,6 +12,10 @@
 //!   waits for that submission alone. The buffers whose bytes changed come out as
 //!   [`BufferWrite`]s for the world to take with [`BufferSink`].
 //!
+//! A pixel read is placed like a dispatch: the records before it are submitted with a copy of the
+//! render texture recorded last, and the copy's rectangle comes out as a [`PixelAnswer`] for the
+//! world to take with [`BufferSink`] (see the `pixels` module).
+//!
 //! Each run of records is its own submission because the buffer a run's constants share is
 //! rewritten for the next run, and a submission fixes what its commands read.
 
@@ -31,7 +35,9 @@ use super::adapter::{OffscreenAdapter, build};
 use super::assets::Assets;
 use super::compute::{ComputeAdapter, DispatchTrace, GpuBuffers, Prepared, nonzero_words};
 use super::frame::{Adapted, Report, is_test_render};
+use super::ids;
 use super::pass_notes;
+use super::pixels::{self, Copied, PixelAnswer, Wanted};
 use super::probe::{BeforeDispatch, Probe};
 use super::trace::WorkTrace;
 
@@ -56,7 +62,15 @@ pub struct BufferWrite {
 #[derive(Debug, Default)]
 pub struct FlushOutcome {
     pub writes: Vec<BufferWrite>,
+    /// The answers to the pixel reads the flush made, in call order.
+    pub pixels: Vec<PixelAnswer>,
     pub report: Report,
+}
+
+/// What running a flush's work produced.
+struct Produced {
+    writes: Vec<BufferWrite>,
+    pixels: Vec<PixelAnswer>,
 }
 
 /// Where the bytes a flush produced go.
@@ -66,11 +80,23 @@ pub trait BufferSink {
     /// # Errors
     /// Fails with the world's reason when the range is not inside the buffer.
     fn write(&mut self, id: ComputeBufferId, offset: u64, bytes: &[u8]) -> Result<(), String>;
+
+    /// Answers pixel request `request` with `rgba`, four floats a texel, bottom row first, as
+    /// the render texture stores them.
+    ///
+    /// # Errors
+    /// Fails with the world's reason when the request is unknown or the count is wrong.
+    fn write_pixels(&mut self, request: u64, rgba: &[f32]) -> Result<(), String>;
 }
 
 impl BufferSink for GpuFlush<'_> {
     fn write(&mut self, id: ComputeBufferId, offset: u64, bytes: &[u8]) -> Result<(), String> {
         self.write_compute_buffer(id.to_bits(), offset, bytes)
+            .map_err(|error| error.to_string())
+    }
+
+    fn write_pixels(&mut self, request: u64, rgba: &[f32]) -> Result<(), String> {
+        self.write_texture_pixels(request, rgba)
             .map_err(|error| error.to_string())
     }
 }
@@ -81,18 +107,43 @@ impl BufferSink for World {
         self.set_compute_buffer_data(id, offset, bytes)
             .map_err(|error| error.to_string())
     }
+
+    fn write_pixels(&mut self, request: u64, rgba: &[f32]) -> Result<(), String> {
+        self.write_texture_pixels(request, rgba)
+            .map_err(|error| error.to_string())
+    }
 }
 
 impl FlushOutcome {
-    /// Gives every write to `sink`.
+    /// Gives every write and every pixel answer to `sink`.
     ///
     /// # Errors
     /// Fails with the first write the sink refuses.
     pub fn apply(&self, sink: &mut impl BufferSink) -> Result<(), String> {
         self.writes
             .iter()
-            .try_for_each(|write| sink.write(write.id, 0, &write.bytes))
+            .try_for_each(|write| sink.write(write.id, 0, &write.bytes))?;
+        self.pixels
+            .iter()
+            .try_for_each(|answer| sink.write_pixels(answer.request, &answer.rgba))
     }
+}
+
+/// What one submission of a flush left to resolve: the probe's second read, the copy a pixel read
+/// wanted (or why it could not be made) and the submission they wait for.
+#[derive(Default)]
+struct Submitted {
+    before: Option<BeforeDispatch>,
+    read: Option<Result<Copied, &'static str>>,
+    submission: Option<wgpu::SubmissionIndex>,
+}
+
+/// Counts a pixel read left unanswered.
+fn refuse_read(report: &mut Report, reason: &str) {
+    *report
+        .pixel_reads_refused
+        .entry(reason.to_owned())
+        .or_default() += 1;
 }
 
 /// The player's side of a device: its runtime, arena, state and adapters.
@@ -256,8 +307,9 @@ impl OffscreenHost {
         }
         self.settle();
         self.note(("flush", live_before), &adapted.report, error);
-        result.map(|writes| FlushOutcome {
-            writes,
+        result.map(|produced| FlushOutcome {
+            writes: produced.writes,
+            pixels: produced.pixels,
             report: std::mem::take(&mut adapted.report),
         })
     }
@@ -282,11 +334,12 @@ impl OffscreenHost {
         snapshot: &GraphicsSnapshot,
         adapted: &mut Adapted,
         buffers: &mut GpuBuffers,
-    ) -> Result<Vec<BufferWrite>, FlushError> {
-        let placements = std::mem::take(&mut adapted.dispatches);
+    ) -> Result<Produced, FlushError> {
+        let placements = std::mem::take(&mut adapted.placements);
         let records = std::mem::take(&mut adapted.frame.records);
         let mut built = 0;
         let mut from = 0;
+        let mut pixels = Vec::new();
         for (index, until) in placements
             .iter()
             .map(|placed| placed.after)
@@ -311,20 +364,40 @@ impl OffscreenHost {
                 let trace = adapted.report.traces.last()?;
                 Some(Probe::plan(trace, &self.state, operations.as_mut()))
             });
+            let wanted = placements
+                .get(index)
+                .and_then(|placed| Wanted::of(&snapshot.work[placed.work]));
             let submitted = Instant::now();
-            let probed = self.submit(operations, prepared.as_ref(), probe.as_ref())?;
+            let Submitted {
+                before,
+                read,
+                submission,
+            } = self.submit(operations, prepared.as_ref(), probe.as_ref(), wanted)?;
             adapted.report.phases.submit += submitted.elapsed();
+            match (read, &submission) {
+                (Some(Ok(copy)), Some(submission)) => match copy.resolve(submission) {
+                    Ok(answer) => {
+                        adapted.report.pixel_reads += 1;
+                        pixels.push(answer);
+                    }
+                    Err(reason) => refuse_read(&mut adapted.report, reason),
+                },
+                (Some(Err(reason)), _) => refuse_read(&mut adapted.report, reason),
+                _ => {}
+            }
             if prepared.is_some()
                 && let Some(trace) = adapted.report.traces.last_mut()
             {
                 "ran".clone_into(&mut trace.outcome);
-                if let (Some(probe), Some((before, submission))) = (probe, probed) {
-                    probe.resolve(before, &submission, self.runtime.device(), trace);
+                if let (Some(probe), Some(before), Some(submission)) = (probe, before, &submission)
+                {
+                    probe.resolve(before, submission, self.runtime.device(), trace);
                 }
             }
         }
         adapted.report.built = built;
-        self.read_back(buffers, &mut adapted.report.traces)
+        let writes = self.read_back(buffers, &mut adapted.report.traces)?;
+        Ok(Produced { writes, pixels })
     }
 
     fn build_segment(
@@ -339,7 +412,7 @@ impl OffscreenHost {
                 ..frame.clone()
             },
             report: Report::default(),
-            dispatches: Vec::new(),
+            placements: Vec::new(),
         };
         let built = build(&mut self.state, &mut self.runtime, &self.arena, &mut part);
         // A refused segment still tells how many refusals and probes it cost and how long.
@@ -423,16 +496,18 @@ impl OffscreenHost {
         outcome
     }
 
-    /// Records the operations and then the dispatch into one frame and submits it. The probe's
-    /// second read is recorded between them, and comes back with the submission once it is made.
+    /// Records the operations, then the dispatch, then the copy a pixel read wants into one frame
+    /// and submits it. The probe's second read is recorded between the operations and the
+    /// dispatch.
     fn submit(
         &mut self,
         operations: Option<OffscreenOperations>,
         dispatch: Option<&Prepared>,
         probe: Option<&Probe>,
-    ) -> Result<Option<(BeforeDispatch, wgpu::SubmissionIndex)>, FlushError> {
-        if operations.is_none() && dispatch.is_none() {
-            return Ok(None);
+        wanted: Option<Wanted>,
+    ) -> Result<Submitted, FlushError> {
+        if operations.is_none() && dispatch.is_none() && wanted.is_none() {
+            return Ok(Submitted::default());
         }
         let authority = self.runtime.authority().clone();
         let device = self.runtime.device().clone();
@@ -452,8 +527,30 @@ impl OffscreenHost {
         if let Some(dispatch) = dispatch {
             self.runtime.dispatch(&mut frame, &dispatch.request())?;
         }
+        let read = wanted.map(|wanted| self.copy_for(wanted, &mut frame));
         let submission = frame.finish().submit().map_err(ProgramError::from)?;
-        Ok(before.map(|before| (before, submission)))
+        Ok(Submitted {
+            before,
+            read,
+            submission: Some(submission),
+        })
+    }
+
+    /// Records the copy of the render texture a pixel read wants, after everything in `frame`.
+    fn copy_for(
+        &self,
+        wanted: Wanted,
+        frame: &mut wgpu::CommandEncoder,
+    ) -> Result<Copied, &'static str> {
+        let handle = self
+            .state
+            .texture_handle(ids::render_texture(wanted.texture))
+            .ok_or(pixels::REFUSED_NO_TEXTURE)?;
+        let copy = self
+            .runtime
+            .read_texture(frame, handle)
+            .map_err(|_| pixels::REFUSED_NO_COPY)?;
+        Ok(Copied::new(wanted, copy))
     }
 
     /// Copies every bound compute buffer back with one more submission, waits for it alone and

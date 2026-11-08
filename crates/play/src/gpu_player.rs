@@ -93,6 +93,9 @@ pub struct GpuWorkReport {
     /// Compute buffers written back and the bytes of them that are not zero.
     pub buffers_written: usize,
     pub nonzero_values: usize,
+    /// Pixel reads of render textures answered, and left unanswered by the reason.
+    pub pixel_reads: usize,
+    pub pixel_reads_refused: BTreeMap<String, usize>,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
     /// The most bytes the runtime held at any moment, not only after a flush.
@@ -215,6 +218,10 @@ impl GpuWorkReport {
         for (name, count) in &report.census {
             *self.census.entry(name.clone()).or_default() += count;
         }
+        self.pixel_reads += report.pixel_reads;
+        for (reason, count) in &report.pixel_reads_refused {
+            *self.pixel_reads_refused.entry(reason.clone()).or_default() += count;
+        }
         for entry in &report.unmatched_passes {
             let name = format!(
                 "{} selected {:?}, the shader's {} passes have {:?}",
@@ -286,6 +293,10 @@ impl GpuWorkReport {
             "[gpu] compute buffers written {}, non-zero values {}",
             self.buffers_written, self.nonzero_values
         );
+        eprintln!("[gpu] pixel reads answered {}", self.pixel_reads);
+        for (reason, count) in &self.pixel_reads_refused {
+            eprintln!("[gpu] pixel reads refused: {reason}: {count}");
+        }
         eprintln!(
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records

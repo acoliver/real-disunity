@@ -23,6 +23,7 @@ use worldrunner_world_simulation::presentation::CameraClear;
 use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, camera_layer, draw_layer};
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
+use super::pixels::{self, Wanted};
 use super::properties::{Textures, fallback_layer, layer, layer_with_defaults};
 
 pub use super::report::{Reclaimed, Report};
@@ -230,7 +231,7 @@ fn describe(work: &OffscreenWork) -> String {
     }
 }
 
-/// Where a dispatch sits among the frame's records.
+/// Where a dispatch or a pixel read sits among the frame's records.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Placed {
     /// How many of the frame's records come before it.
@@ -243,9 +244,9 @@ pub struct Placed {
 pub struct Adapted {
     pub frame: OffscreenFrame,
     pub report: Report,
-    /// The dispatches of the snapshot, in call order. The frame holds none: a host that runs
-    /// them splits `frame.records` at these places.
-    pub dispatches: Vec<Placed>,
+    /// The dispatches and pixel reads of the snapshot, in call order. The frame holds none: a
+    /// host that runs them splits `frame.records` at these places.
+    pub placements: Vec<Placed>,
 }
 
 /// A render texture's side as a float. Sides above 65535 saturate, and none reaches them.
@@ -317,7 +318,7 @@ struct Mapper<'a> {
     textures: Textures<'a>,
     frame: OffscreenFrame,
     report: Report,
-    dispatches: Vec<Placed>,
+    placements: Vec<Placed>,
     cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
     /// The render textures whose camera renders are examined, and those with a scratch copy.
@@ -349,7 +350,7 @@ impl<'a> Mapper<'a> {
                 records: snapshot.work.len(),
                 ..Report::default()
             },
-            dispatches: Vec::new(),
+            placements: Vec::new(),
             cameras: BTreeMap::new(),
             queued: BTreeMap::new(),
             probed: BTreeSet::new(),
@@ -389,6 +390,10 @@ impl<'a> Mapper<'a> {
                 self.dispatch(index, bindings);
                 continue;
             }
+            if let Some(wanted) = Wanted::of(work) {
+                self.pixel_read(index, wanted);
+                continue;
+            }
             match self.record(work) {
                 Ok(records) => {
                     self.report.built += records
@@ -415,13 +420,38 @@ impl<'a> Mapper<'a> {
     /// frame, so they exist when the dispatch binds them.
     fn dispatch(&mut self, work: usize, bindings: &ComputeBindings) {
         self.report.dispatches += 1;
-        self.dispatches.push(Placed {
+        self.placements.push(Placed {
             after: self.frame.records.len(),
             work,
         });
         for (_, slot) in &bindings.properties.textures {
             self.textures.resolve(&slot.texture);
         }
+    }
+
+    /// Notes where a pixel read sits and brings its render texture into the frame, so it exists
+    /// when the read is made. A texture of integers or one the snapshot lacks is refused here.
+    fn pixel_read(&mut self, work: usize, wanted: Wanted) {
+        let refusal = match self.snapshot.render_textures.get(&wanted.texture) {
+            None => Some(pixels::REFUSED_NO_TEXTURE),
+            Some(texture) if pixels::is_integer_format(texture.format) => {
+                Some(pixels::REFUSED_INTEGER)
+            }
+            Some(_) => None,
+        };
+        if let Some(reason) = refusal {
+            *self
+                .report
+                .pixel_reads_refused
+                .entry(reason.to_owned())
+                .or_default() += 1;
+            return;
+        }
+        self.textures.resolve(&TextureRef::Render(wanted.texture));
+        self.placements.push(Placed {
+            after: self.frame.records.len(),
+            work,
+        });
     }
 
     fn record(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
@@ -831,7 +861,7 @@ impl<'a> Mapper<'a> {
         Adapted {
             frame: self.frame,
             report: self.report,
-            dispatches: self.dispatches,
+            placements: self.placements,
         }
     }
 }

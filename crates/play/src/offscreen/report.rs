@@ -86,6 +86,10 @@ pub struct Report {
     /// Counts that describe what was mapped and are not failures, by description: the formats of
     /// the textures stored, the constants the adapter filled, and so on.
     pub census: BTreeMap<String, usize>,
+    /// The pixel reads answered.
+    pub pixel_reads: usize,
+    /// The pixel reads left unanswered, by the reason.
+    pub pixel_reads_refused: BTreeMap<String, usize>,
 }
 
 impl Report {

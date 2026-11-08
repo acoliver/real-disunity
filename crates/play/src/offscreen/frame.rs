@@ -227,6 +227,8 @@ fn describe(work: &OffscreenWork) -> String {
         OffscreenWork::ReleaseTemporary { .. } => "ReleaseTemporary".to_owned(),
         OffscreenWork::SetupCamera { .. } => "SetupCamera".to_owned(),
         OffscreenWork::Cull { .. } => "Cull".to_owned(),
+        OffscreenWork::CreateRendererList { .. } => "CreateRendererList".to_owned(),
+        OffscreenWork::DrawRendererList { .. } => "DrawRendererList".to_owned(),
         _ => "work the adapter maps".to_owned(),
     }
 }

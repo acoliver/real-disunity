@@ -144,6 +144,9 @@ fn records_keep_the_order_the_script_called_them_in() {
             Record::CameraRender { .. } => "camera",
             Record::Blit { .. } => "blit",
             Record::CopyTexture { .. } => "copy",
+            Record::Clear { .. } => "clear",
+            Record::Draws(_) => "draws",
+            Record::Globals(_) => "globals",
         })
         .collect();
     assert_eq!(kinds, ["camera", "blit", "copy", "camera"]);

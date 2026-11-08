@@ -285,6 +285,9 @@ pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::id
         Record::Blit { source, target, .. } | Record::CopyTexture { source, target, .. } => {
             vec![source, target]
         }
+        Record::Clear { ref target, .. } => target.textures().collect(),
+        Record::Draws(ref list) => list.target.textures().collect(),
+        Record::Globals(_) => Vec::new(),
     }
 }
 

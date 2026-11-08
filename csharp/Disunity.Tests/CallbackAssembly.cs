@@ -13,7 +13,8 @@ using MethodImplAttributes = Mono.Cecil.MethodImplAttributes;
 /// <c>Marked</c> (static, marked, adds 1), <c>Plain</c> (static, unmarked, adds 2),
 /// <c>MarkedInstance</c> (instance, marked), and the factories <c>Make</c> (<c>ldnull; ldftn Marked</c>),
 /// <c>MakePlain</c>, <c>MakeInstance</c> (<c>ldarg.0; ldftn MarkedInstance</c>, an instance target) and
-/// <c>MakeNullInstance</c> (<c>ldnull; ldftn MarkedInstance</c>), each ending in <c>newobj Callback::.ctor</c>.
+/// <c>MakeNullInstance</c> (<c>ldnull; ldftn MarkedInstance</c>) and <c>MakeClosed</c> (<c>ldarg.0; ldftn Marked</c>, a
+/// static method with a target), each ending in <c>newobj Callback::.ctor</c>. The last three are only inspected.
 /// </summary>
 internal static class CallbackAssembly
 {
@@ -37,6 +38,7 @@ internal static class CallbackAssembly
         AddFactory(holder, "MakePlain", callback, constructor, OpCodes.Ldnull, plain);
         AddFactory(holder, "MakeNullInstance", callback, constructor, OpCodes.Ldnull, markedInstance);
         AddFactory(holder, "MakeInstance", callback, constructor, OpCodes.Ldarg_0, markedInstance, takesHolder: true);
+        AddFactory(holder, "MakeClosed", callback, constructor, OpCodes.Ldarg_0, markedMethod, takesHolder: true);
         if (enumDefault) AddEnumDefault(holder);
         return Write(assembly);
     }

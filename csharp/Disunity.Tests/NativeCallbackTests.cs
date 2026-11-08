@@ -69,7 +69,7 @@ internal static class NativeCallbackTests
         using var module = ModuleDefinition.ReadModule(new MemoryStream(image));
         var holder = module.GetType("Game.Holder");
         Require(Creates(holder, "Make") is null && Keeps(holder, "Make"), "Make calls Keep in place of the delegate constructor");
-        foreach (var name in new[] { "MakePlain", "MakeNullInstance", "MakeInstance" })
+        foreach (var name in new[] { "MakePlain", "MakeNullInstance", "MakeInstance", "MakeClosed" })
             Require(Creates(holder, name) is not null && !Keeps(holder, name), $"{name} keeps its delegate constructor");
     }
 

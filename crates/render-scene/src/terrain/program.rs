@@ -320,7 +320,9 @@ fn shadow_bindings() -> ResourceLayout {
             (2, 0),
             semantic::SHADOW,
             fragment,
-            ResourceKind::Uniform { min_size: 336 },
+            ResourceKind::Uniform {
+                min_size: crate::shadows::SHADOW_UNIFORM_BYTES as u64,
+            },
         ),
         declare(
             (2, 1),

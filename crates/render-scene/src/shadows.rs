@@ -37,6 +37,7 @@ mod cascades;
 mod compaction;
 mod refresh;
 mod resources;
+pub(crate) use resources::SHADOW_UNIFORM_BYTES;
 #[cfg(test)]
 pub(crate) use resources::{depth_source, receiver_sources};
 mod schedule;

@@ -24,6 +24,8 @@ const CENTRES: [u8; 4] = [32, 96, 159, 223];
 /// `GraphicsFormat` 8, four 8-bit channels (the managed ARGB32), and 4, the same stored sRGB.
 const ARGB32: u32 = 8;
 const ARGB32_SRGB: u32 = 4;
+/// `GraphicsFormat` 45, one 16-bit float channel (a height map's).
+const HALF: u32 = 45;
 /// `GraphicsFormat` 37, one 32-bit unsigned integer channel.
 const INTEGER: u32 = 37;
 
@@ -162,6 +164,25 @@ fn an_srgb_render_texture_answers_the_values_it_stores_and_does_not_decode_them(
         (found[0] - linear).abs() > 0.2,
         "not the linear value {linear}"
     );
+}
+
+#[test]
+fn a_half_float_render_texture_answers_its_stored_floats_with_zero_green_and_blue_and_one_alpha() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = host(directory.path());
+    let mut world = world();
+    let (source, heights) = (target(&mut world, ARGB32), target(&mut world, HALF));
+    blit(&mut world, (source, heights), 0, [1.0; 4]);
+    let request = world.request_texture_pixels(heights, 0, 2, 4, 1).unwrap();
+
+    flush(&mut host, &mut world);
+
+    // Red is the column's centre, 0.125 to 0.875, which a half float stores exactly.
+    let row: Vec<f32> = [0.125, 0.375, 0.625, 0.875]
+        .into_iter()
+        .flat_map(|red| [red, 0.0, 0.0, 1.0])
+        .collect();
+    assert_eq!(world.take_texture_pixels(request), Some(row));
 }
 
 #[test]

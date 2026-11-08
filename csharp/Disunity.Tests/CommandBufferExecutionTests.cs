@@ -25,6 +25,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: a render target with no world form throws NotSupportedException naming it");
             SetRenderTargetOverloads();
             Console.WriteLine("PASS: SetRenderTarget records its colors, depth, mip level, cube face and depth slice for each overload");
+            SetRenderTargetCanBeForbidden();
+            Console.WriteLine("PASS: SetRenderTarget throws and records nothing while ThrowOnSetRenderTarget is set");
             ClearOverloads();
             Console.WriteLine("PASS: ClearRenderTarget records which parts clear, the color, the depth and the stencil");
             GlobalsAreRecordedInOrder();
@@ -107,6 +109,25 @@ internal static class CommandBufferExecutionTests
         Expect.Equal(0, Taken().Length, "a second Submit sends nothing");
         Expect.That(second.commandCount == 1, "the buffer keeps its commands after being queued");
         Throws<ArgumentNullException>(() => context.ExecuteCommandBuffer(null!), "a null buffer");
+    }
+
+    private static void SetRenderTargetCanBeForbidden()
+    {
+        Taken();
+        Expect.That(!CommandBuffer.ThrowOnSetRenderTarget, "SetRenderTarget is allowed by default");
+        Expect.That(!Watermark.IsVisible(), "the engine draws no watermark");
+        var buffer = new CommandBuffer();
+        CommandBuffer.ThrowOnSetRenderTarget = true;
+        try
+        {
+            Expect.Throws<InvalidOperationException>(() => buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget), "one target");
+            Expect.Throws<InvalidOperationException>(() => buffer.SetRenderTarget(new RenderTargetIdentifier[] { BuiltinRenderTextureType.CameraTarget },
+                BuiltinRenderTextureType.None), "several targets");
+        }
+        finally { CommandBuffer.ThrowOnSetRenderTarget = false; }
+        buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
+        Graphics.ExecuteCommandBuffer(buffer);
+        Same(["SetRenderTarget colors=[Camera] depth=- mip=0 face=-1 slice=0"], Taken(), "only the call made after clearing the flag");
     }
 
     private static void TargetsResolveByKind()

@@ -71,6 +71,15 @@ public sealed class Light : Behaviour
     public float cookieSize { get => Read().cookie_size; set => Update(l => { l.cookie_size = value; return l; }); }
     public LightmapBakeType lightmapBakeType { get => (LightmapBakeType)Read().lightmap_bake_type; set => Update(l => { l.lightmap_bake_type = (uint)value; return l; }); }
 
+    /// <summary>What baking the lighting recorded for this light. The engine bakes no lighting, so every light reports the
+    /// output of one never baked: not baked, realtime, indirect-only mixing and no occlusion mask channel or probe occlusion
+    /// light (-1). Setting it throws <see cref="NotSupportedException"/>.</summary>
+    public LightBakingOutput bakingOutput
+    {
+        get => LightBakingOutput.NotBaked;
+        set => throw new NotSupportedException("Light.bakingOutput cannot be set: the engine bakes no lighting");
+    }
+
     /// <summary>The cookie texture, or null. It is stored by instance id, so a clone shares it.</summary>
     public Texture? cookie
     {
@@ -101,4 +110,21 @@ public sealed class Light : Behaviour
     public CommandBuffer[] GetCommandBuffers(LightEvent evt) => CommandBuffers.Get(evt, "Light.GetCommandBuffers");
 
     public void RemoveCommandBuffer(LightEvent evt, CommandBuffer buffer) => CommandBuffers.Remove(evt, buffer, "Light.RemoveCommandBuffer");
+}
+
+/// <summary>The result of baking the lighting for one light.</summary>
+public struct LightBakingOutput
+{
+    public int probeOcclusionLightIndex;
+    public int occlusionMaskChannel;
+    public LightmapBakeType lightmapBakeType;
+    public MixedLightingMode mixedLightingMode;
+    public bool isBaked;
+
+    /// <summary>The output of a light that was never baked.</summary>
+    internal static LightBakingOutput NotBaked => new()
+    {
+        probeOcclusionLightIndex = -1, occlusionMaskChannel = -1, lightmapBakeType = LightmapBakeType.Realtime,
+        mixedLightingMode = MixedLightingMode.IndirectOnly, isBaked = false,
+    };
 }

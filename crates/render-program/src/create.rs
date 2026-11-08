@@ -431,6 +431,8 @@ pub(crate) struct TextureShape {
     pub(crate) layers: u32,
     pub(crate) mips: u32,
     pub(crate) format: wgpu::TextureFormat,
+    /// Whether a kernel binds the texture as a storage image, which the format must allow.
+    pub(crate) storage: bool,
 }
 
 impl TextureShape {
@@ -440,7 +442,13 @@ impl TextureShape {
         } else {
             wgpu::TextureUsages::RENDER_ATTACHMENT
         };
+        let storage = if self.storage {
+            wgpu::TextureUsages::STORAGE_BINDING
+        } else {
+            wgpu::TextureUsages::empty()
+        };
         attachment
+            | storage
             | wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_SRC
             | wgpu::TextureUsages::COPY_DST

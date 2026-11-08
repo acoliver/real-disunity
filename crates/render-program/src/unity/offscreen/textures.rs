@@ -25,6 +25,8 @@ pub(super) struct TextureInfo {
     /// The color format, or the depth format of a depth-only render texture.
     pub(super) format: wgpu::TextureFormat,
     pub(super) depth_format: Option<wgpu::TextureFormat>,
+    /// Whether the color storage allows storage binding, for a kernel to write.
+    pub(super) storage: bool,
     pub(super) sampler: Option<SamplerState>,
     /// The spec a render texture was made from; `None` for an uploaded source.
     pub(super) spec: Option<RenderTextureSpec>,
@@ -54,6 +56,9 @@ impl TextureInfo {
 pub(super) struct TextureTable {
     textures: HashMap<TextureId, TextureInfo>,
     retired: Vec<TextureHandle>,
+    /// The render textures a kernel binds as storage images. A texture stays in the set, so it is
+    /// made again for storage only once.
+    storage: BTreeSet<TextureId>,
 }
 
 impl TextureTable {
@@ -80,6 +85,7 @@ impl TextureTable {
             mips: 1,
             format,
             depth_format: None,
+            storage: false,
             sampler: source.sampler,
             spec: None,
             counts: Some(nonzero_texels(&source.bytes, format)),
@@ -89,7 +95,13 @@ impl TextureTable {
         Ok(())
     }
 
-    /// Creates every render texture of the frame that is new or whose spec changed.
+    /// Marks render textures as ones a kernel binds as storage images.
+    pub(super) fn bind_as_storage(&mut self, ids: impl IntoIterator<Item = TextureId>) {
+        self.storage.extend(ids);
+    }
+
+    /// Creates every render texture of the frame that is new, whose spec changed or that a kernel
+    /// binds as storage and was made without storage binding.
     pub(super) fn sync(
         &mut self,
         runtime: &mut ProgramRuntime,
@@ -97,9 +109,11 @@ impl TextureTable {
     ) -> Result<(), OffscreenError> {
         self.release_waiting(runtime);
         for spec in specs {
-            let current = self.textures.get(&spec.id).and_then(|t| t.spec.as_ref());
-            if current != Some(spec) {
-                let info = create_render_texture(runtime, spec)?;
+            let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
+            let held = self.textures.get(&spec.id);
+            let current = held.and_then(|t| t.spec.as_ref());
+            if current != Some(spec) || held.is_some_and(|t| t.storage != storage) {
+                let info = create_render_texture(runtime, spec, storage)?;
                 self.replace(runtime, spec.id, info);
             }
         }
@@ -174,9 +188,21 @@ impl TextureTable {
     }
 }
 
+/// Whether the device binds the color format of `spec` as a storage image, so that the texture
+/// can be made for a kernel to write.
+fn storage_format(runtime: &ProgramRuntime, spec: &RenderTextureSpec) -> bool {
+    render_color_format(spec.graphics_format)
+        .ok()
+        .flatten()
+        .is_some_and(|format| {
+            runtime.supports_storage_image(format, wgpu::StorageTextureAccess::WriteOnly)
+        })
+}
+
 fn create_render_texture(
     runtime: &mut ProgramRuntime,
     spec: &RenderTextureSpec,
+    storage: bool,
 ) -> Result<TextureInfo, OffscreenError> {
     if spec.size.contains(&0) || spec.layers == 0 || spec.mips == 0 {
         return Err(OffscreenError::EmptyTexture { id: spec.id });
@@ -200,6 +226,7 @@ fn create_render_texture(
         layers: spec.layers,
         mips: spec.mips,
         format,
+        storage,
     };
     let color = color_format
         .map(|format| runtime.create_empty_texture("offscreen render texture", shape(format)))
@@ -212,12 +239,19 @@ fn create_render_texture(
                 TextureShape {
                     layers: 1,
                     mips: 1,
+                    storage: false,
                     ..shape(format)
                 }
             } else {
                 shape(format)
             };
-            runtime.create_empty_texture("offscreen render texture depth", shape)
+            runtime.create_empty_texture(
+                "offscreen render texture depth",
+                TextureShape {
+                    storage: false,
+                    ..shape
+                },
+            )
         })
         .transpose();
     let depth = match depth {
@@ -238,6 +272,7 @@ fn create_render_texture(
         mips: spec.mips,
         format,
         depth_format,
+        storage: color.is_some() && storage,
         sampler: None,
         spec: Some(spec.clone()),
         counts: None,

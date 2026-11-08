@@ -184,6 +184,27 @@ impl OffscreenState {
             .map(textures::TextureInfo::primary)
     }
 
+    /// Marks render textures as ones a kernel binds as storage images. A marked texture is made
+    /// with storage binding usage when the device binds its color format as a storage image, and
+    /// is made again, empty, by the first frame that names it after it was marked while it had
+    /// none. A texture stays marked, so later frames keep it. A marked texture whose format the
+    /// device cannot bind is made without storage binding, as [`texture_storage`](Self::texture_storage)
+    /// shows.
+    pub fn bind_as_storage(&mut self, ids: impl IntoIterator<Item = TextureId>) {
+        self.textures.bind_as_storage(ids);
+    }
+
+    /// The color format of the render texture `id` and whether it allows storage binding, or
+    /// `None` for an id that names no texture the state holds. A depth-only render texture
+    /// reports its depth format.
+    #[must_use]
+    pub fn texture_storage(&self, id: TextureId) -> Option<(wgpu::TextureFormat, bool)> {
+        self.textures
+            .get(id)
+            .ok()
+            .map(|info| (info.format, info.storage))
+    }
+
     /// Gives back the storage of the render textures that `live` does not name. A render texture
     /// the frames named earlier and its owner has since destroyed holds storage for as long as the
     /// state keeps it, so a host calls this with the render textures that exist before it builds.

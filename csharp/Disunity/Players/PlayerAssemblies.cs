@@ -15,7 +15,9 @@ namespace Disunity.Hosting;
 /// <c>hostLibraries</c> constructor argument); any other name is left to .NET. A context asks only for
 /// names it and .NET could not resolve. <see cref="ServeDefaultContext"/> gives the default context the same
 /// host libraries, for types the framework's own facades forward to them. Each game assembly it loads
-/// also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>).
+/// also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>). With a
+/// callback cache, a game assembly that makes delegates for static methods marked <c>MonoPInvokeCallback</c> loads
+/// from a rewritten copy in the cache that keeps those delegates alive, as a player's own runtime does.
 /// </summary>
 public sealed class PlayerAssemblies
 {
@@ -25,6 +27,7 @@ public sealed class PlayerAssemblies
     private readonly IReadOnlyList<string> _listed;
     private readonly PlayerNativePlugins? _native;
     private readonly string? _hostLibraries;
+    private readonly CallbackCache? _callbacks;
     private readonly Dictionary<string, Assembly> _facades = new(StringComparer.Ordinal);
     // Resolution can run on any thread that first touches a type; the lock makes each
     // facade build once. Game assemblies need no lock: the context loads each name once.
@@ -45,8 +48,14 @@ public sealed class PlayerAssemblies
     /// The host's directory of class libraries that a Mono player gets from its runtime and does not ship, such as
     /// <c>System.Configuration.ConfigurationManager</c>, or null for none. The host carries them as packages.
     /// </param>
+    /// <param name="callbackCache">
+    /// The directory that holds game assemblies rewritten so the delegates they pass to native code stay callable (see
+    /// <see cref="PlayerCallbackRewriter"/>), or null to load the player's assemblies as they are.
+    /// </param>
+    /// <param name="log">Receives one line for each assembly that is rewritten, or null for none.</param>
     public PlayerAssemblies(string managedDirectory, Assembly engine, IEnumerable<string> gameAssemblies,
-        PlayerNativePlugins? nativePlugins = null, string? hostLibraries = null)
+        PlayerNativePlugins? nativePlugins = null, string? hostLibraries = null, string? callbackCache = null,
+        Action<string>? log = null)
     {
         if (!Directory.Exists(managedDirectory))
             throw new DirectoryNotFoundException($"no player Managed directory at {managedDirectory}");
@@ -56,6 +65,7 @@ public sealed class PlayerAssemblies
         _game = new HashSet<string>(_listed, StringComparer.Ordinal);
         _native = nativePlugins;
         _hostLibraries = hostLibraries;
+        _callbacks = callbackCache is null ? null : new CallbackCache(callbackCache, log);
     }
 
     /// <summary>
@@ -87,7 +97,7 @@ public sealed class PlayerAssemblies
         if (!_game.Contains(simple)) return ResolveHostLibrary(context, name);
         if (!File.Exists(path))
             throw new FileNotFoundException($"the player lists {simple} but its Managed directory has no {simple}.dll", path);
-        var assembly = context.LoadFromAssemblyPath(path);
+        var assembly = context.LoadFromAssemblyPath(_callbacks?.Resolve(simple, path) ?? path);
         _native?.Register(assembly);
         return assembly;
     }

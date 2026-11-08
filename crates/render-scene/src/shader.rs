@@ -165,3 +165,15 @@ mod terrain_determinism_tests;
 
 #[cfg(test)]
 mod impostor_sampling_cost_tests;
+
+#[cfg(test)]
+mod invariance_tests;
+
+#[cfg(test)]
+mod pipeline_invariance_tests;
+
+#[cfg(test)]
+mod position_dependencies;
+
+#[cfg(test)]
+mod shadow_uniformity_tests;

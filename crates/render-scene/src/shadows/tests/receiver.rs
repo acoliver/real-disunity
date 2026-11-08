@@ -1,4 +1,132 @@
+const PLANE_GRADIENT_PROBE: &str = r"
+@fragment fn fs_probe(@builtin(position) pixel:vec4<f32>)->@location(0) vec4<f32> {
+    let position=vec3<f32>(vec2<f32>(8192.0)+pixel.xy*vec2<f32>(0.0009765625,4.0),0.0);
+    return vec4<f32>(vec3<f32>(raw_sunlight_visibility(position,vec3<f32>(0.0,0.0,1.0))),1.0);
+}
+";
+
+#[test]
+fn gpu_receiver_gradient_matches_a_plane_despite_large_projection_translation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = super::cascades::source_with(
+        &scene(&[], 600_000, None),
+        SceneShadowCascades::new(vec![2_000, 4_000, 6_000, 8_000], 0).unwrap(),
+    );
+    let renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let cascades = super::super::cascades::CascadeViews {
+        recurrence: None,
+        multiplier: 0.0,
+        no_receivers: false,
+        matrices: vec![glam::Mat4::from_cols(
+            Vec4::new(0.00001, 0.0, 0.000_003, 0.0),
+            Vec4::new(0.0, 0.25, 0.05, 0.0),
+            Vec4::new(0.0, 0.0, 0.25, 0.0),
+            Vec4::new(-0.08192, -2048.0, -409.124_57, 1.0),
+        )],
+        depth_bias: [0.0; 4],
+        splits: [0.0; 4],
+        blend: 0.0,
+        camera_splits: false,
+        near: 0.0,
+        view_depth: Vec4::ZERO,
+        slices: Vec::new(),
+        filter_texels: 1.0,
+    };
+    context.queue().write_buffer(
+        &renderer.map.uniform,
+        0,
+        &resources::uniform_bytes(
+            &cascades,
+            DirectionalShadowSettings {
+                depth_bias: 0.0,
+                normal_bias_meters: 0.0,
+                ..settings()
+            },
+        ),
+    );
+    let vertex = super::selection::PROBE.split("@fragment").next().unwrap();
+    let kernel = "fn cascade_visibility(ndc:vec3<f32>,gradient:vec2<f32>,layer:i32)->f32 { return max(abs(gradient.x - 0.6), abs(gradient.y + 0.4)); }";
+    let reference = resources::SHADOWED_WGSL.replace(
+        include_str!("../../shader/shadows.wgsl"),
+        &super::depth_reuse::reference_receiver(),
+    );
+    let probes = [resources::SHADOWED_WGSL.to_owned(), reference].map(|source| {
+        let source = source.replacen("fn cascade_visibility(", "fn unused_cascade_visibility(", 1);
+        format!("{source}\n{kernel}\n{vertex}\n{PLANE_GRADIENT_PROBE}")
+    });
+    let current = super::selection::render_probe(&context, &renderer, &probes[0]);
+    let old = super::selection::render_probe(&context, &renderer, &probes[1]);
+    // dz/du = 0.000003 / (0.00001 * 0.5) = 0.6; dz/dv = -0.4.
+    // The X footprint is below one rounded UV step, but the Jacobian is nonsingular.
+    assert!(current.pixels.chunks_exact(4).all(|p| p[0] <= 1));
+    let wrong = old.pixels.chunks_exact(4).filter(|p| p[0] > 1).count();
+    println!("SHADOW_PLANE_BASELINE incorrect_pixels={wrong}/16");
+    assert!(
+        wrong > 0,
+        "the rounded-projection mutation must fail the plane slope oracle"
+    );
+}
+
 use super::*;
+
+#[test]
+fn gpu_receiver_gradient_reports_main_deltas_on_existing_shadow_fixtures() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let base = scene(&[[0, 0, 1_000]], 600_000, None);
+    let cases = [
+        ("mesh", base.clone()),
+        ("dome", receiver_scene()),
+        (
+            "terrain",
+            super::terrain::terrain_scene(&base, false, false),
+        ),
+        ("ridge", super::terrain::terrain_scene(&base, true, false)),
+    ];
+    for (name, source) in cases {
+        for extents in [vec![4_000], vec![2_000, 4_000, 8_000]] {
+            let source = super::cascades::source_with(
+                &source,
+                SceneShadowCascades::new(extents.clone(), 100_000).unwrap(),
+            );
+            let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+            let current = include_str!("../../shader/shadows.wgsl");
+            let reference = super::depth_reuse::reference_receiver();
+            let mut pipelines = ScenePipelines::with_screen_space(
+                context.device(),
+                (OffscreenTarget::COLOR_FORMAT, 1),
+                &resources::SHADOWED_WGSL.replace(current, &reference),
+                &resources::SHADOWED_TERRAIN_WGSL.replace(current, &reference),
+                Some(&renderer.shadow_layout),
+                None,
+            );
+            let mut target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+            render_target(&mut renderer, &context, &view(), &target).unwrap();
+            let actual = target.read_rgba8(&context).unwrap();
+            std::mem::swap(&mut renderer.pipelines, &mut pipelines);
+            render_target(&mut renderer, &context, &view(), &target).unwrap();
+            let main = target.read_rgba8(&context).unwrap();
+            let changed = actual
+                .pixels
+                .chunks_exact(4)
+                .zip(main.pixels.chunks_exact(4))
+                .filter(|(a, b)| a != b)
+                .count();
+            let maximum = actual
+                .pixels
+                .iter()
+                .zip(&main.pixels)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            println!(
+                "SHADOW_FIXTURE_DELTA name={name} cascades={} pixels={changed} max_channel={maximum}",
+                extents.len()
+            );
+        }
+    }
+}
 
 fn receiver_scene() -> RenderScene {
     let mut vertices = Vec::new();

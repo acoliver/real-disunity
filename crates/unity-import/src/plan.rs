@@ -285,8 +285,8 @@ pub enum PlanAsset {
         path_id: i64,
         kernels: Vec<crate::player_compute::PlanKernel>,
     },
-    /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. Its
-    /// texture slots are empty: a scene plan holds only the textures its sprites draw.
+    /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. The
+    /// textures it binds are planned before it.
     Material {
         #[serde(flatten)]
         material: crate::player_materials::PlanMaterial,

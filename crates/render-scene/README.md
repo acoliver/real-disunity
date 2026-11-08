@@ -399,6 +399,14 @@ Camera slices use a bounding sphere with quantized radius and texel-snapped ligh
 coordinates. The next slice includes the preceding blend band. LOD and billboard
 orientation always use the main camera, while visibility and statistics are separate
 for each cascade. All receivers share the same receiver-plane-corrected PCF kernel.
+Receiver position and normal derivatives are captured before cascade selection or
+coverage rejection. Each cascade transforms those displacements and applies the
+projection quotient rule before solving the shadow-UV depth gradient. Differencing
+rounded atlas coordinates would magnify cancellation at large world offsets.
+The CPU shadow call-graph guard forbids derivatives and implicit texture samples in
+loops or varying control flow; Metal differential fixtures check independent-depth
+and prepass-owned-depth colour bytes. Neither guard establishes cross-pipeline
+fragment arithmetic invariance on every backend.
 The blend fraction is in millionths; zero disables blending. Array layer count
 changes take effect at the next encode without replacing resident scene handles.
 Coverage values exceeding the adapter's u32 millimetre range are rejected during fit.

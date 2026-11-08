@@ -24,8 +24,8 @@ use worldrunner_render_program::module::{
 };
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::runtime::{
-    BoundResource, DrawRequest, Geometry, GraphicsProgram, ProgramRuntime, TargetImage,
-    TargetSignature, VertexInput,
+    BoundResource, DrawRequest, Geometry, GraphicsProgram, ProgramDesc, ProgramRuntime, StageDesc,
+    TargetImage, TargetSignature, VertexInput,
 };
 use worldrunner_render_program::state::{RenderState, StencilState};
 use worldrunner_render_program::variant::{FeatureId, FeatureSet, UnknownFeatures, Variants};
@@ -141,8 +141,12 @@ struct Rig {
 }
 
 fn rig(gpu: &Gpu, fragment: &StageProgram) -> Rig {
+    rig_with(gpu, &vertex(), fragment)
+}
+
+fn rig_with(gpu: &Gpu, vertex: &StageProgram, fragment: &StageProgram) -> Rig {
     let mut runtime = gpu.runtime();
-    let program = runtime.graphics_program(&vertex(), fragment).unwrap();
+    let program = runtime.graphics_program(vertex, fragment).unwrap();
     let mut properties = PropertySet::new();
     properties.set("color", PropertyValue::Vector(COLOR));
     let target_layout = &fragment.constant_targets()[0];
@@ -406,4 +410,126 @@ fn the_content_key_of_a_wgsl_stage_follows_its_text_and_entry_point() {
     )
     .unwrap();
     assert_ne!(base, other.content_key());
+}
+
+fn stage_of(
+    source: &str,
+    entry: &str,
+    kind: StageKind,
+    declarations: StageDeclarations,
+) -> StageProgram {
+    StageProgram::new(module(source, entry, kind), declarations).unwrap()
+}
+
+#[test]
+fn one_parse_serves_a_vertex_and_a_fragment_stage_of_one_source() {
+    let gpu = Gpu::new();
+    let vertex = vertex();
+    let fragment = vertex
+        .sibling("fs", StageKind::Fragment)
+        .unwrap()
+        .with_declarations(tint_declarations(ShaderStages::FRAGMENT, 0));
+    assert!(fragment.shares_parse_with(&vertex));
+    assert_eq!(fragment.module().entry_point, "fs");
+    assert_eq!(fragment.module().kind, StageKind::Fragment);
+    // The sibling reads the resources of its own entry point: the fragment uses the tint and the
+    // vertex stage uses nothing.
+    assert!(vertex.reflected().is_empty());
+    assert_eq!(fragment.reflected().len(), 1);
+    assert_ne!(fragment.content_key(), vertex.content_key());
+
+    let mut rig = rig_with(&gpu, &vertex, &fragment);
+    let image = draw(&mut rig, &no_cull(), [-1.0, -1.0, 1.0, 1.0]).unwrap();
+    assert_pixel(&image, (0, 0), COLOR);
+    // Both stages come from one compiled module, whatever their entry points.
+    assert_eq!(rig.runtime.cached_modules(), 1);
+    assert_eq!(rig.runtime.stats().modules_built, 1);
+}
+
+#[test]
+fn a_sibling_names_the_entry_point_it_lacks_and_starts_bare() {
+    let vertex = vertex();
+    assert_eq!(
+        vertex.sibling("nowhere", StageKind::Fragment).unwrap_err(),
+        ModuleError::EntryPointMissing {
+            name: "nowhere".to_owned(),
+            kind: StageKind::Fragment
+        }
+    );
+    // `vs` is a vertex entry point and not a fragment one.
+    assert_eq!(
+        vertex.sibling("vs", StageKind::Fragment).unwrap_err(),
+        ModuleError::EntryPointMissing {
+            name: "vs".to_owned(),
+            kind: StageKind::Fragment
+        }
+    );
+    let tinted = fragment("fs");
+    assert!(!tinted.declarations().resources.bindings.is_empty());
+    let sibling = tinted.sibling("fs_double", StageKind::Fragment).unwrap();
+    assert!(sibling.shares_parse_with(&tinted));
+    assert_eq!(sibling.declarations(), &StageDeclarations::default());
+    assert!(sibling.overrides().is_empty());
+}
+
+#[test]
+fn stages_parsed_separately_from_one_source_still_share_a_shader_module() {
+    let gpu = Gpu::new();
+    let (vertex, fragment) = (vertex(), fragment("fs"));
+    assert!(!fragment.shares_parse_with(&vertex));
+    let mut rig = rig_with(&gpu, &vertex, &fragment);
+    draw(&mut rig, &no_cull(), [-1.0, -1.0, 1.0, 1.0]).unwrap();
+    assert_eq!(rig.runtime.cached_modules(), 1);
+    assert_eq!(rig.runtime.stats().modules_built, 1);
+}
+
+#[test]
+fn stages_of_different_sources_are_different_shader_modules() {
+    let gpu = Gpu::new();
+    let edited = format!("{WGSL}\n// edited");
+    let fragment = stage_of(
+        &edited,
+        "fs",
+        StageKind::Fragment,
+        tint_declarations(ShaderStages::FRAGMENT, 0),
+    );
+    let mut rig = rig_with(&gpu, &vertex(), &fragment);
+    draw(&mut rig, &no_cull(), [-1.0, -1.0, 1.0, 1.0]).unwrap();
+    assert_eq!(rig.runtime.cached_modules(), 2);
+    assert_eq!(rig.runtime.stats().modules_built, 2);
+}
+
+#[test]
+fn registering_a_program_parses_the_source_of_both_its_stages_once() {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let desc = |fragment_source: &str| {
+        ProgramDesc::single(
+            "one source",
+            RenderState::opaque_depth(),
+            StageDesc::wgsl(WGSL, "vs", StageKind::Vertex, StageDeclarations::default()),
+            StageDesc::wgsl(
+                fragment_source,
+                "fs",
+                StageKind::Fragment,
+                tint_declarations(ShaderStages::FRAGMENT, 0),
+            ),
+        )
+    };
+    let handle = runtime.register_program(desc(WGSL)).unwrap();
+    let program = runtime.variant_program(handle, &FeatureSet::new()).unwrap();
+    assert!(
+        program
+            .vertex()
+            .shares_parse_with(program.fragment().unwrap())
+    );
+
+    let edited = format!("{WGSL}\n// edited");
+    let handle = runtime.register_program(desc(&edited)).unwrap();
+    let program = runtime.variant_program(handle, &FeatureSet::new()).unwrap();
+    assert!(
+        !program
+            .vertex()
+            .shares_parse_with(program.fragment().unwrap())
+    );
 }

@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// that fails before it creates the object does not count it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RuntimeStats {
-    /// Shader modules compiled. Stages with the same source, entry point and kind share one.
+    /// Shader modules compiled. Stages of one source share one, whatever their entry points, stage
+    /// kinds and overrides.
     pub modules_built: u64,
     /// Render and compute pipelines created. Equal programs, state and targets share one.
     pub pipelines_built: u64,

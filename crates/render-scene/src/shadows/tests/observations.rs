@@ -156,7 +156,6 @@ fn depth_fit_observation(policy: crate::shadows::sdsm::AdoptionPolicy) {
 
 fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut FrameRenderer) {
     use worldrunner_render_post::{BorrowedFeature, PassDeclaration};
-    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         frame.targets().scene().texture(),
@@ -167,6 +166,13 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
         frame.targets().depth().texture(),
     )
     .unwrap();
+    let depth_mode = if depth.format().has_stencil_aspect() {
+        crate::renderer::depth::DepthMode::Shared
+    } else {
+        crate::renderer::depth::DepthMode::Independent
+    };
+    let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float)
+        .for_depth(depth_mode);
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(frame.color_attachment(color.resource(), &color));
     pass.depth = Some(crate::compositor::attachment(

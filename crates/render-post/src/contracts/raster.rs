@@ -16,7 +16,13 @@ fn color_attachment(color: &ColorAttachment) -> wgpu::RenderPassColorAttachment<
 fn depth_attachment(depth: &DepthAttachment) -> wgpu::RenderPassDepthStencilAttachment<'_> {
     wgpu::RenderPassDepthStencilAttachment {
         view: &depth.view.view,
-        stencil_ops: None,
+        stencil_ops: stencil_operations(
+            depth.view.view.texture().format(),
+            depth.view.range().aspect,
+            depth.read_only,
+            depth.load,
+            depth.store,
+        ),
         depth_ops: (!depth.read_only).then_some(wgpu::Operations {
             load: match depth.load {
                 AttachmentLoad::Load => wgpu::LoadOp::Load,
@@ -26,6 +32,25 @@ fn depth_attachment(depth: &DepthAttachment) -> wgpu::RenderPassDepthStencilAtta
             store: depth.store,
         }),
     }
+}
+
+fn stencil_operations(
+    format: wgpu::TextureFormat,
+    aspect: wgpu::TextureAspect,
+    read_only: bool,
+    load: AttachmentLoad,
+    store: wgpu::StoreOp,
+) -> Option<wgpu::Operations<u32>> {
+    (!read_only && aspect == wgpu::TextureAspect::All && format.has_stencil_aspect()).then_some(
+        wgpu::Operations {
+            load: if load == AttachmentLoad::Load {
+                wgpu::LoadOp::Load
+            } else {
+                wgpu::LoadOp::Clear(0)
+            },
+            store,
+        },
+    )
 }
 
 use super::{
@@ -206,5 +231,49 @@ impl CompiledRaster {
             pass.encode_named(encoder, None, label, |render| draw(pass.id, render));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod stencil_tests {
+    use super::*;
+    #[test]
+    fn ownership_is_cleared_and_loaded_with_depth_and_not_used_by_read_only_views() {
+        use wgpu::{TextureAspect as A, TextureFormat as F};
+        let seed = stencil_operations(
+            F::Depth32FloatStencil8,
+            A::All,
+            false,
+            AttachmentLoad::ClearDepth(1.0),
+            wgpu::StoreOp::Store,
+        )
+        .unwrap();
+        assert_eq!(seed.load, wgpu::LoadOp::Clear(0));
+        assert_eq!(seed.store, wgpu::StoreOp::Store);
+        let consume = stencil_operations(
+            F::Depth32FloatStencil8,
+            A::All,
+            false,
+            AttachmentLoad::Load,
+            wgpu::StoreOp::Store,
+        )
+        .unwrap();
+        assert_eq!(consume.load, wgpu::LoadOp::Load);
+        for (format, aspect, read_only) in [
+            (F::Depth32Float, A::All, false),
+            (F::Depth32FloatStencil8, A::DepthOnly, false),
+            (F::Depth32FloatStencil8, A::All, true),
+        ] {
+            assert!(
+                stencil_operations(
+                    format,
+                    aspect,
+                    read_only,
+                    AttachmentLoad::Load,
+                    wgpu::StoreOp::Store
+                )
+                .is_none()
+            );
+        }
     }
 }

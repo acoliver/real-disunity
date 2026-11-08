@@ -27,7 +27,7 @@ const PERIOD_MS: f32 = 1000.0;
 /// residual changes by about 1e-4 uv over that distance; half-float storage adds under 3e-5.
 const TOLERANCE_UV: f32 = 1e-3;
 
-fn windy() -> RenderScene {
+pub(super) fn windy() -> RenderScene {
     let wind = SceneWind::new(
         SceneDirection::new([1_000_000, 0, 0]).unwrap(),
         500,

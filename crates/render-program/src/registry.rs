@@ -31,9 +31,46 @@ pub struct ProgramHandle {
 pub struct StageDesc {
     pub module: StageModule,
     pub declarations: StageDeclarations,
+    pub overrides: Vec<(String, f64)>,
 }
 
 impl StageDesc {
+    /// The stage with pipeline-overridable constants set, as
+    /// [`StageProgram::with_overrides`] does when the program is registered: they replace any
+    /// the description had. Registration refuses, by name, a constant the module does not
+    /// declare and a value of the wrong type.
+    #[must_use]
+    pub fn with_overrides(mut self, overrides: &[(&str, f64)]) -> Self {
+        self.overrides = overrides
+            .iter()
+            .map(|&(name, value)| (name.to_owned(), value))
+            .collect();
+        self
+    }
+
+    /// The stage parsed and validated, with its overrides applied. A source that a stage in
+    /// `known` was made from is not parsed again: the stage is a sibling of it. The stage is added
+    /// to `known`.
+    fn program(self, known: &mut Vec<StageProgram>) -> Result<StageProgram, ProgramError> {
+        let overrides: Vec<(&str, f64)> = self
+            .overrides
+            .iter()
+            .map(|(name, value)| (name.as_str(), *value))
+            .collect();
+        let parsed = known
+            .iter()
+            .find(|stage| stage.module().source == self.module.source)
+            .cloned();
+        let stage = match parsed {
+            Some(parsed) => parsed
+                .sibling(&self.module.entry_point, self.module.kind)?
+                .with_declarations(self.declarations),
+            None => StageProgram::new(self.module, self.declarations)?,
+        };
+        known.push(stage.clone());
+        Ok(stage.with_overrides(&overrides)?)
+    }
+
     /// A stage whose code is WGSL text.
     #[must_use]
     pub fn wgsl(
@@ -49,6 +86,7 @@ impl StageDesc {
                 kind,
             },
             declarations,
+            overrides: Vec::new(),
         }
     }
 
@@ -67,6 +105,7 @@ impl StageDesc {
                 kind,
             },
             declarations,
+            overrides: Vec::new(),
         }
     }
 }
@@ -288,10 +327,10 @@ impl ProgramRuntime {
             .flat_map(|variant| variant.features.iter().cloned())
             .collect();
         let mut built = Vec::new();
+        let mut parsed = Vec::new();
         for variant in desc.variants {
-            let vertex = StageProgram::new(variant.vertex.module, variant.vertex.declarations)?;
-            let fragment =
-                StageProgram::new(variant.fragment.module, variant.fragment.declarations)?;
+            let vertex = variant.vertex.program(&mut parsed)?;
+            let fragment = variant.fragment.program(&mut parsed)?;
             let program = self.graphics_program(&vertex, &fragment)?;
             built.push((
                 variant.features,

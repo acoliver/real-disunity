@@ -182,7 +182,7 @@ impl ProgramRuntime {
         Pins::new(&self.authority, shares).retain(encoder)
     }
 
-    /// Shader modules compiled so far; stages with the same content share one.
+    /// Shader modules compiled so far; stages of one source share one.
     #[must_use]
     pub fn cached_modules(&self) -> usize {
         self.modules.len()
@@ -211,7 +211,8 @@ impl ProgramRuntime {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The compiled module for a stage, built from the parsed naga module on first use.
+    /// The compiled module for the source of a stage, built from the parsed naga module on first
+    /// use. Every entry point of the source is in it.
     ///
     /// # Errors
     /// Fails when the device rejects the module.
@@ -219,7 +220,7 @@ impl ProgramRuntime {
         &mut self,
         stage: &StageProgram,
     ) -> Result<wgpu::ShaderModule, ProgramError> {
-        if let Some(module) = self.modules.get(&stage.content_key()) {
+        if let Some(module) = self.modules.get(&stage.module_key()) {
             return Ok(module.clone());
         }
         let module = self.guarded(|| {
@@ -230,7 +231,7 @@ impl ProgramRuntime {
                 })
         })?;
         self.counters.module_built();
-        self.modules.insert(stage.content_key(), module.clone());
+        self.modules.insert(stage.module_key(), module.clone());
         Ok(module)
     }
 

@@ -25,27 +25,30 @@ fn cascade_visibility(ndc: vec3<f32>, gradient: vec2<f32>, layer: i32) -> f32 {
         gradient, i32(shadow.bias.z), true);
 }
 
-fn single_shadow_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
-    // Keep the single-map projection scalar through sampling to preserve its rounding.
+fn scene_shadow_gradient(clip: vec4<f32>, receiver_dx: vec3<f32>, receiver_dy: vec3<f32>, layer: i32) -> vec2<f32> {
+    let matrix = shadow.clip_from_world[layer];
+    return rd_shadow_projected_gradient(clip, matrix * vec4<f32>(receiver_dx, 0.0), matrix * vec4<f32>(receiver_dy, 0.0));
+}
+fn single_shadow_visibility(position: vec3<f32>, normal: vec3<f32>, receiver_dx: vec3<f32>, receiver_dy: vec3<f32>) -> f32 {
     let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
     let ndc = clip.xyz / clip.w;
-    let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-    let gradient = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+    let gradient = scene_shadow_gradient(clip, receiver_dx, receiver_dy, 0);
     return cascade_visibility(ndc, gradient, 0);
 }
 
 fn raw_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
-    // The layer count is draw-uniform, so both derivative paths remain uniform.
-    if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 { return single_shadow_visibility(position, normal); }
+    // Capture unbiased displacements once, before cascade selection or projection rounding.
+    let receiver_dx = dpdx(position) + dpdx(normal) * shadow.bias.y;
+    let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y;
+    if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 { return single_shadow_visibility(position, normal, receiver_dx, receiver_dy); }
     var coordinates: array<vec3<f32>, 4>;
     var gradients: array<vec2<f32>, 4>;
     // Derivatives must precede divergent coverage and cascade selection.
     for (var i = 0; i < 4; i += 1) {
         let clip = shadow.clip_from_world[i] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
         let ndc = clip.xyz / clip.w;
-        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
         coordinates[i] = ndc;
-        gradients[i] = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+        gradients[i] = scene_shadow_gradient(clip, receiver_dx, receiver_dy, i);
     }
     let count = i32(shadow.policy.x);
     let distance = dot(shadow.view_depth, vec4<f32>(position, 1.0));
@@ -97,12 +100,13 @@ struct SceneCardShadow {
     gradients: array<vec2<f32>, 4>,
 }
 fn scene_prepare_card_shadow(position: vec3<f32>, normal: vec3<f32>) -> SceneCardShadow {
+    let receiver_dx = dpdx(position) + dpdx(normal) * shadow.bias.y;
+    let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y;
     var prepared: SceneCardShadow;
     if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 {
         let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
         let ndc = clip.xyz / clip.w;
-        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-        let gradient = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+        let gradient = scene_shadow_gradient(clip, receiver_dx, receiver_dy, 0);
         prepared.single_ndc = ndc;
         prepared.single_gradient = gradient;
         return prepared;
@@ -110,9 +114,8 @@ fn scene_prepare_card_shadow(position: vec3<f32>, normal: vec3<f32>) -> SceneCar
     for (var i = 0; i < 4; i += 1) {
         let clip = shadow.clip_from_world[i] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
         let ndc = clip.xyz / clip.w;
-        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
         prepared.coordinates[i] = ndc;
-        prepared.gradients[i] = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+        prepared.gradients[i] = scene_shadow_gradient(clip, receiver_dx, receiver_dy, i);
     }
     return prepared;
 }

@@ -26,6 +26,7 @@ fn requirements(
         },
         // Lets frame validation use adapter-reported sample counts (2x and 8x).
         optional_features: Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+            | Features::DEPTH32FLOAT_STENCIL8
             | if timing == worldrunner_render_post::TimingMode::Optional {
                 timing.features()
             } else {

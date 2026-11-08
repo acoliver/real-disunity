@@ -2,9 +2,9 @@
 use super::*;
 
 #[path = "forward_fixtures.rs"]
-mod fixtures;
+pub(super) mod fixtures;
 #[path = "forward_samples.rs"]
-mod samples;
+pub(super) mod samples;
 #[path = "forward_shadow.rs"]
 mod shadow;
 
@@ -54,6 +54,8 @@ fn forward_card_terms_match_frozen_colour_and_coverage() {
 }
 
 fn reference(source: &str) -> String {
+    // Freeze rejection and shading order, but share the corrected shadow-plane math.
+    // The receiver regression separately measures the previous gradient algorithm.
     source
         .replace(
             concat!(include_str!("../../shader/forward_cards.wgsl"), "\n"),
@@ -64,16 +66,12 @@ fn reference(source: &str) -> String {
             include_str!("forward_reference/environment.wgsl"),
         )
         .replace(
-            include_str!("../../shader/shadows.wgsl"),
-            include_str!("forward_reference/shadows.wgsl"),
-        )
-        .replace(
             include_str!("../../shader/unshadowed.wgsl"),
             include_str!("forward_reference/unshadowed.wgsl"),
         )
 }
 
-fn moving_frame(pose: CameraPose, effects: Option<&SceneEffects>) -> FrameUniform {
+pub(super) fn moving_frame(pose: CameraPose, effects: Option<&SceneEffects>) -> FrameUniform {
     let mut frame = FrameUniform::new(&view(pose), effects).unwrap();
     frame.animation_time_milliseconds = 250;
     frame.temporal = Some(crate::frame::temporal::TemporalView {

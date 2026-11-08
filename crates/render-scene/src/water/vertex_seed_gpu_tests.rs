@@ -132,10 +132,10 @@ fn probe_at_origin(
         options,
         &source(perspective),
     );
-    water
-        .specializations
-        .borrow_mut()
-        .insert(options, [pipeline.clone(), pipeline]);
+    water.specializations.borrow_mut().insert(
+        (options, crate::renderer::depth::DepthMode::Independent),
+        [pipeline.clone(), pipeline],
+    );
     let bytes = seed_tests::render_probe(context, &mut renderer);
     std::array::from_fn(|channel| {
         let start = (16 * 32 + 16) * 8 + channel * 2;

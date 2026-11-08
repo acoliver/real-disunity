@@ -499,3 +499,19 @@ mod caster_tests;
 
 #[cfg(test)]
 mod cache_tests;
+
+pub(super) fn has_relief(instances: &Instances, meshes: &[MeshSelection]) -> bool {
+    instances.batches.iter().any(|(key, batch)| {
+        batch.has_instances()
+            && (crate::pipeline::PipelineKey::ALL[key.0].relief
+                || meshes[key.1]
+                    .material_slots
+                    .iter()
+                    .flatten()
+                    .flatten()
+                    .any(|slot| {
+                        let pipeline = instances.pipelines[slot.material().raw() as usize];
+                        crate::pipeline::PipelineKey::ALL[pipeline].relief
+                    }))
+    })
+}

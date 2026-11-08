@@ -224,8 +224,30 @@ impl<F: StageFactory> PostChain<F> {
         persistent: Resources,
         factory: F,
     ) -> Result<Self, PostError> {
+        Self::with_scene_depth(
+            device,
+            config,
+            persistent,
+            factory,
+            crate::SceneDepth::Independent,
+        )
+    }
+
+    /// Creates frame targets with the stock planner's depth ownership representation.
+    pub fn with_scene_depth(
+        device: &wgpu::Device,
+        config: FrameConfig,
+        persistent: Resources,
+        factory: F,
+        depth: crate::SceneDepth,
+    ) -> Result<Self, PostError> {
         factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_options(device, config, target_options(&factory, config))?;
+        let targets = FrameTargets::with_scene_depth(
+            device,
+            config,
+            target_options(&factory, config),
+            depth,
+        )?;
         let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
@@ -309,8 +331,12 @@ impl<F: StageFactory> PostChain<F> {
     ) -> Result<(), PostError> {
         config.validate_device(device)?;
         self.factory.validate_config(device, config)?;
-        let targets =
-            FrameTargets::with_options(device, config, target_options(&self.factory, config))?;
+        let targets = FrameTargets::with_scene_depth(
+            device,
+            config,
+            target_options(&self.factory, config),
+            self.targets.scene_depth(),
+        )?;
         let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
         for feature in &mut self.features {
             feature.prepared = None;

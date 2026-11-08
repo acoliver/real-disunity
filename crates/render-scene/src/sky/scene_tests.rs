@@ -105,7 +105,7 @@ pub(super) fn effects(density: u32, dome: bool) -> SceneEffects {
         .with_atmosphere(atmosphere(density))
         .unwrap()
 }
-pub(super) fn atmosphere(density: u32) -> SceneAtmosphere {
+pub(crate) fn atmosphere(density: u32) -> SceneAtmosphere {
     let [a, b, c, d] = density.to_le_bytes();
     let density = (f32::from(u16::from_le_bytes([c, d])) * 65_536.0
         + f32::from(u16::from_le_bytes([a, b])))

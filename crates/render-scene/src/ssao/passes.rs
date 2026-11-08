@@ -81,7 +81,16 @@ pub(super) fn group(
 ) -> wgpu::BindGroup {
     let views: Vec<_> = textures
         .iter()
-        .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()))
+        .map(|texture| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                aspect: if texture.format().has_depth_aspect() {
+                    wgpu::TextureAspect::DepthOnly
+                } else {
+                    wgpu::TextureAspect::All
+                },
+                ..Default::default()
+            })
+        })
         .collect();
     let mut entries = Vec::new();
     if let Some(uniform) = uniform {
@@ -120,6 +129,18 @@ fn level(index: u32) -> ResourceRef {
     FrameProduct::linear_depth(index).resource()
 }
 impl ScreenPasses {
+    pub(crate) fn rebind_depth(
+        &mut self,
+        device: &wgpu::Device,
+        uniform: &wgpu::Buffer,
+        depth: &wgpu::Texture,
+        resource: ResourceRef,
+    ) {
+        let base = &mut self.stages[0];
+        base.group = group(device, &base.pipeline, Some(uniform), &[depth]);
+        base.reads = vec![resource];
+    }
+
     pub(crate) fn textures(&self) -> Vec<&wgpu::Texture> {
         self.stages.iter().map(|stage| &stage.target).collect()
     }
@@ -304,7 +325,7 @@ pub(crate) fn prepass(
     views: &mut Vec<AttachmentView>,
 ) -> Result<(), FrameError> {
     let normals = FrameProduct::normals().attachment(&ssao.normals)?;
-    let depth = FrameProduct::prepass_depth().attachment(&ssao.depth)?;
+    let depth = AttachmentView::new(ssao.depth_resource(), &ssao.depth)?;
     let mut pass = PassDeclaration::new(PassSlot::DepthNormalPrepass);
     pass.color = Some(crate::compositor::attachment(
         normals.resource(),
@@ -319,7 +340,15 @@ pub(crate) fn prepass(
         &depth,
         true,
     ));
-    views.extend([normals, depth]);
+    views.push(normals);
+    if let Some(existing) = views
+        .iter()
+        .find(|view| view.resource() == depth.resource())
+    {
+        assert_eq!(existing.texture(), depth.texture());
+    } else {
+        views.push(depth);
+    }
     if let Some(texture) = material {
         let material = FrameProduct::material().attachment(texture)?;
         pass.additional_colors.push(crate::compositor::attachment(
@@ -333,10 +362,13 @@ pub(crate) fn prepass(
     Ok(())
 }
 
-pub(crate) fn geometry_declaration(declaration: &mut FeatureDeclaration) {
+pub(crate) fn geometry_declaration(
+    declaration: &mut FeatureDeclaration,
+    depth: wgpu::TextureFormat,
+) {
     let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
     prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-    prepass.depth_format = Some(wgpu::TextureFormat::Depth32Float);
+    prepass.depth_format = Some(depth);
     declaration.passes.push(prepass);
     declaration
         .passes

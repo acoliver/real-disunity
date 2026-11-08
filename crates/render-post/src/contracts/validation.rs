@@ -259,7 +259,6 @@ fn attachment_shape(
     if view.range.mips.len() != 1
         || view.range.layers.len() != 1
         || format.is_depth_stencil_format() != depth
-        || format.has_stencil_aspect()
         || (depth
             && (!format.has_depth_aspect()
                 || view.range.aspect == wgpu::TextureAspect::StencilOnly))

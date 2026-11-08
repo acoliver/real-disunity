@@ -21,7 +21,7 @@ impl Inputs {
         views: &mut Vec<wgpu::TextureView>,
     ) -> Result<(), FrameError> {
         views.extend(self.receivers[..2].iter().cloned());
-        views.push(context.resource(self.depth)?.view().clone());
+        views.push(context.resource(self.depth)?.sampled_view());
         Ok(())
     }
     pub(super) fn resolve_views(&self, views: &mut Vec<wgpu::TextureView>) {

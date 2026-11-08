@@ -78,7 +78,10 @@ const DECALS: &str = r"fn scene_project_decals(position: vec3<f32>, geometric: v
     let world_dx = dpdx(position);
     let world_dy = dpdy(position);
     let gradient_scale = exp2(frame.lighting_options.w);
-    for (var i = 0u; i < scene_decals.count.x; i++) {
+    var candidates = scene_decal_candidates(position);
+    while candidates != 0u {
+        let i = firstTrailingBit(candidates);
+        candidates &= candidates - 1u;
         let decal = scene_decals.volumes[i];
         if (decal.selection.x & receiver) == 0u { continue; }
         let local = (decal.local_from_world * vec4<f32>(position, 1.0)).xyz;
@@ -275,7 +278,7 @@ fn forward_helpers_preserve_pre_change_source_exactly() {
     }
 }
 
-// Fingerprints regenerated from production assemblies for staged forward rejection (Hubnot 6199655cef5e).
+// Freeze production assemblies with invariant paired positions. Unpaired hashes stay unchanged.
 // Hash every byte, including unreachable declarations, to detect changes shared by both GPU runs.
 fn source_fingerprint(source: &str) -> (usize, u128) {
     let hash = source.bytes().fold(
@@ -286,25 +289,25 @@ fn source_fingerprint(source: &str) -> (usize, u128) {
 }
 
 #[test]
-fn all_forward_assemblies_preserve_complete_pre_change_source() {
+fn forward_assemblies_match_invariant_baseline_fingerprints() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let (shadowed, shadowed_terrain) = crate::shadows::capture_sources(true);
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (92_613, 0xdb10_cc54_7145_1b02_22e4_f07c_7455_f5ae),
+            (93_482, 0x22e8_31dc_934f_cb24_2e4f_660c_23cb_6188),
         ),
         (
             crate::shader::TERRAIN_WGSL,
-            (48_111, 0x375a_5a96_35f7_5f92_c33b_f52a_0571_01a5),
+            (48_980, 0xa055_4b91_69fa_ff16_c593_ee7c_7301_a789),
         ),
         (
             shadowed,
-            (105_814, 0x09ba_62a1_7be3_6d3c_1a20_2ca1_d93d_c0ac),
+            (106_683, 0x77cf_17be_2120_bab9_7b66_5361_2ff7_fcb2),
         ),
         (
             shadowed_terrain,
-            (61_312, 0x7527_e442_7bc5_d4b3_b822_e1e6_adc9_e86b),
+            (62_181, 0x38c8_3d41_12bf_5c57_5db5_8d12_5e22_103b),
         ),
     ] {
         assert_eq!(source_fingerprint(source), expected);
@@ -315,11 +318,11 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (92_848, 0xd979_0a23_f1de_2ede_c089_a9b0_67a7_acd0),
+            (93_717, 0xb135_4496_3393_36fb_606f_47d2_2966_2510),
         ),
         (
             shadowed,
-            (106_049, 0xd7b2_0873_f011_1a80_aab7_25f1_8369_fab2),
+            (106_918, 0x4516_ac5b_524c_6516_67b3_fa7d_4669_ea42),
         ),
     ] {
         assert_eq!(
@@ -331,28 +334,28 @@ fn all_forward_assemblies_preserve_complete_pre_change_source() {
 
 const CELESTIAL_SOURCES: [[(usize, u128); 4]; 4] = [
     [
-        (94_212, 0xbd0f_175d_93cd_ae84_9d49_a876_51b3_6ddb),
-        (94_186, 0x6558_a9cb_fded_0469_fceb_99fd_b2ea_6a99),
-        (94_447, 0xff26_5e2e_f859_4b96_8b24_1f1d_d9d2_7459),
-        (94_421, 0x059e_1c94_662d_ad09_4997_fbd1_27bb_c273),
+        (95_070, 0x79d1_c93f_0185_4adc_0b5e_27f6_b394_08e9),
+        (95_044, 0xc9c0_7167_b659_8ef4_d514_7d77_f78b_ffe3),
+        (95_305, 0x2f8a_85c1_eaf9_2293_8e51_4a76_d7d7_a263),
+        (95_279, 0x7013_328b_8375_8863_2a86_00fb_b361_5ec1),
     ],
     [
-        (94_100, 0x89d3_b85d_3ce7_5227_d28a_1b43_b753_296f),
-        (94_074, 0xc5e3_9847_efa9_5f47_0d0c_a0ab_8a50_68dd),
-        (94_335, 0xde1c_7cf0_a7b2_c591_8661_b54b_4f4c_22b3),
-        (94_309, 0xf241_3605_9ddd_87d4_1622_d3a1_cb5b_ff71),
+        (94_958, 0x8a66_275b_9492_7436_aa52_7773_20ab_7ab5),
+        (94_932, 0xbb15_b43b_2d87_779d_d08d_afde_c093_8caf),
+        (95_193, 0x5c9a_6492_f218_715d_7576_0657_1e57_47a5),
+        (95_167, 0xa199_1340_5fe2_259a_ca38_2659_ea87_fc7f),
     ],
     [
-        (94_238, 0xea06_5b29_19b7_52c9_22b2_a83b_4f51_cf8b),
-        (94_212, 0x7874_8083_cc8c_7228_6b80_6d8b_df46_f829),
-        (94_473, 0x919b_8035_a6d7_e8b6_7609_9478_0836_dafd),
-        (94_447, 0x5ac7_7f6e_9cc5_7a76_2022_105f_b038_6977),
+        (95_096, 0x1f85_097d_edbf_4db1_65ae_129a_77d2_6159),
+        (95_070, 0x0f27_948f_15cc_ed38_619a_bfd8_6207_1773),
+        (95_331, 0xf867_2a82_2d54_8721_79c6_18fa_d402_17cf),
+        (95_305, 0x6394_ef8a_92cb_41f8_319c_e53d_0c11_79fd),
     ],
     [
-        (94_180, 0xdcb0_b0e8_15c1_5b57_2ba2_73fd_0b8b_9623),
-        (94_154, 0xfff8_db76_be00_5677_cb8f_9e12_b75a_3b01),
-        (94_415, 0x690b_7d22_fea7_5721_7326_9146_0a12_f96b),
-        (94_389, 0x632f_b9f1_c1bf_ad98_699c_16e0_fe3d_9949),
+        (95_038, 0xfd74_b3fe_26f3_7ad6_51cc_c728_0edb_7199),
+        (95_012, 0xf3ed_c0e4_d269_050d_88ac_7c6f_c218_fe33),
+        (95_273, 0x8834_c8b8_009f_24e4_fce0_d0ce_051b_27bd),
+        (95_247, 0xa767_4fb2_903a_029b_19f7_2fb3_0ff5_09b7),
     ],
 ];
 
@@ -394,4 +397,12 @@ fn forward_fingerprint_detects_even_unused_source_byte_mutations() {
     let source = crate::shader::ENVIRONMENT_WGSL;
     let changed = format!("{source}\n// unused declaration mutation\n");
     assert_ne!(source_fingerprint(source), source_fingerprint(&changed));
+}
+
+#[test]
+fn directional_shadow_assembly_preserves_frozen_non_invariant_source() {
+    assert_eq!(
+        source_fingerprint(&crate::shadows::depth_source()),
+        (93_836, 0x7829_6e87_95d4_17d7_4010_afbe_550c_ba3c),
+    );
 }

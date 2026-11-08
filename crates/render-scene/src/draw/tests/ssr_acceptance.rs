@@ -321,7 +321,14 @@ fn environment_convention(
 }
 fn channel(context: &GpuContext, texture: &Texture, sample: u32, component: u32) -> Vec<f32> {
     let source = channel_source(texture, sample, component);
-    let view = texture.create_view(&TextureViewDescriptor::default());
+    let view = texture.create_view(&TextureViewDescriptor {
+        aspect: if texture.format().is_depth_stencil_format() {
+            wgpu::TextureAspect::DepthOnly
+        } else {
+            wgpu::TextureAspect::All
+        },
+        ..Default::default()
+    });
     channel_view(context, &view, &source)
 }
 fn channel_view(context: &GpuContext, view: &wgpu::TextureView, source: &str) -> Vec<f32> {
@@ -584,7 +591,7 @@ fn confidence_bounds(values: &[f32], pixel: usize, samples: u32) -> (f32, f32) {
 }
 
 fn channel_source(texture: &Texture, sample: u32, component: u32) -> String {
-    let kind = if texture.format() == TextureFormat::Depth32Float {
+    let kind = if texture.format().is_depth_stencil_format() {
         if texture.sample_count() == 1 {
             "texture_depth_2d"
         } else {
@@ -601,7 +608,7 @@ fn channel_source(texture: &Texture, sample: u32, component: u32) -> String {
         sample
     };
     let offset = if texture.width() > 32 { sample * 32 } else { 0 };
-    let component = if texture.format() == TextureFormat::Depth32Float {
+    let component = if texture.format().is_depth_stencil_format() {
         String::new()
     } else {
         format!("[{component}]")

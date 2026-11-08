@@ -525,12 +525,18 @@ fn a_depth_only_signature_names_what_it_refuses() {
             format: wgpu::TextureFormat::Rgba8Unorm
         })
     );
-    assert_eq!(
-        TargetSignature::depth_only(wgpu::TextureFormat::Depth24PlusStencil8, 1).unwrap_err(),
-        ProgramError::UnsupportedTarget(UnsupportedTarget::Stencil {
-            format: wgpu::TextureFormat::Depth24PlusStencil8
-        })
-    );
+    for format in [
+        wgpu::TextureFormat::Stencil8,
+        wgpu::TextureFormat::Depth24PlusStencil8,
+        wgpu::TextureFormat::Depth32FloatStencil8,
+    ] {
+        for samples in [1, 2, 4, 8, 16] {
+            assert_eq!(
+                TargetSignature::depth_only(format, samples).unwrap_err(),
+                ProgramError::UnsupportedTarget(UnsupportedTarget::Stencil { format })
+            );
+        }
+    }
     assert_eq!(
         TargetSignature::depth_only(D32, 3).unwrap_err(),
         ProgramError::UnsupportedTarget(UnsupportedTarget::SampleCount { samples: 3 })

@@ -55,6 +55,7 @@ pub(super) fn build(
                 double_sided: true,
             },
             depth_write: false,
+            depth: super::DepthMode::Independent,
             vertex_entry: "vs_unlit",
         },
     )

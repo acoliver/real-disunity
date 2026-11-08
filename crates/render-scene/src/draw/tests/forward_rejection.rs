@@ -2,9 +2,9 @@
 use super::*;
 
 #[path = "forward_fixtures.rs"]
-mod fixtures;
+pub(super) mod fixtures;
 #[path = "forward_samples.rs"]
-mod samples;
+pub(super) mod samples;
 #[path = "forward_shadow.rs"]
 mod shadow;
 
@@ -73,7 +73,7 @@ fn reference(source: &str) -> String {
         )
 }
 
-fn moving_frame(pose: CameraPose, effects: Option<&SceneEffects>) -> FrameUniform {
+pub(super) fn moving_frame(pose: CameraPose, effects: Option<&SceneEffects>) -> FrameUniform {
     let mut frame = FrameUniform::new(&view(pose), effects).unwrap();
     frame.animation_time_milliseconds = 250;
     frame.temporal = Some(crate::frame::temporal::TemporalView {

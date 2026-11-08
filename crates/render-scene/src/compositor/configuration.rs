@@ -163,6 +163,16 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
             [1, 1],
             1,
         );
+        if settings.frame.samples == 1 {
+            // Combined scene depth costs two float planes; relief also retains its own prepass.
+            set.texture(
+                "scene depth ownership reserve",
+                [w, h, 1],
+                wgpu::TextureFormat::Depth32Float,
+                [1, 1],
+                1,
+            );
+        }
         occlusion_allocations(settings, set);
         screen_hierarchy_allocations(settings, set);
         set.buffer("screen uniform", 224, 1);
@@ -457,7 +467,7 @@ impl ConfiguredFrameRenderer {
     /// Test harnesses that rasterise their own scene need the stock encoder and `prepare_uniform`,
     /// which the restricted public surface does not expose.
     #[cfg(test)]
-    pub(super) fn renderer_mut(&mut self) -> &mut FrameRenderer {
+    pub(crate) fn renderer_mut(&mut self) -> &mut FrameRenderer {
         self.state.current_mut()
     }
     pub fn configuration(&self) -> &RendererConfiguration {
@@ -608,7 +618,17 @@ fn build(
     let mut renderer = FrameRenderer {
         overlay: super::overlay::OverlayStage::default(),
         output_format: settings.output_format,
-        chain: PostChain::new(device, settings.frame, Resources::default(), factory)?,
+        chain: PostChain::with_scene_depth(
+            device,
+            settings.frame,
+            Resources::default(),
+            factory,
+            super::depth_reuse::allocation(
+                device,
+                settings.frame,
+                settings.ssao.is_some() || settings.ssr.is_some_and(|ssr| ssr.enabled),
+            ),
+        )?,
         environment_conventions: [None; 2],
         water: None,
         water_state: std::rc::Rc::default(),
@@ -635,6 +655,7 @@ fn build(
         ssr_requested: settings.ssr,
     };
     renderer.install_reflections(device, settings.frame.size)?;
+    renderer.share_metadata_depth(device);
     install_jitter(&mut renderer, settings)?;
     renderer.install_water_bodies(device, settings.water.clone())?;
     if (settings.ui_depth || renderer.ssr.is_some()) && renderer.snapshots.is_none() {

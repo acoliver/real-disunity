@@ -53,10 +53,26 @@ fn gpu_grid_preserves_thin_foreground_contacts_against_level_zero() {
                 levels: 6 - base,
             };
             let levels = &depths[usize::try_from(base).unwrap()..];
-            let reference = capture_grid(&context, Ray { levels: 1, ..ray }, levels);
+            let mut reference = capture_grid(
+                &context,
+                Ray {
+                    a,
+                    b,
+                    base: 0,
+                    levels: 1,
+                    ..ray
+                },
+                &depths[..1],
+            );
+            reference[0] /= divisor;
+            reference[1] /= divisor;
             assert_eq!(reference[5].to_bits(), 1.0f64.to_bits(), "{ray:?}");
             assert_eq!(reference[2].to_bits(), 5.0f64.to_bits());
-            let actual = capture_grid(&context, ray, levels);
+            let actual = if base == 0 {
+                capture_grid(&context, ray, levels)
+            } else {
+                child_tests::child_capture(&context, ray, &depths)
+            };
             assert_eq!(actual[5].to_bits(), 1.0f64.to_bits(), "skipped: {ray:?}");
             for channel in [0, 1, 2, 6, 7] {
                 assert!((actual[channel] - reference[channel]).abs() < 0.025);

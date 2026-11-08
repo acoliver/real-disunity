@@ -82,8 +82,11 @@ pub(super) fn trace_source(
     if base == 0 {
         return source;
     }
-    // A nearest-depth contact belongs only to a full-resolution child at that depth.
+    // Refine half-resolution bounds in the same walk before returning a child contact.
     source
+        .replace("const GRID_REFINEMENT: bool = false;", "const GRID_REFINEMENT: bool = true;")
+        .replace("fn grid_child_depth(pixel: vec2<f32>) -> f32 { return grid_depth(0, pixel, vec2<f32>(1.0)); }",
+            &format!("fn grid_child_depth(pixel: vec2<f32>) -> f32 {{ return textureLoad(grid_depth_{count}, vec2<i32>(pixel*2.0), 0).r; }}"))
         .replace(
             "let grid_size = camera.size.xy;",
             "let grid_size = camera.size.xy / 2.0;",
@@ -113,7 +116,7 @@ fn configure_levels(mut source: String, count: usize, ownership: bool) -> String
         )
         .unwrap();
     }
-    declarations.push_str("@group(0) @binding(8) var receiver_depth: texture_2d<f32>;\n@group(0) @binding(9) var opaque_forward_depth: texture_2d<f32>;\nfn depth_at(level: u32, uv: vec2<f32>) -> f32 { return grid_depth(level, uv*camera.size.xy, camera.size.xy); }\n");
+    declarations.push_str("@group(0) @binding(8) var receiver_depth: texture_2d<f32>;\n@group(0) @binding(9) var opaque_forward_depth: texture_2d<f32>;\nfn depth_at(level: u32, uv: vec2<f32>) -> f32 { return grid_depth(i32(level), uv*camera.size.xy, camera.size.xy); }\n");
     source.replace_range(first..last, &declarations);
     // Shift existing receiver and water bindings before adding generated depth bindings.
     for binding in (8..=12).rev() {
@@ -138,22 +141,22 @@ fn configure_levels(mut source: String, count: usize, ownership: bool) -> String
 }
 fn configure_fetch(mut source: String, count: usize) -> String {
     let start = source.find("fn grid_depth(").expect("grid fetch");
-    let end = source.find("fn grid_walk(").expect("grid walk");
+    let end = source.find("// GRID_DEPTH_END").expect("grid fetch end");
     let mut fetch = String::from(
-        "fn grid_depth(level: u32, pixel: vec2<f32>, size: vec2<f32>) -> f32 {\n let coordinate = vec2<i32>(pixel / exp2(f32(level)));\n switch level {\n",
+        "fn grid_depth(level: i32, pixel: vec2<f32>, size: vec2<f32>) -> f32 {\n let coordinate = vec2<i32>(pixel / exp2(f32(level)));\n switch level {\n",
     );
     for index in 0..count {
         let label = if index + 1 == count {
             "default".into()
         } else {
-            format!("case {index}u")
+            format!("case {index}")
         };
         writeln!(fetch, "{label}: {{ return textureLoad(grid_depth_{index}, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(grid_depth_{index}))-vec2<i32>(1)), 0).r; }}").unwrap();
     }
     fetch.push_str("} }\n");
     source.replace_range(start..end, &fetch);
     source.replace(
-        "min(3u, u32(ceil(log2(max(size.x, size.y)))))",
-        &format!("{}u", count - 1),
+        "min(3, i32(ceil(log2(max(size.x, size.y)))))",
+        &format!("{}", count - 1),
     )
 }

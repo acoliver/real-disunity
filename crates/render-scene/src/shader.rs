@@ -174,3 +174,6 @@ mod pipeline_invariance_tests;
 
 #[cfg(test)]
 mod position_dependencies;
+
+#[cfg(test)]
+mod shadow_uniformity_tests;

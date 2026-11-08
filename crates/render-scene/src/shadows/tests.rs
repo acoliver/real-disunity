@@ -2,6 +2,7 @@ mod bias;
 mod cascades;
 mod compaction;
 mod culling;
+mod depth_reuse;
 mod fixture;
 mod geometry;
 mod hdr;

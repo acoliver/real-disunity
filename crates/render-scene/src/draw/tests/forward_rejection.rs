@@ -54,6 +54,8 @@ fn forward_card_terms_match_frozen_colour_and_coverage() {
 }
 
 fn reference(source: &str) -> String {
+    // Freeze rejection and shading order, but share the corrected shadow-plane math.
+    // The receiver regression separately measures the previous gradient algorithm.
     source
         .replace(
             concat!(include_str!("../../shader/forward_cards.wgsl"), "\n"),
@@ -62,10 +64,6 @@ fn reference(source: &str) -> String {
         .replace(
             include_str!("../../shader/environment.wgsl"),
             include_str!("forward_reference/environment.wgsl"),
-        )
-        .replace(
-            include_str!("../../shader/shadows.wgsl"),
-            include_str!("forward_reference/shadows.wgsl"),
         )
         .replace(
             include_str!("../../shader/unshadowed.wgsl"),

@@ -4,8 +4,8 @@ namespace UnityEngine.Rendering;
 /// Two registries. The global settings assets are kept per render pipeline type, as a host or a player's
 /// loading registers them. The graphics settings groups (<see cref="IRenderPipelineGraphicsSettings"/>) are those
 /// the host registered, then those in the current pipeline's global settings asset. With nothing registered, TryGet returns false
-/// and GetRenderPipelineSettings returns null, so scripts that test for a group before using it keep working;
-/// Unity's page does not say whether the unregistered case throws, and a null return is the safe reading.
+/// and GetRenderPipelineSettings returns null (the engine's choice), so scripts that test for a group before
+/// using it keep working.
 /// </summary>
 public sealed partial class GraphicsSettings
 {

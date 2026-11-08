@@ -303,11 +303,11 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
         ),
         (
             shadowed,
-            (106_683, 0x77cf_17be_2120_bab9_7b66_5361_2ff7_fcb2),
+            (107_405, 0xe5b4_1bd6_3bda_3365_b7cf_0ad2_881e_7410),
         ),
         (
             shadowed_terrain,
-            (62_181, 0x38c8_3d41_12bf_5c57_5db5_8d12_5e22_103b),
+            (62_903, 0xd1f2_3665_ef6a_e710_01dc_258d_3580_1d51),
         ),
     ] {
         assert_eq!(source_fingerprint(source), expected);
@@ -322,7 +322,7 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
         ),
         (
             shadowed,
-            (106_918, 0x4516_ac5b_524c_6516_67b3_fa7d_4669_ea42),
+            (107_640, 0x9cc4_17d2_0fa7_da37_d753_2a30_9183_5232),
         ),
     ] {
         assert_eq!(

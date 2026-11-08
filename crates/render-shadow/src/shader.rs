@@ -78,6 +78,14 @@ fn rd_shadow_plane_gradient(uv_dx: vec2<f32>, uv_dy: vec2<f32>, depth_dx: f32, d
     if abs(determinant) <= 1e-10 { return vec2<f32>(0.0); }
     return vec2<f32>(uv_dy.y*depth_dx-uv_dx.y*depth_dy, uv_dx.x*depth_dy-uv_dy.x*depth_dx)/determinant;
 }
+// Transform displacements before projection instead of subtracting rounded atlas coordinates.
+fn rd_shadow_projected_gradient(clip: vec4<f32>, clip_dx: vec4<f32>, clip_dy: vec4<f32>) -> vec2<f32> {
+    let ndc = clip.xyz / clip.w;
+    let dx = (clip_dx.xyz - ndc * clip_dx.w) / clip.w;
+    let dy = (clip_dy.xyz - ndc * clip_dy.w) / clip.w;
+    let uv_scale = vec2<f32>(0.5, -0.5);
+    return rd_shadow_plane_gradient(dx.xy * uv_scale, dy.xy * uv_scale, dx.z, dy.z);
+}
 "
         )
     };

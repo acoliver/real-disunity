@@ -226,6 +226,38 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_shader_property_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_shader_property_read(ulong world, uint scope, ulong target, byte* name, uint length, DisunityPropertyRead* output);
         /// <summary>
+        ///  Records a read of the `width` by `height` texels of mip 0 of a render texture whose bottom
+        ///  left texel is at (`x`, `y`), and writes the id of the request to `request`. The rectangle must
+        ///  be non-empty and inside the texture. The host answers with `width * height * 4` floats (red,
+        ///  green, blue, alpha per texel, bottom row first, as the texture stores them).
+        ///
+        ///  # Safety
+        ///  `request` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_read_pixels", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_read_pixels(ulong world, ulong texture, uint x, uint y, uint width, uint height, ulong* request);
+        /// <summary>
+        ///  Writes the texels the host read for a request: `count` floats, which must be the request's
+        ///  `width * height * 4`. A rejected call changes nothing and leaves the request open.
+        ///
+        ///  # Safety
+        ///  `data` is readable for `count` floats, or null when `count` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_pixels_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_pixels_write(ulong world, ulong request, float* data, uint count);
+        /// <summary>
+        ///  Takes the texels the host wrote for a request into `data` (`capacity` floats) and writes how
+        ///  many floats that is to `written`; taking closes the request. When the host wrote nothing,
+        ///  or the request is unknown or taken already, it writes 0 and succeeds. A `capacity` below the
+        ///  answer is rejected and leaves the answer for a retry.
+        ///
+        ///  # Safety
+        ///  `data` is writable for `capacity` floats, or null when `capacity` is zero; `written` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_pixels_take", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_pixels_take(ulong world, ulong request, float* data, uint capacity, uint* written);
+        /// <summary>
         ///  Writes the length of the snapshot to `length`. With a zero `capacity` that is all it does.
         ///  Otherwise `capacity` bytes at `buffer` must hold the snapshot: it is copied there and the
         ///  session forgets it, and a smaller `capacity` is rejected without copying or dropping

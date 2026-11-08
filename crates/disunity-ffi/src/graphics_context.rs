@@ -6,7 +6,8 @@
 //! kind from [`KIND_CULL`] up and a token that `disunity_offscreen_detail` reads the record's
 //! encoded bytes by (see [`crate::graphics_commands`]).
 use crate::{
-    DisunityResult, callbacks::mutate, graphics_commands::DisunityTargetRef, physics::component,
+    DisunityResult, callbacks::mutate, graphics_commands::DisunityTargetRef,
+    graphics_readback::readback_kind, physics::component,
 };
 use worldrunner_world_simulation::graphics::{MAX_CULL_PLANES, OffscreenWork};
 
@@ -92,6 +93,6 @@ pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
     match work {
         OffscreenWork::Cull { .. } => Some(KIND_CULL),
         OffscreenWork::SetupCamera { .. } => Some(KIND_SETUP_CAMERA),
-        _ => None,
+        other => readback_kind(other),
     }
 }

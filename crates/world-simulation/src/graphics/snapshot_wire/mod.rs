@@ -12,6 +12,7 @@ mod codec;
 mod command_parts;
 mod context_parts;
 mod graphics_parts;
+mod readback_parts;
 mod scene_parts;
 
 use super::{GraphicsSnapshot, OffscreenWork};

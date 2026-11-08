@@ -35,6 +35,7 @@ pub mod graphics_commands;
 pub mod graphics_context;
 pub mod graphics_offscreen;
 pub mod graphics_properties;
+pub mod graphics_readback;
 pub mod graphics_snapshot;
 pub mod hierarchy;
 pub mod input;

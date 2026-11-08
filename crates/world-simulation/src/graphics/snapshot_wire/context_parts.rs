@@ -1,6 +1,7 @@
 //! The encodings of the work a scriptable render context records.
 use super::WireError;
 use super::codec::{Reader, Wire, Writer};
+use super::readback_parts::{read_readback, write_readback};
 use crate::graphics::{MAX_CULL_PLANES, OffscreenWork};
 
 pub(super) const WORK_CULL: u8 = 10;
@@ -43,7 +44,7 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             projection.write(out)?;
             target.write(out)
         }
-        _ => Err(WireError::UnknownTag(u32::MAX)),
+        other => write_readback(other, out),
     }
 }
 
@@ -73,6 +74,6 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             projection: Wire::read(input)?,
             target: Wire::read(input)?,
         }),
-        other => Err(WireError::UnknownTag(u32::from(other))),
+        other => read_readback(other, input),
     }
 }

@@ -2,6 +2,7 @@
 
 mod assets;
 mod block_sources;
+mod bounds;
 mod builtins;
 mod camera;
 mod causes;

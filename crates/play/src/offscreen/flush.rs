@@ -228,13 +228,19 @@ impl OffscreenHost {
             kind,
             records: report.records,
             built: report.built,
-            camera_renders: report.camera_draws.len(),
-            drawn: report.camera_draws.iter().map(|c| c.drawn).sum(),
+            camera_renders: report.camera_draws.len() + report.list_draws.len(),
+            drawn: report.camera_draws.iter().map(|c| c.drawn).sum::<usize>()
+                + report.list_draws.iter().map(|l| l.drawn).sum::<usize>(),
             left_out: report
                 .camera_draws
                 .iter()
                 .map(|c| c.unmatched + c.missing_texture + c.missing_channel)
-                .sum(),
+                .sum::<usize>()
+                + report
+                    .list_draws
+                    .iter()
+                    .map(|l| l.unmatched + l.missing_texture + l.missing_channel)
+                    .sum::<usize>(),
             live_before,
             live_after: self.runtime.live_bytes(),
             phases: report.phases,
@@ -470,6 +476,17 @@ impl OffscreenHost {
             &mut trace,
         );
         for texture in &mut trace.textures {
+            for list in report
+                .list_draws
+                .iter()
+                .filter(|list| Some(list.target) == texture.texture)
+            {
+                texture.camera_renders += 1;
+                texture.camera_draws += list.drawn;
+                texture.camera_unmatched += list.unmatched;
+                texture.camera_missing_texture += list.missing_texture;
+                texture.camera_missing_channel += list.missing_channel;
+            }
             for (camera, pass) in report
                 .camera_draws
                 .iter()

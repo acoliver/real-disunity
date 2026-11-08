@@ -32,7 +32,7 @@ use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::error::OffscreenError;
 use super::meshes::MeshTable;
-use super::probe::DrawFacts;
+use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
 use super::textures::TextureTable;
 use super::tracker::Tracker;
 
@@ -70,6 +70,24 @@ pub(super) struct DrawPlan {
     pub(super) texture_uses: Vec<ResourceUse>,
     /// What a probed camera render's look needs, noted only while the services are probing.
     pub(super) facts: Option<DrawFacts>,
+}
+
+/// Set in the blob number of the key of a program whose fragment stage writes a constant colour,
+/// which no shader's blob numbers reach.
+const CONSTANT_FRAGMENT_KEY: u32 = 1 << 31;
+
+/// The fragment stage of [`StateVariant::constant_fragment`](super::StateVariant): it reads
+/// nothing and binds nothing.
+fn constant_fragment() -> Result<crate::module::StageProgram, ProgramError> {
+    let module = crate::module::StageModule {
+        source: crate::module::StageSource::Wgsl(Arc::from(CONSTANT_FRAGMENT)),
+        entry_point: CONSTANT_ENTRY.to_owned(),
+        kind: crate::module::StageKind::Fragment,
+    };
+    Ok(crate::module::StageProgram::new(
+        module,
+        crate::module::StageDeclarations::default(),
+    )?)
 }
 
 /// The first shader input number of the tables that number their inputs as the Unity 6 player's
@@ -194,6 +212,9 @@ pub(super) struct Services<'a> {
     pub(super) shares: &'a mut Vec<Arc<Reservation>>,
     /// Whether the draws planned now are noted for a camera render's probe.
     pub(super) probing: bool,
+    /// Whether the draws planned now use a fragment stage that writes a constant colour, whatever
+    /// the pass's own does.
+    pub(super) constant_fragment: bool,
 }
 
 impl Services<'_> {
@@ -273,7 +294,12 @@ impl Services<'_> {
             .get_mut(&spec.shader)
             .ok_or(OffscreenError::UnknownShader(spec.shader))?;
         let resolved = shader.resolve(&spec.selector, &spec.keywords)?;
-        let key = (spec.shader, resolved.pass, resolved.blob);
+        let blob = if self.constant_fragment {
+            resolved.blob | CONSTANT_FRAGMENT_KEY
+        } else {
+            resolved.blob
+        };
+        let key = (spec.shader, resolved.pass, blob);
         let entry = if let Some(entry) = self.programs.get(&key) {
             entry.clone()
         } else {
@@ -296,9 +322,14 @@ impl Services<'_> {
         let stage = |stage: &crate::unity::module::StageProgram| {
             stage.neutral().map_err(ProgramError::from)
         };
+        let fragment = if self.constant_fragment {
+            constant_fragment()?
+        } else {
+            stage(&variant.fragment)?
+        };
         let program = self
             .runtime
-            .graphics_program(&stage(&variant.vertex)?, &stage(&variant.fragment)?)?;
+            .graphics_program(&stage(&variant.vertex)?, &fragment)?;
         let mut constants = variant.vertex.constant_buffer_targets()?;
         constants.extend(variant.fragment.constant_buffer_targets()?);
         let mut textures = variant.vertex.texture_targets()?;
@@ -341,7 +372,12 @@ impl Services<'_> {
         let min_len = usize::try_from(slot.min_size).unwrap_or(usize::MAX);
         let packed = pack_layout(&target.buffer, &[], &spec.layers.values(), min_len)?;
         if let Some(facts) = plan.facts.as_mut() {
-            facts.note_constants(&target.buffer, &packed, slot.visibility);
+            facts.note_constants(
+                &target.buffer,
+                &packed,
+                slot.visibility,
+                &spec.layers.values(),
+            );
         }
         self.missing.extend(packed.missing);
         let placed = self.constants.push(&packed.bytes)?;

@@ -40,6 +40,9 @@ pub struct Material {
     pub shader: Option<ShaderId>,
     pub keywords: Vec<String>,
     pub properties: PropertyLayer,
+    /// The values of properties the material does not set, which the host derives from what its
+    /// shader declares and the material's textures. They sit below the material's own.
+    pub fallback: PropertyLayer,
     pub render_queue: i32,
 }
 

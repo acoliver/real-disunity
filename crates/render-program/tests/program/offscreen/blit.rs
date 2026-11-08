@@ -1,6 +1,7 @@
 //! `Graphics.Blit`: a material pass over a fullscreen quad, or a plain copy.
 
 use std::collections::BTreeMap;
+use worldrunner_render_program::layers::PropertyLayer;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
 use worldrunner_render_program::unity::offscreen::OffscreenError;
@@ -45,6 +46,7 @@ fn frame(tint: [f32; 4], pass: usize, size: [u32; 2]) -> OffscreenFrame {
                 shader: Some(SHADER),
                 keywords: Vec::new(),
                 properties: layer(&[("_Tint", tint)]),
+                fallback: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

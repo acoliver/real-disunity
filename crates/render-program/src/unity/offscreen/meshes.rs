@@ -32,6 +32,8 @@ pub(super) struct MeshInfo {
     pub(super) vertex_count: u32,
     /// The positions as x, y, z triples, kept on the CPU for the probe of a camera render.
     pub(super) positions: Option<Vec<f32>>,
+    /// The indices on the CPU, for the same probe; `None` for a mesh read in vertex order.
+    pub(super) cpu_indices: Option<Vec<u32>>,
     /// The bytes of the mesh's buffer, which it holds in the budget.
     pub(super) bytes: u64,
     pub(super) channels: Vec<ChannelInfo>,
@@ -99,12 +101,20 @@ impl MeshTable {
                     .map(|float| f32::from_le_bytes([float[0], float[1], float[2], float[3]]))
                     .collect()
             });
+        let cpu_indices = match &mesh.indices {
+            MeshIndices::None => None,
+            MeshIndices::U16(values) => {
+                Some(values.iter().map(|index| u32::from(*index)).collect())
+            }
+            MeshIndices::U32(values) => Some(values.clone()),
+        };
         let index = write_indices(&mut bytes, &mesh.indices);
         let buffer = runtime.create_buffer("offscreen mesh", &bytes)?;
         let info = MeshInfo {
             buffer,
             vertex_count: mesh.vertex_count,
             positions,
+            cpu_indices,
             bytes: (bytes.len() as u64).next_multiple_of(4),
             channels,
             index,

@@ -50,8 +50,12 @@ use textures::TextureTable;
 use tracker::Tracker;
 
 pub use error::OffscreenError;
-pub use probe::{CameraProbe, ClipCounts, PassSetup, ProgramProbe, SampledTexture};
+pub use probe::{
+    CONSTANT_COLOR, CameraProbe, ClipCounts, MemberOrigin, Origin, PassSetup, ProgramProbe,
+    SampledTexture, StateVariant, TriangleCounts,
+};
 pub use readback::PendingImage;
+pub use steps::DRAW_LAYERS;
 
 /// What offscreen work keeps between frames: shaders, meshes, textures, programs and pipelines.
 pub struct OffscreenState {
@@ -239,6 +243,7 @@ impl OffscreenState {
                 counts: &mut counts,
                 shares: &mut shares,
                 probing: false,
+                constant_fragment: false,
             };
             for spec in &frame.render_textures {
                 services.import(spec.id)?;

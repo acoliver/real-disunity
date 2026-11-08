@@ -2,6 +2,7 @@
 //! the readback holds the values the shaders produced.
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
+use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{Material, OffscreenFrame, Record};
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::shaders::blit_passes;
@@ -89,6 +90,7 @@ pub fn blit_frame(red: f32, format: u32, size: [u32; 2]) -> OffscreenFrame {
                 shader: Some(BLIT_SHADER),
                 keywords: Vec::new(),
                 properties: layer(&[("_Tint", [red, 1.0, 1.0, 1.0])]),
+                fallback: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),

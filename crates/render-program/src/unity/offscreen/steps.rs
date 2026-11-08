@@ -20,7 +20,7 @@ use crate::unity::shader::{PassSelector, ResolveError};
 use super::error::OffscreenError;
 use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
-use super::probe::{MeshPositions, ProgramProbes};
+use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
 use super::textures::TextureInfo;
 use super::tracker::Tracker;
 use super::{
@@ -113,11 +113,17 @@ fn camera_step(
     svc.counts.current = CameraCauses::default();
     let outer_missing = std::mem::take(svc.missing);
     svc.probing = frame.probe.targets.contains(&target);
+    let variant = frame.probe.variants.get(&target).copied();
+    svc.constant_fragment = variant.is_some_and(|variant| variant.constant_fragment);
     for visible in visible_draws(svc, frame, camera)? {
-        if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+        if let Some(mut draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+            if let Some(variant) = variant {
+                variant.apply(&mut draw.plan.state);
+            }
             draws.push(draw);
         }
     }
+    svc.constant_fragment = false;
     let probed = std::mem::take(&mut svc.probing);
     svc.counts.cameras.push(CameraDraws {
         camera: camera_id,
@@ -171,7 +177,7 @@ fn pass_report(
             state.depth_compare,
             state.depth_write,
             write_mask(state.color_write),
-            if state.blend.is_some() { "on" } else { "off" }
+            blend_words(state.blend)
         );
         *states.entry(words).or_default() += 1;
     }
@@ -203,6 +209,17 @@ fn pass_report(
         programs: Vec::new(),
     }
 }
+
+/// The layers of a camera draw's values, highest first: the names of the places in an
+/// [`Origin::Layer`](super::Origin).
+pub const DRAW_LAYERS: [&str; 6] = [
+    "per-draw",
+    "camera",
+    "property block",
+    "material",
+    "material fallback",
+    "globals",
+];
 
 /// The depth a camera that clears depth clears to.
 const DEPTH_CLEAR: f32 = 1.0;
@@ -237,15 +254,43 @@ fn program_probes(
                     .map(|(_, nonzero)| nonzero),
             }
         });
+        let triangles = DrawTriangles {
+            indices: mesh.cpu_indices.as_deref(),
+            elements: draw.geometry.elements.clone(),
+            base_vertex: draw.geometry.base_vertex,
+            cull: draw.plan.state.cull,
+            front_face: draw.front_face,
+        };
         probes.add(
             (draw.shader, draw.plan.entry.pass),
             names,
             facts,
-            &positions,
+            (&positions, &triangles),
             textures,
         );
     }
     probes.finish()
+}
+
+/// A blend state in words: `off`, or its color and alpha equations as `operation source
+/// destination`.
+fn blend_words(blend: Option<wgpu::BlendState>) -> String {
+    let equation = |part: wgpu::BlendComponent| {
+        format!(
+            "{:?} {:?} {:?}",
+            part.operation, part.src_factor, part.dst_factor
+        )
+    };
+    blend.map_or_else(
+        || "off".to_owned(),
+        |blend| {
+            format!(
+                "on (color {}, alpha {})",
+                equation(blend.color),
+                equation(blend.alpha)
+            )
+        },
+    )
 }
 
 /// The channels a color write mask lets through, as `RGBA` with the ones it blocks left out, or
@@ -289,6 +334,7 @@ fn planned_draw(
         &camera.values,
         &renderer.block,
         &material.properties,
+        &material.fallback,
         &frame.globals,
     ];
     let spec = DrawSpec {
@@ -630,7 +676,12 @@ fn blit_step(
         .ok_or(OffscreenError::NoShader(material_id))?;
     let mesh = frame.blit_mesh.ok_or(OffscreenError::NoBlitMesh)?;
     let overlay = source_layer(svc, frame, source)?;
-    let layers = [&overlay, &material.properties, &frame.globals];
+    let layers = [
+        &overlay,
+        &material.properties,
+        &material.fallback,
+        &frame.globals,
+    ];
     let spec = DrawSpec {
         shader,
         keywords: keywords(material, frame),

@@ -9,9 +9,15 @@ use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, Renderer,
 };
-use worldrunner_render_program::unity::offscreen::{CameraProbe, ClipCounts, SampledTexture};
+use worldrunner_render_program::unity::offscreen::{
+    CameraProbe, ClipCounts, DRAW_LAYERS, MemberOrigin, Origin, SampledTexture, StateVariant,
+    TriangleCounts,
+};
 use worldrunner_render_program::unity::shader::ProgramShader;
+use worldrunner_render_program::unity::synthetic::SyntheticShader;
+use worldrunner_render_program::unity::synthetic::fixed;
 use worldrunner_render_program::unity::synthetic::shaders::camera_matrices;
+use worldrunner_unity_serialized::shader_state::ShaderState;
 
 use super::camera::{CAMERA, TARGET, alpha};
 use super::rig::{QUAD, Rig, layer, quad, source, texture};
@@ -33,6 +39,7 @@ fn names() -> CameraProbe {
         test_targets: BTreeSet::new(),
         object_to_world: "_ObjectToWorld".to_owned(),
         view_projection: "_ViewProjection".to_owned(),
+        variants: BTreeMap::new(),
     }
 }
 
@@ -41,7 +48,11 @@ fn names() -> CameraProbe {
 /// The material sets `_Tint`, sets `_Bias` to zero, leaves `_Gain` unset and names a 2x2 albedo
 /// texture of which three texels are non-zero.
 fn frame(rig: &mut Rig, depth_bits: u8) -> OffscreenFrame {
-    let synthetic = camera_matrices();
+    frame_of(rig, depth_bits, camera_matrices())
+}
+
+/// The frame of [`frame`] drawn with the shader `synthetic`.
+fn frame_of(rig: &mut Rig, depth_bits: u8, synthetic: SyntheticShader) -> OffscreenFrame {
     rig.state.add_shader(
         SHADER,
         ProgramShader::new(synthetic.shader, synthetic.chunks).unwrap(),
@@ -91,6 +102,7 @@ fn frame(rig: &mut Rig, depth_bits: u8) -> OffscreenFrame {
                 shader: Some(SHADER),
                 keywords: Vec::new(),
                 properties,
+                fallback: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),
@@ -250,5 +262,353 @@ fn a_test_render_is_drawn_like_the_camera_but_left_out_of_the_frames_counts() {
             .filter(|texel| *texel == [255, 128, 0, 255])
             .count();
         assert_eq!((written, cleared), (16, 48));
+    }
+}
+
+type StateEdit = dyn Fn(&mut ShaderState);
+
+/// The camera shader with `edit` applied to the state of every pass.
+fn shader_with(edit: impl Fn(&mut ShaderState)) -> SyntheticShader {
+    let mut synthetic = camera_matrices();
+    for pass in &mut synthetic.shader.parsed.sub_shaders[0].passes {
+        edit(&mut pass.state);
+    }
+    synthetic
+}
+
+/// The triangles of the one probed program.
+fn triangles(rig: &mut Rig, frame: &OffscreenFrame) -> TriangleCounts {
+    let passes = rig.build(frame).unwrap().camera_passes();
+    passes[0].programs[0].triangles
+}
+
+#[test]
+fn the_triangles_of_a_probed_camera_are_counted_by_winding_and_by_what_the_declared_state_culls() {
+    // The quad's two triangles are counter-clockwise in clip space with Y up. Clip Y grows down
+    // the image, so they are clockwise in the image: front faces when clockwise is front.
+    let back = |state: &mut ShaderState| state.depth.cull = fixed(2.0);
+    let front = |state: &mut ShaderState| state.depth.cull = fixed(1.0);
+    let expected = |culled, drawn| TriangleCounts {
+        total: 4,
+        counter_clockwise: 4,
+        culled,
+        drawn,
+        ..TriangleCounts::default()
+    };
+    for (front_face, edit, culled, drawn) in [
+        (
+            wgpu::FrontFace::Cw,
+            &back as &dyn Fn(&mut ShaderState),
+            0,
+            4,
+        ),
+        (wgpu::FrontFace::Ccw, &back, 4, 0),
+        (wgpu::FrontFace::Cw, &front, 4, 0),
+        (wgpu::FrontFace::Ccw, &front, 0, 4),
+        (wgpu::FrontFace::Ccw, &|_: &mut ShaderState| {}, 0, 4),
+    ] {
+        let mut rig = Rig::new();
+        let mut frame = frame_of(&mut rig, 0, shader_with(edit));
+        frame.cameras.get_mut(&CAMERA).unwrap().front_face = front_face;
+        assert_eq!(
+            triangles(&mut rig, &frame),
+            expected(culled, drawn),
+            "{front_face:?}"
+        );
+    }
+}
+
+#[test]
+fn a_triangle_is_outside_when_its_vertices_are_beyond_one_side_and_clockwise_ones_are_counted() {
+    let mut rig = Rig::new();
+    let mut frame = frame(&mut rig, 0);
+    // The first renderer is moved to x of 4 and 6, beyond the right side for both triangles.
+    let mut moved = PropertyLayer::default();
+    let mut matrix = IDENTITY;
+    matrix[12] = 5.0;
+    moved
+        .values
+        .set("_ObjectToWorld", PropertyValue::Matrix(matrix));
+    frame.renderers.get_mut(&RendererId(1)).unwrap().per_draw = moved;
+    let counts = triangles(&mut rig, &frame);
+    assert_eq!(
+        (counts.total, counts.outside, counts.counter_clockwise),
+        (4, 2, 2)
+    );
+
+    // Mirrored in x, the winding reverses: the other renderer's triangles are clockwise.
+    let mut mirrored = IDENTITY;
+    mirrored[0] = -1.0;
+    mirrored[12] = 0.5;
+    let mut layer = PropertyLayer::default();
+    layer
+        .values
+        .set("_ObjectToWorld", PropertyValue::Matrix(mirrored));
+    frame.renderers.get_mut(&RendererId(2)).unwrap().per_draw = layer;
+    let counts = triangles(&mut rig, &frame);
+    assert_eq!(
+        (counts.clockwise, counts.counter_clockwise, counts.outside),
+        (2, 0, 2)
+    );
+}
+
+#[test]
+fn a_triangle_with_a_vertex_at_or_behind_the_camera_is_behind_and_one_without_area_is_degenerate() {
+    let mut rig = Rig::new();
+    let mut frame = frame(&mut rig, 0);
+    // w becomes x, so the vertices at x of 0.5 are in front and a draw moved to x of -2.5 and
+    // -0.5 is behind.
+    let mut w_is_x = IDENTITY;
+    w_is_x[3] = 1.0;
+    w_is_x[15] = 0.0;
+    let mut values = PropertyLayer::default();
+    values
+        .values
+        .set("_ViewProjection", PropertyValue::Matrix(w_is_x));
+    frame.cameras.get_mut(&CAMERA).unwrap().values = values;
+    let mut behind = IDENTITY;
+    behind[12] = -1.5;
+    let mut layer = PropertyLayer::default();
+    layer
+        .values
+        .set("_ObjectToWorld", PropertyValue::Matrix(behind));
+    frame.renderers.get_mut(&RendererId(1)).unwrap().per_draw = layer;
+    // Flattened onto a line, the second renderer's triangles have no area.
+    let mut flat = TRANSLATE_X;
+    flat[5] = 0.0;
+    let mut layer = PropertyLayer::default();
+    layer
+        .values
+        .set("_ObjectToWorld", PropertyValue::Matrix(flat));
+    frame.renderers.get_mut(&RendererId(2)).unwrap().per_draw = layer;
+    let counts = triangles(&mut rig, &frame);
+    assert_eq!(
+        (counts.total, counts.behind, counts.degenerate),
+        (4, 2, 2),
+        "{counts:?}"
+    );
+}
+
+#[test]
+fn the_fragment_constants_with_no_value_or_zeros_are_traced_to_the_layer_that_gave_them() {
+    let mut rig = Rig::new();
+    let frame = frame(&mut rig, 0);
+    let passes = rig.build(&frame).unwrap().camera_passes();
+    let origins = &passes[0].programs[0].fragment_origins;
+    let material = DRAW_LAYERS
+        .iter()
+        .position(|name| *name == "material")
+        .unwrap();
+    // `_Bias` is zero in the material for both draws; `_Gain` is in no layer.
+    assert_eq!(
+        origins,
+        &vec![
+            MemberOrigin {
+                name: "_Bias".to_owned(),
+                origin: Origin::Layer(material),
+                draws: 2,
+                zero_draws: 2
+            },
+            MemberOrigin {
+                name: "_Gain".to_owned(),
+                origin: Origin::Unset,
+                draws: 2,
+                zero_draws: 2
+            },
+        ]
+    );
+}
+
+/// The frame with a test render of the camera into a second target of the same shape, in which
+/// the draws are made as `variant` says.
+fn test_render(
+    rig: &mut Rig,
+    synthetic: SyntheticShader,
+    variant: StateVariant,
+) -> (OffscreenFrame, TextureId) {
+    let test_target = TextureId(11);
+    let mut frame = frame_of(rig, 16, synthetic);
+    let mut copy = texture(11, [8, 8]);
+    copy.depth_bits = 16;
+    frame.render_textures.push(copy);
+    frame.probe.test_targets = BTreeSet::from([test_target]);
+    frame.probe.variants = BTreeMap::from([(test_target, variant)]);
+    frame.records.push(Record::CameraRender {
+        camera: CAMERA,
+        target: test_target,
+    });
+    (frame, test_target)
+}
+
+/// The texels of the test render that differ from the camera's clear, and those of `colour`.
+fn written(rig: &mut Rig, frame: &OffscreenFrame, target: TextureId) -> Vec<[u8; 4]> {
+    let image = rig.run(frame, &[(target, 0, 0)]).unwrap().remove(0);
+    image
+        .chunks(4)
+        .map(|texel| <[u8; 4]>::try_from(texel).unwrap())
+        .filter(|texel| *texel != [255, 128, 0, 255])
+        .collect()
+}
+
+#[test]
+fn a_test_render_made_as_a_variant_shows_which_part_of_the_declared_state_leaves_no_texel() {
+    let cull_back = |state: &mut ShaderState| state.depth.cull = fixed(2.0);
+    let never = |state: &mut ShaderState| state.depth.test = fixed(1.0);
+    let keep = |state: &mut ShaderState| {
+        state.blend[0].src = fixed(0.0);
+        state.blend[0].dst = fixed(1.0);
+        state.blend[0].src_alpha = fixed(0.0);
+        state.blend[0].dst_alpha = fixed(1.0);
+    };
+    let cases: [(&StateEdit, StateVariant); 3] = [
+        (
+            &cull_back,
+            StateVariant {
+                cull_none: true,
+                ..StateVariant::default()
+            },
+        ),
+        (
+            &never,
+            StateVariant {
+                depth_always: true,
+                ..StateVariant::default()
+            },
+        ),
+        (
+            &keep,
+            StateVariant {
+                blend_off: true,
+                ..StateVariant::default()
+            },
+        ),
+    ];
+    for (declared, variant) in cases {
+        // The camera front face is counter-clockwise in the image, so the quad is a back face
+        // where the pass culls back faces.
+        let mut rig = Rig::new();
+        let (mut frame, target) =
+            test_render(&mut rig, shader_with(declared), StateVariant::default());
+        frame.cameras.get_mut(&CAMERA).unwrap().front_face = wgpu::FrontFace::Ccw;
+        assert!(
+            written(&mut rig, &frame, target).is_empty(),
+            "{variant:?}: the declared state draws nothing"
+        );
+        frame.probe.variants = BTreeMap::from([(target, variant)]);
+        let texels = written(&mut rig, &frame, target);
+        // Both renderers cover the same 2 of 8 columns, and the gain is unset, so a drawn
+        // fragment is zeros.
+        assert_eq!(texels, vec![[0, 0, 0, 0]; 16], "{variant:?}");
+    }
+}
+
+#[test]
+fn a_constant_fragment_writes_its_colour_where_the_declared_one_writes_zeros() {
+    let mut rig = Rig::new();
+    let variant = StateVariant {
+        constant_fragment: true,
+        ..StateVariant::default()
+    };
+    let (frame, target) = test_render(&mut rig, camera_matrices(), variant);
+    let texels = written(&mut rig, &frame, target);
+    // 0.0625 and 0.9375 of 255 are 15.9 and 239.1 to the nearest byte.
+    assert_eq!(texels, vec![[16, 239, 16, 239]; 16]);
+}
+
+#[test]
+fn a_test_render_of_a_target_without_a_variant_draws_as_declared() {
+    let mut rig = Rig::new();
+    let (mut frame, target) = test_render(&mut rig, camera_matrices(), StateVariant::default());
+    frame.probe.variants.clear();
+    assert_eq!(written(&mut rig, &frame, target), vec![[0, 0, 0, 0]; 16]);
+}
+
+/// The test render's written texels with `edit` applied to the frame.
+fn fallback_written(edit: impl Fn(&mut OffscreenFrame)) -> Vec<[u8; 4]> {
+    let mut rig = Rig::new();
+    let (mut frame, target) = test_render(&mut rig, camera_matrices(), StateVariant::default());
+    frame.probe.variants.clear();
+    edit(&mut frame);
+    written(&mut rig, &frame, target)
+}
+
+#[test]
+fn a_materials_fallback_gives_a_property_no_other_layer_sets_and_sits_below_the_rest() {
+    let gain = |value: [f32; 4]| layer(&[("_Gain", value)]);
+    // The material leaves `_Gain` unset, so the output is zeros; the fallback's gain of one lets
+    // the albedo through.
+    let unset = fallback_written(|_| {});
+    assert_eq!(unset, vec![[0, 0, 0, 0]; 16]);
+    let filled = fallback_written(|frame| {
+        frame.materials.get_mut(&MaterialId(1)).unwrap().fallback = gain([1.0; 4]);
+    });
+    assert!(
+        filled.iter().any(|texel| *texel != [0, 0, 0, 0]),
+        "the fallback's gain reaches the shader"
+    );
+    // The material's own value, even zero, wins over the fallback.
+    let material = fallback_written(|frame| {
+        let material = frame.materials.get_mut(&MaterialId(1)).unwrap();
+        material.fallback = gain([1.0; 4]);
+        material
+            .properties
+            .values
+            .set("_Gain", PropertyValue::Vector([0.0; 4]));
+    });
+    assert_eq!(material, vec![[0, 0, 0, 0]; 16]);
+    // So does a renderer's property block.
+    let block = fallback_written(|frame| {
+        frame.materials.get_mut(&MaterialId(1)).unwrap().fallback = gain([1.0; 4]);
+        for renderer in frame.renderers.values_mut() {
+            renderer.block = gain([0.0; 4]);
+        }
+    });
+    assert_eq!(block, vec![[0, 0, 0, 0]; 16]);
+}
+
+#[test]
+fn a_property_only_the_fallback_sets_is_traced_to_it() {
+    let mut rig = Rig::new();
+    let mut frame = frame(&mut rig, 0);
+    frame.materials.get_mut(&MaterialId(1)).unwrap().fallback = layer(&[("_Gain", [1.0; 4])]);
+    let passes = rig.build(&frame).unwrap().camera_passes();
+    let program = &passes[0].programs[0];
+    assert!(program.fragment_without_value.is_empty());
+    // `_Gain` is no longer unset or zero; only `_Bias`, which the material sets to zero, is.
+    let fallback = DRAW_LAYERS
+        .iter()
+        .position(|name| *name == "material fallback");
+    assert_eq!(fallback, Some(4));
+    assert_eq!(
+        program
+            .fragment_origins
+            .iter()
+            .map(|origin| origin.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["_Bias"]
+    );
+}
+
+#[test]
+fn the_triangles_the_declared_state_draws_are_the_ones_the_gpu_draws() {
+    // The CPU count of drawn triangles against the texels a render writes: the quad is drawn
+    // when clockwise is front and culled when counter-clockwise is.
+    for (front_face, drawn, texels) in [(wgpu::FrontFace::Cw, 4, 16), (wgpu::FrontFace::Ccw, 0, 0)]
+    {
+        let mut rig = Rig::new();
+        let (mut frame, target) = test_render(
+            &mut rig,
+            shader_with(|state| state.depth.cull = fixed(2.0)),
+            StateVariant::default(),
+        );
+        frame.probe.variants.clear();
+        frame.cameras.get_mut(&CAMERA).unwrap().front_face = front_face;
+        let counted = triangles(&mut rig, &frame);
+        assert_eq!(counted.drawn, drawn, "{front_face:?}");
+        assert_eq!(
+            written(&mut rig, &frame, target).len(),
+            texels,
+            "{front_face:?}"
+        );
     }
 }

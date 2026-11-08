@@ -767,7 +767,7 @@ fn a_dispatch_is_not_a_record_but_keeps_its_place_among_them_and_brings_its_text
     let snapshot = snapshot(&mut world);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
     assert_eq!(adapted.frame.records.len(), 2, "the two camera renders");
-    assert_eq!(adapted.dispatches, [Placed { after: 1, work: 1 }]);
+    assert_eq!(adapted.placements, [Placed { after: 1, work: 1 }]);
     assert_eq!(
         (
             adapted.report.records,

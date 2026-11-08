@@ -21,6 +21,8 @@
 //! 3. [`build`] turns the frame into `OffscreenOperations`; `admit` and
 //!    `SceneGpu::admit_offscreen` then take them as render-program documents.
 //!
+//! A flush also answers the world's pixel reads in place among the work (see the `pixels` module).
+//!
 //! # Conventions
 //!
 //! * Matrices are column-major, as the world stores them.
@@ -51,10 +53,14 @@ mod compute;
 mod defaults;
 mod flush;
 mod frame;
+mod holdings;
 mod ids;
 mod kernels;
+mod pass_notes;
+mod pixels;
 mod probe;
 mod properties;
+mod report;
 mod shaders;
 mod trace;
 
@@ -73,13 +79,18 @@ pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use census::{ShaderCensus, shader_census};
 pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
-    TextureTrace,
+    SampledSource, TextureTrace,
 };
 pub use defaults::DefaultTexture;
 pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
-    Adapted, Available, BLIT_MESH, Placed, RendererSkip, Report, Settings, ShaderInfo, Skip, adapt,
+    Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,
+    Skip, TEST_CLEAR, adapt, adapt_probing,
 };
 pub use kernels::PlayerKernels;
+pub use pixels::{
+    PixelAnswer, REFUSED_INTEGER, REFUSED_NO_COPY, REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED,
+    REFUSED_NOT_READ, is_integer_format,
+};
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
 pub use trace::{Phases, WorkTrace};

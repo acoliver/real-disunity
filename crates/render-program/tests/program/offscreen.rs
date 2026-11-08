@@ -4,6 +4,7 @@
 mod blit;
 mod block_sources;
 mod camera;
+mod camera_probe;
 mod camera_report;
 mod constants;
 mod copy;

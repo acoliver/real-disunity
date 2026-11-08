@@ -261,6 +261,10 @@ pub enum GpuWork {
     Off,
 }
 
+/// The environment variable that makes a headless run print the GPU report after every frame, not
+/// only at the end.
+const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
+
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
 /// player's offscreen work on a device when there is one ([`GpuWork::Auto`]). The error names the
 /// step that failed: starting the scene or the frame that failed.
@@ -302,6 +306,13 @@ pub fn run_player_with(
             .and_then(|()| present_meshes(&mut host, &mut meshes))
             .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)));
         times.push(started.elapsed());
+        // A run that dies in a later frame still leaves the counts of the frames before it.
+        if std::env::var_os(REPORT_EACH_FRAME).is_some()
+            && let Some(gpu) = &gpu
+        {
+            eprintln!("[gpu] report after frame {frame}");
+            gpu.report().print();
+        }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
             break;

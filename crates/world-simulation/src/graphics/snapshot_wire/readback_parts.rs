@@ -1,6 +1,7 @@
 //! The encoding of the pixel read request.
 use super::WireError;
 use super::codec::{Reader, Wire, Writer};
+use super::renderer_list_parts::{read_renderer_list, write_renderer_list};
 use crate::graphics::OffscreenWork;
 
 const WORK_READ_PIXELS: u8 = 12;
@@ -21,7 +22,7 @@ pub(super) fn write_readback(work: &OffscreenWork, out: &mut Writer) -> Result<(
             texture.write(out)?;
             [*x, *y, *width, *height].write(out)
         }
-        _ => Err(WireError::UnknownTag(u32::MAX)),
+        other => write_renderer_list(other, out),
     }
 }
 
@@ -41,6 +42,6 @@ pub(super) fn read_readback(kind: u8, input: &mut Reader<'_>) -> Result<Offscree
                 height,
             })
         }
-        other => Err(WireError::UnknownTag(u32::from(other))),
+        other => read_renderer_list(other, input),
     }
 }

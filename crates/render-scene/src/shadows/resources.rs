@@ -10,7 +10,7 @@ use worldrunner_render_shadow::{
 
 use super::DirectionalShadowSettings;
 
-const SHADOW_UNIFORM_BYTES: usize = 336;
+const SHADOW_UNIFORM_BYTES: usize = 352;
 
 pub(super) const SHADOWED_WGSL: &str = concat!(
     worldrunner_render_shadow::shadow_wgsl!(),
@@ -333,6 +333,7 @@ pub(super) fn uniform_bytes_with_sampling(
     values.extend(cascades.splits);
     values.extend(cascades.view_depth.to_array());
     values.extend(cascades.depth_bias);
+    values.extend([cascades.fade_out, 0.0, 0.0, 0.0]);
     values.into_iter().flat_map(f32::to_le_bytes).collect()
 }
 

@@ -311,6 +311,12 @@ impl<'a> TerrainGrid<'a> {
 }
 
 #[cfg(test)]
+mod capture_tests;
+#[cfg(test)]
+mod cost_tests;
+#[cfg(test)]
+mod program_tests;
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]

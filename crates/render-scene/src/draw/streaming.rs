@@ -1,3 +1,5 @@
+#[cfg(test)]
+pub(crate) mod legacy_access;
 mod observations;
 mod replacement;
 mod residency;

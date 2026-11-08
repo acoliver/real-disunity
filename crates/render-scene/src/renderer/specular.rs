@@ -31,6 +31,16 @@ pub(crate) fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
 
 type RasterKey = ([u32; 7], u8);
 
+/// What a set of pipelines was built from, for the frozen terrain path to rebuild.
+#[cfg(test)]
+pub(super) struct Parts<'a> {
+    pub object_source: &'a str,
+    pub terrain_source: &'a str,
+    pub shadow: Option<&'a wgpu::BindGroupLayout>,
+    pub screen: Option<&'a wgpu::BindGroupLayout>,
+    pub options: ([u32; 7], wgpu::FrontFace),
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Specialization {
     device: wgpu::Device,
@@ -66,6 +76,19 @@ impl Specialization {
 impl Specialization {
     pub(super) fn source(&self) -> &str {
         &self.source
+    }
+
+    /// The object source, the terrain source, the lent shadow and screen layouts and the
+    /// options these pipelines were built with.
+    #[cfg(test)]
+    pub(super) fn parts(&self) -> Parts<'_> {
+        Parts {
+            object_source: &self.source,
+            terrain_source: &self.terrain,
+            shadow: self.shadow.as_ref(),
+            screen: self.screen.as_ref(),
+            options: self.options,
+        }
     }
 }
 impl ScenePipelines {

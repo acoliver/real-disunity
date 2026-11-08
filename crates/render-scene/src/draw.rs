@@ -56,6 +56,8 @@ mod streaming;
 pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
+#[cfg(test)]
+pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};

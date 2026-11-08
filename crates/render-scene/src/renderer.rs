@@ -45,6 +45,8 @@
 //! while the near plane is governed in millimetres, and that ratio is exactly
 //! what drives depth fighting on distant coplanar surfaces.
 
+#[cfg(test)]
+pub(crate) mod legacy_terrain;
 mod objects;
 pub(crate) mod overlay;
 mod pages;
@@ -350,6 +352,19 @@ impl ScenePipelines {
     #[must_use]
     pub const fn material_layout(&self) -> &BindGroupLayout {
         &self.material_layout
+    }
+
+    /// What the program runtime that records terrain has built. Terrain still draws through
+    /// the fixed pipelines, so nothing is built there yet.
+    #[cfg(test)]
+    #[expect(
+        clippy::unused_self,
+        reason = "the runtime is per pipelines once terrain draws through it"
+    )]
+    pub(crate) fn terrain_runtime_stats(
+        &self,
+    ) -> worldrunner_render_program::runtime::RuntimeStats {
+        worldrunner_render_program::runtime::RuntimeStats::default()
     }
 
     /// Returns the pipeline the terrain surface draws through.

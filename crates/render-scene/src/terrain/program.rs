@@ -403,6 +403,32 @@ impl Screen {
     }
 }
 
+/// Maximum fragment texture count of the object and selected terrain forward contexts.
+pub(crate) fn forward_sampled_textures(
+    terrain: Option<Surface>,
+    screen: Screen,
+    receiver: bool,
+) -> u32 {
+    let textures = |bindings: &[ResourceBinding]| {
+        u32::try_from(
+            bindings
+                .iter()
+                .filter(|binding| {
+                    binding.visibility.contains(ShaderStages::FRAGMENT)
+                        && matches!(binding.kind, ResourceKind::Texture { .. })
+                })
+                .count(),
+        )
+        .expect("bounded scene bindings")
+    };
+    // Object material layout: five surface maps and the fragment relief map.
+    let material = terrain.map_or(6, |surface| textures(&material_bindings(surface)).max(6));
+    textures(&frame_bindings().bindings)
+        + material
+        + textures(&shadow_bindings(receiver).bindings)
+        + textures(&screen.bindings().bindings)
+}
+
 /// Everything a context's programs are built from.
 pub(crate) struct Description {
     pub device: Device,

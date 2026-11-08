@@ -433,7 +433,13 @@ The default reserves both receivers for dynamic scene admission; `Front` reserve
 viewer selects `None` without shadows, `Front` for zero normal bias and `Opposing`
 for biased shadows that can gain transmission materials. Textures are created
 only when live shadow receivers need them. Admission rejects a layout
-that exceeds the reservation or device colour-attachment count and byte limits.
+that exceeds the reservation, device colour-attachment count and byte limits, or
+the complete forward context's fragment sampled-texture limit, before receiver
+pipeline creation or drawing. Uncached layered terrain with reflections and a
+payload requires 17 fragment textures; the corresponding local-derivative context
+requires 15. An unsupported paired context returns `FrameError::UnsupportedEffect`
+without switching to local derivatives. Existing unpaired and multisampled
+contexts keep their own limits and depth policies.
 The device requests up to 64 attachment bytes per sample when supported; merged
 normal/material metadata plus both receivers needs 64 bytes and six attachments.
 

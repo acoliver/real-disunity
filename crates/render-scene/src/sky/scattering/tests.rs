@@ -415,7 +415,9 @@ fn gpu_unchanged_inputs_reuse_the_submitted_columns_and_cancelled_uploads_are_re
         Some([elevation.to_bits(), 0.1_f32.to_bits()])
     );
     prepare_frame(&lookup, high, true);
-    let zenith = std::f32::consts::FRAC_PI_2;
+    // The key is asin(sun.z) as production computes it; platform libm may round asin(1)
+    // one ulp away from FRAC_PI_2.
+    let zenith = 1.0_f32.asin();
     assert_eq!(
         lookup.written.get(),
         Some([zenith.to_bits(), 0.1_f32.to_bits()])

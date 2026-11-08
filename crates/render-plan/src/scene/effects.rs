@@ -124,6 +124,7 @@ pub struct SceneShadowCascades {
     blend_band_micro: u64,
     camera_splits: bool,
     sampling: super::SceneShadowSampling,
+    pub(super) fade_out_micro: u64,
 }
 
 impl SceneShadowCascades {
@@ -143,6 +144,7 @@ impl SceneShadowCascades {
             blend_band_micro,
             camera_splits: false,
             sampling: super::SceneShadowSampling::default(),
+            fade_out_micro: 0,
         };
         shadows.validate()?;
         Ok(shadows)

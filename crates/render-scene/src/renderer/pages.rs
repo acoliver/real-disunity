@@ -1,132 +1,165 @@
+//! The fixed terrain pipelines, built when a draw first needs one.
+//!
+//! Terrain draws through the program runtime in every forward context, so these pipelines only
+//! serve the contexts that have not moved (the metadata prepass and the capture terms) and the
+//! frozen path's comparisons. Compiling four terrain pipelines in every context a scene is
+//! specialized for was the main cost of constructing a `ScenePipelines`.
+
+use std::rc::Rc;
+use std::sync::OnceLock;
+
 use super::{
     BindGroupLayout, ColorTargetState, Device, PipelineLayoutDescriptor, RenderPipeline,
-    VertexBufferLayout, build_terrain,
+    build_terrain,
 };
+use crate::terrain::program::source::{cached_source, layered_source};
 
-pub(super) fn build_cached(
-    device: &Device,
-    groups: &[Option<&BindGroupLayout>],
-    source: (&str, bool),
-    buffers: &[Option<VertexBufferLayout<'_>>],
-    targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], wgpu::FrontFace, super::DepthMode),
-) -> (RenderPipeline, BindGroupLayout, RenderPipeline) {
-    let (source, layered) = source;
-    let source = if layered {
-        layered_source(source)
-    } else {
-        source.to_owned()
-    };
-    let source = include_str!("../terrain/pages/footprint.wgsl").to_owned() + &source;
-    let source = source.as_str();
-    let terrain_layout = super::scene_layout(device, "terrain", groups);
-    let terrain = build_terrain(device, &terrain_layout, source, buffers, targets, target);
-    let layout = crate::upload::terrain_layout(device, true, layered);
-    let mut groups = groups.to_vec();
-    groups[1] = Some(&layout);
-    let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("cached terrain"),
-        bind_group_layouts: &groups,
-        immediate_size: 0,
-    });
-    let source = cached_source(source);
-    let pipeline = build_terrain(device, &pipeline_layout, &source, buffers, targets, target);
-    (terrain, layout, pipeline)
+/// What every fixed terrain pipeline of a `ScenePipelines` is built from.
+#[derive(Debug)]
+pub(super) struct Inputs {
+    device: Device,
+    /// The pipeline layout's groups, with group one the terrain's own.
+    groups: Vec<Option<BindGroupLayout>>,
+    source: String,
+    targets: Vec<Option<ColorTargetState>>,
+    samples: u32,
+    constants: Vec<(&'static str, f64)>,
+    front_face: wgpu::FrontFace,
+    depth: super::DepthMode,
 }
 
-fn cached_source(source: &str) -> String {
-    // Cached pages already contain surface selection; leave its source grid unbound.
-    let source = source.replace(
-        "let centre_surface = read_surface_at(i32(round(grid.x)), i32(round(grid.y)));",
-        "let centre_surface = 0u;",
-    );
-    source.replace(
-        "let blended = blend_surfaces(grid, world_xy, world_xy_dx, world_xy_dy, centre_surface);",
-        "let blended = cached_surface(world_xy, world_xy_dx, world_xy_dy);",
-    ) + include_str!("../terrain/pages/sampling.wgsl")
-}
-
-fn layered_source(source: &str) -> String {
-    let mut shared = include_str!("../terrain/pages/layered_gpu.wgsl").to_owned();
-    for (input, output) in (0..3)
-        .map(|i| (i, i + 8))
-        .chain((5..17).map(|i| (i, i + 6)))
-    {
-        shared = shared.replace(
-            &format!("@group(0) @binding({input})"),
-            &format!("@group(1) @binding({output})"),
-        );
-    }
-    // Layered draws use their source composer exclusively. Omitting the unused
-    // conventional palettes leaves room for decals within the baseline stage limit.
-    let start = source
-        .find("fn blend_surfaces(")
-        .expect("terrain blend function");
-    let end = source[start..]
-        .find("\nstruct TerrainVertexInput")
-        .map(|offset| start + offset)
-        .expect("terrain vertex entry");
-    let source = format!(
-        "{}fn blend_surfaces(grid: vec2<f32>, world_xy: vec2<f32>, world_xy_dx: vec2<f32>, world_xy_dy: vec2<f32>, centre_surface: u32) -> BlendedSurface {{ let sample = compose_layered(world_xy, world_xy_dx, world_xy_dy); return BlendedSurface(clamp(sample.albedo, vec3<f32>(0.0), vec3<f32>(1.0)), sample.normal, clamp(sample.roughness, 0.0, 1.0), clamp(sample.metallic, 0.0, 1.0)); }}\n{}",
-        &source[..start],
-        &source[end..]
-    );
-    // The frame's material mip bias finer-selects the screen-space gradients. The page bake
-    // defines the same function as 1.0 because its footprints are not screen footprints.
-    format!(
-        "{source}\nfn layered_gradient_scale() -> f32 {{ return exp2(frame.lighting_options.w); }}\n{shared}"
-    )
-}
-
+/// The pipelines of one surface family: the palette (or layered) draw and the cached-page draw,
+/// each built on first use and shared by every clone.
 #[derive(Clone, Debug)]
-pub(crate) struct LayeredPipelines {
-    pub layout: BindGroupLayout,
-    pub cached_layout: BindGroupLayout,
-    pub terrain: RenderPipeline,
-    pub cached: RenderPipeline,
+pub(crate) struct Pair(Rc<Lazy>);
+
+#[derive(Debug)]
+struct Lazy {
+    inputs: Rc<Inputs>,
+    layered: bool,
+    layout: BindGroupLayout,
+    cached_layout: BindGroupLayout,
+    terrain: OnceLock<RenderPipeline>,
+    cached: OnceLock<RenderPipeline>,
 }
 
-pub(super) fn build_layered(
-    device: &Device,
-    groups: &[Option<&BindGroupLayout>],
-    source: &str,
-    buffers: &[Option<VertexBufferLayout<'_>>],
-    targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], wgpu::FrontFace, super::DepthMode),
-) -> Option<LayeredPipelines> {
-    if !crate::terrain::pages::layered_gpu::supported(&device.limits()) {
-        return None;
+impl Pair {
+    fn new(inputs: &Rc<Inputs>, layout: BindGroupLayout, layered: bool) -> Self {
+        let cached_layout = crate::upload::terrain_layout(&inputs.device, true, layered);
+        Self(Rc::new(Lazy {
+            inputs: inputs.clone(),
+            layered,
+            layout,
+            cached_layout,
+            terrain: OnceLock::new(),
+            cached: OnceLock::new(),
+        }))
     }
-    let layout = crate::upload::terrain_layout(device, false, true);
-    let mut groups = groups.to_vec();
-    groups[1] = Some(&layout);
-    let (terrain, cached_layout, cached) =
-        build_cached(device, &groups, (source, true), buffers, targets, target);
-    Some(LayeredPipelines {
-        layout,
-        cached_layout,
-        terrain,
-        cached,
-    })
+
+    /// The layout of the terrain's own group.
+    pub(crate) fn layout(&self) -> &BindGroupLayout {
+        &self.0.layout
+    }
+
+    /// The layout of the group of a cached-page draw.
+    pub(crate) fn cached_layout(&self) -> &BindGroupLayout {
+        &self.0.cached_layout
+    }
+
+    fn source(&self) -> String {
+        let inputs = &self.0.inputs;
+        let source = if self.0.layered {
+            layered_source(&inputs.source)
+        } else {
+            inputs.source.clone()
+        };
+        include_str!("../terrain/pages/footprint.wgsl").to_owned() + &source
+    }
+
+    fn build(&self, layout: &BindGroupLayout, source: &str, label: &str) -> RenderPipeline {
+        let inputs = &self.0.inputs;
+        let mut groups: Vec<Option<&BindGroupLayout>> =
+            inputs.groups.iter().map(Option::as_ref).collect();
+        groups[1] = Some(layout);
+        let pipeline_layout = inputs
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some(label),
+                bind_group_layouts: &groups,
+                immediate_size: 0,
+            });
+        let vertices = crate::geometry::vertex_attributes();
+        let instances = crate::geometry::instance_attributes();
+        let buffers = super::vertex_buffers(&vertices, &instances);
+        build_terrain(
+            &inputs.device,
+            &pipeline_layout,
+            source,
+            &buffers,
+            &inputs.targets,
+            (
+                inputs.samples,
+                &inputs.constants,
+                inputs.front_face,
+                inputs.depth,
+            ),
+        )
+    }
+
+    /// The pipeline that blends the palette (or the layered sources) through the type grid.
+    pub(crate) fn terrain(&self) -> &RenderPipeline {
+        self.0
+            .terrain
+            .get_or_init(|| self.build(&self.0.layout, &self.source(), "terrain"))
+    }
+
+    /// The pipeline that reads cached material pages.
+    pub(crate) fn cached(&self) -> &RenderPipeline {
+        self.0.cached.get_or_init(|| {
+            self.build(
+                &self.0.cached_layout,
+                &cached_source(&self.source()),
+                "cached terrain",
+            )
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_built(&self) -> bool {
+        self.0.terrain.get().is_some() || self.0.cached.get().is_some()
+    }
 }
 
+/// The fixed pipelines of a terrain, for the palette and, when the device supports it, the
+/// layered sources.
 pub(super) fn build_terrain_set(
     device: &Device,
     groups: &[Option<&BindGroupLayout>],
     source: &str,
-    buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], wgpu::FrontFace, super::DepthMode),
-) -> (
-    RenderPipeline,
-    BindGroupLayout,
-    RenderPipeline,
-    Option<LayeredPipelines>,
-) {
-    let (terrain, layout, cached) =
-        build_cached(device, groups, (source, false), buffers, targets, target);
-    let layered = build_layered(device, groups, source, buffers, targets, target);
-    (terrain, layout, cached, layered)
+    target: (
+        u32,
+        &[(&'static str, f64)],
+        wgpu::FrontFace,
+        super::DepthMode,
+    ),
+) -> (Pair, Option<Pair>) {
+    let inputs = Rc::new(Inputs {
+        device: device.clone(),
+        groups: groups.iter().map(|group| group.cloned()).collect(),
+        source: source.to_owned(),
+        targets: targets.to_vec(),
+        samples: target.0,
+        constants: target.1.to_vec(),
+        front_face: target.2,
+        depth: target.3,
+    });
+    let plain = Pair::new(&inputs, groups[1].expect("terrain group").clone(), false);
+    let layered = crate::terrain::pages::layered_gpu::supported(&device.limits()).then(|| {
+        let layout = crate::upload::terrain_layout(device, false, true);
+        Pair::new(&inputs, layout, true)
+    });
+    (plain, layered)
 }
 
 #[cfg(test)]

@@ -310,3 +310,16 @@ fn every_field_of_a_read_request_survives_the_wire() {
     };
     assert_eq!(decode_work(&encode_work(&record).unwrap()).unwrap(), record);
 }
+
+#[test]
+fn the_size_of_an_answer_is_known_before_it_is_taken() {
+    let mut world = world();
+    let texture = render_texture(&mut world, 4, 4);
+    let request = world.request_texture_pixels(texture, 0, 0, 2, 1).unwrap();
+    assert_eq!(world.answered_pixel_floats(request), None);
+    world.write_texture_pixels(request, &floats(8)).unwrap();
+    assert_eq!(world.answered_pixel_floats(request), Some(8));
+    assert_eq!(world.answered_pixel_floats(request + 1), None);
+    world.take_texture_pixels(request).unwrap();
+    assert_eq!(world.answered_pixel_floats(request), None);
+}

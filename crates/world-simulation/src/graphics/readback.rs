@@ -130,6 +130,17 @@ impl World {
             .and_then(|held| held.answer)
     }
 
+    /// How many floats the host wrote for a request, or `None` when it wrote nothing or the id
+    /// names no open request.
+    pub fn answered_pixel_floats(&self, request: u64) -> Option<usize> {
+        self.graphics
+            .readbacks
+            .open
+            .get(&request)
+            .and_then(|held| held.answer.as_ref())
+            .map(Vec::len)
+    }
+
     /// Checks a read rectangle and returns the number of floats it holds.
     pub(super) fn check_read_rect(
         &self,

@@ -1,4 +1,5 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
+use super::readback::Rect;
 use super::{
     ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue, RenderTextureId,
     TargetRef, TextureRef, WorldRenderTexture,
@@ -96,6 +97,18 @@ pub enum OffscreenWork {
         planes: Vec<[f32; 4]>,
         options: u32,
     },
+    /// A read of `width` by `height` texels of mip 0 of `texture`, from the bottom left texel at
+    /// (`x`, `y`), after the work recorded before this record has drawn. The host answers with
+    /// `width * height * 4` floats, bottom row first, as the texture stores them (see
+    /// [`World::request_texture_pixels`]). `request` is the id that call issued.
+    ReadPixels {
+        request: u64,
+        texture: RenderTextureId,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
 }
 
 impl World {
@@ -104,8 +117,17 @@ impl World {
     /// and a mip level must exist in the render texture it addresses. A dispatch names a live
     /// compute shader, one of its kernels and 1 to 65535 thread groups along each axis. A record
     /// that issues a handle (a culling result) takes a nonzero id no record of the frame took
-    /// before; the frame forgets its handles when its work is taken.
+    /// before; the frame forgets its handles when its work is taken. A read of pixels is
+    /// recorded by [`World::request_texture_pixels`], which issues its request id.
     pub fn record_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
+        if matches!(work, OffscreenWork::ReadPixels { .. }) {
+            return Err(GraphicsError::InvalidOffscreen.into());
+        }
+        self.push_offscreen(work)
+    }
+
+    /// Checks a record and appends it to the frame's list.
+    pub(super) fn push_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
         self.check_offscreen(&work)?;
         if self.graphics.offscreen.len() >= MAX_OFFSCREEN_WORK {
             return Err(WorldError::CapacityExceeded(crate::LimitKind::Graphics));
@@ -171,6 +193,24 @@ impl World {
                 groups,
                 bindings,
             } => self.check_dispatch(*shader, *kernel, *groups, bindings),
+            OffscreenWork::ReadPixels {
+                texture,
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => self
+                .check_read_rect(
+                    *texture,
+                    Rect {
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                    },
+                )
+                .map(drop),
             _ => self
                 .check_command(work)
                 .and_then(|()| self.check_context(work)),

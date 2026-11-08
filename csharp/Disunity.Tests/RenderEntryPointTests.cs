@@ -46,6 +46,8 @@ internal static class RenderEntryPointTests
         Unsupported(() => context.EndSubPass(), "EndSubPass");
         Unsupported(() => context.EndRenderPass(), "EndRenderPass");
         Unsupported(() => context.CreateRendererList(ref list), "CreateRendererList");
+        var shadow = new ShadowDrawingSettings(default, 0);
+        Unsupported(() => context.CreateShadowRendererList(ref shadow), "CreateShadowRendererList");
         Unsupported(() => context.QueryRendererListStatus(default), "QueryRendererListStatus");
         Unsupported(() => context.PrepareRendererListsAsync(new List<RendererList>()), "PrepareRendererListsAsync");
         Expect.That(context == default && context.Equals((object)default(ScriptableRenderContext)) && !context.Equals("x"), "contexts are equal");

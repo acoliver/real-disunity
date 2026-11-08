@@ -101,6 +101,7 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     public void EndRenderPass() => throw Unsupported("EndRenderPass");
 
     public RendererList CreateRendererList(ref RendererListParams parameters) => throw Unsupported("CreateRendererList");
+    public RendererList CreateShadowRendererList(ref ShadowDrawingSettings settings) => throw Unsupported("CreateShadowRendererList");
     public readonly RendererListStatus QueryRendererListStatus(RendererList rendererList) => throw Unsupported("QueryRendererListStatus");
     public void PrepareRendererListsAsync(List<RendererList> rendererLists) => throw Unsupported("PrepareRendererListsAsync");
 

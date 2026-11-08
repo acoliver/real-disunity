@@ -115,6 +115,7 @@ internal static class CommandBufferExecutionTests
     {
         Taken();
         Expect.That(!CommandBuffer.ThrowOnSetRenderTarget, "SetRenderTarget is allowed by default");
+        Expect.That(!Watermark.IsVisible(), "the engine draws no watermark");
         var buffer = new CommandBuffer();
         CommandBuffer.ThrowOnSetRenderTarget = true;
         try

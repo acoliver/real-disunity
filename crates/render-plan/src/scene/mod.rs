@@ -43,6 +43,7 @@ mod smaa;
 #[cfg(test)]
 mod smaa_tests;
 pub use smaa::{SceneSmaaEdgeDetection, SceneSmaaPreset, SceneSmaaSettings};
+mod shadow_fade;
 mod shadow_sampling;
 pub use shadow_sampling::{SceneShadowFilter, SceneShadowSampling};
 mod lighting;

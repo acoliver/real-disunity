@@ -27,6 +27,7 @@ fn gpu_receiver_gradient_matches_a_plane_despite_large_projection_translation() 
         depth_bias: [0.0; 4],
         splits: [0.0; 4],
         blend: 0.0,
+        fade_out: 0.0,
         camera_splits: false,
         near: 0.0,
         view_depth: Vec4::ZERO,

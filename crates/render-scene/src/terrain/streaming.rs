@@ -64,8 +64,12 @@ pub struct TerrainSelection {
     pub uploads: Vec<TerrainChunk>,
     /// Chunks of replacements the budget admits that wait for their meshes, in priority order.
     pub unready: Vec<TerrainChunk>,
-    /// Ready chunks of those replacements, which wait for an unready sibling.
+    /// Built chunks kept for a later frame: those of admitted replacements that wait for an
+    /// unready sibling, and built prefetched chunks.
     pub held: Vec<TerrainChunk>,
+    /// Unbuilt chunks of the next replacements past this frame's upload budget, in priority
+    /// order, so that their meshes are built while this frame's uploads are drawn.
+    pub prefetch: Vec<TerrainChunk>,
     /// Desired selection and replacement work remaining after budget admission.
     pub observation: TerrainSelectionObservation,
 }
@@ -124,6 +128,8 @@ struct Plan<'a> {
     uploads: Vec<TerrainChunk>,
     /// Chunks of admitted replacements that wait on a mesh, ready or not.
     held: Vec<TerrainChunk>,
+    /// Chunks of replacements past the upload budget, ready or not.
+    prefetch: Vec<TerrainChunk>,
     ready: &'a dyn Fn(TerrainChunk) -> bool,
 }
 impl<'a> Plan<'a> {
@@ -132,6 +138,7 @@ impl<'a> Plan<'a> {
             leaves: current.to_vec(),
             uploads: Vec::new(),
             held: Vec::new(),
+            prefetch: Vec::new(),
             ready,
         }
     }
@@ -144,11 +151,32 @@ impl<'a> Plan<'a> {
     fn is_ready(&self, chunk: TerrainChunk) -> bool {
         (self.ready)(chunk)
     }
+    /// Requests a replacement the upload budget defers by one frame. Without this the worker
+    /// idles in every frame that admits a full budget, which halves refinement throughput.
+    /// Prefetch is limited to one more frame's budget and to the resident limit.
+    fn prefetch(
+        &mut self,
+        children: &[TerrainChunk],
+        occupied: usize,
+        policy: TerrainStreamingPolicy,
+    ) {
+        let requested = self.prefetch.len() + children.len();
+        if requested <= policy.uploads_per_frame() as usize
+            && occupied + self.admitted() + requested <= policy.maximum_resident_chunks() as usize
+        {
+            self.prefetch.extend_from_slice(children);
+        }
+    }
     fn finish(self, desired: &[TerrainChunk]) -> TerrainSelection {
-        let (held, unready) = self
+        let (mut held, unready): (Vec<_>, _) = self
             .held
             .into_iter()
             .partition(|chunk| (self.ready)(*chunk));
+        let (built, prefetch): (Vec<_>, _) = self
+            .prefetch
+            .into_iter()
+            .partition(|chunk| (self.ready)(*chunk));
+        held.extend(built);
         let mut leaves = self.leaves;
         leaves.sort_unstable();
         TerrainSelection {
@@ -157,6 +185,7 @@ impl<'a> Plan<'a> {
             uploads: self.uploads,
             unready,
             held,
+            prefetch,
         }
     }
 }
@@ -222,6 +251,7 @@ fn refine(
             || occupied + plan.admitted() + children.len()
                 > policy.maximum_resident_chunks() as usize
         {
+            plan.prefetch(&children, occupied, policy);
             continue;
         }
         if children.iter().all(|child| plan.is_ready(*child)) {

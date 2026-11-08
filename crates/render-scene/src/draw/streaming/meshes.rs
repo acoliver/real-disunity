@@ -198,16 +198,17 @@ impl MeshBuilds {
     }
 
     /// Keeps the meshes the selection still needs and replaces the worker's queue with its
-    /// unready chunks, in the selection's priority order.
+    /// unready chunks, in the selection's priority order, then its prefetch.
     pub fn update(&mut self, selection: &TerrainSelection) -> Result<(), FrameError> {
         let wanted: BTreeSet<_> = selection
             .uploads
             .iter()
             .chain(&selection.held)
             .chain(&selection.unready)
+            .chain(&selection.prefetch)
             .collect();
         self.finished.retain(|chunk, _| wanted.contains(chunk));
-        if selection.unready.is_empty() && self.worker.is_none() {
+        if selection.unready.is_empty() && selection.prefetch.is_empty() && self.worker.is_none() {
             return Ok(());
         }
         let limit = self.limit;
@@ -216,6 +217,7 @@ impl MeshBuilds {
         let next: Vec<_> = selection
             .unready
             .iter()
+            .chain(&selection.prefetch)
             .copied()
             .filter(|chunk| queue.active != Some(*chunk))
             .take(limit)

@@ -426,3 +426,32 @@ fn requests_stay_within_the_budget_that_would_admit_the_uploads() {
     let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
     assert!(blocked.unready.is_empty());
 }
+
+#[test]
+fn replacements_past_the_upload_budget_are_prefetched_without_being_admitted() {
+    let matrix = ortho(16.0, [16.0, 32.0, 100.0]);
+    let terrain = budgeted(4);
+    let mut leaves = vec![root(&terrain)];
+    for _ in 0..3 {
+        leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
+    }
+    let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| false);
+    assert_eq!(waiting.unready.len(), 4);
+    assert_eq!(waiting.prefetch.len(), 4);
+    assert!(
+        waiting
+            .prefetch
+            .iter()
+            .all(|chunk| !waiting.unready.contains(chunk))
+    );
+    assert_eq!(waiting.leaves, leaves);
+    let prefetched = waiting.prefetch.clone();
+    let ready = |chunk: TerrainChunk| prefetched.contains(&chunk);
+    let deferred = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &ready);
+    assert_eq!(deferred.unready, waiting.unready);
+    assert!(deferred.prefetch.is_empty());
+    assert_eq!(deferred.held, prefetched);
+    assert!(deferred.uploads.is_empty());
+    let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
+    assert!(blocked.prefetch.is_empty());
+}

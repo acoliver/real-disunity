@@ -72,6 +72,7 @@ impl World {
             | ComponentDesc::GUILayer { .. }
             | ComponentDesc::FlareLayer { .. }
             | ComponentDesc::Animator { .. }
+            | ComponentDesc::Skybox { .. }
             | ComponentDesc::ParticleSystem
             | ComponentDesc::SortingGroup(_) => {}
         }

@@ -250,7 +250,9 @@ pub(super) fn compute(context: &GpuContext, source: &str) -> Vec<f32> {
     let (tx, rx) = std::sync::mpsc::channel();
     readback
         .slice(..)
-        .map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
     super::wait(device);
     rx.recv_timeout(std::time::Duration::from_secs(30))
         .unwrap()

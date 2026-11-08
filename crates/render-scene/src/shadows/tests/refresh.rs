@@ -198,7 +198,7 @@ pub(super) fn depth_layers(context: &GpuContext, renderer: &ShadowedScene) -> Ve
             copy.buffer
                 .slice(..)
                 .map_async(wgpu::MapMode::Read, move |result| {
-                    send.send(result).unwrap();
+                    let _ = send.send(result);
                 });
             context
                 .device()

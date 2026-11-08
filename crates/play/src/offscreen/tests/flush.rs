@@ -401,8 +401,17 @@ fn the_trace_reads_as_report_lines() {
             "    program shader 4294967296 pass 0: 1 draws, 4 vertices, clip positions inside 0, \
              outside 0, behind 0, as transposes inside 0, outside 0, behind 0, without positions 0, \
              without matrices 1; vertex constants without a value [], zero []; fragment constants \
-             without a value [], zero []; textures []",
+             without a value [], zero []; triangles 0 (behind the camera 0, outside the clip \
+             volume 0, without area 0; wound counter-clockwise in clip space with Y up 0, \
+             clockwise 0; culled by the state 0, drawn 0); fragment constants with no value or \
+             zero, by where they came from []; textures []",
             "    test render: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with cull None: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with blend off: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with depth test Always: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with a fragment stage that writes a constant: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with cull None, blend off and depth test Always: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with cull None, blend off, depth test Always and a constant fragment stage: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
             "  buffer _Output 64 bytes, non-zero words 0 before, Some(16) after",
         ]
     );

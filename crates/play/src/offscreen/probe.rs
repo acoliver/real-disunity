@@ -10,8 +10,8 @@ use worldrunner_render_program::unity::offscreen::{
 };
 
 use super::compute::DispatchTrace;
-use super::frame::TEST_CLEAR;
-use super::ids::probe_scratch;
+use super::frame::{TEST_CLEAR, TEST_VARIANTS};
+use super::ids::{probe_scratch, probe_variant};
 
 /// A render texture a dispatch binds, by its place in the dispatch trace's textures.
 struct Probed {
@@ -32,8 +32,9 @@ struct ProbedSource {
 pub(super) struct Probe {
     textures: Vec<Probed>,
     after_operations: Vec<(usize, PendingImage)>,
-    /// The test renders' scratch copies, read after the operations.
-    test_renders: Vec<(usize, PendingImage)>,
+    /// The test renders' scratch copies, read after the operations, by the place of the texture
+    /// in the trace and the render: 0 as declared, else the place in [`TEST_VARIANTS`] plus one.
+    test_renders: Vec<(usize, usize, PendingImage)>,
     sources: Vec<ProbedSource>,
 }
 
@@ -72,11 +73,18 @@ impl Probe {
             {
                 after_operations.push((index, image));
             }
-            if let Some(operations) = operations.as_deref_mut()
-                && state.texture_handle(probe_scratch(id)).is_some()
-                && let Ok(image) = operations.read_back(probe_scratch(id), 0, 0)
-            {
-                test_renders.push((index, image));
+            let scratches = std::iter::once(probe_scratch(id)).chain(
+                (0..)
+                    .take(TEST_VARIANTS.len())
+                    .map(|number| probe_variant(id, number)),
+            );
+            for (place, scratch) in scratches.enumerate() {
+                if let Some(operations) = operations.as_deref_mut()
+                    && state.texture_handle(scratch).is_some()
+                    && let Ok(image) = operations.read_back(scratch, 0, 0)
+                {
+                    test_renders.push((index, place, image));
+                }
             }
             for (at, source) in texture.sampled.iter().enumerate() {
                 if let Some(handle) = state.texture_handle(source.texture) {
@@ -137,16 +145,22 @@ impl Probe {
                 entry.after_operations = Some(texel_stats(&bytes, format).describe());
             }
         }
-        for (index, image) in self.test_renders {
+        for (index, place, image) in self.test_renders {
             let (format, bytes) = (image.format(), image.bytes(device));
             if let (Some(entry), Some(differing)) = (
                 trace.textures.get_mut(index),
                 texels_differing(&bytes, format, TEST_CLEAR),
             ) {
                 let texels = texel_stats(&bytes, format).texels;
-                entry.test_render = Some(format!(
+                let words = format!(
                     "{differing} of {texels} texels differ from the clear ({TEST_CLEAR:?})"
-                ));
+                );
+                match place.checked_sub(1) {
+                    None => entry.test_render = Some(words),
+                    Some(variant) => entry
+                        .variant_renders
+                        .push(format!("{}: {words}", TEST_VARIANTS[variant].0)),
+                }
             }
         }
         for (index, source, read) in before.sources {

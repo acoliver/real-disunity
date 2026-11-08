@@ -105,6 +105,9 @@ impl DispatchTrace {
             if let Some(test) = &texture.test_render {
                 lines.push(format!("    test render: {test}"));
             }
+            for variant in &texture.variant_renders {
+                lines.push(format!("    test render with {variant}"));
+            }
             for source in &texture.sampled {
                 lines.push(format!(
                     "    sampled {} (texture {}): uploaded {}, read back from the GPU {}",
@@ -151,6 +154,9 @@ pub struct TextureTrace {
     /// How many texels of the camera's test render into a scratch copy differ from its clear,
     /// which are the texels a fragment was written to, against all the texels.
     pub test_render: Option<String>,
+    /// The same for the changed test renders, each as `what is changed: counts`, in the order of
+    /// the variants.
+    pub variant_renders: Vec<String>,
     /// The uploaded textures the camera renders into this texture sampled.
     pub sampled: Vec<SampledSource>,
 }

@@ -16,6 +16,9 @@ const RENDER_TEXTURE: u64 = 1 << 63;
 const DEFAULT_TEXTURES: u64 = RENDER_TEXTURE - 16;
 /// Set in the id of the scratch copy of a render texture that a test render draws into.
 const PROBE_SCRATCH: u64 = 1 << 62;
+/// Where the number of a test render's variant sits in a scratch copy's id, above any
+/// generation a world's render texture reaches. Variant 0 is the render as declared.
+const PROBE_VARIANT_SHIFT: u32 = 52;
 /// Set in the id of a material made from a world material and a renderer's own render queue.
 const QUEUED_MATERIAL: u64 = 1 << 63;
 
@@ -46,6 +49,13 @@ pub fn render_texture(id: RenderTextureId) -> TextureId {
 #[must_use]
 pub fn probe_scratch(id: TextureId) -> TextureId {
     TextureId(id.0 | PROBE_SCRATCH)
+}
+
+/// The scratch copy that the `variant`-th changed test render (counted from 0) of the render
+/// texture `id` draws into, which differs from [`probe_scratch`] and from every other variant's.
+#[must_use]
+pub fn probe_variant(id: TextureId, variant: u8) -> TextureId {
+    TextureId(probe_scratch(id).0 | ((u64::from(variant) + 1) << PROBE_VARIANT_SHIFT))
 }
 
 /// Whether `id` names a scratch copy.

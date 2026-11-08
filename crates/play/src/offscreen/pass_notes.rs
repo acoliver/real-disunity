@@ -3,7 +3,9 @@
 
 use std::collections::BTreeSet;
 
-use worldrunner_render_program::unity::offscreen::{CameraPassReport, ClipCounts, ProgramProbe};
+use worldrunner_render_program::unity::offscreen::{
+    CameraPassReport, ClipCounts, DRAW_LAYERS, MemberOrigin, Origin, ProgramProbe, TriangleCounts,
+};
 
 use super::compute::SampledSource;
 
@@ -14,6 +16,33 @@ fn clip(counts: ClipCounts) -> String {
     format!(
         "inside {}, outside {}, behind {}",
         counts.inside, counts.outside, counts.behind
+    )
+}
+
+fn triangles(counts: TriangleCounts) -> String {
+    format!(
+        "{} (behind the camera {}, outside the clip volume {}, without area {}; wound \
+         counter-clockwise in clip space with Y up {}, clockwise {}; culled by the state {}, \
+         drawn {})",
+        counts.total,
+        counts.behind,
+        counts.outside,
+        counts.degenerate,
+        counts.counter_clockwise,
+        counts.clockwise,
+        counts.culled,
+        counts.drawn
+    )
+}
+
+fn origin(member: &MemberOrigin) -> String {
+    let place = match member.origin {
+        Origin::Unset => "no layer",
+        Origin::Layer(at) => DRAW_LAYERS.get(at).copied().unwrap_or("an unnamed layer"),
+    };
+    format!(
+        "{} from {place} for {} draws, {} of them zero",
+        member.name, member.draws, member.zero_draws
     )
 }
 
@@ -34,7 +63,8 @@ fn program(probe: &ProgramProbe) -> String {
     format!(
         "program shader {} pass {}: {} draws, {} vertices, clip positions {}, as transposes {}, \
          without positions {}, without matrices {}; vertex constants without a value [{}], zero \
-         [{}]; fragment constants without a value [{}], zero [{}]; textures [{}]",
+         [{}]; fragment constants without a value [{}], zero [{}]; triangles {}; fragment \
+         constants with no value or zero, by where they came from [{}]; textures [{}]",
         probe.shader.0,
         probe.pass,
         probe.draws,
@@ -47,6 +77,13 @@ fn program(probe: &ProgramProbe) -> String {
         probe.vertex_zero.join(", "),
         probe.fragment_without_value.join(", "),
         probe.fragment_zero.join(", "),
+        triangles(probe.triangles),
+        probe
+            .fragment_origins
+            .iter()
+            .map(origin)
+            .collect::<Vec<_>>()
+            .join(", "),
         textures.join(", ")
     )
 }

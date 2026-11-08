@@ -29,7 +29,7 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::{OffscreenAdapter, build};
 use super::super::assets::{AssetError, Assets};
-use super::super::defaults::declared;
+use super::super::defaults::{ShaderFill, declared};
 use super::super::frame::{Adapted, Settings};
 use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
 use super::support::{camera, render_texture, renderer_with, world};
@@ -86,6 +86,7 @@ impl ShaderSupply for Synthetic {
             queue: 2000,
             texture_defaults,
             declared_defaults: Vec::new(),
+            fill: ShaderFill::default(),
         })
     }
 }

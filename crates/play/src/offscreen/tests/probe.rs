@@ -2,6 +2,7 @@
 //! ranges after the operations before the dispatch and right before it, and the cameras that drew
 //! them. Every expected value comes from the camera's tint and clear color.
 
+use super::super::frame::TEST_VARIANTS;
 use super::flush::{HEIGHT, camera_render, host, scaling};
 use super::gpu::{Quad, SIDE, target};
 use super::kernels::{copy_object, write_compute};
@@ -64,6 +65,44 @@ fn the_test_render_shows_the_texels_a_fragment_reached_by_their_difference_from_
     // The test render is not one of the frame's camera renders.
     assert_eq!(outcome.report.camera_draws.len(), 1);
     assert_eq!(outcome.report.camera_passes.len(), 1);
+}
+
+#[test]
+fn the_changed_test_renders_are_reported_once_each_by_what_they_change_with_the_texels_they_write()
+{
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(directory.path(), "heights", vec![(1, copy_object())]);
+    let mut host = host(directory.path());
+    let mut world = world();
+    let heights = target(&mut world, HEIGHT);
+    camera_render(&mut world, heights);
+    let shader = scaling(&mut world);
+    let buffer = compute_buffer(&mut world, SIDE * SIDE);
+    dispatch(&mut world, shader, (heights, buffer), [2, 2, 1]);
+    let snapshot = snapshot(&mut world);
+
+    let outcome = host.flush(&snapshot, &Quad).unwrap();
+    // The camera's shader culls nothing, blends nothing and tests no depth, so every change
+    // leaves the 8 drawn texels as they are, whatever the fragment stage writes.
+    let drawn = "8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])";
+    let renders = &outcome.report.traces[0].textures[0].variant_renders;
+    let expected: Vec<String> = TEST_VARIANTS
+        .iter()
+        .map(|(what, _)| format!("{what}: {drawn}"))
+        .collect();
+    assert_eq!(renders, &expected);
+    assert_eq!(outcome.report.camera_draws.len(), 1);
+    // Reported once: the variants are made for the first probed work only.
+    let again = host.flush(&snapshot, &Quad).unwrap();
+    assert!(
+        again.report.traces[0].textures[0]
+            .variant_renders
+            .is_empty()
+    );
+    assert_eq!(
+        again.report.traces[0].textures[0].test_render.as_deref(),
+        Some(drawn)
+    );
 }
 
 #[test]

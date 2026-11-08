@@ -6,6 +6,7 @@ mod builtins;
 mod camera;
 mod causes;
 mod defaults;
+mod fallback;
 mod flush;
 mod frame;
 mod gpu;

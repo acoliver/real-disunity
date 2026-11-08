@@ -45,6 +45,9 @@ pub struct OffscreenAdapter {
     blit_mesh: bool,
     /// Whether a block-compressed texture goes up as its blocks when the device samples them.
     block_sources: bool,
+    /// Whether the changed test renders have been made once; they cost storage, so they are made
+    /// for the first probed work only.
+    variants_made: bool,
     /// Counts the snapshots adapted, so a stored mesh or texture knows how long ago it was named.
     epoch: u64,
 }
@@ -79,6 +82,7 @@ impl OffscreenAdapter {
             defaults: BTreeSet::new(),
             blit_mesh: false,
             block_sources: true,
+            variants_made: false,
             epoch: 0,
         }
     }
@@ -140,11 +144,13 @@ impl OffscreenAdapter {
         available.meshes = usable(&self.meshes);
         available.textures = usable(&self.textures);
         available.default_textures = self.defaults.clone();
+        available.test_variants = probe && !self.variants_made;
         if !self.blit_mesh {
             let blit = state.set_mesh(runtime, BLIT_MESH, &blit_mesh());
             self.blit_mesh = blit.is_ok();
         }
         let mut adapted = adapt_probing(snapshot, &available, &self.settings, probe);
+        self.variants_made |= !adapted.frame.probe.variants.is_empty();
         adapted.report.absorb_failures(notes);
         adapted
     }
@@ -173,6 +179,7 @@ impl OffscreenAdapter {
                         passes: loaded.passes,
                         queue: loaded.queue,
                         texture_defaults: loaded.texture_defaults,
+                        fill: loaded.fill,
                     };
                     state.add_shader(ids::shader(*id), loaded.program);
                     self.shaders.insert(*id, (source.clone(), info.clone()));

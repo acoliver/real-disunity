@@ -13,7 +13,7 @@ use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{
-    CameraDraws, CameraPassReport, CameraProbe, OffscreenOperations, PartialMipReads,
+    CameraDraws, CameraPassReport, CameraProbe, OffscreenOperations, PartialMipReads, StateVariant,
     UnmatchedPasses,
 };
 use worldrunner_render_program::unity::shader::PassSelector;
@@ -26,9 +26,9 @@ use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, camera_layer, draw_layer};
 use super::compute::DispatchTrace;
-use super::defaults::DefaultTexture;
+use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
-use super::properties::{Textures, layer, layer_with_defaults};
+use super::properties::{Textures, fallback_layer, layer, layer_with_defaults};
 use super::trace::Phases;
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
@@ -50,6 +50,67 @@ const UNTAGGED_LIGHT_MODE: &str = "Always";
 /// What a test render clears its scratch target to: values a render is unlikely to write and a
 /// half float, an unsigned 8-bit and a 32-bit float all hold to within a step.
 pub const TEST_CLEAR: [f32; 4] = [0.3125, 0.6875, 0.4375, 0.8125];
+
+/// The changed test renders, in the order of their numbers in [`ids::probe_variant`]: what each
+/// changes in the state the passes declare, to find what leaves a render with no written texel.
+/// The first three change one part of the state each, the fourth replaces the fragment stage, and
+/// the last two combine them.
+pub const TEST_VARIANTS: [(&str, StateVariant); 6] = [
+    (
+        "cull None",
+        StateVariant {
+            cull_none: true,
+            blend_off: false,
+            depth_always: false,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "blend off",
+        StateVariant {
+            cull_none: false,
+            blend_off: true,
+            depth_always: false,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "depth test Always",
+        StateVariant {
+            cull_none: false,
+            blend_off: false,
+            depth_always: true,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "a fragment stage that writes a constant",
+        StateVariant {
+            cull_none: false,
+            blend_off: false,
+            depth_always: false,
+            constant_fragment: true,
+        },
+    ),
+    (
+        "cull None, blend off and depth test Always",
+        StateVariant {
+            cull_none: true,
+            blend_off: true,
+            depth_always: true,
+            constant_fragment: false,
+        },
+    ),
+    (
+        "cull None, blend off, depth test Always and a constant fragment stage",
+        StateVariant {
+            cull_none: true,
+            blend_off: true,
+            depth_always: true,
+            constant_fragment: true,
+        },
+    ),
+];
 
 /// The mesh a blit draws.
 pub const BLIT_MESH: MeshId = MeshId(u64::MAX);
@@ -92,7 +153,7 @@ impl Settings {
 }
 
 /// What the shader of a material offers.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ShaderInfo {
     /// The passes of its first sub-shader.
     pub passes: usize,
@@ -101,6 +162,8 @@ pub struct ShaderInfo {
     /// The texture properties whose declared default the host supplies. A material that sets no
     /// texture for one reads that default.
     pub texture_defaults: Vec<(String, DefaultTexture)>,
+    /// The properties it declares and their defaults, which a material that sets none reads.
+    pub fill: ShaderFill,
 }
 
 /// What the host can supply for the snapshot: the shaders it loaded, and the identities of the
@@ -112,6 +175,9 @@ pub struct Available {
     pub textures: BTreeSet<u64>,
     /// The default textures that are registered and can be named.
     pub default_textures: BTreeSet<DefaultTexture>,
+    /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
+    /// each into a scratch copy of its own.
+    pub test_variants: bool,
 }
 
 /// Why a record was left out.
@@ -504,6 +570,8 @@ struct Mapper<'a> {
     /// The render textures whose camera renders are examined, and those with a scratch copy.
     probed: BTreeSet<RenderTextureId>,
     scratch: BTreeSet<RenderTextureId>,
+    /// How many changed test renders each scratch copy has.
+    variants: usize,
 }
 
 impl<'a> Mapper<'a> {
@@ -533,6 +601,7 @@ impl<'a> Mapper<'a> {
             queued: BTreeMap::new(),
             probed: BTreeSet::new(),
             scratch: BTreeSet::new(),
+            variants: 0,
         }
     }
 
@@ -557,6 +626,7 @@ impl<'a> Mapper<'a> {
             test_targets: BTreeSet::new(),
             object_to_world: OBJECT_TO_WORLD.to_owned(),
             view_projection: VIEW_PROJECTION.to_owned(),
+            variants: BTreeMap::new(),
         };
     }
 
@@ -607,7 +677,7 @@ impl<'a> Mapper<'a> {
             OffscreenWork::CameraRender { camera, target } => {
                 let mut records = vec![self.camera_render(*camera, *target)?];
                 if self.probed.contains(target) {
-                    records.push(self.test_render(*camera, *target)?);
+                    records.extend(self.test_renders(*camera, *target)?);
                 }
                 Ok(records)
             }
@@ -705,12 +775,14 @@ impl<'a> Mapper<'a> {
     }
 
     /// The camera's render again into a scratch copy of `target`, cleared to [`TEST_CLEAR`], whose
-    /// texels differ from the clear only where a fragment was written.
-    fn test_render(
+    /// texels differ from the clear only where a fragment was written; and, when the caller asks
+    /// for them, the same render made as each of [`TEST_VARIANTS`] says into a scratch copy of its
+    /// own.
+    fn test_renders(
         &mut self,
         handle: ComponentHandle,
         target: RenderTextureId,
-    ) -> Result<Record, Skip> {
+    ) -> Result<Vec<Record>, Skip> {
         let view = self
             .snapshot
             .cameras
@@ -723,13 +795,31 @@ impl<'a> Mapper<'a> {
             .ok_or(Skip::StaleTarget)?;
         let mut camera = self.camera(view, [texture.width, texture.height]);
         camera.clear_color = Some(TEST_CLEAR.map(f64::from));
-        let id = CameraId(self.frame.cameras.len() as u64);
-        self.frame.cameras.insert(id, camera);
         self.scratch.insert(target);
-        Ok(Record::CameraRender {
-            camera: id,
-            target: ids::probe_scratch(ids::render_texture(target)),
-        })
+        let variants = if self.available.test_variants {
+            TEST_VARIANTS.len()
+        } else {
+            0
+        };
+        self.variants = self.variants.max(variants);
+        let base = ids::render_texture(target);
+        let mut targets = vec![ids::probe_scratch(base)];
+        for (number, (_, variant)) in (0..).zip(TEST_VARIANTS.iter().take(variants)) {
+            let scratch = ids::probe_variant(base, number);
+            self.frame.probe.variants.insert(scratch, *variant);
+            targets.push(scratch);
+        }
+        Ok(targets
+            .into_iter()
+            .map(|scratch| {
+                let id = CameraId(self.frame.cameras.len() as u64);
+                self.frame.cameras.insert(id, camera.clone());
+                Record::CameraRender {
+                    camera: id,
+                    target: scratch,
+                }
+            })
+            .collect())
     }
 
     /// What the camera clears, from its clear flags, and what it draws.
@@ -838,12 +928,14 @@ impl<'a> Mapper<'a> {
                 .collect();
             let properties =
                 layer_with_defaults(&material.properties, &mut self.textures, &defaults);
+            let fallback = fallback_layer(&material.properties, &info.fill, &mut self.textures);
             self.frame.materials.insert(
                 named,
                 Material {
                     shader: Some(ids::shader(material.shader)),
                     keywords: material.keywords.clone(),
                     properties,
+                    fallback,
                     render_queue: queue,
                 },
             );
@@ -941,18 +1033,38 @@ impl<'a> Mapper<'a> {
             .filter(|spec| {
                 ids::render_texture_of(spec.id).is_some_and(|id| self.scratch.contains(&id))
             })
-            .map(|spec| RenderTextureSpec {
-                id: ids::probe_scratch(spec.id),
-                ..spec.clone()
+            .flat_map(|spec| {
+                let variants = (0..)
+                    .take(self.variants)
+                    .map(|number| ids::probe_variant(spec.id, number));
+                std::iter::once(ids::probe_scratch(spec.id))
+                    .chain(variants)
+                    .map(|id| RenderTextureSpec { id, ..spec.clone() })
+                    .collect::<Vec<_>>()
             })
             .collect();
         self.frame.render_textures.extend(copies);
+        let variants = self.variants;
         self.frame.probe.test_targets = self
             .scratch
             .iter()
-            .map(|id| ids::probe_scratch(ids::render_texture(*id)))
+            .flat_map(|id| {
+                let base = ids::render_texture(*id);
+                std::iter::once(ids::probe_scratch(base)).chain(
+                    (0..)
+                        .take(variants)
+                        .map(move |number| ids::probe_variant(base, number)),
+                )
+            })
             .collect();
         self.report.unresolved_textures = self.textures.unresolved().clone();
+        for (rule, count) in self.textures.filled() {
+            *self
+                .report
+                .census
+                .entry(format!("constants filled by {rule}"))
+                .or_default() += count;
+        }
         if let Some(global) = &self.snapshot.global {
             for (name, slot) in &global.properties.textures {
                 let kind = texture_kind(&slot.texture);

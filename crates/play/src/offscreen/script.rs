@@ -12,14 +12,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use glam::Mat4;
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
     Attachment, Attachments, Clear, GlobalState, Record, RenderTextureSpec,
 };
-use worldrunner_world_simulation::graphics::{OffscreenWork, TargetRef, WorldRenderTexture};
+use worldrunner_world_simulation::ComponentHandle;
+use worldrunner_world_simulation::graphics::{
+    OffscreenWork, RendererListDesc, TargetRef, WorldRenderTexture,
+};
 
-use super::frame::{Mapper, Skip};
+use super::frame::{Mapper, RendererSkip, Skip};
 use super::ids;
 use super::properties::set_value;
 
@@ -64,9 +68,14 @@ pub fn temporary_ids(work: &[OffscreenWork]) -> BTreeSet<TextureId> {
     temporaries.described.into_keys().collect()
 }
 
-/// The camera a script set up: where its draws go when a target names the camera's.
+/// The camera a script set up: where its draws go when a target names the camera's own, the view
+/// and the projection (column-major OpenGL matrices, as the world holds them) the draws use, and
+/// the camera's rectangle of its target.
 pub(super) struct CameraSetup {
     pub(super) target: TargetRef,
+    pub(super) view: Mat4,
+    pub(super) projection: Mat4,
+    pub(super) viewport: [f32; 4],
 }
 
 /// The global values and keywords as the commands left them, and whether a record has yet to
@@ -84,6 +93,12 @@ pub(super) struct Script {
     pub(super) camera: Option<CameraSetup>,
     globals: Globals,
     pub(super) temporaries: Temporaries,
+    /// The renderers each culling record kept, as indices into the snapshot's renderers.
+    pub(super) culls: BTreeMap<u64, Vec<usize>>,
+    /// The renderer lists made so far.
+    pub(super) lists: BTreeMap<u64, RendererListDesc>,
+    /// The renderers a list asked the frame to hold, and whether it could.
+    pub(super) renderers: BTreeMap<usize, Result<(), RendererSkip>>,
 }
 
 impl Script {
@@ -98,6 +113,9 @@ impl Script {
                 dirty: false,
             },
             temporaries: Temporaries::default(),
+            culls: BTreeMap::new(),
+            lists: BTreeMap::new(),
+            renderers: BTreeMap::new(),
         }
     }
 }
@@ -176,11 +194,36 @@ impl Mapper<'_> {
                     Err(Skip::UnknownTemporary)
                 }
             }
-            OffscreenWork::SetupCamera { target, .. } => {
-                self.setup_camera(*target);
+            OffscreenWork::SetupCamera {
+                camera,
+                view,
+                projection,
+                target,
+            } => {
+                self.setup_camera(*camera, (view, projection), *target);
                 Ok(Vec::new())
             }
-            _ => Err(Skip::UnsupportedWork),
+            OffscreenWork::Cull {
+                id,
+                culling_mask,
+                planes,
+                ..
+            } => {
+                self.cull(*id, *culling_mask, planes);
+                Ok(Vec::new())
+            }
+            OffscreenWork::CreateRendererList { id, desc } => {
+                self.create_list(*id, desc);
+                Ok(Vec::new())
+            }
+            OffscreenWork::DrawRendererList { list } => self.draw_list(*list),
+            OffscreenWork::CameraRender { .. }
+            | OffscreenWork::Blit { .. }
+            | OffscreenWork::CopyTexture { .. }
+            | OffscreenWork::Dispatch { .. }
+            | OffscreenWork::ReadPixels { .. } => {
+                unreachable!("{} is mapped elsewhere", kind(work))
+            }
         }
     }
 
@@ -300,8 +343,25 @@ impl Mapper<'_> {
     }
 
     /// Sets up the camera. When its target is a texture, the draws after this go to it.
-    fn setup_camera(&mut self, target: TargetRef) {
-        self.script.camera = Some(CameraSetup { target });
+    fn setup_camera(
+        &mut self,
+        camera: ComponentHandle,
+        (view, projection): (&[f32; 16], &[f32; 16]),
+        target: TargetRef,
+    ) {
+        // The world copies the cameras that camera renders name, so a camera set up alone may be
+        // absent; it then has the whole target.
+        let viewport = self
+            .snapshot
+            .cameras
+            .get(&camera)
+            .map_or([0.0, 0.0, 1.0, 1.0], |held| held.settings.viewport);
+        self.script.camera = Some(CameraSetup {
+            target,
+            view: Mat4::from_cols_array(view),
+            projection: Mat4::from_cols_array(projection),
+            viewport,
+        });
         if let Ok(Some(texture)) = self.resolve_target(&target) {
             let whole = Some(Attachment { texture, mip: 0 });
             self.script.target = Some(Attachments {

@@ -15,11 +15,12 @@ use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, PropertyValue as WorldValue,
-    RenderTextureId, ShaderId as WorldShaderId, TextureRef,
+    ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
+    ShaderId as WorldShaderId, TextureRef,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
+use super::bounds::Bounds;
 use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, camera_layer, draw_layer};
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
@@ -31,7 +32,7 @@ pub use super::report::{Reclaimed, Report};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
 /// The tag key whose value names a pass's purpose.
-const PASS_TAG: &str = "LightMode";
+pub(super) const PASS_TAG: &str = "LightMode";
 
 /// The `LightMode` values a camera draws, in the order of preference.
 const CAMERA_LIGHT_MODES: [&str; 5] = [
@@ -157,6 +158,9 @@ pub struct ShaderInfo {
     pub passes: usize,
     /// The queue a material that names none takes.
     pub queue: i32,
+    /// The `LightMode` values of the passes of its first sub-shader, in pass order. A pass with
+    /// no such tag adds none.
+    pub light_modes: Vec<String>,
     /// The texture properties whose declared default the host supplies. A material that sets no
     /// texture for one reads that default.
     pub texture_defaults: Vec<(String, DefaultTexture)>,
@@ -173,6 +177,9 @@ pub struct Available {
     pub textures: BTreeSet<u64>,
     /// The default textures that are registered and can be named.
     pub default_textures: BTreeSet<DefaultTexture>,
+    /// The box of each uploaded mesh's vertices, which a culling plane and a shadow split's sphere
+    /// are tested against.
+    pub bounds: BTreeMap<u64, Bounds>,
     /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
     /// each into a scratch copy of its own.
     pub test_variants: bool,
@@ -191,8 +198,9 @@ pub enum Skip {
     PartialViewport,
     /// A copy or blit source that names a global texture, which a record never does.
     GlobalSource,
-    /// A script command the adapter does not run: culling and renderer list records.
-    UnsupportedWork,
+    /// A draw of a renderer list that no earlier record made, or that reads a culling result no
+    /// earlier record made.
+    UnknownList,
     /// A clear or a draw with no render target bound, or a target that names the camera's own
     /// when the camera has none.
     UnboundTarget,
@@ -220,26 +228,6 @@ fn texture_kind(texture: &TextureRef) -> &'static str {
         TextureRef::Global(_) => "global",
         TextureRef::Render(_) => "render",
         TextureRef::Asset(_) => "asset",
-    }
-}
-
-/// A script command the adapter does not run, named by what it is.
-fn describe(work: &OffscreenWork) -> String {
-    match work {
-        OffscreenWork::SetGlobal(WorldValue::Texture(name, slot)) => {
-            format!("SetGlobal texture {name} ({})", texture_kind(&slot.texture))
-        }
-        OffscreenWork::SetGlobal(_) => "SetGlobal value".to_owned(),
-        OffscreenWork::SetGlobalKeyword { .. } => "SetGlobalKeyword".to_owned(),
-        OffscreenWork::SetRenderTarget { .. } => "SetRenderTarget".to_owned(),
-        OffscreenWork::ClearRenderTarget { .. } => "ClearRenderTarget".to_owned(),
-        OffscreenWork::AllocateTemporary { .. } => "AllocateTemporary".to_owned(),
-        OffscreenWork::ReleaseTemporary { .. } => "ReleaseTemporary".to_owned(),
-        OffscreenWork::SetupCamera { .. } => "SetupCamera".to_owned(),
-        OffscreenWork::Cull { .. } => "Cull".to_owned(),
-        OffscreenWork::CreateRendererList { .. } => "CreateRendererList".to_owned(),
-        OffscreenWork::DrawRendererList { .. } => "DrawRendererList".to_owned(),
-        _ => "work the adapter maps".to_owned(),
     }
 }
 
@@ -437,13 +425,6 @@ impl<'a> Mapper<'a> {
                         .skipped_by_kind
                         .entry(format!("{}: {skip:?}", kind(work)))
                         .or_default() += 1;
-                    if skip == Skip::UnsupportedWork {
-                        *self
-                            .report
-                            .unsupported_work
-                            .entry(describe(work))
-                            .or_default() += 1;
-                    }
                 }
             }
         }
@@ -522,9 +503,6 @@ impl<'a> Mapper<'a> {
                 }])
             }
             OffscreenWork::ReadPixels { .. } => unreachable!("pixel reads are placed, not mapped"),
-            OffscreenWork::Cull { .. }
-            | OffscreenWork::CreateRendererList { .. }
-            | OffscreenWork::DrawRendererList { .. } => Err(Skip::UnsupportedWork),
             _ => self.command(work),
         }
     }
@@ -712,7 +690,11 @@ impl<'a> Mapper<'a> {
 
     /// The frame's material for a world material, with `queue` in place of its own when the
     /// renderer has one.
-    fn material(&mut self, id: WorldMaterialId, queue: Option<i32>) -> Result<MaterialId, Skip> {
+    pub(super) fn material(
+        &mut self,
+        id: WorldMaterialId,
+        queue: Option<i32>,
+    ) -> Result<MaterialId, Skip> {
         let material = self
             .snapshot
             .materials
@@ -771,6 +753,9 @@ impl<'a> Mapper<'a> {
             .values()
             .fold(0_u32, |mask, camera| mask | camera.culling_mask);
         for (index, view) in self.snapshot.renderers.iter().enumerate() {
+            if self.script.renderers.contains_key(&index) {
+                continue;
+            }
             if mask
                 .checked_shr(view.layer)
                 .is_none_or(|bits| bits & 1 == 0)
@@ -788,7 +773,7 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    fn renderer(&mut self, view: &RendererView) -> Result<Renderer, RendererSkip> {
+    pub(super) fn renderer(&mut self, view: &RendererView) -> Result<Renderer, RendererSkip> {
         if !self.available.meshes.contains(&view.mesh) {
             return Err(RendererSkip::MeshUnavailable);
         }

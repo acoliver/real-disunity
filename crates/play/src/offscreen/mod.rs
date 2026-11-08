@@ -46,6 +46,7 @@
 
 mod adapter;
 mod assets;
+mod bounds;
 mod builtins;
 mod camera;
 mod census;
@@ -56,6 +57,7 @@ mod frame;
 mod holdings;
 mod ids;
 mod kernels;
+mod lists;
 mod pass_notes;
 mod pixels;
 mod probe;
@@ -72,6 +74,7 @@ pub use adapter::{OffscreenAdapter, build};
 pub use assets::{
     AssetError, Assets, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
 };
+pub use bounds::Bounds;
 pub use builtins::{
     CAMERA_POSITION, OBJECT_TO_WORLD, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT, camera_layer,
     draw_layer,

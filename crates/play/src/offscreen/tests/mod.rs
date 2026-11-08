@@ -11,6 +11,8 @@ mod flush;
 mod frame;
 mod gpu;
 mod kernels;
+mod lists;
+mod lists_gpu;
 mod pixels;
 mod policy;
 mod probe;

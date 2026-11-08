@@ -341,7 +341,7 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
 }
 
 #[test]
-fn the_script_commands_the_adapter_runs_are_counted_by_kind_and_the_rest_are_named() {
+fn every_script_command_is_run_and_counted_by_kind() {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     let object = super::support::object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
@@ -361,18 +361,13 @@ fn the_script_commands_the_adapter_runs_are_counted_by_kind_and_the_rest_are_nam
             .collect()
     };
     assert_eq!(
-        adapted.report.unsupported_work,
-        counts(&[
-            ("CreateRendererList", 1),
-            ("Cull", 2),
-            ("DrawRendererList", 1)
-        ])
-    );
-    assert_eq!(
         adapted.report.built_by_kind,
         counts(&[
             ("AllocateTemporary", 1),
             ("ClearRenderTarget", 1),
+            ("CreateRendererList", 1),
+            ("Cull", 2),
+            ("DrawRendererList", 1),
             ("ReleaseTemporary", 1),
             ("SetGlobal", 4),
             ("SetGlobalKeyword", 2),
@@ -381,7 +376,7 @@ fn the_script_commands_the_adapter_runs_are_counted_by_kind_and_the_rest_are_nam
         ])
     );
     assert_eq!(adapted.report.records, 16);
-    assert_eq!(adapted.report.skipped.get(&Skip::UnsupportedWork), Some(&4));
+    assert!(adapted.report.skipped.is_empty());
     assert_eq!(adapted.frame.records.len(), 1, "the one clear");
 }
 

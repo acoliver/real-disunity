@@ -94,7 +94,7 @@ internal static unsafe class CommandWireReader
         {
             var (cull, light) = (U64(), I32());
             var planes = string.Join(",", List(() => Floats(4)));
-            return $"shadow cull={cull} light={light} planes=[{planes}] sphere={Floats(4)} filter={U32()} projection={U32()}";
+            return $"shadow cull={cull} light={light} planes=[{planes}] sphere={Floats(4)} filter={U32()} projection={U32()} layerTest={U8()}";
         }
 
         public string Optional(Func<string> read) => U8() == 0 ? "-" : read();

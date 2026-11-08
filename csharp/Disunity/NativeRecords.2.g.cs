@@ -497,7 +497,9 @@ namespace Disunity.Native
     ///  culling planes (4 floats each) that the call's `planes` pointer holds. The split culling sphere
     ///  is the centre in `sphere_x`, `sphere_y` and `sphere_z` and the radius in `sphere_radius`.
     ///  `objects_filter` is 0 for all objects, 1 for dynamic ones and 2 for static ones; `projection`
-    ///  is 0 for unknown, 1 for perspective and 2 for orthographic.
+    ///  is 0 for unknown, 1 for perspective and 2 for orthographic. `rendering_layer_test` is 1 when a
+    ///  caster draws only if its rendering layer mask shares a bit with the light's, else 0; `padding`
+    ///  keeps `cull` 8-byte aligned and is ignored.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityShadowRendererList
@@ -510,6 +512,8 @@ namespace Disunity.Native
         public uint plane_count;
         public uint objects_filter;
         public uint projection;
+        public uint rendering_layer_test;
+        public uint padding;
         public ulong cull;
     }
 

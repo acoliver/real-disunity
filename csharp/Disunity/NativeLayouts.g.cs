@@ -653,8 +653,10 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityShadowRendererList>("plane_count").ToInt32() != 20) throw new InvalidOperationException("DisunityShadowRendererList.plane_count offset");
         if (Marshal.OffsetOf<DisunityShadowRendererList>("objects_filter").ToInt32() != 24) throw new InvalidOperationException("DisunityShadowRendererList.objects_filter offset");
         if (Marshal.OffsetOf<DisunityShadowRendererList>("projection").ToInt32() != 28) throw new InvalidOperationException("DisunityShadowRendererList.projection offset");
-        if (Marshal.OffsetOf<DisunityShadowRendererList>("cull").ToInt32() != 32) throw new InvalidOperationException("DisunityShadowRendererList.cull offset");
-        if (Marshal.SizeOf<DisunityShadowRendererList>() != 40 || typeof(DisunityShadowRendererList).GetFields().Length != 9) throw new InvalidOperationException("DisunityShadowRendererList layout");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("rendering_layer_test").ToInt32() != 32) throw new InvalidOperationException("DisunityShadowRendererList.rendering_layer_test offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("padding").ToInt32() != 36) throw new InvalidOperationException("DisunityShadowRendererList.padding offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("cull").ToInt32() != 40) throw new InvalidOperationException("DisunityShadowRendererList.cull offset");
+        if (Marshal.SizeOf<DisunityShadowRendererList>() != 48 || typeof(DisunityShadowRendererList).GetFields().Length != 11) throw new InvalidOperationException("DisunityShadowRendererList layout");
         if (Marshal.OffsetOf<DisunityUiDraw>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityUiDraw.kind offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("hierarchy_order").ToInt32() != 8) throw new InvalidOperationException("DisunityUiDraw.hierarchy_order offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("clip_x").ToInt32() != 16) throw new InvalidOperationException("DisunityUiDraw.clip_x offset");

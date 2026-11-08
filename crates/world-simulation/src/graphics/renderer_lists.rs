@@ -29,9 +29,16 @@ pub enum RendererListDesc {
         queue_max: i32,
         layer_mask: u32,
         rendering_layer_mask: u32,
-        /// Sorting criteria bits.
+        /// How the draws sort, as bits the script combines: 1 by sorting layer, 2 by render
+        /// queue, 4 back to front, 8 front to back in coarse distance steps, 16 grouped to
+        /// limit state changes, 32 by canvas order, 64 by renderer priority. 0 leaves the order
+        /// to the host. The common opaque order is 59 (1, 2, 8, 16 and 32) and the common
+        /// transparent order is 23 (1, 2, 4 and 16).
         sorting: u32,
-        /// Per-object data bits.
+        /// The per-object data the shaders read, as bits: 1 light probes, 2 reflection probes,
+        /// 4 light probe proxy volumes, 8 lightmaps, 16 per-object light data, 32 motion
+        /// vectors, 64 light indices, 128 reflection probe data, 256 occlusion probes, 512
+        /// occlusion probe proxy volumes, 1024 shadow mask. 0 is none.
         per_object: u32,
         override_material: Option<MaterialId>,
         override_pass: i32,
@@ -50,6 +57,9 @@ pub enum RendererListDesc {
         objects_filter: u32,
         /// 0 for unknown, 1 for perspective, 2 for orthographic.
         projection: u32,
+        /// Whether a caster draws only when its rendering layer mask shares a bit with the
+        /// light's.
+        use_rendering_layer_mask_test: bool,
     },
 }
 

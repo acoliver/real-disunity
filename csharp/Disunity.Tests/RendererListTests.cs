@@ -14,7 +14,7 @@ internal static class RendererListTests
             DrawListCarriesItsSettings();
             Console.WriteLine("PASS: CreateRendererList sends the culling result first, then a list with the pass names, queue range, masks, sorting, per-object data and override material");
             ShadowListCarriesItsSplit();
-            Console.WriteLine("PASS: CreateShadowRendererList sends the light index, split planes and sphere, objects filter and projection");
+            Console.WriteLine("PASS: CreateShadowRendererList sends the light index, split planes and sphere, objects filter, projection and layer test");
             ListsAreDistinctAndEqualById();
             Console.WriteLine("PASS: each list has its own id, a valid list is not the null list, and lists compare by id");
             DrawRecordsInOrder();
@@ -99,19 +99,20 @@ internal static class RendererListTests
         {
             splitData = split,
             objectsFilter = ShadowObjectsFilter.StaticOnly,
+            useRenderingLayerMaskTest = true,
         };
         var list = context.CreateShadowRendererList(ref settings);
         var taken = CommandWireReader.Take();
         Expect.Equal(2, taken.Length, "the culling result, then the list");
         Expect.Equal(
-            $"CreateList id={list.Id} shadow cull={CullLine(taken[0])} light=3 planes=[(0 1 0 2.5),(1 0 0 -4)] sphere=(1 2 3 40) filter=2 projection=2",
+            $"CreateList id={list.Id} shadow cull={CullLine(taken[0])} light=3 planes=[(0 1 0 2.5),(1 0 0 -4)] sphere=(1 2 3 40) filter=2 projection=2 layerTest=1",
             taken[1], "the shadow list record");
         var second = Cull(context);
         var none = new ShadowDrawingSettings(second, 0);
         var bare = context.CreateShadowRendererList(ref none);
         var again = CommandWireReader.Take();
         Expect.Equal(
-            $"CreateList id={bare.Id} shadow cull={CullLine(again[0])} light=0 planes=[] sphere=(0 0 0 0) filter=0 projection=1",
+            $"CreateList id={bare.Id} shadow cull={CullLine(again[0])} light=0 planes=[] sphere=(0 0 0 0) filter=0 projection=1 layerTest=0",
             again[1], "an empty split and the defaults");
     }
 

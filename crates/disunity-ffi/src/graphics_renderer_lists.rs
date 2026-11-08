@@ -35,7 +35,9 @@ pub struct DisunityDrawRendererList {
 /// culling planes (4 floats each) that the call's `planes` pointer holds. The split culling sphere
 /// is the centre in `sphere_x`, `sphere_y` and `sphere_z` and the radius in `sphere_radius`.
 /// `objects_filter` is 0 for all objects, 1 for dynamic ones and 2 for static ones; `projection`
-/// is 0 for unknown, 1 for perspective and 2 for orthographic.
+/// is 0 for unknown, 1 for perspective and 2 for orthographic. `rendering_layer_test` is 1 when a
+/// caster draws only if its rendering layer mask shares a bit with the light's, else 0; `padding`
+/// keeps `cull` 8-byte aligned and is ignored.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityShadowRendererList {
@@ -47,6 +49,8 @@ pub struct DisunityShadowRendererList {
     pub plane_count: u32,
     pub objects_filter: u32,
     pub projection: u32,
+    pub rendering_layer_test: u32,
+    pub padding: u32,
     pub cull: u64,
 }
 
@@ -141,7 +145,7 @@ pub unsafe extern "C" fn disunity_renderer_list_create_shadow(
     }
     let desc = unsafe { *desc };
     let count = desc.plane_count as usize;
-    if count > 0 && planes.is_null() {
+    if (count > 0 && planes.is_null()) || desc.rendering_layer_test > 1 {
         return DisunityResult::invalid_argument();
     }
     let floats: &[f32] = if count == 0 {
@@ -165,6 +169,7 @@ pub unsafe extern "C" fn disunity_renderer_list_create_shadow(
             ],
             objects_filter: desc.objects_filter,
             projection: desc.projection,
+            use_rendering_layer_mask_test: desc.rendering_layer_test == 1,
         })?;
         unsafe { *list = id };
         Ok(())

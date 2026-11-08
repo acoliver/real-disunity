@@ -936,6 +936,8 @@ pub struct DisunityShadowRendererList {
     pub plane_count: u32,
     pub objects_filter: u32,
     pub projection: u32,
+    pub rendering_layer_test: u32,
+    pub padding: u32,
     pub cull: u64,
 }
 

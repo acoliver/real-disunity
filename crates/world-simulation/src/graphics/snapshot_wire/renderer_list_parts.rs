@@ -47,6 +47,7 @@ impl Wire for RendererListDesc {
                 sphere,
                 objects_filter,
                 projection,
+                use_rendering_layer_mask_test,
             } => {
                 LIST_SHADOW.write(out)?;
                 cull.write(out)?;
@@ -56,7 +57,8 @@ impl Wire for RendererListDesc {
                     plane.write(out)?;
                 }
                 sphere.write(out)?;
-                [*objects_filter, *projection].write(out)
+                [*objects_filter, *projection].write(out)?;
+                use_rendering_layer_mask_test.write(out)
             }
         }
     }
@@ -103,6 +105,7 @@ fn read_shadow(input: &mut Reader<'_>) -> Result<RendererListDesc, WireError> {
     }
     let sphere = Wire::read(input)?;
     let [objects_filter, projection] = <[u32; 2]>::read(input)?;
+    let use_rendering_layer_mask_test = Wire::read(input)?;
     Ok(RendererListDesc::Shadow {
         cull,
         light_index,
@@ -110,6 +113,7 @@ fn read_shadow(input: &mut Reader<'_>) -> Result<RendererListDesc, WireError> {
         sphere,
         objects_filter,
         projection,
+        use_rendering_layer_mask_test,
     })
 }
 

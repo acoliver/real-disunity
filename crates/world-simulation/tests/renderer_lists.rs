@@ -66,6 +66,7 @@ fn shadow(cull: u64) -> RendererListDesc {
         sphere: [1.0, 2.0, 3.0, 40.0],
         objects_filter: 2,
         projection: 1,
+        use_rendering_layer_mask_test: true,
     }
 }
 
@@ -445,6 +446,7 @@ fn both_kinds_and_the_draw_survive_the_wire() {
                 sphere: [-0.0, f32::MIN_POSITIVE, 1.0e30, 2.0],
                 objects_filter: 0,
                 projection: 0,
+                use_rendering_layer_mask_test: false,
             },
         },
         OffscreenWork::DrawRendererList { list: 6 },

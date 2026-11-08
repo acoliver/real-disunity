@@ -152,7 +152,7 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         return new RendererList
         {
             Id = WorldGraphics.CreateShadowList(cull, settings.lightIndex, planes, split.cullingSphere, (uint)settings.objectsFilter,
-                (uint)settings.projectionType),
+                (uint)settings.projectionType, settings.useRenderingLayerMaskTest),
         };
     }
 

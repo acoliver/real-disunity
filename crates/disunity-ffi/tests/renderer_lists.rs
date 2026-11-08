@@ -82,6 +82,8 @@ fn shadow_desc(plane_count: u32) -> DisunityShadowRendererList {
         plane_count,
         objects_filter: 1,
         projection: 2,
+        rendering_layer_test: 1,
+        padding: 0,
         cull: 1,
     }
 }
@@ -194,8 +196,20 @@ fn a_shadow_list_round_trips_with_its_planes_and_sphere() {
     cull(world, 1);
     let planes: [f32; 8] = std::array::from_fn(|i| 0.5 * i as f32 - 1.5);
     let list = create_shadow(world, &shadow_desc(2), &planes).unwrap();
-    let none = create_shadow(world, &shadow_desc(0), &[]).unwrap();
+    let untested = DisunityShadowRendererList {
+        rendering_layer_test: 0,
+        ..shadow_desc(0)
+    };
+    let none = create_shadow(world, &untested, &[]).unwrap();
     assert_ne!(list, none);
+    let not_a_flag = DisunityShadowRendererList {
+        rendering_layer_test: 2,
+        ..shadow_desc(0)
+    };
+    assert!(
+        create_shadow(world, &not_a_flag, &[]).is_err(),
+        "the layer test is 0 or 1"
+    );
     let taken = take(world);
     assert_eq!(taken[1].0.kind, KIND_CREATE_RENDERER_LIST);
     assert_eq!(
@@ -209,17 +223,24 @@ fn a_shadow_list_round_trips_with_its_planes_and_sphere() {
                 sphere: [1.0, 2.0, 3.0, 40.0],
                 objects_filter: 1,
                 projection: 2,
+                use_rendering_layer_mask_test: true,
             },
         }
     );
     let OffscreenWork::CreateRendererList {
-        desc: RendererListDesc::Shadow { planes, .. },
+        desc:
+            RendererListDesc::Shadow {
+                planes,
+                use_rendering_layer_mask_test,
+                ..
+            },
         ..
     } = &taken[2].1
     else {
         panic!("expected a shadow list, got {:?}", taken[2].1);
     };
-    assert!(planes.is_empty());
+    assert!(planes.is_empty() && !use_rendering_layer_mask_test);
+    assert_eq!(taken.len(), 3, "the refused list recorded nothing");
 }
 
 #[test]

@@ -33,8 +33,10 @@ internal static unsafe partial class WorldGraphics
     }
 
     /// <summary>Makes a list of the shadow casters a culling result kept for one light. <paramref name="planes"/> holds four floats
-    /// per split culling plane: the normal, then the distance.</summary>
-    internal static ulong CreateShadowList(ulong cull, int lightIndex, float[] planes, Vector4 sphere, uint objectsFilter, uint projection)
+    /// per split culling plane: the normal, then the distance. With <paramref name="layerTest"/> a caster draws only when its rendering
+    /// layer mask shares a bit with the light's.</summary>
+    internal static ulong CreateShadowList(ulong cull, int lightIndex, float[] planes, Vector4 sphere, uint objectsFilter, uint projection,
+        bool layerTest)
     {
         var world = World;
         var desc = new DisunityShadowRendererList
@@ -48,6 +50,7 @@ internal static unsafe partial class WorldGraphics
             sphere_radius = sphere.w,
             objects_filter = objectsFilter,
             projection = projection,
+            rendering_layer_test = layerTest ? 1u : 0u,
         };
         ulong list;
         fixed (float* pointer = planes) Check(NativeBindings.disunity_renderer_list_create_shadow(world, &desc, planes.Length == 0 ? null : pointer, &list));

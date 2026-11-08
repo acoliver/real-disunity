@@ -11,6 +11,7 @@
 //! Only 2D properties get a default; the player also has array and cube properties, which would
 //! need a texture of their own dimension.
 
+use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::SourceTexture;
 use worldrunner_unity_serialized::shader::Shader;
 
@@ -24,6 +25,15 @@ const TEXTURE_2D: i32 = 2;
 
 /// `ShaderPropertyType` of a texture property.
 const TEXTURE_PROPERTY: i32 = 4;
+
+/// `ShaderPropertyType` of a colour, vector, float, range and integer property. A shader stores
+/// the default of each in the four floats of its declaration: a colour or vector all four, a
+/// float or integer the first, a range its default first and then its limits.
+const COLOR_PROPERTY: i32 = 0;
+const VECTOR_PROPERTY: i32 = 1;
+const FLOAT_PROPERTY: i32 = 2;
+const RANGE_PROPERTY: i32 = 3;
+const INT_PROPERTY: i32 = 5;
 
 /// A default texture the host supplies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -109,4 +119,47 @@ pub fn declared(shader: &Shader) -> Vec<(String, DefaultTexture)> {
             DefaultTexture::named(&default).map(|texture| (name, texture))
         })
         .collect()
+}
+
+/// `value` as an integer, when it is a whole number an `i32` holds.
+#[allow(clippy::cast_possible_truncation)] // a whole number inside the range, checked first
+fn whole_number(value: f32) -> Option<i32> {
+    let limit = 2_147_483_648.0_f32;
+    (value.fract() == 0.0 && (-limit..limit).contains(&value)).then_some(value as i32)
+}
+
+/// What a shader declares that fills the properties a material does not set.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ShaderFill {
+    /// Every 2D texture property, whether or not the host supplies its default texture.
+    pub textures: Vec<String>,
+    /// The default value of each colour, vector, float, range and integer property, in the
+    /// order the shader declares them.
+    pub values: Vec<(String, PropertyValue)>,
+}
+
+/// What `shader` declares for a material that leaves a property unset.
+#[must_use]
+pub fn declared_fill(shader: &Shader) -> ShaderFill {
+    let mut fill = ShaderFill::default();
+    for property in &shader.parsed.properties {
+        let default = property.default_value;
+        let value = match property.kind {
+            TEXTURE_PROPERTY => {
+                if property.texture_dimension == TEXTURE_2D {
+                    fill.textures.push(property.name.clone());
+                }
+                continue;
+            }
+            COLOR_PROPERTY | VECTOR_PROPERTY => PropertyValue::Vector(default),
+            FLOAT_PROPERTY | RANGE_PROPERTY => PropertyValue::Float(default[0]),
+            INT_PROPERTY => match whole_number(default[0]) {
+                Some(number) => PropertyValue::Int(number),
+                None => continue,
+            },
+            _ => continue,
+        };
+        fill.values.push((property.name.clone(), value));
+    }
+    fill
 }

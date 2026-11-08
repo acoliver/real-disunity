@@ -13,7 +13,7 @@ use std::task::{Context, Poll, Waker};
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet};
 use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
 
-use crate::budget::{Ledger, Reservation};
+use crate::budget::{Ledger, Note, Reservation};
 use crate::error::ProgramError;
 use crate::module::StageProgram;
 use crate::registry::Registry;
@@ -24,6 +24,7 @@ pub use crate::arena::{AdmittedPrograms, ProgramArena};
 pub use crate::batch::{
     GeometryDraw, PassCommands, PipelineDraw, PreparedPipeline, VertexBufferSpec, VertexLayoutSpec,
 };
+pub use crate::budget::Holding;
 pub use crate::dispatch::DispatchRequest;
 pub use crate::draw::{DrawRequest, Geometry, VertexInput};
 pub use crate::import::{
@@ -122,6 +123,20 @@ impl ProgramRuntime {
         self.ledger.live_bytes()
     }
 
+    /// The most descriptor bytes this runtime has held at once.
+    #[must_use]
+    pub fn peak_bytes(&self) -> u64 {
+        self.ledger.peak_bytes()
+    }
+
+    /// What [`live_bytes`](Self::live_bytes) is made of, by the label each resource was created
+    /// under and its shape, the greatest first. Released resources the GPU may still use are
+    /// in it until [`collect`](Self::collect) frees them.
+    #[must_use]
+    pub fn holdings(&self) -> Vec<Holding> {
+        self.ledger.holdings()
+    }
+
     /// Frees released resources whose last use has completed on the GPU. Every allocation does
     /// this first.
     pub fn collect(&self) {
@@ -130,10 +145,14 @@ impl ProgramRuntime {
 
     /// Admits `allocations` against the budget on top of everything live, or refuses them by
     /// name before anything is created.
-    pub(crate) fn admit(&self, allocations: AllocationSet) -> Result<Reservation, ProgramError> {
+    pub(crate) fn admit(
+        &self,
+        allocations: AllocationSet,
+        note: Note,
+    ) -> Result<Reservation, ProgramError> {
         self.collect();
         self.ledger
-            .admit(&self.device.limits(), self.budget, allocations)
+            .admit(&self.device.limits(), self.budget, allocations, note)
     }
 
     /// Checks that `encoder` records a frame the authority is preparing and that the device is

@@ -57,6 +57,7 @@ mod kernels;
 mod pass_notes;
 mod probe;
 mod properties;
+mod report;
 mod shaders;
 mod trace;
 

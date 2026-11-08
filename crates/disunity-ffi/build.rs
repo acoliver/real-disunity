@@ -47,6 +47,7 @@ const ABI_SOURCES: &[&str] = &[
     "src/graphics_context.rs",
     "src/graphics_offscreen.rs",
     "src/graphics_properties.rs",
+    "src/graphics_readback.rs",
     "src/graphics_snapshot.rs",
     "src/script_messages.rs",
     "src/presentation_ui.rs",

@@ -12,7 +12,7 @@ pub(crate) const ARRAY_LIMIT: u32 = 7;
 #[derive(Debug)]
 pub(crate) struct ResidentSource {
     pub buffers: Vec<wgpu::Buffer>,
-    pub(super) textures: Vec<wgpu::Texture>,
+    pub textures: Vec<wgpu::Texture>,
     pub views: Vec<wgpu::TextureView>,
     pub samplers: [wgpu::Sampler; 2],
     checked_samplers: [CheckedSampler; 2],

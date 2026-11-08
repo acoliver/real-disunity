@@ -130,7 +130,7 @@ pub enum DynamicError {
 }
 
 #[cfg(test)]
-mod capture_tests;
+pub(crate) mod capture_tests;
 #[cfg(test)]
 mod lifetime_tests;
 #[cfg(test)]

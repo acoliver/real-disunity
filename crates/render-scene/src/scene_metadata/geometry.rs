@@ -66,7 +66,8 @@ pub(crate) fn pipelines_from_sources(
             &sources.1,
             None,
             Some(&layout),
-        ),
+        )
+        .with_fixed_terrain(),
         group,
     )
 }

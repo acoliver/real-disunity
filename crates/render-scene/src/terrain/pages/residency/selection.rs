@@ -32,6 +32,11 @@ impl ResidentPages {
         state.residents().collect()
     }
 
+    /// The page cache texture, for a draw that is lent it.
+    pub fn texture(&self) -> wgpu::Texture {
+        self.storage().texture.clone()
+    }
+
     pub fn texture_view(&self) -> wgpu::TextureView {
         self.storage()
             .texture

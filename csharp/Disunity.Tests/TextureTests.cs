@@ -409,6 +409,7 @@ internal static class TextureTests
     private static void UnsupportedMembers()
     {
         var texture = new Texture2D(2, 2);
+        RenderTexture.active = null;
         NotSupported(() => texture.Compress(true), "Compress", "Texture2D.Compress");
         NotSupported(() => texture.ReadPixels(new Rect(0, 0, 2, 2), 0, 0), "ReadPixels", "Texture2D.ReadPixels");
         NotSupported(() => texture.ReadPixels(new Rect(0, 0, 2, 2), 0, 0, true), "ReadPixels with mips", "Texture2D.ReadPixels");

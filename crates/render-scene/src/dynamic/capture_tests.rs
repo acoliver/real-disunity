@@ -30,21 +30,21 @@ use crate::upload::{
 };
 use crate::{CameraPose, OrthographicLens, SceneView, Viewport};
 
-const SIZE: u32 = 32;
-const SRGB: TextureFormat = TextureFormat::Rgba8UnormSrgb;
-const HDR: TextureFormat = TextureFormat::Rgba16Float;
-const VELOCITY: TextureFormat = worldrunner_render_post::VELOCITY_FORMAT;
+pub(crate) const SIZE: u32 = 32;
+pub(crate) const SRGB: TextureFormat = TextureFormat::Rgba8UnormSrgb;
+pub(crate) const HDR: TextureFormat = TextureFormat::Rgba16Float;
+pub(crate) const VELOCITY: TextureFormat = worldrunner_render_post::VELOCITY_FORMAT;
 
 /// Which screen-space bind group the pipelines expect at group three.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Screen {
+pub(crate) enum Screen {
     None,
     Ambient,
     Reflection,
 }
 
 #[derive(Clone, Copy)]
-enum Kind {
+pub(crate) enum Kind {
     Plain(TextureFormat),
     Velocity,
     Ssao,
@@ -52,13 +52,13 @@ enum Kind {
     Reflection { velocity: bool },
 }
 
-struct Config {
-    name: &'static str,
-    kind: Kind,
-    samples: u32,
+pub(crate) struct Config {
+    pub(crate) name: &'static str,
+    pub(crate) kind: Kind,
+    pub(crate) samples: u32,
 }
 
-const CONFIGS: [Config; 12] = [
+pub(crate) const CONFIGS: [Config; 12] = [
     Config {
         name: "srgb-1x",
         kind: Kind::Plain(SRGB),
@@ -123,13 +123,13 @@ const CONFIGS: [Config; 12] = [
 
 /// Pipelines for a configuration, the colour attachments of its pass and the group-three
 /// resources the pipelines' layout requires.
-struct Built {
-    pipelines: ScenePipelines,
-    formats: Vec<TextureFormat>,
-    screen: Option<BindGroup>,
+pub(crate) struct Built {
+    pub(crate) pipelines: ScenePipelines,
+    pub(crate) formats: Vec<TextureFormat>,
+    pub(crate) screen: Option<BindGroup>,
 }
 
-fn build(device: &Device, config: &Config) -> Built {
+pub(crate) fn build(device: &Device, config: &Config) -> Built {
     let samples = config.samples;
     let (pipelines, formats, screen, layout) = match config.kind {
         Kind::Plain(format) => (
@@ -190,7 +190,7 @@ fn build(device: &Device, config: &Config) -> Built {
     }
 }
 
-fn one_texel(device: &Device) -> TextureView {
+pub(crate) fn one_texel(device: &Device) -> TextureView {
     device
         .create_texture(&wgpu::TextureDescriptor {
             label: Some("capture screen texel"),
@@ -209,7 +209,7 @@ fn one_texel(device: &Device) -> TextureView {
         .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-fn ambient_group(device: &Device) -> BindGroup {
+pub(crate) fn ambient_group(device: &Device) -> BindGroup {
     let layout = crate::ssao::ambient_layout(device);
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("capture ambient"),
@@ -221,7 +221,7 @@ fn ambient_group(device: &Device) -> BindGroup {
     })
 }
 
-fn reflection_group(device: &Device, layout: &wgpu::BindGroupLayout) -> BindGroup {
+pub(crate) fn reflection_group(device: &Device, layout: &wgpu::BindGroupLayout) -> BindGroup {
     let [cube, plane] = crate::water::receivers::empty_environment(device);
     let ambient = one_texel(device);
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
@@ -379,7 +379,7 @@ fn quads() -> Vec<DynamicQuad> {
 
 /// The values an attachment holds before anything is drawn: opaque for the colour the material
 /// writes, and distinct nonzero values for the targets it must leave alone.
-fn fill(index: usize, format: TextureFormat) -> wgpu::Color {
+pub(crate) fn fill(index: usize, format: TextureFormat) -> wgpu::Color {
     match (index, format) {
         (0, _) => wgpu::Color {
             r: 0.2,
@@ -402,15 +402,15 @@ fn fill(index: usize, format: TextureFormat) -> wgpu::Color {
     }
 }
 
-struct Attachments {
-    drawn: Vec<Texture>,
-    views: Vec<TextureView>,
-    resolved: Vec<Texture>,
-    depth: TextureView,
+pub(crate) struct Attachments {
+    pub(crate) drawn: Vec<Texture>,
+    pub(crate) views: Vec<TextureView>,
+    pub(crate) resolved: Vec<Texture>,
+    pub(crate) depth: TextureView,
 }
 
 impl Attachments {
-    fn new(device: &Device, formats: &[TextureFormat], samples: u32) -> Self {
+    pub(crate) fn new(device: &Device, formats: &[TextureFormat], samples: u32) -> Self {
         let make = |format, samples, usage| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("capture attachment"),
@@ -469,7 +469,7 @@ impl Attachments {
     }
 
     /// The textures holding the single-sample result of each attachment.
-    fn results(&self) -> &[Texture] {
+    pub(crate) fn results(&self) -> &[Texture] {
         if self.resolved.is_empty() {
             &self.drawn
         } else {
@@ -549,7 +549,7 @@ fn render_cleared(
 }
 
 /// Copies each single-sample attachment into a mappable buffer with its rows padded.
-fn copy_results(
+pub(crate) fn copy_results(
     device: &Device,
     encoder: &mut wgpu::CommandEncoder,
     results: &[Texture],
@@ -583,7 +583,7 @@ fn copy_results(
 }
 
 /// Waits for the submission and returns each attachment's bytes without the row padding.
-fn read_results(
+pub(crate) fn read_results(
     device: &Device,
     index: wgpu::SubmissionIndex,
     staging: Vec<(Buffer, usize, usize)>,
@@ -613,7 +613,7 @@ fn read_results(
 }
 
 /// FNV-1a over the bytes: stable across runs, toolchains and hosts, unlike the std hasher.
-fn digest(bytes: &[u8]) -> u64 {
+pub(crate) fn digest(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
     })
@@ -705,11 +705,11 @@ fn capture_expecting(
     scene
 }
 
-fn context() -> GpuContext {
+pub(crate) fn context() -> GpuContext {
     GpuContext::shared_for_test_with_features(wgpu::Features::empty()).expect("actual GPU required")
 }
 
-fn supported(context: &GpuContext, config: &Config) -> bool {
+pub(crate) fn supported(context: &GpuContext, config: &Config) -> bool {
     let formats: &[TextureFormat] = match config.kind {
         Kind::Plain(format) => &[format],
         _ => &[HDR, VELOCITY],

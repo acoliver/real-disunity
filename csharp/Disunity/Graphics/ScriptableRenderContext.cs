@@ -85,7 +85,20 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     public void DrawGizmos(Camera camera, GizmoSubset gizmoSubset) => throw Unsupported("DrawGizmos");
     public void DrawUIOverlay(Camera camera) => throw Unsupported("DrawUIOverlay");
     public void DrawWireOverlay(Camera camera) => throw Unsupported("DrawWireOverlay");
-    public void InvokeOnRenderObjectCallback() => throw Unsupported("InvokeOnRenderObjectCallback");
+
+    /// <summary>Whether an active, enabled script defines <c>OnRenderObject</c>, so the pipeline has callbacks to run.</summary>
+    public bool HasInvokeOnRenderObjectCallbacks() => RenderObjectScripts().Any();
+
+    /// <summary>Calls <c>OnRenderObject</c> on each active, enabled script that defines it, at once and in no set order (the
+    /// engine's choice: nothing draws in between). An exception a script throws is logged against it.</summary>
+    public void InvokeOnRenderObjectCallback()
+    {
+        foreach (var script in RenderObjectScripts().ToList()) Disunity.Hosting.ScriptMessages.Invoke(script, "OnRenderObject");
+    }
+
+    private static IEnumerable<MonoBehaviour> RenderObjectScripts() =>
+        Object.FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None)
+            .Where(script => script.isActiveAndEnabled && Disunity.Hosting.ScriptMessages.Defines(script.GetType(), "OnRenderObject"));
 
     public void DrawRenderers(CullingResults cullingResults, ref DrawingSettings drawingSettings, ref FilteringSettings filteringSettings) =>
         throw Unsupported("DrawRenderers");

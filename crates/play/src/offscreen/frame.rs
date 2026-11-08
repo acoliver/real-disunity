@@ -211,6 +211,9 @@ pub struct Report {
     pub holdings: Vec<String>,
     /// What was given back to make room for this work.
     pub reclaimed: Reclaimed,
+    /// Counts that describe what was mapped and are not failures, by description: the formats of
+    /// the textures stored, the constants the adapter filled, and so on.
+    pub census: BTreeMap<String, usize>,
 }
 
 impl Report {
@@ -313,6 +316,9 @@ impl Report {
         }
         for (name, count) in other.unresolved_textures {
             *self.unresolved_textures.entry(name).or_default() += count;
+        }
+        for (name, count) in other.census {
+            *self.census.entry(name).or_default() += count;
         }
         if self.holdings.is_empty() {
             self.holdings = other.holdings;

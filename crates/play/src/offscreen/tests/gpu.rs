@@ -174,8 +174,12 @@ pub(super) fn gpu_with_budget(budget: u64) -> Gpu {
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .expect("the offscreen tests need a GPU adapter");
-    let (device, queue, _) =
-        pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
+    // Block compression where offered, as the player asks for it.
+    let requirements = DeviceRequirements {
+        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+        ..DeviceRequirements::default()
+    };
+    let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements)).unwrap();
     let authority = SubmissionAuthority::new(queue);
     let budget = AllocationBudget(budget);
     let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
@@ -200,17 +204,17 @@ pub(super) fn gpu_with_budget(budget: u64) -> Gpu {
     }
 }
 
-struct Rig {
-    device: wgpu::Device,
+pub(super) struct Rig {
+    pub(super) device: wgpu::Device,
     authority: SubmissionAuthority,
-    runtime: ProgramRuntime,
-    arena: ProgramArena,
-    state: OffscreenState,
-    adapter: OffscreenAdapter,
+    pub(super) runtime: ProgramRuntime,
+    pub(super) arena: ProgramArena,
+    pub(super) state: OffscreenState,
+    pub(super) adapter: OffscreenAdapter,
 }
 
 impl Rig {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let Gpu {
             device,
             authority,
@@ -261,7 +265,7 @@ impl Rig {
     }
 
     /// Runs the operations as the one submission of a frame.
-    fn run(&self, operations: OffscreenOperations) {
+    pub(super) fn run(&self, operations: OffscreenOperations) {
         let mut encoder = self.authority.begin(&self.device).unwrap();
         let admitted = operations.admit(&encoder).unwrap();
         admitted.encode(None, &mut encoder).unwrap();

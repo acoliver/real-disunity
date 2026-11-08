@@ -1,6 +1,7 @@
 //! Tests of the offscreen adapter. Worlds, files, meshes and textures are synthetic.
 
 mod assets;
+mod block_sources;
 mod builtins;
 mod camera;
 mod causes;

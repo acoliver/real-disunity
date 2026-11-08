@@ -127,6 +127,8 @@ pub struct GpuWorkReport {
     pub defaulted_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// What the adapter mapped, by description (see `Report::census`).
+    pub census: BTreeMap<String, usize>,
     /// The script commands left out, and the textures the globals held, by description.
     pub unsupported_work: BTreeMap<String, usize>,
     pub global_textures: BTreeMap<String, usize>,
@@ -210,6 +212,9 @@ impl GpuWorkReport {
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
         }
+        for (name, count) in &report.census {
+            *self.census.entry(name.clone()).or_default() += count;
+        }
         for entry in &report.unmatched_passes {
             let name = format!(
                 "{} selected {:?}, the shader's {} passes have {:?}",
@@ -259,6 +264,7 @@ impl GpuWorkReport {
             ("draw:DefaultedChannel", &self.defaulted_channels),
             ("script commands left out", &self.unsupported_work),
             ("global textures at a flush", &self.global_textures),
+            ("census", &self.census),
             (
                 "texture properties without a texture",
                 &self.unresolved_textures,

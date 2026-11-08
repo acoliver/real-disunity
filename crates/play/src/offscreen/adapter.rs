@@ -43,6 +43,8 @@ pub struct OffscreenAdapter {
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
     blit_mesh: bool,
+    /// Whether a block-compressed texture goes up as its blocks when the device samples them.
+    block_sources: bool,
     /// Counts the snapshots adapted, so a stored mesh or texture knows how long ago it was named.
     epoch: u64,
 }
@@ -76,8 +78,17 @@ impl OffscreenAdapter {
             textures: BTreeMap::new(),
             defaults: BTreeSet::new(),
             blit_mesh: false,
+            block_sources: true,
             epoch: 0,
         }
+    }
+
+    /// Chooses whether block-compressed textures go up as blocks (the default, on a device that
+    /// samples them) or decoded to RGBA8.
+    #[must_use]
+    pub fn with_block_sources(mut self, blocks: bool) -> Self {
+        self.block_sources = blocks;
+        self
     }
 
     /// Registers what the snapshot needs with `state`, then maps it. What cannot be loaded or
@@ -272,13 +283,30 @@ impl OffscreenAdapter {
                 }
             };
             let sampled = stored_sampler.as_ref().map(sampler_of_stored);
-            let uploaded = match texture_of(id, &stored, sampled) {
-                Ok(texture) => self
-                    .with_room(state, runtime, notes, |state, runtime| {
-                        state.set_texture(runtime, &texture)
-                    })
-                    .map_err(|error| notes.fail("texture", &error))
-                    .is_ok(),
+            let blocks = self.block_sources
+                && runtime
+                    .device()
+                    .features()
+                    .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
+            let uploaded = match texture_of(id, &stored, sampled, blocks) {
+                Ok(texture) => {
+                    let census = format!(
+                        "stored texture {} ({}) uploaded as GraphicsFormat {}",
+                        crate::textures::format_name(stored.format),
+                        if stored.linear { "linear" } else { "sRGB" },
+                        texture.graphics_format
+                    );
+                    let uploaded = self
+                        .with_room(state, runtime, notes, |state, runtime| {
+                            state.set_texture(runtime, &texture)
+                        })
+                        .map_err(|error| notes.fail("texture", &error))
+                        .is_ok();
+                    if uploaded {
+                        *notes.census.entry(census).or_default() += 1;
+                    }
+                    uploaded
+                }
                 Err(error) => {
                     notes.fail("texture", &error);
                     notes.count(&format!(

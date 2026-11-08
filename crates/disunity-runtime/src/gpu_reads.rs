@@ -242,4 +242,16 @@ impl GpuFlush<'_> {
             unsafe { (self.calls.buffer_write)(self.world, id, offset, bytes.as_ptr(), count) };
         self.check(result)
     }
+
+    /// Answers a `ReadPixels` work item: `rgba` holds the texels of its rectangle, four floats
+    /// each (red, green, blue, alpha), bottom row first, as the render texture stores them, so
+    /// an sRGB texture is not decoded. The managed `Texture2D.ReadPixels` takes them once the
+    /// flush returns. The count must be `width * height * 4`.
+    pub fn write_texture_pixels(&mut self, request: u64, rgba: &[f32]) -> Result<(), HostError> {
+        let count = u32::try_from(rgba.len())
+            .map_err(|_| HostError::Managed("a pixel read is at most 2^32 floats".into()))?;
+        let result =
+            unsafe { (self.calls.pixels_write)(self.world, request, rgba.as_ptr(), count) };
+        self.check(result)
+    }
 }

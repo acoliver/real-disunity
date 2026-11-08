@@ -20,6 +20,23 @@ pub struct Reflected {
 }
 
 impl Reflected {
+    /// The access, format and view dimension of the resource, if it is a storage image.
+    #[must_use]
+    pub fn storage_image(&self) -> Option<StorageImageUse> {
+        match self.ty {
+            wgpu::BindingType::StorageTexture {
+                access,
+                format,
+                view_dimension,
+            } => Some(StorageImageUse {
+                access,
+                format,
+                dimension: view_dimension,
+            }),
+            _ => None,
+        }
+    }
+
     /// The view dimension and multisampling of the resource, if it is a texture.
     #[must_use]
     pub fn texture(&self) -> Option<(wgpu::TextureViewDimension, bool)> {
@@ -31,6 +48,43 @@ impl Reflected {
             } => Some((view_dimension, multisampled)),
             _ => None,
         }
+    }
+}
+
+/// A storage image binding's access, format and view dimension.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StorageImageUse {
+    pub access: wgpu::StorageTextureAccess,
+    pub format: wgpu::TextureFormat,
+    pub dimension: wgpu::TextureViewDimension,
+}
+
+impl StorageImageUse {
+    /// The use in words, as `access format dimension`.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        format!("{:?} {:?} {:?}", self.access, self.format, self.dimension)
+    }
+
+    /// Whether a device made with no optional features cannot bind this: the format is not a
+    /// storage format at all, or has not the access among the ones every WebGPU device offers.
+    /// A device with adapter-specific format features or the format's own feature may bind it.
+    #[must_use]
+    pub fn needs_device_features(&self) -> bool {
+        use wgpu::TextureFormatFeatureFlags as Flag;
+        let features = self
+            .format
+            .guaranteed_format_features(wgpu::Features::empty());
+        let flag = match self.access {
+            wgpu::StorageTextureAccess::WriteOnly => Flag::STORAGE_WRITE_ONLY,
+            wgpu::StorageTextureAccess::ReadOnly => Flag::STORAGE_READ_ONLY,
+            wgpu::StorageTextureAccess::ReadWrite => Flag::STORAGE_READ_WRITE,
+            wgpu::StorageTextureAccess::Atomic => Flag::STORAGE_ATOMIC,
+        };
+        !features.flags.contains(flag)
+            || !features
+                .allowed_usages
+                .contains(wgpu::TextureUsages::STORAGE_BINDING)
     }
 }
 

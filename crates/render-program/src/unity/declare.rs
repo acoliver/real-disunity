@@ -24,6 +24,8 @@ pub(crate) enum Class {
     UnorderedAccess,
     /// A storage buffer whose access the module decides.
     StorageBuffer,
+    /// A storage image, whose access, format and dimension the module decides.
+    StorageImage,
 }
 
 /// A declared resource at its prepared set and binding.
@@ -172,6 +174,7 @@ impl Class {
             Self::StructuredBuffer => "a structured buffer",
             Self::UnorderedAccess => "a UAV",
             Self::StorageBuffer => "a buffer block",
+            Self::StorageImage => "a storage image",
         }
     }
 
@@ -186,6 +189,7 @@ impl Class {
                 },
             )
             | (Self::Sampler, BindingType::Sampler(_))
+            | (Self::StorageImage, BindingType::StorageTexture { .. })
             | (
                 Self::UnorderedAccess | Self::StorageBuffer,
                 BindingType::Buffer {
@@ -237,6 +241,11 @@ impl Class {
             Self::UnorderedAccess | Self::StorageBuffer => ResourceKind::Storage {
                 access: StorageAccess::ReadWrite,
                 min_size: 0,
+            },
+            Self::StorageImage => ResourceKind::StorageImage {
+                access: wgpu::StorageTextureAccess::WriteOnly,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                dimension: wgpu::TextureViewDimension::D2,
             },
         }
     }

@@ -89,11 +89,11 @@ fn with_shadow(mut change: impl FnMut(&mut RendererListDesc)) -> RendererListDes
 }
 
 fn set_tags(tags: Vec<String>) -> RendererListDesc {
-    with_draw(|desc| {
-        if let RendererListDesc::Draw { pass_tags, .. } = desc {
-            *pass_tags = tags.clone();
-        }
-    })
+    let mut desc = draw(1);
+    if let RendererListDesc::Draw { pass_tags, .. } = &mut desc {
+        *pass_tags = tags;
+    }
+    desc
 }
 
 #[test]

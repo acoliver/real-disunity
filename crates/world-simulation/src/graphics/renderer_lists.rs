@@ -8,7 +8,7 @@ use super::properties::check_name;
 use super::{GraphicsError, MAX_CULL_PLANES, MaterialId, OffscreenWork};
 use crate::{World, WorldError};
 
-/// Most pass tags (LightMode names) one drawing list holds.
+/// Most pass tags (`LightMode` names) one drawing list holds.
 pub const MAX_LIST_PASS_TAGS: usize = 16;
 
 /// The first id the world issues for a list. Culling ids come from the script's own counter and
@@ -19,7 +19,7 @@ const FIRST_LIST_ID: u64 = 1 << 63;
 #[derive(Clone, Debug, PartialEq)]
 pub enum RendererListDesc {
     /// The renderers a culling result kept whose material has a pass with one of `pass_tags`
-    /// (LightMode values, 1 to 16 names), filtered and sorted as given.
+    /// (`LightMode` values, 1 to 16 names), filtered and sorted as given.
     Draw {
         /// Id of a culling record of this frame.
         cull: u64,

@@ -14,7 +14,7 @@ pub const KIND_CREATE_RENDERER_LIST: u32 = 13;
 pub const KIND_DRAW_RENDERER_LIST: u32 = 14;
 
 /// The fields of a list that draws a culling result's renderers. `tags_len` is the byte length of
-/// the pass tag names (LightMode values) that the call's `tags` pointer holds, UTF-8 names joined
+/// the pass tag names (`LightMode` values) that the call's `tags` pointer holds, UTF-8 names joined
 /// by zero bytes. `override_material` is 0 for none. The queue range is inclusive.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

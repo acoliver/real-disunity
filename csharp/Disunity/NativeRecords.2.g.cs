@@ -474,7 +474,7 @@ namespace Disunity.Native
 
     /// <summary>
     ///  The fields of a list that draws a culling result's renderers. `tags_len` is the byte length of
-    ///  the pass tag names (LightMode values) that the call's `tags` pointer holds, UTF-8 names joined
+    ///  the pass tag names (`LightMode` values) that the call's `tags` pointer holds, UTF-8 names joined
     ///  by zero bytes. `override_material` is 0 for none. The queue range is inclusive.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]

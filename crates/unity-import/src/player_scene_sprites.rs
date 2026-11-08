@@ -1,8 +1,8 @@
 //! Sprites a scene's script fields reference, as scene plan assets.
 //!
-//! A scene plan holds no textures except the ones its sprites draw. A referenced sprite plans
-//! after its texture, which is shared by the sprites that draw it, and the textures name their
-//! pixels in place (see [`crate::player_sprites::plan_scene_texture`]). A scene plan has no
+//! A scene plan holds only the textures its sprites draw and its script assets and materials
+//! reference. A referenced sprite plans after its texture, which is shared by the sprites that
+//! draw it, and the textures name their pixels in place (see [`crate::player_sprites::plan_scene_texture`]). A scene plan has no
 //! directory of its own, so a sprite the scene shares with the resources is planned again for
 //! each scene.
 

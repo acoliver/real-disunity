@@ -21,8 +21,12 @@ fn page_bilinear(uv: vec2<f32>, layer: i32, mip: u32) -> vec4<f32> {
 
 fn page_filtered(uv: vec2<f32>, layer: i32, lod: f32) -> vec4<f32> {
     let low = u32(floor(lod));
+    let lower = page_bilinear(uv, layer, low);
+    let weight = fract(lod);
+    // mix(lower, finite, 0.0) is exactly lower, so whole-level footprints skip the second level.
+    if weight == 0.0 { return lower; }
     let high = min(low + 1u, page_table.shape.w);
-    return mix(page_bilinear(uv, layer, low), page_bilinear(uv, layer, high), fract(lod));
+    return mix(lower, page_bilinear(uv, layer, high), weight);
 }
 
 struct PageLookup {

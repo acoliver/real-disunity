@@ -169,6 +169,14 @@ fn sample_cases(
             format!("{prefix}_grid(map, cmp, vec2(0.5){layer}, 0.25, vec2(17.0, 0.0), 1, false)"),
             (1.0 + equal) / 3.0,
         ),
+    ].into_iter().chain(projected_gradient_cases()).collect()
+}
+
+fn projected_gradient_cases() -> Vec<(String, f32)> {
+    vec![
+        ("rd_shadow_projected_gradient(vec4(0.2,0.3,0.4,1.0), vec4(0.02,0.0,0.006,0.0), vec4(0.0,0.04,0.008,0.0)).x".into(), 0.6),
+        ("-rd_shadow_projected_gradient(vec4(0.4,0.6,0.8,2.0), vec4(0.14,0.15,0.212,0.5), vec4(0.05,0.155,0.116,0.25)).y".into(), 0.4),
+        ("length(rd_shadow_projected_gradient(vec4(0.2,0.3,0.4,1.0), vec4(0.0), vec4(0.0)))".into(), 0.0),
     ]
 }
 

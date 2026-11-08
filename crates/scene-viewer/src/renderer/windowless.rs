@@ -21,6 +21,7 @@ impl Renderer {
             options.frame_profile,
             scene.effects(),
             &crate::presentation::PresentationPolicy {
+                receiver_gradients: crate::presentation::receiver_reservation(options.shadows),
                 budget: options.presentation_budget,
                 capture_pool: crate::CapturePoolPolicy::Fixed(host.capture_pool_bytes()),
                 recipes: true,

@@ -720,6 +720,22 @@ fn scene_layout(
 }
 
 fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
+    let mut targets = base_source_targets(source, format);
+    targets.extend(
+        crate::scene_metadata::receiver::source_formats(source)
+            .into_iter()
+            .map(|format| {
+                Some(ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })
+            }),
+    );
+    targets
+}
+
+fn base_source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
     if source.contains(crate::velocity::MARKER) {
         let reflection = source.contains("struct ReflectionOutput");
         let mut targets = if reflection {

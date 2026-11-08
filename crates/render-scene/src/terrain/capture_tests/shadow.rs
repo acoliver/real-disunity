@@ -101,7 +101,7 @@ struct Shadow {
 /// One cascade whose clip space maps the terrain's heights across the cleared depth. The two
 /// frame slots differ in scale, so a group of another slot draws differently.
 fn uniform(scale: f32) -> Vec<u8> {
-    let mut values = Vec::with_capacity(84);
+    let mut values = Vec::with_capacity(88);
     for cascade in 0..4 {
         let mut matrix = glam::Mat4::IDENTITY;
         if cascade == 0 {
@@ -121,6 +121,7 @@ fn uniform(scale: f32) -> Vec<u8> {
     values.extend([10.0, 20.0, 30.0, 40.0]);
     values.extend([0.0, 0.0, -1.0, 0.0]);
     values.extend([0.001; 4]);
+    values.extend([0.0; 4]);
     values.into_iter().flat_map(f32::to_le_bytes).collect()
 }
 

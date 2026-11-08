@@ -247,6 +247,8 @@ pub(super) fn budgeted_presentation(
         height: 64,
     };
     let policy = |budget: crate::PresentationBudget| crate::presentation::PresentationPolicy {
+        receiver_gradients:
+            worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
         budget: budget.into(),
         capture_pool: crate::CapturePoolPolicy::default(),
         recipes: false,

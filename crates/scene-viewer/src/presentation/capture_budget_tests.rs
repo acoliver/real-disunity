@@ -20,6 +20,8 @@ fn hdr_without_recipes_has_only_ordinary_capture_inventory() {
         },
         None,
         &PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget::default().into(),
             capture_pool: crate::CapturePoolPolicy::default(),
             recipes: false,
@@ -111,6 +113,8 @@ fn native_only_resize_refreshes_inventory_and_rejects_over_budget_before_allocat
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget::default().into(),
             capture_pool: crate::CapturePoolPolicy::default(),
             recipes: false,

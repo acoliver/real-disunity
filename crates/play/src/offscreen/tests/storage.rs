@@ -225,3 +225,44 @@ fn a_storage_image_given_no_texture_is_left_out_by_name() {
 
     assert_eq!(failures(&outcome), [("dispatch:MissingTexture", 1)]);
 }
+
+#[test]
+fn a_kernel_that_binds_more_storage_images_than_the_device_allows_is_left_out_by_name() {
+    // The test device has the default limit of four storage images in a stage.
+    let images = 5;
+    let declarations: String = (0..images)
+        .map(|i| {
+            format!("@group(0) @binding({i}) var image{i}: texture_storage_2d<r32float, write>;\n")
+        })
+        .collect();
+    let stores: String = (0..images)
+        .map(|i| format!("textureStore(image{i}, vec2<i32>(id.xy), vec4<f32>(1.0));\n"))
+        .collect();
+    let wgsl = format!(
+        "{declarations}
+         @compute @workgroup_size(2, 2, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
+             {stores}
+         }}"
+    );
+    let mut variant = Variant::new(&code(&wgsl), [2, 2, 1]);
+    variant.writable = (0..images)
+        .map(|i| Binding::image(&format!("_Image{i}"), i, 2))
+        .collect();
+    let directory = tempfile::tempdir().unwrap();
+    write_compute(
+        directory.path(),
+        "paint",
+        vec![(
+            1,
+            shader_bytes("Paint", vec![Kernel::single("Paint", variant)]),
+        )],
+    );
+    let mut host = host(directory.path());
+    let mut world = world();
+    let painted = target(&mut world, RGBA8);
+    paint(&mut world, painted);
+
+    let outcome = flush(&mut host, &mut world);
+
+    assert_eq!(failures(&outcome), [("dispatch:StorageLimit", 1)]);
+}

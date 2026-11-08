@@ -6,6 +6,7 @@ mod bounds;
 mod builtins;
 mod camera;
 mod causes;
+mod compute_census;
 mod defaults;
 mod fallback;
 mod flush;

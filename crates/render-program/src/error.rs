@@ -106,6 +106,14 @@ pub enum ProgramError {
         binding: u32,
         error: StorageImageError,
     },
+    #[error(
+        "the program binds {count} storage images in its {stage:?} stage and the device allows {limit}"
+    )]
+    StorageImageLimit {
+        stage: crate::module::StageKind,
+        count: u32,
+        limit: u32,
+    },
     #[error("the device cannot bind {format:?} as a storage image with {access:?} access")]
     UnsupportedStorageFormat {
         format: wgpu::TextureFormat,

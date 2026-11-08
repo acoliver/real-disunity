@@ -80,7 +80,7 @@ pub use builtins::{
     draw_layer,
 };
 pub use camera::{clip_from_gl, projection, world_to_camera};
-pub use census::{ShaderCensus, shader_census};
+pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};
 pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,

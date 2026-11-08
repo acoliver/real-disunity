@@ -477,6 +477,17 @@ fn images(
     Ok(bound)
 }
 
+/// The name of the cause a kernel's program cannot be built for: a storage image the device
+/// cannot hold, or `ProgramLayout`.
+pub(super) fn program_cause(error: &ProgramError) -> &'static str {
+    match error {
+        ProgramError::StorageImage { .. } | ProgramError::StorageImageLimit { .. } => {
+            storage_cause(error)
+        }
+        _ => "ProgramLayout",
+    }
+}
+
 /// The name of the cause a texture is refused as a storage image for.
 fn storage_cause(error: &ProgramError) -> &'static str {
     match error {
@@ -487,6 +498,7 @@ fn storage_cause(error: &ProgramError) -> &'static str {
             StorageImageError::Multisampled { .. } => "StorageSamples",
             StorageImageError::Unsupported { .. } => "StorageUnsupported",
         },
+        ProgramError::StorageImageLimit { .. } => "StorageLimit",
         ProgramError::AliasedTexture { .. } => "StorageAliased",
         _ => "StorageImage",
     }
@@ -565,10 +577,7 @@ impl ComputeAdapter {
             .neutral()
             .map_err(ProgramError::from)
             .and_then(|neutral| runtime.compute_program(&neutral))
-            .map_err(|error| match error {
-                ProgramError::StorageImage { .. } => storage_cause(&error).to_owned(),
-                _ => "ProgramLayout".to_owned(),
-            })?;
+            .map_err(|error| program_cause(&error).to_owned())?;
         let layout = |_| "TargetLayout".to_owned();
         Ok(Rc::new(Kernel {
             program,

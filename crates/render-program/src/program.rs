@@ -224,6 +224,7 @@ impl ProgramRuntime {
                 limit,
             });
         }
+        self.check_storage_image_count(&layout)?;
         let mut groups = Vec::new();
         let mut set_keys = Vec::new();
         for set in 0..sets {
@@ -254,6 +255,35 @@ impl ProgramRuntime {
             external_sets: external.iter().map(|lent| lent.set).collect(),
             external,
         })
+    }
+
+    /// The device allows only so many storage images in a stage; a program that binds more is
+    /// refused here by name, where wgpu would reject its layout with a message.
+    fn check_storage_image_count(&self, layout: &ProgramLayout) -> Result<(), ProgramError> {
+        let limit = self.device.limits().max_storage_textures_per_shader_stage;
+        for (stage, visibility) in [
+            (StageKind::Vertex, wgpu::ShaderStages::VERTEX),
+            (StageKind::Fragment, wgpu::ShaderStages::FRAGMENT),
+            (StageKind::Compute, wgpu::ShaderStages::COMPUTE),
+        ] {
+            let count = layout
+                .slots()
+                .iter()
+                .filter(|slot| {
+                    matches!(slot.ty, wgpu::BindingType::StorageTexture { .. })
+                        && slot.visibility.contains(visibility)
+                })
+                .count();
+            let count = u32::try_from(count).unwrap_or(u32::MAX);
+            if count > limit {
+                return Err(ProgramError::StorageImageLimit {
+                    stage,
+                    count,
+                    limit,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// The layout of `set`, and the key that names it. Programs whose slots at a set are equal

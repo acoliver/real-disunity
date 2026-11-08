@@ -888,3 +888,45 @@ fn a_dispatch_can_be_checked_without_recording_it() {
         )
     );
 }
+
+#[test]
+fn more_storage_images_than_the_device_allows_in_a_stage_are_refused_by_name() {
+    let gpu = Gpu::new();
+    let runtime = gpu.runtime();
+    let limit = gpu.device.limits().max_storage_textures_per_shader_stage;
+    let count = limit + 1;
+    let declarations_text: String = (0..count)
+        .map(|index| {
+            format!("@group(0) @binding({index}) var image{index}: texture_storage_2d<r32float, write>;\n")
+        })
+        .collect();
+    let stores: String = (0..count)
+        .map(|index| format!("textureStore(image{index}, vec2<i32>(0, 0), vec4<f32>(1.0));\n"))
+        .collect();
+    let source =
+        format!("{declarations_text} @compute @workgroup_size(1) fn main() {{ {stores} }}");
+    let kinds: Vec<_> = (0..count)
+        .map(|_| {
+            (
+                image(
+                    StorageTextureAccess::WriteOnly,
+                    TextureFormat::R32Float,
+                    TextureViewDimension::D2,
+                ),
+                ShaderStages::COMPUTE,
+            )
+        })
+        .collect();
+    let error = runtime
+        .compute_program(&kernel(&source, declared_all(&kinds)))
+        .err()
+        .unwrap();
+    assert_eq!(
+        error,
+        ProgramError::StorageImageLimit {
+            stage: StageKind::Compute,
+            count,
+            limit,
+        }
+    );
+}

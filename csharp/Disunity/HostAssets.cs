@@ -56,7 +56,16 @@ public static partial class DisunityHost
 
     /// <summary>Stops <see cref="UnityEngine.Resources"/> loading from a player's resources.</summary>
     public static void UnloadResources() => Resources = null;
-    internal static unsafe ScriptableObject RegisterAsset(ScriptableObject asset)
+    internal static ScriptableObject RegisterAsset(ScriptableObject asset)
+    {
+        CreateAsset(asset);
+        ActivateAsset(asset);
+        return asset;
+    }
+
+    /// <summary>Makes the asset exist in the world, so it no longer compares equal to null, without running its
+    /// <c>Awake</c> or <c>OnEnable</c>. Assets loaded together are all created before the first one activates.</summary>
+    internal static unsafe void CreateAsset(ScriptableObject asset)
     {
         EnsureWorld();
         var identity = checked(_nextScript++);
@@ -64,10 +73,14 @@ public static partial class DisunityHost
         asset.Identity = identity;
         asset.World = WorldHandle;
         Assets.Add(identity, asset);
+    }
+
+    /// <summary>Runs the <c>Awake</c> and <c>OnEnable</c> of an asset <see cref="CreateAsset"/> made.</summary>
+    internal static unsafe void ActivateAsset(ScriptableObject asset)
+    {
         DisunityAdvance work;
-        ThrowIfError(NativeBindings.disunity_asset_activate(WorldHandle, identity, &work));
+        ThrowIfError(NativeBindings.disunity_asset_activate(WorldHandle, asset.Identity, &work));
         Drain(work);
-        return asset;
     }
     internal static void DestroyAsset(ScriptableObject asset) =>
         ThrowIfError(NativeBindings.disunity_asset_destroy(WorldHandle, asset.Identity));

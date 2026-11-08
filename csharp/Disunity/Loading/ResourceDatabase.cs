@@ -163,11 +163,13 @@ internal sealed partial class ResourceDatabase
         }
     }
 
-    /// <summary>Registers the script assets this load created, which runs their <c>Awake</c>
-    /// and <c>OnEnable</c>, once all of them are bound.</summary>
+    /// <summary>Registers the script assets this load created, once all of them are bound, and then runs their
+    /// <c>Awake</c> and <c>OnEnable</c>. Every asset exists before the first one activates, as Unity loads the assets of one
+    /// file together, so an asset that lists the others and tidies its list of the ones that are null keeps them all.</summary>
     private void Activate()
     {
-        for (var i = 0; i < _binding.Count; i++) DisunityHost.RegisterAsset(_binding[i].Asset);
+        foreach (var (_, asset) in _binding) DisunityHost.CreateAsset(asset);
+        for (var i = 0; i < _binding.Count; i++) DisunityHost.ActivateAsset(_binding[i].Asset);
         _binding.Clear();
     }
 

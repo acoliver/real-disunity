@@ -266,10 +266,10 @@ impl Sky {
         frame: &crate::frame::FrameUniform,
     ) -> Result<(), preparation::PreparationError> {
         if let Some(lookup) = &self.lookup {
-            crate::compositor::publication::encode(encoder, &self.identity, || {})?;
-            lookup.encode(
+            lookup.prepare(
                 device,
                 encoder,
+                &self.identity,
                 (frame.sun_direction, frame.camera_position.z.max(0.1)),
                 worldrunner_render_gpu::configuration::AllocationBudget(16 * 1024 * 1024),
             )?;

@@ -9,10 +9,15 @@ use worldrunner_render_gpu::{
 use worldrunner_render_lighting::atmosphere::scattering::ElevationColumnScattering;
 use worldrunner_render_plan::{SceneScattering, SceneScatteringFormat, SceneScatteringModel};
 
+/// Sun elevation and observer altitude bits; the settings are fixed per lookup.
+pub(super) type LookupInputs = [u32; 2];
+
 #[derive(Debug)]
 pub(super) struct Lookup {
     pub view: wgpu::TextureView,
     settings: SceneScattering,
+    /// Inputs of the last upload whose transaction was submitted.
+    written: std::rc::Rc<std::cell::Cell<Option<LookupInputs>>>,
 }
 impl Lookup {
     pub fn new(device: &wgpu::Device, settings: SceneScattering) -> Self {
@@ -38,15 +43,37 @@ impl Lookup {
                 ..Default::default()
             }),
             settings,
+            written: std::rc::Rc::default(),
         }
     }
+    /// Encodes the columns when their inputs changed and stages the sky publication,
+    /// which records the upload only when the frame is submitted.
+    pub fn prepare(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        identity: &std::rc::Rc<()>,
+        observer: (Vec3, f32),
+        budget: AllocationBudget,
+    ) -> Result<(), PreparationError> {
+        let uploaded = self.encode(device, encoder, observer, budget)?;
+        let written = self.written.clone();
+        crate::compositor::publication::encode(encoder, identity, move || {
+            if uploaded.is_some() {
+                written.set(uploaded);
+            }
+        })?;
+        Ok(())
+    }
+    /// Uploads the columns unless the last submitted upload had the same inputs.
+    /// Returns the inputs of a new upload, which the caller commits on submission.
     pub fn encode(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         observer: (Vec3, f32),
         budget: AllocationBudget,
-    ) -> Result<(), PreparationError> {
+    ) -> Result<Option<LookupInputs>, PreparationError> {
         let _transaction = Publications::for_encoder(encoder)?;
         let required = allocations(self.settings)
             .validate(&device.limits())
@@ -65,7 +92,12 @@ impl Lookup {
         {
             return Err(PreparationError::Settings);
         }
-        let bytes = pixels(self.settings, sun.z.clamp(-1.0, 1.0).asin(), altitude);
+        let elevation = sun.z.clamp(-1.0, 1.0).asin();
+        let inputs = [elevation.to_bits(), altitude.to_bits()];
+        if self.written.get() == Some(inputs) {
+            return Ok(None);
+        }
+        let bytes = pixels(self.settings, elevation, altitude);
         let staging = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("atmospheric column upload"),
             contents: &bytes,
@@ -83,7 +115,7 @@ impl Lookup {
             self.view.texture().as_image_copy(),
             self.view.texture().size(),
         );
-        Ok(())
+        Ok(Some(inputs))
     }
 }
 pub(super) fn format(format: SceneScatteringFormat) -> wgpu::TextureFormat {

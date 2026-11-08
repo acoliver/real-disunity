@@ -1,8 +1,9 @@
 //! The terrain's draws on the program runtime, prepared once and recorded every frame.
 //!
 //! A frame records one prepared pipeline and, for each chunk, one geometry. Nothing is built in
-//! a steady-state frame: the pipelines, the material sets and the geometry of every resident
-//! chunk are made the first time a draw needs them and kept as long as the terrain.
+//! a steady-state frame: the pipelines and the material sets are made the first time a draw needs
+//! them and kept as long as the terrain, and the geometry of a streamed chunk is made when the
+//! chunk is uploaded and kept as long as the chunk is resident.
 //!
 //! Recording stays `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map), the fixed
 //! path's count: the pipeline and the material group once, then per chunk two vertex buffers,
@@ -59,7 +60,7 @@ pub(crate) struct Request<'a> {
     pub pages: &'a dyn Fn() -> Pages,
 }
 
-/// The pipelines, sets and geometry a terrain has prepared.
+/// The pipelines, sets and mesh geometry a terrain has prepared.
 #[derive(Debug, Default)]
 pub(crate) struct PreparedTerrain {
     /// Sets by the family whose runtime built them, the surface and the page slot: a set binds
@@ -67,6 +68,15 @@ pub(crate) struct PreparedTerrain {
     sets: RefCell<BTreeMap<(u64, Surface, usize), PreparedSet>>,
     pipelines: RefCell<BTreeMap<(u64, Surface, usize), Rc<PreparedPipeline>>>,
     mesh: RefCell<Option<GeometryDraw>>,
+}
+
+/// The geometry of the chunks of a streamed terrain, which holds their vertex and index buffers.
+///
+/// Whoever owns the chunks' residency owns this and keeps it to the chunks that are committed or
+/// being drawn: a hold on a retired chunk's buffers is outside the streaming budget, which counts
+/// that chunk until its frames complete.
+#[derive(Debug, Default)]
+pub(crate) struct ChunkGeometry {
     chunks: RefCell<BTreeMap<TerrainChunk, (Buffer, GeometryDraw)>>,
 }
 
@@ -261,12 +271,14 @@ impl PreparedTerrain {
             .draw(pass, geometry)
             .expect("the mesh was made for the terrain's vertex layout");
     }
+}
 
-    /// Makes the geometry of one chunk of a streamed terrain if it has none for these buffers:
-    /// its record `record` of the shared instance buffer is selected by the instance range, so
-    /// no slice of the buffer is bound. The streaming state calls this for the chunks it uploads,
-    /// in the transaction that uploads them.
-    pub(crate) fn prepare_chunk(
+impl ChunkGeometry {
+    /// Makes the geometry of one chunk if it has none for these buffers: its record `record` of
+    /// the shared instance buffer is selected by the instance range, so no slice of the buffer
+    /// is bound. The streaming state calls this for the chunks it uploads, in the transaction
+    /// that uploads them.
+    pub(crate) fn prepare(
         &self,
         chunk: (TerrainChunk, u32),
         (vertices, indices, index_count): (&Buffer, &Buffer, u32),
@@ -296,9 +308,9 @@ impl PreparedTerrain {
         chunks.insert(chunk, (vertices.clone(), geometry));
     }
 
-    /// Draws one chunk of a streamed terrain through its prepared geometry, which a raw draw
-    /// that no preparation preceded makes first.
-    pub(crate) fn draw_chunk<P: worldrunner_render_program::runtime::PassCommands>(
+    /// Draws one chunk through its prepared geometry, which a raw draw that no preparation
+    /// preceded makes first.
+    pub(crate) fn draw<P: worldrunner_render_program::runtime::PassCommands>(
         &self,
         pass: &mut P,
         pipeline: &PreparedPipeline,
@@ -306,21 +318,27 @@ impl PreparedTerrain {
         lod: (&Buffer, &Buffer, u32),
         instances: &Buffer,
     ) {
-        self.prepare_chunk(chunk, lod, instances);
+        self.prepare(chunk, lod, instances);
         let chunks = self.chunks.borrow();
         pipeline
             .draw(pass, &chunks[&chunk.0].1)
             .expect("the chunk was made for the terrain's vertex layout");
     }
 
-    /// How many chunks have prepared geometry.
-    pub(crate) fn chunk_count(&self) -> usize {
-        self.chunks.borrow().len()
+    /// Forgets the geometry of every chunk whose vertex buffer `keep` refuses.
+    pub(crate) fn retain(&self, keep: impl Fn(&TerrainChunk, &Buffer) -> bool) {
+        self.chunks
+            .borrow_mut()
+            .retain(|chunk, (vertices, _)| keep(chunk, vertices));
     }
 
-    /// Forgets the geometry of chunks that left residency, keeping what a frame in flight may
-    /// still draw.
-    pub(crate) fn retain_chunks(&self, resident: impl Fn(&TerrainChunk) -> bool) {
-        self.chunks.borrow_mut().retain(|chunk, _| resident(chunk));
+    /// The vertex buffers the chunk geometry holds.
+    #[cfg(test)]
+    pub(crate) fn buffers(&self) -> Vec<Buffer> {
+        self.chunks
+            .borrow()
+            .values()
+            .map(|(vertices, _)| vertices.clone())
+            .collect()
     }
 }

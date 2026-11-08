@@ -64,6 +64,7 @@ impl Streaming {
             authority: old.authority.clone(),
             frozen: Rc::default(),
             residency: super::residency::Residency::new(),
+            geometry: Rc::default(),
             replacement: RefCell::new(Some(Replacement {
                 remaining: Rc::new(RefCell::new(remaining)),
                 old: old.committed.clone(),

@@ -18,7 +18,12 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
-use worldrunner_render_program::unity::synthetic::shaders::{blit_passes, camera_passes};
+use worldrunner_render_program::unity::synthetic::shaders::{
+    BLIT, blit_parameters, blit_passes, camera_passes, no_cull, variant,
+};
+use worldrunner_render_program::unity::synthetic::{
+    PassSpec, SyntheticShader, shader as synthetic_shader,
+};
 use worldrunner_unity_serialized::shader::ShaderProperty;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,
@@ -29,7 +34,7 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::{OffscreenAdapter, build};
 use super::super::assets::{AssetError, Assets};
-use super::super::defaults::declared;
+use super::super::defaults::{ShaderFill, declared};
 use super::super::frame::{Adapted, Settings};
 use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
 use super::support::{camera, render_texture, renderer_with, world};
@@ -59,6 +64,7 @@ impl ShaderSupply for Synthetic {
                 synthetic
             }
             "blit" => blit_passes("_MainTex"),
+            "gradient" => gradient_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
             // named after the file.
             "default_white" | "default_black" | "default_bump" => {
@@ -86,8 +92,35 @@ impl ShaderSupply for Synthetic {
             queue: 2000,
             texture_defaults,
             declared_defaults: Vec::new(),
+            fill: ShaderFill::default(),
         })
     }
+}
+
+/// A fragment stage that writes the texture coordinates as red and green over blue and alpha of
+/// one, and one that writes the tint. The blit's texture and tint are read with a weight of zero
+/// so that both passes bind what the blit's other passes do.
+const GRADIENT: &str = "
+@fragment fn fs_gradient(in: VOut) -> @location(0) vec4<f32> {
+    let unused = textureSample(main_tex, main_sampler, in.uv) * material.tint * 0.0;
+    return unused + vec4<f32>(in.uv.x, in.uv.y, 1.0, 1.0);
+}
+@fragment fn fs_flat(in: VOut) -> @location(0) vec4<f32> {
+    let unused = textureSample(main_tex, main_sampler, in.uv) * 0.0;
+    return unused + material.tint;
+}
+";
+
+/// A blit shader of two passes: 0 writes the texture coordinates as red and green, 1 the tint.
+fn gradient_passes() -> SyntheticShader {
+    let wgsl = format!("{BLIT}{GRADIENT}");
+    no_cull(synthetic_shader(
+        &[],
+        &["fs_gradient", "fs_flat"].map(|fragment| PassSpec {
+            tags: Vec::new(),
+            variants: vec![variant(&[], &wgsl, fragment, blit_parameters("_MainTex"))],
+        }),
+    ))
 }
 
 /// One quad of two triangles over clip space at depth 0.5, as the managed engine would store it.
@@ -165,14 +198,23 @@ pub(super) struct Gpu {
 }
 
 pub(super) fn gpu() -> Gpu {
+    gpu_with_budget(64 << 20)
+}
+
+/// A device whose runtime may hold `budget` bytes of storage.
+pub(super) fn gpu_with_budget(budget: u64) -> Gpu {
     let instance = headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .expect("the offscreen tests need a GPU adapter");
-    let (device, queue, _) =
-        pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
+    // Block compression where offered, as the player asks for it.
+    let requirements = DeviceRequirements {
+        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+        ..DeviceRequirements::default()
+    };
+    let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements)).unwrap();
     let authority = SubmissionAuthority::new(queue);
-    let budget = AllocationBudget(64 << 20);
+    let budget = AllocationBudget(budget);
     let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
     let limits = device.limits();
     let mut renderer = Configuration::new(
@@ -195,17 +237,17 @@ pub(super) fn gpu() -> Gpu {
     }
 }
 
-struct Rig {
-    device: wgpu::Device,
+pub(super) struct Rig {
+    pub(super) device: wgpu::Device,
     authority: SubmissionAuthority,
-    runtime: ProgramRuntime,
-    arena: ProgramArena,
-    state: OffscreenState,
-    adapter: OffscreenAdapter,
+    pub(super) runtime: ProgramRuntime,
+    pub(super) arena: ProgramArena,
+    pub(super) state: OffscreenState,
+    pub(super) adapter: OffscreenAdapter,
 }
 
 impl Rig {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let Gpu {
             device,
             authority,
@@ -256,7 +298,7 @@ impl Rig {
     }
 
     /// Runs the operations as the one submission of a frame.
-    fn run(&self, operations: OffscreenOperations) {
+    pub(super) fn run(&self, operations: OffscreenOperations) {
         let mut encoder = self.authority.begin(&self.device).unwrap();
         let admitted = operations.admit(&encoder).unwrap();
         admitted.encode(None, &mut encoder).unwrap();

@@ -3,6 +3,7 @@
 //! point as the base and the frame counts the read.
 
 use std::collections::BTreeMap;
+use worldrunner_render_program::layers::PropertyLayer;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
 use worldrunner_render_program::unity::offscreen::PartialMipReads;
@@ -38,6 +39,7 @@ fn camera_then_blit(rig: &mut Rig, mips: u32) -> OffscreenFrame {
             shader: Some(BLIT),
             keywords: Vec::new(),
             properties: layer(&[("_Tint", [1.0; 4])]),
+            fallback: PropertyLayer::default(),
             render_queue: 2000,
         },
     );

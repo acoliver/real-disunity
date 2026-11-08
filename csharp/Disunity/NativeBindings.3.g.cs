@@ -258,6 +258,35 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_render_texture_pixels_take", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_render_texture_pixels_take(ulong world, ulong request, float* data, uint capacity, uint* written);
         /// <summary>
+        ///  Creates a list that draws the renderers the culling result `desc.cull` kept, with the pass tags
+        ///  at `tags` (`desc.tags_len` bytes: names joined by zero bytes, 1 to 16 names), and writes the
+        ///  list id to `list`. A rejected call writes nothing and records nothing.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `tags` is readable for `desc.tags_len` bytes, or null when
+        ///  the length is zero; `list` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_renderer_list_create_draw", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_renderer_list_create_draw(ulong world, DisunityDrawRendererList* desc, byte* tags, ulong* list);
+        /// <summary>
+        ///  Creates a list of the shadow casters the culling result `desc.cull` kept for one light, with
+        ///  the `desc.plane_count` split culling planes at `planes` (4 floats each: a normal and a
+        ///  distance), and writes the list id to `list`. A rejected call writes nothing and records
+        ///  nothing.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `planes` is readable for `desc.plane_count` planes of 4
+        ///  floats, or null when the count is zero; `list` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_renderer_list_create_shadow", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_renderer_list_create_shadow(ulong world, DisunityShadowRendererList* desc, float* planes, ulong* list);
+        /// <summary>
+        ///  Records that the renderer list `list`, created earlier in the frame, draws into the bound
+        ///  targets from here.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_renderer_list", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_renderer_list(ulong world, ulong list);
+        /// <summary>
         ///  Writes the length of the snapshot to `length`. With a zero `capacity` that is all it does.
         ///  Otherwise `capacity` bytes at `buffer` must hold the snapshot: it is copied there and the
         ///  session forgets it, and a smaller `capacity` is rejected without copying or dropping

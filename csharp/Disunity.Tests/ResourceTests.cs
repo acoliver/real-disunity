@@ -28,6 +28,27 @@ internal static class ResourceTests
         private void Awake() => seen = other is null ? 0 : other.value;
     }
 
+    public sealed class Member : ScriptableObject
+    {
+        [NonSerialized] public int enables;
+        private void OnEnable() => enables++;
+    }
+
+    /// <summary>An asset that lists others and tidies the list when it enables, as a script that drops the entries
+    /// that no longer exist does.</summary>
+    public sealed class Holder : ScriptableObject
+    {
+        public List<Member> members = new();
+        [NonSerialized] public int aliveInEnable = -1;
+        [NonSerialized] public int keptAfterTidy = -1;
+        private void OnEnable()
+        {
+            aliveInEnable = members.Count(member => member != null);
+            members.RemoveAll(member => member == null);
+            keptAfterTidy = members.Count;
+        }
+    }
+
     private sealed class Loader : MonoBehaviour
     {
         public readonly List<string> Calls = new();
@@ -52,6 +73,7 @@ internal static class ResourceTests
                 DecodesEachByteOrderMark();
                 LoadsFontsWithTheirFileData();
                 BindsAssetsThatReferenceEachOtherBeforeAwake();
+                ReferencedAssetsAreAliveWhenAnEarlierAssetEnables();
                 NamesTextBytesOutsideTheFile();
                 FiltersByTypeAndNamesUnbuiltClasses();
                 FinishesAsynchronousLoadsInALaterFrame();
@@ -115,6 +137,14 @@ internal static class ResourceTests
         assets.Add(Script(nameof(Linked), "a", "resources/a.json"));
         entries.Add(Entry("links/b", "MonoBehaviour", assets.Count));
         assets.Add(Script(nameof(Linked), "b", "resources/b.json"));
+        // A holder that lists three members, all reached through it: the holder is created first.
+        var holder = assets.Count;
+        File.WriteAllText(Path.Combine(directory, "resources", "holder.json"),
+            """{"members": [{"$asset": """ + (holder + 1) + """}, {"$asset": """ + (holder + 2) + """}, {"$asset": """ + (holder + 3) + "}]}");
+        File.WriteAllText(Path.Combine(directory, "resources", "member.json"), "{}");
+        entries.Add(Entry("profiles/holder", "MonoBehaviour", holder));
+        assets.Add(Script(nameof(Holder), "holder", "resources/holder.json"));
+        for (var i = 0; i < 3; i++) assets.Add(Script(nameof(Member), $"member{i}", "resources/member.json"));
         entries.Add(Entry("broken/text", "TextAsset", assets.Count));
         assets.Add(Text("broken", data, file.Count, 100));
         entries.Add(Entry("configx/other", "TextAsset", 0));
@@ -174,6 +204,16 @@ internal static class ResourceTests
         var b = Resources.Load<Linked>("links/b")!;
         Require(ReferenceEquals(a.other, b) && ReferenceEquals(b.other, a), "assets that reference each other resolve to each other");
         Require((a.seen, b.seen) == (2, 1), $"each Awake sees the other's fields: a={a.seen} b={b.seen}");
+    }
+
+    /// <summary>Unity loads the assets of one load together, so each exists when any of them enables: a script that lists
+    /// assets and drops the entries that are null keeps all of them, and each member enables once, after the holder.</summary>
+    private static void ReferencedAssetsAreAliveWhenAnEarlierAssetEnables()
+    {
+        var holder = Resources.Load<Holder>("profiles/holder")!;
+        Require(holder.aliveInEnable == 3, $"the holder's members are alive when it enables: {holder.aliveInEnable} of 3");
+        Require(holder.keptAfterTidy == 3 && holder.members.Count == 3, $"dropping null entries keeps the members: {holder.keptAfterTidy} kept, {holder.members.Count} listed");
+        Require(holder.members.All(member => member.enables == 1), "each member enables once, after the load binds it");
     }
 
     private static void NamesTextBytesOutsideTheFile()

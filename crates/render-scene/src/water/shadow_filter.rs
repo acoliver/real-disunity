@@ -18,6 +18,10 @@ pub(crate) fn receiver_source() -> String {
     // Coverage, projection, derivatives, selection and blending have one source.
     // Only the sampling expression differs; the ambient receiver stays untouched.
     let receiver = format!("fn cascade_visibility{coverage}    return rd_shadow_array_weighted_pcf5(shadow_depth, shadow_sampler, uv, layer, ndc.z - shadow.depth_bias[layer]);\n}}\n\nfn single_shadow_visibility{selection}")
+        .replace(
+            "cascaded_sunlight_visibility",
+            "water_filtered_cascaded_sunlight_visibility",
+        )
         .replace("cascade_visibility", "water_filtered_cascade_visibility")
         .replace("single_shadow_visibility", "water_filtered_single_shadow_visibility")
         .replace("raw_sunlight_visibility", "water_filtered_raw_sunlight_visibility");

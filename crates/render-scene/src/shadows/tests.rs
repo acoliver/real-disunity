@@ -3,6 +3,7 @@ mod cascades;
 mod compaction;
 mod culling;
 mod depth_reuse;
+mod fade;
 mod fixture;
 mod geometry;
 mod hdr;

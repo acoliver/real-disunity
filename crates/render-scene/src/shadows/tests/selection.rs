@@ -75,6 +75,7 @@ pub(super) fn upload_probe(
         depth_bias: [0.0; 4],
         splits: [2.0, 4.0, 6.0, 8.0],
         blend,
+        fade_out: 0.0,
         camera_splits,
         near: 0.0,
         view_depth: Vec4::X,

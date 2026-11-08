@@ -272,9 +272,30 @@ pub fn sampler_of_world(sampler: &WorldSampler) -> SamplerState {
     }
 }
 
+/// The `GraphicsFormat` of a stored block-compressed texture's blocks and the bytes per 4x4 block,
+/// for the engine `TextureFormat`s the device samples as they are: DXT1 (10), DXT5 (12), BC7 (25)
+/// and BC4 (26). They follow the texture's colour space. BC4 has no sRGB form, so a BC4 texture
+/// that is not linear is decoded like the decoded path reads it. BC6H (24) is handled apart
+/// because it is always sent as blocks.
+fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
+    let (srgb, linear, bytes, name) = match stored.format {
+        10 => (96, 97, 8, "DXT1"),
+        12 => (100, 101, 16, "DXT5"),
+        25 => (108, 109, 16, "BC7"),
+        26 if stored.linear => (102, 102, 8, "BC4"),
+        _ => return None,
+    };
+    Some((if stored.linear { linear } else { srgb }, bytes, name))
+}
+
 /// A stored texture's base level as a source texture. Its rows stay bottom first, as the engine
 /// stores them, which is the orientation of a render texture's rows (see
 /// `camera::clip_from_gl`). It is read with `sampler`, or the fixed sampler without one.
+///
+/// With `blocks`, a DXT1, DXT5, BC4 or BC7 texture whose sides are multiples of four goes to the
+/// device as the blocks it was stored in, which sample to the texels the decoder here produces
+/// and take a quarter to an eighth of the space. Without it, or for a texture of another size,
+/// they are decoded to RGBA8.
 ///
 /// # Errors
 /// Fails with the texture's own error when its format is not one the host decodes or its bytes
@@ -283,13 +304,27 @@ pub fn texture_of(
     id: TextureId,
     stored: &PlayerTexture,
     sampler: Option<SamplerState>,
+    blocks: bool,
 ) -> Result<SourceTexture, PlayerTextureError> {
     if stored.format == BC6H {
         return Ok(SourceTexture {
             id,
             size: [stored.width, stored.height],
             graphics_format: BC6H_UFLOAT,
-            bytes: bc6h_base_level(stored)?,
+            bytes: block_base_level(stored, "BC6H", 16)?,
+            sampler,
+        });
+    }
+    if let Some((graphics_format, block_bytes, name)) = block_upload(stored)
+        && blocks
+        && stored.width.is_multiple_of(4)
+        && stored.height.is_multiple_of(4)
+    {
+        return Ok(SourceTexture {
+            id,
+            size: [stored.width, stored.height],
+            graphics_format,
+            bytes: block_base_level(stored, name, block_bytes)?,
             sampler,
         });
     }
@@ -306,19 +341,22 @@ pub fn texture_of(
     })
 }
 
-/// The blocks of a BC6H texture's base level, rows as the engine stores them. The texture holds
-/// 4x4 texel blocks of 16 bytes; the levels after the base are not carried.
-fn bc6h_base_level(stored: &PlayerTexture) -> Result<Vec<u8>, PlayerTextureError> {
-    const BLOCK_BYTES: usize = 16;
+/// The blocks of a block-compressed texture's base level, rows as the engine stores them. The
+/// texture holds 4x4 texel blocks of `block_bytes`; the levels after the base are not carried.
+fn block_base_level(
+    stored: &PlayerTexture,
+    format: &'static str,
+    block_bytes: usize,
+) -> Result<Vec<u8>, PlayerTextureError> {
     const BLOCK_SIDE: u32 = 4;
     let blocks = |side: u32| side.div_ceil(BLOCK_SIDE) as usize;
-    let needed = blocks(stored.width) * blocks(stored.height) * BLOCK_BYTES;
+    let needed = blocks(stored.width) * blocks(stored.height) * block_bytes;
     stored
         .bytes
         .get(..needed)
         .map(<[u8]>::to_vec)
         .ok_or(PlayerTextureError::Short {
-            format: "BC6H",
+            format,
             width: stored.width,
             height: stored.height,
             needed,

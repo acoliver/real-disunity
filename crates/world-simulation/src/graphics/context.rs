@@ -50,8 +50,15 @@ impl World {
 
     /// Remembers the handle a record issues.
     pub(super) fn note_handle(&mut self, work: &OffscreenWork) {
-        if let OffscreenWork::Cull { id, .. } = work {
-            self.graphics.handles.insert(*id);
+        match work {
+            OffscreenWork::Cull { id, .. } => {
+                self.graphics.handles.insert(*id);
+            }
+            OffscreenWork::CreateRendererList { id, .. } => {
+                self.graphics.handles.insert(*id);
+                self.graphics.lists.insert(*id);
+            }
+            _ => {}
         }
     }
 

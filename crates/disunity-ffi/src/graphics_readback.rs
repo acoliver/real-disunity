@@ -6,14 +6,17 @@
 //! Taking the frame's offscreen work (see [`crate::graphics_offscreen`]) gives a request record
 //! the kind [`KIND_READ_PIXELS`] and a token that `disunity_offscreen_detail` reads the record's
 //! encoded bytes by (see [`crate::graphics_commands`]).
-use crate::{DisunityResult, callbacks::mutate};
+use crate::{DisunityResult, callbacks::mutate, graphics_renderer_lists::renderer_list_kind};
 use worldrunner_world_simulation::graphics::{OffscreenWork, RenderTextureId};
 
 pub const KIND_READ_PIXELS: u32 = 12;
 
 /// The kind a taken pixel read record has, or `None` for other work.
 pub(crate) fn readback_kind(work: &OffscreenWork) -> Option<u32> {
-    matches!(work, OffscreenWork::ReadPixels { .. }).then_some(KIND_READ_PIXELS)
+    match work {
+        OffscreenWork::ReadPixels { .. } => Some(KIND_READ_PIXELS),
+        other => renderer_list_kind(other),
+    }
 }
 
 /// Records a read of the `width` by `height` texels of mip 0 of a render texture whose bottom

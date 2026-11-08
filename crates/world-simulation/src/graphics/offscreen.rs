@@ -1,5 +1,6 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
 use super::readback::Rect;
+use super::renderer_lists::RendererListDesc;
 use super::{
     ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue, RenderTextureId,
     TargetRef, TextureRef, WorldRenderTexture,
@@ -109,6 +110,12 @@ pub enum OffscreenWork {
         width: u32,
         height: u32,
     },
+    /// A renderer list: what a culling result's renderers (or one light's shadow casters) draw
+    /// under the list's filters. `id` names it for later records of the frame. It is made only
+    /// by [`World::create_renderer_list`].
+    CreateRendererList { id: u64, desc: RendererListDesc },
+    /// Draws a renderer list created earlier in the frame into the bound targets.
+    DrawRendererList { list: u64 },
 }
 
 impl World {
@@ -118,9 +125,13 @@ impl World {
     /// compute shader, one of its kernels and 1 to 65535 thread groups along each axis. A record
     /// that issues a handle (a culling result) takes a nonzero id no record of the frame took
     /// before; the frame forgets its handles when its work is taken. A read of pixels is
-    /// recorded by [`World::request_texture_pixels`], which issues its request id.
+    /// recorded by [`World::request_texture_pixels`], which issues its request id, and a renderer list
+    /// by [`World::create_renderer_list`], which issues its list id.
     pub fn record_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
-        if matches!(work, OffscreenWork::ReadPixels { .. }) {
+        if matches!(
+            work,
+            OffscreenWork::ReadPixels { .. } | OffscreenWork::CreateRendererList { .. }
+        ) {
             return Err(GraphicsError::InvalidOffscreen.into());
         }
         self.push_offscreen(work)
@@ -146,6 +157,7 @@ impl World {
     /// took drops it, so a host that never draws offscreen does not accumulate records.
     pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
         self.graphics.handles.clear();
+        self.graphics.lists.clear();
         std::mem::take(&mut self.graphics.offscreen)
     }
 
@@ -211,6 +223,9 @@ impl World {
                     },
                 )
                 .map(drop),
+            OffscreenWork::CreateRendererList { .. } | OffscreenWork::DrawRendererList { .. } => {
+                self.check_renderer_list(work)
+            }
             _ => self
                 .check_command(work)
                 .and_then(|()| self.check_context(work)),

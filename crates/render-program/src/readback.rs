@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 
-use crate::budget::Reservation;
+use crate::budget::{Note, Reservation};
 use crate::error::ProgramError;
 use crate::resources::{BufferHandle, TargetHandle, TextureHandle};
 use crate::runtime::ProgramRuntime;
@@ -259,7 +259,7 @@ impl ProgramRuntime {
     }
 
     fn staging(&self, size: u64, allocations: AllocationSet) -> Result<Staged, ProgramError> {
-        let reservation = self.admit(allocations)?;
+        let reservation = self.admit(allocations, Note::new("readback staging", ""))?;
         let buffer = self.guarded(|| {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("render-program readback"),

@@ -31,14 +31,50 @@ enum Arena {
     Closed,
 }
 
+/// What an allocation was made for, for the census of what the runtime holds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Note {
+    /// The label the resource was created under.
+    pub(crate) label: String,
+    /// Its shape when that tells the allocations apart, such as a texture's size and format.
+    pub(crate) detail: String,
+}
+
+impl Note {
+    pub(crate) fn new(label: &str, detail: impl Into<String>) -> Self {
+        Self {
+            label: label.to_owned(),
+            detail: detail.into(),
+        }
+    }
+}
+
+/// One live allocation set: what it is, the descriptor bytes it alone accounts for and its note.
+struct Live {
+    set: AllocationSet,
+    own: u64,
+    note: Note,
+}
+
 #[derive(Default)]
 struct Held {
     next: u64,
     arena: Arena,
     arenas: u64,
-    /// Each live set with the descriptor bytes it alone accounts for.
-    sets: HashMap<u64, (AllocationSet, u64)>,
+    sets: HashMap<u64, Live>,
     bytes: u64,
+    /// The most bytes held at once since the ledger was made.
+    peak: u64,
+}
+
+/// The allocations of one kind that are live: how many, their bytes together and the largest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Holding {
+    pub label: String,
+    pub detail: String,
+    pub count: usize,
+    pub bytes: u64,
+    pub largest: u64,
 }
 
 /// The allocations that are live now: resources the runtime owns, released resources the GPU
@@ -57,6 +93,7 @@ impl Ledger {
         limits: &wgpu::Limits,
         budget: AllocationBudget,
         set: AllocationSet,
+        note: Note,
     ) -> Result<Reservation, ProgramError> {
         let mut held = lock(&self.0);
         let backing = match &held.arena {
@@ -65,8 +102,8 @@ impl Ledger {
             Arena::Closed => return Err(LeaseError::Expired.into()),
         };
         let mut peak = AllocationSet::default();
-        for (live, _) in held.sets.values() {
-            peak.extend(live.clone());
+        for live in held.sets.values() {
+            peak.extend(live.set.clone());
         }
         peak.extend(set.clone());
         let total = peak
@@ -75,8 +112,9 @@ impl Ledger {
         held.next += 1;
         let id = held.next;
         let own = total.saturating_sub(held.bytes);
-        held.sets.insert(id, (set, own));
+        held.sets.insert(id, Live { set, own, note });
         held.bytes = total;
+        held.peak = held.peak.max(total);
         Ok(Reservation {
             ledger: self.clone(),
             id,
@@ -117,6 +155,34 @@ impl Ledger {
     pub(crate) fn live_bytes(&self) -> u64 {
         lock(&self.0).bytes
     }
+
+    pub(crate) fn peak_bytes(&self) -> u64 {
+        lock(&self.0).peak
+    }
+
+    /// The live allocations grouped by label and detail, the greatest bytes first.
+    pub(crate) fn holdings(&self) -> Vec<Holding> {
+        let held = lock(&self.0);
+        let mut groups: HashMap<(&str, &str), Holding> = HashMap::new();
+        for live in held.sets.values() {
+            let group = groups
+                .entry((&live.note.label, &live.note.detail))
+                .or_insert_with(|| Holding {
+                    label: live.note.label.clone(),
+                    detail: live.note.detail.clone(),
+                    count: 0,
+                    bytes: 0,
+                    largest: 0,
+                });
+            group.count += 1;
+            group.bytes += live.own;
+            group.largest = group.largest.max(live.own);
+        }
+        let mut holdings: Vec<Holding> = groups.into_values().collect();
+        holdings
+            .sort_by(|a, b| (b.bytes, &a.label, &a.detail).cmp(&(a.bytes, &b.label, &b.detail)));
+        holdings
+    }
 }
 
 /// Holds an admitted allocation; dropping it returns the bytes to the budget.
@@ -129,8 +195,8 @@ pub(crate) struct Reservation {
 impl Drop for Reservation {
     fn drop(&mut self) {
         let mut held = lock(&self.ledger.0);
-        if let Some((_, own)) = held.sets.remove(&self.id) {
-            held.bytes = held.bytes.saturating_sub(own);
+        if let Some(live) = held.sets.remove(&self.id) {
+            held.bytes = held.bytes.saturating_sub(live.own);
         }
     }
 }

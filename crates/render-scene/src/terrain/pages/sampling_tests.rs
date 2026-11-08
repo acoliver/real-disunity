@@ -1,5 +1,6 @@
 mod anisotropy;
 mod borders;
+mod mip_weight;
 mod outer;
 use super::{
     composition::{MaterialImage, MaterialTexel},

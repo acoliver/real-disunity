@@ -4,6 +4,9 @@ use wgpu::{
     TextureFormat,
 };
 
+/// The stencil reference of the passes that own stencil ownership marks.
+pub(crate) const STENCIL_REFERENCE: u32 = 1;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DepthMode {
     #[default]

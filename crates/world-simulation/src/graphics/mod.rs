@@ -18,6 +18,7 @@ mod context;
 mod material;
 mod offscreen;
 mod properties;
+mod readback;
 mod render_texture;
 mod slab;
 pub mod snapshot;
@@ -36,6 +37,7 @@ pub use properties::{
     MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, PropertyValue, ShaderProperties, TextureRef,
     TextureSlot,
 };
+pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
 pub use render_texture::{WorldRenderTexture, WorldSampler};
 pub use snapshot::{CameraView, GraphicsSnapshot, RendererView};
 
@@ -93,6 +95,14 @@ pub enum GraphicsError {
     InvalidComputeBuffer,
     #[error("the data range lies outside the compute buffer")]
     ComputeRange,
+    #[error(
+        "a pixel read needs a non-empty rectangle inside the render texture of at most 67108864 texels"
+    )]
+    ReadbackRect,
+    #[error("the pixel request is unknown, taken already or from an earlier frame")]
+    UnknownReadback,
+    #[error("the pixel data must hold width * height * 4 floats")]
+    ReadbackLength,
 }
 
 impl GraphicsError {
@@ -197,6 +207,8 @@ pub(crate) struct GraphicsState {
     handles: std::collections::BTreeSet<u64>,
     /// The pass immediate-mode draws use; not part of the snapshot.
     active_pass: Option<ActivePass>,
+    /// The pixel reads scripts asked for and nobody took.
+    readbacks: readback::Readbacks,
 }
 
 impl GraphicsState {
@@ -204,6 +216,7 @@ impl GraphicsState {
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
         self.handles.clear();
+        self.readbacks.clear();
     }
 
     pub(crate) const fn new() -> Self {
@@ -218,6 +231,7 @@ impl GraphicsState {
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
             active_pass: None,
+            readbacks: readback::Readbacks::new(),
         }
     }
 }

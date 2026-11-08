@@ -292,6 +292,12 @@ impl ScenePages {
     }
 
     pub fn draw_group(&self) -> Option<wgpu::BindGroup> {
+        self.draw_slot().map(|slot| self.groups[slot].clone())
+    }
+
+    /// The frame slot whose page table the draw reads, or `None` when the root page is not
+    /// resident and the surface is skipped for the frame.
+    pub fn draw_slot(&self) -> Option<usize> {
         assert!(
             self.draw_transaction.as_ref().is_some_and(|owner| {
                 worldrunner_render_gpu::submission::Publications::current()
@@ -316,7 +322,7 @@ impl ScenePages {
         self.draw_residents
             .iter()
             .any(|page| page.key() == PageKey::ROOT)
-            .then(|| self.groups[self.frame_slot].clone())
+            .then_some(self.frame_slot)
     }
 
     pub fn ready(&self) -> bool {

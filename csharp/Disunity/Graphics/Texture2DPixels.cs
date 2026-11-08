@@ -150,7 +150,7 @@ public sealed partial class Texture2D
     private void Downsample(int level) =>
         TexelFormats.Downsample(_format, LevelBytes(level - 1), LevelWidth(level - 1), LevelHeight(level - 1), LevelBytes(level), LevelWidth(level), LevelHeight(level));
 
-    /// <summary>Texture2D.Compress, PackTextures, GenerateAtlas, ReadPixels, CopyPixels and the external
+    /// <summary>Texture2D.Compress, PackTextures, GenerateAtlas, CopyPixels and the external
     /// texture members need a GPU or a texture compressor, which the engine does not have yet.</summary>
     public void Compress(bool highQuality) => throw Unsupported(nameof(Compress));
 
@@ -162,10 +162,6 @@ public sealed partial class Texture2D
 
     public static bool GenerateAtlas(Vector2[] sizes, int padding, int atlasSize, List<Rect> results) =>
         throw new NotSupportedException("Texture2D.GenerateAtlas is not supported yet");
-
-    public void ReadPixels(Rect source, int destX, int destY, bool recalculateMipMaps) => throw Unsupported(nameof(ReadPixels));
-
-    public void ReadPixels(Rect source, int destX, int destY) => throw Unsupported(nameof(ReadPixels));
 
     public void CopyPixels(Texture src) => throw Unsupported(nameof(CopyPixels));
 

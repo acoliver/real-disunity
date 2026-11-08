@@ -175,6 +175,20 @@ public static class NativeBridge
         var result = new int[2];
         buffer.GetData(result);
         DisunityHost.CreateGameObject().transform.position = new Vector3(result[0], result[1], x * 100 + y * 10 + z);
+        AddReadPixels();
+    }
+    /// <summary>A read of a render texture rectangle, which flushes: the host answers each texel with its column, its row and 0.5, so the
+    /// position of an object shows where the rectangle started and that the rows came back in order (the texel at column 1, row 0 of
+    /// the rectangle at (1, 1) is (2, 1, 0.5)).</summary>
+    private static void AddReadPixels()
+    {
+        var source = new RenderTexture(4, 2, 0);
+        RenderTexture.active = source;
+        var target = new Texture2D(2, 1, TextureFormat.RGBAFloat, false);
+        target.ReadPixels(new Rect(1, 1, 2, 1), 0, 0);
+        RenderTexture.active = null;
+        var texel = target.GetPixel(1, 0);
+        DisunityHost.CreateGameObject().transform.position = new Vector3(texel.r, texel.g, texel.b);
     }
     private static void AddPerspectiveCamera(bool partialRect)
     {

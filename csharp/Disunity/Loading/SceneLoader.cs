@@ -33,6 +33,7 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
             CreateObjects(scene, templates);
             CreateComponents();
             BindFields();
+            ActivateAssets();
             var unregistered = InputAxes.Register(plan.GetProperty("axes"));
             ApplyLayerNames();
             scene.Activate();
@@ -123,13 +124,25 @@ internal sealed partial class SceneLoader(JsonElement plan, SceneLoadOptions opt
         return new PhysicsMaterial2D(name) { friction = asset.Float("friction"), bounciness = asset.Float("bounciness") };
     }
 
+    /// <summary>A script asset of the plan, constructed and named. It joins the world, and runs its <c>Awake</c> and
+    /// <c>OnEnable</c>, in <see cref="ActivateAssets"/>, once every asset's fields are bound.</summary>
     private ScriptableObject Asset(JsonElement asset)
     {
         var where = $"asset {asset.Str("name")} ({asset.Str("script")})";
         var type = ScriptType(asset, typeof(ScriptableObject), where);
-        var instance = ScriptableObject.CreateInstance(type);
+        var instance = (ScriptableObject)Activator.CreateInstance(type, nonPublic: true)!;
         instance.name = asset.Str("name");
         return instance;
+    }
+
+    /// <summary>Adds every script asset of the plan to the world, then runs their <c>Awake</c> and <c>OnEnable</c> in plan
+    /// order, before the scene's objects activate. All of them exist before the first one runs, so an asset that tidies its
+    /// list of the others keeps them, as for the assets of a resource load.</summary>
+    private void ActivateAssets()
+    {
+        var scripted = assets.OfType<ScriptableObject>().ToList();
+        foreach (var asset in scripted) DisunityHost.CreateAsset(asset);
+        foreach (var asset in scripted) DisunityHost.ActivateAsset(asset);
     }
 
     /// <summary>The class a script file names in the game assembly: Unity requires the class

@@ -4,8 +4,7 @@ use std::cell::{Cell, RefCell};
 
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
-    BufferUsages, Device, IndexFormat, Queue, RenderPass, Sampler, Texture, TextureView,
-    TextureViewDescriptor,
+    BufferUsages, Device, Queue, RenderPass, Sampler, Texture, TextureView, TextureViewDescriptor,
 };
 
 use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
@@ -53,9 +52,12 @@ pub use geometry_statistics::{
 };
 pub use pass_statistics::PassDrawStatistics;
 mod streaming;
+mod terrain_runtime;
 pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
+#[cfg(test)]
+pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
@@ -215,6 +217,11 @@ struct GpuTerrain {
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
     retained: Vec<Texture>,
     layered: Option<std::sync::Arc<crate::terrain::pages::layered_gpu::LayeredGpuSource>>,
+    /// What the program runtime draws are lent, held by every draw made from it.
+    resources: std::sync::Arc<crate::terrain::prepared::Resources>,
+    /// The pipelines, material sets and chunk geometry prepared for the program runtime.
+    prepared: crate::terrain::prepared::PreparedTerrain,
+    authority: worldrunner_render_gpu::submission::SubmissionAuthority,
 }
 
 /// Resources the bind groups reference.
@@ -500,7 +507,7 @@ impl SceneGpu {
         dynamic: bool,
     ) -> ColorDraw {
         if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
-            pass.set_stencil_reference(1);
+            pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
         }
         let frame = self.drawing_uniform();
         let receiver = self
@@ -547,60 +554,10 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
     ) -> (DrawCount, bool) {
-        let mut count = DrawCount::default();
-        let mut bound = false;
-        if let Some(terrain) = &self.terrain {
-            let cached_group = terrain
-                .pages
-                .as_ref()
-                .map(|pages| pages.borrow().draw_group());
-            if !matches!(cached_group, Some(None)) {
-                if let Some(Some(group)) = cached_group {
-                    pass.set_pipeline(if terrain.layered.is_some() {
-                        &pipelines
-                            .layered
-                            .as_ref()
-                            .expect("validated layered device")
-                            .cached
-                    } else {
-                        &pipelines.cached_terrain
-                    });
-                    pass.set_bind_group(TERRAIN_GROUP, &group, &[]);
-                } else {
-                    pass.set_pipeline(if terrain.layered.is_some() {
-                        &pipelines
-                            .layered
-                            .as_ref()
-                            .expect("validated layered device")
-                            .terrain
-                    } else {
-                        pipelines.terrain()
-                    });
-                    pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
-                }
-                if let Some(shadow) = shadow {
-                    pass.set_bind_group(2, shadow, &[]);
-                }
-                bound = true;
-                count = Self::draw_terrain_geometry(pass, terrain);
-            }
+        if pipelines.terrain_on_runtime() {
+            return self.draw_terrain_runtime(pass, pipelines, shadow);
         }
-        (count, bound)
-    }
-
-    fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) -> DrawCount {
-        if let Some(streaming) = &terrain.streaming {
-            return streaming.draw(pass, &terrain.instances);
-        }
-        let lod = terrain.lod.as_ref().expect("nonstreaming mesh");
-        pass.set_vertex_buffer(0, lod.vertices.slice(..));
-        pass.set_vertex_buffer(1, terrain.instances.slice(..));
-        pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
-        pass.draw_indexed(0..lod.index_count, 0, 0..1);
-        DrawCount {
-            calls: 1,
-            instances: 1,
-        }
+        self.draw_terrain_fixed(pass, pipelines, shadow)
     }
 
     pub(crate) fn draw_objects(

@@ -11,3 +11,4 @@ mod depth_only;
 mod external;
 mod overrides;
 mod sets;
+mod stencil;

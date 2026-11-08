@@ -35,6 +35,16 @@ pub(crate) fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
 
 type RasterKey = ([u32; 7], u8, super::DepthMode);
 
+/// What a set of pipelines was built from, for the frozen terrain path to rebuild.
+#[cfg(test)]
+pub(super) struct Parts<'a> {
+    pub object_source: &'a str,
+    pub terrain_source: &'a str,
+    pub shadow: Option<&'a wgpu::BindGroupLayout>,
+    pub screen: Option<&'a wgpu::BindGroupLayout>,
+    pub options: ([u32; 7], wgpu::FrontFace),
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Specialization {
     device: wgpu::Device,
@@ -46,6 +56,9 @@ pub(super) struct Specialization {
     options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
     cache: Rc<RefCell<BTreeMap<RasterKey, ScenePipelines>>>,
     gather: Rc<RefCell<Option<ScenePipelines>>>,
+    /// The program runtime every sibling of these pipelines shares, so a terrain pipeline
+    /// compiles once per context however many scenes and specializations draw with it.
+    family: crate::terrain::program::Family,
 }
 impl Specialization {
     pub fn new(
@@ -55,6 +68,7 @@ impl Specialization {
         shadow: Option<&wgpu::BindGroupLayout>,
         screen: Option<&wgpu::BindGroupLayout>,
         options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
+        family: &crate::terrain::program::Family,
     ) -> Self {
         Self {
             device: device.clone(),
@@ -66,12 +80,26 @@ impl Specialization {
             options,
             cache: Rc::default(),
             gather: Rc::default(),
+            family: family.clone(),
         }
     }
 }
 impl Specialization {
     pub(super) fn unlit_source(&self) -> &str {
         &self.unlit
+    }
+
+    /// The object source, the terrain source, the lent shadow and screen layouts and the
+    /// options these pipelines were built with.
+    #[cfg(test)]
+    pub(super) fn parts(&self) -> Parts<'_> {
+        Parts {
+            object_source: &self.source,
+            terrain_source: &self.terrain,
+            shadow: self.shadow.as_ref(),
+            screen: self.screen.as_ref(),
+            options: (self.options.0, self.options.1),
+        }
     }
 }
 
@@ -91,11 +119,11 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&spec.source, &spec.terrain),
-                    spec.shadow.as_ref(),
-                    spec.screen.as_ref(),
-                    options,
+                    (spec.shadow.as_ref(), spec.screen.as_ref()),
+                    (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
+                selected.terrain_on_runtime = self.terrain_on_runtime;
                 selected
             })
             .clone()
@@ -130,11 +158,11 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&source, &terrain),
-                    spec.shadow.as_ref(),
-                    Some(&layout),
-                    spec.options,
+                    (spec.shadow.as_ref(), Some(&layout)),
+                    (spec.options, &spec.family),
                 );
                 selected.ssao = self.ssao;
+                selected.terrain_on_runtime = self.terrain_on_runtime;
                 selected
             })
             .clone()
@@ -184,11 +212,11 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&spec.source, &spec.terrain),
-                    spec.shadow.as_ref(),
-                    spec.screen.as_ref(),
-                    options,
+                    (spec.shadow.as_ref(), spec.screen.as_ref()),
+                    (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
+                selected.terrain_on_runtime = self.terrain_on_runtime;
                 selected
             })
             .clone()
@@ -262,7 +290,7 @@ mod tests {
                     let again = pipelines.for_convention(convention);
                     assert_eq!(first.get(key), again.get(key));
                     assert_eq!(first.terrain(), again.terrain());
-                    assert_eq!(first.cached_terrain, again.cached_terrain);
+                    assert_eq!(first.cached_terrain(), again.cached_terrain());
                     if convention == SceneSpecularConvention::default() {
                         assert_eq!(first.get(key), pipelines.get(key));
                     } else {
@@ -319,7 +347,7 @@ fn winding_uses_existing_specialization_cache_without_changing_default_pipelines
     assert_ne!(left.get(key), right.get(key));
     assert_ne!(left.terrain(), right.terrain());
     assert_eq!(left.terrain(), again.terrain());
-    assert_ne!(left.cached_terrain, right.cached_terrain);
-    assert_eq!(left.cached_terrain, again.cached_terrain);
+    assert_ne!(left.cached_terrain(), right.cached_terrain());
+    assert_eq!(left.cached_terrain(), again.cached_terrain());
     assert_eq!(pipelines.specialization.cache.borrow().len(), 1);
 }

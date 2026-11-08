@@ -1,3 +1,5 @@
+#[cfg(test)]
+pub(crate) mod legacy_access;
 mod observations;
 mod replacement;
 mod residency;
@@ -249,6 +251,67 @@ impl Streaming {
         self.draw_where(pass, instances, |_| true)
     }
 
+    /// The chunks a draw in the transaction `owner` records: the ones that transaction prepared,
+    /// or the committed ones. `read` also gets the committed ones.
+    fn with_residents<R>(
+        &self,
+        owner: Option<&Publications>,
+        read: impl FnOnce(&Residents, &Residents) -> R,
+    ) -> R {
+        let drawing = self.drawing.borrow();
+        let committed = self.committed.borrow();
+        let residents = drawing
+            .as_ref()
+            .filter(|prepared| owner.is_some_and(|owner| owner.same_transaction(&prepared.owner)))
+            .map_or(&*committed, |prepared| &prepared.residents);
+        read(residents, &committed)
+    }
+
+    /// Makes the geometry the program runtime draws for the chunks this transaction uploaded, so
+    /// that the draw only looks it up. Geometry of chunks that left residency is dropped once the
+    /// map holds twice as many chunks as are resident.
+    pub(super) fn prepare_geometry(&self, owner: &Publications, terrain: &super::GpuTerrain) {
+        self.with_residents(Some(owner), |residents, committed| {
+            for (chunk, lod) in residents {
+                terrain.prepared.prepare_chunk(
+                    (*chunk, self.plane_chunks[chunk]),
+                    (&lod.vertices, &lod.indices, lod.index_count),
+                    &terrain.instances,
+                );
+            }
+            if terrain.prepared.chunk_count() > 2 * residents.len().max(committed.len()) {
+                terrain.prepared.retain_chunks(|chunk| {
+                    residents.iter().any(|(known, _)| known == chunk)
+                        || committed.iter().any(|(known, _)| known == chunk)
+                });
+            }
+        });
+    }
+
+    /// Records the resident chunks through a prepared pipeline, one prepared geometry each. The
+    /// chunk's record of the shared instance buffer is its geometry's instance range.
+    pub(super) fn draw_prepared<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        terrain: &super::GpuTerrain,
+    ) -> super::DrawCount {
+        let mut count = super::DrawCount::default();
+        self.with_residents(Publications::current().as_ref(), |residents, _| {
+            for (chunk, lod) in residents {
+                terrain.prepared.draw_chunk(
+                    pass,
+                    pipeline,
+                    (*chunk, self.plane_chunks[chunk]),
+                    (&lod.vertices, &lod.indices, lod.index_count),
+                    &terrain.instances,
+                );
+                count.draw(1);
+            }
+        });
+        count
+    }
+
     /// Draws the resident chunks whose world bounds `keep` accepts.
     pub fn draw_where(
         &self,
@@ -382,6 +445,9 @@ impl SceneGpu {
         {
             let mut context = PrepareContext::new(device, encoder)?;
             streaming.prepare(&mut context, frame, viewport)?;
+            if let Some(terrain) = &self.terrain {
+                streaming.prepare_geometry(&context.publications(), terrain);
+            }
             context.finish();
         }
         Ok(())

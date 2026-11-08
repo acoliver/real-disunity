@@ -97,6 +97,36 @@ fn failed_creation_does_not_publish_a_cache_entry() {
 }
 
 #[test]
+fn panicking_creation_preserves_cached_devices_and_leaves_the_miss_unpublished() {
+    use std::sync::{Mutex, PoisonError};
+    let cache = Mutex::new(ProfileCache::<Arc<()>>::default());
+    let existing = profile(&DeviceRequirements::default());
+    let first = device(&mut cache.lock().unwrap(), existing.clone());
+    let missing = profile(&DeviceRequirements {
+        required_features: Features::TIMESTAMP_QUERY,
+        ..Default::default()
+    });
+    let panic = std::panic::catch_unwind(|| {
+        let _ = cache
+            .lock()
+            .unwrap()
+            .get_or_try_insert_with(missing.clone(), || -> Result<Arc<()>, ()> {
+                panic!("device creation failed")
+            });
+    });
+    assert!(panic.is_err());
+    assert!(cache.is_poisoned());
+    let mut cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
+    assert_eq!(cache.entries.len(), 1);
+    assert!(Arc::ptr_eq(&first, &device(&mut cache, existing)));
+    assert!(!cache.entries.contains_key(&missing));
+    let second = device(&mut cache, missing.clone());
+    assert!(!Arc::ptr_eq(&first, &second));
+    assert!(Arc::ptr_eq(&second, &device(&mut cache, missing)));
+    assert_eq!(cache.entries.len(), 2);
+}
+
+#[test]
 fn parallel_cache_misses_publish_one_identity() {
     use std::sync::{
         Mutex,

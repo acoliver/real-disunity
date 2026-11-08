@@ -10,7 +10,7 @@ internal static class RenderEntryPointTests
     {
         Context();
         Lists();
-        Console.WriteLine("PASS: ScriptableRenderContext members other than ExecuteCommandBuffer and Submit throw NotSupportedException naming the member; RendererList is never valid");
+        Console.WriteLine("PASS: ScriptableRenderContext members without a world form throw NotSupportedException naming the member; the null RendererList is not valid");
         Manager();
         Console.WriteLine("PASS: RenderPipelineManager accepts and drops event handlers; no pipeline is current");
         Samplers();
@@ -29,7 +29,6 @@ internal static class RenderEntryPointTests
         var drawing = default(DrawingSettings);
         var filtering = FilteringSettings.defaultValue;
         var block = new RenderStateBlock(RenderStateMask.Nothing);
-        var list = new RendererListParams(default, drawing, filtering);
         Unsupported(() => context.SubmitForRenderPassValidation(), "SubmitForRenderPassValidation");
         Unsupported(() => context.ExecuteCommandBufferAsync(new CommandBuffer(), ComputeQueueType.Default), "ExecuteCommandBufferAsync");
         Unsupported(() => context.DrawSkybox(null!), "DrawSkybox");
@@ -45,18 +44,13 @@ internal static class RenderEntryPointTests
         Unsupported(() => context.BeginSubPass(default, default), "BeginSubPass");
         Unsupported(() => context.EndSubPass(), "EndSubPass");
         Unsupported(() => context.EndRenderPass(), "EndRenderPass");
-        Unsupported(() => context.CreateRendererList(ref list), "CreateRendererList");
-        var shadow = new ShadowDrawingSettings(default, 0);
-        Unsupported(() => context.CreateShadowRendererList(ref shadow), "CreateShadowRendererList");
-        Unsupported(() => context.QueryRendererListStatus(default), "QueryRendererListStatus");
-        Unsupported(() => context.PrepareRendererListsAsync(new List<RendererList>()), "PrepareRendererListsAsync");
         Expect.That(context == default && context.Equals((object)default(ScriptableRenderContext)) && !context.Equals("x"), "contexts are equal");
     }
 
     private static void Lists()
     {
-        Expect.That(!default(RendererList).isValid && !RendererList.nullRendererList.isValid, "a renderer list is never valid");
-        Expect.That(default(RendererList) == RendererList.nullRendererList, "renderer lists are equal");
+        Expect.That(!default(RendererList).isValid && !RendererList.nullRendererList.isValid, "the null renderer list is not valid");
+        Expect.That(default(RendererList) == RendererList.nullRendererList, "null renderer lists are equal");
         var filtering = new FilteringSettings(RenderQueueRange.opaque, 3, 1, 0);
         var parameters = new RendererListParams(default, default, filtering);
         Expect.Equal(filtering, parameters.filteringSettings, "params keep the filtering settings");

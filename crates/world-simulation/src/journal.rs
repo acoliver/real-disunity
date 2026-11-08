@@ -19,6 +19,7 @@ pub enum ComponentKind {
     GuiLayer,
     FlareLayer,
     Animator,
+    Skybox,
     ParticleSystem,
     SortingGroup,
     #[cfg(feature = "ui")]
@@ -55,6 +56,7 @@ impl ComponentDesc {
             Self::GUILayer { .. } => ComponentKind::GuiLayer,
             Self::FlareLayer { .. } => ComponentKind::FlareLayer,
             Self::Animator { .. } => ComponentKind::Animator,
+            Self::Skybox { .. } => ComponentKind::Skybox,
             Self::ParticleSystem => ComponentKind::ParticleSystem,
             Self::SortingGroup(_) => ComponentKind::SortingGroup,
             #[cfg(feature = "ui")]

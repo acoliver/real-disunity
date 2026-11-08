@@ -180,7 +180,7 @@ fn mapped_rows(
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {

@@ -1,3 +1,5 @@
+#[path = "grid_foreground_tests.rs"]
+mod foreground_tests;
 #[path = "grid_review_tests.rs"]
 mod review_tests;
 use std::fmt::Write;
@@ -212,11 +214,10 @@ fn pyramid(depths: Vec<f64>) -> Vec<Vec<f64>> {
         for y in 0..side / 2 {
             for x in 0..side / 2 {
                 next.push(
-                    (previous[(y * 2) * side + x * 2]
-                        + previous[(y * 2) * side + x * 2 + 1]
-                        + previous[(y * 2 + 1) * side + x * 2]
-                        + previous[(y * 2 + 1) * side + x * 2 + 1])
-                        / 4.0,
+                    previous[(y * 2) * side + x * 2]
+                        .min(previous[(y * 2) * side + x * 2 + 1])
+                        .min(previous[(y * 2 + 1) * side + x * 2])
+                        .min(previous[(y * 2 + 1) * side + x * 2 + 1]),
                 );
             }
         }
@@ -641,7 +642,7 @@ fn grid_policy_compiles_opaque_water_msaa() {
 }
 
 #[test]
-fn gpu_grid_production_trace_and_average_reduction() {
+fn gpu_grid_production_trace_and_nearest_reduction() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
@@ -679,7 +680,7 @@ fn gpu_grid_production_trace_and_average_reduction() {
 }
 
 #[test]
-fn gpu_grid_average_partial_bins_match_valid_tap_oracle() {
+fn gpu_grid_nearest_partial_bins_match_valid_tap_oracle() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut size = [9u32, 5];
@@ -704,18 +705,18 @@ fn gpu_grid_average_partial_bins_match_valid_tap_oracle() {
         let mut next = vec![];
         for y in 0..next_size[1] {
             for x in 0..next_size[0] {
-                let mut sum = 0.0;
-                let mut count = 0.0;
+                let mut nearest = f32::MAX;
                 for dy in 0..2 {
                     for dx in 0..2 {
                         if x * 2 + dx < size[0] && y * 2 + dy < size[1] {
-                            sum += values
-                                [usize::try_from((y * 2 + dy) * size[0] + x * 2 + dx).unwrap()];
-                            count += 1.0;
+                            nearest = nearest.min(
+                                values
+                                    [usize::try_from((y * 2 + dy) * size[0] + x * 2 + dx).unwrap()],
+                            );
                         }
                     }
                 }
-                next.push(sum / count);
+                next.push(nearest);
             }
         }
         values = next;

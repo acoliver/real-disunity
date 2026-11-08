@@ -82,7 +82,7 @@ pub(super) fn trace_source(
     if base == 0 {
         return source;
     }
-    // Coarse averages locate hits; full-resolution final depth identifies their owner.
+    // A nearest-depth contact belongs only to a full-resolution child at that depth.
     source
         .replace(
             "let grid_size = camera.size.xy;",
@@ -95,8 +95,8 @@ pub(super) fn trace_source(
     let hit_pixel = vec2<i32>(full_pixel);",
         )
         .replace(
-            "matches_receiver_depth(intersection.depth, metadata_depth",
-            &format!("matches_receiver_depth(textureLoad(grid_depth_{count}, hit_pixel, 0).r, metadata_depth"),
+            "if !matches_receiver_depth(intersection.depth, metadata_depth, hit_normal.xyz, hit_pixel)",
+            &format!("if intersection.depth != textureLoad(grid_depth_{count}, hit_pixel, 0).r || !matches_receiver_depth(intersection.depth, metadata_depth, hit_normal.xyz, hit_pixel)"),
         )
 }
 fn configure_levels(mut source: String, count: usize, ownership: bool) -> String {

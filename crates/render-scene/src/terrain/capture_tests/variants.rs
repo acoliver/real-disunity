@@ -11,6 +11,7 @@ use super::{Captured, Case, Rig, Source, Target, capture, drawable, scenes};
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{CONFIGS, build, context, one_texel, supported};
 use crate::frame::FrameUniform;
+use crate::renderer::depth::DepthMode;
 
 fn gather_ssao(context: &GpuContext) -> BindGroup {
     let device = context.device();
@@ -100,7 +101,7 @@ fn gather_reflection(context: &GpuContext) -> BindGroup {
 
 /// The gather receivers of SSAO and of the reflection forward pass, which select a sibling
 /// source and a screen layout of their own.
-fn gather(source: Source) -> usize {
+fn gather(source: Source, mode: DepthMode) -> usize {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     if !drawable(&context, source) {
@@ -114,7 +115,7 @@ fn gather(source: Source) -> usize {
         let config = &CONFIGS[index];
         if !supported(&context, config) {
             println!(
-                "TERRAIN-CAPTURE config={name} source={} skipped",
+                "TERRAIN-CAPTURE config={name} depth={mode:?} source={} skipped",
                 source.name()
             );
             continue;
@@ -136,7 +137,7 @@ fn gather(source: Source) -> usize {
                     formats: &built.formats,
                     samples: config.samples,
                 },
-                pipelines: &built.pipelines,
+                pipelines: &built.pipelines.for_depth(mode),
                 screen: Some(&group),
                 shadow: None,
             },
@@ -144,7 +145,7 @@ fn gather(source: Source) -> usize {
         run += 1;
     }
     println!(
-        "TERRAIN-CAPTURE-SUMMARY set=gather source={} compared={run}",
+        "TERRAIN-CAPTURE-SUMMARY set=gather depth={mode:?} source={} compared={run}",
         source.name()
     );
     run
@@ -152,22 +153,43 @@ fn gather(source: Source) -> usize {
 
 #[test]
 fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_plain_terrain() {
-    assert!(gather(Source::Plain) > 0);
+    assert!(gather(Source::Plain, DepthMode::Independent) > 0);
 }
 
 #[test]
 fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_page_terrain() {
-    assert!(gather(Source::Pages) > 0);
+    assert!(gather(Source::Pages, DepthMode::Independent) > 0);
 }
 
 #[test]
 fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_terrain() {
-    gather(Source::Layered);
+    gather(Source::Layered, DepthMode::Independent);
 }
 
 #[test]
 fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_page_terrain() {
-    gather(Source::LayeredPages);
+    gather(Source::LayeredPages, DepthMode::Independent);
+}
+
+#[test]
+fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_plain_terrain_with_depth_reuse() {
+    assert!(gather(Source::Plain, DepthMode::Reuse) > 0);
+}
+
+#[test]
+fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_page_terrain_with_depth_reuse() {
+    assert!(gather(Source::Pages, DepthMode::Reuse) > 0);
+}
+
+#[test]
+fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_terrain_with_depth_reuse() {
+    gather(Source::Layered, DepthMode::Reuse);
+}
+
+#[test]
+fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_page_terrain_with_depth_reuse()
+ {
+    gather(Source::LayeredPages, DepthMode::Reuse);
 }
 
 /// Draws plain terrain on `hdr-1x` or `hdr-4x` with `frame`, whose convention and winding pick
@@ -175,7 +197,7 @@ fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_page_terra
 fn specialized(
     context: &GpuContext,
     (name, index): (&str, usize),
-    frame: &FrameUniform,
+    (frame, mode): (&FrameUniform, DepthMode),
 ) -> Captured {
     let config = &CONFIGS[index];
     let built = build(context.device(), config);
@@ -194,7 +216,7 @@ fn specialized(
                 formats: &built.formats,
                 samples: config.samples,
             },
-            pipelines: &built.pipelines,
+            pipelines: &built.pipelines.for_depth(mode),
             screen: None,
             shadow: None,
         },
@@ -274,7 +296,11 @@ fn terrain_matches_the_fixed_pipeline_for_every_specular_convention_and_winding(
     for (name, convention) in conventions() {
         let mut frame = scenes::frame(scenes::pose());
         frame.specular_convention = convention;
-        images.push(specialized(&context, (&name, 2), &frame).images.remove(0));
+        images.push(
+            specialized(&context, (&name, 2), (&frame, DepthMode::Independent))
+                .images
+                .remove(0),
+        );
     }
     // The constants must reach the shader: the combinations do not all draw alike.
     let first = &images[0];
@@ -288,6 +314,34 @@ fn terrain_matches_the_fixed_pipeline_for_every_specular_convention_and_winding(
         }
         let frame = scenes::mirrored(scenes::frame(scenes::pose()));
         assert_eq!(frame.front_face(), wgpu::FrontFace::Cw);
-        specialized(&context, (name, index), &frame);
+        specialized(&context, (name, index), (&frame, DepthMode::Independent));
     }
+}
+
+#[test]
+fn terrain_matches_the_fixed_pipeline_in_mirrored_winding_with_depth_reuse() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let frame = scenes::mirrored(scenes::frame(scenes::pose()));
+    assert_eq!(frame.front_face(), wgpu::FrontFace::Cw);
+    for mode in [DepthMode::Shared, DepthMode::Reuse] {
+        specialized(&context, ("hdr-1x-cw", 2), (&frame, mode));
+    }
+}
+
+#[test]
+fn terrain_matches_the_fixed_pipeline_for_a_non_default_convention_with_depth_reuse() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let mut frame = scenes::frame(scenes::pose());
+    frame.specular_convention = convention(|c| {
+        c.roughness = SceneRoughnessRemap::LinearAlpha;
+        c.occlusion = SceneSpecularOcclusion::RoughnessAware;
+        c.surface_disk = Some(disk(17_453));
+    });
+    specialized(
+        &context,
+        ("hdr-1x-convention", 2),
+        (&frame, DepthMode::Reuse),
+    );
 }

@@ -26,6 +26,7 @@ use crate::dynamic::capture_tests::{
 };
 use crate::frame::FrameUniform;
 use crate::renderer::ScenePipelines;
+use crate::renderer::depth::DepthMode;
 
 mod legacy;
 pub(super) mod scenes;
@@ -173,15 +174,115 @@ pub(super) fn render(
     before: impl FnOnce(&mut CommandEncoder),
     draw: impl FnOnce(&mut RenderPass<'_>),
 ) -> Vec<Vec<u8>> {
+    render_depth(
+        context,
+        target,
+        (DepthMode::Independent, None),
+        before,
+        draw,
+    )
+}
+
+/// Draws the pass `seed` records, which the next pass of the frame loads its depth and stencil
+/// from, as the metadata prepass does for the forward pass.
+pub(super) type Seed<'a> = &'a dyn Fn(&mut RenderPass<'_>);
+
+/// [`render`] with the depth representation of `mode`. Modes other than
+/// [`DepthMode::Independent`] draw into a combined depth and stencil attachment, which the
+/// result reads back after the colour attachments: the depth plane, then the stencil plane.
+/// `seed` records a pass ahead of the drawn one that clears the depth and stencil and leaves
+/// them for the drawn pass to load.
+pub(super) fn render_depth(
+    context: &GpuContext,
+    target: Target<'_>,
+    (mode, seed): (DepthMode, Option<Seed<'_>>),
+    before: impl FnOnce(&mut CommandEncoder),
+    draw: impl FnOnce(&mut RenderPass<'_>),
+) -> Vec<Vec<u8>> {
     let device = context.device();
     let attachments = Attachments::new(device, target.formats, target.samples);
+    let combined = (mode != DepthMode::Independent).then(|| {
+        assert_eq!(target.samples, 1, "paired depth is single sample");
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("terrain capture depth and stencil"),
+            size: wgpu::Extent3d {
+                width: SIZE,
+                height: SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Depth32FloatStencil8,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        })
+    });
+    let combined_view = combined
+        .as_ref()
+        .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
     let resolve_views: Vec<_> = attachments
         .resolved
         .iter()
         .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()))
         .collect();
-    let colors: Vec<_> = attachments
-        .views
+    let mut encoder = context.submission().begin(device).unwrap();
+    before(&mut encoder);
+    let seeded = seed.is_some();
+    if let (Some(seed), Some(view)) = (seed, combined_view.as_ref()) {
+        let scratch = Attachments::new(device, target.formats, 1);
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("terrain capture seed"),
+            color_attachments: &colors(target, (&scratch.views, &[])),
+            depth_stencil_attachment: Some(depth_attachment(view, false)),
+            ..wgpu::RenderPassDescriptor::default()
+        });
+        seed(&mut pass);
+    }
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("terrain capture"),
+            color_attachments: &colors(target, (&attachments.views, &resolve_views)),
+            depth_stencil_attachment: Some(combined_view.as_ref().map_or_else(
+                || wgpu::RenderPassDepthStencilAttachment {
+                    view: &attachments.depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                },
+                |view| depth_attachment(view, seeded),
+            )),
+            ..wgpu::RenderPassDescriptor::default()
+        });
+        draw(&mut pass);
+    }
+    let mut staging = copy_results(device, &mut encoder, attachments.results());
+    if let Some(texture) = &combined {
+        staging.push(copy_plane(
+            device,
+            &mut encoder,
+            texture,
+            wgpu::TextureAspect::DepthOnly,
+        ));
+        staging.push(copy_plane(
+            device,
+            &mut encoder,
+            texture,
+            wgpu::TextureAspect::StencilOnly,
+        ));
+    }
+    let index = encoder.finish().submit().unwrap();
+    read_results(device, index, staging)
+}
+
+/// The colour attachments of a pass over `views`, cleared to [`fill`].
+fn colors<'v>(
+    target: Target<'_>,
+    (views, resolves): (&'v [wgpu::TextureView], &'v [wgpu::TextureView]),
+) -> Vec<Option<wgpu::RenderPassColorAttachment<'v>>> {
+    views
         .iter()
         .zip(target.formats)
         .enumerate()
@@ -189,7 +290,7 @@ pub(super) fn render(
             Some(wgpu::RenderPassColorAttachment {
                 view,
                 depth_slice: None,
-                resolve_target: resolve_views.get(index),
+                resolve_target: resolves.get(index),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(fill(index, format)),
                     store: if target.samples == 1 {
@@ -200,28 +301,79 @@ pub(super) fn render(
                 },
             })
         })
-        .collect();
-    let mut encoder = context.submission().begin(device).unwrap();
-    before(&mut encoder);
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("terrain capture"),
-            color_attachments: &colors,
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &attachments.depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Discard,
-                }),
-                stencil_ops: None,
-            }),
-            ..wgpu::RenderPassDescriptor::default()
-        });
-        draw(&mut pass);
+        .collect()
+}
+
+/// The combined depth and stencil attachment of a pass that keeps both, cleared to the far plane
+/// and zero or loaded from the pass that seeded them.
+fn depth_attachment(
+    view: &wgpu::TextureView,
+    load: bool,
+) -> wgpu::RenderPassDepthStencilAttachment<'_> {
+    wgpu::RenderPassDepthStencilAttachment {
+        view,
+        depth_ops: Some(wgpu::Operations {
+            load: if load {
+                wgpu::LoadOp::Load
+            } else {
+                wgpu::LoadOp::Clear(1.0)
+            },
+            store: wgpu::StoreOp::Store,
+        }),
+        stencil_ops: Some(wgpu::Operations {
+            load: if load {
+                wgpu::LoadOp::Load
+            } else {
+                wgpu::LoadOp::Clear(0)
+            },
+            store: wgpu::StoreOp::Store,
+        }),
     }
-    let staging = copy_results(device, &mut encoder, attachments.results());
-    let index = encoder.finish().submit().unwrap();
-    read_results(device, index, staging)
+}
+
+/// Copies one aspect of the combined depth and stencil texture into a mappable buffer, as
+/// [`copy_results`] does for colour.
+fn copy_plane(
+    device: &wgpu::Device,
+    encoder: &mut CommandEncoder,
+    texture: &wgpu::Texture,
+    aspect: wgpu::TextureAspect,
+) -> (wgpu::Buffer, usize, usize) {
+    let texel = if aspect == wgpu::TextureAspect::DepthOnly {
+        4
+    } else {
+        1
+    };
+    let row = SIZE * texel;
+    let padded = row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("capture plane readback"),
+        size: u64::from(padded * SIZE),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded),
+                rows_per_image: Some(SIZE),
+            },
+        },
+        wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+    );
+    (buffer, row as usize, padded as usize)
 }
 
 /// What one capture drew: the scene's attachments and the draw calls it recorded, which equal
@@ -251,17 +403,40 @@ pub(super) fn capture(rig: &Rig<'_>, case: &Case<'_>) -> Captured {
 }
 
 /// [`capture`] against fixed pipelines built earlier for the same pipelines and frame.
+///
+/// The depth representation is the one `case.pipelines` were built for. In the paired modes the
+/// depth and stencil planes are compared along with the colour attachments, and each mode's
+/// effect on them is checked: shared and prepass terrain writes depth, prepass terrain marks its
+/// winners in the stencil, and reuse terrain draws exactly those winners, leaves the depth as
+/// the prepass wrote it and consumes every stencil mark.
 pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -> Captured {
     let context = rig.context;
+    let mode = case.pipelines.depth;
     let bind = |pass: &mut RenderPass<'_>| {
         if let Some(screen) = case.screen {
             pass.set_bind_group(3, screen, &[]);
         }
     };
+    // The prepass the forward draw reuses: the fixed prepass terrain over the same frame.
+    let prepass = (mode == DepthMode::Reuse).then(|| {
+        let selected = rig.selected(&case.pipelines.for_depth(DepthMode::Prepass));
+        Legacy::new(context, &rig.gpu, &selected)
+    });
+    let seed = |pass: &mut RenderPass<'_>| {
+        bind(pass);
+        pass.set_stencil_reference(1);
+        pass.set_bind_group(0, &rig.gpu.legacy_frame_group(), &[]);
+        prepass
+            .as_ref()
+            .expect("a reuse capture builds its prepass")
+            .draw(pass, &rig.gpu, case.shadow);
+    };
+    let seeded: Option<Seed<'_>> = prepass.is_some().then_some(&seed);
     let mut scene_count = DrawCount::default();
-    let scene = render(
+    let scene = render_depth(
         context,
         case.target,
+        (mode, seeded),
         |encoder| rig.prepare(encoder),
         |pass| {
             bind(pass);
@@ -271,25 +446,38 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
         },
     );
     let mut fixed_count = DrawCount::default();
-    let fixed = render(
+    let fixed = render_depth(
         context,
         case.target,
+        (mode, seeded),
         |encoder| rig.prepare(encoder),
         |pass| {
             bind(pass);
+            if mode != DepthMode::Independent {
+                pass.set_stencil_reference(1);
+            }
             pass.set_bind_group(0, &rig.gpu.legacy_frame_group(), &[]);
             fixed_count = legacy.draw(pass, &rig.gpu, case.shadow);
         },
     );
-    let untouched = render(context, case.target, |_| {}, |_| {});
-    assert_eq!(scene.len(), case.target.formats.len());
+    let untouched = render_depth(
+        context,
+        case.target,
+        (mode, seeded),
+        |encoder| rig.prepare(encoder),
+        |_| {},
+    );
+    let colors = case.target.formats.len();
+    let planes = if mode == DepthMode::Independent { 0 } else { 2 };
+    assert_eq!(scene.len(), colors + planes);
     for (index, ((scene, fixed), untouched)) in scene.iter().zip(&fixed).zip(&untouched).enumerate()
     {
         assert!(
             scene == fixed,
-            "{} {}: attachment {index} differs from the fixed pipeline's output",
+            "{} {} {mode:?}: {} differs from the fixed pipeline's output",
             case.name,
-            case.source
+            case.source,
+            attachment_name(index, colors)
         );
         if index == 0 {
             assert!(
@@ -299,6 +487,13 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
                 case.source
             );
         }
+    }
+    if planes > 0 {
+        check_planes(
+            case,
+            (&scene[colors], &scene[colors + 1]),
+            &untouched[colors..],
+        );
     }
     assert_eq!(
         scene_count, fixed_count,
@@ -312,11 +507,72 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
     }
 }
 
+fn attachment_name(index: usize, colors: usize) -> String {
+    match index.checked_sub(colors) {
+        None => format!("attachment {index}"),
+        Some(0) => "depth plane".to_owned(),
+        Some(_) => "stencil plane".to_owned(),
+    }
+}
+
+/// What the paired depth modes leave in the depth and stencil planes. `untouched` is the planes
+/// of a render that drew no terrain in the drawn pass: cleared, or as the prepass left them.
+fn check_planes(case: &Case<'_>, (depth, stencil): (&[u8], &[u8]), untouched: &[Vec<u8>]) {
+    let marked = |plane: &[u8]| plane.iter().filter(|&&texel| texel != 0).count();
+    let name = format!("{} {}", case.name, case.source);
+    match case.pipelines.depth {
+        DepthMode::Independent => {}
+        DepthMode::Shared => {
+            assert!(
+                depth != untouched[0],
+                "{name}: shared terrain wrote no depth"
+            );
+            assert_eq!(
+                marked(stencil),
+                0,
+                "{name}: shared terrain touched the stencil"
+            );
+        }
+        DepthMode::Prepass => {
+            assert!(
+                depth != untouched[0],
+                "{name}: prepass terrain wrote no depth"
+            );
+            assert!(
+                marked(stencil) > 0,
+                "{name}: prepass terrain marked no winner"
+            );
+        }
+        DepthMode::Reuse => {
+            assert!(
+                marked(&untouched[1]) > 0,
+                "{name}: the prepass marked no winner"
+            );
+            assert_eq!(
+                depth, untouched[0],
+                "{name}: reuse terrain changed the prepass depth"
+            );
+            assert_eq!(
+                marked(stencil),
+                0,
+                "{name}: reuse terrain left winners unconsumed"
+            );
+        }
+    }
+}
+
 fn report(context: &GpuContext, case: &Case<'_>, images: &[Vec<u8>]) {
     let adapter = context.adapter().get_info().name;
+    let mode = format!("{:?}", case.pipelines.depth).to_lowercase();
+    let colors = case.target.formats.len();
     for (index, image) in images.iter().enumerate() {
+        let attachment = match index.checked_sub(colors) {
+            None => index.to_string(),
+            Some(0) => "depth".to_owned(),
+            Some(_) => "stencil".to_owned(),
+        };
         println!(
-            "TERRAIN-CAPTURE adapter={adapter:?} config={} source={} attachment={index} bytes={} hash={:016x}",
+            "TERRAIN-CAPTURE adapter={adapter:?} config={} depth={mode} source={} attachment={attachment} bytes={} hash={:016x}",
             case.name,
             case.source,
             image.len(),
@@ -331,34 +587,47 @@ pub(super) fn drawable(context: &GpuContext, source: Source) -> bool {
     !source.layered() || crate::terrain::pages::layered_gpu::supported(&context.device().limits())
 }
 
-/// Captures `source` in every forward target set of the dynamic quads' harness, returning how
-/// many captures ran and how many were skipped.
-fn forward_sets(source: Source) -> (usize, usize) {
+/// Captures `source` in every forward target set of the dynamic quads' harness that `mode`
+/// applies to, returning how many captures ran and how many were skipped. The paired depth modes
+/// apply to the single-sample sets only.
+fn forward_sets(source: Source, mode: DepthMode) -> (usize, usize) {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut run, mut skipped) = (0, 0);
-    for config in &CONFIGS {
+    for config in CONFIGS
+        .iter()
+        .filter(|config| mode == DepthMode::Independent || config.samples == 1)
+    {
         if !supported(&context, config) || !drawable(&context, source) {
             println!(
-                "TERRAIN-CAPTURE config={} source={} skipped: format, samples or limits unsupported",
+                "TERRAIN-CAPTURE config={} depth={mode:?} source={} skipped: format, samples or limits unsupported",
                 config.name,
                 source.name()
             );
             skipped += 1;
             continue;
         }
-        forward(&context, config, source);
+        forward(&context, config, (source, mode));
         run += 1;
     }
     println!(
-        "TERRAIN-CAPTURE-SUMMARY set=forward source={} compared={run} skipped={skipped}",
+        "TERRAIN-CAPTURE-SUMMARY set=forward depth={mode:?} source={} compared={run} skipped={skipped}",
         source.name()
     );
     (run, skipped)
 }
 
-/// One configuration of the 12 forward target sets with one surface source.
-fn forward(context: &GpuContext, config: &Config, source: Source) -> Captured {
+/// The forward target sets `mode` applies to.
+fn applicable(mode: DepthMode) -> usize {
+    CONFIGS
+        .iter()
+        .filter(|config| mode == DepthMode::Independent || config.samples == 1)
+        .count()
+}
+
+/// One configuration of the 12 forward target sets with one surface source, drawn with the
+/// pipelines of one depth mode.
+fn forward(context: &GpuContext, config: &Config, (source, mode): (Source, DepthMode)) -> Captured {
     let built = build(context.device(), config);
     let rig = Rig::new(
         context,
@@ -375,35 +644,51 @@ fn forward(context: &GpuContext, config: &Config, source: Source) -> Captured {
                 formats: &built.formats,
                 samples: config.samples,
             },
-            pipelines: &built.pipelines,
+            pipelines: &built.pipelines.for_depth(mode),
             screen: built.screen.as_ref(),
             shadow: None,
         },
     )
 }
 
-#[test]
-fn plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set() {
-    let (run, skipped) = forward_sets(Source::Plain);
-    assert_eq!(run + skipped, CONFIGS.len());
-    assert!(run > 0, "no forward target set could run");
+macro_rules! forward_tests {
+    ($($test:ident: $source:expr, $mode:expr;)*) => {$(
+        #[test]
+        fn $test() {
+            let (run, skipped) = forward_sets($source, $mode);
+            assert_eq!(run + skipped, applicable($mode));
+            if matches!($source, Source::Plain | Source::Pages) {
+                assert!(run > 0, "no forward target set could run");
+            }
+        }
+    )*};
 }
 
-#[test]
-fn page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set() {
-    let (run, skipped) = forward_sets(Source::Pages);
-    assert_eq!(run + skipped, CONFIGS.len());
-    assert!(run > 0, "no forward target set could run");
-}
-
-#[test]
-fn layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set() {
-    let (run, skipped) = forward_sets(Source::Layered);
-    assert_eq!(run + skipped, CONFIGS.len());
-}
-
-#[test]
-fn layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set() {
-    let (run, skipped) = forward_sets(Source::LayeredPages);
-    assert_eq!(run + skipped, CONFIGS.len());
+forward_tests! {
+    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+        Source::Plain, DepthMode::Independent;
+    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+        Source::Pages, DepthMode::Independent;
+    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+        Source::Layered, DepthMode::Independent;
+    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+        Source::LayeredPages, DepthMode::Independent;
+    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+        Source::Plain, DepthMode::Reuse;
+    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+        Source::Pages, DepthMode::Reuse;
+    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+        Source::Layered, DepthMode::Reuse;
+    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+        Source::LayeredPages, DepthMode::Reuse;
+    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+        Source::Plain, DepthMode::Shared;
+    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+        Source::Pages, DepthMode::Shared;
+    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+        Source::Layered, DepthMode::Shared;
+    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+        Source::LayeredPages, DepthMode::Shared;
+    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_in_the_prepass:
+        Source::Plain, DepthMode::Prepass;
 }

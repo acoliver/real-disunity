@@ -29,8 +29,9 @@ use wgpu::{
     IndexFormat, MultisampleState, PipelineCompilationOptions, PipelineLayout,
     PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline,
     RenderPipelineDescriptor, Sampler, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    StencilFaceState, StencilOperation, StencilState, Texture, TextureFormat, TextureSampleType, TextureView, TextureViewDescriptor,
-    TextureViewDimension, VertexBufferLayout, VertexState, VertexStepMode,
+    StencilFaceState, StencilOperation, StencilState, Texture, TextureFormat, TextureSampleType,
+    TextureView, TextureViewDescriptor, TextureViewDimension, VertexBufferLayout, VertexState,
+    VertexStepMode,
 };
 
 use super::ScenePipelines;

@@ -8,6 +8,8 @@ use crate::device::GpuContext;
 use crate::draw::SceneGpu;
 use crate::dynamic::capture_tests::{Built, CONFIGS, Config, SIZE, build, context, supported};
 use crate::frame::FrameUniform;
+use crate::renderer::ScenePipelines;
+use crate::renderer::depth::DepthMode;
 
 /// Prepares the streamed chunks the frame selects in `rounds` submitted frames, which commit
 /// them.
@@ -35,6 +37,15 @@ pub(in crate::terrain) fn settle(
 
 /// The draw calls of one capture of the committed chunks.
 fn calls(rig: &Rig<'_>, (config, built): (&Config, &Built), label: &str) -> u64 {
+    calls_in(rig, (config, built), (&built.pipelines, label))
+}
+
+/// [`calls`] with the pipelines of one depth mode.
+fn calls_in(
+    rig: &Rig<'_>,
+    (config, built): (&Config, &Built),
+    (pipelines, label): (&ScenePipelines, &str),
+) -> u64 {
     let captured = capture(
         rig,
         &Case {
@@ -44,7 +55,7 @@ fn calls(rig: &Rig<'_>, (config, built): (&Config, &Built), label: &str) -> u64 
                 formats: &built.formats,
                 samples: config.samples,
             },
-            pipelines: &built.pipelines,
+            pipelines,
             screen: built.screen.as_ref(),
             shadow: None,
         },
@@ -148,4 +159,38 @@ fn a_tight_chunk_budget_draws_fewer_chunks_than_a_loose_one_and_both_match_the_f
     }
     println!("TERRAIN-CAPTURE-SUMMARY set=streaming-budget chunks={drawn:?}");
     assert!(drawn[0] < drawn[1], "{drawn:?}");
+}
+
+#[test]
+fn streamed_terrain_matches_the_fixed_pipeline_with_depth_reuse_over_changing_residency() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let config = &CONFIGS[2];
+    assert!(supported(&context, config));
+    let built = build(context.device(), config);
+    let reuse = built.pipelines.for_depth(DepthMode::Reuse);
+    let near = scenes::frame(scenes::pose());
+    let aside = scenes::frame(crate::CameraPose {
+        eye_millimeters: [3_000, -2_000, 2_500],
+        target_millimeters: [3_000, 3_000, 0],
+    });
+    let rig = Rig::new(
+        &context,
+        &built.pipelines,
+        &scenes::streamed(9),
+        (Source::Plain, near),
+    );
+    let mut seen = Vec::new();
+    seen.push(calls_in(&rig, (config, &built), (&reuse, "stream-root")));
+    settle(&context, &rig.gpu, &near, 7);
+    seen.push(calls_in(
+        &rig,
+        (config, &built),
+        (&reuse, "stream-converged"),
+    ));
+    settle(&context, &rig.gpu, &aside, 3);
+    seen.push(calls_in(&rig, (config, &built), (&reuse, "stream-aside")));
+    println!("TERRAIN-CAPTURE-SUMMARY set=streaming-reuse chunks={seen:?}");
+    assert_eq!(seen[0], 1, "the root chunk alone");
+    assert!(seen[1] > 1, "{seen:?}");
 }

@@ -7,6 +7,7 @@ use super::{Case, Legacy, Rig, Source, Target, capture_against, drawable, scenes
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{HDR, VELOCITY, ambient_group, context, reflection_group};
 use crate::renderer::ScenePipelines;
+use crate::renderer::depth::DepthMode;
 
 #[derive(Clone, Copy)]
 enum Screen {
@@ -240,7 +241,7 @@ fn pipelines(context: &GpuContext, set: &Set) -> (ScenePipelines, Option<BindGro
     (built, screen)
 }
 
-fn shadowed(source: Source) -> usize {
+fn shadowed(source: Source, mode: DepthMode) -> usize {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     if !drawable(&context, source) {
@@ -248,10 +249,13 @@ fn shadowed(source: Source) -> usize {
     }
     let shadow = Shadow::new(&context);
     let mut run = 0;
-    for set in &SETS {
+    for set in SETS
+        .iter()
+        .filter(|set| mode == DepthMode::Independent || set.samples == 1)
+    {
         if !set.supported(&context) {
             println!(
-                "TERRAIN-CAPTURE config={} source={} skipped: format or samples unsupported",
+                "TERRAIN-CAPTURE config={} depth={mode:?} source={} skipped: format or samples unsupported",
                 set.name,
                 source.name()
             );
@@ -265,6 +269,7 @@ fn shadowed(source: Source) -> usize {
             &source.scene(),
             (source, scenes::frame(scenes::pose())),
         );
+        let built = built.for_depth(mode);
         let legacy = Legacy::new(&context, &rig.gpu, &rig.selected(&built));
         for (slot, group) in shadow.groups.iter().enumerate() {
             let name = format!("{}-slot{slot}", set.name);
@@ -287,7 +292,7 @@ fn shadowed(source: Source) -> usize {
         }
     }
     println!(
-        "TERRAIN-CAPTURE-SUMMARY set=shadow source={} compared={run}",
+        "TERRAIN-CAPTURE-SUMMARY set=shadow depth={mode:?} source={} compared={run}",
         source.name()
     );
     run
@@ -295,20 +300,41 @@ fn shadowed(source: Source) -> usize {
 
 #[test]
 fn shadow_receiving_plain_terrain_matches_the_fixed_pipeline_byte_for_byte() {
-    assert!(shadowed(Source::Plain) > 0);
+    assert!(shadowed(Source::Plain, DepthMode::Independent) > 0);
 }
 
 #[test]
 fn shadow_receiving_page_terrain_matches_the_fixed_pipeline_byte_for_byte() {
-    assert!(shadowed(Source::Pages) > 0);
+    assert!(shadowed(Source::Pages, DepthMode::Independent) > 0);
 }
 
 #[test]
 fn shadow_receiving_layered_terrain_matches_the_fixed_pipeline_byte_for_byte() {
-    shadowed(Source::Layered);
+    shadowed(Source::Layered, DepthMode::Independent);
 }
 
 #[test]
 fn shadow_receiving_layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte() {
-    shadowed(Source::LayeredPages);
+    shadowed(Source::LayeredPages, DepthMode::Independent);
+}
+
+#[test]
+fn shadow_receiving_plain_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse() {
+    assert!(shadowed(Source::Plain, DepthMode::Reuse) > 0);
+}
+
+#[test]
+fn shadow_receiving_page_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse() {
+    assert!(shadowed(Source::Pages, DepthMode::Reuse) > 0);
+}
+
+#[test]
+fn shadow_receiving_layered_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse() {
+    shadowed(Source::Layered, DepthMode::Reuse);
+}
+
+#[test]
+fn shadow_receiving_layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_with_depth_reuse()
+{
+    shadowed(Source::LayeredPages, DepthMode::Reuse);
 }

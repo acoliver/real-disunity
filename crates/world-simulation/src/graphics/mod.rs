@@ -20,6 +20,7 @@ mod offscreen;
 mod properties;
 mod readback;
 mod render_texture;
+mod renderer_lists;
 mod slab;
 pub mod snapshot;
 pub mod snapshot_wire;
@@ -39,6 +40,7 @@ pub use properties::{
 };
 pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
 pub use render_texture::{WorldRenderTexture, WorldSampler};
+pub use renderer_lists::{MAX_LIST_PASS_TAGS, RendererListDesc};
 pub use snapshot::{CameraView, GraphicsSnapshot, RendererView};
 
 use slab::Slab;
@@ -205,6 +207,8 @@ pub(crate) struct GraphicsState {
     offscreen: Vec<OffscreenWork>,
     /// The handles the frame's records issued, which later records of the frame may name.
     handles: std::collections::BTreeSet<u64>,
+    /// The renderer lists among the handles.
+    lists: std::collections::BTreeSet<u64>,
     /// The pass immediate-mode draws use; not part of the snapshot.
     active_pass: Option<ActivePass>,
     /// The pixel reads scripts asked for and nobody took.
@@ -216,6 +220,7 @@ impl GraphicsState {
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
         self.handles.clear();
+        self.lists.clear();
         self.readbacks.clear();
     }
 
@@ -230,6 +235,7 @@ impl GraphicsState {
             global: GlobalShaderState::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
+            lists: std::collections::BTreeSet::new(),
             active_pass: None,
             readbacks: readback::Readbacks::new(),
         }

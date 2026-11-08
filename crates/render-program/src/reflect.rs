@@ -3,7 +3,7 @@
 use naga::valid::ModuleInfo;
 use naga::{
     AddressSpace, GlobalVariable, ImageClass, ImageDimension, Module, ScalarKind, StorageAccess,
-    TypeInner,
+    StorageFormat, TypeInner,
 };
 
 use crate::module::ModuleError;
@@ -147,7 +147,9 @@ fn texture(
             multi,
         ),
         ImageClass::Depth { multi } => (wgpu::TextureSampleType::Depth, multi),
-        ImageClass::Storage { .. } => return Err(unsupported(global, "storage texture")),
+        ImageClass::Storage { format, access } => {
+            return storage_texture(global, (format, access), view_dimension);
+        }
         ImageClass::External => return Err(unsupported(global, "external texture")),
     };
     Ok(wgpu::BindingType::Texture {
@@ -155,4 +157,82 @@ fn texture(
         view_dimension,
         multisampled,
     })
+}
+
+/// A storage image binding: the access the declaration allows, the format it names and the
+/// dimension of the views it takes.
+fn storage_texture(
+    global: &GlobalVariable,
+    (format, access): (StorageFormat, StorageAccess),
+    view_dimension: wgpu::TextureViewDimension,
+) -> Result<wgpu::BindingType, ModuleError> {
+    if matches!(
+        view_dimension,
+        wgpu::TextureViewDimension::Cube | wgpu::TextureViewDimension::CubeArray
+    ) {
+        return Err(unsupported(global, "cube storage image"));
+    }
+    let load_store = StorageAccess::LOAD | StorageAccess::STORE;
+    let access = match access {
+        StorageAccess::LOAD => wgpu::StorageTextureAccess::ReadOnly,
+        StorageAccess::STORE => wgpu::StorageTextureAccess::WriteOnly,
+        found if found == load_store => wgpu::StorageTextureAccess::ReadWrite,
+        found if found.contains(StorageAccess::ATOMIC) => {
+            return Err(unsupported(global, "atomic storage image"));
+        }
+        _ => return Err(unsupported(global, "storage image without access")),
+    };
+    Ok(wgpu::BindingType::StorageTexture {
+        access,
+        format: storage_format(format),
+        view_dimension,
+    })
+}
+
+/// The texture format a shader's storage format names.
+fn storage_format(format: StorageFormat) -> wgpu::TextureFormat {
+    use wgpu::TextureFormat as F;
+    match format {
+        StorageFormat::R8Unorm => F::R8Unorm,
+        StorageFormat::R8Snorm => F::R8Snorm,
+        StorageFormat::R8Uint => F::R8Uint,
+        StorageFormat::R8Sint => F::R8Sint,
+        StorageFormat::R16Uint => F::R16Uint,
+        StorageFormat::R16Sint => F::R16Sint,
+        StorageFormat::R16Float => F::R16Float,
+        StorageFormat::Rg8Unorm => F::Rg8Unorm,
+        StorageFormat::Rg8Snorm => F::Rg8Snorm,
+        StorageFormat::Rg8Uint => F::Rg8Uint,
+        StorageFormat::Rg8Sint => F::Rg8Sint,
+        StorageFormat::R32Uint => F::R32Uint,
+        StorageFormat::R32Sint => F::R32Sint,
+        StorageFormat::R32Float => F::R32Float,
+        StorageFormat::Rg16Uint => F::Rg16Uint,
+        StorageFormat::Rg16Sint => F::Rg16Sint,
+        StorageFormat::Rg16Float => F::Rg16Float,
+        StorageFormat::Rgba8Unorm => F::Rgba8Unorm,
+        StorageFormat::Rgba8Snorm => F::Rgba8Snorm,
+        StorageFormat::Rgba8Uint => F::Rgba8Uint,
+        StorageFormat::Rgba8Sint => F::Rgba8Sint,
+        StorageFormat::Bgra8Unorm => F::Bgra8Unorm,
+        StorageFormat::Rgb10a2Uint => F::Rgb10a2Uint,
+        StorageFormat::Rgb10a2Unorm => F::Rgb10a2Unorm,
+        StorageFormat::Rg11b10Ufloat => F::Rg11b10Ufloat,
+        StorageFormat::R64Uint => F::R64Uint,
+        StorageFormat::Rg32Uint => F::Rg32Uint,
+        StorageFormat::Rg32Sint => F::Rg32Sint,
+        StorageFormat::Rg32Float => F::Rg32Float,
+        StorageFormat::Rgba16Uint => F::Rgba16Uint,
+        StorageFormat::Rgba16Sint => F::Rgba16Sint,
+        StorageFormat::Rgba16Float => F::Rgba16Float,
+        StorageFormat::Rgba32Uint => F::Rgba32Uint,
+        StorageFormat::Rgba32Sint => F::Rgba32Sint,
+        StorageFormat::Rgba32Float => F::Rgba32Float,
+        StorageFormat::R16Unorm => F::R16Unorm,
+        StorageFormat::R16Snorm => F::R16Snorm,
+        StorageFormat::Rg16Unorm => F::Rg16Unorm,
+        StorageFormat::Rg16Snorm => F::Rg16Snorm,
+        StorageFormat::Rgba16Unorm => F::Rgba16Unorm,
+        StorageFormat::Rgba16Snorm => F::Rgba16Snorm,
+    }
 }

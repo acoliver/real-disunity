@@ -317,6 +317,8 @@ mod capture_tests;
 #[cfg(test)]
 mod cost_tests;
 #[cfg(test)]
+mod family_tests;
+#[cfg(test)]
 mod program_tests;
 #[cfg(test)]
 mod tests;

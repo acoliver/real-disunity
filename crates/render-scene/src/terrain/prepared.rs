@@ -62,7 +62,9 @@ pub(crate) struct Request<'a> {
 /// The pipelines, sets and geometry a terrain has prepared.
 #[derive(Debug, Default)]
 pub(crate) struct PreparedTerrain {
-    sets: RefCell<BTreeMap<(Surface, usize), PreparedSet>>,
+    /// Sets by the family whose runtime built them, the surface and the page slot: a set binds
+    /// only in the runtime that made it.
+    sets: RefCell<BTreeMap<(u64, Surface, usize), PreparedSet>>,
     pipelines: RefCell<BTreeMap<(u64, Surface, usize), Rc<PreparedPipeline>>>,
     mesh: RefCell<Option<GeometryDraw>>,
     chunks: RefCell<BTreeMap<TerrainChunk, (Buffer, GeometryDraw)>>,
@@ -199,7 +201,7 @@ impl PreparedTerrain {
         let context = request.context;
         let program = context.program(runtime, request.surface)?;
         let mut sets = self.sets.borrow_mut();
-        let set_key = (request.surface, request.slot);
+        let set_key = (context.family().id(), request.surface, request.slot);
         if let std::collections::btree_map::Entry::Vacant(vacant) = sets.entry(set_key) {
             vacant.insert(Self::set(runtime, &program, request)?);
         }

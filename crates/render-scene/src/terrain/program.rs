@@ -412,9 +412,18 @@ pub(crate) struct Description {
 #[derive(Clone, Default)]
 pub(crate) struct Family(Rc<FamilyState>);
 
-#[derive(Default)]
 struct FamilyState {
+    id: u64,
     runtime: RefCell<Option<ProgramRuntime>>,
+}
+
+impl Default for FamilyState {
+    fn default() -> Self {
+        Self {
+            id: FAMILIES.fetch_add(1, Ordering::Relaxed),
+            runtime: RefCell::default(),
+        }
+    }
 }
 
 impl std::fmt::Debug for Family {
@@ -426,6 +435,12 @@ impl std::fmt::Debug for Family {
 }
 
 impl Family {
+    /// Names the runtime, which no other family and no later one shares. A prepared set belongs
+    /// to the runtime that built it, so anything that keeps sets keys them by this.
+    pub(crate) fn id(&self) -> u64 {
+        self.0.id
+    }
+
     /// What the runtime has built so far.
     pub(crate) fn stats(&self) -> RuntimeStats {
         self.0
@@ -449,6 +464,7 @@ impl Family {
     }
 }
 
+static FAMILIES: AtomicU64 = AtomicU64::new(0);
 static CONTEXTS: AtomicU64 = AtomicU64::new(0);
 
 /// The terrain programs of one `ScenePipelines`: made on first use, one per surface source.

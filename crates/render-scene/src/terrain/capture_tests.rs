@@ -63,7 +63,7 @@ impl Source {
         matches!(self, Self::Pages | Self::LayeredPages)
     }
 
-    fn scene(self) -> RenderScene {
+    pub(super) fn scene(self) -> RenderScene {
         if self.layered() {
             scenes::layered()
         } else {

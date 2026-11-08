@@ -56,8 +56,18 @@ pub(super) fn control(context: &GpuContext) -> usize {
         ReceiverReference::StoredProbeShared,
         ReceiverReference::StoredProbeIndependent,
     ] {
+        let selected = frame_at_pose(context, &source, Some(reference), 0.0, pose);
+        let differences: Vec<_> = selected
+            .iter()
+            .zip(&stored)
+            .map(|(a, b)| {
+                assert_eq!(a.len(), b.len());
+                a.iter().zip(b).filter(|(x, y)| x != y).count()
+            })
+            .collect();
+        println!("STREAMED_STORED_CONTROL {reference:?} attachment_bytes={differences:?}");
         assert!(
-            frame_at_pose(context, &source, Some(reference), 0.0, pose) == stored,
+            selected == stored,
             "streamed stored receiver attachments must match: {reference:?}"
         );
     }

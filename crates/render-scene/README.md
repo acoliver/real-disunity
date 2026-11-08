@@ -417,7 +417,9 @@ projection quotient rule before solving the shadow-UV depth gradient. Differenci
 rounded atlas coordinates would magnify cancellation at large world offsets.
 Paired single-sample frames publish those receiver displacements once in the
 metadata prepass. Forward lighting loads them at the raster pixel in both depth
-policies. One receiver uses `Rgba32Float` and `Rg32Float` array textures, 24 bytes per
+policies. Both producer and consumer retain invariant position outputs even
+with independent depth textures. One receiver uses `Rgba32Float` and `Rg32Float`
+array textures, 24 bytes per
 pixel. Nonzero normal bias with live transmission adds an independently evaluated
 opposite-normal receiver in a second array layer, for 48 bytes per pixel. The
 producer evaluates `dpdx(P) + dpdx(N) * bias` and its vertical counterpart; it does

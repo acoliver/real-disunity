@@ -151,6 +151,57 @@ pub fn texel_stats(bytes: &[u8], format: wgpu::TextureFormat) -> TexelStats {
     }
 }
 
+/// The texels of a rectangle of an image as four floats each (red, green, blue, alpha), the
+/// stored value of every channel with no decoding, so an sRGB image's values stay as stored. The
+/// rows of `bytes` are tightly packed and the rectangle `[x, y, width, height]` counts rows from
+/// the first row of `bytes`; the result keeps that order. A format with fewer than four channels
+/// gives zero for the missing green and blue and one for a missing alpha. `None` for a format
+/// this module does not decode (the integer formats among them), a rectangle outside the image
+/// and bytes that do not hold the image.
+#[must_use]
+pub fn rect_rgba(
+    bytes: &[u8],
+    format: wgpu::TextureFormat,
+    size: [u32; 2],
+    rect: [u32; 4],
+) -> Option<Vec<f32>> {
+    use wgpu::TextureFormat as F;
+    let (channel, count) = layout(format)?;
+    let [width, height] = size;
+    let [x, y, rect_width, rect_height] = rect;
+    if rect_width == 0
+        || rect_height == 0
+        || x.checked_add(rect_width)? > width
+        || y.checked_add(rect_height)? > height
+    {
+        return None;
+    }
+    let texel = channel.bytes() * count;
+    let row = width as usize * texel;
+    if bytes.len() < row * height as usize {
+        return None;
+    }
+    let blue_first = matches!(format, F::Bgra8Unorm | F::Bgra8UnormSrgb);
+    let mut found = Vec::with_capacity(rect_width as usize * rect_height as usize * 4);
+    for line in y..y + rect_height {
+        let start = line as usize * row + x as usize * texel;
+        for texel_bytes in bytes[start..start + rect_width as usize * texel].chunks_exact(texel) {
+            let mut rgba = [0.0, 0.0, 0.0, 1.0];
+            for (slot, stored) in rgba
+                .iter_mut()
+                .zip(texel_bytes.chunks_exact(channel.bytes()))
+            {
+                *slot = channel.value(stored);
+            }
+            if blue_first {
+                rgba.swap(0, 2);
+            }
+            found.extend(rgba);
+        }
+    }
+    Some(found)
+}
+
 /// How far a decoded channel may be from the value a texel was cleared to and still count as
 /// that value: more than the step of an 8-bit channel.
 const CLEARED_WITHIN: f32 = 0.005;
@@ -266,5 +317,107 @@ mod tests {
             texels_differing(&[0; 4], wgpu::TextureFormat::R32Uint, clear),
             None
         );
+    }
+
+    #[test]
+    fn a_rectangle_of_rgba8_texels_comes_out_as_their_stored_values_in_row_order() {
+        // 3 wide, 2 high; the texel at column c and row r holds (10c, 10r, 100, 255).
+        let mut bytes = Vec::new();
+        for row in 0..2u8 {
+            for column in 0..3u8 {
+                bytes.extend([10 * column, 10 * row, 100, 255]);
+            }
+        }
+        let found = rect_rgba(
+            &bytes,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [3, 2],
+            [1, 0, 2, 2],
+        );
+        let value = |byte: u8| f32::from(byte) / 255.0;
+        let expected: Vec<f32> = [(1, 0), (2, 0), (1, 1), (2, 1)]
+            .into_iter()
+            .flat_map(|(column, row)| [value(10 * column), value(10 * row), value(100), value(255)])
+            .collect();
+        assert_eq!(found, Some(expected));
+    }
+
+    #[test]
+    fn an_srgb_image_keeps_the_values_it_stores() {
+        let found = rect_rgba(
+            &[128, 64, 0, 255],
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            [1, 1],
+            [0, 0, 1, 1],
+        );
+        assert_eq!(
+            found,
+            Some(vec![128.0 / 255.0, 64.0 / 255.0, 0.0, 1.0]),
+            "the stored bytes over 255, not decoded to linear"
+        );
+    }
+
+    #[test]
+    fn a_bgra_texel_is_reordered_to_red_green_blue_alpha() {
+        let found = rect_rgba(
+            &[51, 102, 204, 255],
+            wgpu::TextureFormat::Bgra8Unorm,
+            [1, 1],
+            [0, 0, 1, 1],
+        );
+        assert_eq!(
+            found,
+            Some(vec![204.0 / 255.0, 102.0 / 255.0, 51.0 / 255.0, 1.0])
+        );
+    }
+
+    #[test]
+    fn missing_channels_read_as_zero_green_and_blue_and_one_alpha() {
+        let one = rect_rgba(
+            &[255, 51],
+            wgpu::TextureFormat::R8Unorm,
+            [2, 1],
+            [0, 0, 2, 1],
+        );
+        assert_eq!(
+            one,
+            Some(vec![1.0, 0.0, 0.0, 1.0, 51.0 / 255.0, 0.0, 0.0, 1.0])
+        );
+        let two = rect_rgba(
+            &halves(&[0x3800, 0x4000]),
+            wgpu::TextureFormat::Rg16Float,
+            [1, 1],
+            [0, 0, 1, 1],
+        );
+        assert_eq!(two, Some(vec![0.5, 2.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn half_and_single_floats_come_out_as_the_floats_they_store() {
+        let half = rect_rgba(
+            &halves(&[0x3800, 0xc000, 0x0000, 0x3c00]),
+            wgpu::TextureFormat::Rgba16Float,
+            [1, 1],
+            [0, 0, 1, 1],
+        );
+        assert_eq!(half, Some(vec![0.5, -2.0, 0.0, 1.0]));
+        let bytes: Vec<u8> = [7.5f32, -0.25]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        let single = rect_rgba(&bytes, wgpu::TextureFormat::R32Float, [2, 1], [1, 0, 1, 1]);
+        assert_eq!(single, Some(vec![-0.25, 0.0, 0.0, 1.0]));
+    }
+
+    #[test]
+    fn integer_formats_a_rectangle_outside_and_short_bytes_give_nothing() {
+        let whole = [0, 0, 0, 0];
+        let r32 = wgpu::TextureFormat::R32Uint;
+        assert_eq!(rect_rgba(&whole, r32, [1, 1], [0, 0, 1, 1]), None);
+        let rgba = wgpu::TextureFormat::Rgba8Unorm;
+        assert_eq!(rect_rgba(&whole, rgba, [1, 1], [0, 0, 2, 1]), None);
+        assert_eq!(rect_rgba(&whole, rgba, [1, 1], [1, 0, 1, 1]), None);
+        assert_eq!(rect_rgba(&whole, rgba, [1, 1], [0, 0, 0, 1]), None);
+        assert_eq!(rect_rgba(&whole[..3], rgba, [1, 1], [0, 0, 1, 1]), None);
     }
 }

@@ -12,6 +12,10 @@
 //! - Recording goes through [`Commands`], which a render pass and a counter implement, so a test
 //!   can count the commands the fixed path issues.
 //! - The page files are read from the frozen snapshots in `terrain/fixtures`.
+//! - Main's depth reuse is part of the freeze: the pipelines carry the depth and stencil state of
+//!   the [`Depth`] mode the selected pipelines were built for, copied from `renderer/depth.rs` as
+//!   it was when the freeze was taken. The copy is the reference for the state the runtime path
+//!   declares, so a change to the live state shows as a capture difference.
 //!
 //! Do not edit the behaviour of this file. A change to terrain output is a change to what the
 //! captures mean and is its own proposal.
@@ -25,7 +29,7 @@ use wgpu::{
     IndexFormat, MultisampleState, PipelineCompilationOptions, PipelineLayout,
     PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline,
     RenderPipelineDescriptor, Sampler, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    StencilState, Texture, TextureFormat, TextureSampleType, TextureView, TextureViewDescriptor,
+    StencilFaceState, StencilOperation, StencilState, Texture, TextureFormat, TextureSampleType, TextureView, TextureViewDescriptor,
     TextureViewDimension, VertexBufferLayout, VertexState, VertexStepMode,
 };
 
@@ -34,13 +38,80 @@ use crate::draw::DrawCount;
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
 use crate::terrain::pages::layered_gpu::textures::{ARRAY_LIMIT, ResidentSource};
 
-const DEPTH_FORMAT: TextureFormat = TextureFormat::Depth32Float;
 const TERRAIN_VERTEX_ENTRY_POINT: &str = "vs_terrain";
 const TERRAIN_FRAGMENT_ENTRY_POINT: &str = "fs_terrain";
 const PLANE_BINDING: u32 = 23;
 const FOOTPRINT: &str = include_str!("../terrain/fixtures/footprint.wgsl");
 const SAMPLING: &str = include_str!("../terrain/fixtures/sampling.wgsl");
 const LAYERED: &str = include_str!("../terrain/fixtures/layered_gpu.wgsl");
+
+/// The depth modes of the fixed path, as `renderer::depth::DepthMode` had them at the freeze.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Depth {
+    Independent,
+    Shared,
+    Prepass,
+    Reuse,
+}
+
+impl From<super::depth::DepthMode> for Depth {
+    fn from(mode: super::depth::DepthMode) -> Self {
+        use super::depth::DepthMode;
+        match mode {
+            DepthMode::Independent => Self::Independent,
+            DepthMode::Shared => Self::Shared,
+            DepthMode::Prepass => Self::Prepass,
+            DepthMode::Reuse => Self::Reuse,
+        }
+    }
+}
+
+impl Depth {
+    pub(crate) const fn format(self) -> TextureFormat {
+        match self {
+            Self::Independent => TextureFormat::Depth32Float,
+            Self::Shared | Self::Prepass | Self::Reuse => TextureFormat::Depth32FloatStencil8,
+        }
+    }
+
+    /// The depth and stencil state of a terrain pipeline, which always writes depth.
+    fn state(self) -> DepthStencilState {
+        let face = StencilFaceState {
+            compare: if self == Self::Reuse {
+                CompareFunction::Equal
+            } else {
+                CompareFunction::Always
+            },
+            fail_op: StencilOperation::Keep,
+            depth_fail_op: StencilOperation::Keep,
+            pass_op: match self {
+                Self::Prepass => StencilOperation::Replace,
+                Self::Reuse => StencilOperation::Zero,
+                _ => StencilOperation::Keep,
+            },
+        };
+        DepthStencilState {
+            format: self.format(),
+            depth_write_enabled: Some(self != Self::Reuse),
+            depth_compare: Some(if self == Self::Reuse {
+                CompareFunction::Equal
+            } else {
+                CompareFunction::Less
+            }),
+            stencil: if matches!(self, Self::Prepass | Self::Reuse) {
+                StencilState {
+                    front: face,
+                    back: face,
+                    read_mask: 1,
+                    write_mask: 1,
+                }
+            } else {
+                StencilState::default()
+            },
+            bias: DepthBiasState::default(),
+        }
+    }
+}
 
 /// The commands the fixed path issues into a pass.
 pub(crate) trait Commands {
@@ -118,6 +189,7 @@ pub(crate) struct Build<'a> {
     pub screen: Option<&'a BindGroupLayout>,
     pub options: ([u32; 7], FrontFace),
     pub target: (TextureFormat, u32),
+    pub depth: Depth,
 }
 
 impl<'a> Build<'a> {
@@ -132,6 +204,7 @@ impl<'a> Build<'a> {
             screen: parts.screen,
             options: parts.options,
             target: (pipelines.color_format, pipelines.samples),
+            depth: pipelines.depth.into(),
         }
     }
 }
@@ -169,7 +242,7 @@ impl Pipelines {
             build.terrain_source,
             &buffers,
             &targets,
-            (samples, &constants, build.options.1),
+            (samples, &constants, build.options.1, build.depth),
         );
         Self {
             terrain,
@@ -297,9 +370,9 @@ fn build_terrain(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], FrontFace),
+    target: (u32, &[(&str, f64)], FrontFace, Depth),
 ) -> RenderPipeline {
-    let (samples, constants, front_face) = target;
+    let (samples, constants, front_face, depth) = target;
     let module = scene_shader(device, "terrain", source);
 
     device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -320,13 +393,7 @@ fn build_terrain(
             polygon_mode: PolygonMode::Fill,
             conservative: false,
         },
-        depth_stencil: Some(DepthStencilState {
-            format: DEPTH_FORMAT,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(CompareFunction::Less),
-            stencil: StencilState::default(),
-            bias: DepthBiasState::default(),
-        }),
+        depth_stencil: Some(depth.state()),
         multisample: MultisampleState {
             count: samples,
             ..Default::default()
@@ -351,7 +418,7 @@ fn build_cached(
     source: (&str, bool),
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], FrontFace),
+    target: (u32, &[(&str, f64)], FrontFace, Depth),
 ) -> (RenderPipeline, BindGroupLayout, RenderPipeline) {
     let (source, layered) = source;
     let source = if layered {
@@ -433,7 +500,7 @@ fn build_layered(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], FrontFace),
+    target: (u32, &[(&str, f64)], FrontFace, Depth),
 ) -> Option<LayeredPipelines> {
     if !crate::terrain::pages::layered_gpu::supported(&device.limits()) {
         return None;
@@ -457,7 +524,7 @@ fn build_terrain_set(
     source: &str,
     buffers: &[Option<VertexBufferLayout<'_>>],
     targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], FrontFace),
+    target: (u32, &[(&str, f64)], FrontFace, Depth),
 ) -> (
     RenderPipeline,
     BindGroupLayout,

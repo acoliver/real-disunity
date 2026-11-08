@@ -623,10 +623,13 @@ fn default_disk_uniform_and_rendered_bytes_match_fixed_radius() {
             [0, 0, 0, 0, 32],
             &fixed,
         );
-        water
-            .specializations
-            .borrow_mut()
-            .insert([0, 0, 0, 0, 32], [fixed_pipeline.clone(), fixed_pipeline]);
+        water.specializations.borrow_mut().insert(
+            (
+                [0, 0, 0, 0, 32],
+                crate::renderer::depth::DepthMode::Independent,
+            ),
+            [fixed_pipeline.clone(), fixed_pipeline],
+        );
         draw_water_slot(&context, &renderer, 0);
         // The fixed-radius source folds cos(0.0027) and sin(0.0027) like the
         // default branch of the production source, so the two are mathematically

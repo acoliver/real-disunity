@@ -38,7 +38,7 @@ mod compaction;
 mod refresh;
 mod resources;
 #[cfg(test)]
-pub(crate) use resources::receiver_sources;
+pub(crate) use resources::{depth_source, receiver_sources};
 mod schedule;
 mod settings;
 
@@ -421,16 +421,8 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         scheduler: Option<&mut crate::compositor::FrameRenderer>,
     ) -> Result<(), ShadowError> {
-        self.begin_encode(encoder)?;
-        self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
-    }
-
-    /// Refuses what this path cannot draw and prepares the resident quads for its pass, before
-    /// the frame prepares or records anything else.
-    fn begin_encode(&mut self, encoder: &wgpu::CommandEncoder) -> Result<(), ShadowError> {
         self.refuse_programs()?;
-        self.gpu.prepare_dynamic(encoder, &self.pipelines)?;
-        Ok(())
+        self.encode_fitted(context, view, attachments, encoder, (scheduler, None))
     }
 
     /// Admitted player program draws are drawn by the configured compositor only.
@@ -451,7 +443,7 @@ impl ShadowedScene {
         encoder: &mut wgpu::CommandEncoder,
         fitting: (sdsm::AdoptedFit, sdsm::RangeFit),
     ) -> Result<(), ShadowError> {
-        self.begin_encode(encoder)?;
+        self.refuse_programs()?;
         self.encode_fitted(
             context,
             view,
@@ -522,6 +514,9 @@ impl ShadowedScene {
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
         scheduler.prepare_scene_inputs(context.device(), &self.gpu);
+        let depth_mode = scheduler.forward_depth(&self.gpu, depth);
+        let selected = self.pipelines.for_depth(depth_mode);
+        self.gpu.prepare_dynamic(encoder, &selected)?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
@@ -542,14 +537,14 @@ impl ShadowedScene {
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
         let mut schedule =
-            schedule::ShadowSchedule::new(&map.depth, color, depth, &self.pipelines, refresh)?;
-        schedule.screen_space(scheduler, self.pipelines.writes_velocity())?;
+            schedule::ShadowSchedule::new(&map.depth, color, depth, &selected, refresh)?;
+        schedule.screen_space(scheduler, selected.writes_velocity(), depth_mode)?;
         schedule.celestial(&self.gpu, context.device(), color.size());
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),
-            screen: scheduler.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
+            screen: scheduler.geometry_for_depth(depth_mode),
             gpu: &mut self.gpu,
-            pipelines: &self.pipelines,
+            pipelines: &selected,
             depth_pipelines: &self.depth_pipelines,
             terrain_depth_pipeline: &self.terrain_depth_pipeline,
             depth_frames: &self.depth_frames,

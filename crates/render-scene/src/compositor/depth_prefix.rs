@@ -34,13 +34,22 @@ impl FrameRenderer {
         let screen_declaration = source.passes.schedule_metadata(&mut passes, &mut views)?;
         let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
         prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-        prepass.depth_format = Some(wgpu::TextureFormat::Depth32Float);
+        prepass.depth_format = Some(source.depth.format());
+        let depth_mode = if source.depth.format().has_stencil_aspect() {
+            if gpu.has_relief() {
+                crate::renderer::depth::DepthMode::Shared
+            } else {
+                crate::renderer::depth::DepthMode::Reuse
+            }
+        } else {
+            crate::renderer::depth::DepthMode::Independent
+        };
         let mut geometry = super::SceneFeature {
             publications: crate::draw::DrawPublications::default(),
             gpu,
             pipelines,
             frame: *frame,
-            screen: Some(source.geometry.clone()),
+            screen: Some(source.geometry_for_depth(depth_mode)),
             programs: None,
         };
         let mut screen = crate::ssao::passes::ScreenFeature {

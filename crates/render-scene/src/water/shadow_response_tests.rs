@@ -197,10 +197,10 @@ fn response_render_source(
         terms::mask(&water.settings),
     ];
     let pipeline = pipeline_with_source(context.device(), 1, &water.layout, false, options, source);
-    water
-        .specializations
-        .borrow_mut()
-        .insert(options, [pipeline.clone(), pipeline]);
+    water.specializations.borrow_mut().insert(
+        (options, crate::renderer::depth::DepthMode::Independent),
+        [pipeline.clone(), pipeline],
+    );
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),

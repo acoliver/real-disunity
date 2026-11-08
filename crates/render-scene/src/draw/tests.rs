@@ -675,3 +675,5 @@ mod impostor_fixes;
 mod impostor_policy;
 
 mod statistics;
+
+mod depth_eligibility;

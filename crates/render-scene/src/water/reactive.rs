@@ -35,7 +35,7 @@ const ENTRY: &str = "fs_water_reactive";
 #[derive(Clone, Debug, Default)]
 pub(super) struct Reactive {
     enabled: bool,
-    pipelines: Rc<RefCell<BTreeMap<[u32; 5], wgpu::RenderPipeline>>>,
+    pipelines: Rc<RefCell<BTreeMap<super::RasterKey, wgpu::RenderPipeline>>>,
 }
 
 /// What a frame needs to draw the mask pass: the mask and one pipeline per body.
@@ -85,6 +85,7 @@ fn pipeline(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     options: [u32; 5],
+    depth: crate::renderer::depth::DepthMode,
 ) -> wgpu::RenderPipeline {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("water reactive mask"),
@@ -115,7 +116,10 @@ fn pipeline(
             targets: &[Some(target())],
         }),
         primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(depth_state()),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: depth.format(),
+            ..depth_state()
+        }),
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
@@ -150,8 +154,8 @@ impl Water {
                 self.reactive
                     .pipelines
                     .borrow_mut()
-                    .entry(selected)
-                    .or_insert_with(|| pipeline(device, &self.layout, selected))
+                    .entry((selected, self.depth))
+                    .or_insert_with(|| pipeline(device, &self.layout, selected, self.depth))
                     .clone()
             })
             .collect();
@@ -187,7 +191,7 @@ impl WaterFeature {
         views.push(view);
         let mut feature = FeaturePass::new(PassSlot::TransparentWaterMask);
         feature.color_format = Some(TEMPORAL_MASK_FORMAT);
-        feature.depth_format = Some(wgpu::TextureFormat::Depth32Float);
+        feature.depth_format = Some(self.water.depth.format());
         Ok(Some(feature))
     }
 

@@ -68,10 +68,10 @@ fn probe_source(context: &GpuContext, body: SceneWaterBody, source: &str) -> Vec
         };
     let options = [0, 0, 0, 0, mask];
     let pipeline = pipeline_with_source(context.device(), 1, &water.layout, false, options, source);
-    water
-        .specializations
-        .borrow_mut()
-        .insert(options, [pipeline.clone(), pipeline]);
+    water.specializations.borrow_mut().insert(
+        (options, crate::renderer::depth::DepthMode::Independent),
+        [pipeline.clone(), pipeline],
+    );
     seed_tests::render_probe(context, &mut renderer)
 }
 

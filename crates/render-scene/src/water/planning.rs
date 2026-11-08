@@ -29,7 +29,9 @@ pub(crate) fn opaque_source<'a>(
         .iter()
         .find(|view| view.resource() == attachment.resource)
         .ok_or(FrameError::AttachmentView(attachment.resource))?;
-    let format = if depth {
+    let format = if depth && attachment.format == wgpu::TextureFormat::Depth32FloatStencil8 {
+        attachment.format
+    } else if depth {
         wgpu::TextureFormat::Depth32Float
     } else {
         config.format

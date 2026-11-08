@@ -230,7 +230,13 @@ fn validate_representation(
     sampling: MetadataSampling,
 ) -> Result<(), MetadataError> {
     let expected = match meaning {
-        MetadataMeaning::DeviceDepth => TextureFormat::Depth32Float,
+        MetadataMeaning::DeviceDepth => {
+            if format == TextureFormat::Depth32FloatStencil8 {
+                format
+            } else {
+                TextureFormat::Depth32Float
+            }
+        }
         MetadataMeaning::ConservativeDepthMeters | MetadataMeaning::AverageDepthMeters => {
             TextureFormat::R32Float
         }

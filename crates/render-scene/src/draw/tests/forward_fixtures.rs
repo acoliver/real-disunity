@@ -130,7 +130,7 @@ fn material_channels(scene: &RenderScene) -> RenderScene {
     replace_material(scene, &material)
 }
 
-pub(super) fn scenes() -> Vec<(&'static str, RenderScene, CameraPose)> {
+pub(crate) fn scenes() -> Vec<(&'static str, RenderScene, CameraPose)> {
     let mut scenes = alpha_fixtures::scenes();
     let (_, first, pose) = scenes[0].clone();
     for (name, relief, opaque) in [

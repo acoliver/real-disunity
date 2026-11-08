@@ -34,8 +34,8 @@ pub(crate) fn install_source(
         compiled_options[4] |= shadow_response::SPECIALIZATION;
     }
     let pipeline = pipeline_with_source(device, 4, &water.layout, true, compiled_options, &source);
-    water
-        .specializations
-        .borrow_mut()
-        .insert(options, [pipeline.clone(), pipeline]);
+    water.specializations.borrow_mut().insert(
+        (options, crate::renderer::depth::DepthMode::Independent),
+        [pipeline.clone(), pipeline],
+    );
 }

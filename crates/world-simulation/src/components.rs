@@ -62,6 +62,11 @@ pub enum ComponentDesc {
     Animator {
         enabled: bool,
     },
+    /// A camera's own sky. Its material stays in the managed component; the world holds the
+    /// enabled flag and the component's place on its object.
+    Skybox {
+        enabled: bool,
+    },
     /// A particle system. Its settings and particles stay in the managed component.
     ParticleSystem,
     /// A sorting group; its layer and order sort the object's renderers as one unit.
@@ -110,6 +115,7 @@ impl ComponentDesc {
             | Self::GUILayer { .. }
             | Self::FlareLayer { .. }
             | Self::Animator { .. }
+            | Self::Skybox { .. }
             | Self::ParticleSystem
             | Self::SortingGroup(_) => Ok(()),
             #[cfg(feature = "ui")]

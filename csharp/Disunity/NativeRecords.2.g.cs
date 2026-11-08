@@ -472,6 +472,47 @@ namespace Disunity.Native
         public float offset_y;
     }
 
+    /// <summary>
+    ///  The fields of a list that draws a culling result's renderers. `tags_len` is the byte length of
+    ///  the pass tag names (LightMode values) that the call's `tags` pointer holds, UTF-8 names joined
+    ///  by zero bytes. `override_material` is 0 for none. The queue range is inclusive.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityDrawRendererList
+    {
+        public ulong cull;
+        public ulong override_material;
+        public int queue_min;
+        public int queue_max;
+        public uint layer_mask;
+        public uint rendering_layer_mask;
+        public uint sorting;
+        public uint per_object;
+        public int override_pass;
+        public uint tags_len;
+    }
+
+    /// <summary>
+    ///  The fields of a list of one light's shadow casters. `plane_count` is the number of split
+    ///  culling planes (4 floats each) that the call's `planes` pointer holds. The split culling sphere
+    ///  is the centre in `sphere_x`, `sphere_y` and `sphere_z` and the radius in `sphere_radius`.
+    ///  `objects_filter` is 0 for all objects, 1 for dynamic ones and 2 for static ones; `projection`
+    ///  is 0 for unknown, 1 for perspective and 2 for orthographic.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe partial struct DisunityShadowRendererList
+    {
+        public float sphere_x;
+        public float sphere_y;
+        public float sphere_z;
+        public float sphere_radius;
+        public int light_index;
+        public uint plane_count;
+        public uint objects_filter;
+        public uint projection;
+        public ulong cull;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe partial struct DisunityUiDraw
     {

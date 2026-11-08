@@ -234,11 +234,25 @@ impl SceneSource {
         let mut found = Vec::new();
         let planned = plan_material(
             &material,
-            |reference| self.asset(&key.0, reference),
+            |reference| self.material_reference(&key.0, reference),
             &mut found,
         );
         self.differences.append(&mut found);
         Ok(PlanAsset::Material { material: planned })
+    }
+
+    /// The asset index for a reference of a material in `owner`: a texture it binds is planned
+    /// with it, before the material, as a script asset's texture is; anything else is resolved as
+    /// any scene reference.
+    fn material_reference(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
+        let texture = self.files.referenced_file(owner, pptr).is_ok_and(|file| {
+            class_of(&mut self.files, &(file, pptr.path_id)) == Some(ClassId::TEXTURE_2D)
+        });
+        if texture {
+            self.texture_asset(owner, pptr)
+        } else {
+            self.asset(owner, pptr)
+        }
     }
 }
 

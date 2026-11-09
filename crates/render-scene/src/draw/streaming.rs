@@ -317,9 +317,34 @@ impl Streaming {
         pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
         terrain: &super::GpuTerrain,
     ) -> super::DrawCount {
+        self.record_prepared(pass, pipeline, terrain, |_| true)
+    }
+
+    /// Records the resident chunks whose world bounds `keep` accepts, as
+    /// [`draw_prepared`](Self::draw_prepared) does.
+    pub(super) fn draw_prepared_where<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        terrain: &super::GpuTerrain,
+        keep: impl Fn([glam::Vec3; 2]) -> bool,
+    ) -> super::DrawCount {
+        let scene = self.scene.terrain().expect("terrain");
+        self.record_prepared(pass, pipeline, terrain, |chunk| {
+            keep(crate::terrain::streaming::chunk_bounds(scene, *chunk))
+        })
+    }
+
+    fn record_prepared<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        terrain: &super::GpuTerrain,
+        keep: impl Fn(&TerrainChunk) -> bool,
+    ) -> super::DrawCount {
         let mut count = super::DrawCount::default();
         self.with_residents(Publications::current().as_ref(), |residents, _| {
-            for (chunk, lod) in residents {
+            for (chunk, lod) in residents.iter().filter(|(chunk, _)| keep(chunk)) {
                 self.geometry.draw(
                     pass,
                     pipeline,

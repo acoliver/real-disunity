@@ -28,6 +28,7 @@ use crate::frame::FrameUniform;
 use crate::renderer::ScenePipelines;
 use crate::renderer::depth::DepthMode;
 
+pub(in crate::terrain) mod caster;
 mod legacy;
 pub(in crate::terrain) mod prepass;
 pub(super) mod scenes;

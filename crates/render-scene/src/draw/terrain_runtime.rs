@@ -134,21 +134,30 @@ impl SceneGpu {
         let count = if let Some(streaming) = &terrain.streaming {
             streaming.draw_prepared(pass, &pipeline, terrain)
         } else {
-            let lod = terrain.lod.as_ref().expect("nonstreaming mesh");
-            terrain.prepared.draw_mesh(
-                pass,
-                &pipeline,
-                (&lod.vertices, &lod.indices, lod.index_count),
-                &terrain.instances,
-            );
-            DrawCount {
-                calls: 1,
-                instances: 1,
-            }
+            Self::draw_terrain_mesh(pass, &pipeline, terrain)
         };
         #[cfg(test)]
         paths::runtime();
         (count, true)
+    }
+
+    /// Records the one mesh of a terrain that is not streamed through a prepared pipeline.
+    pub(super) fn draw_terrain_mesh<P: worldrunner_render_program::runtime::PassCommands>(
+        pass: &mut P,
+        pipeline: &PreparedPipeline,
+        terrain: &GpuTerrain,
+    ) -> DrawCount {
+        let lod = terrain.lod.as_ref().expect("nonstreaming mesh");
+        terrain.prepared.draw_mesh(
+            pass,
+            pipeline,
+            (&lod.vertices, &lod.indices, lod.index_count),
+            &terrain.instances,
+        );
+        DrawCount {
+            calls: 1,
+            instances: 1,
+        }
     }
 
     /// Records the terrain through the fixed pipelines, for the passes that have not moved to

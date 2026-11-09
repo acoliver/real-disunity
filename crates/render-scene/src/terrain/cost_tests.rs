@@ -387,3 +387,75 @@ fn one_terrain_prepares_material_sets_in_each_pipeline_context() {
     assert_eq!(first.pipelines.terrain_runtime_stats(), stats[0]);
     assert_eq!(second.pipelines.terrain_runtime_stats(), stats[1]);
 }
+
+/// The shadow caster prepares its pipelines before the passes open, one set for each cascade's
+/// light frame and one pipeline for all of them, records the fixed caster's commands
+/// (`2 + 4C`) in every cascade, and builds nothing in the frames after.
+#[test]
+fn the_shadow_caster_prepares_before_its_passes_records_the_fixed_commands_and_builds_nothing_in_steady_state()
+ {
+    use super::capture_tests::caster::{BIAS, Casting, render_map};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let built = build(context.device(), &CONFIGS[2]);
+    let frame = scenes::frame(scenes::pose());
+    let rig = Rig::new(
+        &context,
+        &built.pipelines,
+        &scenes::streamed(9),
+        (Source::Plain, frame),
+    );
+    settle(&context, &rig.gpu, &frame, 6);
+    let casting = Casting::new(&context, &built.pipelines, &frame, BIAS);
+    let before = built.pipelines.terrain_runtime_stats();
+    casting
+        .caster
+        .prepare(casting.frames.iter().map(|(buffer, _)| buffer))
+        .unwrap();
+    let prepared = built.pipelines.terrain_runtime_stats();
+    assert_eq!(prepared.pipelines_built, before.pipelines_built + 1);
+    assert_eq!(prepared.sets_prepared, before.sets_prepared + 4);
+    let mut drawn_chunks = 0;
+    for index in 0..4 {
+        let pipeline = casting.caster.pipeline(&casting.frames[index].0).unwrap();
+        let mut recorded = Recorded::default();
+        let drawn = rig.gpu.draw_terrain_depth(
+            &mut recorded,
+            &pipeline,
+            (u32::try_from(index).unwrap(), casting.matrices[index]),
+        );
+        let mut fixed = Counted::default();
+        let fixed_drawn = casting.fixed_draw(&mut fixed, (&context, &rig.gpu), index);
+        assert_eq!(drawn, fixed_drawn, "cascade {index}");
+        assert_eq!(recorded.0, fixed, "cascade {index}");
+        if drawn.calls > 0 {
+            assert_eq!(
+                fixed.total(),
+                2 + 4 * u32::try_from(drawn.calls).unwrap(),
+                "cascade {index}"
+            );
+        }
+        drawn_chunks += drawn.calls;
+    }
+    assert!(drawn_chunks > 0);
+    for _ in 0..5 {
+        for index in 0..4 {
+            let pipeline = casting.caster.pipeline(&casting.frames[index].0).unwrap();
+            render_map(&context, |pass| {
+                rig.gpu.draw_terrain_depth(
+                    pass,
+                    &pipeline,
+                    (u32::try_from(index).unwrap(), casting.matrices[index]),
+                );
+            });
+        }
+    }
+    assert_eq!(
+        built.pipelines.terrain_runtime_stats(),
+        prepared,
+        "steady-state shadow passes build nothing"
+    );
+    println!(
+        "TERRAIN-COST shadow_caster chunks_over_four_cascades={drawn_chunks} before={before:?} after_prepare={prepared:?} after_twenty_cascade_passes=unchanged"
+    );
+}

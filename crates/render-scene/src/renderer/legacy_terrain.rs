@@ -20,6 +20,7 @@
 //! Do not edit the behaviour of this file. A change to terrain output is a change to what the
 //! captures mean and is its own proposal.
 
+mod caster;
 mod commands;
 mod depth;
 mod draw;
@@ -27,6 +28,7 @@ mod groups;
 mod layouts;
 mod pipelines;
 
+pub(crate) use caster::{build_terrain_depth, draw_terrain_depth};
 pub(crate) use commands::{Commands, Counted};
 pub(crate) use depth::Depth;
 pub(crate) use draw::{Chunk, Geometry, Surface, draw_terrain_color};

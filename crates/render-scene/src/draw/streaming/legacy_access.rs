@@ -51,6 +51,10 @@ impl Streaming {
                 vertices: lod.vertices.clone(),
                 indices: lod.indices.clone(),
                 index_count: lod.index_count,
+                bounds: crate::terrain::streaming::chunk_bounds(
+                    self.scene.terrain().expect("terrain"),
+                    *chunk,
+                ),
             })
             .collect()
     }

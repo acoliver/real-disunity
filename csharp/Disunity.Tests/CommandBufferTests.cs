@@ -60,6 +60,7 @@ internal static class CommandBufferTests
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.ClearRandomWriteTargets(), "a released buffer", "CommandBuffer");
         ExecutionFlagsAreSetOnAnEmptyBuffer();
+        ShadingRatesRecordNothing();
         FencesHavePassedAndRecordNothing();
     }
 
@@ -78,6 +79,24 @@ internal static class CommandBufferTests
         Throws<ObjectDisposedException>(() => buffer.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation, SynchronisationStageFlags.PixelProcessing),
             "a fence on a released buffer", "CommandBuffer");
         Throws<ObjectDisposedException>(() => buffer.WaitOnAsyncGraphicsFence(default, SynchronisationStageFlags.PixelProcessing), "a wait on a released buffer", "CommandBuffer");
+    }
+
+    private static void ShadingRatesRecordNothing()
+    {
+        var buffer = new CommandBuffer();
+        buffer.SetShadingRateFragmentSize(ShadingRateFragmentSize.FragmentSize2x2);
+        buffer.SetShadingRateCombiner(ShadingRateCombinerStage.Fragment, ShadingRateCombiner.Max);
+        buffer.SetShadingRateImage(new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget));
+        buffer.ResetShadingRate();
+        Ensure(buffer.commandCount == 0, "shading-rate members record nothing");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.ResetShadingRate(), "a shading-rate reset on a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.SetShadingRateFragmentSize(ShadingRateFragmentSize.FragmentSize1x1),
+            "a fragment size on a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.SetShadingRateCombiner(ShadingRateCombinerStage.Primitive, ShadingRateCombiner.Keep),
+            "a combiner on a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.SetShadingRateImage(new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget)),
+            "a shading-rate image on a released buffer", "CommandBuffer");
     }
 
     private static void ExecutionFlagsAreSetOnAnEmptyBuffer()

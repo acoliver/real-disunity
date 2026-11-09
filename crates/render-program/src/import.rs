@@ -221,7 +221,7 @@ impl ProgramRuntime {
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
         self.authority.check_device()?;
-        let colors = draw.state.check_targets(signature.color_count())?;
+        let colors = draw.state.check_targets(signature.color_count(), signature.samples())?;
         if draw.instances.start > draw.instances.end {
             return Err(ProgramError::InstanceRange {
                 start: draw.instances.start,

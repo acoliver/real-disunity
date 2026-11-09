@@ -657,6 +657,37 @@ let handle = runtime.register_program(ProgramDesc::single(
 - **Cost.** The parsed module is shared and so is the compiled `ShaderModule`: overrides apply when a pipeline is created, so two stages of one source that differ only in their overrides add one pipeline and no module to `RuntimeStats`. The values are part of the stage's `content_key`, and so of the pipeline's cache key, and equal values share a pipeline.
 - **Stages.** Vertex, fragment and compute stages each take their own values, as the stages have their own entry points. A constant with no default that the entry point uses, and that no call set, is the GPU's to refuse when the pipeline is created, as `ProgramError::Gpu`.
 
+## Alpha to coverage
+
+In a pass of more than one sample, alpha to coverage lets the fragment's alpha decide how many of a pixel's samples the fragment covers, which gives a cut-out edge such as foliage anti-aliasing without blending or sorting. It is a state: `RasterState::alpha_to_coverage`. The pipeline takes its sample count from the signature and sets alpha to coverage from the state, so the same program draws with and without it as two pipelines.
+
+```rust,no_run
+# use worldrunner_render_program::error::ProgramError;
+# use worldrunner_render_program::runtime::{ImportedDraw, ProgramRuntime, TargetSignature};
+# use worldrunner_render_program::state::RenderState;
+# fn cut_out(
+#     runtime: &mut ProgramRuntime,
+#     draw: &ImportedDraw<'_>,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// `draw.state` is `RenderState { raster: RasterState { alpha_to_coverage: true, .. }, .. }`.
+let four = TargetSignature::attachments(&[wgpu::TextureFormat::Rgba16Float], None, 4)?;
+let prepared = runtime.prepare_imported_draw(draw, four)?;
+
+// A single-sample pass has no samples to drop, so the same state is refused by name.
+let one = TargetSignature::attachments(&[wgpu::TextureFormat::Rgba16Float], None, 1)?;
+assert_eq!(
+    runtime.prepare_imported_draw(draw, one).err(),
+    Some(ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }),
+);
+# let _ = prepared;
+# Ok(())
+# }
+```
+
+- **Where.** `prepare_imported_draw` and `prepare_pipeline` take it with any signature of 2, 4, 8 or 16 samples. `RenderState::check_targets(colors, samples)` checks a state against a signature. `prepare_draw`, materials and registered programs draw into one single-sample target, and `RenderState::check_drawable` refuses it for them with `ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }`.
+- **How many samples.** The coverage is the device's to compute from the alpha of colour attachment 0. `tests/lent/coverage.rs` renders a white fragment of alpha 0, 0.25, 0.5, 0.75 and 1 at 4x into transparent black, resolves into `Rgba16Float` and reads back. Every pixel covers 0, 1, 2, 3 and 4 samples on lavapipe and on the Radeon. Those alphas are exact multiples of a quarter, where the count does not depend on how a device rounds or spreads its samples; an alpha between two multiples is the device's to round, and the test asserts nothing about it.
+- **Mask.** The pipeline's sample mask is all ones.
+
 ## Clip space and depth
 
 A WGSL position is used as written. Clip Y is up, so positive Y lands in the top rows of the target, and depth runs from 0 at the near plane to 1 at the far plane, as wgpu defines them. A counter-clockwise triangle in clip space is a front face under `RenderState::opaque_depth`. SPIR-V stages keep the convention of the SPIR-V reader the crate uses, which flips the position's Y: the same vertices land in the bottom rows. Pick one source format per program and test an asymmetric scene when you switch.

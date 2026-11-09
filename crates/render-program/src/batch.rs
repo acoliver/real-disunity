@@ -316,7 +316,7 @@ impl ProgramRuntime {
         signature: TargetSignature,
     ) -> Result<PreparedPipeline, ProgramError> {
         self.authority.check_device()?;
-        let colors = draw.state.check_targets(signature.color_count())?;
+        let colors = draw.state.check_targets(signature.color_count(), signature.samples())?;
         let layouts = draw.layout.views();
         let pipeline = self.render_pipeline(&PipelineRequest {
             program: draw.program,

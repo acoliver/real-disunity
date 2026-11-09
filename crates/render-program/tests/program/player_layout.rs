@@ -136,7 +136,7 @@ fn a_code_for_another_dimension_than_the_module_has_is_a_mismatch() {
 }
 
 #[test]
-fn dimension_codes_not_measured_and_storage_images_are_named_errors() {
+fn dimension_codes_not_measured_are_named_errors() {
     let module = sampled("texture_2d<f32>", "vec2<f32>(0.5)");
     let build = |parameters| {
         let stage = fragment(&module, pair_table(), parameters);
@@ -153,17 +153,6 @@ fn dimension_codes_not_measured_and_storage_images_are_named_errors() {
         build(texture_pair(7)),
         LayoutError::UnsupportedParameter {
             kind: "texture dimension 7".to_owned()
-        }
-    );
-    let image = parameters(vec![
-        ("t", slot(0, 0, FRAGMENT), texture_kind(4, None)),
-        ("s", slot(0, 1, FRAGMENT), sampler_kind()),
-        ("img", slot(0, 5, FRAGMENT), ResourceKind::StorageImage),
-    ]);
-    assert_eq!(
-        build(image),
-        LayoutError::UnsupportedParameter {
-            kind: "storage image".to_owned()
         }
     );
 }

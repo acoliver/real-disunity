@@ -5,7 +5,8 @@
 //!
 //! - A constant buffer, texture, buffer or writable buffer binds at the descriptor set and
 //!   binding its slot gives. A writable buffer is a buffer, as the layout decides its access from
-//!   the module. A storage image is a storage image, which the layout refuses.
+//!   the module. A storage image is a storage image, and the layout takes its access, format and
+//!   dimension from the module.
 //! - A texture's dimension, which counts as 2 for a 2D texture, 3 for a 3D one and 5 for a 2D
 //!   array, becomes the code a graphics variant uses, twice the number.
 //! - A texture's separate sampler is bound at the texture's set and the binding the texture

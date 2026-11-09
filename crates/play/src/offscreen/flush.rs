@@ -311,6 +311,9 @@ impl OffscreenHost {
     ) -> Result<FlushOutcome, FlushError> {
         let live_before = self.runtime.live_bytes();
         let started = Instant::now();
+        // The render textures a kernel writes need storage binding usage when they are made.
+        let storage = self.compute.storage_textures(&self.runtime, snapshot);
+        self.state.bind_as_storage(storage);
         let mut adapted =
             self.adapter
                 .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);

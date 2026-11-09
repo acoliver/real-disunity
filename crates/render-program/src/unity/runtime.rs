@@ -184,6 +184,19 @@ impl ProgramRuntime {
         )
     }
 
+    /// Checks the storage images of a dispatch without recording it; see
+    /// [`crate::runtime::ProgramRuntime::check_storage_images`].
+    ///
+    /// # Errors
+    /// Fails like the neutral check.
+    pub fn check_storage_images(
+        &self,
+        program: &ComputeProgram,
+        bound: &[BoundResource],
+    ) -> Result<(), ProgramError> {
+        self.0.check_storage_images(&program.0, bound)
+    }
+
     /// Records the geometry's draw into `encoder`; see [`crate::runtime::ProgramRuntime::draw`].
     ///
     /// # Errors

@@ -7,8 +7,8 @@ use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 
 use crate::binding::ResourceLayout;
 use crate::constants::BoundConstantLayout;
-pub use crate::reflect::Reflected;
 use crate::reflect::reflect;
+pub use crate::reflect::{Reflected, StorageImageUse};
 
 /// A pipeline stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -32,7 +32,7 @@ struct Params { scale: vec4<f32> }
     output[id.y * 4u + id.x] = textureLoad(heights, vec2<i32>(id.xy), 0).x * params.scale.x;
 }";
 
-/// A kernel storing into a storage texture, which the renderer does not bind.
+/// A kernel storing into a storage texture.
 const PAINT: &str = "
 @group(0) @binding(0) var image: texture_storage_2d<rgba8unorm, write>;
 @compute @workgroup_size(2, 2, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -52,6 +52,13 @@ fn copy_variant() -> Variant {
     variant.constant_buffers = vec![Binding::constant_buffer("CGlobals", 0, 2)];
     variant.textures = vec![Binding::texture("_Heights", 0, None, 2)];
     variant.writable = vec![Binding::writable("_Output", 1)];
+    variant
+}
+
+/// The paint kernel's one variant, which binds the storage texture it writes.
+pub(super) fn paint_variant() -> Variant {
+    let mut variant = Variant::new(&code(PAINT), [2, 2, 1]);
+    variant.writable = vec![Binding::image("_Image", 0, 2)];
     variant
 }
 
@@ -185,7 +192,7 @@ fn the_kernel_is_the_one_at_the_index_in_the_order_the_object_lists_them() {
     let object = shader_bytes(
         "Two",
         vec![
-            Kernel::single("Paint", Variant::new(&code(PAINT), [2, 2, 1])),
+            Kernel::single("Paint", paint_variant()),
             Kernel::single("Copy", copy_variant()),
         ],
     );
@@ -193,10 +200,16 @@ fn the_kernel_is_the_one_at_the_index_in_the_order_the_object_lists_them() {
     let shader = world_shader("resources.assets", 1, &["Paint", "Copy"]);
     let second = kernels.load(&shader, 1).unwrap();
     assert_eq!(second.texture_targets().unwrap().len(), 1);
-    // The first is a storage texture, which the renderer does not bind.
-    let error = kernels.load(&shader, 0).unwrap_err();
-    assert!(matches!(error, ComputeLoadError::Program(_)), "{error}");
-    assert_eq!(error.name(), "Program");
+    // The first writes a storage texture, which it names as the kernel declares it.
+    let first = kernels.load(&shader, 0).unwrap();
+    let images: Vec<_> = first
+        .image_targets()
+        .unwrap()
+        .iter()
+        .map(|t| (t.name.resolve(&[]).unwrap().to_owned(), t.set, t.binding))
+        .collect();
+    assert_eq!(images, [("_Image".to_owned(), 0, 0)]);
+    assert!(first.texture_targets().unwrap().is_empty());
 }
 
 #[test]

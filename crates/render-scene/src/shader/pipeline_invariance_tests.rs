@@ -51,7 +51,7 @@ fn family((object, terrain): (String, String), paired: bool) {
             &["vs_unlit"],
             false,
         );
-        for source in crate::renderer::terrain_test_sources(&terrain) {
+        for source in crate::terrain::program::source::test_sources(&terrain) {
             check(&source, &["vs_terrain"], paired);
         }
     }

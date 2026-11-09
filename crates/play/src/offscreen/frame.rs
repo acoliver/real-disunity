@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
+    Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
@@ -807,6 +807,16 @@ impl<'a> Mapper<'a> {
         })
     }
 
+    /// Notes that the frame holds a render texture of `code`.
+    fn note_format(&mut self, code: u32) {
+        self.report.formats.insert(code);
+        *self
+            .report
+            .census
+            .entry(format!("frame render texture of format {code}"))
+            .or_default() += 1;
+    }
+
     fn finish(mut self) -> Adapted {
         let mut used = self.textures.used().clone();
         used.extend(
@@ -824,16 +834,17 @@ impl<'a> Mapper<'a> {
             .filter(|id| ids::is_temporary(*id))
             .collect();
         for spec in self.temporary_specs(&temporaries) {
-            self.report.formats.insert(spec.graphics_format);
+            self.note_format(spec.graphics_format);
             self.frame.render_textures.push(spec);
         }
         for id in used {
             let texture = &self.snapshot.render_textures[&id];
-            self.report.formats.insert(texture.format);
+            self.note_format(texture.format);
             self.frame.render_textures.push(RenderTextureSpec {
                 id: ids::render_texture(id),
                 size: [texture.width, texture.height],
                 layers: 1,
+                dimension: RenderDimension::D2,
                 graphics_format: texture.format,
                 depth_bits: u8::try_from(texture.depth_bits).unwrap_or(u8::MAX),
                 mips: texture.mip_count,

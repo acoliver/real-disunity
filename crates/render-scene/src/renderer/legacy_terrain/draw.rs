@@ -12,6 +12,8 @@ pub(crate) struct Chunk {
     pub vertices: Buffer,
     pub indices: Buffer,
     pub index_count: u32,
+    /// The chunk's world bounds, `[min, max]`, which the shadow caster culls against.
+    pub bounds: [glam::Vec3; 2],
 }
 
 /// The geometry the fixed draw records.
@@ -72,7 +74,7 @@ pub(crate) fn draw_terrain_color<C: Commands>(
     draw_terrain_geometry(pass, geometry, instances)
 }
 
-fn draw_terrain_geometry<C: Commands>(
+pub(super) fn draw_terrain_geometry<C: Commands>(
     pass: &mut C,
     geometry: &Geometry<'_>,
     instances: &Buffer,

@@ -72,7 +72,8 @@ mod tests;
 
 pub use adapter::{OffscreenAdapter, build};
 pub use assets::{
-    AssetError, Assets, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
+    AssetError, Assets, Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world,
+    texture_of,
 };
 pub use bounds::Bounds;
 pub use builtins::{
@@ -93,8 +94,8 @@ pub use frame::{
 };
 pub use kernels::PlayerKernels;
 pub use pixels::{
-    PixelAnswer, REFUSED_INTEGER, REFUSED_NO_COPY, REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED,
-    REFUSED_NOT_READ, is_integer_format,
+    PixelAnswer, REFUSED_BUDGET, REFUSED_FORMAT, REFUSED_INTEGER, REFUSED_NO_COPY,
+    REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED, REFUSED_NOT_READ, is_integer_format,
 };
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};

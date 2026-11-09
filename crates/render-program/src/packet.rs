@@ -20,12 +20,12 @@ use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, DepthState, RenderState};
 
-/// The most colour attachments a signature describes.
-pub const MAX_COLOR_ATTACHMENTS: usize = 4;
+/// The most colour attachments a signature describes: wgpu's default `max_color_attachments`.
+pub const MAX_COLOR_ATTACHMENTS: usize = 8;
 
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
-/// A signature exists only for what the runtime draws into: one to four colour attachments of
+/// A signature exists only for what the runtime draws into: one to eight colour attachments of
 /// one sample count (1, 2, 4, 8 or 16) and, optionally, a depth attachment. Renderer-owned
 /// stencil is preserved by program draws, and tested and written only by the prepared pipelines
 /// whose state names it. A depth attachment with no colour attachment is
@@ -118,7 +118,7 @@ impl TargetSignature {
         Self::build(&[], Some(depth), samples)
     }
 
-    /// The signature of a pass a renderer opens: one to four colour attachments, the first of
+    /// The signature of a pass a renderer opens: one to eight colour attachments, the first of
     /// which the fragment stage writes and the others of which a draw may leave unwritten with
     /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with one colour
     /// attachment, one sample and no stencil aspect is equal to [`new`](Self::new)'s.
@@ -126,7 +126,7 @@ impl TargetSignature {
     /// except the prepared pipelines whose [`RenderState::stencil`] names it.
     ///
     /// # Errors
-    /// Fails by name for a count of colour attachments outside one to four, a sample count
+    /// Fails by name for a count of colour attachments outside one to eight, a sample count
     /// that is not a power of two up to 16, and an attachment format without depth.
     pub fn attachments(
         colors: &[wgpu::TextureFormat],

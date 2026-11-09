@@ -28,10 +28,13 @@ use crate::frame::FrameUniform;
 use crate::renderer::ScenePipelines;
 use crate::renderer::depth::DepthMode;
 
+pub(in crate::terrain) mod caster;
 mod legacy;
+pub(in crate::terrain) mod prepass;
 pub(super) mod scenes;
 mod shadow;
 pub(super) mod streaming;
+mod terms;
 mod variants;
 
 pub(super) use legacy::Legacy;
@@ -105,12 +108,7 @@ impl<'a> Rig<'a> {
         };
         if source.pages() {
             rig.gpu
-                .enable_terrain_pages(
-                    device,
-                    authority,
-                    pipelines,
-                    scenes::page_source(source.layered()),
-                )
+                .enable_terrain_pages(device, authority, scenes::page_source(source.layered()))
                 .unwrap();
             for _ in 0..4 {
                 let mut transaction = authority.begin(device).unwrap();
@@ -429,7 +427,11 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
         assert_eq!(drawn.sky, DrawCount::default(), "the fixture draws no sky");
         scene_count = drawn.terrain;
     });
-    assert_recorded_by_runtime(case, recorded);
+    assert_recorded_by_runtime(
+        &format!("{} {} {:?}", case.name, case.source, case.pipelines.depth),
+        case.pipelines,
+        recorded,
+    );
     let mut fixed_count = DrawCount::default();
     let fixed = frame.render(|pass| {
         frame.bind(pass);
@@ -535,26 +537,17 @@ fn compare(case: &Case<'_>, [scene, fixed, untouched]: [&[Vec<u8>]; 3]) {
     }
 }
 
-/// The scene's terrain draw went through the program runtime, once, and the fixed terrain
-/// pipelines of its context were neither used nor built. Without this a fixed-path fallback
-/// would draw the same bytes as the frozen copy and pass.
-fn assert_recorded_by_runtime(case: &Case<'_>, before: terrain_paths::Recorded) {
-    let after = terrain_paths::recorded();
-    let name = format!("{} {} {:?}", case.name, case.source, case.pipelines.depth);
+/// The scene's terrain draw went through the program runtime, once, and its context prepared a
+/// terrain pipeline and set there. The fixed path no longer exists to fall back to, so this
+/// guards a draw that records nothing, which would compare equal to a frozen draw that also
+/// drew nothing.
+pub(super) fn assert_recorded_by_runtime(name: &str, pipelines: &ScenePipelines, before: u64) {
     assert_eq!(
-        after.runtime,
-        before.runtime + 1,
+        terrain_paths::recorded(),
+        before + 1,
         "{name}: terrain was not recorded through the program runtime"
     );
-    assert_eq!(
-        after.fixed, before.fixed,
-        "{name}: terrain fell back to the fixed path"
-    );
-    assert!(
-        !case.pipelines.fixed_terrain_built(),
-        "{name}: a fixed terrain pipeline was built"
-    );
-    let stats = case.pipelines.terrain_runtime_stats();
+    let stats = pipelines.terrain_runtime_stats();
     assert!(
         stats.pipelines_built > 0 && stats.sets_prepared > 0,
         "{name}: the context's runtime prepared no terrain pipeline or set: {stats:?}"

@@ -455,3 +455,49 @@ fn replacements_past_the_upload_budget_are_prefetched_without_being_admitted() {
     let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
     assert!(blocked.prefetch.is_empty());
 }
+
+/// Every chunk of the quadtree down to `depth` levels below `node`.
+fn nodes(node: TerrainChunk, depth: u32, out: &mut Vec<TerrainChunk>) {
+    out.push(node);
+    if depth > 0
+        && let Some(children) = node.children()
+    {
+        for child in children {
+            nodes(child, depth - 1, out);
+        }
+    }
+}
+
+#[test]
+fn nested_lookup_agrees_with_scanning_every_chunk() {
+    let terrain = terrain(1000);
+    let mut queries = Vec::new();
+    nodes(root(&terrain), 4, &mut queries);
+    queries.extend((0..40u32).map(|i| TerrainChunk {
+        minimum: [(i * 7) % 33, (i * 13) % 33],
+        maximum: [(i * 7) % 33 + i % 9, (i * 13) % 33 + i % 5],
+        stride: 1 << (i % 4),
+    }));
+    let mut sets = vec![queries.clone()];
+    for (width, eye) in [(16.0, [16.0, 32.0, 100.0]), (64.0, [4.0, 60.0, 100.0])] {
+        let mut leaves = vec![root(&terrain)];
+        for _ in 0..4 {
+            leaves = select(&terrain, &leaves, ortho(width, eye), [128; 2]).leaves;
+            sets.push(leaves.clone());
+        }
+    }
+    for set in &sets {
+        let nested = Nested::new(set);
+        for query in &queries {
+            let scanned = set.iter().any(|chunk| {
+                chunk != query
+                    && (0..2).all(|axis| {
+                        query.minimum[axis] <= chunk.minimum[axis]
+                            && query.maximum[axis] >= chunk.maximum[axis]
+                    })
+            });
+            assert_eq!(nested.inside(*query), scanned, "{query:?}");
+            assert_eq!(nested.has(*query), set.contains(query), "{query:?}");
+        }
+    }
+}

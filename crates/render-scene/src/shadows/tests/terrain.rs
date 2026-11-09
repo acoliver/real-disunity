@@ -274,3 +274,32 @@ fn terrain_maps() -> impl Iterator<Item = SceneTexture> {
             bytes: Vec::from(bytes).into(),
         })
 }
+
+/// A retained shadowed scene prepares the terrain receiver and the cascades' casters in its first
+/// frame, and the frames after it build no pipeline, module, bind group or set.
+#[test]
+fn gpu_steady_state_shadowed_terrain_frames_build_nothing_on_the_program_runtime() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = terrain_scene(&scene(&[], 600_000, None), true, false);
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let before = renderer.pipelines.terrain_runtime_stats();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let first = renderer.pipelines.terrain_runtime_stats();
+    assert!(
+        first.pipelines_built >= before.pipelines_built + 2,
+        "the first frame builds the receiver's and the caster's pipelines: {first:?}"
+    );
+    for _ in 0..4 {
+        render_target(&mut renderer, &context, &view(), &target).unwrap();
+    }
+    assert_eq!(
+        renderer.pipelines.terrain_runtime_stats(),
+        first,
+        "steady-state shadowed frames build nothing"
+    );
+    println!(
+        "TERRAIN-COST shadowed_scene before={before:?} after_first={first:?} after_four_more=unchanged"
+    );
+}

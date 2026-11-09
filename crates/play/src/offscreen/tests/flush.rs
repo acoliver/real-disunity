@@ -23,7 +23,9 @@ use super::super::compute::ComputeAdapter;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
-use super::gpu::{BareQuad, MESH, Quad, SIDE, Synthetic, gpu, shader, target, vector};
+use super::gpu::{
+    BareQuad, MESH, Quad, SIDE, Synthetic, gpu, gpu_with_budget, shader, target, vector,
+};
 use super::kernels::{copy_object, text_object, write_compute};
 use super::support::{
     camera, compute_buffer, compute_shader, dispatch, render_texture, renderer_with, snapshot,
@@ -47,8 +49,20 @@ pub(super) fn host(directory: &Path) -> OffscreenHost {
     host_with(directory, settings)
 }
 
+/// As `host`, on a runtime that may hold `budget` bytes.
+pub(super) fn host_with_budget(directory: &Path, budget: u64) -> OffscreenHost {
+    let settings = Settings {
+        light_modes: vec!["Alpha".to_owned()],
+        ..Settings::default()
+    };
+    host_on(directory, settings, gpu_with_budget(budget))
+}
+
 fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
-    let gpu = gpu();
+    host_on(directory, settings, gpu())
+}
+
+fn host_on(directory: &Path, settings: Settings, gpu: super::gpu::Gpu) -> OffscreenHost {
     OffscreenHost::new(
         gpu.runtime,
         gpu.arena,
@@ -754,5 +768,21 @@ fn render_textures_that_each_fit_the_budget_but_not_together_keep_the_first_and_
         (trace.phases.refusals, trace.phases.probes),
         (1, 3),
         "{trace:?}"
+    );
+}
+
+#[test]
+fn a_render_texture_a_kernel_samples_is_paired_with_the_sample_type_it_declares() {
+    let (outcome, _) = traced_flush();
+    let pairings: Vec<_> = outcome
+        .report
+        .census
+        .iter()
+        .filter(|(name, _)| name.contains(" sampled as "))
+        .map(|(name, count)| (name.as_str(), *count))
+        .collect();
+    assert_eq!(
+        pairings,
+        [("render texture format 45 sampled as Float D2", 1)]
     );
 }

@@ -40,7 +40,7 @@ use super::program::{Screen, Surface, material_bindings};
 use crate::dynamic::capture_tests::{CONFIGS, build, context};
 use worldrunner_render_program::runtime::GraphicsProgram;
 
-const SURFACES: [Surface; 4] = [
+pub(super) const SURFACES: [Surface; 4] = [
     Surface::Plain,
     Surface::Pages,
     Surface::Layered,
@@ -79,9 +79,8 @@ fn terrain_programs_register_and_prepare_against_the_declared_layouts() {
     for config in &CONFIGS {
         let built = build(context.device(), config);
         let terrain = built.pipelines.terrain_context();
-        assert!(terrain.on_runtime(), "{}", config.name);
         for surface in SURFACES {
-            if surface.layered() && built.pipelines.layered.is_none() {
+            if surface.layered() && !built.pipelines.layered_terrain_supported() {
                 continue;
             }
             terrain
@@ -107,7 +106,7 @@ fn derived_terrain_bindings_equal_the_declared_binding_table_for_each_surface_so
     let built = build(context.device(), &CONFIGS[2]);
     let terrain = built.pipelines.terrain_context();
     for surface in SURFACES {
-        if surface.layered() && built.pipelines.layered.is_none() {
+        if surface.layered() && !built.pipelines.layered_terrain_supported() {
             continue;
         }
         terrain
@@ -127,13 +126,19 @@ fn derived_terrain_bindings_equal_the_declared_binding_table_for_each_surface_so
     }
 }
 
-/// The screen groups the forward contexts make are the ones the program lends, and the
-/// metadata prepass's camera uniform is not one of them.
+/// The screen groups the contexts make are the ones the program lends, recognized from the
+/// terrain source of the context, and a source with no screen group has none.
 #[test]
 fn screen_groups_are_recognized_from_the_terrain_source_of_their_context() {
+    use crate::scene_metadata::{MetadataOutput, sources};
     let ambient = crate::ssao::ambient_source(crate::shader::TERRAIN_WGSL);
     assert_eq!(Screen::of(&ambient), Some(Screen::Ambient));
     assert_eq!(Screen::of(crate::shader::TERRAIN_WGSL), None);
+    for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
+        assert_eq!(Screen::of(&sources(output).1), Some(Screen::Camera));
+    }
+    let replay = crate::ssr::forward::replay_source(&ambient, true);
+    assert_eq!(Screen::of(&replay), Some(Screen::Reflection));
 }
 
 fn struct_size(source: &str, name: &str) -> u32 {
@@ -182,7 +187,6 @@ fn receiver_terrain_programs_load_payload_in_every_surface_and_depth_policy() {
     for receiver in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
         for depth in [DepthMode::Independent, DepthMode::Shared, DepthMode::Reuse] {
             let selected = built.for_receiver_gradients(receiver).for_depth(depth);
-            assert!(selected.terrain_on_runtime());
             let terrain = selected.terrain_context();
             for surface in SURFACES {
                 terrain
@@ -202,6 +206,45 @@ fn receiver_terrain_programs_load_payload_in_every_surface_and_depth_policy() {
                         assert!(program.external_sets().contains(&2));
                     });
             }
+        }
+    }
+}
+
+/// The storage buffers each surface source binds per stage fit the supported device limits: the
+/// vertex stage reads the one triangle source, and a layered source needs the most in its
+/// fragment stage. A source that outgrew the downlevel limit would fail on those devices only
+/// when its pipeline was made.
+#[test]
+fn terrain_storage_bindings_fit_the_supported_device_limits() {
+    use wgpu::ShaderStages;
+    use worldrunner_render_program::binding::ResourceKind;
+    for (surface, expected) in [
+        (Surface::Plain, 1),
+        (Surface::Pages, 2),
+        (Surface::Layered, 4),
+        (Surface::LayeredPages, 2),
+    ] {
+        let bindings = material_bindings(surface);
+        let count = |stage| {
+            bindings
+                .iter()
+                .filter(|binding| {
+                    binding.visibility.contains(stage)
+                        && matches!(binding.kind, ResourceKind::Storage { .. })
+                })
+                .count()
+        };
+        assert_eq!(count(ShaderStages::VERTEX), 1, "{surface:?}");
+        assert_eq!(count(ShaderStages::FRAGMENT), expected, "{surface:?}");
+        for limits in [wgpu::Limits::default(), wgpu::Limits::downlevel_defaults()] {
+            let storage = limits.max_storage_buffers_per_shader_stage as usize;
+            assert!(expected <= storage, "{surface:?}");
+            assert!(
+                bindings
+                    .iter()
+                    .all(|binding| binding.at.binding < limits.max_bindings_per_bind_group),
+                "{surface:?}"
+            );
         }
     }
 }

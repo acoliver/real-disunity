@@ -16,7 +16,7 @@ use glam::Mat4;
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, GlobalState, Record, RenderTextureSpec,
+    Attachment, Attachments, Clear, GlobalState, Record, RenderDimension, RenderTextureSpec,
 };
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
@@ -138,6 +138,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::ReadPixels { .. } => "ReadPixels",
         OffscreenWork::CreateRendererList { .. } => "CreateRendererList",
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
+        OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
     }
 }
 
@@ -217,6 +218,10 @@ impl Mapper<'_> {
                 Ok(Vec::new())
             }
             OffscreenWork::DrawRendererList { list } => self.draw_list(*list),
+            OffscreenWork::SetViewProjection { view, projection } => {
+                self.set_view_projection(view, projection);
+                Ok(Vec::new())
+            }
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
@@ -371,6 +376,29 @@ impl Mapper<'_> {
         }
     }
 
+    /// Replaces the view and projection of the camera set up, keeping its target and viewport.
+    /// Before any setup the matrices go with the camera target and the whole viewport.
+    fn set_view_projection(&mut self, view: &[f32; 16], projection: &[f32; 16]) {
+        let (view, projection) = (
+            Mat4::from_cols_array(view),
+            Mat4::from_cols_array(projection),
+        );
+        match &mut self.script.camera {
+            Some(setup) => {
+                setup.view = view;
+                setup.projection = projection;
+            }
+            none => {
+                *none = Some(CameraSetup {
+                    target: TargetRef::CameraTarget,
+                    view,
+                    projection,
+                    viewport: [0.0, 0.0, 1.0, 1.0],
+                });
+            }
+        }
+    }
+
     /// The specs of the temporary render textures that `records` use, which the frame makes.
     pub(super) fn temporary_specs(&self, used: &BTreeSet<TextureId>) -> Vec<RenderTextureSpec> {
         used.iter()
@@ -380,6 +408,7 @@ impl Mapper<'_> {
                     id: *id,
                     size: [desc.width, desc.height],
                     layers: 1,
+                    dimension: RenderDimension::D2,
                     graphics_format: desc.format,
                     depth_bits: u8::try_from(desc.depth_bits).unwrap_or(u8::MAX),
                     mips: desc.mip_count,

@@ -122,8 +122,8 @@ impl AdmittedPrograms {
             return Ok(());
         }
         Err(ProgramError::TargetMismatch {
-            prepared: self.signature,
-            pass,
+            prepared: Box::new(self.signature),
+            pass: Box::new(pass),
         })
     }
 
@@ -142,6 +142,26 @@ impl ProgramRuntime {
     pub fn arena_allocations(bytes: u64) -> AllocationSet {
         let mut set = AllocationSet::default();
         set.buffer("program arena", bytes, 1);
+        set
+    }
+
+    /// As [`arena_allocations`](Self::arena_allocations) for a device whose buffers hold at most
+    /// `limits.max_buffer_size` bytes: the reservation is split into buffers of that size and a
+    /// remainder, so that a budget larger than one buffer can hold still has an arena.
+    #[must_use]
+    pub fn arena_allocations_within(bytes: u64, limits: &wgpu::Limits) -> AllocationSet {
+        let alignment = wgpu::COPY_BUFFER_ALIGNMENT;
+        let chunk = limits.max_buffer_size / alignment * alignment;
+        if chunk == 0 || bytes <= chunk {
+            return Self::arena_allocations(bytes);
+        }
+        let mut set = AllocationSet::default();
+        let whole = u32::try_from(bytes / chunk).unwrap_or(u32::MAX);
+        set.buffer("program arena", chunk, whole);
+        let rest = bytes - chunk * u64::from(whole);
+        if rest > 0 {
+            set.buffer("program arena remainder", rest, 1);
+        }
         set
     }
 

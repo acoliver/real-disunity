@@ -18,6 +18,7 @@ mod meshes;
 mod plan;
 mod probe;
 mod readback;
+mod resample;
 mod steps;
 mod textures;
 mod tracker;
@@ -36,6 +37,7 @@ use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::ids::{CameraId, MeshId, ShaderId, TextureId};
 use crate::offscreen::AdmittedOffscreen;
+use crate::program::GraphicsProgram;
 use crate::resources::{BufferHandle, Pins, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
@@ -67,6 +69,8 @@ pub struct OffscreenState {
     /// The constants inputs a mesh has no channel for read, made when the first frame is built.
     defaults: Option<DefaultBuffers>,
     samplers: SamplerCache,
+    /// The built-in program of a blit between textures of other sizes or formats.
+    resample: Option<GraphicsProgram>,
     draws: HashMap<blake3::Hash, CheckedDraw>,
     /// The buffers the frame's constants are uploaded into, one for each chunk, with their sizes.
     constants: Vec<(BufferHandle, u64)>,
@@ -92,6 +96,7 @@ impl OffscreenState {
             meshes: MeshTable::default(),
             defaults: None,
             samplers: SamplerCache::new(runtime.device()),
+            resample: None,
             draws: HashMap::new(),
             constants: Vec::new(),
             constants_limit: None,
@@ -184,6 +189,32 @@ impl OffscreenState {
             .map(textures::TextureInfo::primary)
     }
 
+    /// The render textures the state holds and the bytes each takes in the runtime's budget, in
+    /// id order. A host that must make room chooses among them.
+    #[must_use]
+    pub fn render_textures_held(&self) -> Vec<(TextureId, u64)> {
+        self.textures.render_held()
+    }
+
+    /// Gives back the storage of the render texture `id` and returns its bytes, or `None` for an id
+    /// that names no render texture the state holds. The next frame that names the texture makes
+    /// it again, empty. The storage counts against the budget until the GPU has finished with it
+    /// and the runtime collects it.
+    pub fn release_render_texture(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        id: TextureId,
+    ) -> Option<u64> {
+        self.textures.release_render(runtime, id)
+    }
+
+    /// The bytes of staging a read of the first mip of texture `id` takes from the budget, or
+    /// `None` for an id the state does not hold and for a format that cannot be copied by byte.
+    #[must_use]
+    pub fn read_bytes(&self, id: TextureId) -> Option<u64> {
+        self.textures.read_bytes(id)
+    }
+
     /// Marks render textures as ones a kernel binds as storage images. A marked texture is made
     /// with storage binding usage when the device binds its color format as a storage image, and
     /// is made again, empty, by the first frame that names it after it was marked while it had
@@ -203,6 +234,18 @@ impl OffscreenState {
             .get(id)
             .ok()
             .map(|info| (info.format, info.storage))
+    }
+
+    /// The dimension of the view a kernel or a draw binds the storage `texture_handle` gives: 3D
+    /// for a 3D texture, a 2D array for a 2D texture of several layers, else 2D. `None` for an id
+    /// that names no texture the state holds.
+    #[must_use]
+    pub fn texture_view_dimension(&self, id: TextureId) -> Option<wgpu::TextureViewDimension> {
+        self.textures.get(id).ok().map(|info| match info.dimension {
+            frame::RenderDimension::D3 => wgpu::TextureViewDimension::D3,
+            frame::RenderDimension::D2 if info.layers > 1 => wgpu::TextureViewDimension::D2Array,
+            frame::RenderDimension::D2 => wgpu::TextureViewDimension::D2,
+        })
     }
 
     /// Gives back the storage of the render textures that `live` does not name. A render texture
@@ -256,6 +299,7 @@ impl OffscreenState {
                 shaders: &mut self.shaders,
                 programs: &mut self.programs,
                 samplers: &mut self.samplers,
+                resample: &mut self.resample,
                 textures: &self.textures,
                 meshes: &self.meshes,
                 defaults,
@@ -267,8 +311,11 @@ impl OffscreenState {
                 probing: false,
                 constant_fragment: false,
             };
+            // A 3D texture is for kernels; only a record that names it is refused.
             for spec in &frame.render_textures {
-                services.import(spec.id)?;
+                if spec.dimension != frame::RenderDimension::D3 {
+                    services.import(spec.id)?;
+                }
             }
             let steps = steps::plan_steps(&mut services, frame)?;
             (steps, later_reads(&mut services, frame)?)

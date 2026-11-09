@@ -31,6 +31,12 @@ public static unsafe partial class Binding
         PlatformDefined,
     }
 
+    public enum Baselib_ErrorState_ExplainVerbosity
+    {
+        ErrorType = 0,
+        ErrorType_SourceLocation_Explanation = 1,
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct Baselib_ErrorState
     {

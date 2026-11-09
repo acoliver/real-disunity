@@ -407,7 +407,7 @@ fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
             Some(&shadow),
             Some(&screen),
         );
-        assert!(pipelines.layered.is_some());
+        assert!(pipelines.layered_terrain_supported());
     }
 }
 
@@ -422,7 +422,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     let mesh = gpu.meshes[0].lods[0].vertices.clone();
     let material = gpu.materials[0].clone();
     let texture = gpu.retained.textures[0].clone();
-    let terrain = gpu.terrain.as_ref().unwrap().uniform.clone();
+    let terrain = gpu.terrain.as_ref().unwrap().resources.uniform.clone();
     let original = capture_gpu(&context, &mut gpu, &pipelines, 1, true);
     let group = gpu.decals.group();
     let mut moved = decal();
@@ -438,7 +438,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     assert_eq!(mesh, gpu.meshes[0].lods[0].vertices);
     assert_eq!(material, gpu.materials[0]);
     assert_eq!(texture, gpu.retained.textures[0]);
-    assert_eq!(terrain, gpu.terrain.as_ref().unwrap().uniform);
+    assert_eq!(terrain, gpu.terrain.as_ref().unwrap().resources.uniform);
 }
 
 #[test]
@@ -454,7 +454,6 @@ fn decal_edits_preserve_resident_terrain_pages() {
     gpu.enable_terrain_pages(
         context.device(),
         context.submission(),
-        &pipelines,
         super::layered_terrain::page_source(),
     )
     .unwrap();

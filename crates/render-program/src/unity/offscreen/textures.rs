@@ -13,7 +13,7 @@ use crate::sampler::SamplerState;
 
 use super::error::OffscreenError;
 use super::format::{depth_format, render_color_format, source_format};
-use super::frame::{RenderTextureSpec, SourceTexture};
+use super::frame::{RenderDimension, RenderTextureSpec, SourceTexture};
 
 /// A texture of the state and what its color and depth storage is.
 pub(super) struct TextureInfo {
@@ -21,6 +21,7 @@ pub(super) struct TextureInfo {
     pub(super) depth: Option<TextureHandle>,
     pub(super) size: [u32; 2],
     pub(super) layers: u32,
+    pub(super) dimension: RenderDimension,
     pub(super) mips: u32,
     /// The color format, or the depth format of a depth-only render texture.
     pub(super) format: wgpu::TextureFormat,
@@ -33,7 +34,8 @@ pub(super) struct TextureInfo {
     /// For an uploaded source, its texels (blocks, for a block-compressed format) and how many of
     /// them hold a byte other than zero.
     pub(super) counts: Option<(usize, usize)>,
-    /// For an uploaded source, the bytes it holds in the budget.
+    /// The bytes it holds in the budget: the source's bytes, or the render texture's color levels
+    /// and depth buffer.
     pub(super) held_bytes: u64,
 }
 
@@ -82,6 +84,7 @@ impl TextureTable {
             depth: None,
             size: source.size,
             layers: 1,
+            dimension: RenderDimension::D2,
             mips: 1,
             format,
             depth_format: None,
@@ -157,6 +160,40 @@ impl TextureTable {
         Some(old.held_bytes)
     }
 
+    /// The render textures the table holds and the bytes of each, in id order.
+    pub(super) fn render_held(&self) -> Vec<(TextureId, u64)> {
+        let mut held: Vec<_> = self
+            .textures
+            .iter()
+            .filter(|(_, info)| info.spec.is_some())
+            .map(|(id, info)| (*id, info.held_bytes))
+            .collect();
+        held.sort_unstable();
+        held
+    }
+
+    /// Gives back the storage of the render texture `id` and returns its bytes. An uploaded source
+    /// and an id that names nothing are left alone.
+    pub(super) fn release_render(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        id: TextureId,
+    ) -> Option<u64> {
+        self.textures.get(&id)?.spec.as_ref()?;
+        let old = self.textures.remove(&id)?;
+        self.retired.extend(old.handles());
+        self.release_waiting(runtime);
+        Some(old.held_bytes)
+    }
+
+    /// The bytes of staging a copy of the first mip of `id` into a buffer takes.
+    pub(super) fn read_bytes(&self, id: TextureId) -> Option<u64> {
+        let info = self.textures.get(&id)?;
+        let texel = u64::from(info.format.block_copy_size(None)?);
+        let row = (u64::from(info.size[0]) * texel).next_multiple_of(256);
+        Some(row * u64::from(info.size[1]))
+    }
+
     /// The bytes the render textures of `specs` would add: those the table has not made or made
     /// from another spec. The storage a replaced texture held is given back later and is not
     /// subtracted.
@@ -207,6 +244,19 @@ fn create_render_texture(
     if spec.size.contains(&0) || spec.layers == 0 || spec.mips == 0 {
         return Err(OffscreenError::EmptyTexture { id: spec.id });
     }
+    let volume = spec.dimension == RenderDimension::D3;
+    if volume && spec.mips != 1 {
+        return Err(OffscreenError::VolumeShape {
+            id: spec.id,
+            reason: "has one mip",
+        });
+    }
+    if volume && spec.depth_bits != 0 {
+        return Err(OffscreenError::VolumeShape {
+            id: spec.id,
+            reason: "has no depth buffer",
+        });
+    }
     let color_format = render_color_format(spec.graphics_format)?;
     let depth_format = depth_format(spec.depth_bits)?;
     let Some(format) = color_format.or(depth_format) else {
@@ -227,6 +277,7 @@ fn create_render_texture(
         mips: spec.mips,
         format,
         storage,
+        volume,
     };
     let color = color_format
         .map(|format| runtime.create_empty_texture("offscreen render texture", shape(format)))
@@ -240,6 +291,7 @@ fn create_render_texture(
                     layers: 1,
                     mips: 1,
                     storage: false,
+                    volume: false,
                     ..shape(format)
                 }
             } else {
@@ -269,6 +321,7 @@ fn create_render_texture(
         depth,
         size: spec.size,
         layers: spec.layers,
+        dimension: spec.dimension,
         mips: spec.mips,
         format,
         depth_format,
@@ -276,7 +329,7 @@ fn create_render_texture(
         sampler: None,
         spec: Some(spec.clone()),
         counts: None,
-        held_bytes: 0,
+        held_bytes: render_bytes(spec, &runtime.device().limits()),
     })
 }
 

@@ -6,6 +6,7 @@ use crate::graphics::{MAX_CULL_PLANES, OffscreenWork};
 
 pub(super) const WORK_CULL: u8 = 10;
 const WORK_SETUP_CAMERA: u8 = 11;
+const WORK_SET_VIEW_PROJECTION: u8 = 15;
 
 /// The most planes a decoder accepts for one culling result.
 fn plane_limit() -> u32 {
@@ -44,6 +45,11 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             projection.write(out)?;
             target.write(out)
         }
+        OffscreenWork::SetViewProjection { view, projection } => {
+            WORK_SET_VIEW_PROJECTION.write(out)?;
+            view.write(out)?;
+            projection.write(out)
+        }
         other => write_readback(other, out),
     }
 }
@@ -73,6 +79,10 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             view: Wire::read(input)?,
             projection: Wire::read(input)?,
             target: Wire::read(input)?,
+        }),
+        WORK_SET_VIEW_PROJECTION => Ok(OffscreenWork::SetViewProjection {
+            view: Wire::read(input)?,
+            projection: Wire::read(input)?,
         }),
         other => read_readback(other, input),
     }

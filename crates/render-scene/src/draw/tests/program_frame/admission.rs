@@ -57,8 +57,8 @@ fn draws_prepared_for_other_attachments_are_refused_before_any_draw() {
     assert_eq!(
         refusal(encoded.unwrap_err()),
         ProgramError::TargetMismatch {
-            prepared,
-            pass: fixture.signature()
+            prepared: Box::new(prepared),
+            pass: Box::new(fixture.signature())
         }
         .to_string()
     );

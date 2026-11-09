@@ -135,6 +135,15 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_setup_camera", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_setup_camera(ulong world, ulong camera, float* view, float* projection, DisunityTargetRef* target);
         /// <summary>
+        ///  Records the view and projection that the draws after it use: 16 floats each, column-major,
+        ///  as a camera setup carries them. It names no camera and leaves the bound targets as they are.
+        ///
+        ///  # Safety
+        ///  `view` and `projection` are readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_view_projection", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_view_projection(ulong world, float* view, float* projection);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety

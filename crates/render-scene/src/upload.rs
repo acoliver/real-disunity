@@ -14,13 +14,6 @@ pub const FRAME_GROUP: u32 = 0;
 /// Bind group index carrying per-material state.
 pub const MATERIAL_GROUP: u32 = 1;
 
-/// Bind group index carrying the terrain splat state.
-///
-/// Terrain occupies the same slot as a material because it is the alternative
-/// to one, not an addition: a terrain fragment chooses its material from the
-/// type grid instead of being told which one the draw carries.
-pub const TERRAIN_GROUP: u32 = 1;
-
 /// Number of optional textures a material may omit.
 pub const OPTIONAL_TEXTURE_COUNT: usize = 4;
 
@@ -159,96 +152,6 @@ pub fn material_bind_group_layout(device: &Device) -> BindGroupLayout {
     })
 }
 
-/// Builds the layout for terrain splat state, matching `@group(1)` of the
-/// terrain shader.
-///
-/// The type grid is declared as an unfilterable `uint` texture and is read with
-/// `textureLoad` rather than sampled. That is not a limitation being worked
-/// around: filtering a material identifier would interpolate between two
-/// unrelated palette indices and produce a third that names a different
-/// material entirely. The shader blends coverage masks derived from exact
-/// identifier loads rather than interpolating identifiers.
-///
-/// The three palette maps are arrays rather than separate bindings because the
-/// fragment shader cannot know in advance which materials a given fragment will
-/// need to blend. Every authored terrain texture shares one size per map kind,
-/// so the layers stack without resampling.
-pub fn terrain_bind_group_layout(device: &Device) -> BindGroupLayout {
-    terrain_layout(device, false, false)
-}
-
-pub(crate) fn terrain_layout(device: &Device, cached: bool, layered: bool) -> BindGroupLayout {
-    device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-        label: Some("terrain"),
-        entries: &terrain_entries(cached, layered),
-    })
-}
-
-pub(crate) fn terrain_entries(cached: bool, layered: bool) -> Vec<BindGroupLayoutEntry> {
-    let mut entries = vec![BindGroupLayoutEntry {
-        binding: 0,
-        visibility: ShaderStages::VERTEX_FRAGMENT,
-        ty: BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }];
-    entries.push(BindGroupLayoutEntry {
-        binding: 1,
-        visibility: ShaderStages::FRAGMENT,
-        ty: BindingType::Texture {
-            sample_type: TextureSampleType::Uint,
-            view_dimension: TextureViewDimension::D2,
-            multisampled: false,
-        },
-        count: None,
-    });
-    entries.push(terrain_plane_entry());
-    if !layered {
-        entries.extend((2..=4).map(decal_texture_entry));
-    }
-    entries.push(BindGroupLayoutEntry {
-        binding: 5,
-        visibility: ShaderStages::FRAGMENT,
-        ty: BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-        count: None,
-    });
-    for binding in 8..if layered { 11 } else { 8 } {
-        entries.push(BindGroupLayoutEntry {
-            binding,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        });
-    }
-    if layered {
-        entries.extend(crate::terrain::pages::layered_gpu::textures::draw_layout());
-    }
-    if cached {
-        install_cached_entries(&mut entries);
-    }
-    entries
-}
-
-fn terrain_plane_entry() -> BindGroupLayoutEntry {
-    BindGroupLayoutEntry {
-        binding: crate::terrain::planes::BINDING,
-        visibility: ShaderStages::VERTEX_FRAGMENT,
-        ty: BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    }
-}
-
 /// Uploads the terrain material-index grid as an unfilterable `uint` texture.
 ///
 /// One byte per cell is copied verbatim. The grid is the authority for which
@@ -379,31 +282,6 @@ pub use worldrunner_render_gpu::resource::upload_buffer;
 #[cfg(test)]
 mod tests;
 
-fn cached_terrain_entries() -> Vec<BindGroupLayoutEntry> {
-    vec![
-        BindGroupLayoutEntry {
-            binding: 6,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                sample_type: TextureSampleType::Uint,
-                view_dimension: TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        },
-        BindGroupLayoutEntry {
-            binding: 7,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        },
-    ]
-}
-
 /// Builds the shared material bindings, including the scene contact heightfield.
 pub(crate) fn material_group(
     device: &Device,
@@ -469,11 +347,6 @@ pub(crate) fn extended_material_group(
         layout,
         entries: &entries,
     })
-}
-
-fn install_cached_entries(entries: &mut Vec<BindGroupLayoutEntry>) {
-    entries.retain(|entry| entry.binding != 1);
-    entries.extend(cached_terrain_entries());
 }
 
 fn upload_cube(

@@ -12,11 +12,13 @@ use super::compute::DispatchTrace;
 use super::frame::{RendererSkip, Skip};
 use super::trace::Phases;
 
-/// The uploaded textures and meshes given back to make room in the budget.
+/// The uploaded textures and meshes and the render textures given back to make room in the
+/// budget.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Reclaimed {
     pub textures: usize,
     pub meshes: usize,
+    pub targets: usize,
     /// Their bytes, as the budget counted them.
     pub bytes: u64,
 }
@@ -26,6 +28,7 @@ impl Reclaimed {
     pub fn add(&mut self, other: Self) {
         self.textures += other.textures;
         self.meshes += other.meshes;
+        self.targets += other.targets;
         self.bytes += other.bytes;
     }
 }

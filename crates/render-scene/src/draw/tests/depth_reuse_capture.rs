@@ -194,12 +194,7 @@ pub(super) fn positions_frame(
     products
 }
 
-fn cache_terrain(
-    context: &GpuContext,
-    gpu: &mut SceneGpu,
-    pipelines: &ScenePipelines,
-    frame: &FrameUniform,
-) {
+fn cache_terrain(context: &GpuContext, gpu: &mut SceneGpu, frame: &FrameUniform) {
     let mut source = layered_terrain::page_source();
     source.sample = Box::new(|_| {
         vec![crate::terrain::pages::composition::LayerSample {
@@ -209,7 +204,7 @@ fn cache_terrain(
             weight: 1,
         }]
     });
-    gpu.enable_terrain_pages(context.device(), context.submission(), pipelines, source)
+    gpu.enable_terrain_pages(context.device(), context.submission(), source)
         .unwrap();
     // Page residency publishes at submission, before the differential draw uses it.
     let mut encoder = context.submission().begin(context.device()).unwrap();
@@ -228,7 +223,7 @@ fn apply_transform(
 ) {
     match transform {
         Transform::World => {}
-        Transform::CachedTerrain => cache_terrain(context, gpu, pipelines, frame),
+        Transform::CachedTerrain => cache_terrain(context, gpu, frame),
         Transform::Quads => {
             gpu.set_dynamic_contribution(
                 context.device(),

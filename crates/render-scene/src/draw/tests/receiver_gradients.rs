@@ -14,6 +14,10 @@ mod backing;
 #[path = "receiver_gradient_control.rs"]
 mod streamed;
 
+#[path = "receiver_producer_exactness.rs"]
+mod producer_exactness;
+#[path = "receiver_zero_bias.rs"]
+mod zero_bias;
 fn receiver_pose() -> CameraPose {
     let mut pose = CameraPose {
         eye_millimeters: [0, -8_000, 2_000],
@@ -266,6 +270,17 @@ fn frame_with_view(
             ReceiverLayout::Opposing
         } else {
             ReceiverLayout::Front
+        }
+    );
+    assert_eq!(
+        payload.capture,
+        if bias == 0.0
+            && !gpu.has_transmission()
+            && !matches!(reference, Some(ReceiverReference::NormalProducer))
+        {
+            crate::scene_metadata::receiver::ReceiverCapture::Position
+        } else {
+            crate::scene_metadata::receiver::ReceiverCapture::Normal
         }
     );
     products.extend(

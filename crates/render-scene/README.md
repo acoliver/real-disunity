@@ -231,8 +231,14 @@ arithmetic stays beside normal sampling to retain its floating-point evaluation.
 They defer surface/normal samples,
 contact, decals and receiver-shadow preparation until the fragment survives the
 unchanged visibility, geometry and alpha predicates. Relief still exports its
-reconstructed fragment depth. Receiver-producing metadata evaluates mapped normals,
-decals and receiver derivatives before rejecting quad lanes. Masked card casters
+reconstructed fragment depth. With exactly zero normal bias and no transmission,
+receiver-producing metadata captures position derivatives and rejects coverage before
+normal, surface, contact and decal evaluation. Normal-bias and transmission receivers
+evaluate mapped normals, decals and receiver derivatives before rejecting quad lanes.
+Both signed zeros select position capture. Fragment-stage attachment controls compare
+finite, signed-zero and nonfinite normal operands with the normal-dependent expression;
+IEEE arithmetic gives NaN for zero multiplied by NaN, so this check exercises the
+compiled shader's floating-point behavior on each tested backend. Masked card casters
 capture the albedo footprint before geometry/fade rejection, then evaluate the same
 blended alpha and shadow cutoff. Multisampled and unpaired forward paths keep their
 existing evaluation order.
@@ -451,6 +457,14 @@ producer evaluates `dpdx(P) + dpdx(N) * bias` and its vertical counterpart; it d
 not differentiate a rounded biased position or compress the vectors. The cascade
 projection and degeneracy rule consume these f32 values unchanged. Unpaired,
 multisampled and prepass-free frames evaluate the local derivatives.
+
+Only covered metadata depth winners publish receiver values. Forward consumers use
+that pixel's winner under the same coverage and depth/stencil ownership contract.
+No receiver derivative depends on a texture load from another invocation. Helper
+lanes and fragments that later fail depth can execute loads, but their values do
+not contribute to surviving outputs. A GPU control replaces the uncovered clear
+values with large signed displacements and requires every downstream attachment
+and output byte to remain unchanged.
 
 `ReceiverGradientReservation` bounds this storage in `RendererConfiguration`.
 The default reserves both receivers for dynamic scene admission; `Front` reserves

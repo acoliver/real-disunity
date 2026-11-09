@@ -80,7 +80,12 @@ fn receiver_producers_and_consumers_validate_without_local_receiver_derivatives(
             crate::scene_metadata::MetadataOutput::Normal,
             crate::scene_metadata::MetadataOutput::Merged,
         ] {
-            let sources = producer_sources(output, layout, 0.012);
+            let sources = producer_sources(
+                output,
+                layout,
+                0.012,
+                crate::scene_metadata::receiver::ReceiverCapture::Normal,
+            );
             for source in [&sources.0, &sources.1] {
                 validate(source);
                 assert_eq!(source_formats(source), layout.formats());

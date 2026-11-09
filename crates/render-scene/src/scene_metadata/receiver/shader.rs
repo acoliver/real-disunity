@@ -1,4 +1,4 @@
-use super::ReceiverLayout;
+use super::{ReceiverCapture, ReceiverLayout};
 use crate::scene_metadata::MetadataOutput;
 use std::fmt::Write;
 
@@ -21,15 +21,23 @@ fn values(layout: ReceiverLayout, prefix: &str) -> String {
     }
     result
 }
-fn capture(layout: ReceiverLayout, bias: f32) -> String {
+fn capture(layout: ReceiverLayout, bias: f32, capture: ReceiverCapture) -> String {
     let mut body = String::new();
     let mut globals = String::new();
     for side in 0..layout.sides() {
         let normal = if side == 0 { "normal" } else { "-normal" };
+        let normal_horizontal = if capture == ReceiverCapture::Position {
+            "vec3<f32>(0.0)".to_owned()
+        } else {
+            format!("dpdx({normal}) * bitcast<f32>({}u)", bias.to_bits())
+        };
+        let normal_vertical = if capture == ReceiverCapture::Position {
+            "vec3<f32>(0.0)".to_owned()
+        } else {
+            format!("dpdy({normal}) * bitcast<f32>({}u)", bias.to_bits())
+        };
         write!(body,
-            "let dx_{side} = dpdx(position) + dpdx({normal}) * bitcast<f32>({}u);\nlet dy_{side} = dpdy(position) + dpdy({normal}) * bitcast<f32>({}u);\nreceiver_{side}_a = vec4<f32>(dx_{side}, dy_{side}.x); receiver_{side}_b = dy_{side}.yz;\n",
-            bias.to_bits(),
-            bias.to_bits()
+            "let dx_{side} = dpdx(position) + {normal_horizontal};\nlet dy_{side} = dpdy(position) + {normal_vertical};\nreceiver_{side}_a = vec4<f32>(dx_{side}, dy_{side}.x); receiver_{side}_b = dy_{side}.yz;\n"
         ).unwrap();
         writeln!(
             globals,
@@ -47,13 +55,17 @@ pub(super) fn producer(
     output: MetadataOutput,
     layout: ReceiverLayout,
     bias: f32,
+    evaluation: ReceiverCapture,
 ) -> (String, String) {
+    assert!(
+        evaluation == ReceiverCapture::Normal || (layout == ReceiverLayout::Front && bias == 0.0)
+    );
     let (object, terrain) = crate::scene_metadata::geometry::sources(output);
     let merged = output == MetadataOutput::Merged;
     let first = if merged { 2 } else { 1 };
     let extra = fields(layout, first);
     let values = values(layout, "");
-    let capture = capture(layout, bias);
+    let capture = capture(layout, bias, evaluation);
     let object = if merged {
         object
             .replace(
@@ -109,20 +121,29 @@ pub(super) fn producer(
             + &format!("\nstruct SceneReceiverOutput {{ @location(0) normal: vec4<f32>,{extra} }}")
     };
     (
-        format!("{}\n{capture}", capture_before_coverage(&object)),
+        format!(
+            "{}\n{capture}",
+            capture_before_coverage(&object, evaluation)
+        ),
         format!("{terrain}\n{capture}"),
     )
 }
 
-fn capture_before_coverage(source: &str) -> String {
+fn capture_before_coverage(source: &str, evaluation: ReceiverCapture) -> String {
     let body = function(source, "reflection_metadata");
     let coverage = "if !scene_geometry_covered(input) || (masked && !(albedo.a >= scene_alpha_cutoff(input, false))) || !visible { discard; }";
     let capture = "scene_capture_receiver(input.world_position, projected.normal);";
     assert_eq!(body.matches(coverage).count(), 1);
     assert_eq!(body.matches(capture).count(), 1);
-    let prepared = body
-        .replace(coverage, "")
-        .replace(capture, &format!("{capture}\n    {coverage}"));
+    let prepared = match evaluation {
+        ReceiverCapture::Position => body.replace(capture, "").replace(
+            coverage,
+            &format!("scene_capture_receiver(input.world_position, geometric);\n    {coverage}"),
+        ),
+        ReceiverCapture::Normal => body
+            .replace(coverage, "")
+            .replace(capture, &format!("{capture}\n    {coverage}")),
+    };
     source.replace(body, &prepared)
 }
 

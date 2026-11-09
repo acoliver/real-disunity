@@ -14,6 +14,8 @@ mod targets;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod zero_bias_tests;
 pub(crate) use targets::ReceiverPayload;
 
 /// The number of independently displaced receivers retained by a geometry pair.
@@ -76,12 +78,28 @@ impl ReceiverLayout {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReceiverCapture {
+    Position,
+    Normal,
+}
+impl ReceiverCapture {
+    fn select(layout: ReceiverLayout, bias: f32, transmission: bool) -> Self {
+        if bias == 0.0 && layout == ReceiverLayout::Front && !transmission {
+            Self::Position
+        } else {
+            Self::Normal
+        }
+    }
+}
+
 pub(crate) fn producer_sources(
     output: super::MetadataOutput,
     layout: ReceiverLayout,
     bias: f32,
+    capture: ReceiverCapture,
 ) -> (String, String) {
-    shader::producer(output, layout, bias)
+    shader::producer(output, layout, bias, capture)
 }
 pub(crate) fn consumer_source(source: &str, layout: ReceiverLayout, terrain: bool) -> String {
     shader::consumer(source, layout, terrain)
@@ -119,6 +137,8 @@ var<private> scene_probe_dx: vec3<f32>; var<private> scene_probe_dy: vec3<f32>;"
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ReceiverReference {
     LateCardRejection,
+    NormalProducer,
+    PoisonUncovered,
     StoredShared,
     StoredIndependent,
     ProbeIndependent,
@@ -143,6 +163,8 @@ impl ReceiverReference {
             | Self::StoredProbeShared
             | Self::BlackShared => crate::renderer::depth::DepthMode::Shared,
             Self::LateCardRejection
+            | Self::NormalProducer
+            | Self::PoisonUncovered
             | Self::ProbeReuse
             | Self::StoredProbeReuse
             | Self::OffsetProbeReuse
@@ -198,6 +220,16 @@ impl crate::compositor::FrameRenderer {
                     "receiver displacements exceed configured reservation",
                 ));
             }
+            let capture = ReceiverCapture::select(layout, bias, gpu.has_transmission());
+            #[cfg(test)]
+            let capture = if matches!(
+                self.receiver_reference,
+                Some(ReceiverReference::NormalProducer)
+            ) {
+                ReceiverCapture::Normal
+            } else {
+                capture
+            };
             let output = ReceiverPayload::output_for(screen);
             admission::validate(
                 &device.limits(),
@@ -220,8 +252,21 @@ impl crate::compositor::FrameRenderer {
                 receiver.layout != layout
                     || receiver.bias.to_bits() != bias.to_bits()
                     || receiver.output != output
+                    || receiver.capture != capture
             }) {
-                screen.receiver = Some(ReceiverPayload::new(device, screen, layout, bias));
+                screen.receiver = Some(ReceiverPayload::new(device, screen, layout, bias, capture));
+            }
+            #[cfg(test)]
+            if matches!(
+                self.receiver_reference,
+                Some(ReceiverReference::PoisonUncovered)
+            ) {
+                screen.receiver.as_mut().unwrap().clear = wgpu::Color {
+                    r: 12345.0,
+                    g: -6789.0,
+                    b: 4321.0,
+                    a: -9876.0,
+                };
             }
         }
         Ok(())

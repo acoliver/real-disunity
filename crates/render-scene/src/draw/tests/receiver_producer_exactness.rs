@@ -1,0 +1,194 @@
+//! Full attachment differentials against the normal-dependent receiver producer.
+use super::*;
+
+fn opaque_receivers(source: &RenderScene) -> RenderScene {
+    let resources = SceneResources::new(
+        source.resources().textures().to_vec(),
+        source
+            .resources()
+            .materials()
+            .iter()
+            .copied()
+            .map(|material| material.with_translucency(0).unwrap())
+            .collect(),
+    )
+    .unwrap();
+    source
+        .with_resources(
+            resources,
+            source.geometry().clone(),
+            source.effects().cloned(),
+        )
+        .unwrap()
+}
+
+fn degenerate_normal_frame() -> RenderScene {
+    let source = sloped(false);
+    let vertices = [
+        [-2000, 0, 0],
+        [2000, 0, 0],
+        [-2000, 0, 4000],
+        [2000, 0, 4000],
+    ]
+    .into_iter()
+    .map(|position_millimeters| SceneVertex {
+        position_millimeters,
+        normal_micro: [0, -1_000_000, 0],
+        tangent_micro: None,
+        texcoord_micro: [0; 2],
+    })
+    .collect();
+    let mesh = SceneMesh::new(vec![
+        SceneMeshLod::new(0, vertices, vec![0, 1, 2, 2, 1, 3], None).unwrap(),
+    ])
+    .unwrap();
+    let mut textures = source.resources().textures().to_vec();
+    let normal = TextureHandle::from_raw(u32::try_from(textures.len()).unwrap());
+    textures.push(SceneTexture::Texels {
+        format: TexelFormat::Rgba8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 2,
+        height: 2,
+        mips: 1,
+        bytes: [128, 128, 255, 255].repeat(4).into(),
+    });
+    let mut materials = source.resources().materials().to_vec();
+    let material = MaterialHandle::from_raw(u32::try_from(materials.len()).unwrap());
+    materials.push(
+        SceneMaterial::new(SceneMaterialParts {
+            albedo: TextureHandle::from_raw(0),
+            normal: Some(normal),
+            roughness_metallic: None,
+            ambient_occlusion: None,
+            self_illumination: None,
+            roughness_micro: 700_000,
+            metalness_micro: 0,
+            alpha_mode: SceneAlphaMode::Opaque,
+            double_sided: true,
+        })
+        .unwrap(),
+    );
+    let mut meshes = source.geometry().meshes().to_vec();
+    let handle = MeshHandle::from_raw(u32::try_from(meshes.len()).unwrap());
+    meshes.push(mesh);
+    let object = SceneObject::new(
+        SceneTransform {
+            position_millimeters: [OFFSET[0], OFFSET[1], 300],
+            ..identity()
+        },
+        handle,
+        material,
+    );
+    RenderScene::new(SceneParts {
+        resources: SceneResources::new(textures, materials).unwrap(),
+        geometry: SceneGeometry::new(meshes, vec![object]).unwrap(),
+        terrain: source.terrain().cloned(),
+        effects: source.effects().cloned(),
+    })
+    .unwrap()
+}
+
+fn compare(context: &GpuContext, source: &RenderScene, bias: f32, distance: i64, name: &str) {
+    let mut pose = receiver_pose();
+    pose.eye_millimeters[1] = OFFSET[1] - distance;
+    let old = frame_at_pose_motion(
+        context,
+        source,
+        Some(ReceiverReference::NormalProducer),
+        bias,
+        pose,
+        true,
+    );
+    let new = frame_at_pose_motion(context, source, None, bias, pose, true);
+    assert_eq!(old.len(), new.len());
+    for (attachment, (a, b)) in old.iter().zip(&new).enumerate() {
+        assert_eq!(a.len(), b.len());
+        assert_eq!(
+            a.iter().zip(b).filter(|(a, b)| a != b).count(),
+            0,
+            "{name} bias={bias} distance={distance} attachment={attachment}"
+        );
+    }
+    assert!(new[new.len() - 2].iter().any(|byte| *byte != 0));
+    if name == "degenerate-normal-frame" {
+        let nonfinite = new[2]
+            .chunks_exact(2)
+            .filter(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]) & 0x7c00 == 0x7c00)
+            .count();
+        println!("NONFINITE_NORMAL_COMPONENTS {nonfinite}");
+        assert!(
+            nonfinite > 0,
+            "degenerate UVs must reach nonfinite mapped normals"
+        );
+    }
+    if let Some(directory) = std::env::var_os("WR_RECEIVER_FIXTURE_OUTPUT") {
+        let directory = std::path::PathBuf::from(directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        for (variant, products) in [("main", &old), ("position", &new)] {
+            for (index, bytes) in products.iter().enumerate() {
+                std::fs::write(
+                    directory.join(format!(
+                        "{name}-{:08x}-{distance}-{variant}-{index}.bin",
+                        bias.to_bits()
+                    )),
+                    bytes,
+                )
+                .unwrap();
+            }
+        }
+    }
+    println!(
+        "PRODUCER_EXACTNESS {name} bias={bias} distance={distance} attachments={} differing_bytes=0",
+        new.len()
+    );
+}
+
+#[test]
+fn gpu_zero_bias_receiver_producer_preserves_fixture_payload_attachment_and_output_bits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    for (name, source) in [
+        ("slope", sloped(false)),
+        ("occlusion-relief", opaque_receivers(&sloped(true))),
+        ("degenerate-normal-frame", degenerate_normal_frame()),
+    ] {
+        for bias in [0.0, -0.0, 0.012] {
+            compare(&context, &source, bias, 8_000, name);
+        }
+    }
+    let source = opaque_receivers(&card_rejection::fixture());
+    for distance in [8_000, 16_000, 31_997] {
+        for bias in [0.0, 0.012] {
+            compare(
+                &context,
+                &source,
+                bias,
+                distance,
+                "holes-fades-decals-mips-cascades",
+            );
+        }
+    }
+}
+
+#[test]
+fn gpu_receiver_consumers_do_not_publish_uncovered_payload_values() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = opaque_receivers(&card_rejection::fixture());
+    let cleared = frame(&context, &source, None, 0.0);
+    let poison = frame(
+        &context,
+        &source,
+        Some(ReceiverReference::PoisonUncovered),
+        0.0,
+    );
+    let payload = cleared.len() - 2;
+    assert!(
+        cleared[payload..] != poison[payload..],
+        "control must change uncovered payload texels"
+    );
+    assert!(
+        cleared[..payload] == poison[..payload],
+        "uncovered payload must not affect any downstream attachment or output"
+    );
+}

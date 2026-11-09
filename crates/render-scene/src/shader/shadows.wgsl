@@ -59,8 +59,8 @@ fn single_shadow_visibility(position: vec3<f32>, normal: vec3<f32>, receiver_dx:
 
 fn cascaded_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     // Capture unbiased displacements once, before cascade selection or projection rounding.
-    let receiver_dx = select(dpdx(position) + dpdx(normal) * shadow.bias.y, dpdx(position), shadow.bias.y == 0.0);
-    let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0);
+    let receiver_dx = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdx(position) + dpdx(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdx(position)), shadow.bias.y == 0.0));
+    let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0));
     if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 { return single_shadow_visibility(position, normal, receiver_dx, receiver_dy); }
     var coordinates: array<vec3<f32>, 4>;
     var gradients: array<vec2<f32>, 4>;
@@ -130,8 +130,8 @@ struct SceneCardShadow {
     gradients: array<vec2<f32>, 4>,
 }
 fn scene_prepare_card_shadow(position: vec3<f32>, normal: vec3<f32>) -> SceneCardShadow {
-    let receiver_dx = select(dpdx(position) + dpdx(normal) * shadow.bias.y, dpdx(position), shadow.bias.y == 0.0);
-    let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0);
+    let receiver_dx = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdx(position) + dpdx(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdx(position)), shadow.bias.y == 0.0));
+    let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0));
     var prepared: SceneCardShadow;
     if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 {
         let clip = shadow.clip_from_world[0] * vec4<f32>(select(position + normal * shadow.bias.y, position, shadow.bias.y == 0.0), 1.0);

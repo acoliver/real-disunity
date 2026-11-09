@@ -119,8 +119,8 @@ pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
 pub(crate) fn probe_source(source: &str) -> String {
     // Preserve shading and its control flow while exposing displacements in existing MRTs.
     let source = source.replace(
-        "let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0);",
-        "let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0); scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
+        "let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0));",
+        "let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0)); scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
     ).replace(
         "vec4<f32>(published_environment, 1.0), vec4<f32>(published_factor, 1.0)",
         "vec4<f32>(scene_probe_dx, scene_probe_dy.x), vec4<f32>(scene_probe_dy.yz, 0.0, 0.0)",

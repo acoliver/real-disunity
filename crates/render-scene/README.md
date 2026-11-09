@@ -463,7 +463,9 @@ Runtime-uniform bias selects the position and position derivatives without varyi
 control flow before derivatives. WGSL does not guarantee preservation of a zero's
 sign. On a given backend, paired Position and Normal producers and local consumers
 must produce identical displacement bits, numerically equal to the position
-operand or its derivative regardless of the sign of zero. Nonzero-bias arithmetic
+operand or its derivative regardless of the sign of zero. Local derivative selects
+choose integer bit representations before bitcasting back to f32, so floating-point
+selection cannot change a zero sign relative to the producer. Nonzero-bias arithmetic
 is unchanged.
 
 A zero bias applies no normal offset. NaNs from multiplying nonfinite normal

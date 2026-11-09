@@ -131,7 +131,7 @@ fn local_receivers_select_exact_position_and_derivatives_in_uniform_flow() {
         let body = function_source(source, name);
         for axis in ["x", "y"] {
             assert!(body.contains(&format!(
-                "select(dpd{axis}(position) + dpd{axis}(normal) * shadow.bias.y, dpd{axis}(position), shadow.bias.y == 0.0)"
+                "bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpd{axis}(position) + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpd{axis}(position)), shadow.bias.y == 0.0))"
             )));
         }
     }

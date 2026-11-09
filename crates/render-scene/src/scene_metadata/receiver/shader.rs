@@ -176,11 +176,11 @@ pub(super) fn function<'a>(source: &'a str, name: &str) -> &'a str {
 fn loaded(function: &str, side: u32) -> String {
     function
         .replace(
-            "let receiver_dx = select(dpdx(position) + dpdx(normal) * shadow.bias.y, dpdx(position), shadow.bias.y == 0.0);",
+            "let receiver_dx = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdx(position) + dpdx(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdx(position)), shadow.bias.y == 0.0));",
             &format!("let receiver_dx = scene_receiver_load({side}).dx;"),
         )
         .replace(
-            "let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0);",
+            "let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0));",
             &format!("let receiver_dy = scene_receiver_load({side}).dy;"),
         )
 }

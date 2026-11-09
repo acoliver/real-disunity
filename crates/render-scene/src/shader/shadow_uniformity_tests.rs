@@ -230,9 +230,9 @@ fn uniform_flag()->u32 { return flag; }";
 fn shadow_guard_mutation_rejects_early_receiver_exit_in_the_assembled_shader() {
     let source = crate::shadows::capture_sources(true).0;
     let mutation = source.replacen(
-        "let receiver_dx = dpdx(position)",
+        "let receiver_dx =",
         "if position.x > 0.0 { return 1.0; }
-    let receiver_dx = dpdx(position)",
+    let receiver_dx =",
         1,
     );
     assert_ne!(source, mutation);

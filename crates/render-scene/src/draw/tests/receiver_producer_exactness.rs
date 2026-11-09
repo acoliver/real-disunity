@@ -198,9 +198,9 @@ fn gpu_zero_bias_receiver_producer_preserves_fixture_payload_attachment_and_outp
     }
 }
 
-/// Uncovered payload clears must never reach surviving outputs. Qualification of
-/// this control also requires the main-line receiver portability fix when main
-/// itself violates producer coverage; early rejection must not conceal that defect.
+/// A clear changes only texels no producer won. Requiring every downstream byte
+/// unchanged checks ownership even for helper lanes that execute payload loads;
+/// the payload itself must change so a missing clear cannot make the test pass.
 #[test]
 fn gpu_receiver_consumers_do_not_publish_uncovered_payload_values() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -214,6 +214,16 @@ fn gpu_receiver_consumers_do_not_publish_uncovered_payload_values() {
         0.0,
     );
     let payload = cleared.len() - 2;
+    for (index, (a, b)) in cleared.iter().zip(&poison).enumerate() {
+        let differences = a.iter().zip(b).filter(|(a, b)| a != b).count();
+        println!("UNCOVERED_RECEIVER attachment={index} differing_bytes={differences}");
+    }
+    export(
+        "uncovered-payload",
+        0.0,
+        8_000,
+        [("main", &cleared), ("position", &poison)],
+    );
     assert!(
         cleared[payload..] != poison[payload..],
         "control must change uncovered payload texels"
@@ -221,6 +231,27 @@ fn gpu_receiver_consumers_do_not_publish_uncovered_payload_values() {
     assert!(
         cleared[..payload] == poison[..payload],
         "uncovered payload must not affect any downstream attachment or output"
+    );
+}
+
+/// Keep the repeatability control separate so the poison test retains its cold
+/// two-frame ordering and cannot pass merely because an extra draw warmed a cache.
+#[test]
+fn gpu_receiver_zero_clear_frames_are_deterministic() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = opaque_receivers(&card_rejection::fixture());
+    let cleared = frame(&context, &source, None, 0.0);
+    let repeated = frame(&context, &source, None, 0.0);
+    export(
+        "uncovered-payload-repeat",
+        0.0,
+        8_000,
+        [("main", &cleared), ("position", &repeated)],
+    );
+    assert!(
+        cleared == repeated,
+        "the uncovered-payload fixture must be deterministic before changing its clear"
     );
 }
 

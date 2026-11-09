@@ -657,6 +657,45 @@ let handle = runtime.register_program(ProgramDesc::single(
 - **Cost.** The parsed module is shared and so is the compiled `ShaderModule`: overrides apply when a pipeline is created, so two stages of one source that differ only in their overrides add one pipeline and no module to `RuntimeStats`. The values are part of the stage's `content_key`, and so of the pipeline's cache key, and equal values share a pipeline.
 - **Stages.** Vertex, fragment and compute stages each take their own values, as the stages have their own entry points. A constant with no default that the entry point uses, and that no call set, is the GPU's to refuse when the pipeline is created, as `ProgramError::Gpu`.
 
+## Float textures that cannot be filtered
+
+A `texture_2d<f32>` in WGSL reads as filterable, and so does every `sampler`, but some formats cannot be filtered: `R32Float`, `Rg32Float` and `Rgba32Float` without the device feature `FLOAT32_FILTERABLE`. A shader that samples such a texture, or reads it with `textureLoad`, declares it as an ordinary float texture, and the declaration says what WGSL cannot: `ResourceKind::Texture` with `sample: Float { filterable: false }`. The slot takes the declared sample type, and the binding accepts an import of an unfilterable format.
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind,
+# };
+# fn declare() -> Vec<ResourceBinding> {
+let at = |binding| BindingAddress { set: 0, binding };
+vec![
+    // `var ambient: texture_2d<f32>`, holding an `R32Float` texture.
+    ResourceBinding {
+        at: at(0),
+        source: BindingSource::Engine(EngineSemantic::named("scene.ambient")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Texture {
+            dimension: wgpu::TextureViewDimension::D2,
+            sample: wgpu::TextureSampleType::Float { filterable: false },
+            multisampled: false,
+        },
+    },
+    // `var point: sampler`, which the runtime fills with a nearest-texel sampler.
+    ResourceBinding {
+        at: at(1),
+        source: BindingSource::Unnamed,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Sampler(wgpu::SamplerBindingType::NonFiltering),
+    },
+]
+# }
+```
+
+- **What a declaration may narrow.** `ResourceKind::narrows` is the rule: a `Float { filterable: false }` texture narrows a filterable float texture of the same dimension and multisampling, and a `NonFiltering` sampler narrows a filtering one. Anything else that differs from the shader, such as a `Uint` or `Depth` declaration of a float texture, is still a `LayoutError::Mismatch`. A declaration cannot widen: a multisampled float texture is unfilterable in WGSL, and declaring it filterable is a mismatch.
+- **Imports.** A texture is checked against its slot's sample type when it is imported. An unfilterable format fills an unfilterable slot, and a filterable format fills either. An unfilterable format imported for a binding declared filterable is `ProgramError::WrongResource`, naming the slot and the format, because the binding's declaration is what the layout was built from: an import cannot change a layout that exists. Declare the binding unfilterable to bind both kinds of format.
+- **Samplers.** A sampler binding declared `NonFiltering` and not imported is filled with the runtime's sampler of nearest texel and mip, clamped to the edge. One the owner lends must itself be non-filtering, or wgpu refuses the group (`ProgramError::Gpu`).
+- **The pairing.** A texture declared unfilterable is sampled only with a non-filtering sampler. The runtime reads the shader's sampling calls from the module, and a program that samples an unfilterable texture with a sampler declared filtering is refused when the program is built, as `LayoutError::FilteringSampler`, naming the texture's and the sampler's addresses. A shader that only loads texels (`textureLoad`) pairs the texture with no sampler, and can keep a filtering sampler declared for other textures. The check applies to lent sets too, from their declarations.
+- **Lent sets.** A lent set's declaration is checked with `ResourceKind::same_class`, which ignores the filterable flag and the filtering of a plain sampler, so a lent `NonFiltering` sampler matches the shader's `sampler`.
+
 ## Alpha to coverage
 
 In a pass of more than one sample, alpha to coverage lets the fragment's alpha decide how many of a pixel's samples the fragment covers, which gives a cut-out edge such as foliage anti-aliasing without blending or sorting. It is a state: `RasterState::alpha_to_coverage`. The pipeline takes its sample count from the signature and sets alpha to coverage from the state, so the same program draws with and without it as two pipelines.

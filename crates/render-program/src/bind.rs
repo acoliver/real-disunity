@@ -148,10 +148,13 @@ impl ProgramRuntime {
                 })?;
             return imported_resource(&self.device, slot, import).map(Resolved::Borrowed);
         }
-        if matches!(slot.ty, wgpu::BindingType::Sampler(_)) {
-            return Ok(Resolved::Borrowed(wgpu::BindingResource::Sampler(
-                &self.sampler,
-            )));
+        if let wgpu::BindingType::Sampler(kind) = slot.ty {
+            let sampler = if kind == wgpu::SamplerBindingType::NonFiltering {
+                &self.non_filtering_sampler
+            } else {
+                &self.sampler
+            };
+            return Ok(Resolved::Borrowed(wgpu::BindingResource::Sampler(sampler)));
         }
         let address = BindingAddress {
             set: slot.set,

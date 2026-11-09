@@ -99,7 +99,11 @@ fn half(bits: [u8; 2]) -> f32 {
         0x1f => panic!("{bits:#06x} is not finite"),
         _ => (1.0 + fraction / 1024.0) * 2f32.powi(i32::from(exponent) - 15),
     };
-    if bits >> 15 == 1 { -magnitude } else { magnitude }
+    if bits >> 15 == 1 {
+        -magnitude
+    } else {
+        magnitude
+    }
 }
 
 /// How many of its four samples each pixel's fragment covered, row by row, after one pass of

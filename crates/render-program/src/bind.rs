@@ -146,7 +146,7 @@ impl ProgramRuntime {
                     set: slot.set,
                     binding: slot.binding,
                 })?;
-            return imported_resource(slot, import).map(Resolved::Borrowed);
+            return imported_resource(&self.device, slot, import).map(Resolved::Borrowed);
         }
         if matches!(slot.ty, wgpu::BindingType::Sampler(_)) {
             return Ok(Resolved::Borrowed(wgpu::BindingResource::Sampler(
@@ -234,6 +234,7 @@ impl Resolved<'_> {
 
 /// The imported resource as the binding's entry, when it is the kind of resource the binding is.
 fn imported_resource<'a>(
+    device: &wgpu::Device,
     slot: &Slot,
     resource: &'a ImportedResource,
 ) -> Result<wgpu::BindingResource<'a>, ProgramError> {
@@ -249,6 +250,14 @@ fn imported_resource<'a>(
             }
             Ok(buffer.as_entire_binding())
         }
+        (
+            wgpu::BindingType::Buffer { ty, .. },
+            ImportedResource::BufferRange {
+                buffer,
+                offset,
+                size,
+            },
+        ) => buffer_range(device, (slot, *ty), (buffer, *offset, *size)),
         (wgpu::BindingType::Texture { .. }, ImportedResource::Texture(texture)) => {
             check_texture(slot, &texture.texture, texture.dimension)?;
             Ok(wgpu::BindingResource::TextureView(&texture.view))
@@ -267,6 +276,54 @@ fn imported_resource<'a>(
             found: found.describe().to_owned(),
         }),
     }
+}
+
+/// `size` bytes of `buffer` from `offset` as the binding of a buffer slot, when the offset is a
+/// multiple of the device's alignment for the slot's kind of buffer, the range lies within the
+/// buffer and is at least as large as the slot needs. A range cannot be empty.
+fn buffer_range<'a>(
+    device: &wgpu::Device,
+    (slot, ty): (&Slot, wgpu::BufferBindingType),
+    (buffer, offset, size): (&'a wgpu::Buffer, u64, u64),
+) -> Result<wgpu::BindingResource<'a>, ProgramError> {
+    let limits = device.limits();
+    let alignment = u64::from(match ty {
+        wgpu::BufferBindingType::Uniform => limits.min_uniform_buffer_offset_alignment,
+        wgpu::BufferBindingType::Storage { .. } => limits.min_storage_buffer_offset_alignment,
+    });
+    let (set, binding) = (slot.set, slot.binding);
+    if !offset.is_multiple_of(alignment) {
+        return Err(ProgramError::BufferRangeMisaligned {
+            set,
+            binding,
+            offset,
+            alignment,
+        });
+    }
+    let len = buffer.size();
+    if offset.checked_add(size).is_none_or(|end| end > len) {
+        return Err(ProgramError::BufferRangePastBuffer {
+            set,
+            binding,
+            offset,
+            size,
+            len,
+        });
+    }
+    let needed = slot.min_size.max(1);
+    let Some(bound) = std::num::NonZeroU64::new(size).filter(|size| size.get() >= needed) else {
+        return Err(ProgramError::BufferTooSmall {
+            set,
+            binding,
+            needed,
+            have: size,
+        });
+    };
+    Ok(wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+        buffer,
+        offset,
+        size: Some(bound),
+    }))
 }
 
 /// Everything a bind group's slots are filled from.

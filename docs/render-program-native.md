@@ -688,6 +688,31 @@ assert_eq!(
 - **How many samples.** The coverage is the device's to compute from the alpha of colour attachment 0. `tests/lent/coverage.rs` renders a white fragment of alpha 0, 0.25, 0.5, 0.75 and 1 at 4x into transparent black, resolves into `Rgba16Float` and reads back. Every pixel covers 0, 1, 2, 3 and 4 samples on lavapipe and on the Radeon. Those alphas are exact multiples of a quarter, where the count does not depend on how a device rounds or spreads its samples; an alpha between two multiples is the device's to round, and the test asserts nothing about it.
 - **Mask.** The pipeline's sample mask is all ones.
 
+## Buffer ranges
+
+`Import::buffer` binds a whole buffer. `Import::buffer_range(semantic, buffer, offset, size)` binds `size` bytes from `offset`, so one buffer can hold a table of records, or a ring of frames, and each draw or prepared set reads its own slice. It is accepted wherever an import is: in `ImportedDraw::imports` and in an `ImportTable` for `prepare_set`.
+
+```rust,no_run
+# use worldrunner_render_program::binding::EngineSemantic;
+# use worldrunner_render_program::runtime::{GraphicsProgram, Import, ImportTable, ProgramRuntime};
+# fn slice(
+#     runtime: &mut ProgramRuntime,
+#     program: &GraphicsProgram,
+#     table: wgpu::Buffer,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// Record 3 of a table whose records are 256 bytes apart.
+let record = Import::buffer_range(EngineSemantic::named("water.record"), table, 3 * 256, 64);
+let set = runtime.prepare_set(program, 1, &ImportTable::new().with(record), Vec::new())?;
+# let _ = set;
+# Ok(())
+# }
+```
+
+- **Alignment.** `offset` must be a multiple of the device's `min_uniform_buffer_offset_alignment` for a uniform binding and of `min_storage_buffer_offset_alignment` for a storage binding, or the import is `ProgramError::BufferRangeMisaligned`, naming the set, binding, offset and alignment. Both are 256 on lavapipe and on the Radeon in the tests, as wgpu's default limits ask.
+- **Size.** `size` must be at least the larger of what the shader needs and what the declaration's `min_size` asks for, or it is `ProgramError::BufferTooSmall` with `have` set to the range's size. An empty range is `BufferTooSmall` too. A range that runs past the end of the buffer, including an offset and size whose sum overflows, is `ProgramError::BufferRangePastBuffer`.
+- **What the shader sees.** The binding starts at `offset`, so the first element of a storage array is the first element of the range, and `arrayLength` is the size divided by the element stride.
+- **Limits.** The device's maximum binding sizes are wgpu's to check when the group is created, as `ProgramError::Gpu`. A range does not use dynamic offsets, so each range is its own bind group, built once for a prepared set.
+
 ## Clip space and depth
 
 A WGSL position is used as written. Clip Y is up, so positive Y lands in the top rows of the target, and depth runs from 0 at the near plane to 1 at the far plane, as wgpu defines them. A counter-clockwise triangle in clip space is a front face under `RenderState::opaque_depth`. SPIR-V stages keep the convention of the SPIR-V reader the crate uses, which flips the position's Y: the same vertices land in the bottom rows. Pick one source format per program and test an asymmetric scene when you switch.

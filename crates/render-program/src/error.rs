@@ -99,6 +99,25 @@ pub enum ProgramError {
         have: u64,
     },
     #[error(
+        "set {set} binding {binding} is bound to a buffer range at offset {offset}, which is not a multiple of the device's offset alignment {alignment}"
+    )]
+    BufferRangeMisaligned {
+        set: u32,
+        binding: u32,
+        offset: u64,
+        alignment: u64,
+    },
+    #[error(
+        "set {set} binding {binding} is bound to {size} bytes at offset {offset} of a buffer of {len} bytes"
+    )]
+    BufferRangePastBuffer {
+        set: u32,
+        binding: u32,
+        offset: u64,
+        size: u64,
+        len: u64,
+    },
+    #[error(
         "set {set} binding {binding} is a storage image the bound texture does not suit: {error}"
     )]
     StorageImage {

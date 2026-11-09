@@ -186,3 +186,58 @@ fn the_storage_a_frames_render_textures_would_add_is_counted_before_they_are_mad
     frame.render_textures[0].mips = 4;
     assert_eq!(would_add(&rig, &frame), (64 + 16 + 4 + 1) * 4 + 8 * 8 * 4);
 }
+
+#[test]
+fn the_render_textures_the_state_holds_are_listed_with_their_bytes_and_can_be_released_alone() {
+    let mut rig = Rig::new();
+    let frame = fixture(&mut rig, 1 << 1);
+    let before = rig.runtime.live_bytes();
+    let drawn = settle(&mut rig, &frame);
+    assert_eq!(pixel(&drawn, 8, (0, 0)), RED);
+    // An 8 x 8 target of 4-byte texels, and the constants buffer the camera's frame needs.
+    let held = rig.state.render_textures_held();
+    assert_eq!(held, [(TARGET, 8 * 8 * 4)]);
+    let live = rig.runtime.live_bytes();
+    assert!(live >= before + 8 * 8 * 4);
+
+    let freed = rig.state.release_render_texture(&mut rig.runtime, TARGET);
+    rig.runtime.collect();
+    assert_eq!(freed, Some(8 * 8 * 4));
+    assert_eq!(rig.runtime.live_bytes(), live - 8 * 8 * 4);
+    assert!(rig.state.render_textures_held().is_empty());
+    assert_eq!(
+        rig.state.release_render_texture(&mut rig.runtime, TARGET),
+        None,
+        "a texture is given back once"
+    );
+
+    // The next frame that names the texture makes it again, empty.
+    let mut again = frame.clone();
+    again.records.clear();
+    let image = settle(&mut rig, &again);
+    assert!(image.chunks(4).all(|texel| texel == ZERO));
+}
+
+#[test]
+fn an_uploaded_source_is_not_a_render_texture_to_release() {
+    let mut rig = Rig::new();
+    rig.state
+        .set_texture(&mut rig.runtime, &source(20, [8, 8], vec![1; 8 * 8 * 4]))
+        .unwrap();
+    assert!(rig.state.render_textures_held().is_empty());
+    assert_eq!(
+        rig.state
+            .release_render_texture(&mut rig.runtime, TextureId(20)),
+        None
+    );
+}
+
+#[test]
+fn the_staging_a_read_of_a_render_texture_needs_is_its_rows_padded_to_the_copy_alignment() {
+    let mut rig = Rig::new();
+    let frame = fixture(&mut rig, 1 << 1);
+    settle(&mut rig, &frame);
+    // Eight texels of 4 bytes is 32 bytes a row, which the copy pads to 256, for eight rows.
+    assert_eq!(rig.state.read_bytes(TARGET), Some(256 * 8));
+    assert_eq!(rig.state.read_bytes(TextureId(99)), None);
+}

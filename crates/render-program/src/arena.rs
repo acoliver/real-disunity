@@ -145,6 +145,26 @@ impl ProgramRuntime {
         set
     }
 
+    /// As [`arena_allocations`](Self::arena_allocations) for a device whose buffers hold at most
+    /// `limits.max_buffer_size` bytes: the reservation is split into buffers of that size and a
+    /// remainder, so that a budget larger than one buffer can hold still has an arena.
+    #[must_use]
+    pub fn arena_allocations_within(bytes: u64, limits: &wgpu::Limits) -> AllocationSet {
+        let alignment = wgpu::COPY_BUFFER_ALIGNMENT;
+        let chunk = limits.max_buffer_size / alignment * alignment;
+        if chunk == 0 || bytes <= chunk {
+            return Self::arena_allocations(bytes);
+        }
+        let mut set = AllocationSet::default();
+        let whole = u32::try_from(bytes / chunk).unwrap_or(u32::MAX);
+        set.buffer("program arena", chunk, whole);
+        let rest = bytes - chunk * u64::from(whole);
+        if rest > 0 {
+            set.buffer("program arena remainder", rest, 1);
+        }
+        set
+    }
+
     /// Opens an arena over the renderer's `reservation`, owned through this runtime's
     /// submission authority. Every allocation made from now on holds a share of the reservation.
     /// Open the first arena before the runtime allocates anything: storage allocated earlier

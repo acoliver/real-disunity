@@ -198,6 +198,9 @@ fn gpu_zero_bias_receiver_producer_preserves_fixture_payload_attachment_and_outp
     }
 }
 
+/// Uncovered payload clears must never reach surviving outputs. Qualification of
+/// this control also requires the main-line receiver portability fix when main
+/// itself violates producer coverage; early rejection must not conceal that defect.
 #[test]
 fn gpu_receiver_consumers_do_not_publish_uncovered_payload_values() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -221,6 +224,9 @@ fn gpu_receiver_consumers_do_not_publish_uncovered_payload_values() {
     );
 }
 
+/// Zero-bias payloads must be finite dP and agree across producer paths even when
+/// mapped normals are nonfinite. WGSL permits backend-dependent nonfinite arithmetic;
+/// Metal need not reproduce NaN payloads from main's normal-dependent expression.
 #[test]
 fn gpu_degenerate_normal_frame_zero_bias_has_finite_position_derivatives() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -257,10 +263,6 @@ fn gpu_degenerate_normal_frame_zero_bias_has_finite_position_derivatives() {
                 .count()
         };
         let main_nonfinite = nonfinite(&old);
-        assert!(
-            main_nonfinite > 0,
-            "main's degenerate normal derivative must contaminate its payload"
-        );
         assert_eq!(nonfinite(&new), 0);
         assert!(
             new[2]

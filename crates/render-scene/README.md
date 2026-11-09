@@ -460,7 +460,11 @@ as exactly `B = P` and its displacements as exactly `dpdx(P)` and `dpdy(P)`.
 This definition applies to Position and Normal producers, transmission, and every
 local-derivative consumer, including unpaired, multisampled and prepass-free frames.
 Runtime-uniform bias selects the position and position derivatives without varying
-control flow before derivatives. Nonzero-bias arithmetic is unchanged.
+control flow before derivatives. WGSL does not guarantee preservation of a zero's
+sign. On a given backend, paired Position and Normal producers and local consumers
+must produce identical displacement bits, numerically equal to the position
+operand or its derivative regardless of the sign of zero. Nonzero-bias arithmetic
+is unchanged.
 
 A zero bias applies no normal offset. NaNs from multiplying nonfinite normal
 operands by zero, and signed-zero results dependent on the normal, are arithmetic

@@ -1,4 +1,7 @@
-//! Exercise the production selects with runtime storage operands and inspect signed-zero bits.
+//! Compare producer and local-consumer bits with runtime storage operands.
+//!
+//! WGSL does not guarantee signed-zero preservation. Each backend must agree across
+//! the zero-bias paths and return P numerically, without requiring a zero's sign.
 use super::*;
 
 fn selection_source(negative: bool, derivative: bool) -> String {
@@ -44,38 +47,53 @@ fn scene_capture_receiver(position: vec3<f32>, normal: vec3<f32>) {{
     )
 }
 
+fn assert_position_values(result: &[Vec<u8>]) {
+    for index in (0..16_usize).step_by(2) {
+        let x = f32::from(u16::try_from(index % 4).unwrap()) + 0.5;
+        let y = f32::from(u16::try_from(index / 4).unwrap()) + 0.5;
+        for (attachment, expected) in [vec![x, y, 0.0, x], vec![y, 0.0]].iter().enumerate() {
+            let stride = expected.len() * 4;
+            let actual: Vec<_> = result[attachment][index * stride..(index + 1) * stride]
+                .chunks_exact(4)
+                .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()))
+                .collect();
+            assert_eq!(&actual, expected, "attachment={attachment} pixel={index}");
+        }
+    }
+}
+
+/// Compare the same displacement operands across paired producers and local selects.
+/// Metal can normalize -0 to +0, so numerical P equality ignores zero signs while
+/// complete attachment equality still requires identical bits across all paths.
 #[test]
-fn gpu_runtime_zero_bias_selects_position_bits_including_negative_zero() {
+fn gpu_runtime_zero_bias_paths_agree_on_position_bits() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    for derivative in [false, true] {
-        for negative in [false, true] {
-            for normal in [
-                1.0_f32.to_bits(),
-                f32::INFINITY.to_bits(),
-                f32::NAN.to_bits(),
-                0x7fc0_1234,
-            ] {
+    for negative in [false, true] {
+        let bias = if negative { -0.0 } else { 0.0 };
+        for normal in [
+            1.0_f32.to_bits(),
+            f32::INFINITY.to_bits(),
+            f32::NAN.to_bits(),
+            0x7fc0_1234,
+        ] {
+            let producers = [ReceiverCapture::Position, ReceiverCapture::Normal].map(|capture| {
+                let source = operand_source(bias, capture)
+                    .replace("dpdx(position)", "position")
+                    .replace("dpdy(position)", "position");
+                operands(&context, &source, normal)
+            });
+            assert_eq!(
+                producers[0], producers[1],
+                "normal={normal:08x} bias={bias}"
+            );
+            assert_position_values(&producers[0]);
+            for derivative in [false, true] {
                 let result = operands(&context, &selection_source(negative, derivative), normal);
-                for index in (0..16_usize).step_by(2) {
-                    let x = f32::from(u16::try_from(index % 4).unwrap()) + 0.5;
-                    let y = f32::from(u16::try_from(index / 4).unwrap()) + 0.5;
-                    let sign = u32::try_from((index / 4) % 2).unwrap() << 31;
-                    let expected = [x.to_bits(), y.to_bits(), sign, x.to_bits()];
-                    let actual: Vec<_> = result[0][index * 16..(index + 1) * 16]
-                        .chunks_exact(4)
-                        .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
-                        .collect();
-                    assert_eq!(
-                        actual, expected,
-                        "normal={normal:08x} negative={negative} derivative={derivative} pixel={index}"
-                    );
-                    let actual: Vec<_> = result[1][index * 8..(index + 1) * 8]
-                        .chunks_exact(4)
-                        .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
-                        .collect();
-                    assert_eq!(actual, [y.to_bits(), sign]);
-                }
+                assert_eq!(
+                    result, producers[0],
+                    "normal={normal:08x} negative={negative} derivative={derivative}"
+                );
             }
         }
     }

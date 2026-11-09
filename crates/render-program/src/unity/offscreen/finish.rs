@@ -11,11 +11,13 @@ use worldrunner_render_post::contracts::{
 
 use crate::draw::VertexInput;
 use crate::packet::{PipelineRequest, TargetSignature, VertexLayout, with_pipeline_descriptor};
+use crate::program::GraphicsProgram;
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, RenderState};
 
 use super::error::OffscreenError;
 use super::plan::DrawPlan;
+use super::resample::ResampleStep;
 use super::steps::{BlitStep, BufferReads, CameraDraw, Step, push_buffer_use};
 use super::tracker::Tracker;
 
@@ -39,6 +41,7 @@ impl Finish<'_> {
                 Step::Ready(operation) => Ok(operation),
                 Step::Camera { id, pass, draws } => self.camera(id, pass, &draws),
                 Step::Blit(blit) => self.blit(blit),
+                Step::Resample(resample) => self.resample(&resample),
             })
             .collect()
     }
@@ -172,23 +175,39 @@ impl Finish<'_> {
         blit: &BlitStep,
         bindings: &[CheckedBindings],
     ) -> Result<wgpu::RenderPipeline, OffscreenError> {
+        let color = blit.colors[0]
+            .as_ref()
+            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.view.format());
+        let state = blit.plan.state.neutral(wgpu::FrontFace::Ccw);
+        self.fullscreen_pipeline(
+            &blit.plan.entry.program,
+            (&state, color),
+            &blit.vertices.inputs,
+            bindings,
+        )
+    }
+
+    /// The pipeline of a program drawn over a color target of `color` format, with a layout made
+    /// of the bind groups it binds.
+    fn fullscreen_pipeline(
+        &mut self,
+        program: &GraphicsProgram,
+        (state, color): (&RenderState, wgpu::TextureFormat),
+        vertex_inputs: &[VertexInput],
+        bindings: &[CheckedBindings],
+    ) -> Result<wgpu::RenderPipeline, OffscreenError> {
         let device = self.runtime.device().clone();
         let layouts: Vec<_> = bindings.iter().map(|group| Some(group.layout())).collect();
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             bind_group_layouts: &layouts,
             ..Default::default()
         });
-        let program = &blit.plan.entry.program;
-        let color = blit.colors[0]
-            .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.view.format());
         let signature = TargetSignature::new(&[color], None, 1)?;
-        let state = blit.plan.state.neutral(wgpu::FrontFace::Ccw);
-        let layouts = vertex_layouts(&blit.vertices.inputs);
-        let colors = colors_of(signature, &state)?;
+        let layouts = vertex_layouts(vertex_inputs);
+        let colors = colors_of(signature, state)?;
         let request = PipelineRequest {
             program,
-            state: &state,
+            state,
             layouts: &layouts,
             signature,
             colors: &colors,
@@ -203,6 +222,41 @@ impl Finish<'_> {
                     .guarded(|| device.create_render_pipeline(descriptor))
             },
         )?)
+    }
+
+    /// The draw of a resample: the source bound as a texture and a sampler, three vertices from
+    /// the shader and no buffers.
+    fn resample(&mut self, step: &ResampleStep) -> Result<TypedOperation, OffscreenError> {
+        let device = self.runtime.device().clone();
+        let registry = &self.tracker.registry;
+        let built = self.runtime.guarded(|| {
+            CheckedBindings::build_with_resources(
+                &device,
+                registry,
+                std::slice::from_ref(&step.texture),
+                &[],
+                std::slice::from_ref(&step.sampler),
+            )
+        })?;
+        let bindings = vec![built?];
+        let state = RenderState::fullscreen();
+        let color = step.color.view.format();
+        let pipeline = self.fullscreen_pipeline(&step.program, (&state, color), &[], &bindings)?;
+        let pass = RasterPass {
+            id: step.id,
+            colors: vec![Some(step.color.clone())],
+            depth: None,
+            uses: step.uses.clone(),
+            bindings,
+        };
+        Ok(TypedOperation::new(
+            step.id,
+            TypedWork::Fullscreen {
+                pass,
+                pipeline,
+                vertices: None,
+            },
+        ))
     }
 
     fn blit(&mut self, blit: BlitStep) -> Result<TypedOperation, OffscreenError> {

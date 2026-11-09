@@ -76,7 +76,7 @@ pub enum OffscreenError {
     MixedInputNumbering { low: i8, high: i8 },
     #[error("mesh {mesh:?}: {reason}")]
     BadMesh { mesh: MeshId, reason: String },
-    #[error("a blit without a material needs the same size and format; {reason}")]
+    #[error("a blit without a material cannot draw this source; {reason}")]
     BlitNeedsMaterial { reason: String },
     #[error("a blit with a material needs the frame to name a blit mesh")]
     NoBlitMesh,

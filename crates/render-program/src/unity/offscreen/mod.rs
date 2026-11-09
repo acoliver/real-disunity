@@ -18,6 +18,7 @@ mod meshes;
 mod plan;
 mod probe;
 mod readback;
+mod resample;
 mod steps;
 mod textures;
 mod tracker;
@@ -36,6 +37,7 @@ use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::ids::{CameraId, MeshId, ShaderId, TextureId};
 use crate::offscreen::AdmittedOffscreen;
+use crate::program::GraphicsProgram;
 use crate::resources::{BufferHandle, Pins, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
@@ -67,6 +69,8 @@ pub struct OffscreenState {
     /// The constants inputs a mesh has no channel for read, made when the first frame is built.
     defaults: Option<DefaultBuffers>,
     samplers: SamplerCache,
+    /// The built-in program of a blit between textures of other sizes or formats.
+    resample: Option<GraphicsProgram>,
     draws: HashMap<blake3::Hash, CheckedDraw>,
     /// The buffers the frame's constants are uploaded into, one for each chunk, with their sizes.
     constants: Vec<(BufferHandle, u64)>,
@@ -92,6 +96,7 @@ impl OffscreenState {
             meshes: MeshTable::default(),
             defaults: None,
             samplers: SamplerCache::new(runtime.device()),
+            resample: None,
             draws: HashMap::new(),
             constants: Vec::new(),
             constants_limit: None,
@@ -256,6 +261,7 @@ impl OffscreenState {
                 shaders: &mut self.shaders,
                 programs: &mut self.programs,
                 samplers: &mut self.samplers,
+                resample: &mut self.resample,
                 textures: &self.textures,
                 meshes: &self.meshes,
                 defaults,

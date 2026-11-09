@@ -501,3 +501,104 @@ fn nested_lookup_agrees_with_scanning_every_chunk() {
         }
     }
 }
+
+fn covered_samples(leaves: &[TerrainChunk]) -> std::collections::BTreeMap<[u32; 2], usize> {
+    let mut cells = std::collections::BTreeMap::new();
+    for leaf in leaves {
+        for y in leaf.minimum[1]..leaf.maximum[1] {
+            for x in leaf.minimum[0]..leaf.maximum[0] {
+                *cells.entry([x, y]).or_insert(0) += 1;
+            }
+        }
+    }
+    cells
+}
+
+#[test]
+fn caster_leaves_tile_the_grid_and_coarsen_with_a_smaller_map() {
+    let terrain = terrain(1000);
+    let whole = root(&terrain);
+    let light = ortho(48.0, [16.0, 16.0, 100.0]);
+    let finest = converged(&terrain, light, 1 << 16);
+    let mut previous: Option<Vec<TerrainChunk>> = None;
+    for size in [2048, 512, 128, 32] {
+        let leaves = caster_leaves(&terrain, light, size, &finest);
+        let cells = covered_samples(&leaves);
+        let expected =
+            (whole.maximum[0] - whole.minimum[0]) * (whole.maximum[1] - whole.minimum[1]);
+        assert_eq!(cells.len(), expected as usize, "size {size} leaves a hole");
+        assert!(
+            cells.values().all(|count| *count == 1),
+            "size {size} overlaps"
+        );
+        if let Some(finer) = &previous {
+            assert!(leaves.len() <= finer.len(), "size {size}");
+            assert!(
+                leaves.iter().all(|leaf| finer.iter().any(|fine| {
+                    (0..2).all(|axis| {
+                        leaf.minimum[axis] <= fine.minimum[axis]
+                            && leaf.maximum[axis] >= fine.maximum[axis]
+                    })
+                })),
+                "size {size} refines where a larger map did not"
+            );
+        }
+        previous = Some(leaves);
+    }
+    assert!(previous.unwrap().len() < caster_leaves(&terrain, light, 2048, &finest).len());
+}
+
+#[test]
+fn caster_leaves_match_a_camera_selection_converged_at_the_same_size() {
+    let terrain = terrain(1000);
+    let light = ortho(48.0, [16.0, 16.0, 100.0]);
+    let mut leaves = vec![root(&terrain)];
+    for _ in 0..64 {
+        let next = select(&terrain, &leaves, light, [512, 512]);
+        if next.uploads.is_empty() {
+            break;
+        }
+        leaves = next.leaves;
+    }
+    assert_eq!(
+        caster_leaves(&terrain, light, 512, &converged(&terrain, light, 1 << 16)),
+        leaves
+    );
+}
+
+/// The camera leaves a selection converges to from the root at `size` pixels square.
+fn converged(terrain: &SceneTerrain, matrix: Mat4, size: u32) -> Vec<TerrainChunk> {
+    let mut leaves = vec![root(terrain)];
+    for _ in 0..64 {
+        let next = select(terrain, &leaves, matrix, [size, size]);
+        if next.uploads.is_empty() {
+            break;
+        }
+        leaves = next.leaves;
+    }
+    leaves
+}
+
+#[test]
+fn caster_leaves_are_never_finer_than_the_camera_leaves() {
+    let terrain = terrain(1000);
+    let light = ortho(48.0, [16.0, 16.0, 100.0]);
+    let camera = converged(&terrain, ortho(64.0, [32.0, 32.0, 100.0]), 128);
+    let leaves = caster_leaves(&terrain, light, 2048, &camera);
+    let unclamped = caster_leaves(&terrain, light, 2048, &converged(&terrain, light, 1 << 16));
+    assert!(
+        leaves.len() < unclamped.len(),
+        "{} of {}",
+        leaves.len(),
+        unclamped.len()
+    );
+    for leaf in &leaves {
+        assert!(
+            !camera.iter().any(|coarse| coarse != leaf
+                && (0..2).all(|axis| coarse.minimum[axis] <= leaf.minimum[axis]
+                    && coarse.maximum[axis] >= leaf.maximum[axis])),
+            "{leaf:?} is finer than a camera leaf"
+        );
+    }
+    assert_eq!(covered_samples(&leaves), covered_samples(&camera));
+}

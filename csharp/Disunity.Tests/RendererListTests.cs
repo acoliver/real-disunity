@@ -1,4 +1,5 @@
 using Disunity.Hosting;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -231,6 +232,16 @@ internal static class RendererListTests
         Expect.That(new RendererListParams(culling, Drawing("A"), FilteringSettings.defaultValue).isValid, "with a culling result");
         Expect.That(!default(RendererListParams).isValid, "the default value");
         var carried = new RendererListParams(culling, Drawing("A"), FilteringSettings.defaultValue);
-        Expect.That(carried.tagName == ShaderTagId.none && !carried.isPassTagName && carried.tagValues.Length == 0 && carried.stateBlocks.Length == 0, "the tag fields start empty");
+        Expect.That(carried.tagName == ShaderTagId.none && !carried.isPassTagName && carried.tagValues == null && carried.stateBlocks == null, "the tag fields start empty");
+        // URP's render graph reads both fields by name and type, so a non-nullable declaration is a MissingFieldException.
+        Expect.Equal(typeof(NativeArray<ShaderTagId>?), typeof(RendererListParams).GetField(nameof(RendererListParams.tagValues))!.FieldType,
+            "tagValues is a nullable array");
+        Expect.Equal(typeof(NativeArray<RenderStateBlock>?), typeof(RendererListParams).GetField(nameof(RendererListParams.stateBlocks))!.FieldType,
+            "stateBlocks is a nullable array");
+        using var tags = new NativeArray<ShaderTagId>([new ShaderTagId("A")], Allocator.Temp);
+        using var blocks = new NativeArray<RenderStateBlock>([new RenderStateBlock(RenderStateMask.Nothing)], Allocator.Temp);
+        carried.tagValues = tags;
+        carried.stateBlocks = blocks;
+        Expect.That(context.CreateRendererList(ref carried).isValid, "a list with tag values and state blocks set is still made");
     }
 }

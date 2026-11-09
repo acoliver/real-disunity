@@ -54,7 +54,7 @@ internal static class RenderEntryPointTests
         var parameters = new RendererListParams(default, default, filtering);
         Expect.Equal(filtering, parameters.filteringSettings, "params keep the filtering settings");
         Expect.Equal(ShaderTagId.none, parameters.tagName, "no tag name");
-        Expect.That(!parameters.isPassTagName && !parameters.isValid && parameters.tagValues.Length == 0 && parameters.stateBlocks.Length == 0, "params start empty and invalid");
+        Expect.That(!parameters.isPassTagName && !parameters.isValid && parameters.tagValues == null && parameters.stateBlocks == null, "params start empty and invalid");
     }
 
     private static void Manager()

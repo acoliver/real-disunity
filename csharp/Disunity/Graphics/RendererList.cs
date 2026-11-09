@@ -27,7 +27,8 @@ public struct RendererList : IEquatable<RendererList>
 /// <summary>What a renderer list is made from: the culling results, the shader passes to draw (<c>drawSettings</c> names them, with
 /// the sorting criteria, per-object data and override material) and the filter on queue, layers and rendering layers. The
 /// pass tag fields <c>tagName</c>, <c>isPassTagName</c>, <c>tagValues</c> and <c>stateBlocks</c> are stored, and the engine
-/// reads none of them. It is valid once its culling results hold a culling result.</summary>
+/// reads none of them; the last two are nullable arrays, null unless the pipeline sets them, because the pipelines read and
+/// write them as such. It is valid once its culling results hold a culling result.</summary>
 public struct RendererListParams
 {
     public CullingResults cullingResults;
@@ -35,8 +36,8 @@ public struct RendererListParams
     public FilteringSettings filteringSettings;
     public ShaderTagId tagName;
     public bool isPassTagName;
-    public NativeArray<ShaderTagId> tagValues;
-    public NativeArray<RenderStateBlock> stateBlocks;
+    public NativeArray<ShaderTagId>? tagValues;
+    public NativeArray<RenderStateBlock>? stateBlocks;
 
     public RendererListParams(CullingResults cullingResults, DrawingSettings drawSettings, FilteringSettings filteringSettings)
     {
@@ -45,8 +46,8 @@ public struct RendererListParams
         this.filteringSettings = filteringSettings;
         tagName = ShaderTagId.none;
         isPassTagName = false;
-        tagValues = default;
-        stateBlocks = default;
+        tagValues = null;
+        stateBlocks = null;
     }
 
     public readonly bool isValid => cullingResults.Handle != 0;

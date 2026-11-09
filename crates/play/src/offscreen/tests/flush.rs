@@ -770,3 +770,19 @@ fn render_textures_that_each_fit_the_budget_but_not_together_keep_the_first_and_
         "{trace:?}"
     );
 }
+
+#[test]
+fn a_render_texture_a_kernel_samples_is_paired_with_the_sample_type_it_declares() {
+    let (outcome, _) = traced_flush();
+    let pairings: Vec<_> = outcome
+        .report
+        .census
+        .iter()
+        .filter(|(name, _)| name.contains(" sampled as "))
+        .map(|(name, count)| (name.as_str(), *count))
+        .collect();
+    assert_eq!(
+        pairings,
+        [("render texture format 45 sampled as Float D2", 1)]
+    );
+}

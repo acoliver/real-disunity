@@ -122,6 +122,7 @@ fn a_kernel_writes_a_render_texture_and_a_later_pixel_read_answers_what_it_wrote
 
     assert!(failures(&outcome).is_empty(), "{:?}", failures(&outcome));
     assert_eq!(outcome.report.traces[0].outcome, "ran");
+    assert_eq!(outcome.report.census["dispatches ran"], 1);
     assert_eq!(world.take_texture_pixels(request), Some(written()));
 }
 
@@ -269,4 +270,56 @@ fn a_kernel_that_binds_more_storage_images_than_the_device_allows_is_left_out_by
     let outcome = flush(&mut host, &mut world);
 
     assert_eq!(failures(&outcome), [("dispatch:StorageLimit", 1)]);
+}
+
+fn pairings(outcome: &FlushOutcome) -> Vec<(&str, usize)> {
+    outcome
+        .report
+        .census
+        .iter()
+        .filter(|(name, _)| name.contains(" bound as ") || name.contains(" sampled as "))
+        .map(|(name, count)| (name.as_str(), *count))
+        .collect()
+}
+
+#[test]
+fn a_render_texture_a_kernel_writes_is_paired_with_the_format_the_kernel_declares() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = painting_host(directory.path());
+    let mut world = world();
+    let painted = target(&mut world, RGBA8);
+    paint(&mut world, painted);
+
+    let outcome = flush(&mut host, &mut world);
+
+    assert_eq!(
+        pairings(&outcome),
+        [(
+            "render texture format 8 bound as storage image Rgba8Unorm D2",
+            1
+        )]
+    );
+}
+
+#[test]
+fn a_format_the_host_cannot_make_is_paired_all_the_same() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = painting_host(directory.path());
+    let mut world = world();
+    // No such GraphicsFormat is mapped, so the host makes no texture; the pairing is the evidence
+    // of what the player asked it to hold.
+    let unknown = target(&mut world, 4000);
+    paint(&mut world, unknown);
+    paint(&mut world, unknown);
+
+    let outcome = flush(&mut host, &mut world);
+
+    assert_eq!(
+        pairings(&outcome),
+        [(
+            "render texture format 4000 bound as storage image Rgba8Unorm D2",
+            2
+        )]
+    );
+    assert_eq!(failures(&outcome)[0], ("dispatch:TextureUnavailable", 2));
 }

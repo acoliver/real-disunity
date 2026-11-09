@@ -418,6 +418,11 @@ impl OffscreenHost {
                 && let Some(trace) = adapted.report.traces.last_mut()
             {
                 "ran".clone_into(&mut trace.outcome);
+                *adapted
+                    .report
+                    .census
+                    .entry("dispatches ran".to_owned())
+                    .or_default() += 1;
                 if let (Some(probe), Some(before), Some(submission)) = (probe, before, &submission)
                 {
                     probe.resolve(before, submission, self.runtime.device(), trace);
@@ -525,6 +530,9 @@ impl OffscreenHost {
                     }
                 }
             }
+        }
+        for pairing in &trace.pairings {
+            *report.census.entry(pairing.clone()).or_default() += 1;
         }
         let outcome = match prepared {
             Ok(prepared) => Some(prepared),

@@ -32,26 +32,34 @@ fn selection_source(negative: bool, derivative: bool) -> String {
         "bitcast<f32>(operands[0].z | {}u)",
         u32::from(negative) << 31
     );
-    let expression = expression
-        .replace("dpdx(position)", "position")
-        .replace("dpdx(normal)", "normal")
-        .replace("shadow.bias.y", &bias);
+    let expression = expression.replace("shadow.bias.y", &bias);
+    let vertical = if derivative {
+        expression.replace("dpdx", "dpdy")
+    } else {
+        expression.clone()
+    };
     format!(
         "var<private> receiver_0_a: vec4<f32>; var<private> receiver_0_b: vec2<f32>;
 fn scene_capture_receiver(position: vec3<f32>, normal: vec3<f32>) {{
     let selected = {expression};
-    receiver_0_a = vec4<f32>(selected, selected.x); receiver_0_b = selected.yz;
+    let vertical = {vertical};
+    receiver_0_a = vec4<f32>(selected, vertical.x); receiver_0_b = vertical.yz;
 }}
 {}",
         include_str!("receiver_zero_bias.wgsl")
     )
 }
 
-fn assert_position_values(result: &[Vec<u8>]) {
+fn assert_position_values(result: &[Vec<u8>], derivative: bool) {
     for index in (0..16_usize).step_by(2) {
         let x = f32::from(u16::try_from(index % 4).unwrap()) + 0.5;
         let y = f32::from(u16::try_from(index / 4).unwrap()) + 0.5;
-        for (attachment, expected) in [vec![x, y, 0.0, x], vec![y, 0.0]].iter().enumerate() {
+        let expected = if derivative {
+            [vec![1.0, 0.0, 0.0, 0.0], vec![1.0, 0.0]]
+        } else {
+            [vec![x, y, 0.0, x], vec![y, 0.0]]
+        };
+        for (attachment, expected) in expected.iter().enumerate() {
             let stride = expected.len() * 4;
             let actual: Vec<_> = result[attachment][index * stride..(index + 1) * stride]
                 .chunks_exact(4)
@@ -62,9 +70,10 @@ fn assert_position_values(result: &[Vec<u8>]) {
     }
 }
 
-/// Compare the same displacement operands across paired producers and local selects.
-/// Metal can normalize -0 to +0, so numerical P equality ignores zero signs while
-/// complete attachment equality still requires identical bits across all paths.
+/// Compare actual dP across paired producers and local derivative selects, without
+/// replacing derivatives by raw storage operands: Metal can normalize zero signs
+/// during arithmetic. Displacement paths must agree bitwise; B must equal P
+/// numerically, regardless of whether the position select normalizes a zero.
 #[test]
 fn gpu_runtime_zero_bias_paths_agree_on_position_bits() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -77,24 +86,20 @@ fn gpu_runtime_zero_bias_paths_agree_on_position_bits() {
             f32::NAN.to_bits(),
             0x7fc0_1234,
         ] {
-            let producers = [ReceiverCapture::Position, ReceiverCapture::Normal].map(|capture| {
-                let source = operand_source(bias, capture)
-                    .replace("dpdx(position)", "position")
-                    .replace("dpdy(position)", "position");
-                operands(&context, &source, normal)
-            });
+            let producers = [ReceiverCapture::Position, ReceiverCapture::Normal]
+                .map(|capture| operands(&context, &operand_source(bias, capture), normal));
             assert_eq!(
                 producers[0], producers[1],
                 "normal={normal:08x} bias={bias}"
             );
-            assert_position_values(&producers[0]);
-            for derivative in [false, true] {
-                let result = operands(&context, &selection_source(negative, derivative), normal);
-                assert_eq!(
-                    result, producers[0],
-                    "normal={normal:08x} negative={negative} derivative={derivative}"
-                );
-            }
+            assert_position_values(&producers[0], true);
+            let displacement = operands(&context, &selection_source(negative, true), normal);
+            assert_eq!(
+                displacement, producers[0],
+                "normal={normal:08x} negative={negative}"
+            );
+            let position = operands(&context, &selection_source(negative, false), normal);
+            assert_position_values(&position, false);
         }
     }
 }

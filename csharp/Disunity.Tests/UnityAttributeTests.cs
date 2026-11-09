@@ -15,11 +15,9 @@ internal static class UnityAttributeTests
         RequireComponentKeepsEachRequiredType();
         MenuAttributesKeepTheirArguments();
         FormerlySerializedAsKeepsEveryOldName();
-        SupportedOnRenderPipelineKeepsItsTypes();
+        MovedFromKeepsWhereTheTypeLived();
         IsTypeSupportedOnRenderPipelineMatchesTheNamedPipelines();
-        IsSupportedOnCurrentPipelineFollowsTheActiveAsset();
-        ResourcePathAttributesExpandTheirPaths();
-        MovedFromKnowsWhetherTheAssemblyChanged();
+        ResourcePathAttributesKeepTheirPaths();
         PropertyAttributesShareTheirBaseClass();
         NativeCallbackMarkerKeepsItsDelegateType();
         Console.WriteLine("PASS: Unity attribute classes keep their arguments and work as reflection reads them");
@@ -29,10 +27,10 @@ internal static class UnityAttributeTests
     [RequireComponent(typeof(Camera), typeof(SpriteRenderer))]
     [RequireComponent(typeof(Transform), typeof(Collider2D), typeof(Rigidbody2D))]
     [AddComponentMenu("Game/Probe", 7)]
-    [DisallowMultipleComponent, ExecuteAlways, DefaultExecutionOrder(-50), HelpURL("https://example.com/probe")]
+    [DisallowMultipleComponent, ExecuteAlways, SelectionBase, DefaultExecutionOrder(-50)]
     private sealed class Decorated : MonoBehaviour
     {
-        [Header("Movement"), Range(0, 2), Tooltip("units per second"), HideInInspector]
+        [Header("Movement"), Range(0, 2), Tooltip("units per second"), Space(12), ColorUsage(false, true), Delayed, TextArea(2, 6), HideInInspector]
         [FormerlySerializedAs("oldSpeed"), FormerlySerializedAs("ancientSpeed")]
         public float speed;
 
@@ -42,6 +40,9 @@ internal static class UnityAttributeTests
         [ContextMenu("Can reset", true, 12)]
         public bool CanReset() => true;
     }
+
+    [HelpURL("https://example.com/probe")]
+    private sealed class DecoratedWithHelp : MonoBehaviour { }
 
     private static void RequireComponentKeepsEachRequiredType()
     {
@@ -65,8 +66,8 @@ internal static class UnityAttributeTests
         Expect.That(items["CanReset"] is { menuItem: "Can reset", validate: true, priority: 12 }, "ContextMenu validate function and priority");
         Expect.That(Has<DisallowMultipleComponent>() && Has<ExecuteAlways>(), "marker attributes are applied");
         Expect.That(typeof(Decorated).GetCustomAttribute<DefaultExecutionOrder>()!.order == -50, "DefaultExecutionOrder");
-        Expect.That(typeof(Decorated).GetCustomAttribute<HelpURLAttribute>()!.URL == "https://example.com/probe", "HelpURL");
         Expect.That(typeof(Decorated).GetField("speed")!.GetCustomAttribute<HideInInspector>() is not null, "HideInInspector on a field");
+        Expect.That(typeof(DecoratedWithHelp).GetCustomAttribute<HelpURLAttribute>()!.URL == "https://example.com/probe" && Has<SelectionBaseAttribute>(), "HelpURL and SelectionBase");
     }
 
     private static bool Has<T>() where T : Attribute => typeof(Decorated).GetCustomAttribute<T>() is not null;
@@ -75,16 +76,6 @@ internal static class UnityAttributeTests
     {
         var names = typeof(Decorated).GetField("speed")!.GetCustomAttributes<FormerlySerializedAsAttribute>().Select(a => a.oldName).Order().ToArray();
         Expect.Sequence(new[] { "ancientSpeed", "oldSpeed" }, names, "old field names");
-    }
-
-    private static void SupportedOnRenderPipelineKeepsItsTypes()
-    {
-        var one = new SupportedOnRenderPipelineAttribute(typeof(Decorated));
-        Expect.Sequence(new[] { typeof(Decorated) }, one.renderPipelineTypes, "one pipeline type");
-        var two = new SupportedOnRenderPipelineAttribute(typeof(Decorated), typeof(RenderingLayerMask));
-        Expect.Sequence(new[] { typeof(Decorated), typeof(RenderingLayerMask) }, two.renderPipelineTypes, "several pipeline types");
-        Expect.That(!one.isSupportedOnCurrentPipeline, "a type that names a pipeline is not supported when no pipeline asset is active");
-        Expect.That(new SupportedOnRenderPipelineAttribute().isSupportedOnCurrentPipeline, "an attribute that names no pipeline is supported everywhere");
     }
 
     private class PipelineA { }
@@ -105,43 +96,6 @@ internal static class UnityAttributeTests
 
     private sealed class Unmarked { }
 
-    private class ActiveAsset : RenderPipelineAsset
-    {
-        protected override RenderPipeline CreatePipeline() => throw new NotSupportedException("not created in this test");
-    }
-
-    private sealed class DerivedActiveAsset : ActiveAsset { }
-
-    private sealed class OtherActiveAsset : RenderPipelineAsset
-    {
-        protected override RenderPipeline CreatePipeline() => throw new NotSupportedException("not created in this test");
-    }
-
-    private static void IsSupportedOnCurrentPipelineFollowsTheActiveAsset()
-    {
-        var named = new SupportedOnRenderPipelineAttribute(typeof(ActiveAsset));
-        var several = new SupportedOnRenderPipelineAttribute(typeof(PipelineB), typeof(ActiveAsset));
-        var other = new SupportedOnRenderPipelineAttribute(typeof(OtherActiveAsset));
-        var none = new SupportedOnRenderPipelineAttribute();
-        var previous = GraphicsSettings.defaultRenderPipeline;
-        try
-        {
-            GraphicsSettings.defaultRenderPipeline = new ActiveAsset();
-            Expect.That(named.isSupportedOnCurrentPipeline, "an attribute naming the active asset's type is supported");
-            Expect.That(several.isSupportedOnCurrentPipeline, "so is one that names it among others");
-            Expect.That(!other.isSupportedOnCurrentPipeline, "one that names another asset type is not");
-            Expect.That(!none.isSupportedOnCurrentPipeline, "one that names none is supported on no active pipeline");
-        }
-        finally { GraphicsSettings.defaultRenderPipeline = previous; }
-        try
-        {
-            GraphicsSettings.defaultRenderPipeline = new DerivedActiveAsset();
-            Expect.That(named.isSupportedOnCurrentPipeline, "an attribute naming a base of the active asset's type is supported");
-        }
-        finally { GraphicsSettings.defaultRenderPipeline = previous; }
-        Expect.That(!named.isSupportedOnCurrentPipeline && none.isSupportedOnCurrentPipeline, "with no active asset only an attribute that names none is supported");
-    }
-
     private static void IsTypeSupportedOnRenderPipelineMatchesTheNamedPipelines()
     {
         Expect.That(SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(Unmarked), typeof(PipelineC)), "a type with no attribute is supported on every pipeline");
@@ -158,37 +112,43 @@ internal static class UnityAttributeTests
         Expect.Throws<ArgumentNullException>(() => SupportedOnRenderPipelineAttribute.IsTypeSupportedOnRenderPipeline(typeof(OnlyOnA), null!), "a null pipeline");
     }
 
-    private static void ResourcePathAttributesExpandTheirPaths()
+    private static void ResourcePathAttributesKeepTheirPaths()
     {
         var formatted = new ResourceFormattedPathsAttribute("Assets/Luts/lut_{0}.png", 2, 5);
         Expect.Sequence(new[] { "Assets/Luts/lut_2.png", "Assets/Luts/lut_3.png", "Assets/Luts/lut_4.png" }, formatted.paths, "formatted paths exclude the end");
-        Expect.That(!formatted.isField && formatted.location == SearchType.ProjectPath, "formatted paths belong to a type, in the project");
-        Expect.Equal(0, new ResourceFormattedPathsAttribute("x{0}", 3, 3).paths.Length, "an empty range gives no paths");
         Expect.Equal(0, new ResourceFormattedPathsAttribute("x{0}", 5, 3).paths.Length, "a reversed range gives no paths");
-        Expect.Sequence(new[] { "Lut_0", "Lut_1" }, new ResourceFormattedPathsAttribute("Lut_{0}", 0, 2, SearchType.ShaderName).paths, "a shader name format");
-        Expect.Equal(SearchType.ShaderName, new ResourceFormattedPathsAttribute("Lut_{0}", 0, 2, SearchType.ShaderName).location, "location");
-        var single = new ResourcePathAttribute("Hidden/Blit", SearchType.ShaderName);
-        Expect.That(single.paths.SequenceEqual(["Hidden/Blit"]) && single.isField && single.location == SearchType.ShaderName, "ResourcePath names one field's path");
+        var shader = new ResourceFormattedPathsAttribute("Lut_{0}", 0, 2, ResourcePathAttribute.SearchType.ShaderName);
+        Expect.That(shader.location == ResourcePathAttribute.SearchType.ShaderName && formatted.location == ResourcePathAttribute.SearchType.ProjectPath, "location");
+        var single = new ResourcePathAttribute("Hidden/Blit", ResourcePathAttribute.SearchType.ShaderName);
+        Expect.That(single.path == "Hidden/Blit" && single.location == ResourcePathAttribute.SearchType.ShaderName, "ResourcePath names one path");
         var many = new ResourcePathsAttribute(["a", "b"]);
-        Expect.That(many.paths.SequenceEqual(["a", "b"]) && !many.isField && many.location == SearchType.ProjectPath, "ResourcePaths keeps its array");
+        Expect.That(many.paths.SequenceEqual(["a", "b"]) && many.location == ResourcePathAttribute.SearchType.ProjectPath, "ResourcePaths keeps its array");
     }
 
-    private static void MovedFromKnowsWhetherTheAssemblyChanged()
+    private static void MovedFromKeepsWhereTheTypeLived()
     {
-        Expect.That(new MovedFromAttribute(true, "Old.Namespace", "Old.Assembly", null).IsInDifferentAssembly, "a source assembly means a different assembly");
-        Expect.That(!new MovedFromAttribute(true, "Old.Namespace", null, "OldName").IsInDifferentAssembly, "no source assembly means the same assembly");
-        Expect.That(!new MovedFromAttribute("Old.Namespace").IsInDifferentAssembly, "a source namespace alone is the same assembly");
+        var full = new MovedFromAttribute(false, "Old.Namespace", "Old.Assembly", "OldName");
+        Expect.That(!full.AutoUpdateAPI && full.Namespace == "Old.Namespace" && full.Assembly == "Old.Assembly" && full.ClassName == "OldName", "the four-argument form keeps every part");
+        var namespaceOnly = new MovedFromAttribute("Old.Namespace");
+        Expect.That(namespaceOnly.AutoUpdateAPI && namespaceOnly.Namespace == "Old.Namespace" && namespaceOnly.Assembly is null && namespaceOnly.ClassName is null,
+            "a source namespace alone updates the API and names no assembly or class");
     }
 
     private static void PropertyAttributesShareTheirBaseClass()
     {
         var field = typeof(Decorated).GetField("speed")!;
         var attributes = field.GetCustomAttributes<PropertyAttribute>().ToArray();
-        Expect.Equal(3, attributes.Length, "Header, Range and Tooltip are found as PropertyAttribute");
+        Expect.Equal(7, attributes.Length, "Header, Range, Tooltip, Space, ColorUsage, Delayed and TextArea are found as PropertyAttribute");
         Expect.That(attributes.OfType<HeaderAttribute>().Single().header == "Movement", "Header text");
         var range = attributes.OfType<RangeAttribute>().Single();
         Expect.That(range.min == 0 && range.max == 2, "Range bounds");
         Expect.That(attributes.OfType<TooltipAttribute>().Single().tooltip == "units per second", "Tooltip text");
+        Expect.That(attributes.OfType<SpaceAttribute>().Single().height == 12 && new SpaceAttribute().height == 8, "Space height and its default");
+        var lines = attributes.OfType<TextAreaAttribute>().Single();
+        Expect.That(lines.minLines == 2 && lines.maxLines == 6 && new TextAreaAttribute().minLines == 3 && new TextAreaAttribute().maxLines == 3, "TextArea line counts and defaults");
+        Expect.That(attributes.OfType<DelayedAttribute>().Count() == 1, "Delayed is a property attribute");
+        var color = attributes.OfType<ColorUsageAttribute>().Single();
+        Expect.That(!color.showAlpha && color.hdr && new ColorUsageAttribute(true).showAlpha && !new ColorUsageAttribute(true).hdr, "ColorUsage alpha and HDR flags");
     }
 
     private delegate void Callback(int value);

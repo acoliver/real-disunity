@@ -59,7 +59,7 @@ fn position_capture_sources_validate_for_both_signed_zeros_and_outputs() {
                 bias,
                 ReceiverCapture::Position,
             );
-            for source in [object, terrain] {
+            for (source, terrain) in [(object, false), (terrain, true)] {
                 let module = naga::front::wgsl::parse_str(&source).unwrap();
                 naga::valid::Validator::new(
                     naga::valid::ValidationFlags::all(),
@@ -70,8 +70,13 @@ fn position_capture_sources_validate_for_both_signed_zeros_and_outputs() {
                 let capture = function_source(&source, "scene_capture_receiver");
                 assert!(!capture.contains("dpdx(normal)"));
                 assert!(!capture.contains("dpdy(normal)"));
-                assert!(capture.contains("let dx_0 = dpdx(position);"));
-                assert!(capture.contains("let dy_0 = dpdy(position);"));
+                let (dx, dy) = if terrain {
+                    ("scene_receiver_dx", "scene_receiver_dy")
+                } else {
+                    ("dpdx(position)", "dpdy(position)")
+                };
+                assert!(capture.contains(&format!("let dx_0 = {dx};")));
+                assert!(capture.contains(&format!("let dy_0 = {dy};")));
                 assert_eq!(source_formats(&source), ReceiverLayout::Front.formats());
             }
         }
@@ -140,13 +145,18 @@ fn normal_capture_also_uses_position_derivatives_at_either_zero_bias() {
                 bias,
                 ReceiverCapture::Normal,
             );
-            for source in [object, terrain] {
+            for (source, terrain) in [(object, false), (terrain, true)] {
                 let capture = function_source(&source, "scene_capture_receiver");
                 assert!(!capture.contains("dpdx(normal)"));
                 assert!(!capture.contains("dpdy(normal)"));
                 for side in 0..layout.sides() {
-                    assert!(capture.contains(&format!("let dx_{side} = dpdx(position);")));
-                    assert!(capture.contains(&format!("let dy_{side} = dpdy(position);")));
+                    let (dx, dy) = if terrain {
+                        ("scene_receiver_dx", "scene_receiver_dy")
+                    } else {
+                        ("dpdx(position)", "dpdy(position)")
+                    };
+                    assert!(capture.contains(&format!("let dx_{side} = {dx};")));
+                    assert!(capture.contains(&format!("let dy_{side} = {dy};")));
                 }
             }
         }

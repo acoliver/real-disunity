@@ -5,6 +5,12 @@ use crate::scene_metadata::receiver::{ReceiverLayout, ReceiverReference};
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 use worldrunner_render_post::ToneMap;
 
+#[path = "card_rejection.rs"]
+mod card_rejection;
+#[path = "receiver_producer_exactness.rs"]
+mod producer_exactness;
+#[path = "receiver_zero_bias.rs"]
+mod zero_bias;
 const OFFSET: [i64; 2] = [973_000, 887_000];
 const TERRAIN_SIDE: u32 = 129;
 #[path = "receiver_gradient_backing.rs"]
@@ -517,8 +523,18 @@ fn gpu_receiver_payload_fixture_detects_local_derivative_depth_state_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = sloped(true);
-    let shared = frame(&context, &source, Some(ReceiverReference::ProbeShared), 0.0);
-    let reuse = frame(&context, &source, Some(ReceiverReference::ProbeReuse), 0.0);
+    let shared = frame(
+        &context,
+        &source,
+        Some(ReceiverReference::HardwareProbeShared),
+        0.0,
+    );
+    let reuse = frame(
+        &context,
+        &source,
+        Some(ReceiverReference::HardwareProbeReuse),
+        0.0,
+    );
     let black = frame(&context, &source, Some(ReceiverReference::BlackShared), 0.0);
     assert!(
         shared[10] != black[10] || shared[11] != black[11],
@@ -542,7 +558,7 @@ fn gpu_receiver_payload_fixture_detects_local_derivative_depth_state_changes() {
     let independent = frame(
         &context,
         &source,
-        Some(ReceiverReference::ProbeIndependent),
+        Some(ReceiverReference::HardwareProbeIndependent),
         0.0,
     );
     let one_time = stored

@@ -107,8 +107,12 @@ fn terrain_unbiased_receiver_payload_does_not_read_quad_neighbours() {
     use crate::scene_metadata::{MetadataOutput, receiver::ReceiverLayout};
     for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
         for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
-            let (_, terrain) =
-                crate::scene_metadata::receiver::producer_sources(output, layout, 0.0);
+            let (_, terrain) = crate::scene_metadata::receiver::producer_sources(
+                output,
+                layout,
+                0.0,
+                crate::scene_metadata::receiver::ReceiverCapture::Normal,
+            );
             for variant in crate::renderer::terrain_test_sources(&terrain) {
                 assert!(deterministic_terrain(&variant));
             }

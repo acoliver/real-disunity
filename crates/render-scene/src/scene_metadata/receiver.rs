@@ -107,6 +107,9 @@ pub(crate) fn producer_sources(
 ) -> (String, String) {
     shader::producer(output, layout, bias, capture)
 }
+pub(crate) fn terrain_local_source(source: &str) -> String {
+    shader::terrain_local(source)
+}
 pub(crate) fn consumer_source(source: &str, layout: ReceiverLayout, terrain: bool) -> String {
     shader::consumer(source, layout, terrain)
 }
@@ -118,10 +121,24 @@ pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
 #[cfg(test)]
 pub(crate) fn probe_source(source: &str) -> String {
     // Preserve shading and its control flow while exposing displacements in existing MRTs.
+    let mut source = source.to_owned();
+    for name in ["cascaded_sunlight_visibility", "scene_prepare_card_shadow"] {
+        let body = shader::function(&source, name).to_owned();
+        let start = body.find("let receiver_dy = ").unwrap();
+        let end = start + body[start..].find(';').unwrap() + 1;
+        let assignment = &body[start..end];
+        assert_eq!(body.matches(assignment).count(), 1);
+        source = source.replace(
+            &body,
+            &body.replace(
+                assignment,
+                &format!(
+                    "{assignment} scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;"
+                ),
+            ),
+        );
+    }
     let source = source.replace(
-        "let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0));",
-        "let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0)); scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
-    ).replace(
         "vec4<f32>(published_environment, 1.0), vec4<f32>(published_factor, 1.0)",
         "vec4<f32>(scene_probe_dx, scene_probe_dy.x), vec4<f32>(scene_probe_dy.yz, 0.0, 0.0)",
     );
@@ -140,6 +157,11 @@ var<private> scene_probe_dx: vec3<f32>; var<private> scene_probe_dy: vec3<f32>;"
 }
 
 #[cfg(test)]
+pub(crate) fn hardware_receiver_reference(source: &str) -> String {
+    arithmetic_reference::hardware_terrain(source)
+}
+
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ReceiverReference {
     LateCardRejection,
@@ -148,6 +170,9 @@ pub(crate) enum ReceiverReference {
     PoisonUncovered,
     StoredShared,
     StoredIndependent,
+    HardwareProbeIndependent,
+    HardwareProbeShared,
+    HardwareProbeReuse,
     ProbeIndependent,
     StoredProbeIndependent,
     ProbeShared,
@@ -162,11 +187,13 @@ pub(crate) enum ReceiverReference {
 impl ReceiverReference {
     pub(crate) const fn depth(self) -> crate::renderer::depth::DepthMode {
         match self {
-            Self::StoredIndependent | Self::ProbeIndependent | Self::StoredProbeIndependent => {
-                crate::renderer::depth::DepthMode::Independent
-            }
+            Self::StoredIndependent
+            | Self::ProbeIndependent
+            | Self::HardwareProbeIndependent
+            | Self::StoredProbeIndependent => crate::renderer::depth::DepthMode::Independent,
             Self::StoredShared
             | Self::ProbeShared
+            | Self::HardwareProbeShared
             | Self::StoredProbeShared
             | Self::BlackShared => crate::renderer::depth::DepthMode::Shared,
             Self::LateCardRejection
@@ -174,6 +201,7 @@ impl ReceiverReference {
             | Self::MainArithmetic
             | Self::PoisonUncovered
             | Self::ProbeReuse
+            | Self::HardwareProbeReuse
             | Self::StoredProbeReuse
             | Self::OffsetProbeReuse
             | Self::StoredOffsetProbeReuse => crate::renderer::depth::DepthMode::Reuse,
@@ -187,12 +215,18 @@ impl ReceiverReference {
                 | Self::BlackShared
                 | Self::ProbeIndependent
                 | Self::OffsetProbeReuse
+                | Self::HardwareProbeShared
+                | Self::HardwareProbeReuse
+                | Self::HardwareProbeIndependent
         )
     }
     pub(crate) const fn probe(self) -> bool {
         matches!(
             self,
             Self::ProbeShared
+                | Self::HardwareProbeShared
+                | Self::HardwareProbeReuse
+                | Self::HardwareProbeIndependent
                 | Self::ProbeReuse
                 | Self::OffsetProbeReuse
                 | Self::StoredOffsetProbeReuse

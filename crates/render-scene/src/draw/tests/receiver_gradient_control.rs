@@ -71,16 +71,17 @@ pub(super) fn control(context: &GpuContext) -> usize {
             "streamed stored receiver attachments must match: {reference:?}"
         );
     }
+    assert_plane_consistency(context, &source, pose, &stored);
     let reuse = frame_at_pose(
         context,
         &source,
-        Some(ReceiverReference::ProbeReuse),
+        Some(ReceiverReference::HardwareProbeReuse),
         0.0,
         pose,
     );
     [
-        ReceiverReference::ProbeShared,
-        ReceiverReference::ProbeIndependent,
+        ReceiverReference::HardwareProbeShared,
+        ReceiverReference::HardwareProbeIndependent,
     ]
     .into_iter()
     .map(|reference| {
@@ -114,4 +115,50 @@ fn gpu_streamed_receiver_payload_survives_prior_terrain_frames() {
     }
     drop(prior);
     assert!(control(&context) > 0);
+}
+
+fn assert_plane_consistency(
+    context: &GpuContext,
+    source: &RenderScene,
+    pose: CameraPose,
+    stored: &[Vec<u8>],
+) {
+    for reference in [
+        ReceiverReference::ProbeShared,
+        ReceiverReference::ProbeReuse,
+        ReceiverReference::ProbeIndependent,
+    ] {
+        let local = frame_at_pose(context, source, Some(reference), 0.0, pose);
+        assert_eq!(local.len(), stored.len());
+        for (attachment, (a, b)) in local.iter().zip(stored).enumerate() {
+            assert_eq!(a.len(), b.len());
+            let differences = a.iter().zip(b).filter(|(x, y)| x != y).count();
+            println!(
+                "TERRAIN_PRODUCER_LOCAL {reference:?} attachment={attachment} differing_bytes={differences}"
+            );
+            assert_eq!(
+                differences, 0,
+                "selected-plane terrain receivers must agree at seams: {reference:?} attachment={attachment}"
+            );
+        }
+    }
+}
+
+#[test]
+fn gpu_terrain_producer_and_local_receivers_agree_at_triangle_and_chunk_seams() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = source();
+    let pose = CameraPose {
+        eye_millimeters: [OFFSET[0], OFFSET[1] - 40_000, 120_000],
+        target_millimeters: [OFFSET[0], OFFSET[1] + 50_000, 100_000],
+    };
+    let stored = frame_at_pose(
+        &context,
+        &source,
+        Some(ReceiverReference::StoredProbeReuse),
+        0.0,
+        pose,
+    );
+    assert_plane_consistency(&context, &source, pose, &stored);
 }

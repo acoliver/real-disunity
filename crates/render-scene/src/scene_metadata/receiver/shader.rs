@@ -27,7 +27,7 @@ fn capture(layout: ReceiverLayout, bias: f32, terrain: bool) -> String {
             "input: TerrainVertexOutput",
             "scene_receiver_dx",
             "scene_receiver_dy",
-            "let plane = normalize(terrain_face_normal(input.world_position.xy, input.plane_index, input.skirt_axis));\nlet scene_receiver_dx = scene_receiver_displacement(input.clip_position, vec2<f32>(1.0, 0.0), plane);\nlet scene_receiver_dy = scene_receiver_displacement(input.clip_position, vec2<f32>(0.0, 1.0), plane);\n".to_owned(),
+            "scene_prepare_terrain_receiver(input);\n".to_owned(),
         )
     } else {
         (
@@ -65,13 +65,31 @@ fn capture(layout: ReceiverLayout, bias: f32, terrain: bool) -> String {
 
 fn terrain_displacement(source: &str) -> String {
     // Keep the material footprint's plane solve, including its grazing-angle bounds.
-    function(source, "terrain_quad_footprint")
+    let solve = function(source, "terrain_quad_footprint")
         .replace("terrain_quad_footprint(", "scene_receiver_displacement(")
         .replace(") -> vec2<f32>", ") -> vec3<f32>")
         .replace(
             "clamp(displacement.xy * direction, vec2<f32>(-1e4), vec2<f32>(1e4))",
             "clamp(displacement * direction, vec3<f32>(-1e4), vec3<f32>(1e4))",
-        )
+        );
+    format!("{solve}\n{}", include_str!("terrain.wgsl"))
+}
+
+pub(super) fn terrain_local(source: &str) -> String {
+    let entry = "fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {";
+    assert_eq!(source.matches(entry).count(), 1);
+    let mut prepared = source.replace(
+        entry,
+        &format!("{entry}\n    scene_prepare_terrain_receiver(input);"),
+    );
+    for axis in ['x', 'y'] {
+        let hardware = format!(
+            "bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpd{axis}(position) + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpd{axis}(position)), shadow.bias.y == 0.0))"
+        );
+        assert_eq!(prepared.matches(&hardware).count(), 2);
+        prepared = prepared.replace(&hardware, &format!("bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(scene_receiver_d{axis} + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>(scene_receiver_d{axis}), shadow.bias.y == 0.0))"));
+    }
+    format!("{prepared}\n{}", terrain_displacement(source))
 }
 
 pub(super) fn producer(
@@ -205,15 +223,23 @@ pub(super) fn function<'a>(source: &'a str, name: &str) -> &'a str {
     panic!("unterminated receiver function")
 }
 fn loaded(function: &str, side: u32) -> String {
-    function
-        .replace(
-            "let receiver_dx = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdx(position) + dpdx(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdx(position)), shadow.bias.y == 0.0));",
-            &format!("let receiver_dx = scene_receiver_load({side}).dx;"),
-        )
-        .replace(
-            "let receiver_dy = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>(dpdy(position) + dpdy(normal) * shadow.bias.y), bitcast<vec3<u32>>(dpdy(position)), shadow.bias.y == 0.0));",
-            &format!("let receiver_dy = scene_receiver_load({side}).dy;"),
-        )
+    let mut loaded = function.to_owned();
+    for axis in ['x', 'y'] {
+        let position = if function.contains("scene_receiver_dx") {
+            format!("scene_receiver_d{axis}")
+        } else {
+            format!("dpd{axis}(position)")
+        };
+        let expression = format!(
+            "let receiver_d{axis} = bitcast<vec3<f32>>(select(bitcast<vec3<u32>>({position} + dpd{axis}(normal) * shadow.bias.y), bitcast<vec3<u32>>({position}), shadow.bias.y == 0.0));"
+        );
+        assert_eq!(loaded.matches(&expression).count(), 1);
+        loaded = loaded.replace(
+            &expression,
+            &format!("let receiver_d{axis} = scene_receiver_load({side}).d{axis};"),
+        );
+    }
+    loaded
 }
 pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> String {
     let back = u32::from(layout == ReceiverLayout::Opposing);

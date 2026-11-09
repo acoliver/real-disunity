@@ -143,8 +143,20 @@ impl ScenePipelines {
     ) -> Self {
         let spec = &self.specialization;
         let sources = [&spec.source, &spec.terrain].map(|source| {
+            use crate::scene_metadata::receiver::ReceiverReference;
+            let source = if matches!(
+                reference,
+                ReceiverReference::HardwareProbeShared
+                    | ReceiverReference::HardwareProbeReuse
+                    | ReceiverReference::HardwareProbeIndependent
+            ) {
+                crate::scene_metadata::receiver::hardware_receiver_reference(source)
+            } else {
+                source.to_string()
+            };
+            let source = source.as_str();
             assert!(!source.contains("scene_receiver_load("));
-            assert!(source.contains("dpdx(position) + dpdx(normal) * shadow.bias.y"));
+            assert!(source.contains("dpdx(normal) * shadow.bias.y"));
             if reference.probe() {
                 let source = crate::scene_metadata::receiver::probe_source(source);
                 if matches!(

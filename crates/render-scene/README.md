@@ -476,21 +476,38 @@ policies. Both producer and consumer retain invariant position outputs even
 with independent depth textures. One receiver uses `Rgba32Float` and `Rg32Float`
 array textures, 24 bytes per
 pixel. Nonzero normal bias with live transmission adds an independently evaluated
-opposite-normal receiver in a second array layer, for 48 bytes per pixel. The
-producer evaluates `dpdx(P) + dpdx(N) * bias` and its vertical counterpart for
-nonzero bias; it does not differentiate a rounded biased position or compress the
-vectors. Zero normal bias, including negative zero, defines the displaced receiver
-as exactly `B = P` and its displacements as exactly `dpdx(P)` and `dpdy(P)`.
-This definition applies to Position and Normal producers, transmission, and every
-local-derivative consumer, including unpaired, multisampled and prepass-free frames.
-Runtime-uniform bias selects the position and position derivatives without varying
-control flow before derivatives. WGSL does not guarantee preservation of a zero's
-sign. On a given backend, paired Position and Normal producers and local consumers
-must produce identical displacement bits, numerically equal to the position
-operand or its derivative regardless of the sign of zero. Local derivative selects
-choose integer bit representations before bitcasting back to f32, so floating-point
-selection cannot change a zero sign relative to the producer. Nonzero-bias arithmetic
-is unchanged.
+opposite-normal receiver in a second array layer, for 48 bytes per pixel.
+Mesh and card geometry use hardware position displacements `dP`. Terrain uses
+its selected triangle's analytic adjacent-pixel displacement in three dimensions,
+sharing the material footprint's plane solve and bounds. Producer and local terrain
+receivers use the same solve, including ordinary, reflection, velocity, cached,
+layered and paged contexts, multisampling and frames without metadata. Local
+terrain displacements are prepared before shading and divergent shadow selection.
+Hardware position derivatives can span different triangles in a fragment quad.
+The selected-plane definition deliberately changes terrain seam shadow bias and
+can change shadow pixels there. Geometry, depth and material sampling are unchanged.
+No post-change image-difference magnitude has been measured while GPU launches
+remain unavailable; the old workload's payload differences are not an image bound.
+
+Nonzero bias evaluates `dP + bias * hardware_dN`, independently for opposing
+normals. It does not differentiate a rounded biased position or compress vectors.
+Normal derivatives can still depend on helper-lane behavior, so biased receivers
+are not guaranteed deterministic across the historical workload. The analytic
+solve retains the relative determinant floor and componentwise displacement cap
+of 10,000 metres. At grazing angles these bounds approximate the plane displacement;
+componentwise clipping need not remain tangent to the plane.
+
+Zero normal bias, including negative zero, defines the displaced receiver as
+exactly `B = P` and its displacements as exactly that geometry's `dP`, without any
+normal term. This applies to Position and Normal producers, transmission, and all
+local consumers, including unpaired, multisampled and prepass-free frames.
+Runtime-uniform bias selects the position and position displacements without
+varying control flow before hardware normal derivatives.
+WGSL does not guarantee preservation of a zero's sign. On a given backend,
+paired Position and Normal producers and local consumers must produce identical
+displacement bits, numerically equal to that geometry's dP regardless of zero sign.
+Local derivative selects choose integer bit representations before bitcasting back
+to f32, so floating-point selection cannot change a zero sign relative to the producer.
 
 A zero bias applies no normal offset. NaNs from multiplying nonfinite normal
 operands by zero, and signed-zero results dependent on the normal, are arithmetic

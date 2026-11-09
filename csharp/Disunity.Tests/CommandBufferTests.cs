@@ -55,6 +55,10 @@ internal static class CommandBufferTests
         foreach (var (member, call) in probes)
             Throws<NotSupportedException>(call, member, $"CommandBuffer.{member}", "cannot record this member yet");
         Ensure(buffer.commandCount == 0, "members that cannot record add nothing to the buffer");
+        buffer.ClearRandomWriteTargets();
+        Ensure(buffer.commandCount == 0, "clearing random-write targets records nothing, since none can be bound");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.ClearRandomWriteTargets(), "a released buffer", "CommandBuffer");
     }
 
     private static void Compute()

@@ -486,8 +486,20 @@ terrain displacements are prepared before shading and divergent shadow selection
 Hardware position derivatives can span different triangles in a fragment quad.
 The selected-plane definition deliberately changes terrain seam shadow bias and
 can change shadow pixels there. Geometry, depth and material sampling are unchanged.
-No post-change image-difference magnitude has been measured while GPU launches
-remain unavailable; the old workload's payload differences are not an image bound.
+On Metal at 257 by 241, an explicit hardware-`dP` reference with the same bias
+arithmetic produced these pixel differences. The seam mask compares the selected
+plane of adjacent quad lanes; silhouettes and normal quantization limit the mask.
+
+| Fixture | Cascades | Changed pixels | On quad seams | Off quad seams | Maximum channel delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Flat terrain | 1 | 0 | 0 | 0 | 0 |
+| Flat terrain | 3 | 0 | 0 | 0 | 0 |
+| Ridge | 1 | 135 | 130 | 5 | 24 |
+| Ridge | 3 | 140 | 138 | 2 | 24 |
+
+The old workload's payload differences are not an image bound. Consumer lake and
+slope measurements at Shipped and Original-High remain unmeasured while another
+windowed GPU workload prevents uncontended timing captures.
 
 Nonzero bias evaluates `dP + bias * hardware_dN`, independently for opposing
 normals. It does not differentiate a rounded biased position or compress vectors.

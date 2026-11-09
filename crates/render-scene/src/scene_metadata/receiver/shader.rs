@@ -21,23 +21,24 @@ fn values(layout: ReceiverLayout, prefix: &str) -> String {
     }
     result
 }
-fn capture(layout: ReceiverLayout, bias: f32, capture: ReceiverCapture) -> String {
+fn capture(layout: ReceiverLayout, bias: f32) -> String {
     let mut body = String::new();
     let mut globals = String::new();
     for side in 0..layout.sides() {
         let normal = if side == 0 { "normal" } else { "-normal" };
-        let normal_horizontal = if capture == ReceiverCapture::Position {
-            "vec3<f32>(0.0)".to_owned()
-        } else {
-            format!("dpdx({normal}) * bitcast<f32>({}u)", bias.to_bits())
-        };
-        let normal_vertical = if capture == ReceiverCapture::Position {
-            "vec3<f32>(0.0)".to_owned()
-        } else {
-            format!("dpdy({normal}) * bitcast<f32>({}u)", bias.to_bits())
+        let displacement = |axis| {
+            if bias == 0.0 {
+                format!("dpd{axis}(position)")
+            } else {
+                format!(
+                    "dpd{axis}(position) + dpd{axis}({normal}) * bitcast<f32>({}u)",
+                    bias.to_bits()
+                )
+            }
         };
         write!(body,
-            "let dx_{side} = dpdx(position) + {normal_horizontal};\nlet dy_{side} = dpdy(position) + {normal_vertical};\nreceiver_{side}_a = vec4<f32>(dx_{side}, dy_{side}.x); receiver_{side}_b = dy_{side}.yz;\n"
+            "let dx_{side} = {};\nlet dy_{side} = {};\nreceiver_{side}_a = vec4<f32>(dx_{side}, dy_{side}.x); receiver_{side}_b = dy_{side}.yz;\n",
+            displacement('x'), displacement('y'),
         ).unwrap();
         writeln!(
             globals,
@@ -58,14 +59,20 @@ pub(super) fn producer(
     evaluation: ReceiverCapture,
 ) -> (String, String) {
     assert!(
-        evaluation == ReceiverCapture::Normal || (layout == ReceiverLayout::Front && bias == 0.0)
+        evaluation != ReceiverCapture::Position || (layout == ReceiverLayout::Front && bias == 0.0)
     );
     let (object, terrain) = crate::scene_metadata::geometry::sources(output);
     let merged = output == MetadataOutput::Merged;
     let first = if merged { 2 } else { 1 };
     let extra = fields(layout, first);
     let values = values(layout, "");
-    let capture = capture(layout, bias, evaluation);
+    let capture = capture(layout, bias);
+    #[cfg(test)]
+    let capture = if evaluation == ReceiverCapture::MainArithmetic {
+        super::arithmetic_reference::capture(&capture, layout, bias)
+    } else {
+        capture
+    };
     let object = if merged {
         object
             .replace(
@@ -135,14 +142,14 @@ fn capture_before_coverage(source: &str, evaluation: ReceiverCapture) -> String 
     let capture = "scene_capture_receiver(input.world_position, projected.normal);";
     assert_eq!(body.matches(coverage).count(), 1);
     assert_eq!(body.matches(capture).count(), 1);
-    let prepared = match evaluation {
-        ReceiverCapture::Position => body.replace(capture, "").replace(
+    let prepared = if evaluation == ReceiverCapture::Position {
+        body.replace(capture, "").replace(
             coverage,
             &format!("scene_capture_receiver(input.world_position, geometric);\n    {coverage}"),
-        ),
-        ReceiverCapture::Normal => body
-            .replace(coverage, "")
-            .replace(capture, &format!("{capture}\n    {coverage}")),
+        )
+    } else {
+        body.replace(coverage, "")
+            .replace(capture, &format!("{capture}\n    {coverage}"))
     };
     source.replace(body, &prepared)
 }
@@ -169,11 +176,11 @@ pub(super) fn function<'a>(source: &'a str, name: &str) -> &'a str {
 fn loaded(function: &str, side: u32) -> String {
     function
         .replace(
-            "let receiver_dx = dpdx(position) + dpdx(normal) * shadow.bias.y;",
+            "let receiver_dx = select(dpdx(position) + dpdx(normal) * shadow.bias.y, dpdx(position), shadow.bias.y == 0.0);",
             &format!("let receiver_dx = scene_receiver_load({side}).dx;"),
         )
         .replace(
-            "let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y;",
+            "let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0);",
             &format!("let receiver_dy = scene_receiver_load({side}).dy;"),
         )
 }

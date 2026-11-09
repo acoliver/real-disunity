@@ -70,8 +70,8 @@ fn position_capture_sources_validate_for_both_signed_zeros_and_outputs() {
                 let capture = function_source(&source, "scene_capture_receiver");
                 assert!(!capture.contains("dpdx(normal)"));
                 assert!(!capture.contains("dpdy(normal)"));
-                assert!(capture.contains("dpdx(position) + vec3<f32>(0.0)"));
-                assert!(capture.contains("dpdy(position) + vec3<f32>(0.0)"));
+                assert!(capture.contains("let dx_0 = dpdx(position);"));
+                assert!(capture.contains("let dy_0 = dpdy(position);"));
                 assert_eq!(source_formats(&source), ReceiverLayout::Front.formats());
             }
         }
@@ -79,7 +79,7 @@ fn position_capture_sources_validate_for_both_signed_zeros_and_outputs() {
 }
 
 #[test]
-#[should_panic(expected = "evaluation == ReceiverCapture::Normal")]
+#[should_panic(expected = "evaluation != ReceiverCapture::Position")]
 fn position_capture_rejects_nonzero_bias() {
     producer_sources(
         super::super::MetadataOutput::Merged,
@@ -95,4 +95,45 @@ fn zero_bias_ieee_arithmetic_needs_fragment_backend_controls() {
     assert!((f32::INFINITY * -0.0).is_nan());
     assert_eq!((-0.0_f32 + 0.0).to_bits(), 0);
     assert_eq!((-0.0_f32 + -0.0).to_bits(), 0x8000_0000);
+}
+
+#[test]
+fn normal_capture_also_uses_position_derivatives_at_either_zero_bias() {
+    for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
+        for bias in [0.0, -0.0] {
+            let (object, terrain) = producer_sources(
+                super::super::MetadataOutput::Merged,
+                layout,
+                bias,
+                ReceiverCapture::Normal,
+            );
+            for source in [object, terrain] {
+                let capture = function_source(&source, "scene_capture_receiver");
+                assert!(!capture.contains("dpdx(normal)"));
+                assert!(!capture.contains("dpdy(normal)"));
+                for side in 0..layout.sides() {
+                    assert!(capture.contains(&format!("let dx_{side} = dpdx(position);")));
+                    assert!(capture.contains(&format!("let dy_{side} = dpdy(position);")));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn local_receivers_select_exact_position_and_derivatives_in_uniform_flow() {
+    let source = include_str!("../../shader/shadows.wgsl");
+    assert!(
+        source
+            .contains("select(position + normal * shadow.bias.y, position, shadow.bias.y == 0.0)")
+    );
+    for name in ["cascaded_sunlight_visibility", "scene_prepare_card_shadow"] {
+        let body = function_source(source, name);
+        for axis in ["x", "y"] {
+            assert!(body.contains(&format!(
+                "select(dpd{axis}(position) + dpd{axis}(normal) * shadow.bias.y, dpd{axis}(position), shadow.bias.y == 0.0)"
+            )));
+        }
+    }
+    assert_eq!(source.matches("vec4<f32>(select(position + normal * shadow.bias.y, position, shadow.bias.y == 0.0), 1.0)").count(), 5);
 }

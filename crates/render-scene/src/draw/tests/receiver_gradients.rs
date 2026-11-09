@@ -274,7 +274,9 @@ fn frame_with_view(
     );
     assert_eq!(
         payload.capture,
-        if bias == 0.0
+        if matches!(reference, Some(ReceiverReference::MainArithmetic)) {
+            crate::scene_metadata::receiver::ReceiverCapture::MainArithmetic
+        } else if bias == 0.0
             && !gpu.has_transmission()
             && !matches!(reference, Some(ReceiverReference::NormalProducer))
         {

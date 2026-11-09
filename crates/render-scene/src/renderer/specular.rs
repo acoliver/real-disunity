@@ -167,6 +167,11 @@ impl ScenePipelines {
                 } else {
                     source
                 }
+            } else if matches!(
+                reference,
+                crate::scene_metadata::receiver::ReceiverReference::MainArithmetic
+            ) {
+                crate::scene_metadata::receiver::main_receiver_positions(source)
             } else {
                 source.to_string()
             }

@@ -453,10 +453,22 @@ with independent depth textures. One receiver uses `Rgba32Float` and `Rg32Float`
 array textures, 24 bytes per
 pixel. Nonzero normal bias with live transmission adds an independently evaluated
 opposite-normal receiver in a second array layer, for 48 bytes per pixel. The
-producer evaluates `dpdx(P) + dpdx(N) * bias` and its vertical counterpart; it does
-not differentiate a rounded biased position or compress the vectors. The cascade
-projection and degeneracy rule consume these f32 values unchanged. Unpaired,
-multisampled and prepass-free frames evaluate the local derivatives.
+producer evaluates `dpdx(P) + dpdx(N) * bias` and its vertical counterpart for
+nonzero bias; it does not differentiate a rounded biased position or compress the
+vectors. Zero normal bias, including negative zero, defines the displaced receiver
+as exactly `B = P` and its displacements as exactly `dpdx(P)` and `dpdy(P)`.
+This definition applies to Position and Normal producers, transmission, and every
+local-derivative consumer, including unpaired, multisampled and prepass-free frames.
+Runtime-uniform bias selects the position and position derivatives without varying
+control flow before derivatives. Nonzero-bias arithmetic is unchanged.
+
+A zero bias applies no normal offset. NaNs from multiplying nonfinite normal
+operands by zero, and signed-zero results dependent on the normal, are arithmetic
+defects rather than intended shadow behavior. Constant UVs without an authored
+tangent can produce a nonfinite cotangent frame even in helper lanes. Such a frame
+must not contaminate the zero-bias receiver position or displacements; normal-map
+lighting itself is outside this receiver contract. The cascade projection and
+degeneracy rule consume the resulting f32 displacements unchanged.
 
 Only covered metadata depth winners publish receiver values. Forward consumers use
 that pixel's winner under the same coverage and depth/stencil ownership contract.

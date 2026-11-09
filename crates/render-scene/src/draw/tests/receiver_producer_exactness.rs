@@ -1,6 +1,29 @@
 //! Full attachment differentials against the normal-dependent receiver producer.
 use super::*;
 
+#[test]
+fn degenerate_normal_frame_fixture_has_constant_uvs_and_no_authored_tangent() {
+    for mapped in [false, true] {
+        let source = degenerate_normal_frame(mapped);
+        let mesh = source.geometry().meshes().last().unwrap();
+        assert!(
+            mesh.lods()[0].vertices().iter().all(|vertex| {
+                vertex.tangent_micro.is_none() && vertex.texcoord_micro == [0; 2]
+            })
+        );
+        assert_eq!(
+            source
+                .resources()
+                .materials()
+                .last()
+                .unwrap()
+                .normal()
+                .is_some(),
+            mapped
+        );
+    }
+}
+
 fn opaque_receivers(source: &RenderScene) -> RenderScene {
     let resources = SceneResources::new(
         source.resources().textures().to_vec(),
@@ -22,7 +45,7 @@ fn opaque_receivers(source: &RenderScene) -> RenderScene {
         .unwrap()
 }
 
-fn degenerate_normal_frame() -> RenderScene {
+fn degenerate_normal_frame(mapped: bool) -> RenderScene {
     let source = sloped(false);
     let vertices = [
         [-2000, 0, 0],
@@ -57,7 +80,7 @@ fn degenerate_normal_frame() -> RenderScene {
     materials.push(
         SceneMaterial::new(SceneMaterialParts {
             albedo: TextureHandle::from_raw(0),
-            normal: Some(normal),
+            normal: mapped.then_some(normal),
             roughness_metallic: None,
             ambient_occlusion: None,
             self_illumination: None,
@@ -94,7 +117,7 @@ fn compare(context: &GpuContext, source: &RenderScene, bias: f32, distance: i64,
     let old = frame_at_pose_motion(
         context,
         source,
-        Some(ReceiverReference::NormalProducer),
+        Some(ReceiverReference::MainArithmetic),
         bias,
         pose,
         true,
@@ -110,21 +133,30 @@ fn compare(context: &GpuContext, source: &RenderScene, bias: f32, distance: i64,
         );
     }
     assert!(new[new.len() - 2].iter().any(|byte| *byte != 0));
-    if name == "degenerate-normal-frame" {
-        let nonfinite = new[2]
-            .chunks_exact(2)
-            .filter(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]) & 0x7c00 == 0x7c00)
-            .count();
-        println!("NONFINITE_NORMAL_COMPONENTS {nonfinite}");
-        assert!(
-            nonfinite > 0,
-            "degenerate UVs must reach nonfinite mapped normals"
-        );
-    }
+    let normal = frame_at_pose_motion(
+        context,
+        source,
+        Some(ReceiverReference::NormalProducer),
+        bias,
+        pose,
+        true,
+    );
+    assert_eq!(
+        normal, new,
+        "Normal and selected producers must agree: {name}"
+    );
+    export(name, bias, distance, [("main", &old), ("position", &new)]);
+    println!(
+        "PRODUCER_EXACTNESS {name} bias={bias} distance={distance} attachments={} differing_bytes=0",
+        new.len()
+    );
+}
+
+fn export(name: &str, bias: f32, distance: i64, variants: [(&str, &[Vec<u8>]); 2]) {
     if let Some(directory) = std::env::var_os("WR_RECEIVER_FIXTURE_OUTPUT") {
         let directory = std::path::PathBuf::from(directory);
         std::fs::create_dir_all(&directory).unwrap();
-        for (variant, products) in [("main", &old), ("position", &new)] {
+        for (variant, products) in variants {
             for (index, bytes) in products.iter().enumerate() {
                 std::fs::write(
                     directory.join(format!(
@@ -137,10 +169,6 @@ fn compare(context: &GpuContext, source: &RenderScene, bias: f32, distance: i64,
             }
         }
     }
-    println!(
-        "PRODUCER_EXACTNESS {name} bias={bias} distance={distance} attachments={} differing_bytes=0",
-        new.len()
-    );
 }
 
 #[test]
@@ -150,7 +178,7 @@ fn gpu_zero_bias_receiver_producer_preserves_fixture_payload_attachment_and_outp
     for (name, source) in [
         ("slope", sloped(false)),
         ("occlusion-relief", opaque_receivers(&sloped(true))),
-        ("degenerate-normal-frame", degenerate_normal_frame()),
+        ("transmission-relief", sloped(true)),
     ] {
         for bias in [0.0, -0.0, 0.012] {
             compare(&context, &source, bias, 8_000, name);
@@ -190,5 +218,75 @@ fn gpu_receiver_consumers_do_not_publish_uncovered_payload_values() {
     assert!(
         cleared[..payload] == poison[..payload],
         "uncovered payload must not affect any downstream attachment or output"
+    );
+}
+
+#[test]
+fn gpu_degenerate_normal_frame_zero_bias_has_finite_position_derivatives() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = degenerate_normal_frame(true);
+    let geometric = degenerate_normal_frame(false);
+    for bias in [0.0, -0.0] {
+        let old = frame(
+            &context,
+            &source,
+            Some(ReceiverReference::MainArithmetic),
+            bias,
+        );
+        let new = frame(&context, &source, None, bias);
+        let normal = frame(
+            &context,
+            &source,
+            Some(ReceiverReference::NormalProducer),
+            bias,
+        );
+        let expected = frame(&context, &geometric, None, bias);
+        let payload = new.len() - 2;
+        assert_eq!(new, normal, "zero-bias Normal and Position must agree");
+        assert_eq!(
+            new[payload..],
+            expected[payload..],
+            "derivatives must depend only on position"
+        );
+        let nonfinite = |products: &[Vec<u8>]| {
+            products[payload..]
+                .iter()
+                .flat_map(|bytes| bytes.chunks_exact(4))
+                .filter(|bytes| !f32::from_le_bytes((*bytes).try_into().unwrap()).is_finite())
+                .count()
+        };
+        let main_nonfinite = nonfinite(&old);
+        assert!(
+            main_nonfinite > 0,
+            "main's degenerate normal derivative must contaminate its payload"
+        );
+        assert_eq!(nonfinite(&new), 0);
+        assert!(
+            new[2]
+                .chunks_exact(2)
+                .any(|bytes| u16::from_le_bytes(bytes.try_into().unwrap()) & 0x7c00 == 0x7c00),
+            "fixture must reach nonfinite mapped normals"
+        );
+        for (index, (a, b)) in old.iter().zip(&new).enumerate() {
+            let differences = a.iter().zip(b).filter(|(a, b)| a != b).count();
+            println!(
+                "DEGENERATE_NORMAL_FRAME bias={:08x} attachment={index} differing_bytes={differences} main_nonfinite_payload={main_nonfinite}",
+                bias.to_bits()
+            );
+        }
+        export(
+            "degenerate-normal-frame",
+            bias,
+            8_000,
+            [("main", &old), ("position", &new)],
+        );
+    }
+    compare(
+        &context,
+        &source,
+        0.012,
+        8_000,
+        "degenerate-normal-frame-nonzero",
     );
 }

@@ -1,4 +1,6 @@
 //! Fragment-stage arithmetic controls for zero normal bias and rejected quad neighbours.
+#[path = "receiver_zero_bias_selection.rs"]
+mod selection;
 use super::*;
 use crate::scene_metadata::receiver::ReceiverCapture;
 use wgpu::util::DeviceExt;
@@ -141,7 +143,7 @@ fn operand_pipeline(device: &wgpu::Device, shader: &wgpu::ShaderModule) -> wgpu:
 }
 
 #[test]
-fn gpu_zero_bias_arithmetic_preserves_nonfinite_and_signed_zero_operand_bits() {
+fn gpu_zero_bias_arithmetic_defines_position_derivatives_for_all_normal_operands() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for bias in [0.0_f32, -0.0] {
@@ -175,6 +177,13 @@ fn gpu_zero_bias_arithmetic_preserves_nonfinite_and_signed_zero_operand_bits() {
                 bias.to_bits()
             );
             assert_eq!(differences, 0, "bias={bias} normal={normal:08x}");
+            assert!(
+                position
+                    .iter()
+                    .flat_map(|bytes| bytes.chunks_exact(4))
+                    .all(|bytes| { f32::from_le_bytes(bytes.try_into().unwrap()).is_finite() }),
+                "normal operands must never contaminate zero-bias displacements"
+            );
         }
     }
 }
@@ -196,5 +205,14 @@ fn gpu_zero_bias_arithmetic_control_observes_the_normal_operand_at_nonzero_bias(
     assert!(
         zero != biased,
         "the fragment control must observe normal derivatives at nonzero bias"
+    );
+    let main = operands(
+        &context,
+        &operand_source(0.012, ReceiverCapture::MainArithmetic),
+        1.0_f32.to_bits(),
+    );
+    assert_eq!(
+        biased, main,
+        "nonzero arithmetic must preserve main's payload bits"
     );
 }

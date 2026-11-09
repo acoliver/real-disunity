@@ -1,5 +1,9 @@
 //! Lossless primitive receiver displacements, produced once at pixel centres.
 mod admission;
+#[cfg(test)]
+mod arithmetic_reference;
+#[cfg(test)]
+pub(crate) use arithmetic_reference::positions as main_receiver_positions;
 mod cards;
 #[cfg(test)]
 pub(crate) use cards::reference as late_card_source;
@@ -82,6 +86,8 @@ impl ReceiverLayout {
 pub(crate) enum ReceiverCapture {
     Position,
     Normal,
+    #[cfg(test)]
+    MainArithmetic,
 }
 impl ReceiverCapture {
     fn select(layout: ReceiverLayout, bias: f32, transmission: bool) -> Self {
@@ -113,8 +119,8 @@ pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
 pub(crate) fn probe_source(source: &str) -> String {
     // Preserve shading and its control flow while exposing displacements in existing MRTs.
     let source = source.replace(
-        "let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y;",
-        "let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y; scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
+        "let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0);",
+        "let receiver_dy = select(dpdy(position) + dpdy(normal) * shadow.bias.y, dpdy(position), shadow.bias.y == 0.0); scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
     ).replace(
         "vec4<f32>(published_environment, 1.0), vec4<f32>(published_factor, 1.0)",
         "vec4<f32>(scene_probe_dx, scene_probe_dy.x), vec4<f32>(scene_probe_dy.yz, 0.0, 0.0)",
@@ -138,6 +144,7 @@ var<private> scene_probe_dx: vec3<f32>; var<private> scene_probe_dy: vec3<f32>;"
 pub(crate) enum ReceiverReference {
     LateCardRejection,
     NormalProducer,
+    MainArithmetic,
     PoisonUncovered,
     StoredShared,
     StoredIndependent,
@@ -164,6 +171,7 @@ impl ReceiverReference {
             | Self::BlackShared => crate::renderer::depth::DepthMode::Shared,
             Self::LateCardRejection
             | Self::NormalProducer
+            | Self::MainArithmetic
             | Self::PoisonUncovered
             | Self::ProbeReuse
             | Self::StoredProbeReuse
@@ -222,13 +230,10 @@ impl crate::compositor::FrameRenderer {
             }
             let capture = ReceiverCapture::select(layout, bias, gpu.has_transmission());
             #[cfg(test)]
-            let capture = if matches!(
-                self.receiver_reference,
-                Some(ReceiverReference::NormalProducer)
-            ) {
-                ReceiverCapture::Normal
-            } else {
-                capture
+            let capture = match self.receiver_reference {
+                Some(ReceiverReference::NormalProducer) => ReceiverCapture::Normal,
+                Some(ReceiverReference::MainArithmetic) => ReceiverCapture::MainArithmetic,
+                _ => capture,
             };
             let output = ReceiverPayload::output_for(screen);
             admission::validate(
@@ -285,7 +290,11 @@ impl crate::compositor::FrameRenderer {
                     if let Some(reference) = self.receiver_reference
                         && (reference.local()
                             || reference.probe()
-                            || matches!(reference, ReceiverReference::LateCardRejection))
+                            || matches!(
+                                reference,
+                                ReceiverReference::LateCardRejection
+                                    | ReceiverReference::MainArithmetic
+                            ))
                     {
                         return pipelines.for_receiver_reference(reference, receiver.layout);
                     }

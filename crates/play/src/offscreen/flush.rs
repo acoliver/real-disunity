@@ -134,7 +134,7 @@ impl FlushOutcome {
 #[derive(Default)]
 struct Submitted {
     before: Option<BeforeDispatch>,
-    read: Option<Result<Copied, &'static str>>,
+    read: Option<Result<Copied, String>>,
     submission: Option<wgpu::SubmissionIndex>,
 }
 
@@ -408,7 +408,7 @@ impl OffscreenHost {
                     }
                     Err(reason) => refuse_read(&mut adapted.report, reason),
                 },
-                (Some(Err(reason)), _) => refuse_read(&mut adapted.report, reason),
+                (Some(Err(reason)), _) => refuse_read(&mut adapted.report, &reason),
                 _ => {}
             }
             if prepared.is_some()
@@ -576,11 +576,7 @@ impl OffscreenHost {
     }
 
     /// Records the copy of the render texture a pixel read wants, after everything in `frame`.
-    fn copy_for(
-        &self,
-        wanted: Wanted,
-        frame: &mut wgpu::CommandEncoder,
-    ) -> Result<Copied, &'static str> {
+    fn copy_for(&self, wanted: Wanted, frame: &mut wgpu::CommandEncoder) -> Result<Copied, String> {
         let handle = self
             .state
             .texture_handle(ids::render_texture(wanted.texture))
@@ -588,7 +584,7 @@ impl OffscreenHost {
         let copy = self
             .runtime
             .read_texture(frame, handle)
-            .map_err(|_| pixels::REFUSED_NO_COPY)?;
+            .map_err(|error| pixels::no_copy(&error))?;
         Ok(Copied::new(wanted, copy))
     }
 

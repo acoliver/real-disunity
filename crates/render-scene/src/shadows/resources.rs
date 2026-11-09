@@ -1,3 +1,6 @@
+#[cfg(test)]
+#[path = "card_rejection_test_support.rs"]
+mod card_rejection_test_support;
 use crate::geometry::{instance_attributes, vertex_attributes};
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;

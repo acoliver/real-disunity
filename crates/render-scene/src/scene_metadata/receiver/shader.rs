@@ -203,6 +203,11 @@ pub(super) fn consumer(source: &str, layout: ReceiverLayout, terrain: bool) -> S
     } else {
         source = source.replace("var input = original;", "scene_receiver_pixel = vec2<i32>(original.clip_position.xy);\n    var input = original;");
     }
+    let source = if terrain {
+        source
+    } else {
+        super::cards::source(&source)
+    };
     format!(
         "{source}\n{back_cascaded}\n{back_raw}\n{back_card}\n{}",
         include_str!("consumer.wgsl")

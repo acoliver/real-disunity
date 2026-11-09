@@ -72,7 +72,8 @@ mod tests;
 
 pub use adapter::{OffscreenAdapter, build};
 pub use assets::{
-    AssetError, Assets, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
+    AssetError, Assets, Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world,
+    texture_of,
 };
 pub use bounds::Bounds;
 pub use builtins::{

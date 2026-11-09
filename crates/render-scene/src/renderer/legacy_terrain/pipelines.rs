@@ -118,7 +118,7 @@ fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
     ]
 }
 
-fn vertex_buffers<'a>(
+pub(super) fn vertex_buffers<'a>(
     vertices: &'a [wgpu::VertexAttribute],
     instances: &'a [wgpu::VertexAttribute],
 ) -> [Option<VertexBufferLayout<'a>>; 2] {
@@ -136,7 +136,7 @@ fn vertex_buffers<'a>(
     ]
 }
 
-fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModule {
+pub(super) fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModule {
     device.create_shader_module(ShaderModuleDescriptor {
         label: Some(label),
         source: ShaderSource::Wgsl(std::borrow::Cow::Borrowed(source)),

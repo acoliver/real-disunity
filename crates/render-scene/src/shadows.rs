@@ -42,6 +42,9 @@ pub(crate) use resources::SHADOW_UNIFORM_BYTES;
 pub(crate) use resources::{depth_source, receiver_sources};
 mod schedule;
 mod settings;
+mod terrain_caster;
+#[cfg(test)]
+pub(crate) use terrain_caster::TerrainCaster;
 
 pub mod sdsm;
 pub(crate) fn water_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
@@ -116,7 +119,7 @@ pub struct ShadowedScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
     depth_pipelines: [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
-    terrain_depth_pipeline: wgpu::RenderPipeline,
+    terrain_caster: terrain_caster::TerrainCaster,
     caster_slope_bits: u32,
     depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     depth_slots: Vec<Vec<(wgpu::Buffer, wgpu::BindGroup)>>,
@@ -238,8 +241,9 @@ impl ShadowedScene {
             (format, samples, velocity),
             &shadow_layout,
         )?;
-        let (depth_pipelines, terrain_depth_pipeline) =
+        let depth_pipelines =
             resources::depth_pipelines(context.device(), &pipelines, settings, sampling);
+        let terrain_caster = resources::terrain_caster(context, &pipelines, settings, sampling);
         let gpu = SceneGpu::upload_prepared_reusing(
             context.device(),
             context.submission(),
@@ -261,7 +265,7 @@ impl ShadowedScene {
             gpu,
             pipelines,
             depth_pipelines,
-            terrain_depth_pipeline,
+            terrain_caster,
             caster_slope_bits: resources::slope_bias(sampling).to_bits(),
             depth_slots,
             depth_frames,
@@ -473,14 +477,45 @@ impl ShadowedScene {
         let sampling = self.effects.shadows().sampling();
         let bits = resources::slope_bias(sampling).to_bits();
         if bits != self.caster_slope_bits {
-            (self.depth_pipelines, self.terrain_depth_pipeline) = resources::depth_pipelines(
+            self.depth_pipelines = resources::depth_pipelines(
                 context.device(),
                 &self.pipelines,
                 self.settings,
                 sampling,
             );
+            self.terrain_caster =
+                resources::terrain_caster(context, &self.pipelines, self.settings, sampling);
             self.caster_slope_bits = bits;
         }
+    }
+
+    /// Prepares the terrain for every pass of the frame before any opens: the prepass, the
+    /// forward pass, and the casters of the cascades.
+    fn prepare_terrain_passes(
+        (gpu, caster, depth_frames): (
+            &SceneGpu,
+            &terrain_caster::TerrainCaster,
+            &[(wgpu::Buffer, wgpu::BindGroup)],
+        ),
+        (screen, selected, frame): (
+            Option<&crate::scene_metadata::Geometry>,
+            &ScenePipelines,
+            &FrameUniform,
+        ),
+    ) -> Result<(), ShadowError> {
+        if let Some(screen) = screen {
+            gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
+        }
+        gpu.prepare_terrain(selected, frame)?;
+        caster
+            .prepare(depth_frames.iter().map(|(buffer, _)| buffer))
+            .map_err(
+                |error| worldrunner_render_post::FrameError::FeaturePreparation {
+                    feature: "terrain shadow caster",
+                    reason: error.to_string(),
+                },
+            )?;
+        Ok(())
     }
 
     fn replacement_map(&self, context: &GpuContext) -> Result<Option<ShadowMap>, ShadowError> {
@@ -528,6 +563,11 @@ impl ShadowedScene {
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
+        let screen = scheduler.geometry_for_depth(depth_mode);
+        Self::prepare_terrain_passes(
+            (&self.gpu, &self.terrain_caster, &self.depth_frames),
+            (screen.as_ref(), &selected, &frame),
+        )?;
         let mut cascades = Self::prepare_cascades(
             (&self.gpu, &self.effects, self.settings),
             view,
@@ -566,11 +606,11 @@ impl ShadowedScene {
         schedule.celestial(&self.gpu, context.device(), color.size());
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),
-            screen: scheduler.geometry_for_depth(depth_mode),
+            screen,
             gpu: &mut self.gpu,
             pipelines: &selected,
             depth_pipelines: &self.depth_pipelines,
-            terrain_depth_pipeline: &self.terrain_depth_pipeline,
+            terrain_caster: &self.terrain_caster,
             depth_frames: &self.depth_frames,
             shadow_group: &shadow_group,
             cascades,
@@ -637,7 +677,7 @@ struct ShadowFeature<'a> {
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
     depth_pipelines: &'a [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
-    terrain_depth_pipeline: &'a wgpu::RenderPipeline,
+    terrain_caster: &'a terrain_caster::TerrainCaster,
     depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
     shadow_group: &'a wgpu::BindGroup,
     cascades: cascades::CascadeViews,
@@ -712,12 +752,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 self.depth_pipelines,
                 Some((index, matrix)),
             ));
-            let terrain = self.gpu.draw_terrain_depth(
-                pass,
-                group,
-                self.terrain_depth_pipeline,
-                (index, matrix),
-            );
+            let caster = self
+                .terrain_caster
+                .pipeline(&self.depth_frames[index as usize].0)
+                .expect("the terrain caster prepares against its light frame");
+            let terrain = self.gpu.draw_terrain_depth(pass, &caster, (index, matrix));
             self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
         } else {
             if let Some(screen) = &self.screen {
@@ -752,7 +791,7 @@ impl From<std::convert::Infallible> for ShadowError {
 /// The uniform a shadow caster pass draws with: the light's own matrix and nothing of the
 /// viewer's sub-pixel jitter, which would make cascade edges move with the camera. The material
 /// mip bias is a screen-space policy for the reconstructed view, so a light-view raster uses 0.
-fn light_frame(frame: &FrameUniform, matrix: glam::Mat4) -> FrameUniform {
+pub(crate) fn light_frame(frame: &FrameUniform, matrix: glam::Mat4) -> FrameUniform {
     FrameUniform {
         // Directional light fits use right-handed views independently of the viewer.
         view_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
@@ -782,5 +821,4 @@ pub(crate) fn wind_test_pipelines(
         },
         worldrunner_render_plan::SceneShadowSampling::default(),
     )
-    .0
 }

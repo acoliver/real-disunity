@@ -20,7 +20,8 @@ use worldrunner_render_program::ids::{
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Camera, Material, OffscreenFrame, ReadRange, Record, RenderTextureSpec, Renderer,
+    Camera, Material, OffscreenFrame, ReadRange, Record, RenderDimension, RenderTextureSpec,
+    Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{
     OffscreenOperations, OffscreenState, PendingImage,
@@ -141,6 +142,7 @@ fn texture(id: TextureId, layers: u32) -> RenderTextureSpec {
         id,
         size: [8, 8],
         layers,
+        dimension: RenderDimension::D2,
         graphics_format: 8,
         depth_bits: 0,
         mips: 1,

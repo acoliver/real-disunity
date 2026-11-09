@@ -87,6 +87,27 @@ impl PreparedFeature for SceneFeature<'_> {
     }
 }
 
+/// Prepares the terrain pipelines of the passes the scene feature draws terrain in: the
+/// prepass when the frame has screen-space passes, and the colour pass with the forward
+/// pipelines when those are installed. Preparing is done before the passes open, where a
+/// refusal is still an error.
+fn prepare_terrain(
+    gpu: &crate::draw::SceneGpu,
+    frame: &crate::frame::FrameUniform,
+    pipelines: &crate::renderer::ScenePipelines,
+    screen: Option<&crate::scene_metadata::Geometry>,
+) -> Result<(), FrameError> {
+    let Some(screen) = screen else {
+        return gpu.prepare_terrain(pipelines, frame);
+    };
+    gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
+    let colour = screen
+        .forward
+        .as_ref()
+        .map_or(pipelines, |(forward, _)| forward);
+    gpu.prepare_terrain(colour, frame)
+}
+
 /// Adds the velocity attachment, which the main pass clears to zero and never resolves.
 pub(crate) fn declare_velocity(
     opaque: &mut PassDeclaration,
@@ -147,6 +168,8 @@ pub fn encode_scene(
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
     gpu.prepare_sky(device, encoder, &frame)?;
     gpu.prepare_terrain_pages(device, encoder, &frame, color.size())?;
+    let screen = renderer.geometry_for_depth(depth_mode);
+    prepare_terrain(gpu, &frame, pipelines, screen.as_ref())?;
     let color_id = attachment_resource("scene color", color);
     let depth_id = renderer.scene_depth_resource(depth);
     let mut opaque = PassDeclaration::new(PassSlot::Opaque);
@@ -175,7 +198,7 @@ pub fn encode_scene(
     );
     let mut feature = SceneFeature {
         publications: crate::draw::DrawPublications::default(),
-        screen: renderer.geometry_for_depth(depth_mode),
+        screen,
         programs,
         gpu,
         pipelines,

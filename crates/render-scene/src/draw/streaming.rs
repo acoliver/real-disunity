@@ -311,14 +311,6 @@ impl Streaming {
                 ) <= threshold
         }))
     }
-    pub fn draw(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        instances: &wgpu::Buffer,
-    ) -> super::DrawCount {
-        self.draw_where(pass, instances, |_| true)
-    }
-
     /// The chunks a draw in the transaction `owner` records: the ones that transaction prepared,
     /// or the committed ones. `read` also gets the committed ones.
     fn with_residents<R>(
@@ -358,9 +350,34 @@ impl Streaming {
         pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
         terrain: &super::GpuTerrain,
     ) -> super::DrawCount {
+        self.record_prepared(pass, pipeline, terrain, |_| true)
+    }
+
+    /// Records the resident chunks whose world bounds `keep` accepts, as
+    /// [`draw_prepared`](Self::draw_prepared) does.
+    pub(super) fn draw_prepared_where<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        terrain: &super::GpuTerrain,
+        keep: impl Fn([glam::Vec3; 2]) -> bool,
+    ) -> super::DrawCount {
+        let scene = self.scene.terrain().expect("terrain");
+        self.record_prepared(pass, pipeline, terrain, |chunk| {
+            keep(crate::terrain::streaming::chunk_bounds(scene, *chunk))
+        })
+    }
+
+    fn record_prepared<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        terrain: &super::GpuTerrain,
+        keep: impl Fn(&TerrainChunk) -> bool,
+    ) -> super::DrawCount {
         let mut count = super::DrawCount::default();
         self.with_residents(Publications::current().as_ref(), |residents, _| {
-            for (chunk, lod) in residents {
+            for (chunk, lod) in residents.iter().filter(|(chunk, _)| keep(chunk)) {
                 self.geometry.draw(
                     pass,
                     pipeline,
@@ -371,42 +388,6 @@ impl Streaming {
                 count.draw(1);
             }
         });
-        count
-    }
-
-    /// Draws the resident chunks whose world bounds `keep` accepts.
-    pub fn draw_where(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        instances: &wgpu::Buffer,
-        keep: impl Fn(super::visibility::Bounds) -> bool,
-    ) -> super::DrawCount {
-        let terrain = self.scene.terrain().expect("terrain");
-        let mut count = super::DrawCount::default();
-        let drawing = self.drawing.borrow();
-        let committed = self.committed.borrow();
-        let residents = drawing
-            .as_ref()
-            .filter(|prepared| {
-                Publications::current()
-                    .is_some_and(|current| current.same_transaction(&prepared.owner))
-            })
-            .map_or(&*committed, |prepared| &prepared.residents);
-        for (chunk, lod) in residents {
-            let [min, max] = crate::terrain::streaming::chunk_bounds(terrain, *chunk);
-            if !keep(super::visibility::Bounds { min, max }) {
-                continue;
-            }
-            let offset = u64::from(self.plane_chunks[chunk]) * crate::geometry::INSTANCE_STRIDE;
-            pass.set_vertex_buffer(
-                1,
-                instances.slice(offset..offset + crate::geometry::INSTANCE_STRIDE),
-            );
-            pass.set_vertex_buffer(0, lod.vertices.slice(..));
-            pass.set_index_buffer(lod.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..lod.index_count, 0, 0..1);
-            count.draw(1);
-        }
         count
     }
 }

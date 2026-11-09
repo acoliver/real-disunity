@@ -31,6 +31,7 @@ use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::error::OffscreenError;
+use super::frame::RenderDimension;
 use super::meshes::MeshTable;
 use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
 use super::textures::TextureTable;
@@ -532,6 +533,9 @@ impl Services<'_> {
         id: TextureId,
     ) -> Result<(super::tracker::Imported, Option<SamplerState>), OffscreenError> {
         let info = self.textures.get(id)?;
+        if info.dimension == RenderDimension::D3 {
+            return Err(OffscreenError::VolumeInGraph(id));
+        }
         for handle in info.handles() {
             self.shares
                 .push(self.runtime.store.texture_reservation(handle)?);

@@ -24,7 +24,7 @@ use worldrunner_render_program::runtime::{
     VertexLayoutSpec,
 };
 
-use super::program::{Context, Surface, semantic};
+use super::program::{Context, Surface, WeakContext, semantic};
 use super::streaming::TerrainChunk;
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
 use crate::terrain::pages::layered_gpu::textures::ResidentSource;
@@ -60,13 +60,18 @@ pub(crate) struct Request<'a> {
     pub pages: &'a dyn Fn() -> Pages,
 }
 
+/// The context, surface source and page-table slot a set or pipeline is made for.
+type SetKey = (u64, Surface, usize);
+
 /// The pipelines, sets and mesh geometry a terrain has prepared.
 #[derive(Debug, Default)]
 pub(crate) struct PreparedTerrain {
-    /// Sets by the context that prepared them, the surface and the page slot: a set binds only in
-    /// its context's runtime, against that context's material layout.
-    sets: RefCell<BTreeMap<(u64, Surface, usize), PreparedSet>>,
-    pipelines: RefCell<BTreeMap<(u64, Surface, usize), Rc<PreparedPipeline>>>,
+    /// Sets are built against the runtime of the context that prepared them, whose program fixes
+    /// their layout, so they are kept per context and dropped when the context is.
+    sets: RefCell<BTreeMap<SetKey, (WeakContext, PreparedSet)>>,
+    /// Pipelines are kept per context and dropped when the context is, so pipelines that a
+    /// replay makes for one frame do not accumulate in the terrain of a long-lived scene.
+    pipelines: RefCell<BTreeMap<SetKey, (WeakContext, Rc<PreparedPipeline>)>>,
     mesh: RefCell<Option<GeometryDraw>>,
 }
 
@@ -198,9 +203,13 @@ impl PreparedTerrain {
         request: &Request<'_>,
     ) -> Result<Rc<PreparedPipeline>, ProgramError> {
         let key = (request.context.id(), request.surface, request.slot);
-        if let Some(ready) = self.pipelines.borrow().get(&key) {
+        if let Some((_, ready)) = self.pipelines.borrow().get(&key) {
             return Ok(ready.clone());
         }
+        self.pipelines
+            .borrow_mut()
+            .retain(|_, (owner, _)| owner.alive());
+        self.sets.borrow_mut().retain(|_, (owner, _)| owner.alive());
         let context = request.context;
         let made = context
             .family()
@@ -208,7 +217,9 @@ impl PreparedTerrain {
                 self.prepare(runtime, request)
             })?;
         let made = Rc::new(made);
-        self.pipelines.borrow_mut().insert(key, made.clone());
+        self.pipelines
+            .borrow_mut()
+            .insert(key, (context.downgrade(), made.clone()));
         Ok(made)
     }
 
@@ -222,7 +233,7 @@ impl PreparedTerrain {
         let mut sets = self.sets.borrow_mut();
         let set_key = (context.id(), request.surface, request.slot);
         if let std::collections::btree_map::Entry::Vacant(vacant) = sets.entry(set_key) {
-            vacant.insert(Self::set(runtime, &program, request)?);
+            vacant.insert((context.downgrade(), Self::set(runtime, &program, request)?));
         }
         let layout = vertex_layout();
         let state = context.state();
@@ -234,7 +245,7 @@ impl PreparedTerrain {
                 layout: &layout,
                 bindings: &[],
                 imports: &[],
-                sets: &[&sets[&set_key]],
+                sets: &[&sets[&set_key].1],
                 owners: &owners,
             },
             context.signature()?,
@@ -279,6 +290,12 @@ impl PreparedTerrain {
         pipeline
             .draw(pass, geometry)
             .expect("the mesh was made for the terrain's vertex layout");
+    }
+
+    /// How many pipelines and sets are kept, for the tests that hold the caches bounded.
+    #[cfg(test)]
+    pub(crate) fn kept(&self) -> (usize, usize) {
+        (self.pipelines.borrow().len(), self.sets.borrow().len())
     }
 }
 

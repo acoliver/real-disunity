@@ -96,7 +96,7 @@ fn terrain_footprints_are_derivative_free_in_every_fragment_pass() {
         [false, true].map(|shadowed| crate::shadows::capture_sources(shadowed).1.to_owned()),
     );
     for source in sources {
-        for variant in crate::renderer::terrain_test_sources(&source) {
+        for variant in crate::terrain::program::source::test_sources(&source) {
             assert!(deterministic_terrain(&variant));
         }
     }

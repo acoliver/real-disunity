@@ -10,7 +10,8 @@ use std::cell::{Cell, RefCell};
 use glam::{Mat4, Vec2, Vec3};
 
 use super::visibility::{Bounds, Frustum};
-use super::{DrawCount, FRAME_GROUP, SceneGpu};
+use super::{DrawCount, SceneGpu};
+use worldrunner_render_program::runtime::{PassCommands, PreparedPipeline};
 
 /// Convex polygon in a cascade's light clip-space XY, counter-clockwise.
 #[derive(Clone, Debug, PartialEq)]
@@ -183,39 +184,50 @@ impl SceneGpu {
 }
 
 impl SceneGpu {
-    /// Draws the terrain into shadow cascade `index`. Streaming chunks outside the cascade's
-    /// volume or its slice hull cannot shadow a sampled texel and are skipped.
-    pub(crate) fn draw_terrain_depth(
+    /// What shadow cascade `index` draws of the terrain when its map is drawn with `matrix`:
+    /// `None` when the cascade's volume misses the terrain altogether, otherwise the test of one
+    /// streaming chunk's world bounds, `[min, max]`. Chunks outside the cascade's volume or its
+    /// slice hull cannot shadow a sampled texel and are skipped.
+    pub(crate) fn terrain_caster_selection(
         &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        frame: &wgpu::BindGroup,
-        pipeline: &wgpu::RenderPipeline,
-        (index, matrix): (u32, Mat4),
-    ) -> DrawCount {
+        index: u32,
+        matrix: Mat4,
+    ) -> Option<impl Fn([Vec3; 2]) -> bool> {
         let frustum = Frustum::new(matrix);
-        let Some(terrain) = self
-            .terrain
+        self.terrain
             .as_ref()
-            .filter(|t| frustum.intersects(t.bounds))
-        else {
-            return DrawCount::default();
-        };
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(FRAME_GROUP, frame, &[]);
-        let Some(streaming) = &terrain.streaming else {
-            return Self::draw_terrain_geometry(pass, terrain);
-        };
+            .filter(|t| frustum.intersects(t.bounds))?;
         let slice = self.views[index as usize + 1].slice.for_matrix(matrix);
-        #[cfg(test)]
-        if UNCULLED.get() {
-            return streaming.draw(pass, &terrain.instances);
-        }
-        streaming.draw_where(pass, &terrain.instances, |bounds| {
+        Some(move |[min, max]: [Vec3; 2]| {
+            #[cfg(test)]
+            if UNCULLED.get() {
+                return true;
+            }
+            let bounds = Bounds { min, max };
             frustum.intersects(bounds)
                 && slice
                     .as_ref()
                     .is_none_or(|(hull, _)| hull.overlaps(bounds, matrix))
         })
+    }
+
+    /// Draws the terrain into shadow cascade `index` through the cascade's prepared pipeline,
+    /// which binds the cascade's light frame.
+    pub(crate) fn draw_terrain_depth<P: PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &PreparedPipeline,
+        (index, matrix): (u32, Mat4),
+    ) -> DrawCount {
+        let Some(keep) = self.terrain_caster_selection(index, matrix) else {
+            return DrawCount::default();
+        };
+        let terrain = self.terrain.as_ref().expect("a selection has terrain");
+        pipeline.bind(pass);
+        let Some(streaming) = &terrain.streaming else {
+            return Self::draw_terrain_mesh(pass, pipeline, terrain);
+        };
+        streaming.draw_prepared_where(pass, pipeline, terrain, keep)
     }
 }
 

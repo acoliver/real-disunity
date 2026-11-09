@@ -44,6 +44,10 @@ pub enum OffscreenError {
     },
     #[error("render texture {id:?} has no size, layers or mips")]
     EmptyTexture { id: TextureId },
+    #[error("render texture {id:?} is 3D and {reason}")]
+    VolumeShape { id: TextureId, reason: &'static str },
+    #[error("texture {0:?} is 3D, which only a kernel reads or writes, so no record can name it")]
+    VolumeInGraph(TextureId),
     #[error("shader {0:?} is not registered")]
     UnknownShader(ShaderId),
     #[error("material {0:?} is not in the frame")]

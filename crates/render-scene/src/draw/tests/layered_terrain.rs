@@ -161,7 +161,7 @@ fn render_with_source(
     .unwrap();
     gpu.set_frame(context.queue(), *frame);
     if cached {
-        gpu.enable_terrain_pages(device, &authority, &pipelines, page_source())
+        gpu.enable_terrain_pages(device, &authority, page_source())
             .unwrap();
         let mut transaction = authority.begin(device).unwrap();
         gpu.prepare_terrain_pages(device, &mut transaction, frame, [TARGET; 2])

@@ -1,8 +1,9 @@
 //! The fixed terrain path as it was before terrain drew through the program runtime.
 //!
-//! This is a frozen copy, kept as test-only code until the fixed pipelines are removed. It is
-//! the reference of the byte-equality captures in `terrain::capture_tests`: those draw the same
-//! terrain through the scene and through this copy and compare every attachment byte for byte.
+//! This is a frozen copy, kept as test-only code after the fixed pipelines were removed from the
+//! scene. It is the reference of the byte-equality captures in `terrain::capture_tests`: those
+//! draw the same terrain through the scene and through this copy and compare every attachment byte
+//! for byte.
 //! The pipeline builders, layouts, bind group builders and the command sequence below are the
 //! ones `renderer.rs`, `renderer/pages.rs`, `upload.rs`, `draw/resources.rs`, `draw.rs` and
 //! `draw/streaming.rs` held, with these differences only:
@@ -20,6 +21,7 @@
 //! Do not edit the behaviour of this file. A change to terrain output is a change to what the
 //! captures mean and is its own proposal.
 
+mod caster;
 mod commands;
 mod depth;
 mod draw;
@@ -27,6 +29,7 @@ mod groups;
 mod layouts;
 mod pipelines;
 
+pub(crate) use caster::{build_terrain_depth, draw_terrain_depth};
 pub(crate) use commands::{Commands, Counted};
 pub(crate) use depth::Depth;
 pub(crate) use draw::{Chunk, Geometry, Surface, draw_terrain_color};

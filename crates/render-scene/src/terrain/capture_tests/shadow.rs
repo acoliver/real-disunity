@@ -94,8 +94,8 @@ impl Set {
 
 /// The shadow map the receivers sample: four layers cleared to one depth, so the terrain's
 /// height decides which fragments are shadowed.
-struct Shadow {
-    groups: [BindGroup; 2],
+pub(super) struct Shadow {
+    pub groups: [BindGroup; 2],
 }
 
 /// One cascade whose clip space maps the terrain's heights across the cleared depth. The two
@@ -129,7 +129,7 @@ fn uniform(scale: f32) -> Vec<u8> {
 }
 
 impl Shadow {
-    fn new(context: &GpuContext) -> Self {
+    pub(super) fn new(context: &GpuContext) -> Self {
         let device = context.device();
         let view = cleared_depth(context).create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),

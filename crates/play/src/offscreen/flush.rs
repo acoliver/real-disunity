@@ -279,6 +279,7 @@ impl OffscreenHost {
         let mut adapted = self
             .adapter
             .adapt(snapshot, assets, &mut self.state, &mut self.runtime);
+        self.compute.shape_textures(&mut adapted.frame);
         adapted.report.phases.adapt = started.elapsed();
         if adapted.frame.records.is_empty() {
             self.note(("frame", live_before), &adapted.report, None);
@@ -317,6 +318,7 @@ impl OffscreenHost {
         let mut adapted =
             self.adapter
                 .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
+        self.compute.shape_textures(&mut adapted.frame);
         let reclaimed = self
             .adapter
             .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
@@ -418,6 +420,11 @@ impl OffscreenHost {
                 && let Some(trace) = adapted.report.traces.last_mut()
             {
                 "ran".clone_into(&mut trace.outcome);
+                *adapted
+                    .report
+                    .census
+                    .entry("dispatches ran".to_owned())
+                    .or_default() += 1;
                 if let (Some(probe), Some(before), Some(submission)) = (probe, before, &submission)
                 {
                     probe.resolve(before, submission, self.runtime.device(), trace);
@@ -525,6 +532,9 @@ impl OffscreenHost {
                     }
                 }
             }
+        }
+        for pairing in &trace.pairings {
+            *report.census.entry(pairing.clone()).or_default() += 1;
         }
         let outcome = match prepared {
             Ok(prepared) => Some(prepared),

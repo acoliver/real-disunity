@@ -35,7 +35,6 @@ internal static class RenderEntryPointTests
         Unsupported(() => context.DrawGizmos(null!, GizmoSubset.PreImageEffects), "DrawGizmos");
         Unsupported(() => context.DrawUIOverlay(null!), "DrawUIOverlay");
         Unsupported(() => context.DrawWireOverlay(null!), "DrawWireOverlay");
-        Unsupported(() => context.InvokeOnRenderObjectCallback(), "InvokeOnRenderObjectCallback");
         Unsupported(() => context.DrawRenderers(default, ref drawing, ref filtering), "DrawRenderers");
         Unsupported(() => context.DrawRenderers(default, ref drawing, ref filtering, ref block), "DrawRenderers");
         Unsupported(() => context.DrawRenderers(default, ref drawing, ref filtering, default, default), "DrawRenderers");

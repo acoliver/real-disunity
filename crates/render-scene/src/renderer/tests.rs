@@ -47,31 +47,6 @@ fn every_pipeline_variant_compiles_against_the_declared_layout() {
     for key in PipelineKey::ALL {
         let _pipeline = pipelines.get(key);
     }
-    // The terrain pipeline is built by the same call and is the one whose
-    // layout is not shared, so it is the one a divergence would surface in.
-    let _terrain = pipelines.terrain();
-}
-
-#[test]
-fn the_terrain_pipeline_compiles_against_its_declared_layout() {
-    // This is the check the CPU-side naga tests cannot make. They confirm the
-    // shader is valid WGSL; only a real driver confirms that the bindings it
-    // declares are the bindings `terrain_bind_group_layout` declares, in the
-    // same slots, with the same sample types. A mismatch there is invisible
-    // until draw time, where it appears as a failed bind rather than as
-    // anything naming the binding that disagreed.
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let device = context.device();
-
-    let (pipelines, error) = validation_error(device, || ScenePipelines::new(device, COLOR_FORMAT));
-
-    assert!(
-        error.is_none(),
-        "the terrain bind group layout, vertex attributes and entry points \
-         must match the terrain shader: {error:?}"
-    );
-    let _terrain = pipelines.terrain();
 }
 
 #[test]

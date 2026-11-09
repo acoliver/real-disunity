@@ -57,6 +57,7 @@ pub(crate) mod semantic {
     pub(crate) const SHADOW: &str = "scene.shadow";
     pub(crate) const SHADOW_DEPTH: &str = "scene.shadow.depth";
     pub(crate) const SHADOW_SAMPLER: &str = "scene.shadow.sampler";
+    pub(crate) const SCREEN: &str = "scene.screen";
     pub(crate) const RECEIVER_A: &str = "scene.shadow.receiver.xyzw";
     pub(crate) const RECEIVER_B: &str = "scene.shadow.receiver.yz";
     pub(crate) const AMBIENT: &str = "scene.ao";
@@ -358,7 +359,14 @@ fn shadow_bindings(receiver: bool) -> ResourceLayout {
     ResourceLayout::new(bindings)
 }
 
-/// What the screen group at set 3 holds in a forward context.
+/// How the prepass terrain source declares its camera uniform, which `ssao/camera.wgsl` owns.
+const CAMERA_DECLARATION: &str = "var<uniform> screen: ScreenCamera;";
+
+/// The view, projection and inverse projection matrices and the two settings vectors of the
+/// camera uniform: `ScreenCamera` in `ssao/camera.wgsl`.
+const CAMERA_BYTES: u64 = 3 * 64 + 2 * 16;
+
+/// What the screen group at set 3 holds in a context.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Screen {
     /// The filtered ambient occlusion, read at the fragment's own texel.
@@ -369,14 +377,16 @@ pub(crate) enum Screen {
     Reflection,
     /// The reflection environment and the gather's view matrix.
     ReflectionGather,
+    /// The camera uniform the metadata prepass reads to write view-space normals.
+    Camera,
 }
 
 impl Screen {
     /// The screen of a context whose terrain source is `source`, or `None` for a source no
-    /// forward context makes (the metadata prepass).
+    /// context makes.
     pub(crate) fn of(source: &str) -> Option<Self> {
         let gather = source.contains("fn receiver_gather(");
-        if source.contains("struct ReflectionOutput") {
+        if source.contains("struct ReflectionOutput") || source.contains("fn forward_reflection(") {
             Some(if gather {
                 Self::ReflectionGather
             } else {
@@ -388,6 +398,8 @@ impl Screen {
             } else {
                 Self::Ambient
             })
+        } else if source.contains(CAMERA_DECLARATION) {
+            Some(Self::Camera)
         } else {
             None
         }
@@ -396,6 +408,16 @@ impl Screen {
     fn bindings(self) -> ResourceLayout {
         use wgpu::TextureViewDimension::{Cube, D2};
         let fragment = ShaderStages::FRAGMENT;
+        if self == Self::Camera {
+            return ResourceLayout::new(vec![declare(
+                (3, 0),
+                semantic::SCREEN,
+                fragment,
+                ResourceKind::Uniform {
+                    min_size: CAMERA_BYTES,
+                },
+            )]);
+        }
         let ambient = declare(
             (3, 0),
             semantic::AMBIENT,
@@ -490,6 +512,16 @@ struct FamilyState {
     runtime: RefCell<Option<ProgramRuntime>>,
 }
 
+/// A context that does not keep its programs alive.
+#[derive(Clone, Debug)]
+pub(crate) struct WeakContext(std::rc::Weak<ContextState>);
+
+impl WeakContext {
+    pub(crate) fn alive(&self) -> bool {
+        self.0.strong_count() > 0
+    }
+}
+
 impl std::fmt::Debug for Family {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Family")
@@ -564,18 +596,16 @@ impl Context {
         self.0.id
     }
 
+    pub(crate) fn downgrade(&self) -> WeakContext {
+        WeakContext(Rc::downgrade(&self.0))
+    }
+
     pub(crate) fn family(&self) -> &Family {
         &self.0.family
     }
 
     pub(crate) fn device(&self) -> &Device {
         &self.0.description.device
-    }
-
-    /// Whether the context's screen group is one a forward context makes. A group of any other
-    /// shape, such as the metadata prepass's camera uniform, is drawn with the fixed pipelines.
-    pub(crate) fn on_runtime(&self) -> bool {
-        self.0.description.screen.is_none() || self.0.screen.is_some()
     }
 
     /// The pass the context draws into.
@@ -592,7 +622,7 @@ impl Context {
 
     /// Terrain writes every attachment of its pass, with no blend and back faces culled. Its
     /// depth and stencil state is the pass's [`DepthMode`] for a drawing that writes depth: the
-    /// same function the fixed pipelines use, so the two cannot disagree.
+    /// same function the object pipelines use, so the two cannot disagree.
     pub(crate) fn state(&self) -> RenderState {
         let depth = self.0.description.depth.state(true);
         RenderState {
@@ -682,7 +712,7 @@ impl Context {
             declarations(),
         )?;
         // One parse serves both stages. Only the fragment stage reads the specialization
-        // constants, as in the fixed pipelines.
+        // constants, as the frozen reference does.
         let fragment = vertex
             .sibling(FRAGMENT_ENTRY, StageKind::Fragment)?
             .with_declarations(declarations())

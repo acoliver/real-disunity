@@ -136,7 +136,7 @@ impl PreparedScene {
                     &device.limits(),
                 )?;
             source.validate_device(device)?;
-            if pipelines.layered.is_none() {
+            if !pipelines.layered_terrain_supported() {
                 return Err(DrawError::LayeredLimit);
             }
         }

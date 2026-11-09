@@ -174,8 +174,8 @@ pub enum ProgramError {
     ForeignArena,
     #[error("the draws were prepared for {prepared:?} and the pass is {pass:?}")]
     TargetMismatch {
-        prepared: crate::packet::TargetSignature,
-        pass: crate::packet::TargetSignature,
+        prepared: Box<crate::packet::TargetSignature>,
+        pass: Box<crate::packet::TargetSignature>,
     },
     #[error("the allocation is invalid: {0}")]
     InvalidAllocation(&'static str),

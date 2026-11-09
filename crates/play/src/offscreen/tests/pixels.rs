@@ -112,6 +112,46 @@ fn a_read_of_a_rectangle_answers_the_texels_a_blit_wrote_bottom_row_first() {
 }
 
 #[test]
+fn a_clear_on_the_bound_target_sets_the_texels_a_later_read_answers() {
+    use worldrunner_world_simulation::graphics::TargetRef;
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = host(directory.path());
+    let mut world = world();
+    let (drawn, other) = (target(&mut world, ARGB32), target(&mut world, ARGB32));
+    for work in [
+        OffscreenWork::SetRenderTarget {
+            color: vec![TargetRef::Render(drawn)],
+            depth: None,
+            mip: 0,
+            face: -1,
+            slice: -1,
+        },
+        OffscreenWork::ClearRenderTarget {
+            color: true,
+            depth: false,
+            stencil: false,
+            value: [1.0, 0.0, 0.2, 1.0],
+            depth_value: 1.0,
+            stencil_value: 0,
+        },
+    ] {
+        world.record_offscreen(work).unwrap();
+    }
+    let cleared = world.request_texture_pixels(drawn, 0, 0, 4, 4).unwrap();
+    let untouched = world.request_texture_pixels(other, 0, 0, 1, 1).unwrap();
+
+    let outcome = flush(&mut host, &mut world);
+
+    // 0.2 of 255 is exactly 51, so the stored value reads back as 51 / 255.
+    assert_eq!(
+        world.take_texture_pixels(cleared),
+        Some([1.0, 0.0, stored(51), 1.0].repeat(16))
+    );
+    assert_eq!(world.take_texture_pixels(untouched), Some(vec![0.0; 4]));
+    assert_eq!(outcome.report.pixel_reads, 2);
+}
+
+#[test]
 fn a_read_sees_the_work_recorded_before_it_and_not_the_work_recorded_after() {
     let directory = tempfile::tempdir().unwrap();
     let mut host = host(directory.path());

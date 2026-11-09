@@ -158,6 +158,7 @@ impl World {
     pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
         self.graphics.handles.clear();
         self.graphics.lists.clear();
+        self.graphics.retired_textures.clear();
         std::mem::take(&mut self.graphics.offscreen)
     }
 

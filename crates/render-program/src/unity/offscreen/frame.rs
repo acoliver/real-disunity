@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 use crate::ids::{CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId};
 use crate::layers::PropertyLayer;
@@ -77,6 +78,72 @@ pub struct Camera {
     pub front_face: wgpu::FrontFace,
 }
 
+/// One mip of a render texture that a pass draws into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Attachment {
+    pub texture: TextureId,
+    pub mip: u32,
+}
+
+/// What a pass draws into: the color storage of one texture and the depth storage of the same or
+/// another. A texture with no color has none to offer, and a depth buffer under a color texture
+/// has one mip, so a pass whose depth does not fit the color is drawn without it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Attachments {
+    pub color: Option<Attachment>,
+    pub depth: Option<Attachment>,
+}
+
+impl Attachments {
+    /// The textures the attachments are of: the color's, then the depth's.
+    pub fn textures(&self) -> impl Iterator<Item = TextureId> {
+        self.color
+            .into_iter()
+            .chain(self.depth)
+            .map(|attachment| attachment.texture)
+    }
+}
+
+/// The parts of the attachments a clear sets. A part that is `None` keeps what it holds. The
+/// depth formats this renderer draws into have no stencil, so `stencil` is carried for the
+/// record and sets nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Clear {
+    pub color: Option<[f64; 4]>,
+    pub depth: Option<f32>,
+    pub stencil: Option<u32>,
+}
+
+/// One draw of a list: a sub-mesh slot of a renderer.
+#[derive(Clone, Debug)]
+pub struct ListDraw {
+    pub renderer: RendererId,
+    pub slot: usize,
+    /// The material that replaces the slot's own, if any.
+    pub material: Option<MaterialId>,
+    /// Which pass of the material's shader draws.
+    pub pass: PassSelector,
+}
+
+/// A list of draws into attachments.
+#[derive(Clone, Debug)]
+pub struct DrawList {
+    pub target: Attachments,
+    /// The values of the view the list draws with, below the renderer's per-draw values and above
+    /// the renderer's property block.
+    pub values: PropertyLayer,
+    /// The winding that counts as a front face, in framebuffer space.
+    pub front_face: wgpu::FrontFace,
+    pub draws: Vec<ListDraw>,
+}
+
+/// The global values and keywords the records after it read, in place of the frame's own.
+#[derive(Clone, Debug, Default)]
+pub struct GlobalState {
+    pub values: PropertyLayer,
+    pub keywords: Vec<String>,
+}
+
 /// One call, in call order.
 #[derive(Clone, Debug)]
 pub enum Record {
@@ -99,6 +166,16 @@ pub enum Record {
         target_element: u32,
         target_mip: u32,
     },
+    /// Sets the parts of the attachments that `clear` names.
+    Clear {
+        target: Attachments,
+        clear: Clear,
+    },
+    /// Draws a list into its attachments, keeping what they hold.
+    Draws(Arc<DrawList>),
+    /// Replaces the global values and keywords of the records after it, until the next such
+    /// record. Records before the first one read the frame's own.
+    Globals(Arc<GlobalState>),
 }
 
 /// A range of a texture the scene samples after the offscreen work.

@@ -31,6 +31,12 @@ use worldrunner_world_simulation::graphics::{
 use super::ids;
 use super::properties::values;
 
+mod evidence;
+mod shapes;
+
+use evidence::pairings;
+pub use shapes::StorageShape;
+
 /// How a dispatch was bound and what came of it, for the report.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DispatchTrace {
@@ -60,6 +66,11 @@ pub struct DispatchTrace {
     pub outcome: String,
     /// Whether the buffers were read back after the dispatch.
     pub read_back: bool,
+    /// Each render texture the dispatch names for a texture or storage image of the kernel, as the
+    /// `GraphicsFormat` code of the render texture and what the kernel declares at that binding.
+    /// They are recorded before anything is bound, so a texture the host cannot make is paired
+    /// too.
+    pub pairings: Vec<String>,
 }
 
 impl DispatchTrace {
@@ -274,10 +285,12 @@ struct Held {
     kernel: Result<Rc<Kernel>, String>,
 }
 
-/// What the adapter keeps between frames: the kernels it has loaded.
+/// What the adapter keeps between frames: the kernels it has loaded, and the shape of each render
+/// texture a kernel binds as a storage image.
 pub struct ComputeAdapter {
     supply: Box<dyn ComputeSupply>,
     kernels: BTreeMap<(ComputeShaderId, u32), Held>,
+    shapes: BTreeMap<TextureId, StorageShape>,
 }
 
 /// A dispatch ready to record.
@@ -420,6 +433,17 @@ fn textures(
         entry.resolved = handle.is_some();
         trace.textures.push(entry);
         let handle = handle.ok_or_else(|| "TextureUnavailable".to_owned())?;
+        // A texture of another dimension than the kernel's view would fail the whole submission.
+        let declared = kernel
+            .program
+            .layout()
+            .slot(target.set, target.binding)
+            .map(|slot| slot.ty);
+        if let Some(wgpu::BindingType::Texture { view_dimension, .. }) = declared
+            && state.texture_view_dimension(id) != Some(view_dimension)
+        {
+            return Err("TextureDimension".to_owned());
+        }
         bound.push(BoundResource::texture(target.set, target.binding, handle));
     }
     Ok(bound)
@@ -533,6 +557,7 @@ impl ComputeAdapter {
         Self {
             supply: Box::new(supply),
             kernels: BTreeMap::new(),
+            shapes: BTreeMap::new(),
         }
     }
 
@@ -602,8 +627,8 @@ impl ComputeAdapter {
             let OffscreenWork::Dispatch {
                 shader,
                 kernel,
+                groups,
                 bindings,
-                ..
             } = work
             else {
                 continue;
@@ -611,9 +636,15 @@ impl ComputeAdapter {
             let Some(world_shader) = snapshot.compute_shaders.get(shader) else {
                 continue;
             };
+            let thread_depth = world_shader
+                .kernels
+                .get(*kernel as usize)
+                .and_then(|listed| listed.thread_group_size)
+                .map_or(1, |size| size[2]);
             let Ok(kernel) = self.kernel(runtime, *shader, world_shader, *kernel) else {
                 continue;
             };
+            let covered = groups[2].saturating_mul(thread_depth).max(1);
             for target in &kernel.images {
                 let Ok(name) = target.name.resolve(&[]) else {
                     continue;
@@ -626,7 +657,17 @@ impl ComputeAdapter {
                 if let Some((_, slot)) = property
                     && let TextureRef::Render(id) = &slot.texture
                 {
-                    found.insert(ids::render_texture(*id));
+                    let id = ids::render_texture(*id);
+                    found.insert(id);
+                    let declared = kernel
+                        .program
+                        .layout()
+                        .slot(target.set, target.binding)
+                        .map(|slot| slot.ty);
+                    if let Some(wgpu::BindingType::StorageTexture { view_dimension, .. }) = declared
+                    {
+                        self.note_shape(id, view_dimension, covered);
+                    }
                 }
             }
         }
@@ -668,6 +709,7 @@ impl ComputeAdapter {
         }
         trace.variant = self.supply.describe(shader, index);
         let kernel = self.kernel(runtime, id, shader, index)?;
+        trace.pairings = pairings(&kernel, snapshot, bindings);
         let mut bound = Vec::new();
         let set = values(&bindings.properties);
         for target in &kernel.constants {

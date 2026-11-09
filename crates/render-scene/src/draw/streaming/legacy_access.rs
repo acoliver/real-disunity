@@ -51,6 +51,10 @@ impl Streaming {
                 vertices: lod.vertices.clone(),
                 indices: lod.indices.clone(),
                 index_count: lod.index_count,
+                bounds: crate::terrain::streaming::chunk_bounds(
+                    self.scene.terrain().expect("terrain"),
+                    *chunk,
+                ),
             })
             .collect()
     }
@@ -66,15 +70,20 @@ impl SceneGpu {
     ) -> Option<LegacyInputs> {
         let terrain = self.terrain.as_ref()?;
         Some(LegacyInputs {
-            uniform: terrain.uniform.clone(),
-            grid: terrain.retained[3].clone(),
-            palettes: terrain.retained[..3].to_vec(),
+            uniform: terrain.resources.uniform.clone(),
+            grid: terrain.resources.grid.clone(),
+            palettes: terrain
+                .resources
+                .palettes
+                .iter()
+                .map(|(texture, _)| texture.clone())
+                .collect(),
             layered: terrain
                 .layered
                 .as_ref()
                 .map(|source| source.resident(device, queue).expect("source admitted")),
-            planes: terrain.triangle_source.clone(),
-            sampler: terrain.sampler.clone(),
+            planes: terrain.resources.planes.clone(),
+            sampler: terrain.resources.sampler.clone(),
             instances: terrain.instances.clone(),
             mesh: terrain
                 .lod

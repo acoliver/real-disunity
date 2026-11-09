@@ -16,7 +16,7 @@ use glam::Mat4;
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, GlobalState, Record, RenderTextureSpec,
+    Attachment, Attachments, Clear, GlobalState, Record, RenderDimension, RenderTextureSpec,
 };
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
@@ -408,6 +408,7 @@ impl Mapper<'_> {
                     id: *id,
                     size: [desc.width, desc.height],
                     layers: 1,
+                    dimension: RenderDimension::D2,
                     graphics_format: desc.format,
                     depth_bits: u8::try_from(desc.depth_bits).unwrap_or(u8::MAX),
                     mips: desc.mip_count,

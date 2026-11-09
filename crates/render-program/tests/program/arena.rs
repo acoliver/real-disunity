@@ -278,8 +278,8 @@ fn a_pass_with_other_attachments_than_the_admitted_draws_is_a_named_mismatch() {
     assert_eq!(
         admitted.check_target(other),
         Err(ProgramError::TargetMismatch {
-            prepared: signature(),
-            pass: other
+            prepared: Box::new(signature()),
+            pass: Box::new(other)
         })
     );
 }

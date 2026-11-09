@@ -5,7 +5,7 @@ use worldrunner_render_program::ids::{MeshId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{
-    OffscreenFrame, RenderTextureSpec, SourceTexture,
+    OffscreenFrame, RenderDimension, RenderTextureSpec, SourceTexture,
 };
 use worldrunner_render_program::unity::offscreen::{OffscreenError, OffscreenState};
 use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime};
@@ -93,6 +93,7 @@ pub fn texture(id: u64, size: [u32; 2]) -> RenderTextureSpec {
         id: TextureId(id),
         size,
         layers: 1,
+        dimension: RenderDimension::D2,
         graphics_format: RGBA8,
         depth_bits: 0,
         mips: 1,

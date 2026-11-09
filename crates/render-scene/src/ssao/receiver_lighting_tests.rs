@@ -22,7 +22,7 @@ fn probe_layout(device: &wgpu::Device) -> wgpu::PipelineLayout {
 
 use super::{receiver, tests::*};
 use wgpu::util::DeviceExt;
-use worldrunner_render_plan::{SceneSpecularOcclusion, SceneSsaoReceiver};
+use worldrunner_render_plan::SceneSsaoReceiver;
 
 fn probe_pipeline(device: &wgpu::Device, source: &str, rough: bool) -> wgpu::RenderPipeline {
     let vertex = include_str!("fullscreen.wgsl")
@@ -207,18 +207,8 @@ fn gpu_receiver_variant_preserves_nearest_keys_and_reuses_gather() {
     let key = crate::pipeline::PipelineKey::ALL[0];
     let nearest = pipelines.for_receiver(SceneSsaoReceiver::Nearest);
     assert_eq!(nearest.get(key), pipelines.get(key));
-    assert_eq!(nearest.terrain(), pipelines.terrain());
     let gather = pipelines.for_receiver(SceneSsaoReceiver::DepthAwareGather);
     let again = pipelines.for_receiver(SceneSsaoReceiver::DepthAwareGather);
     assert_eq!(gather.get(key), again.get(key));
-    assert_eq!(gather.terrain(), again.terrain());
     assert_ne!(gather.get(key), nearest.get(key));
-    let convention = worldrunner_render_plan::SceneSpecularConvention {
-        occlusion: SceneSpecularOcclusion::RoughnessAware,
-        ..Default::default()
-    };
-    assert_ne!(
-        gather.for_convention(convention).terrain(),
-        gather.terrain()
-    );
 }

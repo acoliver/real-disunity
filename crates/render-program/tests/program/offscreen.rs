@@ -20,3 +20,4 @@ mod resolve;
 mod rig;
 mod sampler;
 mod storage;
+mod volume;

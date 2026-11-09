@@ -236,6 +236,18 @@ impl OffscreenState {
             .map(|info| (info.format, info.storage))
     }
 
+    /// The dimension of the view a kernel or a draw binds the storage `texture_handle` gives: 3D
+    /// for a 3D texture, a 2D array for a 2D texture of several layers, else 2D. `None` for an id
+    /// that names no texture the state holds.
+    #[must_use]
+    pub fn texture_view_dimension(&self, id: TextureId) -> Option<wgpu::TextureViewDimension> {
+        self.textures.get(id).ok().map(|info| match info.dimension {
+            frame::RenderDimension::D3 => wgpu::TextureViewDimension::D3,
+            frame::RenderDimension::D2 if info.layers > 1 => wgpu::TextureViewDimension::D2Array,
+            frame::RenderDimension::D2 => wgpu::TextureViewDimension::D2,
+        })
+    }
+
     /// Gives back the storage of the render textures that `live` does not name. A render texture
     /// the frames named earlier and its owner has since destroyed holds storage for as long as the
     /// state keeps it, so a host calls this with the render textures that exist before it builds.
@@ -299,8 +311,11 @@ impl OffscreenState {
                 probing: false,
                 constant_fragment: false,
             };
+            // A 3D texture is for kernels; only a record that names it is refused.
             for spec in &frame.render_textures {
-                services.import(spec.id)?;
+                if spec.dimension != frame::RenderDimension::D3 {
+                    services.import(spec.id)?;
+                }
             }
             let steps = steps::plan_steps(&mut services, frame)?;
             (steps, later_reads(&mut services, frame)?)

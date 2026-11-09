@@ -23,7 +23,7 @@ use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
 
-use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
+use super::assets::{Assets, MeshError, mesh_of, sampler_of_stored, texture_of};
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
 use super::frame::{
@@ -268,6 +268,15 @@ impl OffscreenAdapter {
                     })
                     .map_err(|error| notes.fail("mesh", &error))
                     .is_ok()
+                }
+                Err(MeshError::Empty(empty)) => {
+                    // Nothing to draw is not a failure. The mesh stays unusable, so renderers of
+                    // it are skipped.
+                    *notes
+                        .census
+                        .entry(format!("mesh with nothing to draw: {empty}"))
+                        .or_default() += 1;
+                    false
                 }
                 Err(error) => {
                     notes.fail("mesh", &error);

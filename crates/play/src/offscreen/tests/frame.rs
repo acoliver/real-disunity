@@ -462,6 +462,20 @@ fn a_render_texture_keeps_its_format_depth_mips_srgb_and_generation() {
         adapted.report.formats.iter().copied().collect::<Vec<_>>(),
         [4, 8]
     );
+    let census: Vec<_> = adapted
+        .report
+        .census
+        .iter()
+        .filter(|(name, _)| name.starts_with("frame render texture of format"))
+        .map(|(name, count)| (name.as_str(), *count))
+        .collect();
+    assert_eq!(
+        census,
+        [
+            ("frame render texture of format 4", 1),
+            ("frame render texture of format 8", 1)
+        ]
+    );
 }
 
 #[test]

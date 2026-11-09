@@ -62,12 +62,8 @@ pub(super) fn depth_pipelines(
     pipelines: &ScenePipelines,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-) -> (
-    [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
-    wgpu::RenderPipeline,
-) {
-    let mut configuration = settings.configuration();
-    configuration.caster_bias.slope_scale = slope_bias(sampling);
+) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
+    let configuration = caster_configuration(settings, sampling);
     let module = depth_shader(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shadow caster"),
@@ -80,24 +76,39 @@ pub(super) fn depth_pipelines(
     let vertices = vertex_attributes();
     let instances = instance_attributes();
     let buffers = crate::renderer::vertex_buffers(&vertices, &instances);
-    let terrain = terrain_depth_pipeline(
-        device,
-        &module,
-        pipelines.frame_layout(),
-        &buffers,
-        configuration,
-    );
     // Relief is deliberately flat in directional maps, so its pipelines are identical.
     let objects: [_; 8] = std::array::from_fn(|index| {
         let key = PipelineKey::ALL[(index / 4) * 16 + index % 4];
         object_depth_pipeline(device, key, &layout, &module, &buffers, configuration)
     });
-    (
-        std::array::from_fn(|index| {
-            let key = PipelineKey::ALL[index];
-            objects[usize::from(key.sampling.is_impostor()) * 4 + index % 4].clone()
-        }),
-        terrain,
+    std::array::from_fn(|index| {
+        let key = PipelineKey::ALL[index];
+        objects[usize::from(key.sampling.is_impostor()) * 4 + index % 4].clone()
+    })
+}
+
+/// The caster policy of `settings` with the slope bias of the scene's shadow sampling.
+fn caster_configuration(
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
+) -> worldrunner_render_shadow::DirectionalShadowConfig {
+    let mut configuration = settings.configuration();
+    configuration.caster_bias.slope_scale = slope_bias(sampling);
+    configuration
+}
+
+/// The terrain's caster for `settings`, drawing on the program runtime the receiver pipelines
+/// share.
+pub(super) fn terrain_caster(
+    context: &crate::device::GpuContext,
+    pipelines: &ScenePipelines,
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
+) -> super::terrain_caster::TerrainCaster {
+    super::terrain_caster::TerrainCaster::new(
+        &caster_configuration(settings, sampling),
+        pipelines.terrain_context().family(),
+        (context.device(), context.submission()),
     )
 }
 
@@ -138,40 +149,6 @@ fn object_depth_pipeline(
                     ..Default::default()
                 },
             }),
-        },
-    )
-}
-
-fn terrain_depth_pipeline(
-    device: &wgpu::Device,
-    module: &wgpu::ShaderModule,
-    frame_layout: &wgpu::BindGroupLayout,
-    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-    configuration: worldrunner_render_shadow::DirectionalShadowConfig,
-) -> wgpu::RenderPipeline {
-    let terrain_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("terrain shadow caster"),
-        bind_group_layouts: &[Some(frame_layout)],
-        immediate_size: 0,
-    });
-    worldrunner_render_shadow::create_depth_pipeline(
-        device,
-        DepthPipelineDescriptor {
-            label: Some("terrain"),
-            layout: &terrain_layout,
-            vertex: wgpu::VertexState {
-                module,
-                entry_point: Some("vs_terrain_depth"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers,
-            },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            compare: configuration.caster_compare,
-            bias: configuration.caster_bias,
-            fragment: None,
         },
     )
 }

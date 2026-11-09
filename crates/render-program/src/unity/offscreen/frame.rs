@@ -17,14 +17,27 @@ use super::probe::CameraProbe;
 /// The name a blit binds its source under unless the frame says otherwise.
 pub const DEFAULT_MAIN_TEXTURE: &str = "_MainTex";
 
+/// The dimension of a render texture's storage.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RenderDimension {
+    /// A 2D texture of [`RenderTextureSpec::layers`] array layers.
+    #[default]
+    D2,
+    /// A 3D texture whose depth is [`RenderTextureSpec::layers`]. It has one mip and no depth
+    /// buffer, and only kernels read and write it: a record of the frame that names it is
+    /// refused as `VolumeInGraph`, and a pixel read answers its first slice.
+    D3,
+}
+
 /// A render texture or texture array the frame draws into, copies into or samples. The state
 /// creates the texture again when anything but the id changes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderTextureSpec {
     pub id: TextureId,
     pub size: [u32; 2],
-    /// Array layers; 1 for a plain render texture.
+    /// Array layers of a 2D texture, 1 for a plain render texture; the depth of a 3D one.
     pub layers: u32,
+    pub dimension: RenderDimension,
     /// The engine's `GraphicsFormat` value of the color format.
     pub graphics_format: u32,
     /// 0 for no depth, else 16, 24 or 32.

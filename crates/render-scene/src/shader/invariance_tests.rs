@@ -47,7 +47,7 @@ fn assert_family((object, terrain): (String, String)) {
             super::position_dependencies::graph(ENVIRONMENT_WGSL, "vs_main")
         );
         let terrain = crate::ssao::receiver::source(&terrain, receiver);
-        for source in crate::renderer::terrain_test_sources(&terrain) {
+        for source in crate::terrain::program::source::test_sources(&terrain) {
             assert_positions(&source, &["vs_terrain"], true);
             assert_eq!(
                 super::position_dependencies::graph(&source, "vs_terrain"),

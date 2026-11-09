@@ -385,7 +385,7 @@ fn blit_and_copy(
 
 /// A camera that clears to blue and draws a red quad over the left half of its target, through
 /// a renderer whose property block places the quad.
-fn camera_render(world: &mut World, into: RenderTextureId) {
+pub(super) fn camera_render(world: &mut World, into: RenderTextureId) {
     let camera = camera(
         world,
         Camera {

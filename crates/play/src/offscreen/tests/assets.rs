@@ -8,7 +8,9 @@ use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_render_program::unity::offscreen::frame::{ChannelFormat, MeshIndices};
 use worldrunner_world_simulation::graphics::WorldSampler;
 
-use super::super::assets::{MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of};
+use super::super::assets::{
+    Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
+};
 
 fn channel(number: u32, dimension: u32, data: Vec<f32>) -> StoredChannel {
     StoredChannel {
@@ -157,12 +159,100 @@ fn a_range_of_another_topology_is_refused_by_the_name_of_the_topology() {
     assert!(mesh_of(&empty).is_ok());
 }
 
+fn empty_of(stored: &MeshChannels) -> Emptiness {
+    match mesh_of(stored).unwrap_err() {
+        MeshError::Empty(empty) => empty,
+        other => panic!("an empty mesh, not {other:?}"),
+    }
+}
+
+#[test]
+fn a_mesh_with_nothing_to_draw_is_empty_by_what_it_holds() {
+    // Vertices and one sub-mesh record with no indices.
+    let mut no_indices = mesh();
+    no_indices.indices.clear();
+    no_indices.ranges = vec![triangles(0, 0)];
+    assert_eq!(
+        empty_of(&no_indices),
+        Emptiness {
+            vertices: true,
+            indices: false,
+            ranges: 1,
+            topologies: vec![0],
+        }
+    );
+    // Vertices alone: no indices and no sub-mesh records.
+    let mut bare = mesh();
+    bare.indices.clear();
+    bare.ranges.clear();
+    assert_eq!(
+        empty_of(&bare),
+        Emptiness {
+            vertices: true,
+            indices: false,
+            ranges: 0,
+            topologies: Vec::new(),
+        }
+    );
+    // Indices that no sub-mesh reads: two empty records, one of lines.
+    let mut unread = mesh();
+    unread.ranges = vec![
+        triangles(0, 0),
+        MeshRange {
+            topology: 2,
+            ..triangles(0, 0)
+        },
+    ];
+    assert_eq!(
+        empty_of(&unread),
+        Emptiness {
+            vertices: true,
+            indices: true,
+            ranges: 2,
+            topologies: vec![0, 2],
+        }
+    );
+    // No vertices at all.
+    let mut none = mesh();
+    none.vertex_count = 0;
+    none.channels.clear();
+    none.indices.clear();
+    none.ranges.clear();
+    assert_eq!(
+        empty_of(&none),
+        Emptiness {
+            vertices: false,
+            indices: false,
+            ranges: 0,
+            topologies: Vec::new(),
+        }
+    );
+}
+
+#[test]
+fn an_emptiness_is_described_without_counts_that_differ_between_meshes() {
+    let empty = Emptiness {
+        vertices: true,
+        indices: false,
+        ranges: 2,
+        topologies: vec![0, 4],
+    };
+    assert_eq!(
+        empty.to_string(),
+        "2 sub-meshes with topologies [0, 4], no indices, with vertices"
+    );
+}
+
+#[test]
+fn a_sub_mesh_that_draws_from_indices_the_mesh_lacks_is_refused_by_name() {
+    let mut lacking = mesh();
+    lacking.indices.clear();
+    lacking.ranges = vec![triangles(0, 3)];
+    assert_eq!(mesh_of(&lacking).unwrap_err(), MeshError::IndicesMissing);
+}
+
 #[test]
 fn a_mesh_that_cannot_be_drawn_is_named() {
-    let mut empty = mesh();
-    empty.indices.clear();
-    empty.ranges = vec![triangles(0, 0)];
-    assert_eq!(mesh_of(&empty).unwrap_err(), MeshError::NoTriangles);
     let mut no_positions = mesh();
     no_positions.channels.remove(0);
     assert_eq!(mesh_of(&no_positions).unwrap_err(), MeshError::NoPositions);

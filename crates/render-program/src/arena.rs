@@ -122,8 +122,8 @@ impl AdmittedPrograms {
             return Ok(());
         }
         Err(ProgramError::TargetMismatch {
-            prepared: self.signature,
-            pass,
+            prepared: Box::new(self.signature),
+            pass: Box::new(pass),
         })
     }
 

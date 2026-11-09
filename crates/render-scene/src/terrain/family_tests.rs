@@ -72,8 +72,6 @@ fn through_independent_pipelines(source: Source) {
             config.name,
             source.name()
         );
-        assert!(!first.pipelines.fixed_terrain_built());
-        assert!(!second.pipelines.fixed_terrain_built());
         compared += 1;
     }
     assert!(compared > 0, "no target set could run");
@@ -180,7 +178,6 @@ fn through_reconfiguration(source: Source) {
         gpu.enable_terrain_pages(
             context.device(),
             context.submission(),
-            &pipelines,
             scenes::page_source(false),
         )
         .unwrap();

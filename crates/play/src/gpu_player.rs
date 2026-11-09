@@ -333,8 +333,11 @@ impl GpuWorkReport {
             self.peak_live_bytes, self.peak_runtime_bytes
         );
         eprintln!(
-            "[gpu] given back to make room: {} textures, {} meshes, {} bytes",
-            self.reclaimed.textures, self.reclaimed.meshes, self.reclaimed.bytes
+            "[gpu] given back to make room: {} textures, {} render textures, {} meshes, {} bytes",
+            self.reclaimed.textures,
+            self.reclaimed.targets,
+            self.reclaimed.meshes,
+            self.reclaimed.bytes
         );
         for line in &self.refusal_holdings {
             eprintln!(

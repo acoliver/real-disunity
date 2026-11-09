@@ -9,18 +9,22 @@ use std::cell::RefCell;
 
 use worldrunner_disunity_runtime::{MeshChannels, PlayerTexture, TextureSampler};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
+use worldrunner_render_program::error::ProgramError;
+use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
+use worldrunner_render_program::unity::offscreen::OffscreenError;
 use worldrunner_render_program::unity::offscreen::OffscreenState;
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
-    GraphicsSnapshot, OffscreenWork, PropertyValue as WorldValue, TextureRef,
+    GraphicsSnapshot, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, TextureRef,
 };
 
 use super::super::adapter::OffscreenAdapter;
 use super::super::assets::{AssetError, Assets};
 use super::super::compute::ComputeAdapter;
 use super::super::flush::OffscreenHost;
-use super::super::frame::{Report, Settings};
+use super::super::frame::{Reclaimed, Report, Settings};
+use super::super::ids;
 use super::super::kernels::PlayerKernels;
 use super::gpu::{Gpu, Quad, Synthetic, gpu_with_budget, shader};
 use super::support::{material, render_texture, set, snapshot, texture_slot, world};
@@ -96,6 +100,36 @@ impl Room {
             textures: Textures::default(),
             _device: (device, authority, arena),
         }
+    }
+
+    /// Maps the snapshot, makes room for its frame as the host does, builds it and waits for the
+    /// GPU, so that what was given back no longer counts.
+    fn frame(&mut self, snapshot: &GraphicsSnapshot) -> (Result<(), OffscreenError>, Reclaimed) {
+        let adapted =
+            self.adapter
+                .adapt(snapshot, &self.textures, &mut self.state, &mut self.runtime);
+        let reclaimed = self
+            .adapter
+            .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
+        let built = self
+            .state
+            .build(&mut self.runtime, &self._device.2, &adapted.frame)
+            .map(drop);
+        let _ = self
+            .runtime
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely());
+        self.runtime.collect();
+        (built, reclaimed)
+    }
+
+    /// The render textures the state holds, by the ids the world gave them.
+    fn held(&self) -> Vec<TextureId> {
+        self.state
+            .render_textures_held()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect()
     }
 
     fn adapt(&mut self, snapshot: &GraphicsSnapshot) -> Report {
@@ -269,4 +303,166 @@ fn the_render_textures_of_a_frame_take_the_room_of_what_no_snapshot_names() {
         (1, 0, TEXTURE_BYTES)
     );
     assert_eq!(host.live_bytes(), base + big_target + constants);
+}
+
+/// A world with three render textures: `a` and `b` of 8 x 8 texels (256 bytes each) and `c` of
+/// 64 x 64 (16384 bytes).
+struct Targets {
+    world: World,
+    a: RenderTextureId,
+    b: RenderTextureId,
+    c: RenderTextureId,
+}
+
+impl Targets {
+    fn new() -> Self {
+        let mut world = world();
+        let a = render_texture(&mut world, [8, 8]);
+        let b = render_texture(&mut world, [8, 8]);
+        let c = render_texture(&mut world, [64, 64]);
+        Self { world, a, b, c }
+    }
+
+    /// The snapshot of a frame whose records draw into the render textures `named` and no other.
+    fn naming(&mut self, named: &[RenderTextureId]) -> GraphicsSnapshot {
+        self.naming_held(named, &[])
+    }
+
+    /// As `naming`, with a property of the frame's material holding the render textures `held`.
+    fn naming_held(
+        &mut self,
+        named: &[RenderTextureId],
+        held: &[RenderTextureId],
+    ) -> GraphicsSnapshot {
+        let blit = shader(&mut self.world, "blit");
+        let material = material(&mut self.world, blit);
+        for (index, &texture) in held.iter().enumerate() {
+            set(
+                &mut self.world,
+                material,
+                WorldValue::Texture(
+                    format!("_Held{index}"),
+                    texture_slot(TextureRef::Render(texture)),
+                ),
+            );
+        }
+        for &target in named {
+            self.world
+                .record_offscreen(OffscreenWork::Blit {
+                    source: TextureRef::Render(target),
+                    target,
+                    material: Some(material),
+                    pass: 0,
+                })
+                .unwrap();
+        }
+        snapshot(&mut self.world)
+    }
+
+    fn id(id: RenderTextureId) -> TextureId {
+        ids::render_texture(id)
+    }
+}
+
+/// The bytes the runtime holds after the frames of `Targets` that name `a` and `b`, then `b`,
+/// with room to spare: the budget a tight room needs to be built from.
+fn held_after_two_frames() -> u64 {
+    let mut room = Room::new(64 << 20);
+    let mut targets = Targets::new();
+    let (first, second) = (
+        targets.naming(&[targets.a, targets.b]),
+        targets.naming(&[targets.b]),
+    );
+    room.frame(&first).0.unwrap();
+    room.frame(&second).0.unwrap();
+    room.runtime.live_bytes()
+}
+
+#[test]
+fn the_render_texture_named_longest_ago_is_given_back_first_when_the_frame_needs_the_room() {
+    let held = held_after_two_frames();
+    // `c` fits in the budget only when 256 bytes are given back.
+    let mut room = Room::new(held + 16384 - 256);
+    let mut targets = Targets::new();
+    let (a, b, c) = (targets.a, targets.b, targets.c);
+    // `b` is named in the first frame and `a` in the second, so `b` was named longer ago.
+    let frames = [
+        targets.naming(&[a, b]),
+        targets.naming(&[a]),
+        targets.naming(&[c]),
+    ];
+    room.frame(&frames[0]).0.unwrap();
+    room.frame(&frames[1]).0.unwrap();
+    assert_eq!(room.held(), [Targets::id(a), Targets::id(b)]);
+
+    let (built, reclaimed) = room.frame(&frames[2]);
+    built.unwrap();
+    assert_eq!(
+        (reclaimed.targets, reclaimed.textures, reclaimed.bytes),
+        (1, 0, 256)
+    );
+    assert_eq!(room.held(), [Targets::id(a), Targets::id(c)]);
+}
+
+#[test]
+fn a_render_texture_the_snapshot_names_is_not_given_back_though_it_was_named_longest_ago() {
+    let held = held_after_two_frames();
+    let mut room = Room::new(held + 16384 - 256);
+    let mut targets = Targets::new();
+    let (a, b, c) = (targets.a, targets.b, targets.c);
+    // `a` was named first and `b` since, and the third frame names `a` and `c` but not `b`.
+    let frames = [
+        targets.naming(&[a, b]),
+        targets.naming(&[b]),
+        targets.naming(&[a, c]),
+    ];
+    room.frame(&frames[0]).0.unwrap();
+    room.frame(&frames[1]).0.unwrap();
+
+    let (built, reclaimed) = room.frame(&frames[2]);
+    built.unwrap();
+    assert_eq!(reclaimed.targets, 1);
+    assert_eq!(room.held(), [Targets::id(a), Targets::id(c)]);
+}
+
+#[test]
+fn when_the_snapshot_names_every_render_texture_none_is_given_back_and_the_frame_is_refused() {
+    let held = held_after_two_frames();
+    let mut room = Room::new(held + 16384 - 256);
+    let mut targets = Targets::new();
+    let (a, b, c) = (targets.a, targets.b, targets.c);
+    let frames = [targets.naming(&[a, b]), targets.naming(&[a, b, c])];
+    room.frame(&frames[0]).0.unwrap();
+
+    let (built, reclaimed) = room.frame(&frames[1]);
+    assert!(
+        matches!(
+            built,
+            Err(OffscreenError::Program(ProgramError::OverBudget { .. }))
+        ),
+        "{built:?}"
+    );
+    assert_eq!(reclaimed, Reclaimed::default());
+    assert_eq!(room.held(), [Targets::id(a), Targets::id(b)]);
+}
+
+#[test]
+fn a_render_texture_a_material_property_holds_is_named_and_stays() {
+    let held = held_after_two_frames();
+    let mut room = Room::new(held + 16384 - 256);
+    let mut targets = Targets::new();
+    let (a, b, c) = (targets.a, targets.b, targets.c);
+    // `b` was named longest ago, but the third frame's material holds it; no record draws into it.
+    let frames = [
+        targets.naming(&[a, b]),
+        targets.naming(&[a]),
+        targets.naming_held(&[c], &[b]),
+    ];
+    room.frame(&frames[0]).0.unwrap();
+    room.frame(&frames[1]).0.unwrap();
+
+    let (built, reclaimed) = room.frame(&frames[2]);
+    built.unwrap();
+    assert_eq!(reclaimed.targets, 1);
+    assert_eq!(room.held(), [Targets::id(b), Targets::id(c)]);
 }

@@ -124,6 +124,58 @@ fn a_texture_destroyed_before_any_record_of_the_frame_is_not_kept() {
     );
 }
 
+#[test]
+fn a_texture_no_record_names_is_not_kept_though_the_frame_has_work() {
+    let mut world = world();
+    let camera = masked_camera(&mut world, 1);
+    let unnamed = render_texture(&mut world, [8, 8]);
+    let target = render_texture(&mut world, [8, 8]);
+    world.record_offscreen(setup(camera, target)).unwrap();
+    world.destroy_render_texture(unnamed).unwrap();
+    let taken = snapshot(&mut world);
+    assert!(taken.render_textures.contains_key(&target));
+    assert!(
+        !taken.render_textures.contains_key(&unnamed),
+        "the host frees a destroyed texture the frame's work does not name"
+    );
+}
+
+#[test]
+fn every_kind_of_record_that_reads_or_draws_a_texture_names_it() {
+    use worldrunner_world_simulation::graphics::{PropertyValue, TextureRef, TextureSlot};
+    let mut world = world();
+    let camera = masked_camera(&mut world, 1);
+    let id = render_texture(&mut world, [8, 8]);
+    let other = render_texture(&mut world, [8, 8]);
+    let slot = TextureSlot {
+        texture: TextureRef::Render(id),
+        ..TextureSlot::default()
+    };
+    let named = [
+        OffscreenWork::CameraRender { camera, target: id },
+        OffscreenWork::Blit {
+            source: TextureRef::Render(id),
+            target: other,
+            material: None,
+            pass: 0,
+        },
+        OffscreenWork::SetRenderTarget {
+            color: vec![TargetRef::CameraTarget],
+            depth: Some(TargetRef::Render(id)),
+            mip: 0,
+            face: -1,
+            slice: 0,
+        },
+        OffscreenWork::SetGlobal(PropertyValue::Texture("_Main".into(), slot)),
+        setup(camera, id),
+    ];
+    for work in &named {
+        assert!(work.names_render_texture(id), "{work:?}");
+        assert!(!work.names_render_texture(other) || matches!(work, OffscreenWork::Blit { .. }));
+    }
+    assert!(!cull(camera, 1).names_render_texture(id));
+}
+
 /// A frame that ends without a snapshot forgets its destroyed textures with its work.
 #[test]
 fn a_destroyed_texture_does_not_outlive_its_frame_or_its_taken_work() {

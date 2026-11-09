@@ -213,8 +213,8 @@ pub(crate) struct GraphicsState {
     active_pass: Option<ActivePass>,
     /// The pixel reads scripts asked for and nobody took.
     readbacks: readback::Readbacks,
-    /// The render textures destroyed while the frame had offscreen work, which records of the
-    /// frame may still name; the frame's snapshot keeps their descriptions.
+    /// The render textures destroyed after a record of the frame named them; the frame's snapshot
+    /// keeps their descriptions.
     retired_textures: std::collections::BTreeMap<RenderTextureId, WorldRenderTexture>,
 }
 

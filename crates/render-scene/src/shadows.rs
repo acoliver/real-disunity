@@ -574,6 +574,12 @@ impl ShadowedScene {
             frame.shadow_direction,
             fitting,
         )?;
+        self.gpu.prepare_caster_terrain(
+            context.device(),
+            encoder,
+            &cascades.matrices,
+            self.settings.resolution,
+        )?;
         let refresh = next_refresh.prepare(
             &self.gpu,
             &mut cascades,

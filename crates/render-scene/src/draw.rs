@@ -671,6 +671,8 @@ mod slice_hull;
 pub(crate) use slice_hull::SliceHull;
 #[cfg(test)]
 pub(crate) use slice_hull::UNCULLED as UNCULLED_CASCADES;
+#[cfg(test)]
+pub(crate) use streaming::casters::CAMERA_CASTERS;
 pub mod source_environment;
 pub use prepared::PreparedScene;
 

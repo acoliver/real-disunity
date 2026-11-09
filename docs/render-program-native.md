@@ -318,6 +318,53 @@ assert_eq!(program.external_sets(), [0]);
 
 The draw side is `prepare_imported_draw`, described in the [crate README](../crates/render-program/README.md#lending-a-renderers-resources). A program with no lent set behaves as `graphics_program` always has: `graphics_program_in` with an empty slice builds the same program and shares its pipelines.
 
+### Writing the set once
+
+A lent set is described twice in the examples above: as a `wgpu::BindGroupLayout` the renderer builds its groups against, and as the `ResourceLayout` that says what the shader reads. `ProgramRuntime::set_layout` builds the first from the second, so a set is written once. `external_set` wraps the result for `graphics_program_in`.
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
+# };
+# use worldrunner_render_program::module::StageProgram;
+# use worldrunner_render_program::runtime::ProgramRuntime;
+# fn frame_set(
+#     runtime: &ProgramRuntime,
+#     device: &wgpu::Device,
+#     vertex: &StageProgram,
+#     fragment: &StageProgram,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+let declared = ResourceLayout::new(vec![ResourceBinding {
+    at: BindingAddress { set: 0, binding: 0 },
+    source: BindingSource::Engine(EngineSemantic::named("scene.frame")),
+    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+    kind: ResourceKind::Uniform { min_size: 80 },
+}]);
+let frame = runtime.external_set(declared)?;
+// The renderer builds its per-pass group against `frame.layout`...
+let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+    label: Some("frame"),
+    size: 80,
+    usage: wgpu::BufferUsages::UNIFORM,
+    mapped_at_creation: false,
+});
+let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("frame"),
+    layout: &frame.layout,
+    entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
+});
+// ...and lends the same declaration to every program that reads it.
+let program = runtime.graphics_program_in(vertex, fragment, &[frame])?;
+# let _ = (program, group);
+# Ok(())
+# }
+```
+
+- **The entry.** Each declaration becomes one layout entry with its visibility and the binding type its kind names (`ResourceKind::binding_type`). A buffer's `min_size`, when not zero, is the entry's minimum binding size, so wgpu refuses a group whose buffer is smaller, exactly as the engine's hand-written layout would. Unfilterable float textures, non-filtering samplers and comparison samplers are all expressible.
+- **The groups.** A group is valid against the built layout exactly when each resource suits its declaration. `tests/lent/set_layout.rs` builds one layout for a uniform buffer, a read-only storage buffer, an `R32Float` texture with a non-filtering sampler and a depth texture with a comparison sampler, builds a group with no validation error, shows that a short uniform buffer and a plain sampler in the comparison slot are validation errors, binds the group once and reads each binding's contribution back from an `Rgba32Float` target, bitwise.
+- **One set.** Every declaration must name the same set, with no address twice, and a declaration with no bindings has no set: these are `LayoutError::Declaration` and `DuplicateDeclaration`. `external_set` takes the set number from the declarations.
+- **Layout identity.** Every call builds a new layout object. Two layouts with equal entries are still two layouts, and programs given different layouts never share a pipeline. Build the layout once, and clone the `ExternalSet` or the layout for each program.
+
 ### Counting what the runtime builds
 
 `ProgramRuntime::stats()` returns a `RuntimeStats` with the number of shader modules, pipelines, bind groups and draws the runtime has built since it was made. Each count only rises, so a cost test takes a snapshot, runs a frame and compares:

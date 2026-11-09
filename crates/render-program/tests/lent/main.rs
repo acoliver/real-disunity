@@ -13,6 +13,7 @@ mod depth_only;
 mod external;
 mod overrides;
 mod ranges;
+mod set_layout;
 mod sets;
 mod stencil;
 mod unfilterable;

@@ -192,7 +192,7 @@ fn check_sampling(
     Ok(())
 }
 
-fn check_unique(declared: &ResourceLayout) -> Result<(), LayoutError> {
+pub(crate) fn check_unique(declared: &ResourceLayout) -> Result<(), LayoutError> {
     for (index, binding) in declared.bindings.iter().enumerate() {
         if declared.bindings[..index]
             .iter()

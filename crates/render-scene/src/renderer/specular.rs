@@ -175,8 +175,32 @@ impl ScenePipelines {
         if reference.local() {
             selected
         } else {
-            selected.for_receiver_gradients(receiver)
+            let selected = selected.for_receiver_gradients(receiver);
+            if matches!(
+                reference,
+                crate::scene_metadata::receiver::ReceiverReference::LateCardRejection
+            ) {
+                selected.with_late_card_rejection()
+            } else {
+                selected
+            }
         }
+    }
+
+    #[cfg(test)]
+    fn with_late_card_rejection(&self) -> Self {
+        let spec = &self.specialization;
+        let source = crate::scene_metadata::receiver::late_card_source(&spec.source);
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (&source, &spec.terrain),
+            (spec.shadow.as_ref(), spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        selected.terrain_on_runtime = self.terrain_on_runtime;
+        selected
     }
 
     pub(crate) fn for_depth(&self, depth: super::DepthMode) -> Self {

@@ -400,9 +400,9 @@ fn forward_fingerprint_detects_even_unused_source_byte_mutations() {
 }
 
 #[test]
-fn directional_shadow_assembly_preserves_frozen_non_invariant_source() {
+fn directional_shadow_assembly_pins_card_geometry_first_rejection() {
     assert_eq!(
         source_fingerprint(&crate::shadows::depth_source()),
-        (93_836, 0x7829_6e87_95d4_17d7_4010_afbe_550c_ba3c),
+        (94_178, 0x12f9_cf56_36b9_c852_b503_2ba6_7ddd_5d26),
     );
 }

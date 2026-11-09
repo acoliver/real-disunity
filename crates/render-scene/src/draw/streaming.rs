@@ -8,6 +8,7 @@ mod residents;
 #[cfg(test)]
 pub(in crate::draw) mod schedule_tests;
 use super::{GpuLod, SceneGpu};
+use crate::terrain::prepared::ChunkGeometry;
 use crate::terrain::streaming::{TerrainChunk, TerrainSelection, select_with_retired};
 #[cfg(test)]
 pub(crate) use meshes::await_builds;
@@ -31,6 +32,8 @@ pub(super) struct Streaming {
     frozen: Rc<std::cell::Cell<bool>>,
     replacement: RefCell<Option<replacement::Replacement>>,
     residency: residency::Residency,
+    /// The program geometry of the committed and drawn chunks, and no others.
+    geometry: Rc<ChunkGeometry>,
     pub(super) builds: RefCell<MeshBuilds>,
 }
 #[derive(Debug)]
@@ -63,6 +66,7 @@ impl Streaming {
             frozen: Rc::default(),
             replacement: RefCell::new(None),
             residency: residency::Residency::new(),
+            geometry: Rc::default(),
             builds: RefCell::new(builds),
         }
     }
@@ -118,6 +122,7 @@ impl Streaming {
             .borrow_mut()
             .retain(|(serial, _)| *serial > completed);
         let old = self.committed.borrow();
+        self.release_geometry(&old);
         let current: Vec<_> = old.iter().map(|(key, _)| *key).collect();
         let mut builds = self.builds.borrow_mut();
         let selection = self.select(&mut builds, &current, frame, viewport)?;
@@ -153,6 +158,14 @@ impl Streaming {
         record_preparation(self.drawing.borrow().as_ref().unwrap(), uploads);
         self.stage_residents(context, residents);
         Ok(())
+    }
+    /// Ends the geometry's hold on the buffers of every chunk `committed` does not hold. A chunk
+    /// that left residency is counted as retired until its frames complete, and a cancelled
+    /// frame's uploads are gone with its drawing state, but the geometry's hold on their buffers
+    /// is counted nowhere. It ends when the chunk retires and again before uploads are admitted,
+    /// which also covers uploads of a frame that never committed.
+    fn release_geometry(&self, committed: &Residents) {
+        release(&self.geometry, committed);
     }
     /// Chooses the next leaves from the meshes built so far. Tests wait for the builds a
     /// selection asks for, so that a chunk selected in a frame uploads in that frame.
@@ -199,6 +212,7 @@ impl Streaming {
         let destination = self.committed.clone();
         let retired = self.retired.clone();
         let authority = self.authority.clone();
+        let geometry = self.geometry.clone();
         crate::compositor::publication::stage(context, &self.committed, move || {
             let removed = destination
                 .borrow()
@@ -211,6 +225,7 @@ impl Streaming {
                     .borrow_mut()
                     .push((authority.submitted_serial(), removed));
             }
+            release(&geometry, &residents);
             *destination.borrow_mut() = residents;
         });
     }
@@ -222,6 +237,18 @@ impl Streaming {
             .unwrap()
             .residents
             .iter()
+            .map(|(_, lod)| lod.vertices.clone())
+            .collect()
+    }
+    /// The vertex buffers of the chunks that are committed or being drawn.
+    #[cfg(test)]
+    pub(super) fn resident_buffers(&self) -> Vec<wgpu::Buffer> {
+        let drawing = self.drawing.borrow();
+        let drawn = drawing.iter().flat_map(|prepared| &prepared.residents);
+        self.committed
+            .borrow()
+            .iter()
+            .chain(drawn)
             .map(|(_, lod)| lod.vertices.clone())
             .collect()
     }
@@ -309,22 +336,16 @@ impl Streaming {
     }
 
     /// Makes the geometry the program runtime draws for the chunks this transaction uploaded, so
-    /// that the draw only looks it up. Geometry of chunks that left residency is dropped once the
-    /// map holds twice as many chunks as are resident.
+    /// that the draw only looks it up. Geometry of chunks that left residency was dropped when
+    /// the transaction was prepared, before its uploads were admitted.
     pub(super) fn prepare_geometry(&self, owner: &Publications, terrain: &super::GpuTerrain) {
-        self.with_residents(Some(owner), |residents, committed| {
+        self.with_residents(Some(owner), |residents, _| {
             for (chunk, lod) in residents {
-                terrain.prepared.prepare_chunk(
+                self.geometry.prepare(
                     (*chunk, self.plane_chunks[chunk]),
                     (&lod.vertices, &lod.indices, lod.index_count),
                     &terrain.instances,
                 );
-            }
-            if terrain.prepared.chunk_count() > 2 * residents.len().max(committed.len()) {
-                terrain.prepared.retain_chunks(|chunk| {
-                    residents.iter().any(|(known, _)| known == chunk)
-                        || committed.iter().any(|(known, _)| known == chunk)
-                });
             }
         });
     }
@@ -340,7 +361,7 @@ impl Streaming {
         let mut count = super::DrawCount::default();
         self.with_residents(Publications::current().as_ref(), |residents, _| {
             for (chunk, lod) in residents {
-                terrain.prepared.draw_chunk(
+                self.geometry.draw(
                     pass,
                     pipeline,
                     (*chunk, self.plane_chunks[chunk]),
@@ -389,6 +410,15 @@ impl Streaming {
         count
     }
 }
+/// Keeps the geometry of the chunks `committed` holds, with the buffers it holds them in.
+fn release(geometry: &ChunkGeometry, committed: &Residents) {
+    geometry.retain(|chunk, vertices| {
+        committed
+            .iter()
+            .any(|(key, lod)| key == chunk && lod.vertices == *vertices)
+    });
+}
+
 #[cfg(test)]
 fn record_preparation(prepared: &Prepared, uploads: usize) {
     super::STREAMING_PREPARATIONS.with_borrow_mut(|observations| {
@@ -454,6 +484,14 @@ fn buffer(
     buffer
 }
 impl SceneGpu {
+    /// The vertex buffers the program geometry cache holds for streamed chunks.
+    #[cfg(test)]
+    pub(crate) fn cached_chunk_buffers(&self) -> Vec<wgpu::Buffer> {
+        self.terrain
+            .as_ref()
+            .and_then(|terrain| terrain.streaming.as_ref())
+            .map_or_else(Vec::new, |streaming| streaming.geometry.buffers())
+    }
     /// Changes whenever the casters a shadow cascade would draw change: placements and
     /// caster membership, or the resident terrain chunk buffers. Both inputs only
     /// increase, so the sum never repeats a value a retained cascade was rendered with.

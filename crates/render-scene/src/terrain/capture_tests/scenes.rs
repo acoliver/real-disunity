@@ -140,11 +140,19 @@ fn rolling() -> SceneTerrain {
 }
 
 fn scene(terrain: SceneTerrain, resources: SceneResources) -> RenderScene {
+    scene_with(terrain, resources, effects())
+}
+
+fn scene_with(
+    terrain: SceneTerrain,
+    resources: SceneResources,
+    effects: SceneEffects,
+) -> RenderScene {
     RenderScene::new(SceneParts {
         resources,
         geometry: SceneGeometry::new(vec![], vec![]).expect("empty geometry"),
         terrain: Some(terrain),
-        effects: Some(effects()),
+        effects: Some(effects),
     })
     .expect("the fixture scene validates")
 }
@@ -152,6 +160,14 @@ fn scene(terrain: SceneTerrain, resources: SceneResources) -> RenderScene {
 /// The terrain as one mesh, with the conventional palette arrays and a type grid.
 pub(in crate::terrain) fn plain() -> RenderScene {
     scene(rolling(), resources())
+}
+
+/// The plain terrain in a scene that requests screen-space reflections.
+pub(in crate::terrain) fn reflecting(request: worldrunner_render_plan::SceneSsr) -> RenderScene {
+    let effects = effects()
+        .with_ssr(request)
+        .expect("the fixture request validates");
+    scene_with(rolling(), resources(), effects)
 }
 
 /// The same terrain streamed as resident chunks.
@@ -309,6 +325,11 @@ pub(in crate::terrain) fn pose() -> CameraPose {
 
 /// The frame uniform of `pose` over the `SIZE` by `SIZE` targets.
 pub(in crate::terrain) fn frame(pose: CameraPose) -> FrameUniform {
+    frame_with(pose, &effects())
+}
+
+/// [`frame`] for a scene with `effects`.
+pub(in crate::terrain) fn frame_with(pose: CameraPose, effects: &SceneEffects) -> FrameUniform {
     let view = SceneView::new(
         pose,
         SceneCamera {
@@ -322,7 +343,7 @@ pub(in crate::terrain) fn frame(pose: CameraPose) -> FrameUniform {
         },
     )
     .expect("the fixture pose is well formed");
-    FrameUniform::new(&view, Some(&effects())).expect("the fixture frame builds")
+    FrameUniform::new(&view, Some(effects)).expect("the fixture frame builds")
 }
 
 /// `frame` seen through a mirrored projection with the winding convention that matches it, so

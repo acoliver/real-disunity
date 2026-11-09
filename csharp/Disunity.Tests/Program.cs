@@ -546,6 +546,7 @@ CameraRenderTests.Run();
 GraphicsBlitTests.Run();
 ReadPixelsTests.Run();
 RendererListTests.Run();
+RenderObjectCallbackTests.Run();
 WorldGraphicsTests.Run();
 MaterialSetPassTests.Run();
 MaterialPassNameTests.Run();

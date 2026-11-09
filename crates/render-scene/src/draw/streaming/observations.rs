@@ -9,6 +9,7 @@ impl Streaming {
         viewport: [u32; 2],
     ) {
         let residents = self.committed.borrow().clone();
+        self.release_geometry(&residents);
         let current: Vec<_> = residents.iter().map(|(key, _)| *key).collect();
         self.residency.observe(current.iter().copied(), false);
         let observation = crate::terrain::streaming::observe(

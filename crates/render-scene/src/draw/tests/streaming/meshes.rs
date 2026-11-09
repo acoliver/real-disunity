@@ -3,7 +3,7 @@ use super::*;
 use crate::terrain::streaming::TerrainChunk;
 
 /// Frames of the calling thread stop waiting for the builds they request, as in production.
-fn unsynchronized() -> impl Drop {
+pub(super) fn unsynchronized() -> impl Drop {
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -22,7 +22,7 @@ fn resident_chunks(gpu: &SceneGpu) -> Vec<TerrainChunk> {
         .collect()
 }
 
-fn finish_builds(gpu: &SceneGpu) {
+pub(super) fn finish_builds(gpu: &SceneGpu) {
     let mut builds = streaming(gpu).builds.borrow_mut();
     builds.wait_idle();
     builds.collect().unwrap();

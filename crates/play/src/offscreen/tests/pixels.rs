@@ -62,6 +62,8 @@ fn render_texture_of(world: &mut World, format: u32, srgb: bool) -> RenderTextur
             depth_bits: 0,
             mip_count: 1,
             srgb,
+            dimension: 2,
+            volume_depth: 1,
             sampler: WorldSampler::default(),
             generation: 0,
         })

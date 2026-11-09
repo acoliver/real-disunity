@@ -51,6 +51,8 @@ fn render_texture(world: u64, mip_count: u32) -> u64 {
         filter: 1,
         aniso_level: 1,
         generation: 0,
+        dimension: 2,
+        volume_depth: 1,
         ..Default::default()
     };
     let mut id = 0;
@@ -522,6 +524,32 @@ fn a_render_texture_round_trips_and_a_write_raises_its_generation() {
 }
 
 #[test]
+fn a_render_texture_shape_round_trips() {
+    let world = new_world();
+    let desc = DisunityRenderTexture {
+        width: 8,
+        height: 8,
+        format: 48,
+        mip_count: 1,
+        filter: 1,
+        aniso_level: 1,
+        dimension: 6,
+        volume_depth: 12,
+        ..Default::default()
+    };
+    let mut id = 0;
+    unsafe {
+        assert_eq!(
+            disunity_render_texture_create(world, &desc, &mut id).code,
+            0
+        )
+    };
+    let mut read = DisunityRenderTexture::default();
+    unsafe { assert_eq!(disunity_render_texture_read(world, id, &mut read).code, 0) };
+    assert_eq!((read.dimension, read.volume_depth), (6, 12));
+}
+
+#[test]
 fn a_render_texture_sampler_round_trips_and_a_change_raises_the_generation() {
     let world = new_world();
     let id = render_texture(world, 1);
@@ -557,6 +585,8 @@ fn a_render_texture_description_is_validated() {
         filter: 1,
         aniso_level: 1,
         generation: 0,
+        dimension: 2,
+        volume_depth: 1,
         ..Default::default()
     };
     let bad = [
@@ -580,6 +610,19 @@ fn a_render_texture_description_is_validated() {
         },
         DisunityRenderTexture {
             mip_bias: f32::NAN,
+            ..base
+        },
+        DisunityRenderTexture {
+            dimension: 0,
+            ..base
+        },
+        DisunityRenderTexture {
+            volume_depth: 2,
+            ..base
+        },
+        DisunityRenderTexture {
+            dimension: 4,
+            width: 16,
             ..base
         },
     ];

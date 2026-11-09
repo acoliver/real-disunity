@@ -842,6 +842,8 @@ pub struct DisunityRenderTexture {
     pub depth_bits: u32,
     pub mip_count: u32,
     pub srgb: u32,
+    pub dimension: u32,
+    pub volume_depth: u32,
     pub wrap_u: u32,
     pub wrap_v: u32,
     pub wrap_w: u32,
@@ -961,7 +963,7 @@ pub struct DisunityUiDraw {
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 8;
+pub const DISUNITY_ABI_VERSION: u32 = 9;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

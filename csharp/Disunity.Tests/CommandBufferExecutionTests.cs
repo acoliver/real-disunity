@@ -33,6 +33,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: SetGlobal values, textures and keywords are recorded by name and id and not folded into the global state");
             TemporariesCarryTheirDescriptions();
             Console.WriteLine("PASS: GetTemporaryRT and ReleaseTemporaryRT record the description the arguments give");
+            TemporariesCarryTheirShape();
+            Console.WriteLine("PASS: a temporary of an array or volume descriptor records its dimension and depth");
             BlitAndCopyRecordRenderTextures();
             Console.WriteLine("PASS: CommandBuffer.Blit and CopyTexture record render texture draws and refuse targets they cannot hold");
             ViewProjectionIsRecordedColumnByColumn();
@@ -308,6 +310,17 @@ internal static class CommandBufferExecutionTests
         empty.SetGlobalFloat("", 1f);
         Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(empty), "an empty name reaches the world and is refused there");
         Taken();
+    }
+
+    private static void TemporariesCarryTheirShape()
+    {
+        var buffer = new CommandBuffer();
+        buffer.GetTemporaryRT(21, new RenderTextureDescriptor(8, 4, RenderTextureFormat.RFloat, 0) { dimension = TextureDimension.Tex2DArray, volumeDepth = 4 });
+        buffer.GetTemporaryRT(22, new RenderTextureDescriptor(8, 8, RenderTextureFormat.ARGBFloat, 0) { dimension = TextureDimension.Tex3D, volumeDepth = 6 });
+        Graphics.ExecuteCommandBuffer(buffer);
+        var taken = Taken();
+        Expect.That(taken.Length == 2 && taken[0].Contains(" shape=5x4 ", StringComparison.Ordinal) && taken[1].Contains(" shape=3x6 ", StringComparison.Ordinal),
+            $"an array and a volume keep their shape: {string.Join(" | ", taken)}");
     }
 
     private static void TemporariesCarryTheirDescriptions()

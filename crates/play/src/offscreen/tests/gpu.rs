@@ -343,6 +343,8 @@ fn target_with_mips(world: &mut World, format: u32, mip_count: u32) -> RenderTex
             depth_bits: 0,
             mip_count,
             srgb: false,
+            dimension: 2,
+            volume_depth: 1,
             sampler: WorldSampler::default(),
             generation: 0,
         })

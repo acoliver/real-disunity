@@ -138,6 +138,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::ReadPixels { .. } => "ReadPixels",
         OffscreenWork::CreateRendererList { .. } => "CreateRendererList",
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
+        OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
     }
 }
 
@@ -217,6 +218,10 @@ impl Mapper<'_> {
                 Ok(Vec::new())
             }
             OffscreenWork::DrawRendererList { list } => self.draw_list(*list),
+            OffscreenWork::SetViewProjection { view, projection } => {
+                self.set_view_projection(view, projection);
+                Ok(Vec::new())
+            }
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
@@ -368,6 +373,29 @@ impl Mapper<'_> {
                 color: whole,
                 depth: whole,
             });
+        }
+    }
+
+    /// Replaces the view and projection of the camera set up, keeping its target and viewport.
+    /// Before any setup the matrices go with the camera target and the whole viewport.
+    fn set_view_projection(&mut self, view: &[f32; 16], projection: &[f32; 16]) {
+        let (view, projection) = (
+            Mat4::from_cols_array(view),
+            Mat4::from_cols_array(projection),
+        );
+        match &mut self.script.camera {
+            Some(setup) => {
+                setup.view = view;
+                setup.projection = projection;
+            }
+            none => {
+                *none = Some(CameraSetup {
+                    target: TargetRef::CameraTarget,
+                    view,
+                    projection,
+                    viewport: [0.0, 0.0, 1.0, 1.0],
+                });
+            }
         }
     }
 

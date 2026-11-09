@@ -44,6 +44,13 @@ impl World {
                     TargetRef::Temporary(_) | TargetRef::CameraTarget | TargetRef::None => Ok(()),
                 }
             }
+            OffscreenWork::SetViewProjection { view, projection } => {
+                if view.iter().chain(projection).all(|value| value.is_finite()) {
+                    Ok(())
+                } else {
+                    Err(GraphicsError::NotFinite.into())
+                }
+            }
             _ => Ok(()),
         }
     }

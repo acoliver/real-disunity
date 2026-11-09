@@ -116,6 +116,13 @@ pub enum OffscreenWork {
     CreateRendererList { id: u64, desc: RendererListDesc },
     /// Draws a renderer list created earlier in the frame into the bound targets.
     DrawRendererList { list: u64 },
+    /// The view and projection the draws that follow use, until the next camera setup or view
+    /// change: two column-major matrices, as a camera setup carries them. It names no camera and
+    /// leaves the bound targets as they are.
+    SetViewProjection {
+        view: [f32; 16],
+        projection: [f32; 16],
+    },
 }
 
 impl OffscreenWork {

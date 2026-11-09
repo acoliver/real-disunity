@@ -59,7 +59,8 @@ pub(super) fn validate(
     limits: &wgpu::Limits,
 ) -> Result<(), FrameError> {
     let levels = settings.radiance_extents(config.size).len();
-    let bindings = if shared(settings) { 11 } else { levels + 10 };
+    let bindings =
+        if shared(settings) { 11 } else { levels + 10 } + usize::from(settings.depth_relative_ao);
     if bindings > usize::try_from(limits.max_sampled_textures_per_shader_stage).unwrap() {
         return Err(FrameError::SsrSettings(
             "reflection resolve exceeds sampled texture limit",
@@ -178,7 +179,7 @@ pub(super) fn resolve_source(mut source: String, extents: &[[u32; 2]], samples: 
             "",
         );
     }
-    for binding in levels + 5..levels + 11 {
+    for binding in levels + 5..levels + 12 {
         source = source.replace(
             &format!("@binding({binding})"),
             &format!("@binding({})", binding - levels + 1),
@@ -207,5 +208,6 @@ pub(super) fn resolve_source(mut source: String, extents: &[[u32; 2]], samples: 
         .replace("LOGICAL_SIZES", &sizes)
         .replace("LANE_COLUMNS", &lane_grid(samples)[0].to_string());
     source.replace_range(start..end, &helper);
+    super::reconstruction::shared(&mut source, lane_grid(samples)[0]);
     source
 }

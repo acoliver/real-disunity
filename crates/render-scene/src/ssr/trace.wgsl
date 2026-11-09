@@ -115,6 +115,7 @@ fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: ve
 
 struct GridIntersection {
     pixel: vec2<f32>, depth: f32, steps: u32, levels: u32,
+    residual: f32,
 }
 fn grid_depth(level: i32, pixel: vec2<f32>, size: vec2<f32>) -> f32 {
     let coordinate = vec2<i32>(pixel / exp2(f32(level)));
@@ -195,7 +196,7 @@ fn grid_surface(level: i32, cursor: vec4<f32>, next: vec4<f32>, projection: Grid
         grid_depth(level, select(endpoint_b, endpoint_b.yx, projection.vertical), size));
 }
 fn grid_walk(ray: GridRay, policy: GridPolicy) -> GridIntersection {
-    var result = GridIntersection(vec2<f32>(0.0), -1.0, 0u, 0u);
+    var result = GridIntersection(vec2<f32>(0.0), -1.0, 0u, 0u, 0.0);
     let projection = grid_projection(ray, policy);
     let orientation = projection.orientation;
     let terminal = projection.terminal;
@@ -220,6 +221,7 @@ fn grid_walk(ray: GridRay, policy: GridPolicy) -> GridIntersection {
                     (cursor.xy+next.xy)*0.5, GRID_REFINEMENT);
                 result.pixel = select(hit, hit.yx, projection.vertical);
                 result.depth = surface;
+                result.residual = max(lower-surface, 0.0);
                 return result;
             }
             if remaining == 0u { return result; }
@@ -268,7 +270,9 @@ fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>
     if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { return vec4<f32>(0.0); }
     var hit = textureLoad(opaque, hit_pixel, 0).rgb;
     if camera.limits.y > 0.0 { hit = bounded_radiance(hit, camera.limits.y); }
+    let thickness = reflection_thickness(camera.settings.y, camera.traversal.y, intersection.depth);
+    let thickness_fade = 1.0-smoothstep(thickness*0.5, thickness, intersection.residual);
     let confidence = edge_fade(intersection.pixel/grid_size) * edge_fade(origin_uv)
-        * smoothstep(0.0, 0.2, 1.0-f32(intersection.steps-1u)/camera.settings.x);
+        * smoothstep(0.0, 0.2, 1.0-f32(intersection.steps-1u)/camera.settings.x) * thickness_fade;
     return vec4<f32>(hit*confidence, confidence);
 }

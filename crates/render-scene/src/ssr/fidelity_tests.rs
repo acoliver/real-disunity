@@ -282,8 +282,9 @@ fn application_ao_pairs_half_resolution_with_averaged_depth() {
         [4, 3]
     );
     assert_eq!(ssr.application_ao.format(), wgpu::TextureFormat::Rg16Float);
+    // Five radiance levels leave room for genuine normals and AO in sixteen textures.
     let source = gpu::configured_resolve_source(
-        6,
+        5,
         4,
         true,
         true,

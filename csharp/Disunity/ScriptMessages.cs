@@ -9,6 +9,7 @@ internal static class ScriptMessages
 {
     private static readonly Dictionary<(Type, string, Type?), MethodInfo?> Methods = new();
     private static readonly Dictionary<Type, uint> Defined = new();
+    private static readonly Dictionary<(Type, string), bool> Declares = new();
     private const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
 
     /// <summary>The per-frame messages the type defines, as native bits: 1 FixedUpdate, 2 Update, 4 LateUpdate.
@@ -25,6 +26,17 @@ internal static class ScriptMessages
         }
         Defined.Add(type, bits);
         return bits;
+    }
+
+    /// <summary>Whether the type, or a base type below MonoBehaviour, declares the parameterless message, as
+    /// <see cref="Invoke(UnityEngine.Object, string, object?)"/> would find it.</summary>
+    internal static bool Defines(Type type, string name)
+    {
+        if (Declares.TryGetValue((type, name), out var found)) return found;
+        for (var t = type; t != null && t != typeof(MonoBehaviour) && !found; t = t.BaseType)
+            found = t.GetMethod(name, Declared, null, Type.EmptyTypes, null) != null;
+        Declares.Add((type, name), found);
+        return found;
     }
 
     /// <summary>Whether a message lookup for the type has run, which shows a native callback reached it.</summary>

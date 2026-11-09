@@ -24,7 +24,7 @@ use std::time::Instant;
 use worldrunner_disunity_runtime::GpuFlush;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::{ProgramArena, ProgramRuntime};
-use worldrunner_render_program::unity::offscreen::frame::OffscreenFrame;
+use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
 use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState,
 };
@@ -138,6 +138,22 @@ struct Submitted {
     submission: Option<wgpu::SubmissionIndex>,
 }
 
+/// Whether `record` only sets the state the records after it draw with.
+fn is_state(record: &Record) -> bool {
+    matches!(record, Record::Globals(_))
+}
+
+/// `segment` with the last globals record before it in front, unless it starts with one: a
+/// segment is built alone, and the globals in force at its start are set by an earlier segment.
+fn with_globals(before: &[Record], segment: &[Record]) -> Vec<Record> {
+    let mut records = Vec::with_capacity(segment.len() + 1);
+    if !segment.first().is_some_and(is_state) {
+        records.extend(before.iter().rev().find(|record| is_state(record)).cloned());
+    }
+    records.extend_from_slice(segment);
+    records
+}
+
 /// Counts a pixel read left unanswered.
 fn refuse_read(report: &mut Report, reason: &str) {
     *report
@@ -212,13 +228,19 @@ impl OffscreenHost {
             kind,
             records: report.records,
             built: report.built,
-            camera_renders: report.camera_draws.len(),
-            drawn: report.camera_draws.iter().map(|c| c.drawn).sum(),
+            camera_renders: report.camera_draws.len() + report.list_draws.len(),
+            drawn: report.camera_draws.iter().map(|c| c.drawn).sum::<usize>()
+                + report.list_draws.iter().map(|l| l.drawn).sum::<usize>(),
             left_out: report
                 .camera_draws
                 .iter()
                 .map(|c| c.unmatched + c.missing_texture + c.missing_channel)
-                .sum(),
+                .sum::<usize>()
+                + report
+                    .list_draws
+                    .iter()
+                    .map(|l| l.unmatched + l.missing_texture + l.missing_channel)
+                    .sum::<usize>(),
             live_before,
             live_after: self.runtime.live_bytes(),
             phases: report.phases,
@@ -289,6 +311,9 @@ impl OffscreenHost {
     ) -> Result<FlushOutcome, FlushError> {
         let live_before = self.runtime.live_bytes();
         let started = Instant::now();
+        // The render textures a kernel writes need storage binding usage when they are made.
+        let storage = self.compute.storage_textures(&self.runtime, snapshot);
+        self.state.bind_as_storage(storage);
         let mut adapted =
             self.adapter
                 .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
@@ -346,17 +371,18 @@ impl OffscreenHost {
             .chain(std::iter::once(records.len()))
             .enumerate()
         {
-            let segment = &records[from..until];
+            let segment = with_globals(&records[..from], &records[from..until]);
             from = until;
             // The first build also creates the render textures the dispatches bind.
-            let mut operations = if segment.is_empty() && (index > 0 || placements.is_empty()) {
-                None
-            } else {
-                let (operations, kept) =
-                    self.build_segment(&adapted.frame, segment, &mut adapted.report)?;
-                built += kept;
-                Some(operations)
-            };
+            let mut operations =
+                if segment.iter().all(is_state) && (index > 0 || placements.is_empty()) {
+                    None
+                } else {
+                    let (operations, kept) =
+                        self.build_segment(&adapted.frame, segment, &mut adapted.report)?;
+                    built += kept;
+                    Some(operations)
+                };
             let prepared = placements.get(index).and_then(|placed| {
                 self.prepare(snapshot, placed.work, buffers, &mut adapted.report)
             });
@@ -403,12 +429,12 @@ impl OffscreenHost {
     fn build_segment(
         &mut self,
         frame: &OffscreenFrame,
-        segment: &[worldrunner_render_program::unity::offscreen::frame::Record],
+        segment: Vec<Record>,
         report: &mut Report,
     ) -> Result<(OffscreenOperations, usize), FlushError> {
         let mut part = Adapted {
             frame: OffscreenFrame {
-                records: segment.to_vec(),
+                records: segment,
                 ..frame.clone()
             },
             report: Report::default(),
@@ -420,7 +446,9 @@ impl OffscreenHost {
             .frame
             .records
             .iter()
-            .filter(|record| !is_test_render(record, &frame.probe.test_targets))
+            .filter(|record| {
+                !is_test_render(record, &frame.probe.test_targets) && !is_state(record)
+            })
             .count();
         report.absorb_failures(part.report);
         Ok((built?, kept))
@@ -451,6 +479,17 @@ impl OffscreenHost {
             &mut trace,
         );
         for texture in &mut trace.textures {
+            for list in report
+                .list_draws
+                .iter()
+                .filter(|list| Some(list.target) == texture.texture)
+            {
+                texture.camera_renders += 1;
+                texture.camera_draws += list.drawn;
+                texture.camera_unmatched += list.unmatched;
+                texture.camera_missing_texture += list.missing_texture;
+                texture.camera_missing_channel += list.missing_channel;
+            }
             for (camera, pass) in report
                 .camera_draws
                 .iter()

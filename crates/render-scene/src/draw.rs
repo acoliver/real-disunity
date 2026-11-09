@@ -57,6 +57,8 @@ pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
+pub(crate) use streaming::await_builds;
+#[cfg(test)]
 pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;

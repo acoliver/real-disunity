@@ -1,7 +1,6 @@
 use super::gpu_math_tests::evaluate_source;
 use crate::terrain::{TerrainMesh, planes::HeightfieldPlanes};
 use glam::{Vec2, Vec3};
-use std::fmt::Write;
 use worldrunner_render_plan::{SceneTerrain, TerrainLodPolicy, TerrainStreamingPolicy};
 
 struct Case {
@@ -25,15 +24,23 @@ fn terrain_gpu_heightfield_planes_match_original_mesh_at_every_lod_and_skirt() {
             "@group(1) @binding(0) var<uniform> terrain: Terrain;",
             "var<private> terrain: Terrain;",
         );
-    let words: Vec<_> = planes
+    let mut words: Vec<_> = planes
         .bytes
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
         .collect();
+    let cases = cases(&terrain, &planes);
+    let layout = Layout {
+        cases: words.len(),
+        count: cases.len(),
+        positions: words.len() + cases.len() * CASE_WORDS,
+    };
+    words.extend(cases.iter().flat_map(case_words));
+    words.extend(expected_positions(&terrain));
     let result = evaluate_source(
         &context,
         &source,
-        &entry(&terrain, &planes),
+        &entry(&terrain, &layout),
         None,
         Some(&words),
     );
@@ -111,52 +118,64 @@ fn cases(terrain: &SceneTerrain, planes: &HeightfieldPlanes) -> Vec<Case> {
     cases
 }
 
-fn entry(terrain: &SceneTerrain, planes: &HeightfieldPlanes) -> String {
-    let cases = cases(terrain, planes);
-    let points = cases
-        .iter()
-        .map(|c| {
-            format!(
-                "vec4<f32>({},{},{},{})",
-                c.point.x, c.point.y, c.axis.x, c.axis.y
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let indices = cases
-        .iter()
-        .map(|c| format!("{}u", c.index))
-        .collect::<Vec<_>>()
-        .join(",");
-    let normals = cases
-        .iter()
-        .map(|c| format!("vec3<f32>({},{},{})", c.normal.x, c.normal.y, c.normal.z))
-        .collect::<Vec<_>>()
-        .join(",");
-    let count = cases.len();
+/// Word offsets of the case data appended after the plane words. The cases and expected
+/// positions are read from the bound buffer: written into the shader source as literal
+/// arrays and unrolled checks, they took over ten minutes to run on lavapipe.
+struct Layout {
+    cases: usize,
+    count: usize,
+    positions: usize,
+}
+
+const CASE_WORDS: usize = 8;
+
+fn case_words(case: &Case) -> [f32; CASE_WORDS] {
+    [
+        case.point.x,
+        case.point.y,
+        case.axis.x,
+        case.axis.y,
+        f32::from_bits(case.index),
+        case.normal.x,
+        case.normal.y,
+        case.normal.z,
+    ]
+}
+
+fn entry(terrain: &SceneTerrain, layout: &Layout) -> String {
+    let Layout {
+        cases,
+        count,
+        positions,
+    } = layout;
     let origin = [
         terrain.origin_east_millimeters(),
         terrain.origin_north_millimeters(),
         i64::from(terrain.sample_spacing_millimeters()),
     ]
     .map(crate::geometry::millimeter_to_meter);
-    let checks = position_checks(terrain);
     format!(
         r"@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
 @compute @workgroup_size(1) fn evaluate_math() {{
     terrain.origin_and_spacing = vec4<f32>({},{},{},0.1);
     terrain.dimensions_and_count = vec4<u32>({}u,{}u,1u,0u);
-    let points = array<vec4<f32>,{count}>({points});
-    let indices = array<u32,{count}>({indices});
-    let normals = array<vec3<f32>,{count}>({normals});
     var failures = 0u; var position_failures = 0u; var maximum_error = 0.0;
     for (var i = 0u; i < {count}u; i++) {{
-        let actual = normalize(terrain_face_normal(points[i].xy, indices[i], points[i].zw));
-        let error = length(actual - normals[i]);
+        let o = {cases}u + i * {CASE_WORDS}u;
+        let point = bitcast<vec4<f32>>(vec4<u32>(terrain_plane_data[o], terrain_plane_data[o + 1u], terrain_plane_data[o + 2u], terrain_plane_data[o + 3u]));
+        let normal = bitcast<vec3<f32>>(vec3<u32>(terrain_plane_data[o + 5u], terrain_plane_data[o + 6u], terrain_plane_data[o + 7u]));
+        let actual = normalize(terrain_face_normal(point.xy, terrain_plane_data[o + 4u], point.zw));
+        let error = length(actual - normal);
         maximum_error = max(maximum_error, error);
         failures += select(0u, 1u, error > 2e-6);
     }}
-    {checks}
+    for (var y = 0u; y < terrain.dimensions_and_count.y; y++) {{
+        for (var x = 0u; x < terrain.dimensions_and_count.x; x++) {{
+            let o = {positions}u + (y * terrain.dimensions_and_count.x + x) * 3u;
+            let expected = vec3<u32>(terrain_plane_data[o], terrain_plane_data[o + 1u], terrain_plane_data[o + 2u]);
+            position_failures += select(0u, 1u, any(bitcast<vec3<u32>>(terrain_sample_position(vec2<u32>(x, y))) != expected));
+        }}
+    }}
     result[0] = vec4<f32>(f32(failures), maximum_error, f32(position_failures), {count}.0);
 }}",
         origin[0],
@@ -167,8 +186,8 @@ fn entry(terrain: &SceneTerrain, planes: &HeightfieldPlanes) -> String {
     )
 }
 
-fn position_checks(terrain: &SceneTerrain) -> String {
-    let mut checks = String::new();
+fn expected_positions(terrain: &SceneTerrain) -> Vec<f32> {
+    let mut words = Vec::new();
     for y in 0..terrain.rows() {
         for x in 0..terrain.columns() {
             let east = crate::geometry::millimeter_to_meter(
@@ -182,8 +201,8 @@ fn position_checks(terrain: &SceneTerrain) -> String {
             let up = crate::geometry::millimeter_to_meter(i64::from(
                 terrain.heights_millimeters()[(y * terrain.columns() + x) as usize],
             ));
-            writeln!(checks, "position_failures += select(0u, 1u, any(bitcast<vec3<u32>>(terrain_sample_position(vec2<u32>({x}u,{y}u))) != vec3<u32>({}u,{}u,{}u)));", east.to_bits(), north.to_bits(), up.to_bits()).unwrap();
+            words.extend([east, north, up]);
         }
     }
-    checks
+    words
 }

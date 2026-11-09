@@ -1,6 +1,6 @@
 //! Builds the worlds, snapshots and resources the tests map.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::{
@@ -149,6 +149,7 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
                     *id,
                     ShaderInfo {
                         passes,
+                        light_modes: Vec::new(),
                         queue: 2000,
                         texture_defaults: Vec::new(),
                         fill: ShaderFill::default(),
@@ -159,6 +160,7 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
         meshes: snapshot.renderers.iter().map(|r| r.mesh).collect(),
         textures: textures.iter().copied().collect::<BTreeSet<_>>(),
         default_textures: DefaultTexture::ALL.into_iter().collect(),
+        bounds: BTreeMap::new(),
         test_variants: false,
     }
 }

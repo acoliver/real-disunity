@@ -30,9 +30,16 @@ struct Globals { width: u32 }
     output[id.y * globals.width + id.x] = textureLoad(heights, vec2<i32>(id.xy), 0).x;
 }";
 
-/// A kernel that writes a storage texture, which the renderer does not bind.
+/// A kernel that writes a storage texture in a format every device binds.
 const IMAGE: &str = "
 @group(0) @binding(0) var image: texture_storage_2d<rgba8unorm, write>;
+@compute @workgroup_size(4, 4, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    textureStore(image, vec2<i32>(id.xy), vec4<f32>(1.0));
+}";
+
+/// A kernel that writes a storage texture in a format only a device with a feature binds.
+const HALF_IMAGE: &str = "
+@group(0) @binding(0) var image: texture_storage_2d<r16float, write>;
 @compute @workgroup_size(4, 4, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     textureStore(image, vec2<i32>(id.xy), vec4<f32>(1.0));
 }";
@@ -53,10 +60,10 @@ fn copy_kernel(name: &str, buffer: &str) -> Kernel {
     Kernel::single(name, variant)
 }
 
-fn image_kernel() -> Kernel {
-    let mut variant = Variant::new(&code(IMAGE), [4, 4, 1]);
+fn image_kernel(name: &str, wgsl: &str) -> Kernel {
+    let mut variant = Variant::new(&code(wgsl), [4, 4, 1]);
     variant.writable = vec![Binding::image("_Image", 0, 2)];
-    Kernel::single("Paint", variant)
+    Kernel::single(name, variant)
 }
 
 /// A constant buffer of one integer at `offset`.
@@ -85,13 +92,15 @@ fn both_platforms() -> Vec<u8> {
             Kernel::single("Copy", Variant::new(b"#version 430", [8, 8, 1])),
             Kernel::single("Paint", Variant::new(b"#version 430", [4, 4, 1])),
             Kernel::single("Skew", Variant::new(b"#version 430", [8, 8, 1])),
+            Kernel::single("Smooth", Variant::new(b"#version 430", [4, 4, 1])),
         ],
     );
     // The skewed kernel is the copy kernel, whose constant buffer states another offset.
     let kernels = vec![
         copy_kernel("Copy", "CGlobals"),
-        image_kernel(),
+        image_kernel("Paint", IMAGE),
         copy_kernel("Skew", "CSkewed"),
+        image_kernel("Smooth", HALF_IMAGE),
     ];
     let mut vulkan = Platform::new(SPIRV, 0, kernels);
     vulkan.buffers = vec![width_at("CGlobals", 0), width_at("CSkewed", 8)];
@@ -141,11 +150,6 @@ fn assert_tables_agree(report: &ComputeReport, variants: usize) {
     assert_eq!(report.group_sizes.to_string(), all);
 }
 
-fn assert_only_failure(report: &ComputeReport, cause: &str) {
-    assert_eq!(report.failures.len(), 1, "{:?}", report.failures);
-    assert_eq!(report.failures.get(cause), Some(&1));
-}
-
 fn assert_written_by_every_backend(report: &ComputeReport, modules: usize) {
     for backend in Backend::ALL {
         assert_eq!(
@@ -167,18 +171,31 @@ fn counts_the_kernels_variants_modules_and_what_becomes_of_them() {
     assert_eq!(report.unreadable, 1);
     assert_eq!(report.platforms.get(&GLSL), Some(&2));
     assert_eq!(report.platforms.get(&SPIRV), Some(&1));
-    assert_eq!((report.kernels, report.variants), (3, 3));
-    assert_eq!(report.default_variants.to_string(), "3 of 3");
+    assert_eq!((report.kernels, report.variants), (4, 4));
+    assert_eq!(report.default_variants.to_string(), "4 of 4");
     // The copy and skewed kernels share one module.
-    assert_eq!((report.modules, report.distinct_modules), (3, 2));
-    assert_eq!((report.prepared, report.ready), (3, 3));
-    assert_written_by_every_backend(&report, 3);
-    assert_tables_agree(&report, 3);
+    assert_eq!((report.modules, report.distinct_modules), (4, 3));
+    assert_eq!((report.prepared, report.ready), (4, 4));
+    assert_written_by_every_backend(&report, 4);
+    assert_tables_agree(&report, 4);
     // The skewed kernel's buffer puts its member at 8, where the block has it at 0.
     assert_eq!(report.constant_buffers.to_string(), "1 of 2");
-    // The copy kernels become programs with layouts and targets; the image kernel does not.
-    assert_eq!((report.programs, report.layouts, report.targets), (2, 2, 2));
-    assert_only_failure(&report, "unsupported resource: storage texture");
+    // Every kernel becomes a program with a layout and targets, the image kernels too.
+    assert_eq!((report.programs, report.layouts, report.targets), (4, 4, 4));
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    // The images are counted by what the modules declare, and the one in a format that is not
+    // a storage format of every device is counted as needing the device's help.
+    assert_eq!(
+        report.images.iter().collect::<Vec<_>>(),
+        [
+            (&"WriteOnly R16Float D2".to_owned(), &1),
+            (&"WriteOnly Rgba8Unorm D2".to_owned(), &1)
+        ]
+    );
+    assert_eq!(
+        report.beyond_baseline.iter().collect::<Vec<_>>(),
+        [(&"WriteOnly R16Float D2".to_owned(), &1)]
+    );
 }
 
 #[test]

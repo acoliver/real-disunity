@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Display};
 
 use worldrunner_render_program::unity::offscreen::{
-    CameraDraws, CameraPassReport, OffscreenOperations, PartialMipReads, UnmatchedPasses,
+    CameraDraws, CameraPassReport, ListDraws, OffscreenOperations, PartialMipReads, UnmatchedPasses,
 };
 
 use super::compute::DispatchTrace;
@@ -73,9 +73,11 @@ pub struct Report {
     pub unresolved_textures: BTreeMap<String, usize>,
     /// Where building the frame spent its time.
     pub phases: Phases,
-    /// The script commands the adapter does not run, by what they are: `SetGlobal texture _Name
-    /// (render)`, `SetRenderTarget`, and so on.
-    pub unsupported_work: BTreeMap<String, usize>,
+    /// The records of the world's list the adapter ran or built, by the kind of work. A command
+    /// that sets the running state counts as one and builds none of the frame's records.
+    pub built_by_kind: BTreeMap<String, usize>,
+    /// The records it left out, by `kind: reason`.
+    pub skipped_by_kind: BTreeMap<String, usize>,
     /// The textures the world's globals hold when the frame is mapped, by `name: kind`.
     pub global_textures: BTreeMap<String, usize>,
     /// What the runtime's storage held when the budget first refused an allocation of this work,
@@ -90,12 +92,71 @@ pub struct Report {
     pub pixel_reads: usize,
     /// The pixel reads left unanswered, by the reason.
     pub pixel_reads_refused: BTreeMap<String, usize>,
+    /// What the culling records and renderer lists did.
+    pub lists: ListReport,
+    /// What each draw list recorded and left out, in call order.
+    pub list_draws: Vec<ListDraws>,
+}
+
+impl ListReport {
+    /// The counts as named lines, for a report that sums frames.
+    #[must_use]
+    pub fn named(&self) -> Vec<(String, usize)> {
+        let mut lines: Vec<(String, usize)> = [
+            ("culling records", self.culls),
+            ("renderers kept by culling", self.kept),
+            ("renderers culled by layer", self.out_by_layer),
+            ("renderers culled by planes", self.out_by_planes),
+            ("lists made", self.created),
+            ("drawing lists drawn", self.drawn),
+            ("shadow lists drawn", self.shadow_drawn),
+            ("lists with nothing to draw", self.empty),
+        ]
+        .into_iter()
+        .map(|(name, count)| (name.to_owned(), count))
+        .collect();
+        lines.extend(
+            self.draws_by_tag
+                .iter()
+                .map(|(tag, count)| (format!("planned draws with pass tag {tag}"), *count)),
+        );
+        lines.extend(
+            self.left_out
+                .iter()
+                .map(|(reason, count)| (format!("left out: {reason}"), *count)),
+        );
+        lines
+    }
+}
+
+/// What the culling records and renderer lists of a frame did, as counts.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListReport {
+    /// The culling records, the renderers they kept (summed) and those they left out by the layer
+    /// mask and by the view volume's planes.
+    pub culls: usize,
+    pub kept: usize,
+    pub out_by_layer: usize,
+    pub out_by_planes: usize,
+    /// The lists made, the drawing lists and the shadow lists drawn with something to draw, and
+    /// the draws of lists with nothing left to draw.
+    pub created: usize,
+    pub drawn: usize,
+    pub shadow_drawn: usize,
+    pub empty: usize,
+    /// The draws the lists planned, by the `LightMode` of the pass they draw (or `override pass
+    /// N`).
+    pub draws_by_tag: BTreeMap<String, usize>,
+    /// The renderers and material slots the lists left out, by the reason. A reason about a
+    /// renderer counts the renderer; one about a material counts the slot.
+    pub left_out: BTreeMap<String, usize>,
 }
 
 impl Report {
     /// Takes what `operations` counted of the draws it holds.
     pub fn absorb_draws(&mut self, operations: &OffscreenOperations) {
         self.camera_draws.extend(operations.camera_draws());
+        self.list_draws.extend(operations.list_draws());
         self.camera_passes.extend(operations.camera_passes());
         for entry in operations.unmatched_passes() {
             self.add_unmatched(entry);
@@ -201,11 +262,9 @@ impl Report {
         }
         self.reclaimed.add(other.reclaimed);
         self.camera_draws.extend(other.camera_draws);
+        self.list_draws.extend(other.list_draws);
         self.camera_passes.extend(other.camera_passes);
         self.phases.add(&other.phases);
-        for (name, count) in other.unsupported_work {
-            *self.unsupported_work.entry(name).or_default() += count;
-        }
         for (name, count) in other.global_textures {
             *self.global_textures.entry(name).or_default() += count;
         }

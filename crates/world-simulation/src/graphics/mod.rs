@@ -213,6 +213,9 @@ pub(crate) struct GraphicsState {
     active_pass: Option<ActivePass>,
     /// The pixel reads scripts asked for and nobody took.
     readbacks: readback::Readbacks,
+    /// The render textures destroyed after a record of the frame named them; the frame's snapshot
+    /// keeps their descriptions.
+    retired_textures: std::collections::BTreeMap<RenderTextureId, WorldRenderTexture>,
 }
 
 impl GraphicsState {
@@ -222,6 +225,7 @@ impl GraphicsState {
         self.handles.clear();
         self.lists.clear();
         self.readbacks.clear();
+        self.retired_textures.clear();
     }
 
     pub(crate) const fn new() -> Self {
@@ -238,6 +242,7 @@ impl GraphicsState {
             lists: std::collections::BTreeSet::new(),
             active_pass: None,
             readbacks: readback::Readbacks::new(),
+            retired_textures: std::collections::BTreeMap::new(),
         }
     }
 }

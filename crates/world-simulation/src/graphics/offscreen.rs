@@ -118,6 +118,33 @@ pub enum OffscreenWork {
     DrawRendererList { list: u64 },
 }
 
+impl OffscreenWork {
+    /// Whether the record reads or draws into the render texture, directly or through a texture
+    /// property it sets.
+    pub fn names_render_texture(&self, id: RenderTextureId) -> bool {
+        let texture = |texture: &TextureRef| *texture == TextureRef::Render(id);
+        let target = |target: &TargetRef| *target == TargetRef::Render(id);
+        match self {
+            Self::CameraRender { target, .. } => *target == id,
+            Self::Blit { source, target, .. } | Self::CopyTexture { source, target, .. } => {
+                *target == id || texture(source)
+            }
+            Self::Dispatch { bindings, .. } => bindings
+                .properties
+                .textures
+                .iter()
+                .any(|(_, slot)| texture(&slot.texture)),
+            Self::SetRenderTarget { color, depth, .. } => {
+                color.iter().any(target) || depth.as_ref().is_some_and(target)
+            }
+            Self::SetGlobal(PropertyValue::Texture(_, slot)) => texture(&slot.texture),
+            Self::SetupCamera { target: named, .. } => target(named),
+            Self::ReadPixels { texture, .. } => *texture == id,
+            _ => false,
+        }
+    }
+}
+
 impl World {
     /// Appends offscreen work to the frame's list. Everything the record names must be alive:
     /// the camera a live camera component, the render textures and the material live resources,
@@ -158,6 +185,7 @@ impl World {
     pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
         self.graphics.handles.clear();
         self.graphics.lists.clear();
+        self.graphics.retired_textures.clear();
         std::mem::take(&mut self.graphics.offscreen)
     }
 

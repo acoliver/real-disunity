@@ -1,5 +1,6 @@
 #[cfg(test)]
 pub(crate) mod legacy_access;
+mod meshes;
 mod observations;
 mod replacement;
 mod residency;
@@ -8,7 +9,10 @@ mod residents;
 pub(in crate::draw) mod schedule_tests;
 use super::{GpuLod, SceneGpu};
 use crate::terrain::prepared::ChunkGeometry;
-use crate::terrain::streaming::{TerrainChunk, select_with_retired};
+use crate::terrain::streaming::{TerrainChunk, TerrainSelection, select_with_retired};
+#[cfg(test)]
+pub(crate) use meshes::await_builds;
+use meshes::{Built, MeshBuilds};
 use residents::insert;
 use std::{cell::RefCell, rc::Rc};
 use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
@@ -30,6 +34,7 @@ pub(super) struct Streaming {
     residency: residency::Residency,
     /// The program geometry of the committed and drawn chunks, and no others.
     geometry: Rc<ChunkGeometry>,
+    pub(super) builds: RefCell<MeshBuilds>,
 }
 #[derive(Debug)]
 struct Prepared {
@@ -44,7 +49,12 @@ struct Prepared {
 impl Streaming {
     pub fn new(scene: RenderScene, root: GpuLod, authority: &SubmissionAuthority) -> Self {
         let terrain = scene.terrain().expect("terrain");
-        let chunk = TerrainChunk::root(terrain, terrain.streaming_policy().expect("policy"));
+        let policy = terrain.streaming_policy().expect("policy");
+        let chunk = TerrainChunk::root(terrain, policy);
+        let builds = MeshBuilds::new(
+            scene.shared_terrain().expect("terrain").clone(),
+            policy.uploads_per_frame(),
+        );
         Self {
             plane_chunks: crate::terrain::planes::chunk_indices(terrain),
             scene,
@@ -57,6 +67,7 @@ impl Streaming {
             replacement: RefCell::new(None),
             residency: residency::Residency::new(),
             geometry: Rc::default(),
+            builds: RefCell::new(builds),
         }
     }
     fn reuse_prepared(
@@ -110,23 +121,11 @@ impl Streaming {
         self.retired
             .borrow_mut()
             .retain(|(serial, _)| *serial > completed);
-        let terrain = self.scene.terrain().expect("terrain");
         let old = self.committed.borrow();
         self.release_geometry(&old);
         let current: Vec<_> = old.iter().map(|(key, _)| *key).collect();
-        let retired_count = self
-            .retired
-            .borrow()
-            .iter()
-            .map(|(_, chunks)| chunks.len())
-            .sum();
-        let selection = select_with_retired(
-            terrain,
-            &current,
-            frame.selection_view_projection(),
-            viewport,
-            retired_count,
-        );
+        let mut builds = self.builds.borrow_mut();
+        let selection = self.select(&mut builds, &current, frame, viewport)?;
         #[cfg(test)]
         let uploads = selection.uploads.len();
         let mut residents: Residents = old
@@ -135,14 +134,15 @@ impl Streaming {
             .cloned()
             .collect();
         let mut uploaded = false;
-        for chunk in selection.uploads {
-            if !selection.leaves.contains(&chunk) {
+        for chunk in &selection.uploads {
+            if !selection.leaves.contains(chunk) {
                 continue;
             }
-            let lod = upload_chunk(context, terrain, chunk)?;
-            insert(&mut residents, chunk, lod);
+            let built = builds.get(*chunk).expect("an admitted chunk has a mesh");
+            insert(&mut residents, *chunk, upload_built(context, built)?);
             uploaded = true;
         }
+        builds.update(&selection)?;
         self.residency
             .observe(residents.iter().map(|(key, _)| *key), uploaded);
         *self.drawing.borrow_mut() = Some(Prepared {
@@ -166,6 +166,47 @@ impl Streaming {
     /// which also covers uploads of a frame that never committed.
     fn release_geometry(&self, committed: &Residents) {
         release(&self.geometry, committed);
+    }
+    /// Chooses the next leaves from the meshes built so far. Tests wait for the builds a
+    /// selection asks for, so that a chunk selected in a frame uploads in that frame.
+    fn select(
+        &self,
+        builds: &mut MeshBuilds,
+        current: &[TerrainChunk],
+        frame: &crate::frame::FrameUniform,
+        viewport: [u32; 2],
+    ) -> Result<TerrainSelection, FrameError> {
+        builds.collect()?;
+        let terrain = self.scene.terrain().expect("terrain");
+        let retired = self
+            .retired
+            .borrow()
+            .iter()
+            .map(|(_, chunks)| chunks.len())
+            .sum();
+        let choose = |builds: &MeshBuilds| {
+            select_with_retired(
+                terrain,
+                current,
+                frame.selection_view_projection(),
+                viewport,
+                retired,
+                &|chunk| builds.is_ready(chunk),
+            )
+        };
+        let selection = choose(builds);
+        #[cfg(test)]
+        let selection = {
+            let mut selection = selection;
+            while meshes::awaiting_builds() && !selection.unready.is_empty() {
+                builds.update(&selection)?;
+                builds.wait_idle();
+                builds.collect()?;
+                selection = choose(builds);
+            }
+            selection
+        };
+        Ok(selection)
     }
     fn stage_residents(&self, context: &PrepareContext<'_>, residents: Residents) {
         let destination = self.committed.clone();
@@ -380,12 +421,16 @@ fn upload_chunk(
     terrain: &worldrunner_render_plan::SceneTerrain,
     chunk: TerrainChunk,
 ) -> Result<GpuLod, FrameError> {
-    let mesh = crate::terrain::chunks::build(terrain, chunk).map_err(|error| {
-        FrameError::FeaturePreparation {
+    upload_built(context, &crate::terrain::chunks::build(terrain, chunk))
+}
+
+fn upload_built(context: &mut PrepareContext<'_>, built: &Built) -> Result<GpuLod, FrameError> {
+    let mesh = built
+        .as_ref()
+        .map_err(|error| FrameError::FeaturePreparation {
             feature: "terrain streaming",
             reason: error.to_string(),
-        }
-    })?;
+        })?;
     Ok(GpuLod {
         transition: None,
         vertices: buffer(

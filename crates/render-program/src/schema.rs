@@ -103,7 +103,7 @@ impl Schema {
                     ResourceKind::Uniform { .. } | ResourceKind::Storage { .. } => {
                         schema.add(label, id.as_str(), Expect::Buffer)?;
                     }
-                    ResourceKind::Texture { .. } => {
+                    ResourceKind::Texture { .. } | ResourceKind::StorageImage { .. } => {
                         schema.add(label, id.as_str(), Expect::Texture)?;
                     }
                     ResourceKind::Sampler(_) => {}

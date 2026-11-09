@@ -45,21 +45,6 @@ fn the_entry_point_must_exist_for_the_stage() {
 }
 
 #[test]
-fn a_storage_texture_is_a_named_error() {
-    let words = spirv(
-        "@group(0) @binding(0) var image: texture_storage_2d<rgba8unorm, write>;
-         @compute @workgroup_size(1) fn main() {
-             textureStore(image, vec2<i32>(0, 0), vec4<f32>(1.0));
-         }",
-    );
-    let error = build(module(words, "main", StageKind::Compute)).unwrap_err();
-    assert!(
-        matches!(&error, ModuleError::UnsupportedResource { what, .. } if what == "storage texture"),
-        "{error}"
-    );
-}
-
-#[test]
 fn the_content_key_follows_the_words_entry_point_and_stage() {
     let words = spirv(&textured("texel"));
     let key = |words: &[u32], entry: &str, kind| {

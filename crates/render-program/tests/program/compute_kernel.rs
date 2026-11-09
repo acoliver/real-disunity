@@ -257,3 +257,105 @@ fn a_module_with_two_entry_points_is_refused() {
     let error = kernel_stage(&variant, &[]).unwrap_err();
     assert!(matches!(error, KernelError::EntryPoints(2)), "{error}");
 }
+
+const PAINT: &str = "
+@group(0) @binding(8) var image: texture_storage_2d<rgba8unorm, write>;
+@compute @workgroup_size(4, 4, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    textureStore(image, vec2<i32>(id.xy), vec4<f32>(1.0));
+}";
+
+fn paint_variant(shader: &str) -> ComputeVariant {
+    let words = stage_spirv(shader, "main", naga::ShaderStage::Compute);
+    let code: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+    ComputeVariant {
+        constant_buffers: Vec::new(),
+        textures: Vec::new(),
+        samplers: Vec::new(),
+        buffers: Vec::new(),
+        writable: vec![binding(
+            "_Image",
+            IMAGE | WRITABLE | TEXTURE | 8,
+            None,
+            Some(2),
+        )],
+        thread_group_size: [4, 4, 1],
+        ..variant(code)
+    }
+}
+
+#[test]
+fn a_storage_image_binds_by_name_and_takes_the_kind_its_module_declares() {
+    let stage = kernel_stage(&paint_variant(PAINT), &[]).unwrap();
+    let images = stage.image_targets().unwrap();
+    assert_eq!(
+        images
+            .iter()
+            .map(|t| (t.name.resolve(&[]).unwrap(), t.set, t.binding))
+            .collect::<Vec<_>>(),
+        [("_Image", 0, 8)]
+    );
+    // An image is neither a sampled texture nor a buffer.
+    assert!(stage.texture_targets().unwrap().is_empty());
+    assert!(stage.buffer_targets().unwrap().is_empty());
+    let layout = ProgramLayout::build(&[&stage]).unwrap();
+    let slot = layout.slot(0, 8).unwrap();
+    assert_eq!(
+        slot.ty,
+        wgpu::BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::WriteOnly,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            view_dimension: wgpu::TextureViewDimension::D2,
+        }
+    );
+    assert_eq!(slot.visibility, wgpu::ShaderStages::COMPUTE);
+}
+
+#[test]
+fn an_image_parameter_where_the_module_has_a_buffer_is_a_mismatch() {
+    let buffer = "
+    @group(0) @binding(8) var<storage, read_write> data: array<u32>;
+    @compute @workgroup_size(4, 4, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+        data[id.x] = 1u;
+    }";
+    let stage = kernel_stage(&paint_variant(buffer), &[]).unwrap();
+    let error = ProgramLayout::build(&[&stage]).unwrap_err();
+    assert!(
+        matches!(&error, worldrunner_render_program::unity::layout::LayoutError::Mismatch { set: 0, binding: 8, declared, .. } if *declared == "a storage image"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_storage_image_kernel_writes_the_texture_bound_to_its_name() {
+    use worldrunner_render_program::unity::runtime::{BoundResource, DispatchRequest};
+
+    use crate::common::{runtime, submit};
+
+    let stage = kernel_stage(&paint_variant(PAINT), &[]).unwrap();
+    let mut runtime = runtime();
+    let program = runtime.compute_program(&stage).unwrap();
+    let texture = runtime
+        .create_storage_texture(
+            "paint",
+            [4, 4, 1],
+            wgpu::TextureDimension::D2,
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+        .unwrap();
+    let target = &stage.image_targets().unwrap()[0];
+    let bindings = [BoundResource::texture(target.set, target.binding, texture)];
+    let (pending, index) = submit(&mut runtime, |runtime, frame| {
+        runtime.dispatch(
+            frame,
+            &DispatchRequest {
+                program: &program,
+                bindings: &bindings,
+                groups: [1, 1, 1],
+            },
+        )?;
+        runtime.read_texture(frame, texture)
+    })
+    .unwrap();
+    let image = pending.resolve(index).unwrap();
+    assert_eq!(image.bytes, vec![255; 4 * 4 * 4]);
+}

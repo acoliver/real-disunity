@@ -393,6 +393,9 @@ impl OffscreenHost {
             let wanted = placements
                 .get(index)
                 .and_then(|placed| Wanted::of(&snapshot.work[placed.work]));
+            if let Some(wanted) = &wanted {
+                self.make_room_for_read(wanted, &mut adapted.report);
+            }
             let submitted = Instant::now();
             let Submitted {
                 before,
@@ -533,6 +536,19 @@ impl OffscreenHost {
         };
         report.traces.push(trace);
         outcome
+    }
+
+    /// Gives back what the snapshot does not name when the budget has no room for the staging a
+    /// read of its texture takes. The frame that stages the copy is not begun yet, so storage can
+    /// still be released.
+    fn make_room_for_read(&mut self, wanted: &Wanted, report: &mut Report) {
+        let Some(bytes) = self.state.read_bytes(ids::render_texture(wanted.texture)) else {
+            return;
+        };
+        let reclaimed = self
+            .adapter
+            .make_room_for(&mut self.state, &mut self.runtime, bytes);
+        report.reclaimed.add(reclaimed);
     }
 
     /// Records the operations, then the dispatch, then the copy a pixel read wants into one frame

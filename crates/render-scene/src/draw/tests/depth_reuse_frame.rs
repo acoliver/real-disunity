@@ -129,10 +129,23 @@ fn draw_frame_at(
     context: &GpuContext,
     renderer: &mut FrameRenderer,
     gpu: (&mut SceneGpu, &ScenePipelines),
-    mut shadowed: Option<&mut crate::shadows::ShadowedScene>,
+    shadowed: Option<&mut crate::shadows::ShadowedScene>,
     source_frame: (&RenderScene, usize, f32),
     pose: CameraPose,
     convention: worldrunner_camera::ViewConvention,
+) -> Vec<Vec<u8>> {
+    draw_frame_with_view(context, renderer, gpu, shadowed, source_frame, |viewport| {
+        SceneView::with_convention(pose, camera(), viewport, convention).unwrap()
+    })
+}
+
+fn draw_frame_with_view(
+    context: &GpuContext,
+    renderer: &mut FrameRenderer,
+    gpu: (&mut SceneGpu, &ScenePipelines),
+    mut shadowed: Option<&mut crate::shadows::ShadowedScene>,
+    source_frame: (&RenderScene, usize, f32),
+    camera: impl FnOnce(Viewport) -> SceneView,
 ) -> Vec<Vec<u8>> {
     let (source, index, time) = source_frame;
     let device = context.device();
@@ -171,16 +184,10 @@ fn draw_frame_at(
     .unwrap();
     let output =
         worldrunner_render_post::color_texture(device, "temporal differential", size, COLOR_FORMAT);
-    let view = SceneView::with_convention(
-        pose,
-        camera(),
-        Viewport {
-            width: size[0],
-            height: size[1],
-        },
-        convention,
-    )
-    .unwrap();
+    let view = camera(Viewport {
+        width: size[0],
+        height: size[1],
+    });
     let frame = FrameUniform::new(&view, source.effects()).unwrap();
     context
         .submission()

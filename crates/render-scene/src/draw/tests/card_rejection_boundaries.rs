@@ -53,30 +53,58 @@ fn compare(context: &GpuContext, source: &RenderScene, pose: CameraPose) -> Vec<
     new
 }
 
+fn adjacent_frame(context: &GpuContext, offsets: &[i64]) -> Vec<Vec<u8>> {
+    let source = flat_boundary_source(offsets);
+    let render = |reference| {
+        frame_with_view(context, &source, reference, 0.012, false, |viewport| {
+            SceneView::orthographic(
+                CameraPose {
+                    eye_millimeters: [OFFSET[0], OFFSET[1] - 8_193_000, 500],
+                    target_millimeters: [OFFSET[0], OFFSET[1], 500],
+                },
+                crate::view::OrthographicLens {
+                    vertical_half_extent_meters: 2.0,
+                    near_meters: 1.0,
+                    far_meters: 16_385.0,
+                },
+                viewport,
+            )
+            .unwrap()
+        })
+    };
+    let old = render(Some(ReceiverReference::LateCardRejection));
+    let new = render(None);
+    assert!(old == new, "offsets={offsets:?}");
+    new
+}
+
 #[test]
 fn gpu_card_rejection_preserves_one_ulp_depth_neighbours_and_ties() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let pose = CameraPose {
-        eye_millimeters: [OFFSET[0], OFFSET[1] - 40_000, 1000],
-        target_millimeters: [OFFSET[0], OFFSET[1], 1000],
-    };
-    let a = compare(&context, &flat_boundary_source(&[0]), pose);
-    let b = compare(&context, &flat_boundary_source(&[1]), pose);
+    // At north=887m, the integral-mm transforms round 1mm to 2^-10m.
+    // The orthographic scale 2^-14 maps that to exactly one ULP above 0.5.
+    // Constant plane depth, w=1 and Depth32FloatStencil8 avoid interpolation
+    // and depth-format quantization changing those explicitly represented values.
+    let north = crate::geometry::millimeter_to_meter(OFFSET[1]);
+    let neighbour = crate::geometry::millimeter_to_meter(OFFSET[1] + 1);
+    assert_eq!((neighbour - north).to_bits(), 2.0_f32.powi(-10).to_bits());
+    let a = adjacent_frame(&context, &[0]);
+    let b = adjacent_frame(&context, &[1]);
     let adjacent = a[1]
         .chunks_exact(4)
         .zip(b[1].chunks_exact(4))
         .filter(|(a, b)| {
             let a = u32::from_le_bytes((*a).try_into().unwrap());
             let b = u32::from_le_bytes((*b).try_into().unwrap());
-            a.abs_diff(b) == 1
+            a == 0.5_f32.to_bits() && b == a + 1
         })
         .count();
     assert!(
         adjacent > 0,
         "fixture must contain depths one f32 ULP apart"
     );
-    compare(&context, &flat_boundary_source(&[0, 1, 0]), pose);
+    adjacent_frame(&context, &[0, 1, 0]);
     println!("CARD_REJECTION_ONE_ULP_PIXELS {adjacent}");
 }
 

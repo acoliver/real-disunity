@@ -176,6 +176,27 @@ fn frame_at_pose_motion(
     pose: CameraPose,
     motion: bool,
 ) -> Vec<Vec<u8>> {
+    frame_with_view(context, source, reference, bias, motion, |viewport| {
+        SceneView::with_convention(
+            pose,
+            camera(),
+            viewport,
+            worldrunner_camera::ViewConvention {
+                handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,
+            },
+        )
+        .unwrap()
+    })
+}
+
+fn frame_with_view(
+    context: &GpuContext,
+    source: &RenderScene,
+    reference: Option<ReceiverReference>,
+    bias: f32,
+    motion: bool,
+    camera: impl Fn(Viewport) -> SceneView,
+) -> Vec<Vec<u8>> {
     let device = context.device();
     let reflection = source.effects().unwrap().ssr().is_some();
     let size = if !reflection || reference.is_some_and(ReceiverReference::probe) {
@@ -226,7 +247,7 @@ fn frame_at_pose_motion(
         (&mut gpu, &pipelines),
         &mut shadowed,
         source,
-        pose,
+        camera,
         motion,
     );
     assert_streamed_coverage(source, &mut shadowed);
@@ -262,7 +283,7 @@ fn draw_receiver_frame(
     gpu: (&mut SceneGpu, &ScenePipelines),
     shadowed: &mut crate::shadows::ShadowedScene,
     source: &RenderScene,
-    pose: CameraPose,
+    camera: impl Fn(Viewport) -> SceneView,
     motion: bool,
 ) -> Vec<Vec<u8>> {
     let terrain = source.terrain().unwrap();
@@ -273,29 +294,23 @@ fn draw_receiver_frame(
     // Streaming refines one quadtree level per frame; compare settled geometry.
     let mut products = Vec::new();
     for _ in 0..=levels {
-        products = super::draw_frame_at(
+        products = super::draw_frame_with_view(
             context,
             renderer,
             (&mut *gpu, pipelines),
             Some(&mut *shadowed),
             (source, 0, 0.125),
-            pose,
-            worldrunner_camera::ViewConvention {
-                handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,
-            },
+            &camera,
         );
     }
     if motion {
-        products = super::draw_frame_at(
+        products = super::draw_frame_with_view(
             context,
             renderer,
             (gpu, pipelines),
             Some(shadowed),
             (source, 1, 0.25),
-            pose,
-            worldrunner_camera::ViewConvention {
-                handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,
-            },
+            &camera,
         );
     }
     products
@@ -472,11 +487,21 @@ fn gpu_receiver_payload_fixture_detects_local_derivative_depth_state_changes() {
         })
         .sum::<usize>();
     println!("LOCAL_PROBE_CONTROL differing_attachment_bytes={different_bytes}");
-    let different_bytes = different_bytes + streamed::control(&context);
-    assert!(
-        different_bytes > 0,
-        "the displacement probe must detect local derivative depth-policy changes"
+    println!(
+        "STREAMED_DEPTH_POLICY_CONTROL differing_attachment_bytes={}",
+        streamed::control(&context)
     );
+    for (reference, baseline) in [
+        (ReceiverReference::OffsetProbeReuse, &reuse),
+        (ReceiverReference::StoredOffsetProbeReuse, &stored),
+    ] {
+        let changed = frame(&context, &source, Some(reference), 0.0);
+        assert_eq!(changed[payload_start..], baseline[payload_start..]);
+        assert!(
+            changed[10] != baseline[10] || changed[11] != baseline[11],
+            "the displacement probe must detect an injected offset: {reference:?}"
+        );
+    }
 }
 
 #[test]

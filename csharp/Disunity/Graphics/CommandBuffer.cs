@@ -39,6 +39,7 @@ public sealed partial class CommandBuffer : IDisposable
     {
         ThrowIfReleased();
         _commands.Clear();
+        _pass = null;
     }
 
     public void Release() => _released = true;

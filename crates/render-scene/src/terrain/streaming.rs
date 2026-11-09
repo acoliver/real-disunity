@@ -93,19 +93,17 @@ pub(crate) fn observe(
 }
 
 fn observation(desired: &[TerrainChunk], leaves: &[TerrainChunk]) -> TerrainSelectionObservation {
+    let refinements = Nested::new(desired);
     let drawn_coarse = leaves
         .iter()
-        .filter(|leaf| {
-            desired
-                .iter()
-                .any(|next| next != *leaf && contains(**leaf, *next))
-        })
+        .filter(|leaf| refinements.inside(**leaf))
         .count();
+    let drawn = Nested::new(leaves);
     TerrainSelectionObservation {
         selected_leaves: desired.len(),
         drawn_at_detail: leaves.len() - drawn_coarse,
         drawn_coarse,
-        unresolved_leaves: desired.iter().filter(|node| !leaves.contains(node)).count(),
+        unresolved_leaves: desired.iter().filter(|node| !drawn.has(**node)).count(),
     }
 }
 
@@ -230,21 +228,25 @@ fn refine(
     plan: &mut Plan<'_>,
 ) {
     let policy = terrain.streaming_policy().expect("streaming policy");
-    let mut candidates = plan.leaves.clone();
-    candidates.sort_by(|a, b| {
-        error(terrain, *b, matrix, viewport).total_cmp(&error(terrain, *a, matrix, viewport))
+    // Each leaf's footprint is projected once, not once per comparison of the sort.
+    let mut candidates: Vec<_> = plan
+        .leaves
+        .iter()
+        .map(|leaf| (error(terrain, *leaf, matrix, viewport), *leaf))
+        .collect();
+    candidates.sort_by(|(error_a, a), (error_b, b)| {
+        error_b
+            .total_cmp(error_a)
             // Larger strides precede smaller strides, ordering levels from the root.
             .then_with(|| b.stride.cmp(&a.stride))
             .then_with(|| a.cmp(b))
     });
-    for node in candidates {
+    let refinements = Nested::new(desired);
+    for (_, node) in candidates {
         let Some(children) = node.children() else {
             continue;
         };
-        if !desired
-            .iter()
-            .any(|next| *next != node && contains(node, *next))
-        {
+        if !refinements.inside(node) {
             continue;
         }
         if plan.admitted() + children.len() > policy.uploads_per_frame() as usize
@@ -299,10 +301,9 @@ fn desired(
     let policy = terrain.streaming_policy().expect("streaming policy");
     let mut pending = vec![TerrainChunk::root(terrain, policy)];
     let mut selected = Vec::new();
+    let leaves = Nested::new(current);
     while let Some(node) = pending.pop() {
-        let refined = current
-            .iter()
-            .any(|leaf| *leaf != node && contains(node, *leaf));
+        let refined = leaves.inside(node);
         let footprint = error(terrain, node, matrix, viewport);
         let threshold = f64::from(policy.split_error_millipixels());
         let subdivide = if refined {
@@ -317,6 +318,30 @@ fn desired(
         }
     }
     selected
+}
+
+/// Chunks sorted by their minimum corner, so that the ones that can lie inside a window are a
+/// contiguous run: those whose first minimum coordinate falls within the window's span.
+pub(super) struct Nested(Vec<TerrainChunk>);
+impl Nested {
+    pub(super) fn new(chunks: &[TerrainChunk]) -> Self {
+        let mut sorted = chunks.to_vec();
+        sorted.sort_unstable();
+        Self(sorted)
+    }
+    /// Whether a chunk other than `parent` lies inside it.
+    pub(super) fn inside(&self, parent: TerrainChunk) -> bool {
+        let start = self
+            .0
+            .partition_point(|chunk| chunk.minimum[0] < parent.minimum[0]);
+        self.0[start..]
+            .iter()
+            .take_while(|chunk| chunk.minimum[0] <= parent.maximum[0])
+            .any(|chunk| *chunk != parent && contains(parent, *chunk))
+    }
+    pub(super) fn has(&self, chunk: TerrainChunk) -> bool {
+        self.0.binary_search(&chunk).is_ok()
+    }
 }
 
 fn contains(parent: TerrainChunk, child: TerrainChunk) -> bool {

@@ -302,3 +302,49 @@ fn an_encoder_the_authority_does_not_own_is_refused_before_anything_is_prepared(
         "no pipeline was built for a refused admission"
     );
 }
+
+#[test]
+fn a_budget_larger_than_one_buffer_may_hold_is_reserved_in_several_buffers() {
+    let gpu = Gpu::new();
+    let runtime = gpu.runtime_with(AllocationBudget(ARENA));
+    // A device whose buffers hold a quarter of the budget.
+    let limits = wgpu::Limits {
+        max_buffer_size: ARENA / 4,
+        ..gpu.device.limits()
+    };
+    let mut renderer = Configuration::new(
+        &gpu.authority,
+        (),
+        AllocationSet::default(),
+        &limits,
+        AllocationBudget(1 << 20),
+    )
+    .unwrap();
+    assert!(
+        renderer
+            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(ARENA))
+            .is_err(),
+        "one buffer of the whole budget does not fit such a device"
+    );
+    let reservation = renderer
+        .reserve::<()>(
+            &limits,
+            ProgramRuntime::arena_allocations_within(ARENA, &limits),
+        )
+        .unwrap();
+    // The arena covers the budget, so the runtime opens it.
+    runtime.open_arena(reservation).unwrap();
+}
+
+#[test]
+fn the_buffers_of_an_arena_reservation_add_up_to_the_budget_with_a_remainder() {
+    let limits = wgpu::Limits {
+        max_buffer_size: 1000,
+        ..wgpu::Limits::default()
+    };
+    // 1000 bytes is a whole multiple of the copy alignment, so the chunks are 1000 bytes.
+    let set = ProgramRuntime::arena_allocations_within(2500, &limits);
+    assert_eq!(set.validate(&limits), Ok(2500));
+    let fits = ProgramRuntime::arena_allocations_within(900, &limits);
+    assert_eq!(fits.validate(&limits), Ok(900));
+}

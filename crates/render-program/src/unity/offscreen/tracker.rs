@@ -143,6 +143,18 @@ impl Tracker {
             .view_dimension(imported.primary, range, version, dimension)
     }
 
+    /// A view of one mip of one layer of a texture, in the dimension its binding declares.
+    pub(super) fn level_view(
+        &self,
+        key: AllocationKey,
+        cell: (u32, u32),
+        dimension: wgpu::TextureViewDimension,
+        version: u32,
+    ) -> Result<CheckedView, ContractError> {
+        let range = TextureRange::single(cell.0, cell.1, wgpu::TextureAspect::All);
+        self.registry.view_dimension(key, range, version, dimension)
+    }
+
     pub(super) fn cell(&self, key: AllocationKey, mip: u32, layer: u32) -> u32 {
         self.cells.get(&(key, mip, layer)).copied().unwrap_or(0)
     }

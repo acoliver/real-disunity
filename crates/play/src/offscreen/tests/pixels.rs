@@ -13,10 +13,10 @@ use worldrunner_world_simulation::graphics::{
 };
 
 use super::super::flush::OffscreenHost;
-use super::super::pixels::REFUSED_INTEGER;
-use super::flush::host;
+use super::super::pixels::{REFUSED_BUDGET, REFUSED_INTEGER, REFUSED_NO_COPY};
+use super::flush::{host, host_with_budget};
 use super::gpu::{Quad, SIDE, shader, target, vector};
-use super::support::{snapshot, world};
+use super::support::{render_texture, snapshot, world};
 
 /// The 8-bit values of the centres of the four columns or rows: 255 * (0.125, 0.375, ...)
 /// rounded to the nearest integer (31.875, 95.625, 159.375, 223.125).
@@ -271,4 +271,91 @@ fn a_read_of_a_texture_nothing_drew_into_answers_zeros() {
 
     assert_eq!(world.take_texture_pixels(request), Some(vec![0.0; 64]));
     assert_eq!(outcome.report.pixel_reads, 1);
+}
+
+/// A world that blits into a render texture and reads one texel of it when `read` is set.
+fn blit_world(read: bool) -> (World, Option<u64>) {
+    let mut world = world();
+    let (source, drawn) = (target(&mut world, ARGB32), target(&mut world, ARGB32));
+    blit(&mut world, (source, drawn), 0, [1.0; 4]);
+    let request = read.then(|| world.request_texture_pixels(drawn, 0, 0, 1, 1).unwrap());
+    (world, request)
+}
+
+#[test]
+fn a_read_the_budget_has_no_room_to_copy_is_refused_and_counted_with_its_cause() {
+    let directory = tempfile::tempdir().unwrap();
+    // The storage the blit alone holds once the GPU is done with it.
+    let mut measured = host(directory.path());
+    let (mut world, _) = blit_world(false);
+    flush(&mut measured, &mut world);
+    measured.settle();
+    let held = measured.live_bytes();
+
+    // A budget of exactly that has nothing left for the copy a read stages.
+    let mut host = host_with_budget(directory.path(), held);
+    let (mut world, request) = blit_world(true);
+    let outcome = flush(&mut host, &mut world);
+
+    assert_eq!(world.take_texture_pixels(request.unwrap()), None);
+    assert_eq!(outcome.report.pixel_reads, 0);
+    assert_eq!(
+        outcome
+            .report
+            .pixel_reads_refused
+            .iter()
+            .map(|(why, count)| (why.as_str(), *count))
+            .collect::<Vec<_>>(),
+        [(format!("{REFUSED_NO_COPY}: {REFUSED_BUDGET}").as_str(), 1)]
+    );
+}
+
+/// A world whose first flush draws into a large render texture and a small one. The caller's
+/// later flushes draw into the small one only.
+fn two_sizes() -> (World, RenderTextureId, RenderTextureId) {
+    let mut world = world();
+    let source = target(&mut world, ARGB32);
+    let drawn = target(&mut world, ARGB32);
+    let large = render_texture(&mut world, [32, 32]);
+    blit(&mut world, (source, large), 0, [1.0; 4]);
+    blit(&mut world, (source, drawn), 0, [1.0; 4]);
+    (world, source, drawn)
+}
+
+#[test]
+fn a_read_with_no_room_for_its_copy_takes_it_from_a_render_texture_no_snapshot_names() {
+    let directory = tempfile::tempdir().unwrap();
+    let again = |world: &mut World, source, drawn| blit(world, (source, drawn), 0, [1.0; 4]);
+
+    // With room to spare, two flushes leave the storage the tight run is limited to.
+    let mut roomy = host(directory.path());
+    let (mut world, source, drawn) = two_sizes();
+    flush(&mut roomy, &mut world);
+    again(&mut world, source, drawn);
+    flush(&mut roomy, &mut world);
+    roomy.settle();
+    let held = roomy.live_bytes();
+
+    // The third flush's read stages 1024 bytes, which only the large texture's 4096 can make room for.
+    let mut host = host_with_budget(directory.path(), held);
+    let (mut world, source, drawn) = two_sizes();
+    flush(&mut host, &mut world);
+    again(&mut world, source, drawn);
+    flush(&mut host, &mut world);
+    host.settle();
+    again(&mut world, source, drawn);
+    let request = world.request_texture_pixels(drawn, 3, 3, 1, 1).unwrap();
+    let outcome = flush(&mut host, &mut world);
+
+    assert_eq!(
+        world.take_texture_pixels(request),
+        Some(gradient(3..4, 3..4))
+    );
+    assert_eq!(outcome.report.pixel_reads, 1);
+    assert!(
+        outcome.report.pixel_reads_refused.is_empty(),
+        "{:?}",
+        outcome.report.pixel_reads_refused
+    );
+    assert_eq!(outcome.report.reclaimed.targets, 1);
 }

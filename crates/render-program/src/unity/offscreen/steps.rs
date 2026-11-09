@@ -21,6 +21,7 @@ use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Re
 use super::list_steps::{self, Loads};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
+use super::resample::{ResampleStep, resample_step};
 use super::textures::TextureInfo;
 use super::tracker::Tracker;
 use super::{
@@ -57,6 +58,7 @@ pub(super) enum Step {
         draws: Vec<CameraDraw>,
     },
     Blit(BlitStep),
+    Resample(Box<ResampleStep>),
 }
 
 /// The global values and keywords the draws read: the frame's own until a record replaces them.
@@ -683,7 +685,7 @@ fn blit_step(
 ) -> Result<Step, OffscreenError> {
     require_render_texture(svc, target)?;
     let Some(material_id) = material else {
-        return plain_blit(svc, index, source, target).map(Step::Ready);
+        return plain_blit(svc, index, source, target);
     };
     let material = frame
         .materials
@@ -774,26 +776,17 @@ fn blit_vertex_count(svc: &Services<'_>, mesh: MeshId) -> Result<u32, OffscreenE
     Ok(info.vertex_count)
 }
 
-/// A blit with no material copies the texture when the sizes and formats agree.
+/// A blit with no material copies the texture when the sizes and formats agree, and otherwise
+/// draws the source over the target.
 fn plain_blit(
     svc: &mut Services<'_>,
     index: usize,
     source: TextureId,
     target: TextureId,
-) -> Result<TypedOperation, OffscreenError> {
+) -> Result<Step, OffscreenError> {
     let (from, to) = (svc.textures.get(source)?, svc.textures.get(target)?);
-    let reason = if from.size != to.size {
-        Some(format!("the sizes are {:?} and {:?}", from.size, to.size))
-    } else if from.format != to.format {
-        Some(format!(
-            "the formats are {:?} and {:?}",
-            from.format, to.format
-        ))
-    } else {
-        None
-    };
-    if let Some(reason) = reason {
-        return Err(OffscreenError::BlitNeedsMaterial { reason });
+    if from.size != to.size || from.format != to.format {
+        return resample_step(svc, index, (source, target));
     }
     copy_cells(
         svc,
@@ -801,6 +794,7 @@ fn plain_blit(
         (source, 0, 0),
         (target, 0, 0),
     )
+    .map(Step::Ready)
 }
 
 fn copy_step(

@@ -15,6 +15,7 @@ mod layers;
 mod lifetime;
 mod lists;
 mod mips;
+mod resample;
 mod resolve;
 mod rig;
 mod sampler;

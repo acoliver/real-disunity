@@ -31,9 +31,7 @@ use crate::offscreen::{
     ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
     Report, Settings, WorkTrace,
 };
-
-/// Bytes of GPU storage the program runtime may hold.
-const RUNTIME_BUDGET: u64 = 512 << 20;
+use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
@@ -333,8 +331,11 @@ impl GpuWorkReport {
             self.peak_live_bytes, self.peak_runtime_bytes
         );
         eprintln!(
-            "[gpu] given back to make room: {} textures, {} meshes, {} bytes",
-            self.reclaimed.textures, self.reclaimed.meshes, self.reclaimed.bytes
+            "[gpu] given back to make room: {} textures, {} render textures, {} meshes, {} bytes",
+            self.reclaimed.textures,
+            self.reclaimed.targets,
+            self.reclaimed.meshes,
+            self.reclaimed.bytes
         );
         for line in &self.refusal_holdings {
             eprintln!(
@@ -352,15 +353,28 @@ impl GpuWorkReport {
     }
 }
 
-/// The device the headless player asks for: the default limits and block compression where offered, except that one buffer may hold
-/// the whole storage budget, since the program arena is reserved as one buffer of that size.
-/// It prefers eight storage images in a stage where the adapter has them, because two of the Old
+/// The storage budget for `adapter`: see [`storage_budget`].
+fn storage_choice(adapter: &wgpu::Adapter) -> Choice {
+    let env = std::env::var(STORAGE_BUDGET_ENV).ok();
+    storage_budget::choose(
+        env.as_deref(),
+        adapter.get_info().device_type,
+        host_available_bytes(),
+    )
+}
+
+/// The device the headless player asks for: the default limits and block compression where
+/// offered, with buffers as large as the storage budget allows (the adapter's own limit when that
+/// is less, since the budget does not need one buffer to hold it). It prefers eight storage images in a stage where the adapter has them, because two of the Old
 /// World's compute variants bind five and the default limit is four; an adapter that does not has
 /// the default limit and leaves those two variants out by name.
-fn device_requirements() -> DeviceRequirements {
+fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequirements {
+    let default = wgpu::Limits::default();
     let required = wgpu::Limits {
-        max_buffer_size: RUNTIME_BUDGET,
-        ..wgpu::Limits::default()
+        max_buffer_size: budget
+            .max(default.max_buffer_size)
+            .min(available.max_buffer_size),
+        ..default
     };
     DeviceRequirements {
         // The player stores some textures block-compressed; a device without the feature leaves
@@ -388,7 +402,9 @@ pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeC
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .map_err(|error| format!("no adapter: {error}"))?;
-    let (device, queue, _) = pollster::block_on(request_device(&adapter, &device_requirements()))
+    let budget = storage_choice(&adapter).bytes;
+    let requirements = device_requirements(budget, &adapter.limits());
+    let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
         .map_err(|error| format!("no device: {error}"))?;
     let name = format!(
         "{}, {} storage images in a stage",
@@ -398,7 +414,7 @@ pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeC
     let runtime = ProgramRuntime::new(
         device,
         SubmissionAuthority::new(queue),
-        AllocationBudget(RUNTIME_BUDGET),
+        AllocationBudget(budget),
     );
     crate::offscreen::compute_census(data, &runtime)
         .map(|census| (name, census))
@@ -431,11 +447,12 @@ impl PlayerGpu {
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &device_requirements()))
-                .map_err(|error| format!("no device: {error}"))?;
+        let choice = storage_choice(&adapter);
+        let requirements = device_requirements(choice.bytes, &adapter.limits());
+        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+            .map_err(|error| format!("no device: {error}"))?;
         let authority = SubmissionAuthority::new(queue);
-        let budget = AllocationBudget(RUNTIME_BUDGET);
+        let budget = AllocationBudget(choice.bytes);
         let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
         let limits = device.limits();
         let mut renderer = Configuration::new(
@@ -443,11 +460,14 @@ impl PlayerGpu {
             (),
             AllocationSet::default(),
             &limits,
-            AllocationBudget(RUNTIME_BUDGET * 4),
+            AllocationBudget(budget.0.saturating_mul(4)),
         )
         .map_err(|error| format!("no renderer configuration: {error}"))?;
         let reservation = renderer
-            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(budget.0))
+            .reserve::<()>(
+                &limits,
+                ProgramRuntime::arena_allocations_within(budget.0, &limits),
+            )
             .map_err(|error| format!("no arena reservation: {error:?}"))?;
         let arena = runtime
             .open_arena(reservation)
@@ -456,14 +476,15 @@ impl PlayerGpu {
         let device_line = format!(
             "adapter {} ({:?}), buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size \
              {}, max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, \
-             runtime budget {}",
+             runtime budget {} ({})",
             info.name,
             info.backend,
             limits.max_buffer_size,
             limits.max_uniform_buffer_binding_size,
             limits.max_storage_buffer_binding_size,
             limits.min_uniform_buffer_offset_alignment,
-            budget.0
+            budget.0,
+            choice.source
         );
         let settings = Settings::cameras();
         let offscreen = OffscreenHost::new(
@@ -648,44 +669,55 @@ mod tests {
         assert_eq!(report.work.len(), 3, "every piece of work keeps its trace");
     }
 
-    /// The limits an adapter that offers `storage_images` storage images in a stage and the
-    /// budget-sized buffer the headless device needs would give the player's request.
-    fn negotiated_storage_images(storage_images: u32) -> u32 {
+    /// The limits an adapter that offers `storage_images` storage images in a stage and buffers
+    /// of `adapter_buffer` bytes would give the player's request for a budget of `budget`.
+    fn negotiated(storage_images: u32, adapter_buffer: u64, budget: u64) -> wgpu::Limits {
         let available = wgpu::Limits {
-            max_buffer_size: RUNTIME_BUDGET * 2,
+            max_buffer_size: adapter_buffer,
             max_storage_textures_per_shader_stage: storage_images,
             ..wgpu::Limits::default()
         };
-        let negotiated = worldrunner_render_gpu::device::negotiate(
+        worldrunner_render_gpu::device::negotiate(
             wgpu::Features::empty(),
             &available,
-            &device_requirements(),
+            &device_requirements(budget, &available),
         )
-        .unwrap();
-        assert_eq!(negotiated.limits.max_buffer_size, RUNTIME_BUDGET);
-        negotiated.limits.max_storage_textures_per_shader_stage
+        .unwrap()
+        .limits
     }
 
     #[test]
     fn the_headless_device_asks_for_the_storage_images_the_old_world_kernels_bind_when_offered() {
+        let budget = storage_budget::DEFAULT_BYTES;
         // Two Old World compute variants bind five storage images in their one stage, one more
         // than the default limit of four.
-        assert!(negotiated_storage_images(16) >= 5);
+        let offered = negotiated(16, budget * 2, budget);
+        assert!(offered.max_storage_textures_per_shader_stage >= 5);
+        assert_eq!(offered.max_buffer_size, budget);
         assert_eq!(
-            negotiated_storage_images(4),
+            negotiated(4, budget * 2, budget).max_storage_textures_per_shader_stage,
             4,
             "an adapter at the default limit still gets a device"
         );
     }
 
     #[test]
-    fn the_headless_device_can_hold_the_whole_storage_budget_in_one_arena_buffer() {
+    fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
+        // The budget is a total, not a buffer: the device takes the adapter's largest buffer.
+        let default = wgpu::Limits::default().max_buffer_size;
+        let limits = negotiated(16, default, 4 * default);
+        assert_eq!(limits.max_buffer_size, default);
+        assert!(limits.max_storage_textures_per_shader_stage >= 5);
+    }
+
+    #[test]
+    fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
         let directory = tempfile::tempdir().unwrap();
         let gpu = PlayerGpu::headless(directory.path()).unwrap();
-        assert_eq!(gpu.storage_budget(), RUNTIME_BUDGET);
+        assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
         assert!(
-            gpu.storage_budget() > 256 << 20,
-            "the Old World frames need more than the default buffer limit"
+            gpu.report().device.contains("runtime budget"),
+            "the report says where the budget came from"
         );
     }
 }

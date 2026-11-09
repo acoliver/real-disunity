@@ -52,6 +52,7 @@ internal static unsafe class CommandWireReader
             10 => $"Cull id={input.U64()} camera={input.Component()} mask={input.U32()} planes=[{string.Join(",", input.List(() => input.Floats(4)))}] options={input.U32()}",
             13 => $"CreateList id={input.U64()} {input.RendererList()}",
             14 => $"DrawList list={input.U64()}",
+            15 => $"ViewProjection view={input.Floats(16)} projection={input.Floats(16)}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");

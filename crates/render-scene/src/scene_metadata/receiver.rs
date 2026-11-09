@@ -1,5 +1,8 @@
 //! Lossless primitive receiver displacements, produced once at pixel centres.
 mod admission;
+mod cards;
+#[cfg(test)]
+pub(crate) use cards::reference as late_card_source;
 mod backing;
 pub(crate) use backing::ReceiverBacking;
 mod bindings;
@@ -115,6 +118,7 @@ var<private> scene_probe_dx: vec3<f32>; var<private> scene_probe_dy: vec3<f32>;"
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ReceiverReference {
+    LateCardRejection,
     StoredShared,
     StoredIndependent,
     ProbeIndependent,
@@ -136,7 +140,9 @@ impl ReceiverReference {
             | Self::ProbeShared
             | Self::StoredProbeShared
             | Self::BlackShared => crate::renderer::depth::DepthMode::Shared,
-            Self::ProbeReuse | Self::StoredProbeReuse => crate::renderer::depth::DepthMode::Reuse,
+            Self::LateCardRejection | Self::ProbeReuse | Self::StoredProbeReuse => {
+                crate::renderer::depth::DepthMode::Reuse
+            }
         }
     }
     pub(crate) const fn local(self) -> bool {
@@ -222,7 +228,9 @@ impl crate::compositor::FrameRenderer {
                 |receiver| {
                     #[cfg(test)]
                     if let Some(reference) = self.receiver_reference
-                        && (reference.local() || reference.probe())
+                        && (reference.local()
+                            || reference.probe()
+                            || matches!(reference, ReceiverReference::LateCardRejection))
                     {
                         return pipelines.for_receiver_reference(reference, receiver.layout);
                     }

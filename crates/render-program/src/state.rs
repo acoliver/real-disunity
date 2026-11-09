@@ -76,6 +76,25 @@ impl RenderState {
         }
     }
 
+    /// No culling, no depth, one target written in all channels without blending: the state of
+    /// a triangle that covers a target.
+    #[must_use]
+    pub(crate) fn fullscreen() -> Self {
+        Self {
+            raster: RasterState {
+                cull: None,
+                front_face: wgpu::FrontFace::Ccw,
+                alpha_to_coverage: false,
+            },
+            depth: None,
+            colors: vec![Some(ColorState {
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            stencil: None,
+        }
+    }
+
     /// Checks that a draw into one colour target can use this state and returns that target's
     /// state.
     ///

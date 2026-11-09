@@ -88,9 +88,12 @@ internal static class CommandBufferTests
         buffer.SetShadingRateCombiner(ShadingRateCombinerStage.Fragment, ShadingRateCombiner.Max);
         buffer.SetShadingRateImage(new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget));
         buffer.ResetShadingRate();
-        Ensure(buffer.commandCount == 0, "shading-rate members record nothing");
+        buffer.SetFoveatedRenderingMode(FoveatedRenderingMode.Enabled);
+        buffer.SetFoveatedRenderingMode(FoveatedRenderingMode.Disabled);
+        Ensure(buffer.commandCount == 0, "shading-rate and foveated rendering members record nothing");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.ResetShadingRate(), "a shading-rate reset on a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.SetFoveatedRenderingMode(FoveatedRenderingMode.Disabled), "a foveated mode on a released buffer", "CommandBuffer");
         Throws<ObjectDisposedException>(() => buffer.SetShadingRateFragmentSize(ShadingRateFragmentSize.FragmentSize1x1),
             "a fragment size on a released buffer", "CommandBuffer");
         Throws<ObjectDisposedException>(() => buffer.SetShadingRateCombiner(ShadingRateCombinerStage.Primitive, ShadingRateCombiner.Keep),

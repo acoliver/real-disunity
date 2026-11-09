@@ -112,10 +112,53 @@ impl Assets for GpuFlush<'_> {
     }
 }
 
+/// What a mesh that has nothing to draw holds. A mesh like that is skipped without a failure and
+/// counted by this description, which has no counts that differ from mesh to mesh.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Emptiness {
+    /// Whether the mesh has vertices.
+    pub vertices: bool,
+    /// Whether the mesh has indices.
+    pub indices: bool,
+    /// The sub-mesh records, and the distinct topologies among them in ascending order.
+    pub ranges: usize,
+    pub topologies: Vec<u32>,
+}
+
+impl std::fmt::Display for Emptiness {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} sub-meshes with topologies {:?}, {} indices, {} vertices",
+            self.ranges,
+            self.topologies,
+            if self.indices { "with" } else { "no" },
+            if self.vertices { "with" } else { "no" },
+        )
+    }
+}
+
+impl Emptiness {
+    fn of(mesh: &MeshChannels) -> Self {
+        let mut topologies: Vec<u32> = mesh.ranges.iter().map(|range| range.topology).collect();
+        topologies.sort_unstable();
+        topologies.dedup();
+        Self {
+            vertices: mesh.vertex_count > 0,
+            indices: !mesh.indices.is_empty(),
+            ranges: mesh.ranges.len(),
+            topologies,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MeshError {
-    #[error("the mesh has no triangles")]
-    NoTriangles,
+    /// Not a failure: no sub-mesh has an index to draw, or the mesh has no vertices.
+    #[error("the mesh has nothing to draw: {0}")]
+    Empty(Emptiness),
+    #[error("a sub-mesh draws from indices, and the mesh has none")]
+    IndicesMissing,
     #[error("the mesh has no position channel")]
     NoPositions,
     #[error("channel {number} has {found} floats for {expected}")]
@@ -185,13 +228,18 @@ fn sub_meshes(mesh: &MeshChannels) -> Result<Vec<SubMesh>, MeshError> {
 /// The stored channels of a mesh as a render-program mesh.
 ///
 /// # Errors
-/// Fails when the mesh has no position channel or no triangles, a channel does not have
-/// `dimension` floats for each vertex, a range that draws is not triangles, or the mesh has more
-/// sub-meshes than a renderer has slots.
+/// Fails with [`MeshError::Empty`] when there is nothing to draw: no vertices, or no sub-mesh
+/// with an index to draw. Fails by name when a sub-mesh draws from indices the mesh lacks, the mesh
+/// has no position channel, a channel does not have `dimension` floats for each vertex, a range
+/// that draws is not triangles, or the mesh has more sub-meshes than a renderer has slots.
 pub fn mesh_of(stored: &MeshChannels) -> Result<Mesh, MeshError> {
     let vertices = stored.vertex_count as usize;
-    if stored.indices.is_empty() || stored.ranges.iter().all(|range| range.count == 0) {
-        return Err(MeshError::NoTriangles);
+    let draws = stored.ranges.iter().any(|range| range.count > 0);
+    if stored.vertex_count == 0 || !draws {
+        return Err(MeshError::Empty(Emptiness::of(stored)));
+    }
+    if stored.indices.is_empty() {
+        return Err(MeshError::IndicesMissing);
     }
     if !stored
         .channels

@@ -8,6 +8,7 @@ mod camera;
 mod causes;
 mod compute_census;
 mod defaults;
+mod empty_meshes;
 mod fallback;
 mod flush;
 mod frame;

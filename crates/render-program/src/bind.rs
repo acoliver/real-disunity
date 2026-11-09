@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::binding::{BindingAddress, BindingSource, EngineSemantic};
 use crate::budget::Reservation;
 use crate::error::{ProgramError, StorageImageError};
-use crate::import::{Import, ImportedResource, default_dimension};
+use crate::import::{Import, ImportedResource};
 use crate::layout::Slot;
 use crate::program::{ComputeProgram, GpuLayout};
 use crate::resources::{BoundResource, Resource};
@@ -183,7 +183,7 @@ impl ProgramRuntime {
             }
             (wgpu::BindingType::Texture { .. }, Resource::Texture(handle)) => {
                 let entry = self.store.texture(handle)?;
-                check_texture(slot, &entry.texture, default_dimension(&entry.texture))?;
+                check_texture(slot, &entry.texture, entry.dimension)?;
                 Ok(Resolved::Borrowed(wgpu::BindingResource::TextureView(
                     &entry.view,
                 )))

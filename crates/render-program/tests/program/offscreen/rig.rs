@@ -92,7 +92,6 @@ pub fn texture(id: u64, size: [u32; 2]) -> RenderTextureSpec {
     RenderTextureSpec {
         id: TextureId(id),
         size,
-        layers: 1,
         dimension: RenderDimension::D2,
         graphics_format: RGBA8,
         depth_bits: 0,

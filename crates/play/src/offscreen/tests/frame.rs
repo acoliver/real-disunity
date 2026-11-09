@@ -458,7 +458,7 @@ fn a_render_texture_keeps_its_format_depth_mips_srgb_and_generation() {
         .unwrap();
     assert_eq!(spec.size, [32, 16]);
     assert_eq!(
-        (spec.layers, spec.graphics_format, spec.depth_bits),
+        (spec.layers(), spec.graphics_format, spec.depth_bits),
         (1, 4, 24)
     );
     assert_eq!((spec.mips, spec.srgb, spec.generation), (4, true, 2));

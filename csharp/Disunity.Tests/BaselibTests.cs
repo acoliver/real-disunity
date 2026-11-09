@@ -15,6 +15,8 @@ internal static unsafe class BaselibTests
         Loopback();
         QueueLimits();
         Console.WriteLine("PASS: Baselib UDP sockets send and receive through registered buffers over loopback");
+        BindingATakenPortIsExplained();
+        Console.WriteLine("PASS: binding a port another socket holds fails with AddressInUse, and Baselib explains the error");
     }
 
     private static void Memory()
@@ -87,6 +89,35 @@ internal static unsafe class BaselibTests
         Ensure(error.code == Baselib_ErrorCode.Success && address.family == (byte)Baselib_NetworkAddress_Family.IPv4, "a socket reports its IPv4 address");
         Ensure(address.ipv4_0 == 127 && address.ipv4_3 == 1 && (address.port0 | address.port1) != 0, "the loopback address and an assigned port");
         return address;
+    }
+
+    private static string Explain(Baselib_ErrorState* error, Baselib_ErrorState_ExplainVerbosity verbosity, uint capacity, out uint needed)
+    {
+        var buffer = stackalloc byte[64];
+        new Span<byte>(buffer, 64).Fill(0xAA);
+        needed = Baselib_ErrorState_Explain(error, buffer, capacity, verbosity);
+        var length = new ReadOnlySpan<byte>(buffer, 64).IndexOf((byte)0);
+        Ensure(capacity == 0 ? buffer[0] == 0xAA : length >= 0 && length < capacity, "the text ends with a zero inside the buffer");
+        return capacity == 0 ? "" : Encoding.UTF8.GetString(buffer, length);
+    }
+
+    private static void BindingATakenPortIsExplained()
+    {
+        var holder = Bind();
+        var taken = Address(holder);
+        Baselib_ErrorState error;
+        var second = Baselib_RegisteredNetwork_Socket_UDP_Create(&taken, Baselib_NetworkAddress_AddressReuse.DoNotAllow, 4, 4, &error);
+        Ensure(error.code == Baselib_ErrorCode.AddressInUse && second.handle == IntPtr.Zero, "the second bind fails with AddressInUse");
+        Ensure(error.nativeErrorCodeType == Baselib_ErrorState_NativeErrorCodeType.PlatformDefined && error.nativeErrorCode != 0, "with the platform's error number");
+        var brief = Explain(&error, Baselib_ErrorState_ExplainVerbosity.ErrorType, 64, out var needed);
+        Ensure(brief == "AddressInUse" && needed == 13, $"the brief explanation names the code: '{brief}' needs {needed}");
+        var full = Explain(&error, Baselib_ErrorState_ExplainVerbosity.ErrorType_SourceLocation_Explanation, 64, out needed);
+        Ensure(full == $"AddressInUse (platform error {error.nativeErrorCode})" && needed == full.Length + 1, $"the full one adds the platform error: '{full}'");
+        Ensure(Explain(&error, Baselib_ErrorState_ExplainVerbosity.ErrorType, 6, out needed) == "Addre" && needed == 13, "a short buffer is cut and still ends with a zero");
+        Ensure(Explain(&error, Baselib_ErrorState_ExplainVerbosity.ErrorType, 0, out needed) == "" && needed == 13, "a zero length writes nothing and gives the length needed");
+        var unknown = new Baselib_ErrorState { code = (Baselib_ErrorCode)0x7, nativeErrorCodeType = Baselib_ErrorState_NativeErrorCodeType.None };
+        Ensure(Explain(&unknown, Baselib_ErrorState_ExplainVerbosity.ErrorType_SourceLocation_Explanation, 64, out _) == "0x00000007", "an unnamed code is given in hex");
+        Baselib_RegisteredNetwork_Socket_UDP_Close(holder);
     }
 
     private static void Loopback()

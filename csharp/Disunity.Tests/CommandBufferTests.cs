@@ -59,6 +59,7 @@ internal static class CommandBufferTests
         Ensure(buffer.commandCount == 0, "clearing random-write targets records nothing, since none can be bound");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.ClearRandomWriteTargets(), "a released buffer", "CommandBuffer");
+        ExecutionFlagsAreSetOnAnEmptyBuffer();
         FencesHavePassedAndRecordNothing();
     }
 
@@ -77,6 +78,23 @@ internal static class CommandBufferTests
         Throws<ObjectDisposedException>(() => buffer.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation, SynchronisationStageFlags.PixelProcessing),
             "a fence on a released buffer", "CommandBuffer");
         Throws<ObjectDisposedException>(() => buffer.WaitOnAsyncGraphicsFence(default, SynchronisationStageFlags.PixelProcessing), "a wait on a released buffer", "CommandBuffer");
+    }
+
+    private static void ExecutionFlagsAreSetOnAnEmptyBuffer()
+    {
+        var buffer = new CommandBuffer();
+        Ensure(buffer.ExecutionFlags == CommandBufferExecutionFlags.None, "a new buffer has no execution flags");
+        buffer.SetExecutionFlags(CommandBufferExecutionFlags.AsyncCompute);
+        Ensure(buffer.ExecutionFlags == CommandBufferExecutionFlags.AsyncCompute && buffer.commandCount == 0, "the flag is kept and records nothing");
+        Throws<ArgumentException>(() => buffer.SetExecutionFlags((CommandBufferExecutionFlags)1), "an unknown flag", "SetExecutionFlags");
+        buffer.ClearRandomWriteTargets();
+        buffer.SetGlobalFloat("_Probe", 1);
+        Throws<InvalidOperationException>(() => buffer.SetExecutionFlags(CommandBufferExecutionFlags.None), "flags on a buffer with commands", "SetExecutionFlags");
+        buffer.Clear();
+        buffer.SetExecutionFlags(CommandBufferExecutionFlags.None);
+        Ensure(buffer.ExecutionFlags == CommandBufferExecutionFlags.None, "a cleared buffer takes new flags");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.SetExecutionFlags(CommandBufferExecutionFlags.None), "flags on a released buffer", "CommandBuffer");
     }
 
     private static void Compute()

@@ -198,7 +198,6 @@ impl ScenePipelines {
             (spec.options, &spec.family),
         );
         selected.ssao = self.ssao;
-        selected.terrain_on_runtime = self.terrain_on_runtime;
         selected
     }
 

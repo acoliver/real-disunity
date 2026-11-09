@@ -86,13 +86,12 @@ fn receiver_producers_and_consumers_validate_without_local_receiver_derivatives(
                 0.012,
                 crate::scene_metadata::receiver::ReceiverCapture::Normal,
             );
-            for source in [&sources.0, &sources.1] {
+            for (source, input) in [(&sources.0, "input.world_position"), (&sources.1, "input")] {
                 validate(source);
                 assert_eq!(source_formats(source), layout.formats());
-                assert!(
-                    source
-                        .contains("scene_capture_receiver(input.world_position, projected.normal)")
-                );
+                assert!(source.contains(&format!(
+                    "scene_capture_receiver({input}, projected.normal)"
+                )));
             }
         }
         for reflection in [false, true] {

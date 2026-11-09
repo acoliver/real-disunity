@@ -21,24 +21,35 @@ fn values(layout: ReceiverLayout, prefix: &str) -> String {
     }
     result
 }
-fn capture(layout: ReceiverLayout, bias: f32) -> String {
-    let mut body = String::new();
+fn capture(layout: ReceiverLayout, bias: f32, terrain: bool) -> String {
+    let (position, dx, dy, mut body) = if terrain {
+        (
+            "input: TerrainVertexOutput",
+            "scene_receiver_dx",
+            "scene_receiver_dy",
+            "let plane = normalize(terrain_face_normal(input.world_position.xy, input.plane_index, input.skirt_axis));\nlet scene_receiver_dx = scene_receiver_displacement(input.clip_position, vec2<f32>(1.0, 0.0), plane);\nlet scene_receiver_dy = scene_receiver_displacement(input.clip_position, vec2<f32>(0.0, 1.0), plane);\n".to_owned(),
+        )
+    } else {
+        (
+            "position: vec3<f32>",
+            "dpdx(position)",
+            "dpdy(position)",
+            String::new(),
+        )
+    };
     let mut globals = String::new();
     for side in 0..layout.sides() {
         let normal = if side == 0 { "normal" } else { "-normal" };
-        let displacement = |axis| {
+        let biased = |axis| {
             if bias == 0.0 {
-                format!("dpd{axis}(position)")
+                String::new()
             } else {
-                format!(
-                    "dpd{axis}(position) + dpd{axis}({normal}) * bitcast<f32>({}u)",
-                    bias.to_bits()
-                )
+                format!(" + dpd{axis}({normal}) * bitcast<f32>({}u)", bias.to_bits())
             }
         };
-        write!(body,
-            "let dx_{side} = {};\nlet dy_{side} = {};\nreceiver_{side}_a = vec4<f32>(dx_{side}, dy_{side}.x); receiver_{side}_b = dy_{side}.yz;\n",
-            displacement('x'), displacement('y'),
+        writeln!(body,
+            "let dx_{side} = {dx}{};\nlet dy_{side} = {dy}{};\nreceiver_{side}_a = vec4<f32>(dx_{side}, dy_{side}.x); receiver_{side}_b = dy_{side}.yz;",
+            biased('x'), biased('y'),
         ).unwrap();
         writeln!(
             globals,
@@ -47,9 +58,20 @@ fn capture(layout: ReceiverLayout, bias: f32) -> String {
         .unwrap();
     }
     format!(
-        "const SCENE_RECEIVER_SIDES: u32 = {}u;\n{globals}\nfn scene_capture_receiver(position: vec3<f32>, normal: vec3<f32>) {{ {body} }}",
+        "const SCENE_RECEIVER_SIDES: u32 = {}u;\n{globals}\nfn scene_capture_receiver({position}, normal: vec3<f32>) {{ {body} }}",
         layout.sides()
     )
+}
+
+fn terrain_displacement(source: &str) -> String {
+    // Keep the material footprint's plane solve, including its grazing-angle bounds.
+    function(source, "terrain_quad_footprint")
+        .replace("terrain_quad_footprint(", "scene_receiver_displacement(")
+        .replace(") -> vec2<f32>", ") -> vec3<f32>")
+        .replace(
+            "clamp(displacement.xy * direction, vec2<f32>(-1e4), vec2<f32>(1e4))",
+            "clamp(displacement * direction, vec3<f32>(-1e4), vec3<f32>(1e4))",
+        )
 }
 
 pub(super) fn producer(
@@ -66,13 +88,18 @@ pub(super) fn producer(
     let first = if merged { 2 } else { 1 };
     let extra = fields(layout, first);
     let values = values(layout, "");
-    let capture = capture(layout, bias);
+    let object_capture = capture(layout, bias, false);
+    let terrain_capture = capture(layout, bias, true);
     #[cfg(test)]
-    let capture = if evaluation == ReceiverCapture::MainArithmetic {
-        super::arithmetic_reference::capture(&capture, layout, bias)
+    let (object_capture, terrain_capture) = if evaluation == ReceiverCapture::MainArithmetic {
+        (
+            super::arithmetic_reference::capture(&object_capture, layout, bias),
+            super::arithmetic_reference::capture(&terrain_capture, layout, bias),
+        )
     } else {
-        capture
+        (object_capture, terrain_capture)
     };
+    let displacement = terrain_displacement(&terrain);
     let object = if merged {
         object
             .replace(
@@ -127,12 +154,16 @@ pub(super) fn producer(
             .replace(&format!("return {normal};"), &format!("scene_capture_receiver(input.world_position, projected.normal); return SceneReceiverOutput({normal}{values});"))
             + &format!("\nstruct SceneReceiverOutput {{ @location(0) normal: vec4<f32>,{extra} }}")
     };
+    let terrain = terrain.replace(
+        "scene_capture_receiver(input.world_position, projected.normal)",
+        "scene_capture_receiver(input, projected.normal)",
+    );
     (
         format!(
-            "{}\n{capture}",
+            "{}\n{object_capture}",
             capture_before_coverage(&object, evaluation)
         ),
-        format!("{terrain}\n{capture}"),
+        format!("{terrain}\n{terrain_capture}\n{displacement}"),
     )
 }
 

@@ -99,3 +99,19 @@ pub(super) fn control(context: &GpuContext) -> usize {
     })
     .sum()
 }
+#[test]
+fn gpu_streamed_receiver_payload_survives_prior_terrain_frames() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = sloped(false);
+    let mut prior = ReceiverFrame::new(&context, &source, None, 0.0);
+    for reference in [
+        ReceiverReference::StoredProbeShared,
+        ReceiverReference::StoredProbeReuse,
+        ReceiverReference::StoredProbeIndependent,
+    ] {
+        prior.capture(&context, &source, Some(reference), receiver_pose());
+    }
+    drop(prior);
+    assert!(control(&context) > 0);
+}

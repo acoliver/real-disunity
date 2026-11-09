@@ -7,9 +7,16 @@ pub(super) fn capture(source: &str, layout: ReceiverLayout, bias: f32) -> String
         for side in 0..layout.sides() {
             let normal = if side == 0 { "normal" } else { "-normal" };
             for axis in ['x', 'y'] {
+                let position = if source.contains("input: TerrainVertexOutput") {
+                    format!("scene_receiver_d{axis}")
+                } else {
+                    format!("dpd{axis}(position)")
+                };
+                let original = format!("let d{axis}_{side} = {position};");
+                assert_eq!(source.matches(&original).count(), 1);
                 source = source.replace(
-                    &format!("let d{axis}_{side} = dpd{axis}(position);"),
-                    &format!("let d{axis}_{side} = dpd{axis}(position) + dpd{axis}({normal}) * bitcast<f32>({}u);", bias.to_bits()),
+                    &original,
+                    &format!("let d{axis}_{side} = {position} + dpd{axis}({normal}) * bitcast<f32>({}u);", bias.to_bits()),
                 );
             }
         }

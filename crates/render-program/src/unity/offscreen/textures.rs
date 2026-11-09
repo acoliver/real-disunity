@@ -33,7 +33,8 @@ pub(super) struct TextureInfo {
     /// For an uploaded source, its texels (blocks, for a block-compressed format) and how many of
     /// them hold a byte other than zero.
     pub(super) counts: Option<(usize, usize)>,
-    /// For an uploaded source, the bytes it holds in the budget.
+    /// The bytes it holds in the budget: the source's bytes, or the render texture's color levels
+    /// and depth buffer.
     pub(super) held_bytes: u64,
 }
 
@@ -157,6 +158,40 @@ impl TextureTable {
         Some(old.held_bytes)
     }
 
+    /// The render textures the table holds and the bytes of each, in id order.
+    pub(super) fn render_held(&self) -> Vec<(TextureId, u64)> {
+        let mut held: Vec<_> = self
+            .textures
+            .iter()
+            .filter(|(_, info)| info.spec.is_some())
+            .map(|(id, info)| (*id, info.held_bytes))
+            .collect();
+        held.sort_unstable();
+        held
+    }
+
+    /// Gives back the storage of the render texture `id` and returns its bytes. An uploaded source
+    /// and an id that names nothing are left alone.
+    pub(super) fn release_render(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        id: TextureId,
+    ) -> Option<u64> {
+        self.textures.get(&id)?.spec.as_ref()?;
+        let old = self.textures.remove(&id)?;
+        self.retired.extend(old.handles());
+        self.release_waiting(runtime);
+        Some(old.held_bytes)
+    }
+
+    /// The bytes of staging a copy of the first mip of `id` into a buffer takes.
+    pub(super) fn read_bytes(&self, id: TextureId) -> Option<u64> {
+        let info = self.textures.get(&id)?;
+        let texel = u64::from(info.format.block_copy_size(None)?);
+        let row = (u64::from(info.size[0]) * texel).next_multiple_of(256);
+        Some(row * u64::from(info.size[1]))
+    }
+
     /// The bytes the render textures of `specs` would add: those the table has not made or made
     /// from another spec. The storage a replaced texture held is given back later and is not
     /// subtracted.
@@ -276,7 +311,7 @@ fn create_render_texture(
         sampler: None,
         spec: Some(spec.clone()),
         counts: None,
-        held_bytes: 0,
+        held_bytes: render_bytes(spec, &runtime.device().limits()),
     })
 }
 

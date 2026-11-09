@@ -28,6 +28,7 @@ mod prepare;
 mod retained_driver;
 mod scene_tables;
 mod scene_transform;
+pub mod storage_budget;
 mod textures;
 #[cfg(test)]
 mod textures_tests;

@@ -125,6 +125,8 @@ pub(crate) enum ReceiverReference {
     StoredProbeIndependent,
     ProbeShared,
     ProbeReuse,
+    OffsetProbeReuse,
+    StoredOffsetProbeReuse,
     StoredProbeShared,
     StoredProbeReuse,
     BlackShared,
@@ -140,15 +142,21 @@ impl ReceiverReference {
             | Self::ProbeShared
             | Self::StoredProbeShared
             | Self::BlackShared => crate::renderer::depth::DepthMode::Shared,
-            Self::LateCardRejection | Self::ProbeReuse | Self::StoredProbeReuse => {
-                crate::renderer::depth::DepthMode::Reuse
-            }
+            Self::LateCardRejection
+            | Self::ProbeReuse
+            | Self::StoredProbeReuse
+            | Self::OffsetProbeReuse
+            | Self::StoredOffsetProbeReuse => crate::renderer::depth::DepthMode::Reuse,
         }
     }
     pub(crate) const fn local(self) -> bool {
         matches!(
             self,
-            Self::ProbeShared | Self::ProbeReuse | Self::BlackShared | Self::ProbeIndependent
+            Self::ProbeShared
+                | Self::ProbeReuse
+                | Self::BlackShared
+                | Self::ProbeIndependent
+                | Self::OffsetProbeReuse
         )
     }
     pub(crate) const fn probe(self) -> bool {
@@ -156,6 +164,8 @@ impl ReceiverReference {
             self,
             Self::ProbeShared
                 | Self::ProbeReuse
+                | Self::OffsetProbeReuse
+                | Self::StoredOffsetProbeReuse
                 | Self::StoredProbeShared
                 | Self::StoredProbeReuse
                 | Self::ProbeIndependent

@@ -71,9 +71,10 @@ public struct AttachmentIndexArray : IEquatable<AttachmentIndexArray>
 /// </summary>
 public struct SubPassDescriptor : IEquatable<SubPassDescriptor>
 {
-    public AttachmentIndexArray inputs { get; set; }
-    public AttachmentIndexArray colorOutputs { get; set; }
-    public SubPassFlags flags { get; set; }
+    // Fields: the render graph's native pass compiler reads and writes them as fields.
+    public AttachmentIndexArray inputs;
+    public AttachmentIndexArray colorOutputs;
+    public SubPassFlags flags;
 
     public readonly bool Equals(SubPassDescriptor other) => inputs == other.inputs && colorOutputs == other.colorOutputs && flags == other.flags;
     public override readonly bool Equals(object? obj) => obj is SubPassDescriptor other && Equals(other);

@@ -1,4 +1,5 @@
 using Disunity.Hosting;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -25,6 +26,8 @@ internal static class RendererListTests
             Console.WriteLine("PASS: a list without a culling result, pass name or valid queue range, or with a destroyed override material, throws ArgumentException");
             StatusFollowsValidity();
             Console.WriteLine("PASS: QueryRendererListStatus reports invalid for the null list and populated for a list; PrepareRendererListsAsync does nothing");
+            UiOverlayListDrawsNothing();
+            Console.WriteLine("PASS: the overlay UI list is valid, reports empty, is the same for every subset and records nothing when drawn");
             ListsEndWithTheirFrame();
             Console.WriteLine("PASS: a list cannot be drawn after the frame that made it, and a stale list is refused when the draw is sent");
             ParamsValidityFollowsTheCullingResult();
@@ -207,6 +210,22 @@ internal static class RendererListTests
         Expect.Equal(0, CommandWireReader.Take().Length, "preparing records nothing");
     }
 
+    private static void UiOverlayListDrawsNothing()
+    {
+        var context = default(ScriptableRenderContext);
+        var camera = DisunityHost.CreateGameObject().AddComponent<Camera>();
+        var overlay = context.CreateUIOverlayRendererList(camera);
+        Expect.That(overlay.isValid && overlay != RendererList.nullRendererList, "the overlay list is valid");
+        Expect.That(overlay == context.CreateUIOverlayRendererList(camera, UISubset.LowLevel), "every subset gives the same list");
+        Expect.Equal(RendererListStatus.kRendererListEmpty, context.QueryRendererListStatus(overlay), "the overlay list reports empty");
+        CommandWireReader.Take();
+        var buffer = new CommandBuffer();
+        buffer.DrawRendererList(overlay);
+        Graphics.ExecuteCommandBuffer(buffer);
+        Expect.Equal(0, CommandWireReader.Take().Length, "drawing it records nothing");
+        Expect.Throws<ArgumentNullException>(() => context.CreateUIOverlayRendererList(null!), "a null camera");
+    }
+
     private static void ListsEndWithTheirFrame()
     {
         var context = default(ScriptableRenderContext);
@@ -231,6 +250,16 @@ internal static class RendererListTests
         Expect.That(new RendererListParams(culling, Drawing("A"), FilteringSettings.defaultValue).isValid, "with a culling result");
         Expect.That(!default(RendererListParams).isValid, "the default value");
         var carried = new RendererListParams(culling, Drawing("A"), FilteringSettings.defaultValue);
-        Expect.That(carried.tagName == ShaderTagId.none && !carried.isPassTagName && carried.tagValues.Length == 0 && carried.stateBlocks.Length == 0, "the tag fields start empty");
+        Expect.That(carried.tagName == ShaderTagId.none && !carried.isPassTagName && carried.tagValues == null && carried.stateBlocks == null, "the tag fields start empty");
+        // URP's render graph reads both fields by name and type, so a non-nullable declaration is a MissingFieldException.
+        Expect.Equal(typeof(NativeArray<ShaderTagId>?), typeof(RendererListParams).GetField(nameof(RendererListParams.tagValues))!.FieldType,
+            "tagValues is a nullable array");
+        Expect.Equal(typeof(NativeArray<RenderStateBlock>?), typeof(RendererListParams).GetField(nameof(RendererListParams.stateBlocks))!.FieldType,
+            "stateBlocks is a nullable array");
+        using var tags = new NativeArray<ShaderTagId>([new ShaderTagId("A")], Allocator.Temp);
+        using var blocks = new NativeArray<RenderStateBlock>([new RenderStateBlock(RenderStateMask.Nothing)], Allocator.Temp);
+        carried.tagValues = tags;
+        carried.stateBlocks = blocks;
+        Expect.That(context.CreateRendererList(ref carried).isValid, "a list with tag values and state blocks set is still made");
     }
 }

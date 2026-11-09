@@ -169,11 +169,26 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         };
     }
 
-    /// <summary>An invalid list reports <see cref="RendererListStatus.kRendererListInvalid"/>; every other list reports
+    /// <summary>The camera's screen-space overlay UI as a list. The engine's UI presentation draws that UI after the cameras,
+    /// so the list is valid, reports empty and records nothing when drawn (the engine's choice). Every subset gives the same
+    /// list. A null camera throws <see cref="ArgumentNullException"/>.</summary>
+    public RendererList CreateUIOverlayRendererList(Camera camera) => CreateUIOverlayRendererList(camera, UISubset.All);
+
+    /// <inheritdoc cref="CreateUIOverlayRendererList(Camera)"/>
+    public RendererList CreateUIOverlayRendererList(Camera camera, UISubset uiSubset)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        return new RendererList { UiOverlay = true };
+    }
+
+    /// <summary>An invalid list reports <see cref="RendererListStatus.kRendererListInvalid"/> and the overlay UI list
+    /// <see cref="RendererListStatus.kRendererListEmpty"/>. Every other list reports
     /// <see cref="RendererListStatus.kRendererListPopulated"/>, because the engine cannot know how many renderers a list holds until
     /// the host draws it (the engine's choice).</summary>
     public readonly RendererListStatus QueryRendererListStatus(RendererList rendererList) =>
-        rendererList.isValid ? RendererListStatus.kRendererListPopulated : RendererListStatus.kRendererListInvalid;
+        !rendererList.isValid ? RendererListStatus.kRendererListInvalid
+        : rendererList.UiOverlay ? RendererListStatus.kRendererListEmpty
+        : RendererListStatus.kRendererListPopulated;
 
     /// <summary>Does nothing: the world builds a list when it is made, so there is nothing to prepare in the background.</summary>
     public void PrepareRendererListsAsync(List<RendererList> rendererLists)

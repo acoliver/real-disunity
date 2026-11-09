@@ -14,6 +14,7 @@ internal static class UnityAttributeTests
     {
         RequireComponentKeepsEachRequiredType();
         MenuAttributesKeepTheirArguments();
+        AssetMenuAndStartUpAttributesKeepTheirArguments();
         FormerlySerializedAsKeepsEveryOldName();
         MovedFromKeepsWhereTheTypeLived();
         IsTypeSupportedOnRenderPipelineMatchesTheNamedPipelines();
@@ -52,6 +53,33 @@ internal static class UnityAttributeTests
         Expect.That(required[1].m_Type0 == typeof(Camera) && required[1].m_Type1 == typeof(SpriteRenderer) && required[1].m_Type2 is null, "two required types");
         Expect.That(required[2].m_Type0 == typeof(Transform) && required[2].m_Type1 == typeof(Collider2D) && required[2].m_Type2 == typeof(Rigidbody2D),
             "three required types");
+    }
+
+    [CreateAssetMenu(fileName = "Probe", menuName = "Game/Probe asset", order = 4)]
+    private sealed class ProbeAsset : ScriptableObject;
+
+    [RuntimeInitializeOnLoadMethod]
+    private static void AfterScene() { }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void Earliest() { }
+
+    /// <summary>The asset menu keeps its named arguments; a start-up method runs after the scene loads unless it names
+    /// a phase, and the phases carry the numbers a player's RuntimeInitializeOnLoads.json stores.</summary>
+    private static void AssetMenuAndStartUpAttributesKeepTheirArguments()
+    {
+        var asset = typeof(ProbeAsset).GetCustomAttribute<CreateAssetMenuAttribute>()!;
+        Expect.That(asset is { fileName: "Probe", menuName: "Game/Probe asset", order: 4 }, "CreateAssetMenu file name, menu name and order");
+        Expect.That(new CreateAssetMenuAttribute() is { fileName: "", menuName: "", order: 0 }, "CreateAssetMenu starts empty");
+        RuntimeInitializeLoadType Phase(string name) => typeof(UnityAttributeTests).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetCustomAttribute<RuntimeInitializeOnLoadMethodAttribute>()!.loadType;
+        Expect.That(Phase(nameof(AfterScene)) == RuntimeInitializeLoadType.AfterSceneLoad, "a start-up method runs after the scene loads by default");
+        Expect.That(Phase(nameof(Earliest)) == RuntimeInitializeLoadType.SubsystemRegistration, "a start-up method keeps the phase it names");
+        int[] numbers = [(int)RuntimeInitializeLoadType.AfterSceneLoad, (int)RuntimeInitializeLoadType.BeforeSceneLoad,
+            (int)RuntimeInitializeLoadType.AfterAssembliesLoaded, (int)RuntimeInitializeLoadType.BeforeSplashScreen,
+            (int)RuntimeInitializeLoadType.SubsystemRegistration];
+        Expect.That(numbers.SequenceEqual([0, 1, 2, 3, 4]), "the phases carry the numbers players store");
+        Expect.That(typeof(RuntimeInitializeOnLoadMethodAttribute).IsSubclassOf(typeof(UnityEngine.Scripting.PreserveAttribute)), "a start-up method is kept by the linker");
     }
 
     private static void MenuAttributesKeepTheirArguments()

@@ -288,8 +288,6 @@ fn assert_streamed_coverage(source: &RenderScene, shadowed: &mut crate::shadows:
 fn assert_runtime_receiver(renderer: &FrameRenderer, shadowed: &mut crate::shadows::ShadowedScene) {
     let (_, pipelines) = shadowed.scene_and_pipelines_mut();
     let selected = renderer.receiver_pipelines(pipelines);
-    assert!(selected.terrain_on_runtime());
-    assert!(!selected.fixed_terrain_built());
     let stats = selected.terrain_runtime_stats();
     assert!(
         stats.pipelines_built > 0,

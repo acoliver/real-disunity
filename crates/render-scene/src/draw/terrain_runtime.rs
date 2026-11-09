@@ -1,7 +1,7 @@
-use super::{DrawCount, GpuTerrain, SceneGpu, TERRAIN_GROUP};
+use super::{DrawCount, GpuTerrain, SceneGpu};
 use crate::renderer::ScenePipelines;
 use crate::terrain::pages::scene::ScenePages;
-use wgpu::{BindGroup, IndexFormat, RenderPass};
+use wgpu::BindGroup;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::runtime::PreparedPipeline;
 
@@ -55,7 +55,7 @@ impl SceneGpu {
         frame: &crate::frame::FrameUniform,
     ) -> Result<(), worldrunner_render_post::FrameError> {
         let selected = self.selected_pipelines(pipelines, frame);
-        if self.terrain.is_none() || !selected.terrain_on_runtime() {
+        if self.terrain.is_none() {
             return Ok(());
         }
         self.terrain_pipeline(&selected, ScenePages::prepared_slot)
@@ -159,75 +159,6 @@ impl SceneGpu {
             instances: 1,
         }
     }
-
-    /// Records the terrain through the fixed pipelines, for the passes that have not moved to
-    /// the program runtime.
-    pub(super) fn draw_terrain_fixed(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-        shadow: Option<&BindGroup>,
-    ) -> (DrawCount, bool) {
-        let mut count = DrawCount::default();
-        let mut bound = false;
-        if let Some(terrain) = &self.terrain {
-            let cached_group = terrain
-                .pages
-                .as_ref()
-                .map(|pages| pages.borrow().draw_group());
-            if !matches!(cached_group, Some(None)) {
-                if let Some(Some(group)) = cached_group {
-                    pass.set_pipeline(if terrain.layered.is_some() {
-                        pipelines
-                            .layered
-                            .as_ref()
-                            .expect("validated layered device")
-                            .cached()
-                    } else {
-                        pipelines.cached_terrain()
-                    });
-                    pass.set_bind_group(TERRAIN_GROUP, &group, &[]);
-                } else {
-                    pass.set_pipeline(if terrain.layered.is_some() {
-                        pipelines
-                            .layered
-                            .as_ref()
-                            .expect("validated layered device")
-                            .terrain()
-                    } else {
-                        pipelines.terrain()
-                    });
-                    pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
-                }
-                if let Some(shadow) = shadow {
-                    pass.set_bind_group(2, shadow, &[]);
-                }
-                bound = true;
-                #[cfg(test)]
-                paths::fixed();
-                count = Self::draw_terrain_geometry(pass, terrain);
-            }
-        }
-        (count, bound)
-    }
-
-    pub(super) fn draw_terrain_geometry(
-        pass: &mut RenderPass<'_>,
-        terrain: &GpuTerrain,
-    ) -> DrawCount {
-        if let Some(streaming) = &terrain.streaming {
-            return streaming.draw(pass, &terrain.instances);
-        }
-        let lod = terrain.lod.as_ref().expect("nonstreaming mesh");
-        pass.set_vertex_buffer(0, lod.vertices.slice(..));
-        pass.set_vertex_buffer(1, terrain.instances.slice(..));
-        pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
-        pass.draw_indexed(0..lod.index_count, 0, 0..1);
-        DrawCount {
-            calls: 1,
-            instances: 1,
-        }
-    }
 }
 
 /// The page cache and the page table of `slot` that a pages surface's material set reads.
@@ -244,39 +175,21 @@ fn terrain_pages(terrain: &GpuTerrain, slot: Option<usize>) -> crate::terrain::p
     }
 }
 
-/// How many times this thread recorded terrain through each path, for tests that prove a draw
-/// took the path it names. A terrain that draws nothing counts nowhere.
+/// How many times this thread recorded terrain through the program runtime, for tests that prove
+/// a draw took it. A terrain that draws nothing counts nowhere.
 #[cfg(test)]
 pub(crate) mod paths {
     use std::cell::Cell;
 
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    pub(crate) struct Recorded {
-        pub runtime: u64,
-        pub fixed: u64,
-    }
-
     thread_local! {
-        static RECORDED: Cell<Recorded> = const { Cell::new(Recorded { runtime: 0, fixed: 0 }) };
+        static RECORDED: Cell<u64> = const { Cell::new(0) };
     }
 
-    pub(crate) fn recorded() -> Recorded {
+    pub(crate) fn recorded() -> u64 {
         RECORDED.get()
     }
 
     pub(super) fn runtime() {
-        let now = RECORDED.get();
-        RECORDED.set(Recorded {
-            runtime: now.runtime + 1,
-            ..now
-        });
-    }
-
-    pub(super) fn fixed() {
-        let now = RECORDED.get();
-        RECORDED.set(Recorded {
-            fixed: now.fixed + 1,
-            ..now
-        });
+        RECORDED.set(RECORDED.get() + 1);
     }
 }

@@ -360,13 +360,10 @@ mod tests {
                     let first = pipelines.for_convention(convention);
                     let again = pipelines.for_convention(convention);
                     assert_eq!(first.get(key), again.get(key));
-                    assert_eq!(first.terrain(), again.terrain());
-                    assert_eq!(first.cached_terrain(), again.cached_terrain());
                     if convention == SceneSpecularConvention::default() {
                         assert_eq!(first.get(key), pipelines.get(key));
                     } else {
                         assert_ne!(first.get(key), pipelines.get(key));
-                        assert_ne!(first.terrain(), pipelines.terrain());
                     }
                 }
             }
@@ -416,9 +413,5 @@ fn winding_uses_existing_specialization_cache_without_changing_default_pipelines
     assert_eq!(right.get(key), pipelines.get(key));
     assert_eq!(left.get(key), again.get(key));
     assert_ne!(left.get(key), right.get(key));
-    assert_ne!(left.terrain(), right.terrain());
-    assert_eq!(left.terrain(), again.terrain());
-    assert_ne!(left.cached_terrain(), right.cached_terrain());
-    assert_eq!(left.cached_terrain(), again.cached_terrain());
     assert_eq!(pipelines.specialization.cache.borrow().len(), 1);
 }

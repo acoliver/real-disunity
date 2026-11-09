@@ -390,7 +390,7 @@ fn final_forward_sources() -> Vec<(String, [String; 6])> {
             let object = crate::ssao::receiver::source(&object, receiver);
             let terrain = crate::ssao::receiver::source(&terrain, receiver);
             let [plain, cached, layered, layered_cached] =
-                crate::renderer::terrain_test_sources(&terrain);
+                crate::terrain::program::source::test_sources(&terrain);
             cases.push((
                 format!("{label} receiver={receiver:?}"),
                 [object, terrain, plain, cached, layered, layered_cached],

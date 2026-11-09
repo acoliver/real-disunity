@@ -153,7 +153,6 @@ fn enable_pages(context: &GpuContext, renderer: &mut ShadowedScene, upload_pages
         .enable_terrain_pages(
             context.device(),
             context.submission(),
-            &renderer.pipelines,
             TerrainPageSource {
                 settings: page_settings,
                 slots: 5,

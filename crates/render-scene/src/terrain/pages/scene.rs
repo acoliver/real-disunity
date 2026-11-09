@@ -45,7 +45,6 @@ pub(crate) struct ScenePages {
     pub draw_residents: Vec<super::residency::ResidentPage>,
     draw_transaction: Option<worldrunner_render_gpu::submission::Publications>,
     pub tables: Vec<wgpu::Buffer>,
-    pub groups: Vec<wgpu::BindGroup>,
     pub frame_slot: usize,
     capture_uploads: Option<capture::CaptureUploads>,
     draw_pending: bool,
@@ -105,7 +104,6 @@ impl ScenePages {
             draw_residents: Vec::new(),
             draw_transaction: None,
             tables,
-            groups: Vec::new(),
             frame_slot: 0,
             capture_uploads: None,
             draw_pending: false,
@@ -289,10 +287,6 @@ impl ScenePages {
                 elevation: self.elevation,
             },
         ));
-    }
-
-    pub fn draw_group(&self) -> Option<wgpu::BindGroup> {
-        self.draw_slot().map(|slot| self.groups[slot].clone())
     }
 
     /// The frame slot whose page table the draw that follows [`prepare`](Self::prepare) will

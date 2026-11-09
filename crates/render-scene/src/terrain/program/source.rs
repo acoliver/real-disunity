@@ -29,6 +29,20 @@ pub(crate) fn compose(surface: Surface, base: &str) -> String {
     }
 }
 
+/// The composed source of each surface over `base`, in the order plain, pages, layered, layered
+/// pages, for tests that check every source a context can draw.
+#[cfg(test)]
+pub(crate) fn test_sources(base: &str) -> [String; 4] {
+    use super::Surface;
+    [
+        Surface::Plain,
+        Surface::Pages,
+        Surface::Layered,
+        Surface::LayeredPages,
+    ]
+    .map(|surface| compose(surface, base))
+}
+
 pub(crate) fn cached_source(source: &str) -> String {
     // Cached pages already contain surface selection; leave its source grid unbound.
     let source = source.replace(

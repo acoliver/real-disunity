@@ -187,10 +187,9 @@ fn a_streaming_frame_records_the_same_draw_calls_as_the_fixed_path() {
     );
 }
 
-/// Terrain that draws through the runtime compiles none of the fixed pipelines, and a second
-/// scene on the same pipelines finds the first scene's compiled pipeline.
+/// A second scene on the same pipelines finds the first scene's compiled pipeline.
 #[test]
-fn a_second_scene_shares_the_compiled_pipeline_and_the_fixed_pipelines_stay_unbuilt() {
+fn a_second_scene_shares_the_compiled_pipeline() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let built = build(context.device(), &CONFIGS[2]);
@@ -232,7 +231,6 @@ fn a_second_scene_shares_the_compiled_pipeline_and_the_fixed_pipelines_stay_unbu
         after_first.sets_prepared + 1,
         "each scene prepares its own material set"
     );
-    assert!(!built.pipelines.fixed_terrain_built());
 }
 
 /// The metadata prepass prepares its pipeline before the pass opens, so the pass builds nothing,

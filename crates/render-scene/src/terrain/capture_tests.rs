@@ -108,12 +108,7 @@ impl<'a> Rig<'a> {
         };
         if source.pages() {
             rig.gpu
-                .enable_terrain_pages(
-                    device,
-                    authority,
-                    pipelines,
-                    scenes::page_source(source.layered()),
-                )
+                .enable_terrain_pages(device, authority, scenes::page_source(source.layered()))
                 .unwrap();
             for _ in 0..4 {
                 let mut transaction = authority.begin(device).unwrap();
@@ -542,27 +537,15 @@ fn compare(case: &Case<'_>, [scene, fixed, untouched]: [&[Vec<u8>]; 3]) {
     }
 }
 
-/// The scene's terrain draw went through the program runtime, once, and the fixed terrain
-/// pipelines of its context were neither used nor built. Without this a fixed-path fallback
-/// would draw the same bytes as the frozen copy and pass.
-pub(super) fn assert_recorded_by_runtime(
-    name: &str,
-    pipelines: &ScenePipelines,
-    before: terrain_paths::Recorded,
-) {
-    let after = terrain_paths::recorded();
+/// The scene's terrain draw went through the program runtime, once, and its context prepared a
+/// terrain pipeline and set there. The fixed path no longer exists to fall back to, so this
+/// guards a draw that records nothing, which would compare equal to a frozen draw that also
+/// drew nothing.
+pub(super) fn assert_recorded_by_runtime(name: &str, pipelines: &ScenePipelines, before: u64) {
     assert_eq!(
-        after.runtime,
-        before.runtime + 1,
+        terrain_paths::recorded(),
+        before + 1,
         "{name}: terrain was not recorded through the program runtime"
-    );
-    assert_eq!(
-        after.fixed, before.fixed,
-        "{name}: terrain fell back to the fixed path"
-    );
-    assert!(
-        !pipelines.fixed_terrain_built(),
-        "{name}: a fixed terrain pipeline was built"
     );
     let stats = pipelines.terrain_runtime_stats();
     assert!(

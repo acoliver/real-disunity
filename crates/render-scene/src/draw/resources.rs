@@ -1,8 +1,8 @@
 use super::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
-    BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES, GpuLod, GpuMesh, GpuTerrain, Queue,
-    RenderScene, Sampler, TerrainUniformState, Texture, TextureHandle, TextureView,
-    TextureViewDescriptor, upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES,
+    GpuLod, GpuMesh, GpuTerrain, Queue, RenderScene, Sampler, TerrainUniformState, Texture,
+    TextureHandle, TextureView, TextureViewDescriptor, upload_buffer, upload_palette_array,
+    upload_texture, upload_type_grid,
 };
 
 pub(super) fn allocate_frame_slots(
@@ -216,7 +216,6 @@ pub(super) fn upload_terrain(
     device: &Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
     scene: &RenderScene,
-    layout: &BindGroupLayout,
     sampler: &Sampler,
     sources: (
         Option<&super::prepared::PreparedTerrain>,
@@ -258,26 +257,13 @@ pub(super) fn upload_terrain(
         .as_ref()
         .map(|source| source.resident(device, queue))
         .transpose()?;
-    let bind_group = terrain_bind_group(
-        device,
-        layout,
-        sampler,
-        (
-            &uniform_buffer,
-            &grid,
-            &palettes,
-            layered.as_deref(),
-            &planes,
-        ),
-        None,
-    );
     let resources = std::sync::Arc::new(crate::terrain::prepared::Resources {
         uniform: uniform_buffer.clone(),
         planes: planes.clone(),
         sampler: sampler.clone(),
         grid_view: grid.create_view(&TextureViewDescriptor::default()),
         grid: grid.clone(),
-        // The dimension is stated for the same reason as in the fixed bind group: a palette
+        // The dimension is stated for the same reason as in the frozen bind group: a palette
         // of one surface would otherwise get a plain 2D view.
         palettes: palettes
             .iter()
@@ -291,8 +277,6 @@ pub(super) fn upload_terrain(
             .collect(),
         layered: layered.clone(),
     });
-    let mut retained = palettes;
-    retained.push(grid);
     let (lod, streaming) = terrain_geometry(device, authority, scene, mesh, previous);
     Ok(Some(GpuTerrain {
         resources,
@@ -300,16 +284,11 @@ pub(super) fn upload_terrain(
         authority: authority.clone(),
         page_bounds: page_bounds(terrain),
         page_elevation: prepared.elevation,
-        uniform: uniform_buffer,
-        triangle_source: planes,
-        sampler: sampler.clone(),
         pages: None,
         bounds: prepared.bounds,
         lod,
         streaming,
         instances,
-        bind_group,
-        retained,
         layered: prepared.layered.clone(),
     }))
 }
@@ -335,92 +314,6 @@ fn terrain_geometry(
             .map(|_| super::streaming::Streaming::new(scene.clone(), lod.clone(), authority));
         (streaming.is_none().then_some(lod), streaming)
     }
-}
-
-/// Binds the terrain uniform, the type grid, the three palette arrays and the
-/// sampler into the one group the terrain shader reads.
-///
-/// This is lifted out of the upload so the correspondence between binding
-/// numbers and resources sits in one readable block. That correspondence is
-/// where a mismatch hides: every one of these slots is declared with the same
-/// layout as its neighbour, so a transposition validates cleanly and only shows
-/// up as terrain lit by the wrong map.
-pub(super) fn terrain_bind_group(
-    device: &Device,
-    layout: &BindGroupLayout,
-    sampler: &Sampler,
-    resources: (
-        &Buffer,
-        &Texture,
-        &[Texture],
-        Option<&crate::terrain::pages::layered_gpu::ResidentSource>,
-        &Buffer,
-    ),
-    pages: Option<(&TextureView, &Buffer)>,
-) -> BindGroup {
-    let (uniform_buffer, grid, palettes, layered, planes) = resources;
-    let grid_view = grid.create_view(&TextureViewDescriptor::default());
-    // The dimension has to be stated. A one-layer array defaults to a plain 2D
-    // view, so a palette that happens to hold a single surface would fail
-    // against a layout declaring an array while every larger palette passed.
-    let palette_views: Vec<TextureView> = palettes
-        .iter()
-        .map(|texture| {
-            texture.create_view(&TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                ..TextureViewDescriptor::default()
-            })
-        })
-        .collect();
-
-    let mut entries = vec![
-        BindGroupEntry {
-            binding: 0,
-            resource: uniform_buffer.as_entire_binding(),
-        },
-        BindGroupEntry {
-            binding: 1,
-            resource: BindingResource::TextureView(&grid_view),
-        },
-    ];
-    entries.push(BindGroupEntry {
-        binding: crate::terrain::planes::BINDING,
-        resource: planes.as_entire_binding(),
-    });
-    if pages.is_some() {
-        entries.retain(|entry| entry.binding != 1);
-    }
-    // Albedo, normal, roughness-metallic, in the order the shader declares them.
-    for (slot, view) in palette_views.iter().enumerate() {
-        entries.push(BindGroupEntry {
-            binding: u32::try_from(slot + 2)
-                .expect("three palette slots number far below u32::MAX"),
-            resource: BindingResource::TextureView(view),
-        });
-    }
-    entries.push(BindGroupEntry {
-        binding: 5,
-        resource: BindingResource::Sampler(sampler),
-    });
-    if let Some((view, table)) = pages {
-        entries.push(BindGroupEntry {
-            binding: 6,
-            resource: BindingResource::TextureView(view),
-        });
-        entries.push(BindGroupEntry {
-            binding: 7,
-            resource: table.as_entire_binding(),
-        });
-    }
-    if let Some(source) = layered {
-        entries.retain(|entry| !matches!(entry.binding, 2..=4));
-        entries.extend(layered_entries(source));
-    }
-    device.create_bind_group(&BindGroupDescriptor {
-        label: Some("terrain"),
-        layout,
-        entries: &entries,
-    })
 }
 
 /// Uploads the three palette array textures, one layer per deduplicated surface.
@@ -503,36 +396,6 @@ pub(super) fn post_settings(
         .map(Option::unwrap_or_default)
 }
 
-pub(super) fn prepared_terrain(
-    device: &Device,
-    authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
-    prepared: &super::PreparedScene,
-    pipelines: &super::ScenePipelines,
-    sampler: &Sampler,
-    previous: Option<&super::SceneGpu>,
-) -> Result<Option<GpuTerrain>, DrawError> {
-    upload_terrain(
-        device,
-        authority,
-        &prepared.scene,
-        if prepared
-            .terrain
-            .as_ref()
-            .is_some_and(|terrain| terrain.layered.is_some())
-        {
-            pipelines
-                .layered
-                .as_ref()
-                .ok_or(DrawError::LayeredLimit)?
-                .layout()
-        } else {
-            pipelines.terrain_layout()
-        },
-        sampler,
-        (prepared.terrain.as_ref(), previous),
-    )
-}
-
 fn terrain_lod(device: &Device, queue: &Queue, mesh: &crate::terrain::TerrainMesh) -> GpuLod {
     GpuLod {
         transition: None,
@@ -576,41 +439,6 @@ fn terrain_instances(
     ))
 }
 
-fn layered_entries(
-    source: &crate::terrain::pages::layered_gpu::ResidentSource,
-) -> Vec<BindGroupEntry<'_>> {
-    let mut entries: Vec<_> = source
-        .buffers
-        .iter()
-        .enumerate()
-        .map(|(index, buffer)| BindGroupEntry {
-            binding: 8 + u32::try_from(index).expect("three inputs"),
-            resource: buffer.as_entire_binding(),
-        })
-        .collect();
-    entries.extend(
-        source
-            .views
-            .iter()
-            .enumerate()
-            .map(|(index, view)| BindGroupEntry {
-                binding: 11 + u32::try_from(index).expect("texture slot"),
-                resource: BindingResource::TextureView(view),
-            }),
-    );
-    entries.extend(
-        source
-            .samplers
-            .iter()
-            .enumerate()
-            .map(|(index, sampler)| BindGroupEntry {
-                binding: 21 + u32::try_from(index).expect("sampler slot"),
-                resource: BindingResource::Sampler(sampler),
-            }),
-    );
-    entries
-}
-
 pub(super) fn scene_materials(
     device: &Device,
     queue: &Queue,
@@ -637,10 +465,9 @@ impl super::SceneGpu {
         mut self,
         device: &wgpu::Device,
         authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
-        pipelines: &crate::renderer::ScenePipelines,
         scene: &worldrunner_render_plan::RenderScene,
     ) -> Result<Self, super::DrawError> {
-        self.install_terrain_page_policy(device, authority, pipelines, scene)?;
+        self.install_terrain_page_policy(device, authority, scene)?;
         self.flush_instances(device, authority)?;
         Ok(self)
     }

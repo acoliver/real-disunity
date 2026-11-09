@@ -608,12 +608,6 @@ impl Context {
         &self.0.description.device
     }
 
-    /// Whether the context's screen group is one the program lends. A group of any other shape is
-    /// drawn with the fixed pipelines.
-    pub(crate) fn on_runtime(&self) -> bool {
-        self.0.description.screen.is_none() || self.0.screen.is_some()
-    }
-
     /// The pass the context draws into.
     ///
     /// # Errors
@@ -628,7 +622,7 @@ impl Context {
 
     /// Terrain writes every attachment of its pass, with no blend and back faces culled. Its
     /// depth and stencil state is the pass's [`DepthMode`] for a drawing that writes depth: the
-    /// same function the fixed pipelines use, so the two cannot disagree.
+    /// same function the object pipelines use, so the two cannot disagree.
     pub(crate) fn state(&self) -> RenderState {
         let depth = self.0.description.depth.state(true);
         RenderState {
@@ -718,7 +712,7 @@ impl Context {
             declarations(),
         )?;
         // One parse serves both stages. Only the fragment stage reads the specialization
-        // constants, as in the fixed pipelines.
+        // constants, as the frozen reference does.
         let fragment = vertex
             .sibling(FRAGMENT_ENTRY, StageKind::Fragment)?
             .with_declarations(declarations())

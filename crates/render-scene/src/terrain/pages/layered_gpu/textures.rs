@@ -315,28 +315,6 @@ impl LayeredGpuSource {
     }
 }
 
-pub(crate) fn draw_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
-    let mut entries: Vec<_> = (0..ARRAY_LIMIT)
-        .map(|index| wgpu::BindGroupLayoutEntry {
-            binding: 11 + index,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        })
-        .collect();
-    entries.extend((21..23).map(|binding| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-        count: None,
-    }));
-    entries
-}
-
 #[cfg(test)]
 mod format_tests {
     #[test]

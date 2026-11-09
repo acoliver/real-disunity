@@ -3,8 +3,8 @@ use std::array;
 use std::cell::{Cell, RefCell};
 
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
-    BufferUsages, Device, Queue, RenderPass, Sampler, Texture, TextureView, TextureViewDescriptor,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, RenderPass, Sampler, Texture,
+    TextureView, TextureViewDescriptor,
 };
 
 use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
@@ -16,8 +16,8 @@ use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, MATERIAL_GROUP, TERRAIN_GROUP, material_sampler, placeholder_with_view,
-    upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
+    FRAME_GROUP, MATERIAL_GROUP, material_sampler, placeholder_with_view, upload_buffer,
+    upload_palette_array, upload_texture, upload_type_grid,
 };
 
 mod append;
@@ -63,7 +63,6 @@ pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
-use resources::prepared_terrain;
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
 
@@ -200,7 +199,7 @@ struct GpuMesh {
 /// The terrain surface, as the one draw it has become.
 ///
 /// There is no material index and no batch table entry here. Terrain is a
-/// single mesh drawn once, with its own pipeline and its own bind group, so the
+/// single mesh drawn once, with its own prepared pipeline and material set, so the
 /// indirection the object path needs to share meshes between placements would
 /// only obscure that.
 #[derive(Debug)]
@@ -208,16 +207,10 @@ struct GpuTerrain {
     lod: Option<GpuLod>,
     streaming: Option<streaming::Streaming>,
     instances: Buffer,
-    bind_group: BindGroup,
     bounds: visibility::Bounds,
     page_bounds: [f32; 4],
     page_elevation: [f32; 2],
-    uniform: Buffer,
-    /// Exact f32 heightfield and chunk descriptors for analytic filtering.
-    triangle_source: Buffer,
-    sampler: Sampler,
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
-    retained: Vec<Texture>,
     layered: Option<std::sync::Arc<crate::terrain::pages::layered_gpu::LayeredGpuSource>>,
     /// What the program runtime draws are lent, held by every draw made from it.
     resources: std::sync::Arc<crate::terrain::prepared::Resources>,
@@ -345,8 +338,13 @@ impl SceneGpu {
             &contact_heights,
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
-        let terrain =
-            prepared_terrain(device, authority, &prepared, pipelines, &sampler, previous)?;
+        let terrain = resources::upload_terrain(
+            device,
+            authority,
+            &prepared.scene,
+            &sampler,
+            (prepared.terrain.as_ref(), previous),
+        )?;
         let (decals, frame_slots) =
             decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
         let gpu = Self {
@@ -388,7 +386,7 @@ impl SceneGpu {
                 material_uniforms,
             },
         };
-        gpu.finish_upload(device, authority, pipelines, scene)
+        gpu.finish_upload(device, authority, scene)
     }
 
     /// Writes the per-frame uniform the next draw will read.
@@ -533,7 +531,7 @@ impl SceneGpu {
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
-        let (terrain, terrain_bound) = self.draw_terrain_color(pass, pipelines, shadow);
+        let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if dynamic {
             if let Some(sky) = &self.sky {
@@ -559,18 +557,6 @@ impl SceneGpu {
                 terrain_bound && pipelines.has_ao_receiver(),
             ),
         }
-    }
-
-    fn draw_terrain_color(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-        shadow: Option<&BindGroup>,
-    ) -> (DrawCount, bool) {
-        if pipelines.terrain_on_runtime() {
-            return self.draw_terrain_runtime(pass, pipelines, shadow);
-        }
-        self.draw_terrain_fixed(pass, pipelines, shadow)
     }
 
     pub(crate) fn draw_objects(

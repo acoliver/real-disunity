@@ -45,7 +45,6 @@ fn terrain_pages_capture_waits_and_two_configurations_render_exact_border_bytes(
         gpu.enable_terrain_pages(
             context.device(),
             context.submission(),
-            &pipelines,
             TerrainPageSource {
                 settings,
                 slots: 5,

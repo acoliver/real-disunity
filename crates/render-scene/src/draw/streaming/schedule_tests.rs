@@ -54,7 +54,8 @@ fn settle(delay: usize, append_input: bool) -> Settled {
             residents.iter().map(|(key, ())| *key).collect()
         };
         let retained = retired.iter().map(|&(_, count)| count).sum();
-        let selection = select_with_retired(&terrain, &current, matrix(), [128; 2], retained);
+        let selection =
+            select_with_retired(&terrain, &current, matrix(), [128; 2], retained, &|_| true);
         assert!(current.len() + retained + selection.uploads.len() <= 41);
         let removed = current
             .iter()
@@ -133,7 +134,7 @@ fn equal_error_admission_is_independent_of_resident_permutation() {
         .collect();
     assert_eq!(errors, vec![16.0; 4]);
     for expected_count in [7, 10] {
-        let expected = select_with_retired(&terrain, &current, matrix, [128; 2], 0);
+        let expected = select_with_retired(&terrain, &current, matrix, [128; 2], 0, &|_| true);
         assert_eq!(expected.leaves.len(), expected_count);
         assert_eq!(expected.uploads.len(), 4);
         for _ in 0..current.len() {
@@ -143,7 +144,8 @@ fn equal_error_admission_is_independent_of_resident_permutation() {
                 if reverse {
                     permuted.reverse();
                 }
-                let actual = select_with_retired(&terrain, &permuted, matrix, [128; 2], 0);
+                let actual =
+                    select_with_retired(&terrain, &permuted, matrix, [128; 2], 0, &|_| true);
                 assert_eq!(actual.uploads, expected.uploads, "upload admission differs");
                 assert_eq!(actual.leaves, expected.leaves, "ordered leaves differ");
                 assert_eq!(actual.observation, expected.observation);
@@ -161,7 +163,14 @@ fn eight_step_schedule(sorted: bool) -> Vec<(Vec<TerrainChunk>, Vec<TerrainChunk
     )];
     let mut frames = Vec::new();
     for _ in 0..8 {
-        let selection = select_with_retired(&terrain, &current, orthographic_matrix(), [128; 2], 0);
+        let selection = select_with_retired(
+            &terrain,
+            &current,
+            orthographic_matrix(),
+            [128; 2],
+            0,
+            &|_| true,
+        );
         assert!(current.len() + selection.uploads.len() <= 12);
         current.retain(|chunk| selection.leaves.contains(chunk));
         current.extend(selection.uploads);

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::{layers, metadata, run_command};
+use crate::{affected, layers, metadata, run_command};
 
 const COMPLEXITY: &[&str] = &[
     "-A",
@@ -202,9 +202,21 @@ pub fn ci(root: &Path, profile: Profile) -> Result<(), String> {
     if gpu {
         eprintln!("{GPU_REQUIRED_NOTICE}");
     }
+    let chosen = affected::from_env(&data);
+    eprintln!("xtask: {}", chosen.describe(data.workspace_members.len()));
     for command in CI_STEPS {
-        execute(root, command, &selected, gpu)?;
-        if profile == Profile::Cpu {
+        // Lint and build cover the whole profile; tests and doc tests only the affected crates.
+        let tests = matches!(command, "test" | "doc");
+        let this = if tests {
+            affected::narrow(&selected, &chosen)
+        } else {
+            Some(selected.clone())
+        };
+        match this {
+            Some(args) => execute(root, command, &args, gpu)?,
+            None => eprintln!("xtask: {command}: no affected crate in this profile; skipped"),
+        }
+        if profile == Profile::Cpu && (!tests || chosen.includes("worldrunner")) {
             execute(
                 root,
                 command,

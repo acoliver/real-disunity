@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod affected;
 mod commands;
 mod csharp;
 mod layers;
@@ -65,7 +66,7 @@ fn finish(gate: &str, errors: &[String]) -> Result<(), String> {
     }
 }
 
-const USAGE: &str = "cargo xtask <fmt|lint|complexity|check|build|test|policy|source-size|ci|ci-cpu|ci-gpu|ci-gpu-static|ci-gpu-csharp|ci-managed|ci-gpu-shard K/N|ci-gpu-plan N>";
+const USAGE: &str = "cargo xtask <fmt|lint|complexity|check|build|test|policy|source-size|ci|ci-cpu|ci-gpu|ci-gpu-static|ci-gpu-csharp|ci-managed|ci-gpu-shard K/N|ci-gpu-plan N|affected --base REV>";
 
 fn dispatch(root: &Path, args: &[String]) -> Result<(), String> {
     match args {
@@ -76,9 +77,27 @@ fn dispatch(root: &Path, args: &[String]) -> Result<(), String> {
                 shards::plan(root, value)
             }
         }
+        [command, flag, base] if command == "affected" && flag == "--base" => {
+            affected_command(root, base)
+        }
         [command] => dispatch_single(root, command),
         _ => Err(format!("usage: {USAGE}")),
     }
+}
+
+/// `cargo xtask affected --base REV`: the crates the gate would test for the change from the
+/// merge base of REV and HEAD to the working tree.
+fn affected_command(root: &Path, base: &str) -> Result<(), String> {
+    let merge_base = capture_command(root, "git", &["merge-base", base, "HEAD"])?;
+    let changed = capture_command(root, "git", &["diff", "--name-only", merge_base.trim()])?;
+    let data = metadata::read(root, &["--locked", "--all-features"])?;
+    let changed: Vec<String> = changed.lines().map(str::to_owned).collect();
+    let graph = affected::graph(&data);
+    println!(
+        "{}",
+        affected::select(&changed, &graph).describe(graph.dirs.len())
+    );
+    Ok(())
 }
 
 fn dispatch_single(root: &Path, command: &str) -> Result<(), String> {

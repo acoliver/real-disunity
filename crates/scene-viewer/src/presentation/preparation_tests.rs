@@ -111,6 +111,8 @@ pub(crate) fn fixed(
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(bytes).into(),
             recipes: false,
             capture_pool: crate::CapturePoolPolicy::default(),

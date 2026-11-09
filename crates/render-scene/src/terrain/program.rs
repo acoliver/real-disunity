@@ -57,6 +57,8 @@ pub(crate) mod semantic {
     pub(crate) const SHADOW: &str = "scene.shadow";
     pub(crate) const SHADOW_DEPTH: &str = "scene.shadow.depth";
     pub(crate) const SHADOW_SAMPLER: &str = "scene.shadow.sampler";
+    pub(crate) const RECEIVER_A: &str = "scene.shadow.receiver.xyzw";
+    pub(crate) const RECEIVER_B: &str = "scene.shadow.receiver.yz";
     pub(crate) const AMBIENT: &str = "scene.ao";
     pub(crate) const AMBIENT_RECEIVER: &str = "scene.ao.receiver";
     pub(crate) const ENVIRONMENT_SPECULAR: &str = "scene.environment.specular";
@@ -284,14 +286,14 @@ fn frame_bindings() -> ResourceLayout {
 }
 
 /// What the shader reads from the shadow map group, set 2.
-fn shadow_bindings() -> ResourceLayout {
+fn shadow_bindings(receiver: bool) -> ResourceLayout {
     let fragment = ShaderStages::FRAGMENT;
-    ResourceLayout::new(vec![
+    let mut bindings = vec![
         declare(
             (2, 0),
             semantic::SHADOW,
             fragment,
-            ResourceKind::Uniform { min_size: 336 },
+            ResourceKind::Uniform { min_size: 352 },
         ),
         declare(
             (2, 1),
@@ -308,7 +310,21 @@ fn shadow_bindings() -> ResourceLayout {
             fragment,
             ResourceKind::Sampler(wgpu::SamplerBindingType::Comparison),
         ),
-    ])
+    ];
+    if receiver {
+        for (binding, name) in [(3, semantic::RECEIVER_A), (4, semantic::RECEIVER_B)] {
+            bindings.push(declare(
+                (2, binding),
+                name,
+                fragment,
+                texture(
+                    wgpu::TextureViewDimension::D2Array,
+                    wgpu::TextureSampleType::Float { filterable: false },
+                ),
+            ));
+        }
+    }
+    ResourceLayout::new(bindings)
 }
 
 /// What the screen group at set 3 holds in a forward context.
@@ -385,6 +401,32 @@ impl Screen {
         }
         ResourceLayout::new(bindings)
     }
+}
+
+/// Maximum fragment texture count of the object and selected terrain forward contexts.
+pub(crate) fn forward_sampled_textures(
+    terrain: Option<Surface>,
+    screen: Screen,
+    receiver: bool,
+) -> u32 {
+    let textures = |bindings: &[ResourceBinding]| {
+        u32::try_from(
+            bindings
+                .iter()
+                .filter(|binding| {
+                    binding.visibility.contains(ShaderStages::FRAGMENT)
+                        && matches!(binding.kind, ResourceKind::Texture { .. })
+                })
+                .count(),
+        )
+        .expect("bounded scene bindings")
+    };
+    // Object material layout: five surface maps and the fragment relief map.
+    let material = terrain.map_or(6, |surface| textures(&material_bindings(surface)).max(6));
+    textures(&frame_bindings().bindings)
+        + material
+        + textures(&shadow_bindings(receiver).bindings)
+        + textures(&screen.bindings().bindings)
 }
 
 /// Everything a context's programs are built from.
@@ -562,7 +604,11 @@ impl Context {
             sets.push(ExternalSet {
                 set: 2,
                 layout: shadow.clone(),
-                bindings: shadow_bindings(),
+                bindings: shadow_bindings(
+                    description
+                        .terrain_source
+                        .contains("fn scene_receiver_load("),
+                ),
             });
         }
         if let (Some(layout), Some(screen)) = (&description.screen, self.0.screen) {

@@ -33,35 +33,42 @@ pub fn receiver_layout(
 ) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: descriptor.label,
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: descriptor.texture_binding,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
-                    view_dimension: descriptor.dimension.into(),
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: descriptor.sampler_binding,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: descriptor.uniform_binding,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: descriptor.min_uniform_binding_size,
-                },
-                count: None,
-            },
-        ],
+        entries: &receiver_layout_entries(descriptor),
     })
+}
+
+/// The receiver ABI entries, for callers sharing a group with additional frame products.
+pub fn receiver_layout_entries(
+    descriptor: ReceiverDescriptor<'_>,
+) -> [wgpu::BindGroupLayoutEntry; 3] {
+    [
+        wgpu::BindGroupLayoutEntry {
+            binding: descriptor.texture_binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Depth,
+                view_dimension: descriptor.dimension.into(),
+                multisampled: false,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: descriptor.sampler_binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: descriptor.uniform_binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: descriptor.min_uniform_binding_size,
+            },
+            count: None,
+        },
+    ]
 }
 
 /// Linear clamp comparison sampler. The caller explicitly preserves its comparison rule.

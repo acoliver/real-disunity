@@ -26,7 +26,10 @@ pub const WEIGHTED_PCF5_WGSL: &str = include_str!("weighted_pcf5.wgsl");
 
 pub use map::{DepthMap, DepthMapBudget, DepthMapDescriptor, DepthMapError, DepthReadback};
 pub use pipeline::{DepthFragmentState, DepthPipelineDescriptor, create_depth_pipeline};
-pub use receiver::{ReceiverDescriptor, ReceiverDimension, comparison_sampler, receiver_layout};
+pub use receiver::{
+    ReceiverDescriptor, ReceiverDimension, comparison_sampler, receiver_layout,
+    receiver_layout_entries,
+};
 
 /// The format shared by map allocation and depth-only pipelines.
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;

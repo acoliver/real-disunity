@@ -21,6 +21,7 @@ internal static class UnityAttributeTests
         ResourcePathAttributesExpandTheirPaths();
         MovedFromKnowsWhetherTheAssemblyChanged();
         PropertyAttributesShareTheirBaseClass();
+        NativeCallbackMarkerKeepsItsDelegateType();
         Console.WriteLine("PASS: Unity attribute classes keep their arguments and work as reflection reads them");
     }
 
@@ -188,5 +189,20 @@ internal static class UnityAttributeTests
         var range = attributes.OfType<RangeAttribute>().Single();
         Expect.That(range.min == 0 && range.max == 2, "Range bounds");
         Expect.That(attributes.OfType<TooltipAttribute>().Single().tooltip == "units per second", "Tooltip text");
+    }
+
+    private delegate void Callback(int value);
+
+    [AOT.MonoPInvokeCallback(typeof(Callback))]
+    private static void Called(int value) { }
+
+    /// <summary>Transport reads the marker on its native callbacks; a module facade forwards it once the engine defines it.</summary>
+    private static void NativeCallbackMarkerKeepsItsDelegateType()
+    {
+        var marker = typeof(UnityAttributeTests).GetMethod(nameof(Called), BindingFlags.NonPublic | BindingFlags.Static)!
+            .GetCustomAttribute<AOT.MonoPInvokeCallbackAttribute>();
+        Expect.That(marker?.type == typeof(Callback), "MonoPInvokeCallback keeps the delegate type it names");
+        Expect.That(Disunity.Hosting.ModuleFacades.Forwards(typeof(Disunity.Hosting.DisunityHost).Assembly, "AOT.MonoPInvokeCallbackAttribute"),
+            "a module facade forwards AOT.MonoPInvokeCallbackAttribute");
     }
 }

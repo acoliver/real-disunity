@@ -116,6 +116,7 @@ impl Renderer {
             profile,
             scene.effects(),
             &crate::presentation::PresentationPolicy {
+                receiver_gradients: crate::presentation::receiver_reservation(shadows),
                 budget: startup.presentation_budget,
                 capture_pool: crate::CapturePoolPolicy::Fixed(startup.capture_pool),
                 recipes: startup.recipes,

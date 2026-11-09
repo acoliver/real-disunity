@@ -288,7 +288,7 @@ internal static class ReviewRegressionTests
         var custom = consumer.GetReferencedAssemblies().Where(a => !a.Name!.StartsWith("System.") && a.Name != "netstandard").ToArray();
         Require(custom.Length == 1 && custom[0].Name == "Disunity.Engine", "B9 built consumer references one Unity API assembly");
         var engine = typeof(DisunityHost).Assembly;
-        Require(engine.GetReferencedAssemblies().All(a => a.Name!.StartsWith("System.") || a.Name == "netstandard"), "B9 built engine has no request transport assembly");
+        Require(engine.GetReferencedAssemblies().All(a => a.Name!.StartsWith("System.") || a.Name is "netstandard" or "Mono.Cecil"), "B9 built engine has no request transport assembly (Mono.Cecil rewrites player assemblies)");
         Require(engine.GetTypes().Count(t => t.FullName == "UnityEngine.GameObject") == 1, "B9 one built GameObject definition");
         Console.WriteLine("PASS: B9 built consumer and engine assembly references");
     }

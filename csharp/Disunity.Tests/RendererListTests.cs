@@ -26,6 +26,8 @@ internal static class RendererListTests
             Console.WriteLine("PASS: a list without a culling result, pass name or valid queue range, or with a destroyed override material, throws ArgumentException");
             StatusFollowsValidity();
             Console.WriteLine("PASS: QueryRendererListStatus reports invalid for the null list and populated for a list; PrepareRendererListsAsync does nothing");
+            UiOverlayListDrawsNothing();
+            Console.WriteLine("PASS: the overlay UI list is valid, reports empty, is the same for every subset and records nothing when drawn");
             ListsEndWithTheirFrame();
             Console.WriteLine("PASS: a list cannot be drawn after the frame that made it, and a stale list is refused when the draw is sent");
             ParamsValidityFollowsTheCullingResult();
@@ -206,6 +208,22 @@ internal static class RendererListTests
         CommandWireReader.Take();
         context.PrepareRendererListsAsync([list]);
         Expect.Equal(0, CommandWireReader.Take().Length, "preparing records nothing");
+    }
+
+    private static void UiOverlayListDrawsNothing()
+    {
+        var context = default(ScriptableRenderContext);
+        var camera = DisunityHost.CreateGameObject().AddComponent<Camera>();
+        var overlay = context.CreateUIOverlayRendererList(camera);
+        Expect.That(overlay.isValid && overlay != RendererList.nullRendererList, "the overlay list is valid");
+        Expect.That(overlay == context.CreateUIOverlayRendererList(camera, UISubset.LowLevel), "every subset gives the same list");
+        Expect.Equal(RendererListStatus.kRendererListEmpty, context.QueryRendererListStatus(overlay), "the overlay list reports empty");
+        CommandWireReader.Take();
+        var buffer = new CommandBuffer();
+        buffer.DrawRendererList(overlay);
+        Graphics.ExecuteCommandBuffer(buffer);
+        Expect.Equal(0, CommandWireReader.Take().Length, "drawing it records nothing");
+        Expect.Throws<ArgumentNullException>(() => context.CreateUIOverlayRendererList(null!), "a null camera");
     }
 
     private static void ListsEndWithTheirFrame()

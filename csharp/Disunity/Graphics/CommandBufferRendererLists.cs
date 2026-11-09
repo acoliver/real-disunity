@@ -10,6 +10,7 @@ public sealed partial class CommandBuffer
         ThrowIfReleased();
         if (!rendererList.isValid)
             throw new ArgumentException("CommandBuffer.DrawRendererList: the renderer list is not valid", nameof(rendererList));
+        if (rendererList.UiOverlay) return;
         var id = rendererList.Id;
         Record(() => WorldGraphics.RecordDrawList(id));
     }

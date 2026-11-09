@@ -13,13 +13,17 @@ public struct RendererList : IEquatable<RendererList>
     /// <summary>The id of the world's list record; 0 for no list.</summary>
     internal ulong Id;
 
+    /// <summary>The camera's screen-space overlay UI, which the engine's UI presentation draws after the cameras, so drawing
+    /// the list records nothing.</summary>
+    internal bool UiOverlay;
+
     public static RendererList nullRendererList => default;
 
-    public readonly bool isValid => Id != 0;
+    public readonly bool isValid => Id != 0 || UiOverlay;
 
-    public readonly bool Equals(RendererList other) => Id == other.Id;
+    public readonly bool Equals(RendererList other) => Id == other.Id && UiOverlay == other.UiOverlay;
     public override readonly bool Equals(object? obj) => obj is RendererList other && Equals(other);
-    public override readonly int GetHashCode() => Id.GetHashCode();
+    public override readonly int GetHashCode() => HashCode.Combine(Id, UiOverlay);
     public static bool operator ==(RendererList left, RendererList right) => left.Equals(right);
     public static bool operator !=(RendererList left, RendererList right) => !left.Equals(right);
 }

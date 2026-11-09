@@ -38,6 +38,8 @@ internal static class SubPassDescriptorTests
         Expect.That(sub == copy && sub.GetHashCode() == copy.GetHashCode() && sub.Equals((object)copy), "sub-passes with the same data are equal");
         copy.flags = SubPassFlags.None;
         Expect.That(sub != copy, "a different flag makes sub-passes differ");
+        foreach (var name in new[] { "inputs", "colorOutputs", "flags" })
+            Expect.That(typeof(SubPassDescriptor).GetField(name) != null, $"SubPassDescriptor.{name} is a field, as the render graph reads it");
         Console.WriteLine("PASS: AttachmentIndexArray and SubPassDescriptor hold their indices and flags and compare by value");
     }
 }

@@ -173,6 +173,8 @@ pub(crate) enum ReceiverReference {
     HardwareProbeIndependent,
     HardwareProbeShared,
     HardwareProbeReuse,
+    FrozenIndependent,
+    FrozenReuse,
     ProbeIndependent,
     StoredProbeIndependent,
     ProbeShared,
@@ -188,6 +190,7 @@ impl ReceiverReference {
     pub(crate) const fn depth(self) -> crate::renderer::depth::DepthMode {
         match self {
             Self::StoredIndependent
+            | Self::FrozenIndependent
             | Self::ProbeIndependent
             | Self::HardwareProbeIndependent
             | Self::StoredProbeIndependent => crate::renderer::depth::DepthMode::Independent,
@@ -197,6 +200,7 @@ impl ReceiverReference {
             | Self::StoredProbeShared
             | Self::BlackShared => crate::renderer::depth::DepthMode::Shared,
             Self::LateCardRejection
+            | Self::FrozenReuse
             | Self::NormalProducer
             | Self::MainArithmetic
             | Self::PoisonUncovered
@@ -314,6 +318,13 @@ impl crate::compositor::FrameRenderer {
         &self,
         pipelines: &crate::renderer::ScenePipelines,
     ) -> crate::renderer::ScenePipelines {
+        #[cfg(test)]
+        if matches!(
+            self.receiver_reference,
+            Some(ReceiverReference::FrozenIndependent | ReceiverReference::FrozenReuse)
+        ) {
+            return pipelines.clone();
+        }
         self.ssao
             .as_ref()
             .and_then(|screen| screen.receiver.as_ref())

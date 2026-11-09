@@ -148,24 +148,6 @@ fn a_blit_without_a_material_copies_a_source_of_the_same_size_and_format() {
 }
 
 #[test]
-fn a_blit_without_a_material_between_other_sizes_is_a_named_error() {
-    let mut rig = Rig::new();
-    setup(&mut rig, "_MainTex", [4, 4]);
-    let mut scale = frame([1.0; 4], 0, [2, 2]);
-    scale.records = vec![Record::Blit {
-        source: SOURCE,
-        target: TARGET,
-        material: None,
-        pass: 0,
-    }];
-    let error = rig.build(&scale).err().unwrap();
-    assert!(
-        matches!(&error, OffscreenError::BlitNeedsMaterial { reason } if reason.contains("sizes")),
-        "{error}"
-    );
-}
-
-#[test]
 fn a_blit_with_a_material_needs_the_frame_to_name_a_blit_mesh() {
     let mut rig = Rig::new();
     setup(&mut rig, "_MainTex", [4, 4]);

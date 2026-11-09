@@ -31,10 +31,28 @@ pub const REFUSED_INTEGER: &str = "integer format";
 pub const REFUSED_NO_TEXTURE: &str = "no such render texture on the GPU";
 /// The copy of the texture could not be recorded, because the storage budget has no room.
 pub const REFUSED_NO_COPY: &str = "no copy of the texture could be made";
+/// The cause of a refused copy when the staging buffer would take the runtime over its budget.
+pub const REFUSED_BUDGET: &str = "over the storage budget";
+/// The cause of a refused copy when the texture's format has no byte size to copy by.
+pub const REFUSED_FORMAT: &str = "format cannot be copied";
 /// The copy could not be read back from the GPU.
 pub const REFUSED_NOT_READ: &str = "the copy could not be read";
 /// The texture's format is one this host does not give as floats.
 pub const REFUSED_NOT_DECODED: &str = "format not given as floats";
+
+/// The reason a read is refused because no copy could be made, with the cause the runtime gave.
+/// The causes are counted apart, since a full budget and a format that cannot be copied have
+/// different remedies.
+#[must_use]
+pub fn no_copy(error: &worldrunner_render_program::error::ProgramError) -> String {
+    use worldrunner_render_program::error::ProgramError;
+    let cause = match error {
+        ProgramError::OverBudget { .. } => REFUSED_BUDGET.to_owned(),
+        ProgramError::Readback(_) => REFUSED_FORMAT.to_owned(),
+        other => other.to_string(),
+    };
+    format!("{REFUSED_NO_COPY}: {cause}")
+}
 
 /// The texels a flush answers a request with, bottom row first.
 #[derive(Clone, Debug, PartialEq)]

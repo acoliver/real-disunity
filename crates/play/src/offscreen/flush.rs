@@ -134,7 +134,7 @@ impl FlushOutcome {
 #[derive(Default)]
 struct Submitted {
     before: Option<BeforeDispatch>,
-    read: Option<Result<Copied, &'static str>>,
+    read: Option<Result<Copied, String>>,
     submission: Option<wgpu::SubmissionIndex>,
 }
 
@@ -393,6 +393,9 @@ impl OffscreenHost {
             let wanted = placements
                 .get(index)
                 .and_then(|placed| Wanted::of(&snapshot.work[placed.work]));
+            if let Some(wanted) = &wanted {
+                self.make_room_for_read(wanted, &mut adapted.report);
+            }
             let submitted = Instant::now();
             let Submitted {
                 before,
@@ -408,7 +411,7 @@ impl OffscreenHost {
                     }
                     Err(reason) => refuse_read(&mut adapted.report, reason),
                 },
-                (Some(Err(reason)), _) => refuse_read(&mut adapted.report, reason),
+                (Some(Err(reason)), _) => refuse_read(&mut adapted.report, &reason),
                 _ => {}
             }
             if prepared.is_some()
@@ -535,6 +538,19 @@ impl OffscreenHost {
         outcome
     }
 
+    /// Gives back what the snapshot does not name when the budget has no room for the staging a
+    /// read of its texture takes. The frame that stages the copy is not begun yet, so storage can
+    /// still be released.
+    fn make_room_for_read(&mut self, wanted: &Wanted, report: &mut Report) {
+        let Some(bytes) = self.state.read_bytes(ids::render_texture(wanted.texture)) else {
+            return;
+        };
+        let reclaimed = self
+            .adapter
+            .make_room_for(&mut self.state, &mut self.runtime, bytes);
+        report.reclaimed.add(reclaimed);
+    }
+
     /// Records the operations, then the dispatch, then the copy a pixel read wants into one frame
     /// and submits it. The probe's second read is recorded between the operations and the
     /// dispatch.
@@ -576,11 +592,7 @@ impl OffscreenHost {
     }
 
     /// Records the copy of the render texture a pixel read wants, after everything in `frame`.
-    fn copy_for(
-        &self,
-        wanted: Wanted,
-        frame: &mut wgpu::CommandEncoder,
-    ) -> Result<Copied, &'static str> {
+    fn copy_for(&self, wanted: Wanted, frame: &mut wgpu::CommandEncoder) -> Result<Copied, String> {
         let handle = self
             .state
             .texture_handle(ids::render_texture(wanted.texture))
@@ -588,7 +600,7 @@ impl OffscreenHost {
         let copy = self
             .runtime
             .read_texture(frame, handle)
-            .map_err(|_| pixels::REFUSED_NO_COPY)?;
+            .map_err(|error| pixels::no_copy(&error))?;
         Ok(Copied::new(wanted, copy))
     }
 

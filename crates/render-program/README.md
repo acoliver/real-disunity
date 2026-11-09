@@ -231,7 +231,7 @@ frame.finish().submit()                            the frame's one submission
 | All uniform data of the frame | One `TypedWork::Upload` into a budgeted constants buffer, first in the list | Writes the buffer range; every draw reads its slice as `BufferUseKind::Uniform` |
 | `CameraRender` | `TypedWork::Draws { pass, draws }`, one `CheckedDraw` per sub-mesh | The pass clears or loads the render texture and its depth as the camera says (`AttachmentLoad`, `StoreOp::Store`); textures the materials sample are `ResourceUse::read(.., Sampled)` in `pass.uses`; vertex and index buffers are `BufferUse::read(.., Vertex/Index)` |
 | `Blit` with a material | `TypedWork::Fullscreen` with the material's pass | The target is an attachment loaded with its prior contents, the source is read as `Sampled` |
-| `Blit` without a material | `TypedWork::CopyTexture` when the sizes and formats agree | Copy read and write |
+| `Blit` without a material | `TypedWork::CopyTexture` when the sizes and formats agree, else `TypedWork::Fullscreen` of a built-in sampling program | Copy or sampled read, and write |
 | `CopyTexture` | `TypedWork::CopyTexture` with element and mip in the `TextureRange` of each view | Copy read of the source range, copy write of the destination range |
 | Scene draws that sample a result | Not an operation: declared with `ResourceRegistry::compile_operations_with_reads` | Sampled reads of the ranges the host names in `OffscreenFrame::later_reads` |
 
@@ -284,7 +284,7 @@ Renderers are selected by the camera's culling mask against the renderer's layer
 
 ### Blits
 
-A blit with a material binds its source under the main texture property name `OffscreenFrame::main_texture` (default `_MainTex`, the name the public blit API uses) and, when a constant buffer member of that name plus `_TexelSize` exists, a vector of the texel width, height, width and height of the source's mip 0 (`1/w, 1/h, w, h`). The vertex stage reads a quad of two triangles in clip space. A blit without a material is a texture copy when the size and format agree, else `OffscreenError::BlitNeedsMaterial`.
+A blit with a material binds its source under the main texture property name `OffscreenFrame::main_texture` (default `_MainTex`, the name the public blit API uses) and, when a constant buffer member of that name plus `_TexelSize` exists, a vector of the texel width, height, width and height of the source's mip 0 (`1/w, 1/h, w, h`). The vertex stage reads a quad of two triangles in clip space. A blit without a material is a texture copy when the size and format agree. Otherwise the source's first level is drawn over the target's first level by a built-in program: one triangle with no mesh, texture coordinates 0 to 1 across the target (scale one, offset zero), sampled at level 0 with the source's own filter and wrap (linear and clamped when it has none). Sampling decodes sRGB and block formats and the target encodes, so sRGB to sRGB keeps its values within one level. A source that holds depth, is not a floating-point color format, or is the target itself is `OffscreenError::BlitNeedsMaterial`.
 
 ### Copies
 
@@ -331,7 +331,7 @@ The tests in `tests/program/conventions.rs` draw into an 8x8 target through the 
 - **Offscreen work.**
   - Camera renders are drawn in render queue order without front-to-back or back-to-front sorting, and a draw's culling is the pass's. Mirrored transforms do not flip the winding. Stencil, multisampled, cube and 3D render textures are not covered. A camera or a blit draws into mip 0 of element 0; other mips and elements are reached by `CopyTexture`, which the array test does.
   - The GraphicsFormat table has 4, 5, 8, 45, 48 and 52, format 0 with depth bits as a depth-only target, and the depth sizes 16, 24 and 32; any other code is `OffscreenError::UnsupportedFormat`. Formats Old World asks for beyond these are not known from the unity-import report.
-  - A blit without a material only copies. A scaling blit without a material is `BlitNeedsMaterial`.
+  - A blit without a material reads and writes the first level of the first layer only.
   - `later_reads` names the ranges a scene draw samples; the host must name them, because a scene draw that samples a render texture is not an operation.
   - The host adapter that maps the world export onto `OffscreenFrame`, builds the `ProgramShader` of each shader and supplies the built-in per-draw and per-camera values is the `offscreen` module of `play`, see [its README](../play/README.md#offscreen-work-from-a-player). The built-ins it leaves missing show up in `OffscreenOperations::missing`.
   - Property blocks, per-instance arrays and instancing of a renderer's many sub-meshes are built one draw each; draws are not batched.

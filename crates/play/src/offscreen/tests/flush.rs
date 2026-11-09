@@ -23,7 +23,9 @@ use super::super::compute::ComputeAdapter;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
-use super::gpu::{BareQuad, MESH, Quad, SIDE, Synthetic, gpu, shader, target, vector};
+use super::gpu::{
+    BareQuad, MESH, Quad, SIDE, Synthetic, gpu, gpu_with_budget, shader, target, vector,
+};
 use super::kernels::{copy_object, text_object, write_compute};
 use super::support::{
     camera, compute_buffer, compute_shader, dispatch, render_texture, renderer_with, snapshot,
@@ -47,8 +49,20 @@ pub(super) fn host(directory: &Path) -> OffscreenHost {
     host_with(directory, settings)
 }
 
+/// As `host`, on a runtime that may hold `budget` bytes.
+pub(super) fn host_with_budget(directory: &Path, budget: u64) -> OffscreenHost {
+    let settings = Settings {
+        light_modes: vec!["Alpha".to_owned()],
+        ..Settings::default()
+    };
+    host_on(directory, settings, gpu_with_budget(budget))
+}
+
 fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
-    let gpu = gpu();
+    host_on(directory, settings, gpu())
+}
+
+fn host_on(directory: &Path, settings: Settings, gpu: super::gpu::Gpu) -> OffscreenHost {
     OffscreenHost::new(
         gpu.runtime,
         gpu.arena,

@@ -203,6 +203,8 @@ pub(super) struct Services<'a> {
     pub(super) shaders: &'a mut HashMap<ShaderId, ProgramShader>,
     pub(super) programs: &'a mut HashMap<(ShaderId, usize, u32), Arc<ProgramEntry>>,
     pub(super) samplers: &'a mut SamplerCache,
+    /// The program a blit without a material draws with, made on first use.
+    pub(super) resample: &'a mut Option<GraphicsProgram>,
     pub(super) textures: &'a TextureTable,
     pub(super) meshes: &'a MeshTable,
     pub(super) defaults: DefaultBuffers,
@@ -643,7 +645,7 @@ impl Services<'_> {
 /// floats without `FLOAT32_FILTERABLE`, and depth) is bound as a non-filterable float instead and
 /// its sampler reads the nearest texel, since a filtering sampler cannot read it. The wrap modes
 /// are kept; a texture with no sampler state gets the fixed sampler's clamp to the edge.
-fn read_unfilterable(
+pub(super) fn read_unfilterable(
     declared: wgpu::TextureSampleType,
     format: wgpu::TextureFormat,
     features: wgpu::Features,

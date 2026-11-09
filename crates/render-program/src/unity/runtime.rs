@@ -139,6 +139,13 @@ impl ProgramRuntime {
         crate::runtime::ProgramRuntime::arena_allocations(bytes)
     }
 
+    /// The storage the renderer reserves for an arena of `bytes` on a device with `limits`, in
+    /// buffers the device can hold.
+    #[must_use]
+    pub fn arena_allocations_within(bytes: u64, limits: &wgpu::Limits) -> AllocationSet {
+        crate::runtime::ProgramRuntime::arena_allocations_within(bytes, limits)
+    }
+
     /// Builds the layouts of a compute stage.
     ///
     /// # Errors

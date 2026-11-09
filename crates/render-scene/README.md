@@ -204,16 +204,29 @@ uses mutually exclusive explicit-gradient and explicit-level-zero branches accor
 to the atlas policy. Gradients include the material mip bias; clamped UVs and
 per-texture insets determine each footprint. CPU Naga-IR tests bound reconstruction
 calls and require blended level-zero samples to exclude the gradient branch.
-Forward cards filter alpha and capture its width, auxiliary footprints, normal frames,
-decal position gradients and shadow gradients before rejecting fragments. Shadow
+Unpaired and multisampled forward cards filter alpha and capture its width, auxiliary
+footprints, normal frames, decal position gradients and shadow gradients before
+rejecting fragments. Shadow
 preparation uses the decal-modified normal and its opposite for transmission. Under
 alpha-to-coverage, only zero computed coverage is rejected; below-cutoff or raw zero
 alpha can still own samples. Survivors sample AO, emission, shadows and environment
 and evaluate lighting. Card term captures reuse the prepared shadow inputs for
 sun visibility; every term assembly is covered by the forward derivative guard.
 Ordinary materials retain their shading path.
-Metadata captures atlas footprints, normal frames and decal gradients before alpha,
-distance-fade and relief-visibility rejection. Only survivors sample normal/surface
+Paired single-sample receiver consumers prepare every card footprint, cotangent
+derivative input and decal displacement before albedo rejection. Tangent-frame
+arithmetic stays beside normal sampling to retain its floating-point evaluation.
+They defer surface/normal samples,
+contact, decals and receiver-shadow preparation until the fragment survives the
+unchanged visibility, geometry and alpha predicates. Relief still exports its
+reconstructed fragment depth. Receiver-producing metadata evaluates mapped normals,
+decals and receiver derivatives before rejecting quad lanes. Masked card casters
+capture the albedo footprint before geometry/fade rejection, then evaluate the same
+blended alpha and shadow cutoff. Multisampled and unpaired forward paths keep their
+existing evaluation order.
+Metadata without receiver publication captures atlas footprints, normal frames and
+decal gradients before alpha, distance-fade and relief-visibility rejection.
+Only survivors sample normal/surface
 maps and project decals. Samples after either rejection use explicit gradients or
 levels. Relief position is reconstructed once and reused by shading and depth output.
 Normal, surface-channel and decal evaluation expand from shared source bodies.

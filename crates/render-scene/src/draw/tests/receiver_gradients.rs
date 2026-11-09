@@ -5,6 +5,8 @@ use crate::scene_metadata::receiver::{ReceiverLayout, ReceiverReference};
 use worldrunner_render_plan::{SceneImpostor, SceneImpostorLayout, TexelFormat};
 use worldrunner_render_post::ToneMap;
 
+#[path = "card_rejection.rs"]
+mod card_rejection;
 const OFFSET: [i64; 2] = [973_000, 887_000];
 const TERRAIN_SIDE: u32 = 129;
 #[path = "receiver_gradient_backing.rs"]
@@ -163,6 +165,17 @@ fn frame_at_pose(
     bias: f32,
     pose: CameraPose,
 ) -> Vec<Vec<u8>> {
+    frame_at_pose_motion(context, source, reference, bias, pose, false)
+}
+
+fn frame_at_pose_motion(
+    context: &GpuContext,
+    source: &RenderScene,
+    reference: Option<ReceiverReference>,
+    bias: f32,
+    pose: CameraPose,
+    motion: bool,
+) -> Vec<Vec<u8>> {
     let device = context.device();
     let reflection = source.effects().unwrap().ssr().is_some();
     let size = if !reflection || reference.is_some_and(ReceiverReference::probe) {
@@ -204,6 +217,9 @@ fn frame_at_pose(
     }
     .unwrap();
     let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+    if matches!(reference, Some(ReceiverReference::LateCardRejection)) {
+        shadowed.late_card_casters_for_test(device);
+    }
     let mut products = draw_receiver_frame(
         context,
         &mut renderer,
@@ -211,9 +227,11 @@ fn frame_at_pose(
         &mut shadowed,
         source,
         pose,
+        motion,
     );
     assert_streamed_coverage(source, &mut shadowed);
     assert_runtime_receiver(&renderer, &mut shadowed);
+    products.push(read_payload(context, shadowed.caster_texture_for_test()));
     let payload = renderer
         .ssao
         .as_ref()
@@ -245,6 +263,7 @@ fn draw_receiver_frame(
     shadowed: &mut crate::shadows::ShadowedScene,
     source: &RenderScene,
     pose: CameraPose,
+    motion: bool,
 ) -> Vec<Vec<u8>> {
     let terrain = source.terrain().unwrap();
     let levels = terrain.streaming_policy().map_or(0, |policy| {
@@ -260,6 +279,19 @@ fn draw_receiver_frame(
             (&mut *gpu, pipelines),
             Some(&mut *shadowed),
             (source, 0, 0.125),
+            pose,
+            worldrunner_camera::ViewConvention {
+                handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,
+            },
+        );
+    }
+    if motion {
+        products = super::draw_frame_at(
+            context,
+            renderer,
+            (gpu, pipelines),
+            Some(shadowed),
+            (source, 1, 0.25),
             pose,
             worldrunner_camera::ViewConvention {
                 handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,

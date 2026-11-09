@@ -41,7 +41,21 @@ fn camera_sources() -> Vec<String> {
         include_str!("../ssao/camera.wgsl"),
         crate::scene_metadata::MetadataOutput::Merged.object_fragment()
     );
-    sources.into_iter().take(3).chain([merged]).collect()
+    let paired = [
+        crate::scene_metadata::receiver::ReceiverLayout::Front,
+        crate::scene_metadata::receiver::ReceiverLayout::Opposing,
+    ]
+    .into_iter()
+    .map(|layout| {
+        let source = crate::shadows::receiver_sources(true, true, true).0;
+        crate::scene_metadata::receiver::consumer_source(&source, layout, false)
+    });
+    sources
+        .into_iter()
+        .take(3)
+        .chain([merged])
+        .chain(paired)
+        .collect()
 }
 
 #[test]
@@ -63,7 +77,8 @@ fn relief_entry_points_reconstruct_position_once() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 8);
+    // Eight original entries plus two relief entries in each receiver layout.
+    assert_eq!(checked, 12);
 }
 
 fn gradient_samples(function: &Function, block: &Block) -> usize {

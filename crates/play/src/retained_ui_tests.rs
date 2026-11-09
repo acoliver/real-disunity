@@ -2,7 +2,17 @@ use super::*;
 use std::{path::PathBuf, process::Command, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
 
-/// A host booted on the portable fixture's managed assembly, with no slice loaded.
+/// The turn of one test that boots the managed host. A process holds one host at a time, so a
+/// second test booting while the first runs fails with `AlreadyBooted`, and two fixture builds
+/// at once can collide on the build's output files. Hold the turn for the whole test.
+pub(crate) fn fixture_turn() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TURN.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A host booted on the portable fixture's managed assembly, with no slice loaded. Take
+/// [`fixture_turn`] first.
 pub(crate) fn booted_fixture_host() -> DisunityHost {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let status = Command::new(env!("CARGO"))
@@ -49,6 +59,7 @@ fn fixture_host() -> DisunityHost {
 
 #[test]
 fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_updates() {
+    let _turn = fixture_turn();
     let mut driver = PlayerRetainedDriver::new(
         fixture_host(),
         PlayerWindow {

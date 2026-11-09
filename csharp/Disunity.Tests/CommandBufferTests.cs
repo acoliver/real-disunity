@@ -51,7 +51,6 @@ internal static class CommandBufferTests
             ("DrawMesh", () => buffer.DrawMesh(new Mesh(), Matrix4x4.identity, material, 0, 0)),
             ("DrawMeshInstancedIndirect", () => buffer.DrawMeshInstancedIndirect(new Mesh(), 0, material, 0, new ComputeBuffer(1, 4), 0, new MaterialPropertyBlock())),
             ("SetViewport", () => buffer.SetViewport(new Rect(0, 0, 1, 1))),
-            ("SetViewProjectionMatrices", () => buffer.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity)),
         };
         foreach (var (member, call) in probes)
             Throws<NotSupportedException>(call, member, $"CommandBuffer.{member}", "cannot record this member yet");

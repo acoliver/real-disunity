@@ -35,6 +35,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: GetTemporaryRT and ReleaseTemporaryRT record the description the arguments give");
             BlitAndCopyRecordRenderTextures();
             Console.WriteLine("PASS: CommandBuffer.Blit and CopyTexture record render texture draws and refuse targets they cannot hold");
+            ViewProjectionIsRecordedColumnByColumn();
+            Console.WriteLine("PASS: SetViewProjectionMatrices records both matrices column by column, and the world refuses a value that is not finite");
             ReleasedAndNullBuffersAreRefused();
             Console.WriteLine("PASS: executing a null or released command buffer throws");
         }
@@ -235,6 +237,27 @@ internal static class CommandBufferExecutionTests
         bad.ClearRenderTarget(true, true, new Color(float.NaN, 0, 0, 0));
         Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(bad), "a clear value that is not finite");
         Taken();
+    }
+
+    private static void ViewProjectionIsRecordedColumnByColumn()
+    {
+        var buffer = new CommandBuffer();
+        var view = Matrix4x4.Translate(new Vector3(1, 2, 3));
+        var projection = new Matrix4x4(new Vector4(1, 2, 3, 4), new Vector4(5, 6, 7, 8), new Vector4(9, 10, 11, 12), new Vector4(13, 14, 15, 16));
+        buffer.SetViewProjectionMatrices(view, projection);
+        Expect.Equal(1, buffer.commandCount, "one command is recorded");
+        Expect.Equal(0, Taken().Length, "nothing reaches the world before the buffer runs");
+        Graphics.ExecuteCommandBuffer(buffer);
+        Same(["ViewProjection view=(1 0 0 0 0 1 0 0 0 0 1 0 1 2 3 1) projection=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)"], Taken(),
+            "the matrices as the world holds them");
+        var bad = new CommandBuffer();
+        var nan = Matrix4x4.identity;
+        nan[2, 3] = float.NaN;
+        bad.SetViewProjectionMatrices(Matrix4x4.identity, nan);
+        Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(bad), "a projection that is not finite");
+        Expect.Equal(0, Taken().Length, "a refused change records nothing");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.SetViewProjectionMatrices(view, projection), "a released buffer");
     }
 
     private static void GlobalsAreRecordedInOrder()

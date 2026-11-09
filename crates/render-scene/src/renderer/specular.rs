@@ -155,6 +155,15 @@ impl ScenePipelines {
                         "scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
                         "scene_probe_dx = vec3<f32>(0.0); scene_probe_dy = vec3<f32>(0.0);",
                     )
+                } else if matches!(
+                    reference,
+                    crate::scene_metadata::receiver::ReceiverReference::OffsetProbeReuse
+                        | crate::scene_metadata::receiver::ReceiverReference::StoredOffsetProbeReuse
+                ) {
+                    source.replace(
+                        "scene_probe_dx = receiver_dx;",
+                        "scene_probe_dx = receiver_dx + vec3<f32>(0.25, 0.5, 1.0);",
+                    )
                 } else {
                     source
                 }

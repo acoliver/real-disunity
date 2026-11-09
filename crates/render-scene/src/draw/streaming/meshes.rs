@@ -158,6 +158,10 @@ pub(in crate::draw) struct MeshBuilds {
     limit: usize,
     worker: Option<Worker>,
     finished: BTreeMap<TerrainChunk, Built>,
+    /// The camera selection's last requests, in priority order.
+    camera: Vec<TerrainChunk>,
+    /// Chunks the shadow casters need, requested after the camera's.
+    casters: Vec<TerrainChunk>,
 }
 impl MeshBuilds {
     /// A small multiple of the upload budget keeps the worker busy across a frame without
@@ -168,6 +172,8 @@ impl MeshBuilds {
             limit: 2 * uploads_per_frame as usize,
             worker: None,
             finished: BTreeMap::new(),
+            camera: Vec::new(),
+            casters: Vec::new(),
         }
     }
 
@@ -197,8 +203,9 @@ impl MeshBuilds {
         }
     }
 
-    /// Keeps the meshes the selection still needs and replaces the worker's queue with its
-    /// unready chunks, in the selection's priority order, then its prefetch.
+    /// Keeps the meshes the selection and the shadow casters still need and replaces the
+    /// worker's queue with the selection's unready chunks, in its priority order, then its
+    /// prefetch, then the casters' requests.
     pub fn update(&mut self, selection: &TerrainSelection) -> Result<(), FrameError> {
         let wanted: BTreeSet<_> = selection
             .uploads
@@ -206,19 +213,45 @@ impl MeshBuilds {
             .chain(&selection.held)
             .chain(&selection.unready)
             .chain(&selection.prefetch)
+            .chain(&self.casters)
+            .copied()
             .collect();
         self.finished.retain(|chunk, _| wanted.contains(chunk));
-        if selection.unready.is_empty() && selection.prefetch.is_empty() && self.worker.is_none() {
-            return Ok(());
-        }
-        let limit = self.limit;
-        let worker = self.worker()?;
-        let mut queue = worker.shared.lock();
-        let next: Vec<_> = selection
+        self.camera = selection
             .unready
             .iter()
             .chain(&selection.prefetch)
             .copied()
+            .collect();
+        self.requeue()
+    }
+
+    /// Replaces the shadow casters' requests. Built meshes of earlier requests stay until the
+    /// next [`Self::update`].
+    pub fn request_casters(&mut self, chunks: Vec<TerrainChunk>) -> Result<(), FrameError> {
+        if chunks == self.casters {
+            return Ok(());
+        }
+        self.casters = chunks;
+        self.requeue()
+    }
+
+    fn requeue(&mut self) -> Result<(), FrameError> {
+        if self.camera.is_empty() && self.casters.is_empty() && self.worker.is_none() {
+            return Ok(());
+        }
+        let limit = self.limit;
+        let requests: Vec<_> = self
+            .camera
+            .iter()
+            .chain(&self.casters)
+            .copied()
+            .filter(|chunk| !self.finished.contains_key(chunk))
+            .collect();
+        let worker = self.worker()?;
+        let mut queue = worker.shared.lock();
+        let next: Vec<_> = requests
+            .into_iter()
             .filter(|chunk| queue.active != Some(*chunk))
             .take(limit)
             .collect();

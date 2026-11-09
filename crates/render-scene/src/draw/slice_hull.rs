@@ -227,6 +227,9 @@ impl SceneGpu {
         let Some(streaming) = &terrain.streaming else {
             return Self::draw_terrain_mesh(pass, pipeline, terrain);
         };
+        if let Some(count) = streaming.draw_caster_chunks(pass, pipeline, (terrain, index), &keep) {
+            return count;
+        }
         streaming.draw_prepared_where(pass, pipeline, terrain, keep)
     }
 }

@@ -1,3 +1,4 @@
+pub(crate) mod casters;
 #[cfg(test)]
 pub(crate) mod legacy_access;
 mod meshes;
@@ -35,6 +36,7 @@ pub(super) struct Streaming {
     /// The program geometry of the committed and drawn chunks, and no others.
     geometry: Rc<ChunkGeometry>,
     pub(super) builds: RefCell<MeshBuilds>,
+    casters: RefCell<casters::CasterTerrain>,
 }
 #[derive(Debug)]
 struct Prepared {
@@ -68,6 +70,7 @@ impl Streaming {
             residency: residency::Residency::new(),
             geometry: Rc::default(),
             builds: RefCell::new(builds),
+            casters: RefCell::default(),
         }
     }
     fn reuse_prepared(
@@ -481,7 +484,12 @@ impl SceneGpu {
             .terrain
             .as_ref()
             .and_then(|terrain| terrain.streaming.as_ref())
-            .map_or(0, |streaming| streaming.residency.generation());
+            .map_or(0, |streaming| {
+                streaming
+                    .residency
+                    .generation()
+                    .wrapping_add(streaming.casters.borrow().generation())
+            });
         self.caster_generation().wrapping_add(terrain)
     }
     pub(crate) fn prepare_frame_geometry(
@@ -494,6 +502,26 @@ impl SceneGpu {
         self.prepare_terrain_geometry(device, encoder, frame, viewport)?;
         self.prepare_sky(device, encoder, frame)?;
         self.prepare_terrain_pages(device, encoder, frame, viewport)
+    }
+    /// Prepares the terrain each shadow cascade casts for its fitted light `matrices`, in the
+    /// frame `encoder` records, before any cascade pass opens.
+    pub(crate) fn prepare_caster_terrain(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        matrices: &[glam::Mat4],
+        map_size: u32,
+    ) -> Result<(), FrameError> {
+        let Some(terrain) = &self.terrain else {
+            return Ok(());
+        };
+        let Some(streaming) = &terrain.streaming else {
+            return Ok(());
+        };
+        let mut context = PrepareContext::new(device, encoder)?;
+        streaming.prepare_casters(&mut context, matrices, map_size)?;
+        context.finish();
+        Ok(())
     }
     pub(crate) fn prepare_terrain_geometry(
         &self,

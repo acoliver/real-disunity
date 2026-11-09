@@ -77,7 +77,7 @@ struct Room {
     state: OffscreenState,
     adapter: OffscreenAdapter,
     textures: Textures,
-    _device: (wgpu::Device, SubmissionAuthority, ProgramArena),
+    device: (wgpu::Device, SubmissionAuthority, ProgramArena),
 }
 
 impl Room {
@@ -98,7 +98,7 @@ impl Room {
             state,
             adapter: OffscreenAdapter::with_supply(Synthetic, settings),
             textures: Textures::default(),
-            _device: (device, authority, arena),
+            device: (device, authority, arena),
         }
     }
 
@@ -113,7 +113,7 @@ impl Room {
             .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
         let built = self
             .state
-            .build(&mut self.runtime, &self._device.2, &adapted.frame)
+            .build(&mut self.runtime, &self.device.2, &adapted.frame)
             .map(drop);
         let _ = self
             .runtime

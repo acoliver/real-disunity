@@ -27,8 +27,8 @@ use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
 use super::frame::{
-    Adapted, Available, BLIT_MESH, PASS_TAG, Reclaimed, Report, Settings, ShaderInfo,
-    adapt_probing, textures_of,
+    Adapted, Available, BLIT_MESH, PASS_TAG, Report, Settings, ShaderInfo, adapt_probing,
+    textures_of,
 };
 use super::holdings;
 use super::ids;

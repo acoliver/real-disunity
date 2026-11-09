@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Camera, Material, OffscreenFrame, Record, RenderTextureSpec, Renderer,
+    Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
@@ -844,6 +844,7 @@ impl<'a> Mapper<'a> {
                 id: ids::render_texture(id),
                 size: [texture.width, texture.height],
                 layers: 1,
+                dimension: RenderDimension::D2,
                 graphics_format: texture.format,
                 depth_bits: u8::try_from(texture.depth_bits).unwrap_or(u8::MAX),
                 mips: texture.mip_count,

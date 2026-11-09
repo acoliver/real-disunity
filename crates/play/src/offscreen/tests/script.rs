@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use glam::{Mat4, Quat, Vec3};
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{
-    Attachment, Attachments, Clear, Record, RenderTextureSpec,
+    Attachment, Attachments, Clear, Record, RenderDimension, RenderTextureSpec,
 };
 use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue as WorldValue, RenderTextureId, TargetRef, TextureRef,
@@ -294,6 +294,7 @@ fn a_temporary_render_texture_is_made_for_the_target_that_names_it() {
             id,
             size: [4, 4],
             layers: 1,
+            dimension: RenderDimension::D2,
             graphics_format: 8,
             depth_bits: 32,
             mips: 1,

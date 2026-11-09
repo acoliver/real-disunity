@@ -13,7 +13,7 @@ use crate::sampler::SamplerState;
 
 use super::error::OffscreenError;
 use super::format::{depth_format, render_color_format, source_format};
-use super::frame::{RenderTextureSpec, SourceTexture};
+use super::frame::{RenderDimension, RenderTextureSpec, SourceTexture};
 
 /// A texture of the state and what its color and depth storage is.
 pub(super) struct TextureInfo {
@@ -21,6 +21,7 @@ pub(super) struct TextureInfo {
     pub(super) depth: Option<TextureHandle>,
     pub(super) size: [u32; 2],
     pub(super) layers: u32,
+    pub(super) dimension: RenderDimension,
     pub(super) mips: u32,
     /// The color format, or the depth format of a depth-only render texture.
     pub(super) format: wgpu::TextureFormat,
@@ -83,6 +84,7 @@ impl TextureTable {
             depth: None,
             size: source.size,
             layers: 1,
+            dimension: RenderDimension::D2,
             mips: 1,
             format,
             depth_format: None,
@@ -242,6 +244,19 @@ fn create_render_texture(
     if spec.size.contains(&0) || spec.layers == 0 || spec.mips == 0 {
         return Err(OffscreenError::EmptyTexture { id: spec.id });
     }
+    let volume = spec.dimension == RenderDimension::D3;
+    if volume && spec.mips != 1 {
+        return Err(OffscreenError::VolumeShape {
+            id: spec.id,
+            reason: "has one mip",
+        });
+    }
+    if volume && spec.depth_bits != 0 {
+        return Err(OffscreenError::VolumeShape {
+            id: spec.id,
+            reason: "has no depth buffer",
+        });
+    }
     let color_format = render_color_format(spec.graphics_format)?;
     let depth_format = depth_format(spec.depth_bits)?;
     let Some(format) = color_format.or(depth_format) else {
@@ -262,6 +277,7 @@ fn create_render_texture(
         mips: spec.mips,
         format,
         storage,
+        volume,
     };
     let color = color_format
         .map(|format| runtime.create_empty_texture("offscreen render texture", shape(format)))
@@ -275,6 +291,7 @@ fn create_render_texture(
                     layers: 1,
                     mips: 1,
                     storage: false,
+                    volume: false,
                     ..shape(format)
                 }
             } else {
@@ -304,6 +321,7 @@ fn create_render_texture(
         depth,
         size: spec.size,
         layers: spec.layers,
+        dimension: spec.dimension,
         mips: spec.mips,
         format,
         depth_format,

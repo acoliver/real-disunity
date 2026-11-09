@@ -279,6 +279,7 @@ impl OffscreenHost {
         let mut adapted = self
             .adapter
             .adapt(snapshot, assets, &mut self.state, &mut self.runtime);
+        self.compute.shape_textures(&mut adapted.frame);
         adapted.report.phases.adapt = started.elapsed();
         if adapted.frame.records.is_empty() {
             self.note(("frame", live_before), &adapted.report, None);
@@ -317,6 +318,7 @@ impl OffscreenHost {
         let mut adapted =
             self.adapter
                 .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
+        self.compute.shape_textures(&mut adapted.frame);
         let reclaimed = self
             .adapter
             .make_room(&mut self.state, &mut self.runtime, &adapted.frame);

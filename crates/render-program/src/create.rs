@@ -253,8 +253,8 @@ impl ProgramRuntime {
     }
 
     /// Creates an empty 2D texture of `layers` array layers and `mips` mip levels, usable as a
-    /// render attachment, as a sampled texture and as a copy source and destination. A new
-    /// texture holds zeros.
+    /// render attachment, as a sampled texture and as a copy source and destination, or a 3D
+    /// texture of that depth, which is not a render attachment. A new texture holds zeros.
     ///
     /// # Errors
     /// Fails when the budget or the device refuses the texture.
@@ -290,7 +290,11 @@ impl ProgramRuntime {
                 },
                 mip_level_count: shape.mips,
                 sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
+                dimension: if shape.volume {
+                    wgpu::TextureDimension::D3
+                } else {
+                    wgpu::TextureDimension::D2
+                },
                 format: shape.format,
                 usage: shape.usage(),
                 view_formats: &[],
@@ -433,11 +437,13 @@ pub(crate) struct TextureShape {
     pub(crate) format: wgpu::TextureFormat,
     /// Whether a kernel binds the texture as a storage image, which the format must allow.
     pub(crate) storage: bool,
+    /// Whether the texture is 3D, with `layers` as its depth.
+    pub(crate) volume: bool,
 }
 
 impl TextureShape {
     fn usage(self) -> wgpu::TextureUsages {
-        let attachment = if self.format.is_compressed() {
+        let attachment = if self.format.is_compressed() || self.volume {
             wgpu::TextureUsages::empty()
         } else {
             wgpu::TextureUsages::RENDER_ATTACHMENT

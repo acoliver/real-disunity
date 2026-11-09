@@ -103,8 +103,14 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
 /// The values of a camera that draws into a target `aspect` wide over high.
 #[must_use]
 pub fn camera_layer(view: &CameraView, aspect: f32) -> PropertyLayer {
-    let world_to_camera = world_to_camera(view);
-    let view_projection = clip_from_gl() * projection(&view.settings, aspect) * world_to_camera;
+    view_layer(&world_to_camera(view), &projection(&view.settings, aspect))
+}
+
+/// The values of a view from the world to the camera `world_to_camera` and the OpenGL projection
+/// `projection`, which a script sets as they are.
+#[must_use]
+pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
+    let view_projection = clip_from_gl() * *projection * *world_to_camera;
     let position: Vec4 = world_to_camera.inverse().w_axis;
     let mut layer = PropertyLayer::default();
     layer

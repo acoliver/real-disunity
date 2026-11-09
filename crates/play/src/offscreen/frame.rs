@@ -15,22 +15,24 @@ use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, PropertyValue as WorldValue,
-    RenderTextureId, ShaderId as WorldShaderId, TextureRef,
+    ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
+    ShaderId as WorldShaderId, TextureRef,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
+use super::bounds::Bounds;
 use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, camera_layer, draw_layer};
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
 use super::pixels::{self, Wanted};
 use super::properties::{Textures, fallback_layer, layer, layer_with_defaults};
+use super::script::{Script, kind};
 
 pub use super::report::{Reclaimed, Report};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
 
 /// The tag key whose value names a pass's purpose.
-const PASS_TAG: &str = "LightMode";
+pub(super) const PASS_TAG: &str = "LightMode";
 
 /// The `LightMode` values a camera draws, in the order of preference.
 const CAMERA_LIGHT_MODES: [&str; 5] = [
@@ -156,6 +158,9 @@ pub struct ShaderInfo {
     pub passes: usize,
     /// The queue a material that names none takes.
     pub queue: i32,
+    /// The `LightMode` values of the passes of its first sub-shader, in pass order. A pass with
+    /// no such tag adds none.
+    pub light_modes: Vec<String>,
     /// The texture properties whose declared default the host supplies. A material that sets no
     /// texture for one reads that default.
     pub texture_defaults: Vec<(String, DefaultTexture)>,
@@ -172,6 +177,9 @@ pub struct Available {
     pub textures: BTreeSet<u64>,
     /// The default textures that are registered and can be named.
     pub default_textures: BTreeSet<DefaultTexture>,
+    /// The box of each uploaded mesh's vertices, which a culling plane and a shadow split's sphere
+    /// are tested against.
+    pub bounds: BTreeMap<u64, Bounds>,
     /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
     /// each into a scratch copy of its own.
     pub test_variants: bool,
@@ -190,9 +198,19 @@ pub enum Skip {
     PartialViewport,
     /// A copy or blit source that names a global texture, which a record never does.
     GlobalSource,
-    /// A script command the adapter does not run: a render target, clear, global, temporary
-    /// texture, camera setup or culling record.
-    UnsupportedWork,
+    /// A draw of a renderer list that no earlier record made, or that reads a culling result no
+    /// earlier record made.
+    UnknownList,
+    /// A clear or a draw with no render target bound, or a target that names the camera's own
+    /// when the camera has none.
+    UnboundTarget,
+    /// A target or a release that names a temporary render texture no allocation made.
+    UnknownTemporary,
+    /// A target that names a cube face or a slice past the first, which a render texture here
+    /// does not have.
+    UnsupportedSlice,
+    /// A target that names a mip level its texture lacks.
+    NoSuchMip,
 }
 
 /// Why a renderer was left out of the frame.
@@ -210,24 +228,6 @@ fn texture_kind(texture: &TextureRef) -> &'static str {
         TextureRef::Global(_) => "global",
         TextureRef::Render(_) => "render",
         TextureRef::Asset(_) => "asset",
-    }
-}
-
-/// A script command the adapter does not run, named by what it is.
-fn describe(work: &OffscreenWork) -> String {
-    match work {
-        OffscreenWork::SetGlobal(WorldValue::Texture(name, slot)) => {
-            format!("SetGlobal texture {name} ({})", texture_kind(&slot.texture))
-        }
-        OffscreenWork::SetGlobal(_) => "SetGlobal value".to_owned(),
-        OffscreenWork::SetGlobalKeyword { .. } => "SetGlobalKeyword".to_owned(),
-        OffscreenWork::SetRenderTarget { .. } => "SetRenderTarget".to_owned(),
-        OffscreenWork::ClearRenderTarget { .. } => "ClearRenderTarget".to_owned(),
-        OffscreenWork::AllocateTemporary { .. } => "AllocateTemporary".to_owned(),
-        OffscreenWork::ReleaseTemporary { .. } => "ReleaseTemporary".to_owned(),
-        OffscreenWork::SetupCamera { .. } => "SetupCamera".to_owned(),
-        OffscreenWork::Cull { .. } => "Cull".to_owned(),
-        _ => "work the adapter maps".to_owned(),
     }
 }
 
@@ -255,7 +255,7 @@ fn texels(side: u32) -> f32 {
 }
 
 /// Whether a camera's normalized rectangle is the whole target.
-fn fills_target(viewport: [f32; 4]) -> bool {
+pub(super) fn fills_target(viewport: [f32; 4]) -> bool {
     viewport
         .iter()
         .zip([0.0, 0.0, 1.0, 1.0])
@@ -283,6 +283,9 @@ pub(super) fn textures_of(record: &Record) -> Vec<worldrunner_render_program::id
         Record::Blit { source, target, .. } | Record::CopyTexture { source, target, .. } => {
             vec![source, target]
         }
+        Record::Clear { ref target, .. } => target.textures().collect(),
+        Record::Draws(ref list) => list.target.textures().collect(),
+        Record::Globals(_) => Vec::new(),
     }
 }
 
@@ -311,13 +314,15 @@ pub fn adapt_probing(
     mapper.finish()
 }
 
-struct Mapper<'a> {
-    snapshot: &'a GraphicsSnapshot,
-    available: &'a Available,
-    settings: &'a Settings,
-    textures: Textures<'a>,
-    frame: OffscreenFrame,
-    report: Report,
+pub(super) struct Mapper<'a> {
+    pub(super) snapshot: &'a GraphicsSnapshot,
+    pub(super) available: &'a Available,
+    pub(super) settings: &'a Settings,
+    pub(super) textures: Textures<'a>,
+    pub(super) frame: OffscreenFrame,
+    pub(super) report: Report,
+    /// What the frame's commands have set so far.
+    pub(super) script: Script,
     placements: Vec<Placed>,
     cameras: BTreeMap<(ComponentHandle, [u32; 2]), CameraId>,
     queued: BTreeMap<(WorldMaterialId, i32), MaterialId>,
@@ -340,6 +345,7 @@ impl<'a> Mapper<'a> {
             frame.globals = layer(&global.properties, &mut textures);
             frame.global_keywords.clone_from(&global.keywords);
         }
+        let script = Script::new(frame.globals.clone(), &frame.global_keywords);
         Self {
             snapshot,
             available,
@@ -350,6 +356,7 @@ impl<'a> Mapper<'a> {
                 records: snapshot.work.len(),
                 ..Report::default()
             },
+            script,
             placements: Vec::new(),
             cameras: BTreeMap::new(),
             queued: BTreeMap::new(),
@@ -396,21 +403,28 @@ impl<'a> Mapper<'a> {
             }
             match self.record(work) {
                 Ok(records) => {
+                    *self
+                        .report
+                        .built_by_kind
+                        .entry(kind(work).to_owned())
+                        .or_default() += 1;
                     self.report.built += records
                         .iter()
                         .filter(|record| !is_scratch_render(record))
                         .count();
+                    if !records.is_empty() {
+                        let globals = self.pending_globals();
+                        self.frame.records.extend(globals);
+                    }
                     self.frame.records.extend(records);
                 }
                 Err(skip) => {
                     *self.report.skipped.entry(skip).or_default() += 1;
-                    if skip == Skip::UnsupportedWork {
-                        *self
-                            .report
-                            .unsupported_work
-                            .entry(describe(work))
-                            .or_default() += 1;
-                    }
+                    *self
+                        .report
+                        .skipped_by_kind
+                        .entry(format!("{}: {skip:?}", kind(work)))
+                        .or_default() += 1;
                 }
             }
         }
@@ -488,7 +502,8 @@ impl<'a> Mapper<'a> {
                     target_mip: *target_mip,
                 }])
             }
-            _ => Err(Skip::UnsupportedWork),
+            OffscreenWork::ReadPixels { .. } => unreachable!("pixel reads are placed, not mapped"),
+            _ => self.command(work),
         }
     }
 
@@ -675,7 +690,11 @@ impl<'a> Mapper<'a> {
 
     /// The frame's material for a world material, with `queue` in place of its own when the
     /// renderer has one.
-    fn material(&mut self, id: WorldMaterialId, queue: Option<i32>) -> Result<MaterialId, Skip> {
+    pub(super) fn material(
+        &mut self,
+        id: WorldMaterialId,
+        queue: Option<i32>,
+    ) -> Result<MaterialId, Skip> {
         let material = self
             .snapshot
             .materials
@@ -734,6 +753,9 @@ impl<'a> Mapper<'a> {
             .values()
             .fold(0_u32, |mask, camera| mask | camera.culling_mask);
         for (index, view) in self.snapshot.renderers.iter().enumerate() {
+            if self.script.renderers.contains_key(&index) {
+                continue;
+            }
             if mask
                 .checked_shr(view.layer)
                 .is_none_or(|bits| bits & 1 == 0)
@@ -751,7 +773,7 @@ impl<'a> Mapper<'a> {
         }
     }
 
-    fn renderer(&mut self, view: &RendererView) -> Result<Renderer, RendererSkip> {
+    pub(super) fn renderer(&mut self, view: &RendererView) -> Result<Renderer, RendererSkip> {
         if !self.available.meshes.contains(&view.mesh) {
             return Err(RendererSkip::MeshUnavailable);
         }
@@ -794,6 +816,17 @@ impl<'a> Mapper<'a> {
                 .flat_map(textures_of)
                 .filter_map(ids::render_texture_of),
         );
+        let temporaries: BTreeSet<_> = self
+            .frame
+            .records
+            .iter()
+            .flat_map(textures_of)
+            .filter(|id| ids::is_temporary(*id))
+            .collect();
+        for spec in self.temporary_specs(&temporaries) {
+            self.report.formats.insert(spec.graphics_format);
+            self.frame.render_textures.push(spec);
+        }
         for id in used {
             let texture = &self.snapshot.render_textures[&id];
             self.report.formats.insert(texture.format);

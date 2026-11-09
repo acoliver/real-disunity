@@ -5,9 +5,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 
 use worldrunner_render_post::contracts::{
-    AllocationKey, BufferUse, BufferUseKind, ColorAttachment, DepthAttachment, DrawGeometry,
-    IndexBinding, RasterId, RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation,
-    TypedWork,
+    AllocationKey, BufferUse, BufferUseKind, ColorAttachment, DrawGeometry, IndexBinding, RasterId,
+    RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation, TypedWork,
 };
 use worldrunner_render_post::{AttachmentLoad, StageId};
 
@@ -18,7 +17,8 @@ use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::error::OffscreenError;
-use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
+use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
+use super::list_steps::{self, Loads};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
 use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
 use super::textures::TextureInfo;
@@ -59,7 +59,24 @@ pub(super) enum Step {
     Blit(BlitStep),
 }
 
-fn raster_id(name: &'static str, index: usize) -> RasterId {
+/// The global values and keywords the draws read: the frame's own until a record replaces them.
+#[derive(Clone, Copy)]
+pub(super) struct Globals<'a> {
+    pub(super) layer: &'a PropertyLayer,
+    pub(super) keywords: &'a [String],
+}
+
+/// How the draws of one pass look: which pass of a shader draws, the view's values, the winding,
+/// the globals and the target's formats.
+pub(super) struct Look<'a> {
+    pub(super) selector: &'a PassSelector,
+    pub(super) values: &'a PropertyLayer,
+    pub(super) front_face: wgpu::FrontFace,
+    pub(super) globals: Globals<'a>,
+    pub(super) signature: TargetSignature,
+}
+
+pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
     RasterId::new(
         StageId::new(name, 0),
         u32::try_from(index).unwrap_or(u32::MAX),
@@ -72,19 +89,45 @@ pub(super) fn plan_steps(
     frame: &OffscreenFrame,
 ) -> Result<Vec<Step>, OffscreenError> {
     let mut steps = Vec::new();
+    let mut globals = Globals {
+        layer: &frame.globals,
+        keywords: &frame.global_keywords,
+    };
     for (index, record) in frame.records.iter().enumerate() {
-        steps.push(match record {
+        let step = match record {
+            Record::Globals(state) => {
+                globals = Globals {
+                    layer: &state.values,
+                    keywords: &state.keywords,
+                };
+                continue;
+            }
             Record::CameraRender { camera, target } => {
-                camera_step(svc, frame, index, (*camera, *target))?
+                camera_step(svc, frame, index, globals, (*camera, *target))?
             }
             Record::Blit {
                 source,
                 target,
                 material,
                 pass,
-            } => blit_step(svc, frame, index, (*source, *target), (*material, *pass))?,
+            } => blit_step(
+                svc,
+                frame,
+                index,
+                globals,
+                (*source, *target),
+                (*material, *pass),
+            )?,
             Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
-        });
+            Record::Clear { target, clear } => {
+                match list_steps::clear_step(svc, index, *target, clear)? {
+                    Some(step) => step,
+                    None => continue,
+                }
+            }
+            Record::Draws(list) => list_steps::list_step(svc, frame, index, globals, list)?,
+        };
+        steps.push(step);
     }
     Ok(steps)
 }
@@ -93,6 +136,7 @@ fn camera_step(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
     index: usize,
+    globals: Globals<'_>,
     (camera_id, target): (CameraId, TextureId),
 ) -> Result<Step, OffscreenError> {
     let camera = frame
@@ -115,8 +159,15 @@ fn camera_step(
     svc.probing = frame.probe.targets.contains(&target);
     let variant = frame.probe.variants.get(&target).copied();
     svc.constant_fragment = variant.is_some_and(|variant| variant.constant_fragment);
+    let look = Look {
+        selector: &camera.pass,
+        values: &camera.values,
+        front_face: camera.front_face,
+        globals,
+        signature,
+    };
     for visible in visible_draws(svc, frame, camera)? {
-        if let Some(mut draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+        if let Some(mut draw) = planned_draw(svc, frame, &look, visible)? {
             if let Some(variant) = variant {
                 variant.apply(&mut draw.plan.state);
             }
@@ -222,7 +273,7 @@ pub const DRAW_LAYERS: [&str; 6] = [
 ];
 
 /// The depth a camera that clears depth clears to.
-const DEPTH_CLEAR: f32 = 1.0;
+pub(super) const DEPTH_CLEAR: f32 = 1.0;
 
 /// What the probed camera's draws did, by program.
 fn program_probes(
@@ -318,10 +369,10 @@ fn write_mask(mask: wgpu::ColorWrites) -> String {
 /// indices, a draw whose shader has no pass the camera selects, a draw whose pass samples a
 /// texture no layer names and a draw whose mesh lacks a channel the pass reads give none; the
 /// last three are counted.
-fn planned_draw(
+pub(super) fn planned_draw(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-    (camera, signature): (&Camera, TargetSignature),
+    look: &Look<'_>,
     (material_id, renderer_id, slot): (MaterialId, crate::ids::RendererId, usize),
 ) -> Result<Option<CameraDraw>, OffscreenError> {
     let renderer = &frame.renderers[&renderer_id];
@@ -331,19 +382,21 @@ fn planned_draw(
         .ok_or(OffscreenError::NoShader(material_id))?;
     let layers = [
         &renderer.per_draw,
-        &camera.values,
+        look.values,
         &renderer.block,
         &material.properties,
         &material.fallback,
-        &frame.globals,
+        look.globals.layer,
     ];
     let spec = DrawSpec {
         shader,
-        keywords: keywords(material, frame),
-        selector: camera.pass.clone(),
+        keywords: keywords(material, look.globals),
+        selector: look.selector.clone(),
         layers: Layers::new(&layers),
     };
-    let sub = svc.meshes.get(renderer.mesh)?.sub_meshes[slot];
+    let Some(sub) = svc.meshes.get(renderer.mesh)?.sub_meshes.get(slot).copied() else {
+        return Ok(None);
+    };
     if sub.count == 0 {
         return Ok(None);
     }
@@ -354,7 +407,7 @@ fn planned_draw(
         &spec,
         renderer.mesh,
         sub,
-        (signature, camera.front_face),
+        (look.signature, look.front_face),
     );
     if planned.is_err() {
         svc.constants.rollback(constants_mark);
@@ -366,7 +419,7 @@ fn planned_draw(
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
             svc.counts.unmatched += 1;
-            left_out(svc, spec.shader, &camera.pass);
+            left_out(svc, spec.shader, look.selector);
             Ok(None)
         }
         Err(OffscreenError::MissingTexture { name }) => {
@@ -452,16 +505,16 @@ fn visible_draws(
         .collect())
 }
 
-fn keywords<'a>(material: &'a Material, frame: &'a OffscreenFrame) -> Vec<&'a str> {
+fn keywords<'a>(material: &'a Material, globals: Globals<'a>) -> Vec<&'a str> {
     material
         .keywords
         .iter()
-        .chain(&frame.global_keywords)
+        .chain(globals.keywords)
         .map(String::as_str)
         .collect()
 }
 
-fn camera_draw(
+pub(super) fn camera_draw(
     svc: &mut Services<'_>,
     spec: &DrawSpec<'_>,
     mesh: MeshId,
@@ -507,7 +560,10 @@ fn camera_draw(
     })
 }
 
-fn require_render_texture(svc: &Services<'_>, id: TextureId) -> Result<(), OffscreenError> {
+pub(super) fn require_render_texture(
+    svc: &Services<'_>,
+    id: TextureId,
+) -> Result<(), OffscreenError> {
     if svc.textures.get(id)?.spec.is_none() {
         return Err(OffscreenError::NotRenderTexture(id));
     }
@@ -523,63 +579,24 @@ fn camera_pass(
     target: TextureId,
     draws: &[CameraDraw],
 ) -> Result<RasterPass, OffscreenError> {
-    let (imported, _) = svc.import(target)?;
-    let mut uses = Vec::new();
-    for draw in draws {
-        for usage in &draw.plan.texture_uses {
-            push_use(&mut uses, usage.clone());
-        }
-    }
-    let color = imported
-        .color
-        .map(|key| {
-            let (before, after) = svc.tracker.write(key, 0, 0);
-            let view = svc
-                .tracker
-                .cell_view(key, (0, 0), wgpu::TextureAspect::All, after)?;
-            Ok::<_, OffscreenError>(ColorAttachment {
-                view,
-                before: camera.clear_color.is_none().then_some(before),
-                load: camera.clear_color.map_or(AttachmentLoad::Load, |c| {
-                    AttachmentLoad::ClearColor(wgpu::Color {
-                        r: c[0],
-                        g: c[1],
-                        b: c[2],
-                        a: c[3],
-                    })
-                }),
-                store: wgpu::StoreOp::Store,
-                resolve: None,
-            })
-        })
-        .transpose()?;
-    let depth = imported
-        .depth
-        .map(|key| {
-            let (before, after) = svc.tracker.write(key, 0, 0);
-            let view = svc
-                .tracker
-                .cell_view(key, (0, 0), wgpu::TextureAspect::All, after)?;
-            Ok::<_, OffscreenError>(DepthAttachment {
-                view,
-                before: (!camera.clear_depth).then_some(before),
-                load: if camera.clear_depth {
-                    AttachmentLoad::ClearDepth(1.0)
-                } else {
-                    AttachmentLoad::Load
-                },
-                store: wgpu::StoreOp::Store,
-                read_only: false,
-            })
-        })
-        .transpose()?;
-    Ok(RasterPass {
+    let whole = Some(Attachment {
+        texture: target,
+        mip: 0,
+    });
+    let loads = Loads {
+        color: camera.clear_color,
+        depth: camera.clear_depth.then_some(DEPTH_CLEAR),
+    };
+    list_steps::attachments_pass(
+        svc,
         id,
-        colors: color.into_iter().map(Some).collect(),
-        depth,
-        uses,
-        bindings: Vec::new(),
-    })
+        Attachments {
+            color: whole,
+            depth: whole,
+        },
+        &loads,
+        draws,
+    )
 }
 
 pub(super) fn push_use(uses: &mut Vec<ResourceUse>, usage: ResourceUse) {
@@ -660,6 +677,7 @@ fn blit_step(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
     index: usize,
+    globals: Globals<'_>,
     (source, target): (TextureId, TextureId),
     (material, pass): (Option<MaterialId>, usize),
 ) -> Result<Step, OffscreenError> {
@@ -680,11 +698,11 @@ fn blit_step(
         &overlay,
         &material.properties,
         &material.fallback,
-        &frame.globals,
+        globals.layer,
     ];
     let spec = DrawSpec {
         shader,
-        keywords: keywords(material, frame),
+        keywords: keywords(material, globals),
         selector: PassSelector::Index(pass),
         layers: Layers::new(&layers),
     };

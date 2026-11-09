@@ -96,7 +96,12 @@ frame; `Unload` disposes the scene's templates and unloads the world. A request
 with a `player` data directory starts a built Unity player instead: the player's
 assemblies resolve in the same context through `PlayerAssemblies`, its startup
 hooks run in Unity's phase order around the scene, and scripts in the plan are
-found by assembly and full class name (`SceneLoadOptions.Assemblies`).
+found by assembly and full class name (`SceneLoadOptions.Assemblies`). When the
+request names a `callback_cache` directory, `PlayerAssemblies` loads each listed
+game assembly that passes `[MonoPInvokeCallback]` static methods to delegates from a
+copy rewritten with Mono.Cecil (`PlayerCallbackRewriter`), so those delegates are made
+once and kept (`NativeCallbacks.Keep`) and native code can call them after the game
+has dropped them.
 `Disunity.Layouts` writes a player's script layouts for `unity-import`.
 
 CI defines Linux, Windows, and macOS managed jobs. A local Linux result does not

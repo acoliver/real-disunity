@@ -2,6 +2,7 @@
 //! and reflections. Forward MSAA coverage is deliberately a separate domain.
 mod geometry;
 mod output;
+pub(crate) mod receiver;
 use crate::{frame::FrameUniform, renderer::ScenePipelines};
 pub(crate) use geometry::pipelines;
 #[cfg(test)]
@@ -31,6 +32,8 @@ pub(crate) struct SceneMetadata {
     pub depth: wgpu::Texture,
     pub(crate) independent_depth: wgpu::Texture,
     pub geometry: Geometry,
+    pub(crate) receiver: Option<receiver::ReceiverPayload>,
+    pub(crate) receiver_backing: Option<receiver::ReceiverBacking>,
     pub passes: crate::ssao::passes::ScreenPasses,
     pub(crate) uniform: wgpu::Buffer,
 }
@@ -76,6 +79,8 @@ impl SceneMetadata {
                 forward: None,
             },
             passes,
+            receiver: None,
+            receiver_backing: None,
             uniform,
         })
     }
@@ -83,8 +88,11 @@ impl SceneMetadata {
     pub(crate) fn geometry_for_depth(&self, depth: crate::renderer::depth::DepthMode) -> Geometry {
         use crate::renderer::depth::DepthMode;
         let mut geometry = self.geometry.clone();
+        if let Some(receiver) = &self.receiver {
+            geometry.merged = Some(receiver.pipelines.clone());
+        }
         let metadata = if self.depth.format().has_stencil_aspect() {
-            if depth == DepthMode::Reuse {
+            if depth == DepthMode::Reuse || self.receiver.is_some() {
                 DepthMode::Prepass
             } else {
                 DepthMode::Shared

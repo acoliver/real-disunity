@@ -151,6 +151,9 @@ pub fn encode_scene(
     let (gpu, pipelines) = scene;
     renderer.validate_taa_depth(attachments.1)?;
     validate_effects(renderer, gpu, pipelines)?;
+    if let Some(screen) = &mut renderer.ssao {
+        screen.receiver = None;
+    }
     renderer.prepare_scene_inputs(device, gpu);
     let depth_mode = renderer.forward_depth(gpu, attachments.1);
     let selected = renderer.color_pipelines(pipelines, depth_mode);

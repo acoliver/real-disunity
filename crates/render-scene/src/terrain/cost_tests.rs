@@ -348,3 +348,42 @@ fn term_replays_prepare_before_the_pass_build_nothing_in_steady_state_and_leave_
         "TERRAIN-COST term_replay first={first:?} after_four_more=unchanged kept_after_five_fresh_replays=({pipelines_kept}, {sets_kept})"
     );
 }
+
+#[test]
+fn one_terrain_prepares_material_sets_in_each_pipeline_context() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let first = build(context.device(), &CONFIGS[2]);
+    let second = build(context.device(), &CONFIGS[2]);
+    let rig = Rig::new(
+        &context,
+        &first.pipelines,
+        &scenes::plain(),
+        (Source::Plain, scenes::frame(scenes::pose())),
+    );
+    let draw = |pipelines: &crate::renderer::ScenePipelines| {
+        render(
+            &context,
+            Target {
+                formats: &first.formats,
+                samples: 1,
+            },
+            |_| {},
+            |pass| {
+                rig.gpu.draw_color(pass, pipelines, None);
+            },
+        )
+    };
+    let expected = draw(&first.pipelines);
+    assert_eq!(draw(&second.pipelines), expected);
+    let stats = [&first.pipelines, &second.pipelines].map(|pipelines| {
+        let stats = pipelines.terrain_runtime_stats();
+        assert_eq!(stats.sets_prepared, 1);
+        stats
+    });
+    for pipelines in [&first.pipelines, &second.pipelines] {
+        assert_eq!(draw(pipelines), expected);
+    }
+    assert_eq!(first.pipelines.terrain_runtime_stats(), stats[0]);
+    assert_eq!(second.pipelines.terrain_runtime_stats(), stats[1]);
+}

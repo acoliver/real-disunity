@@ -196,6 +196,7 @@ pub(super) struct ShadowMap {
     pub uniform: wgpu::Buffer,
     pub group: wgpu::BindGroup,
     slots: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    pub(super) sampler: wgpu::Sampler,
 }
 
 impl ShadowMap {
@@ -267,6 +268,7 @@ impl ShadowMap {
             uniform: slots[0].0.clone(),
             group: slots[0].1.clone(),
             slots,
+            sampler,
         })
     }
 }

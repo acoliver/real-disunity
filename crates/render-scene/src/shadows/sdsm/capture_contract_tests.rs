@@ -21,10 +21,20 @@ fn aliased_metadata_depth_remains_owned_by_the_capture_suffix() {
         generation: 0,
     };
     let reduction = WriteKey::Readback(6);
+    let receiver_a = WriteKey::Resource {
+        id: 7,
+        generation: 0,
+    };
+    let receiver_b = WriteKey::Resource {
+        id: 8,
+        generation: 0,
+    };
     let writes = capture_writes(
         vec![scene],
-        vec![scene, depth, normals, linear, material],
-        vec![depth, normals, linear, material],
+        vec![
+            scene, depth, normals, linear, material, receiver_a, receiver_b,
+        ],
+        vec![depth, normals, linear, material, receiver_a, receiver_b],
         depth,
         reduction,
     )
@@ -33,7 +43,7 @@ fn aliased_metadata_depth_remains_owned_by_the_capture_suffix() {
     let suffix: Vec<_> = writes.suffix_keys().collect();
     assert!(prefix.contains(&depth));
     assert!(suffix.contains(&depth));
-    for key in [normals, linear, material, reduction] {
+    for key in [normals, linear, material, receiver_a, receiver_b, reduction] {
         assert!(prefix.contains(&key));
         assert!(!suffix.contains(&key));
     }

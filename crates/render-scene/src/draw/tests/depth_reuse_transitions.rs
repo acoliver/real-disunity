@@ -63,8 +63,8 @@ fn sequence(context: &GpuContext, independent: bool, shadows: bool) -> Vec<Vec<V
             assert_eq!(renderer.targets().depth().texture(), &depth);
             assert_eq!(
                 renderer.ssao.as_ref().unwrap().depth == *renderer.targets().depth().texture(),
-                !independent && index != 1,
-                "relief must keep separate metadata and ordinary frames must restore sharing"
+                !independent && (shadows || index != 1),
+                "relief sharing requires a paired receiver payload; ordinary frames restore sharing"
             );
             products
         })

@@ -36,7 +36,7 @@ impl FrameRenderer {
         prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
         prepass.depth_format = Some(source.depth.format());
         let depth_mode = if source.depth.format().has_stencil_aspect() {
-            if gpu.has_relief() {
+            if gpu.has_relief() && source.receiver.is_none() {
                 crate::renderer::depth::DepthMode::Shared
             } else {
                 crate::renderer::depth::DepthMode::Reuse
@@ -98,6 +98,9 @@ impl FrameRenderer {
         if let Some(screen) = &self.ssao {
             textures.extend(screen.passes.textures());
             textures.extend([&screen.depth, &screen.normals]);
+            if let Some(receiver) = &screen.receiver {
+                textures.extend(receiver.textures.iter());
+            }
         }
         if let Some(water) = &self.water {
             textures.extend(water.receivers[self.frame_slot].iter());

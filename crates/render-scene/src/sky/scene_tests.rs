@@ -398,7 +398,7 @@ pub(super) fn read(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {

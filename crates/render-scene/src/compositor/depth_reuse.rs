@@ -1,4 +1,4 @@
-//! Stock frame planning for paired depth. Relief depth remains unproved across programs.
+//! Stock paired depth. Relief reuse requires the shared single-sample receiver producer.
 use super::FrameRenderer;
 use crate::{draw::SceneGpu, renderer::depth::DepthMode, scene_metadata::Geometry};
 use worldrunner_render_post::{AttachmentView, FrameConfig, SceneDepth};
@@ -42,7 +42,12 @@ impl FrameRenderer {
         if self.targets().scene_depth() != SceneDepth::Ownership {
             return;
         }
-        if gpu.has_relief() {
+        if gpu.has_relief()
+            && self
+                .ssao
+                .as_ref()
+                .is_none_or(|screen| screen.receiver.is_none())
+        {
             if let Some(screen) = &mut self.ssao
                 && screen.depth.format().has_stencil_aspect()
             {
@@ -55,6 +60,10 @@ impl FrameRenderer {
     }
 
     pub(crate) fn forward_depth(&self, gpu: &SceneGpu, depth: &AttachmentView) -> DepthMode {
+        #[cfg(test)]
+        if let Some(reference) = self.receiver_reference {
+            return reference.depth();
+        }
         if !depth.format().has_stencil_aspect() {
             return DepthMode::Independent;
         }
@@ -63,7 +72,15 @@ impl FrameRenderer {
             .as_ref()
             .is_some_and(|screen| screen.depth == *depth.texture());
         if paired {
-            mode(depth.texture().sample_count(), true, gpu.has_relief())
+            let local_receivers = self
+                .ssao
+                .as_ref()
+                .is_none_or(|screen| screen.receiver.is_none());
+            mode(
+                depth.texture().sample_count(),
+                true,
+                gpu.has_relief() && local_receivers,
+            )
         } else {
             DepthMode::Shared
         }

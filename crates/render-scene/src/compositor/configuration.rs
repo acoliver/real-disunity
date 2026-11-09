@@ -23,6 +23,8 @@ pub struct RendererConfiguration {
     pub post: HdrPostSettings,
     pub ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
+    /// Upper bound for dynamically present shadow receiver displacements.
+    pub receiver_gradients: super::ReceiverGradientReservation,
     pub water: Vec<worldrunner_render_plan::SceneWaterBody>,
     /// Reserve the existing frame-depth snapshots for depth-tested UI.
     pub ui_depth: bool,
@@ -46,6 +48,7 @@ impl RendererConfiguration {
             post: HdrPostSettings::default(),
             ssao: None,
             ssr: None,
+            receiver_gradients: super::ReceiverGradientReservation::Opposing,
             water: Vec::new(),
             ui_depth: false,
             frame_slots: 3,
@@ -164,6 +167,9 @@ fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet)
             1,
         );
         if settings.frame.samples == 1 {
+            if let Some(receiver) = settings.receiver_gradients.layout() {
+                set.extend(receiver.allocations(settings.frame.size));
+            }
             // Combined scene depth costs two float planes; relief also retains its own prepass.
             set.texture(
                 "scene depth ownership reserve",
@@ -639,6 +645,9 @@ fn build(
         post_requested: settings.post,
         elapsed_seconds: 0.0,
         selected_time: None,
+        receiver_gradients: settings.receiver_gradients,
+        #[cfg(test)]
+        receiver_reference: None,
         animation_time: None,
         frame_delta: 0.0,
         post_time: std::rc::Rc::default(),

@@ -633,6 +633,28 @@ impl SceneGpu {
         self.views[index + 1].published.borrow().stats.clone()
     }
 
+    pub(crate) fn has_transmission(&self) -> bool {
+        self.instances.batches.iter().any(|(key, batch)| {
+            batch.has_instances()
+                && (self.instances.transmission[key.2]
+                    || self.mesh_selection[key.1]
+                        .material_slots
+                        .iter()
+                        .flatten()
+                        .flatten()
+                        .any(|slot| self.instances.transmission[slot.material().raw() as usize]))
+        })
+    }
+
+    pub(crate) fn has_shadow_receivers(&self) -> bool {
+        self.terrain.is_some()
+            || self
+                .instances
+                .batches
+                .values()
+                .any(crate::instances::batch::InstanceBatch::has_instances)
+    }
+
     /// Relief fragment-depth equivalence must be proved before consuming its metadata winner.
     pub(crate) fn has_relief(&self) -> bool {
         visibility::has_relief(&self.instances, &self.mesh_selection)

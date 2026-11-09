@@ -24,7 +24,7 @@ use worldrunner_render_program::runtime::{
     VertexLayoutSpec,
 };
 
-use super::program::{Context, Surface, WeakContext, WeakFamily, semantic};
+use super::program::{Context, Surface, WeakContext, semantic};
 use super::streaming::TerrainChunk;
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
 use crate::terrain::pages::layered_gpu::textures::ResidentSource;
@@ -60,15 +60,15 @@ pub(crate) struct Request<'a> {
     pub pages: &'a dyn Fn() -> Pages,
 }
 
-/// The family or context, surface source and page-table slot a set or pipeline is made for.
+/// The context, surface source and page-table slot a set or pipeline is made for.
 type SetKey = (u64, Surface, usize);
 
 /// The pipelines, sets and mesh geometry a terrain has prepared.
 #[derive(Debug, Default)]
 pub(crate) struct PreparedTerrain {
-    /// Sets are built against one runtime, so they are kept per family of pipelines and dropped
-    /// when the family is.
-    sets: RefCell<BTreeMap<SetKey, (WeakFamily, PreparedSet)>>,
+    /// Sets are built against the runtime of the context that prepared them, whose program fixes
+    /// their layout, so they are kept per context and dropped when the context is.
+    sets: RefCell<BTreeMap<SetKey, (WeakContext, PreparedSet)>>,
     /// Pipelines are kept per context and dropped when the context is, so pipelines that a
     /// replay makes for one frame do not accumulate in the terrain of a long-lived scene.
     pipelines: RefCell<BTreeMap<SetKey, (WeakContext, Rc<PreparedPipeline>)>>,
@@ -231,10 +231,9 @@ impl PreparedTerrain {
         let context = request.context;
         let program = context.program(runtime, request.surface)?;
         let mut sets = self.sets.borrow_mut();
-        let family = context.family();
-        let set_key = (family.id(), request.surface, request.slot);
+        let set_key = (context.id(), request.surface, request.slot);
         if let std::collections::btree_map::Entry::Vacant(vacant) = sets.entry(set_key) {
-            vacant.insert((family.downgrade(), Self::set(runtime, &program, request)?));
+            vacant.insert((context.downgrade(), Self::set(runtime, &program, request)?));
         }
         let layout = vertex_layout();
         let state = context.state();

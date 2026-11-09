@@ -68,7 +68,10 @@ public sealed partial class CommandBuffer : IDisposable
         int argsOffset, MaterialPropertyBlock properties) => Fail(nameof(DrawMeshInstancedIndirect));
 
     public void SetViewport(Rect pixelRect) => Fail(nameof(SetViewport));
-    public void SetViewProjectionMatrices(Matrix4x4 view, Matrix4x4 proj) => Fail(nameof(SetViewProjectionMatrices));
+    /// <summary>Records the view and projection that the draws after it use, until a camera setup or another change. It
+    /// names no camera and leaves the bound targets as they are.</summary>
+    public void SetViewProjectionMatrices(Matrix4x4 view, Matrix4x4 proj) =>
+        Record(() => WorldGraphics.RecordSetViewProjection(view, proj));
 
     private void ThrowIfReleased() => ObjectDisposedException.ThrowIf(_released, this);
 

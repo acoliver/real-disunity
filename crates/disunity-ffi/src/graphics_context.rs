@@ -13,6 +13,7 @@ use worldrunner_world_simulation::graphics::{MAX_CULL_PLANES, OffscreenWork};
 
 pub const KIND_CULL: u32 = 10;
 pub const KIND_SETUP_CAMERA: u32 = 11;
+pub const KIND_SET_VIEW_PROJECTION: u32 = 15;
 
 /// Records a culling of the world's renderers for `camera` under the handle `id`, which later
 /// records of the frame name the result by. The host culls by the layers in `culling_mask`, the
@@ -88,11 +89,41 @@ pub unsafe extern "C" fn disunity_offscreen_setup_camera(
     })
 }
 
+/// Records the view and projection that the draws after it use: 16 floats each, column-major,
+/// as a camera setup carries them. It names no camera and leaves the bound targets as they are.
+///
+/// # Safety
+/// `view` and `projection` are readable for 16 floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_offscreen_set_view_projection(
+    world: u64,
+    view: *const f32,
+    projection: *const f32,
+) -> DisunityResult {
+    if view.is_null() || projection.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let mut matrices = [[0.0_f32; 16]; 2];
+    unsafe {
+        std::ptr::copy_nonoverlapping(view, matrices[0].as_mut_ptr(), 16);
+        std::ptr::copy_nonoverlapping(projection, matrices[1].as_mut_ptr(), 16);
+    }
+    mutate(world, |s| {
+        s.native
+            .record_offscreen(OffscreenWork::SetViewProjection {
+                view: matrices[0],
+                projection: matrices[1],
+            })?;
+        Ok(())
+    })
+}
+
 /// The kind a taken context record has, or `None` for other work.
 pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
     match work {
         OffscreenWork::Cull { .. } => Some(KIND_CULL),
         OffscreenWork::SetupCamera { .. } => Some(KIND_SETUP_CAMERA),
+        OffscreenWork::SetViewProjection { .. } => Some(KIND_SET_VIEW_PROJECTION),
         other => readback_kind(other),
     }
 }

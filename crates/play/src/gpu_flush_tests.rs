@@ -12,7 +12,7 @@ use worldrunner_disunity_runtime::GpuFlush;
 use worldrunner_world_simulation::graphics::OffscreenWork;
 
 use crate::offscreen::Assets;
-use crate::retained_driver::ui_tests::booted_fixture_host;
+use crate::retained_driver::ui_tests::{booted_fixture_host, fixture_turn};
 
 const TEXTURES: u64 = 1 << 40;
 const MESHES: u64 = 1 << 41;
@@ -88,6 +88,7 @@ fn state_thread_group_sizes(flush: &mut GpuFlush<'_>) -> Result<(), String> {
 
 #[test]
 fn a_flush_reads_the_mesh_texture_and_sampler_no_frame_asked_for() {
+    let _turn = fixture_turn();
     let mut host = booted_fixture_host();
     let seen = Rc::new(RefCell::new(Vec::new()));
     let log = Rc::clone(&seen);

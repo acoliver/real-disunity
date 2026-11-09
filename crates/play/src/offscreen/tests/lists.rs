@@ -568,6 +568,29 @@ fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
 }
 
 #[test]
+fn a_view_change_after_the_setup_reaches_the_draw_and_keeps_the_bound_targets() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    world
+        .record_offscreen(OffscreenWork::SetViewProjection {
+            view: Mat4::from_translation(Vec3::new(4.0, 5.0, 6.0)).to_cols_array(),
+            projection: Mat4::IDENTITY.to_cols_array(),
+        })
+        .unwrap();
+    draw(&mut world, drawing(&[FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    let first = lists(&adapted)[0];
+    assert_eq!(
+        first.values.values.get("_WorldSpaceCameraPos"),
+        Some(&PropertyValue::Vector([-4.0, -5.0, -6.0, 0.0])),
+        "the draw sees the view the command buffer set"
+    );
+    assert!(first.target.color.is_some() && first.target.depth.is_some());
+}
+
+#[test]
 fn globals_set_before_a_draw_reach_the_draw_through_a_record_in_front_of_it() {
     let mut world = world();
     let [lit, ..] = shaders(&mut world);

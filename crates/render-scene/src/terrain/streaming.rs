@@ -292,6 +292,33 @@ fn merge(
         }
     }
 }
+/// The chunks a shadow cascade casts terrain from: the quadtree selection for the cascade's
+/// light matrix at `size` texels square, refined from the root without upload or resident
+/// budgets, and never finer than the `camera` leaves. A cascade texel covers far more ground
+/// than the camera pixel the drawn chunks were refined for, so casting the camera's chunks
+/// spends most of the caster time on triangles the shadow map cannot resolve; where the camera
+/// draws coarser than the cascade would, the camera's detail is already enough.
+pub(crate) fn caster_leaves(
+    terrain: &SceneTerrain,
+    matrix: Mat4,
+    size: u32,
+    camera: &[TerrainChunk],
+) -> Vec<TerrainChunk> {
+    let policy = terrain.streaming_policy().expect("streaming policy");
+    let threshold = f64::from(policy.split_error_millipixels()) / 1000.0;
+    let camera = Nested::new(camera);
+    let mut pending = vec![TerrainChunk::root(terrain, policy)];
+    let mut leaves = Vec::new();
+    while let Some(node) = pending.pop() {
+        let split = camera.inside(node) && error(terrain, node, matrix, [size, size]) > threshold;
+        match node.children() {
+            Some(children) if split => pending.extend(children),
+            _ => leaves.push(node),
+        }
+    }
+    leaves.sort_unstable();
+    leaves
+}
 fn desired(
     terrain: &SceneTerrain,
     current: &[TerrainChunk],

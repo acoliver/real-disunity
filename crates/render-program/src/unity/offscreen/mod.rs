@@ -13,6 +13,7 @@ mod error;
 mod finish;
 mod format;
 pub mod frame;
+mod list_steps;
 mod meshes;
 mod plan;
 mod probe;
@@ -484,6 +485,17 @@ pub struct CameraDraws {
     pub missing_channel: usize,
 }
 
+/// What one draw list recorded and left out. The draws left out are counted as a camera's are.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListDraws {
+    /// The color texture the list drew into, or its depth texture when it has no color.
+    pub target: TextureId,
+    pub drawn: usize,
+    pub unmatched: usize,
+    pub missing_texture: usize,
+    pub missing_channel: usize,
+}
+
 /// Why one camera render left draws out: the texture properties no layer named and the
 /// (source channel, shader input) pairs its meshes lacked, each with the draws it cost.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -606,6 +618,12 @@ impl OffscreenOperations {
     #[must_use]
     pub fn camera_draws(&self) -> Vec<CameraDraws> {
         self.counts.cameras.clone()
+    }
+
+    /// What each draw list recorded and left out, in call order.
+    #[must_use]
+    pub fn list_draws(&self) -> Vec<ListDraws> {
+        self.counts.lists.clone()
     }
 
     /// Why each camera render left draws out, in the order of [`camera_draws`](Self::camera_draws).

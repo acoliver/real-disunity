@@ -144,6 +144,9 @@ fn records_keep_the_order_the_script_called_them_in() {
             Record::CameraRender { .. } => "camera",
             Record::Blit { .. } => "blit",
             Record::CopyTexture { .. } => "copy",
+            Record::Clear { .. } => "clear",
+            Record::Draws(_) => "draws",
+            Record::Globals(_) => "globals",
         })
         .collect();
     assert_eq!(kinds, ["camera", "blit", "copy", "camera"]);
@@ -197,7 +200,7 @@ fn records_that_name_what_no_longer_exists_are_skipped_by_reason_and_the_rest_st
 }
 
 #[test]
-fn script_commands_the_adapter_does_not_run_are_skipped_by_name_and_the_draws_stay() {
+fn a_release_of_a_temporary_nobody_allocated_is_skipped_by_reason_and_the_draws_stay() {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     let object = super::support::object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
@@ -220,9 +223,161 @@ fn script_commands_the_adapter_does_not_run_are_skipped_by_name_and_the_draws_st
     let snapshot = snapshot(&mut world);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
     assert_eq!(adapted.report.records, 3);
-    assert_eq!(adapted.report.skipped.get(&Skip::UnsupportedWork), Some(&2));
-    assert_eq!(adapted.frame.records.len(), 1);
+    assert_eq!(
+        adapted.report.skipped.get(&Skip::UnknownTemporary),
+        Some(&1)
+    );
+    assert_eq!(adapted.report.skipped.len(), 1);
+    // The keyword reaches the camera render through a globals record in front of it.
+    assert_eq!(adapted.frame.records.len(), 2);
+    assert!(matches!(adapted.frame.records[0], Record::Globals(_)));
+    assert!(matches!(
+        adapted.frame.records[1],
+        Record::CameraRender { .. }
+    ));
     assert_eq!(adapted.report.built, 1);
+}
+
+/// One of every script command, recorded in a world that has a camera and two render textures.
+fn every_script_command(world: &mut World, camera: ComponentHandle, target: RenderTextureId) {
+    let other = render_texture(world, [4, 4]);
+    let desc = WorldRenderTexture {
+        width: 4,
+        height: 4,
+        format: 8,
+        depth_bits: 0,
+        mip_count: 1,
+        srgb: false,
+        sampler: WorldSampler::default(),
+        generation: 0,
+    };
+    let commands = [
+        OffscreenWork::SetRenderTarget {
+            color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
+                target,
+            )],
+            depth: None,
+            mip: 0,
+            face: -1,
+            slice: -1,
+        },
+        OffscreenWork::SetRenderTarget {
+            color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
+                other,
+            )],
+            depth: None,
+            mip: 0,
+            face: -1,
+            slice: -1,
+        },
+        OffscreenWork::ClearRenderTarget {
+            color: true,
+            depth: false,
+            stencil: false,
+            value: [0.0; 4],
+            depth_value: 1.0,
+            stencil_value: 0,
+        },
+        OffscreenWork::SetGlobal(WorldValue::Float("_A".to_owned(), 1.0)),
+        OffscreenWork::SetGlobal(WorldValue::Int("_B".to_owned(), 2)),
+        OffscreenWork::SetGlobal(WorldValue::Vector("_C".to_owned(), [1.0; 4])),
+        OffscreenWork::SetGlobal(WorldValue::Texture(
+            "_Map".to_owned(),
+            texture_slot(TextureRef::Render(other)),
+        )),
+        OffscreenWork::SetGlobalKeyword {
+            name: "FOG".to_owned(),
+            enabled: true,
+        },
+        OffscreenWork::SetGlobalKeyword {
+            name: "FOG".to_owned(),
+            enabled: false,
+        },
+        OffscreenWork::AllocateTemporary { name_id: 7, desc },
+        OffscreenWork::ReleaseTemporary { name_id: 7 },
+        OffscreenWork::SetupCamera {
+            camera,
+            view: glam::Mat4::IDENTITY.to_cols_array(),
+            projection: glam::Mat4::IDENTITY.to_cols_array(),
+            target: worldrunner_world_simulation::graphics::TargetRef::Render(target),
+        },
+        OffscreenWork::Cull {
+            id: 5,
+            camera,
+            culling_mask: u32::MAX,
+            planes: Vec::new(),
+            options: 0,
+        },
+        OffscreenWork::Cull {
+            id: 6,
+            camera,
+            culling_mask: 1,
+            planes: Vec::new(),
+            options: 0,
+        },
+    ];
+    for command in commands {
+        world.record_offscreen(command).unwrap();
+    }
+    let made = world
+        .create_renderer_list(
+            worldrunner_world_simulation::graphics::RendererListDesc::Draw {
+                cull: 5,
+                pass_tags: vec!["Alpha".to_owned()],
+                queue_min: 0,
+                queue_max: 5000,
+                layer_mask: u32::MAX,
+                rendering_layer_mask: u32::MAX,
+                sorting: 0,
+                per_object: 0,
+                override_material: None,
+                override_pass: -1,
+            },
+        )
+        .unwrap();
+    world
+        .record_offscreen(OffscreenWork::DrawRendererList { list: made })
+        .unwrap();
+}
+
+#[test]
+fn every_script_command_is_run_and_counted_by_kind() {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    let object = super::support::object(&mut world, 0, Vec3::ZERO, Quat::IDENTITY);
+    let handle = world
+        .add_component(
+            object,
+            worldrunner_world_simulation::ComponentDesc::Camera(Camera::default()),
+        )
+        .unwrap();
+    every_script_command(&mut world, handle, target);
+    let snapshot = snapshot(&mut world);
+    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
+    let counts = |pairs: &[(&str, usize)]| -> BTreeMap<String, usize> {
+        pairs
+            .iter()
+            .map(|(kind, count)| ((*kind).to_owned(), *count))
+            .collect()
+    };
+    assert_eq!(
+        adapted.report.built_by_kind,
+        counts(&[
+            ("AllocateTemporary", 1),
+            ("ClearRenderTarget", 1),
+            ("CreateRendererList", 1),
+            ("Cull", 2),
+            ("DrawRendererList", 1),
+            ("ReleaseTemporary", 1),
+            ("SetGlobal", 4),
+            ("SetGlobalKeyword", 2),
+            ("SetRenderTarget", 2),
+            ("SetupCamera", 1),
+        ])
+    );
+    assert_eq!(adapted.report.records, 16);
+    assert!(adapted.report.skipped.is_empty());
+    assert_eq!(adapted.frame.records.len(), 1, "the one clear");
 }
 
 #[test]

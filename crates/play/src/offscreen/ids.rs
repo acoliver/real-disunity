@@ -14,6 +14,12 @@ const RENDER_TEXTURE: u64 = 1 << 63;
 /// The names of the default textures: the last sixteen below the render texture bit, which no
 /// stored texture takes.
 const DEFAULT_TEXTURES: u64 = RENDER_TEXTURE - 16;
+/// Set, with the render texture bit, in the id of a temporary render texture: one that a command
+/// buffer allocates under a property name id.
+const TEMPORARY: u64 = 1 << 61;
+/// The allocations of one name id that an id tells apart: the bits between the name id and
+/// [`TEMPORARY`].
+const TEMPORARY_ALLOCATIONS: u64 = (1 << 29) - 1;
 /// Set in the id of the scratch copy of a render texture that a test render draws into.
 const PROBE_SCRATCH: u64 = 1 << 62;
 /// Where the number of a test render's variant sits in a scratch copy's id, above any
@@ -43,6 +49,22 @@ pub fn queued_material(variant: u32) -> MaterialId {
 #[must_use]
 pub fn render_texture(id: RenderTextureId) -> TextureId {
     TextureId(id.to_bits() | RENDER_TEXTURE)
+}
+
+/// The temporary render texture that the `allocation`-th allocation of the property name id
+/// `name_id` in a frame makes, counted from 0. Frames that make the same allocations name the same
+/// textures, so a frame keeps the storage of the last one's.
+#[must_use]
+pub fn temporary(name_id: i32, allocation: u32) -> TextureId {
+    let name = u64::from(name_id.cast_unsigned());
+    let count = u64::from(allocation) & TEMPORARY_ALLOCATIONS;
+    TextureId(RENDER_TEXTURE | TEMPORARY | (count << 32) | name)
+}
+
+/// Whether `id` names a temporary render texture.
+#[must_use]
+pub fn is_temporary(id: TextureId) -> bool {
+    id.0 & RENDER_TEXTURE != 0 && id.0 & TEMPORARY != 0 && id.0 & PROBE_SCRATCH == 0
 }
 
 /// The scratch copy a test render of the render texture `id` draws into.
@@ -82,10 +104,10 @@ pub fn mesh(identity: u64) -> MeshId {
     MeshId(identity)
 }
 
-/// The render texture a name stands for, or `None` for a stored texture's name and a scratch
-/// copy's.
+/// The render texture a name stands for, or `None` for a stored texture's name, a scratch copy's
+/// and a temporary's.
 #[must_use]
 pub fn render_texture_of(id: TextureId) -> Option<RenderTextureId> {
-    (id.0 & RENDER_TEXTURE != 0 && id.0 & PROBE_SCRATCH == 0)
+    (id.0 & RENDER_TEXTURE != 0 && id.0 & (PROBE_SCRATCH | TEMPORARY) == 0)
         .then(|| RenderTextureId::from_bits(id.0 & !RENDER_TEXTURE))
 }

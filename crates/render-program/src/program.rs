@@ -113,6 +113,18 @@ fn expect(stage: &StageProgram, expected: StageKind) -> Result<(), ProgramError>
     Err(ProgramError::WrongStage { expected, found })
 }
 
+/// A set is lent once.
+fn check_distinct(external: &[ExternalSet]) -> Result<(), ProgramError> {
+    match external
+        .iter()
+        .enumerate()
+        .find(|(index, lent)| external[..*index].iter().any(|other| other.set == lent.set))
+    {
+        Some((_, repeated)) => Err(ProgramError::ExternalSetConflict { set: repeated.set }),
+        None => Ok(()),
+    }
+}
+
 impl ProgramRuntime {
     /// Builds the layouts of a compute stage.
     ///
@@ -141,9 +153,29 @@ impl ProgramRuntime {
         &self,
         vertex: &StageProgram,
     ) -> Result<GraphicsProgram, ProgramError> {
+        self.vertex_only_program_in(vertex, &[])
+    }
+
+    /// Like [`vertex_only_program`](Self::vertex_only_program), with the sets of `external` lent:
+    /// the owner of the pass binds them, and each layout is used as given in the pipeline layout.
+    /// A shadow caster's light frame is the case: the pass binds the frame of the cascade it
+    /// draws, so one prepared draw serves every cascade, where a set the runtime builds would
+    /// need one prepared draw for each. The rules are those of
+    /// [`graphics_program_in`](Self::graphics_program_in).
+    ///
+    /// # Errors
+    /// Also fails with `ExternalSetConflict` when a set is lent twice, with a layout error that
+    /// names a resource a lent declaration does not list or lists as another class, and with
+    /// `TooManyGroups` when a lent set is above the device's limit.
+    pub fn vertex_only_program_in(
+        &self,
+        vertex: &StageProgram,
+        external: &[ExternalSet],
+    ) -> Result<GraphicsProgram, ProgramError> {
         expect(vertex, StageKind::Vertex)?;
-        let layout = ProgramLayout::build_in(&[vertex], &[])?;
-        let gpu = self.gpu_layout(layout, &[])?;
+        check_distinct(external)?;
+        let layout = ProgramLayout::build_in(&[vertex], external)?;
+        let gpu = self.gpu_layout(layout, external)?;
         Ok(GraphicsProgram {
             vertex: vertex.clone(),
             fragment: None,
@@ -186,15 +218,7 @@ impl ProgramRuntime {
     ) -> Result<GraphicsProgram, ProgramError> {
         expect(vertex, StageKind::Vertex)?;
         expect(fragment, StageKind::Fragment)?;
-        if let Some(repeated) = external
-            .iter()
-            .enumerate()
-            .find(|(index, lent)| external[..*index].iter().any(|other| other.set == lent.set))
-        {
-            return Err(ProgramError::ExternalSetConflict {
-                set: repeated.1.set,
-            });
-        }
+        check_distinct(external)?;
         let layout = ProgramLayout::build_in(&[vertex, fragment], external)?;
         let gpu = self.gpu_layout(layout, external)?;
         Ok(GraphicsProgram {

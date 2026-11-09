@@ -7,6 +7,7 @@ mod support;
 
 mod batch;
 mod common;
+mod comparison;
 mod coverage;
 mod depth_only;
 mod external;

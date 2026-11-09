@@ -696,6 +696,49 @@ vec![
 - **The pairing.** A texture declared unfilterable is sampled only with a non-filtering sampler. The runtime reads the shader's sampling calls from the module, and a program that samples an unfilterable texture with a sampler declared filtering is refused when the program is built, as `LayoutError::FilteringSampler`, naming the texture's and the sampler's addresses. A shader that only loads texels (`textureLoad`) pairs the texture with no sampler, and can keep a filtering sampler declared for other textures. The check applies to lent sets too, from their declarations.
 - **Lent sets.** A lent set's declaration is checked with `ResourceKind::same_class`, which ignores the filterable flag and the filtering of a plain sampler, so a lent `NonFiltering` sampler matches the shader's `sampler`.
 
+## Comparison samplers
+
+A comparison sampler (WGSL `sampler_comparison`) compares a reference depth the shader passes with the depth it reads and returns 1 or 0, which is how a shadow map is tested. The runtime does not create one, so a binding of one is declared from an engine semantic, and the owner imports the sampler it made with `SamplerDescriptor::compare` set. The texture it is used with is a depth texture, declared `sample: Depth`.
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind,
+# };
+# use worldrunner_render_program::runtime::Import;
+# fn shadow(device: &wgpu::Device) -> (Vec<ResourceBinding>, Import) {
+let at = |binding| BindingAddress { set: 0, binding };
+let declared = vec![
+    // `var shadow: texture_depth_2d`
+    ResourceBinding {
+        at: at(0),
+        source: BindingSource::Engine(EngineSemantic::named("sun.shadow")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Texture {
+            dimension: wgpu::TextureViewDimension::D2,
+            sample: wgpu::TextureSampleType::Depth,
+            multisampled: false,
+        },
+    },
+    // `var compare: sampler_comparison`
+    ResourceBinding {
+        at: at(1),
+        source: BindingSource::Engine(EngineSemantic::named("sun.compare")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Sampler(wgpu::SamplerBindingType::Comparison),
+    },
+];
+let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+    compare: Some(wgpu::CompareFunction::LessEqual),
+    ..wgpu::SamplerDescriptor::default()
+});
+(declared, Import::sampler(EngineSemantic::named("sun.compare"), sampler))
+# }
+```
+
+- **Where.** A comparison sampler is accepted at a binding whose source is `BindingSource::Engine`, in `prepare_imported_draw` and in sets built by `prepare_set`. A comparison binding with another source, which the runtime would have to fill itself, is `ProgramError::UnsupportedSampler` naming the set and binding, and so is a registered program that declares one. The shader's `sampler_comparison` reflects as `Comparison`, which a declaration must equal.
+- **The sampler's own kind.** wgpu checks that the imported sampler is a comparison sampler when it creates the group, and a plain sampler lent to a comparison slot comes back as `ProgramError::Gpu`.
+- **The result.** `LessEqual` passes where the reference is at most the stored depth. `tests/lent/comparison.rs` stores `Depth16Unorm` codes 16384, 32767, 32768 and 49151 and passes the reference 0.5: the table is `[0, 0, 1, 1]` for `LessEqual` and `[1, 1, 0, 0]` for `Greater`, exact on lavapipe and on the Radeon, including the two codes one step either side of 0.5. `Always` and `Never` give all ones and all zeros.
+
 ## Alpha to coverage
 
 In a pass of more than one sample, alpha to coverage lets the fragment's alpha decide how many of a pixel's samples the fragment covers, which gives a cut-out edge such as foliage anti-aliasing without blending or sorting. It is a state: `RasterState::alpha_to_coverage`. The pipeline takes its sample count from the signature and sets alpha to coverage from the state, so the same program draws with and without it as two pipelines.
@@ -761,6 +804,6 @@ A WGSL position is used as written. Clip Y is up, so positive Y lands in the top
 - A draw writes one single-sample colour target with an optional depth target whose format has no stencil aspect. Multisampled targets, several colour targets and stencil formats are refused by name.
 - Properties set values and resources. The runtime does not yet fill object, camera or light values for you, so a game sets the matrices and times its shaders read.
 - A constant layout holds scalars, vectors and matrices, and arrays of them. Struct arrays are not represented.
-- Comparison samplers are refused by name when a program is registered, and every sampler is the fixed linear, clamped one.
+- The runtime creates two samplers, the fixed linear one and a nearest-texel one for bindings declared non-filtering. Any other sampler, including every comparison sampler, is lent by its owner through an engine-sourced binding; a comparison sampler declared any other way is refused by name.
 
 Issues [#449](https://github.com/acoliver/real-disunity/issues/449) and [#450](https://github.com/acoliver/real-disunity/issues/450) track the remaining work.

@@ -149,7 +149,7 @@ pub enum ProgramError {
         other_binding: u32,
     },
     #[error(
-        "set {set} binding {binding} is a comparison sampler, which this renderer does not create"
+        "set {set} binding {binding} is a comparison sampler, which the runtime does not create: declare it from an engine semantic and import one"
     )]
     UnsupportedSampler { set: u32, binding: u32 },
     #[error("the program uses bind group {set}, above the device's limit of {limit}")]

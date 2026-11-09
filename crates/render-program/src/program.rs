@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::binding::ResourceLayout;
+use crate::binding::{BindingSource, ResourceLayout};
 use crate::error::{ProgramError, StorageImageError};
 use crate::layout::ProgramLayout;
 use crate::module::{StageKind, StageProgram};
@@ -299,10 +299,13 @@ impl ProgramRuntime {
         }
         let mut entries = Vec::new();
         for slot in slots {
+            // The runtime has no comparison sampler to fill a binding with, so one is only
+            // accepted where the owner lends it.
             if matches!(
                 slot.ty,
                 wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison)
-            ) {
+            ) && !matches!(slot.source, BindingSource::Engine(_))
+            {
                 return Err(ProgramError::UnsupportedSampler {
                     set,
                     binding: slot.binding,

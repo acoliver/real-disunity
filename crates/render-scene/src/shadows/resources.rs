@@ -13,7 +13,8 @@ use worldrunner_render_shadow::{
 
 use super::DirectionalShadowSettings;
 
-const SHADOW_UNIFORM_BYTES: usize = 352;
+/// Bytes of the shadow uniform the shaders read at set 2, binding 0.
+pub(crate) const SHADOW_UNIFORM_BYTES: usize = 352;
 
 pub(super) const SHADOWED_WGSL: &str = concat!(
     worldrunner_render_shadow::shadow_wgsl!(),

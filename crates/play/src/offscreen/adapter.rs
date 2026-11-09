@@ -19,17 +19,19 @@ use worldrunner_render_program::unity::offscreen::{
     OffscreenError, OffscreenOperations, OffscreenState,
 };
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, ShaderId as WorldShaderId, ShaderSource, TextureRef,
+    OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
 
 use super::assets::{Assets, mesh_of, sampler_of_stored, texture_of};
+use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
 use super::frame::{
-    Adapted, Available, BLIT_MESH, Reclaimed, Report, Settings, ShaderInfo, adapt_probing,
-    textures_of,
+    Adapted, Available, BLIT_MESH, PASS_TAG, Reclaimed, Report, Settings, ShaderInfo,
+    adapt_probing, textures_of,
 };
 use super::holdings;
 use super::ids;
+use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
@@ -39,6 +41,8 @@ pub struct OffscreenAdapter {
     settings: Settings,
     shaders: BTreeMap<WorldShaderId, (ShaderSource, ShaderInfo)>,
     meshes: BTreeMap<u64, Stored>,
+    /// The box of each uploaded mesh's vertices.
+    bounds: BTreeMap<u64, Bounds>,
     textures: BTreeMap<u64, Stored>,
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
@@ -78,6 +82,7 @@ impl OffscreenAdapter {
             settings,
             shaders: BTreeMap::new(),
             meshes: BTreeMap::new(),
+            bounds: BTreeMap::new(),
             textures: BTreeMap::new(),
             defaults: BTreeSet::new(),
             blit_mesh: false,
@@ -122,11 +127,12 @@ impl OffscreenAdapter {
         let mut available = Available::default();
         // A render texture the script destroyed has nothing left to draw; its storage goes back
         // to the budget before this snapshot's textures are made.
-        let live_targets: BTreeSet<_> = snapshot
+        let mut live_targets: BTreeSet<_> = snapshot
             .render_textures
             .keys()
             .map(|id| ids::render_texture(*id))
             .collect();
+        live_targets.extend(temporary_ids(&snapshot.work));
         state.retain_render_textures(runtime, &live_targets);
         self.register_shaders(snapshot, state, &mut available, &mut notes);
         let meshes: BTreeSet<u64> = snapshot
@@ -142,6 +148,12 @@ impl OffscreenAdapter {
         self.register_defaults(state, runtime, &mut notes);
         self.register_textures(&wanted, assets, (state, runtime), &mut notes);
         available.meshes = usable(&self.meshes);
+        available.bounds = self
+            .bounds
+            .iter()
+            .filter(|(identity, _)| available.meshes.contains(identity))
+            .map(|(identity, bounds)| (*identity, *bounds))
+            .collect();
         available.textures = usable(&self.textures);
         available.default_textures = self.defaults.clone();
         available.test_variants = probe && !self.variants_made;
@@ -175,8 +187,16 @@ impl OffscreenAdapter {
             }
             match self.supply.load(source) {
                 Ok(loaded) => {
+                    let (_, light_modes) = loaded.program.pass_tags(PASS_TAG);
+                    for mode in &light_modes {
+                        *notes
+                            .census
+                            .entry(format!("shader pass tag {PASS_TAG}={mode}"))
+                            .or_default() += 1;
+                    }
                     let info = ShaderInfo {
                         passes: loaded.passes,
+                        light_modes,
                         queue: loaded.queue,
                         texture_defaults: loaded.texture_defaults,
                         fill: loaded.fill,
@@ -228,12 +248,17 @@ impl OffscreenAdapter {
                 }
             };
             let uploaded = match mesh_of(&stored) {
-                Ok(mesh) => self
-                    .with_room(state, runtime, notes, |state, runtime| {
+                Ok(mesh) => {
+                    match Bounds::of_mesh(&mesh) {
+                        Some(bounds) => self.bounds.insert(identity, bounds),
+                        None => self.bounds.remove(&identity),
+                    };
+                    self.with_room(state, runtime, notes, |state, runtime| {
                         state.set_mesh(runtime, ids::mesh(identity), &mesh)
                     })
                     .map_err(|error| notes.fail("mesh", &error))
-                    .is_ok(),
+                    .is_ok()
+                }
                 Err(error) => {
                     notes.fail("mesh", &error);
                     false
@@ -498,6 +523,7 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
                     note(&slot.texture);
                 }
             }
+            OffscreenWork::SetGlobal(PropertyValue::Texture(_, slot)) => note(&slot.texture),
             _ => {}
         }
     }
@@ -718,11 +744,18 @@ fn drop_unusable_records(
 ) {
     let records = std::mem::take(&mut adapted.frame.records);
     let mut kept = Vec::new();
+    // A record stands alone with the globals that were in force for it.
+    let mut globals = None;
     for record in records {
+        if matches!(record, Record::Globals(_)) {
+            globals = Some(record.clone());
+            kept.push(record);
+            continue;
+        }
         let alone = part(
             &adapted.frame,
             &adapted.frame.render_textures,
-            vec![record.clone()],
+            globals.iter().cloned().chain([record.clone()]).collect(),
         );
         match state.build(runtime, arena, &alone) {
             Ok(_) => kept.push(record),

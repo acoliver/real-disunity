@@ -22,7 +22,7 @@ handle!(
     BufferHandle
 );
 handle!(
-    /// A 2D texture the runtime owns.
+    /// A texture the runtime owns.
     TextureHandle
 );
 handle!(

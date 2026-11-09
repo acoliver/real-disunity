@@ -13,7 +13,7 @@ use std::{
 use worldrunner_render_program::unity::{
     compute_kernel::{KernelError, kernel_stage},
     layout::ProgramLayout,
-    module::StageProgram,
+    module::{Reflected, StageProgram},
 };
 use worldrunner_unity_serialized::{
     ClassId,
@@ -71,6 +71,13 @@ pub struct ComputeReport {
     pub programs: usize,
     pub layouts: usize,
     pub targets: usize,
+    /// The storage image bindings of the variants that have a layout, by access, format and
+    /// view dimension.
+    pub images: BTreeMap<String, usize>,
+    /// Variants with a layout and every target whose storage images a device made with no
+    /// optional features cannot bind, by the first such image's access, format and dimension.
+    /// The device in use decides whether they run.
+    pub beyond_baseline: BTreeMap<String, usize>,
     pub failures: BTreeMap<String, usize>,
     /// The first failure of each cause, naming its object, kernel and variant by index.
     pub examples: BTreeMap<String, String>,
@@ -173,6 +180,7 @@ fn targets_resolve(stage: &StageProgram) -> bool {
     stage.constant_buffer_targets().is_ok()
         && stage.texture_targets().is_ok()
         && stage.buffer_targets().is_ok()
+        && stage.image_targets().is_ok()
 }
 
 impl ComputeReport {
@@ -276,8 +284,26 @@ impl ComputeReport {
         }
         if targets_resolve(&stage) {
             self.targets += 1;
+            self.add_images(&stage);
         } else {
             self.fail("targets do not resolve".to_owned(), &"a target", place);
+        }
+    }
+}
+
+impl ComputeReport {
+    /// Counts the storage images of a stage that has its layout and targets.
+    fn add_images(&mut self, stage: &StageProgram) {
+        let images: Vec<_> = stage
+            .resources()
+            .iter()
+            .filter_map(Reflected::storage_image)
+            .collect();
+        for image in &images {
+            *self.images.entry(image.describe()).or_default() += 1;
+        }
+        if let Some(first) = images.iter().find(|image| image.needs_device_features()) {
+            *self.beyond_baseline.entry(first.describe()).or_default() += 1;
         }
     }
 }
@@ -366,6 +392,15 @@ impl fmt::Display for ComputeReport {
             "stage programs {}, layouts {}, targets {}",
             self.programs, self.layouts, self.targets
         )?;
+        for (image, count) in &self.images {
+            writeln!(f, "{count} storage images: {image}")?;
+        }
+        for (image, count) in &self.beyond_baseline {
+            writeln!(
+                f,
+                "{count} variants need device features to bind a storage image: {image}"
+            )?;
+        }
         for (cause, count) in &self.failures {
             writeln!(f, "{count} {cause}: {}", self.examples[cause])?;
         }

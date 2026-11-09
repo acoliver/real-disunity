@@ -46,6 +46,7 @@
 
 mod adapter;
 mod assets;
+mod bounds;
 mod builtins;
 mod camera;
 mod census;
@@ -56,11 +57,13 @@ mod frame;
 mod holdings;
 mod ids;
 mod kernels;
+mod lists;
 mod pass_notes;
 mod pixels;
 mod probe;
 mod properties;
 mod report;
+mod script;
 mod shaders;
 mod trace;
 
@@ -71,12 +74,13 @@ pub use adapter::{OffscreenAdapter, build};
 pub use assets::{
     AssetError, Assets, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
 };
+pub use bounds::Bounds;
 pub use builtins::{
     CAMERA_POSITION, OBJECT_TO_WORLD, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT, camera_layer,
     draw_layer,
 };
 pub use camera::{clip_from_gl, projection, world_to_camera};
-pub use census::{ShaderCensus, shader_census};
+pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};
 pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,
@@ -92,5 +96,6 @@ pub use pixels::{
     PixelAnswer, REFUSED_INTEGER, REFUSED_NO_COPY, REFUSED_NO_TEXTURE, REFUSED_NOT_DECODED,
     REFUSED_NOT_READ, is_integer_format,
 };
+pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
 pub use trace::{Phases, WorkTrace};

@@ -17,6 +17,7 @@ const WINDOW_SIZE: [u32; 2] = [1920, 1080];
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
        play shader-census <player data directory> [texture property]...
+       play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
             [--gpu-work on|off]
@@ -274,8 +275,32 @@ fn shader_census(directory: &str, properties: &[String]) -> ExitCode {
     }
 }
 
+/// `play compute-census <player data directory>`: builds every compute kernel variant of the
+/// player on the headless player's device and prints counts.
+fn compute_census(directory: &str) -> ExitCode {
+    match worldrunner_play::compute_census(std::path::Path::new(directory)) {
+        Ok((device, census)) => {
+            println!(
+                "{} compute shader objects, {} kernel variants, {} built as compute programs on {device}, \
+                 left out by cause: {:?}",
+                census.shaders, census.variants, census.programs, census.failed
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [command, directory] = args.as_slice()
+        && command == "compute-census"
+    {
+        return compute_census(directory);
+    }
     if let [command, directory, properties @ ..] = args.as_slice()
         && command == "shader-census"
     {

@@ -13,6 +13,7 @@ mod error;
 mod finish;
 mod format;
 pub mod frame;
+mod list_steps;
 mod meshes;
 mod plan;
 mod probe;
@@ -181,6 +182,27 @@ impl OffscreenState {
             .get(id)
             .ok()
             .map(textures::TextureInfo::primary)
+    }
+
+    /// Marks render textures as ones a kernel binds as storage images. A marked texture is made
+    /// with storage binding usage when the device binds its color format as a storage image, and
+    /// is made again, empty, by the first frame that names it after it was marked while it had
+    /// none. A texture stays marked, so later frames keep it. A marked texture whose format the
+    /// device cannot bind is made without storage binding, as [`texture_storage`](Self::texture_storage)
+    /// shows.
+    pub fn bind_as_storage(&mut self, ids: impl IntoIterator<Item = TextureId>) {
+        self.textures.bind_as_storage(ids);
+    }
+
+    /// The color format of the render texture `id` and whether it allows storage binding, or
+    /// `None` for an id that names no texture the state holds. A depth-only render texture
+    /// reports its depth format.
+    #[must_use]
+    pub fn texture_storage(&self, id: TextureId) -> Option<(wgpu::TextureFormat, bool)> {
+        self.textures
+            .get(id)
+            .ok()
+            .map(|info| (info.format, info.storage))
     }
 
     /// Gives back the storage of the render textures that `live` does not name. A render texture
@@ -484,6 +506,17 @@ pub struct CameraDraws {
     pub missing_channel: usize,
 }
 
+/// What one draw list recorded and left out. The draws left out are counted as a camera's are.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListDraws {
+    /// The color texture the list drew into, or its depth texture when it has no color.
+    pub target: TextureId,
+    pub drawn: usize,
+    pub unmatched: usize,
+    pub missing_texture: usize,
+    pub missing_channel: usize,
+}
+
 /// Why one camera render left draws out: the texture properties no layer named and the
 /// (source channel, shader input) pairs its meshes lacked, each with the draws it cost.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -606,6 +639,12 @@ impl OffscreenOperations {
     #[must_use]
     pub fn camera_draws(&self) -> Vec<CameraDraws> {
         self.counts.cameras.clone()
+    }
+
+    /// What each draw list recorded and left out, in call order.
+    #[must_use]
+    pub fn list_draws(&self) -> Vec<ListDraws> {
+        self.counts.lists.clone()
     }
 
     /// Why each camera render left draws out, in the order of [`camera_draws`](Self::camera_draws).

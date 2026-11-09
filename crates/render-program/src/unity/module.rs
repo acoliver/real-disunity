@@ -8,7 +8,7 @@ pub use worldrunner_unity_serialized::spirv_prep::ResourceBinding;
 
 use super::declare::{declarations, resource_layout};
 use super::layout::LayoutError;
-pub use crate::module::{ModuleError, Reflected, StageKind};
+pub use crate::module::{ModuleError, Reflected, StageKind, StorageImageUse};
 use crate::module::{StageDeclarations, StageSource};
 
 /// The bit that names `kind` in a player variant's descriptor slots. Only the vertex and

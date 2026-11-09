@@ -53,9 +53,12 @@ impl ImportedTexture {
     }
 }
 
-/// The dimension of a texture's default view.
+/// The dimension of a texture's default view: 3D for a 3D texture, else 2D for one layer and a
+/// 2D array for several.
 pub(crate) fn default_dimension(texture: &wgpu::Texture) -> wgpu::TextureViewDimension {
-    if texture.depth_or_array_layers() > 1 {
+    if texture.dimension() == wgpu::TextureDimension::D3 {
+        wgpu::TextureViewDimension::D3
+    } else if texture.depth_or_array_layers() > 1 {
         wgpu::TextureViewDimension::D2Array
     } else {
         wgpu::TextureViewDimension::D2

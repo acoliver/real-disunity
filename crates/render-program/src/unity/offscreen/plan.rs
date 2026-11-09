@@ -148,6 +148,8 @@ pub(super) struct DrawCounts {
     pub(super) partial_mips: usize,
     /// What each camera render recorded, in call order.
     pub(super) cameras: Vec<super::CameraDraws>,
+    /// What each draw list recorded, in call order.
+    pub(super) lists: Vec<super::ListDraws>,
     /// The draws left out, by what the shader's passes have against what the camera selected.
     pub(super) unmatched_passes: Vec<super::UnmatchedPasses>,
     /// The partial texture reads, by what read them.

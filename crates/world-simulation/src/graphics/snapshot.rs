@@ -46,8 +46,7 @@ pub struct RendererView {
 pub struct GraphicsSnapshot {
     pub shaders: BTreeMap<ShaderId, WorldShader>,
     pub materials: BTreeMap<MaterialId, WorldMaterial>,
-    /// Every live render texture, and each one destroyed after the frame's first record, which
-    /// the frame's records may still name.
+    /// Every live render texture, and each one destroyed after a record of the frame named it.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
     pub global: Option<GlobalShaderState>,
     /// The frame's records, in call order.

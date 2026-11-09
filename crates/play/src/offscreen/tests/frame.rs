@@ -174,10 +174,12 @@ fn records_that_name_what_no_longer_exists_are_skipped_by_reason_and_the_rest_st
     blit(&mut world, TextureRef::None, b, None, 0);
     blit(&mut world, TextureRef::Asset(77), b, None, 0);
     blit(&mut world, TextureRef::Render(a), b, Some(live), 0);
-    world.destroy_render_texture(gone_target).unwrap();
-    world.destroy_render_texture(gone_source).unwrap();
     world.destroy_material(gone_material).unwrap();
-    let snapshot = snapshot(&mut world);
+    let mut snapshot = snapshot(&mut world);
+    // The world keeps a texture its frame's records name until the snapshot, so a snapshot that
+    // lacks one comes from elsewhere (the wire); the adapter skips the records that name it.
+    snapshot.render_textures.remove(&gone_target);
+    snapshot.render_textures.remove(&gone_source);
     let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
     let skipped: Vec<_> = adapted
         .report

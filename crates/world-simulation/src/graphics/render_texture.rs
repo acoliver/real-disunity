@@ -117,22 +117,27 @@ impl World {
     }
 
     /// Removes a render texture. Whatever names it goes stale; see the module documentation.
-    /// When the frame already has offscreen work, which may name it, the frame's snapshot keeps
-    /// its description (see [`crate::graphics::GraphicsSnapshot::take`]); new work cannot name it.
+    /// When a record of the frame's offscreen work names it, the frame's snapshot keeps its
+    /// description (see [`crate::graphics::GraphicsSnapshot::take`]); new work cannot name it.
     pub fn destroy_render_texture(&mut self, id: RenderTextureId) -> Result<(), WorldError> {
         let held = self
             .graphics
             .render_textures
             .remove(id.0)
             .ok_or(WorldError::Graphics(GraphicsError::StaleRenderTexture))?;
-        if !self.graphics.offscreen.is_empty() {
+        if self
+            .graphics
+            .offscreen
+            .iter()
+            .any(|work| work.names_render_texture(id))
+        {
             self.graphics.retired_textures.insert(id, held);
         }
         Ok(())
     }
 
-    /// Takes the descriptions of the render textures destroyed while the frame had offscreen
-    /// work.
+    /// Takes the descriptions of the render textures destroyed after a record of the frame named
+    /// them.
     pub(crate) fn take_retired_render_textures(
         &mut self,
     ) -> std::collections::BTreeMap<RenderTextureId, WorldRenderTexture> {

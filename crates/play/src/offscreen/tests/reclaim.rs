@@ -538,3 +538,50 @@ fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
         assert_eq!(room.adapter.mesh_metadata_counts(), (0, 0, 0));
     }
 }
+
+#[test]
+fn mixed_pressure_evicts_old_source_and_target_but_preserves_a_global_target() {
+    let held = held_after_two_frames();
+    let new_target_bytes = 128 * 128 * 4;
+    let mut room = Room::new(held + new_target_bytes - 128);
+    let mut targets = Targets::new();
+    let (newer, protected) = (targets.a, targets.b);
+    let destination = render_texture(&mut targets.world, [128, 128]);
+
+    let mut first = targets.naming(&[protected]);
+    first
+        .materials
+        .values_mut()
+        .next()
+        .unwrap()
+        .properties
+        .textures
+        .push(("_RetiredSource".into(), texture_slot(TextureRef::Asset(A))));
+    room.frame(&first).0.unwrap();
+    room.frame(&targets.naming(&[newer])).0.unwrap();
+    assert_eq!(room.runtime.live_bytes(), held + TEXTURE_BYTES);
+
+    targets
+        .world
+        .set_global_property(WorldValue::Texture(
+            "_Protected".into(),
+            texture_slot(TextureRef::Render(protected)),
+        ))
+        .unwrap();
+    let current = targets.naming(&[destination]);
+    let (built, reclaimed) = room.frame(&current);
+    built.unwrap();
+
+    assert_eq!(
+        (reclaimed.textures, reclaimed.targets, reclaimed.bytes),
+        (1, 1, TEXTURE_BYTES + 8 * 8 * 4)
+    );
+    assert_eq!(
+        room.held(),
+        [Targets::id(protected), Targets::id(destination)]
+    );
+    assert_eq!(
+        room.runtime.live_bytes(),
+        held + new_target_bytes - 8 * 8 * 4
+    );
+}

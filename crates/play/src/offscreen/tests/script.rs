@@ -266,7 +266,7 @@ fn a_target_that_names_a_cube_face_or_slice_past_the_first_is_skipped() {
 }
 
 #[test]
-fn a_mesh_draw_is_counted_as_not_drawn_and_leaves_the_running_state_alone() {
+fn a_refused_mesh_draw_is_counted_by_its_reason_and_leaves_the_running_state_alone() {
     let mut world = world();
     let a = render_texture(&mut world, [8, 8]);
     let shader = world
@@ -281,6 +281,7 @@ fn a_mesh_draw_is_counted_as_not_drawn_and_leaves_the_running_state_alone() {
         record(
             &mut world,
             OffscreenWork::DrawMesh {
+                // No mesh of the snapshot is held by the host.
                 mesh: (1 << 41) + index,
                 matrix: Mat4::IDENTITY.to_cols_array(),
                 material,
@@ -291,15 +292,12 @@ fn a_mesh_draw_is_counted_as_not_drawn_and_leaves_the_running_state_alone() {
     }
     record(&mut world, clear(true, false, false));
     let adapted = run(&mut world);
-    assert_eq!(
-        adapted.report.skipped.get(&Skip::MeshDrawNotDrawn),
-        Some(&2)
-    );
+    assert_eq!(adapted.report.skipped.get(&Skip::MeshUnavailable), Some(&2));
     assert_eq!(
         adapted
             .report
             .skipped_by_kind
-            .get("DrawMesh: MeshDrawNotDrawn"),
+            .get("DrawMesh: MeshUnavailable"),
         Some(&2)
     );
     assert_eq!(

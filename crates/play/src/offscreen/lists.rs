@@ -42,6 +42,10 @@ const OUTSIDE_SPHERE: &str = "outside the split's sphere";
 const OUTSIDE_PLANES: &str = "outside the split's planes";
 const NO_CASTER_PASS: &str = "no shadow caster pass";
 
+/// The winding that counts as a front face for a list or a mesh draw. The image is the other way
+/// up (see `camera::clip_from_gl`), which reverses a winding, as for a camera render.
+pub(super) const IMAGE_FRONT_FACE: wgpu::FrontFace = wgpu::FrontFace::Ccw;
+
 /// One draw a list is going to make, before it is ordered.
 struct Candidate {
     renderer: usize,
@@ -128,14 +132,7 @@ impl<'a> Mapper<'a> {
             .cloned()
             .ok_or(Skip::UnknownList)?;
         let target = self.script.target.ok_or(Skip::UnboundTarget)?;
-        let (values, eye) = match &self.script.camera {
-            Some(setup) if !fills_target(setup.viewport) => return Err(Skip::PartialViewport),
-            Some(setup) => (
-                view_layer(&setup.view, &setup.projection),
-                setup.view.inverse().w_axis.truncate(),
-            ),
-            None => (PropertyLayer::default(), Vec3::ZERO),
-        };
+        let (values, eye) = self.current_view()?;
         let draws = match &desc {
             RendererListDesc::Draw { .. } => self.draw_items(&culled, &desc, eye),
             RendererListDesc::Shadow { .. } => self.shadow_items(&culled, &desc),
@@ -153,11 +150,23 @@ impl<'a> Mapper<'a> {
         Ok(vec![Record::Draws(Arc::new(DrawList {
             target,
             values,
-            // The image is the other way up (see `camera::clip_from_gl`), which reverses a
-            // winding, as for a camera render.
-            front_face: wgpu::FrontFace::Ccw,
+            front_face: IMAGE_FRONT_FACE,
             draws,
         }))])
+    }
+
+    /// The values of the view the draws at this place use, and where its eye is: the camera the
+    /// script set up, with the view and projection it set last, or no values before any setup. A
+    /// camera that draws to a part of its target is not drawn.
+    pub(super) fn current_view(&self) -> Result<(PropertyLayer, Vec3), Skip> {
+        match &self.script.camera {
+            Some(setup) if !fills_target(setup.viewport) => Err(Skip::PartialViewport),
+            Some(setup) => Ok((
+                view_layer(&setup.view, &setup.projection),
+                setup.view.inverse().w_axis.truncate(),
+            )),
+            None => Ok((PropertyLayer::default(), Vec3::ZERO)),
+        }
     }
 
     fn left_out(&mut self, reason: &str, count: usize) {

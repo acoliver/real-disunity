@@ -99,6 +99,8 @@ pub(super) struct Script {
     pub(super) lists: BTreeMap<u64, RendererListDesc>,
     /// The renderers a list asked the frame to hold, and whether it could.
     pub(super) renderers: BTreeMap<usize, Result<(), RendererSkip>>,
+    /// How many mesh draws have made a renderer of their own.
+    pub(super) mesh_draws: u64,
 }
 
 impl Script {
@@ -116,6 +118,7 @@ impl Script {
             culls: BTreeMap::new(),
             lists: BTreeMap::new(),
             renderers: BTreeMap::new(),
+            mesh_draws: 0,
         }
     }
 }
@@ -139,6 +142,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::CreateRendererList { .. } => "CreateRendererList",
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
+        OffscreenWork::DrawMesh { .. } => "DrawMesh",
     }
 }
 
@@ -222,6 +226,13 @@ impl Mapper<'_> {
                 self.set_view_projection(view, projection);
                 Ok(Vec::new())
             }
+            OffscreenWork::DrawMesh {
+                mesh,
+                matrix,
+                material,
+                submesh,
+                pass,
+            } => self.draw_mesh((*mesh, *submesh), matrix, *material, *pass),
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }

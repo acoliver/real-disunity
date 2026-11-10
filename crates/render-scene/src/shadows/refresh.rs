@@ -99,8 +99,12 @@ impl RefreshCache {
         settings: DirectionalShadowSettings,
         sun: Vec3,
         size: [u32; 2],
-        generation: u64,
+        enabled: bool,
     ) -> [bool; 4] {
+        if !enabled {
+            cascades.no_receivers = true;
+            return [false; 4];
+        }
         let key = RefreshKey {
             splits: cascades.splits,
             near: cascades.near,
@@ -123,7 +127,7 @@ impl RefreshCache {
                 matrix: cascades.matrices[index],
                 toward_light: sun,
                 resolution: settings.resolution,
-                generation,
+                generation: gpu.shadow_caster_generation(),
                 capture: self.capture,
             };
             *refreshed = self.refresh_cascade(gpu, cascades, (index, input), settings);

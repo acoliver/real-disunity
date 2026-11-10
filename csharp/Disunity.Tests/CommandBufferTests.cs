@@ -12,9 +12,11 @@ internal static class CommandBufferTests
         Naming();
         Lifetime();
         Recording();
+        DrawMeshArguments();
         Compute();
         GlobalBuffersBindWhenTheBufferRuns();
         Console.WriteLine("PASS: CommandBuffer name, Clear, Release, the members that cannot record yet and ComputeBuffer Release");
+        Console.WriteLine("PASS: CommandBuffer.DrawMesh refuses a null or destroyed mesh or material, a sub-mesh outside the mesh, a pass below -1 and a property block with values");
     }
 
     private static void Naming()
@@ -49,7 +51,6 @@ internal static class CommandBufferTests
         {
             ("BeginSample", () => buffer.BeginSample("s")),
             ("EndSample", () => buffer.EndSample("s")),
-            ("DrawMesh", () => buffer.DrawMesh(new Mesh(), Matrix4x4.identity, material, 0, 0)),
             ("DrawMeshInstancedIndirect", () => buffer.DrawMeshInstancedIndirect(new Mesh(), 0, material, 0, new ComputeBuffer(1, 4), 0, new MaterialPropertyBlock())),
             ("SetViewport", () => buffer.SetViewport(new Rect(0, 0, 1, 1))),
         };
@@ -80,6 +81,47 @@ internal static class CommandBufferTests
         Throws<ObjectDisposedException>(() => buffer.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation, SynchronisationStageFlags.PixelProcessing),
             "a fence on a released buffer", "CommandBuffer");
         Throws<ObjectDisposedException>(() => buffer.WaitOnAsyncGraphicsFence(default, SynchronisationStageFlags.PixelProcessing), "a wait on a released buffer", "CommandBuffer");
+    }
+
+    private static Mesh Triangle(int subMeshes = 1)
+    {
+        var mesh = new Mesh();
+        mesh.vertices = [new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(0, 1, 0)];
+        mesh.triangles = [0, 1, 2];
+        mesh.subMeshCount = subMeshes;
+        return mesh;
+    }
+
+    private static void DrawMeshArguments()
+    {
+        var buffer = new CommandBuffer();
+        var material = new Material(Material.SpriteLit);
+        var mesh = Triangle(2);
+        var matrix = Matrix4x4.identity;
+        buffer.DrawMesh(mesh, matrix, material);
+        buffer.DrawMesh(mesh, matrix, material, 1);
+        buffer.DrawMesh(mesh, matrix, material, 1, 2);
+        buffer.DrawMesh(mesh, matrix, material, 0, -1, null);
+        buffer.DrawMesh(mesh, matrix, material, 0, 0, new MaterialPropertyBlock());
+        Ensure(buffer.commandCount == 5, "every overload records one command, and an empty or null property block is accepted");
+        Throws<ArgumentNullException>(() => buffer.DrawMesh(null!, matrix, material, 0, 0), "a null mesh");
+        Throws<ArgumentNullException>(() => buffer.DrawMesh(mesh, matrix, null!, 0, 0), "a null material");
+        var gone = Triangle();
+        UnityEngine.Object.DestroyImmediate(gone);
+        Throws<ArgumentException>(() => buffer.DrawMesh(gone, matrix, material, 0, 0), "a destroyed mesh", "destroyed");
+        var goneMaterial = new Material(Material.SpriteLit);
+        UnityEngine.Object.DestroyImmediate(goneMaterial);
+        Throws<ArgumentException>(() => buffer.DrawMesh(mesh, matrix, goneMaterial, 0, 0), "a destroyed material", "destroyed");
+        Throws<ArgumentException>(() => buffer.DrawMesh(mesh, matrix, material, 2, 0), "a sub-mesh past the last", "sub-mesh 2");
+        Throws<ArgumentException>(() => buffer.DrawMesh(mesh, matrix, material, -1, 0), "a negative sub-mesh", "sub-mesh -1");
+        Throws<ArgumentException>(() => buffer.DrawMesh(new Mesh(), matrix, material, 1, 0), "the second sub-mesh of a new mesh", "sub-mesh 1");
+        Throws<ArgumentException>(() => buffer.DrawMesh(mesh, matrix, material, 0, -2), "a pass below -1", "pass -2");
+        var block = new MaterialPropertyBlock();
+        block.SetFloat("_Fade", 0.5f);
+        Throws<NotSupportedException>(() => buffer.DrawMesh(mesh, matrix, material, 0, 0, block), "a property block with a value", "CommandBuffer.DrawMesh(properties)");
+        Ensure(buffer.commandCount == 5, "refused draws add nothing to the buffer");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.DrawMesh(mesh, matrix, material), "a released buffer", "CommandBuffer");
     }
 
     private static void ShadingRatesRecordNothing()

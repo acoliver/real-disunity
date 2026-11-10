@@ -23,7 +23,7 @@ use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
 
-use super::assets::{Assets, MeshError, mesh_of, sampler_of_stored, texture_of};
+use super::assets::Assets;
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
 use super::frame::{
@@ -36,7 +36,9 @@ use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
+mod meshes;
 mod reclaim;
+mod textures;
 
 /// What the adapter keeps between frames.
 pub struct OffscreenAdapter {
@@ -46,6 +48,8 @@ pub struct OffscreenAdapter {
     meshes: BTreeMap<u64, Stored>,
     /// The box of each uploaded mesh's vertices.
     bounds: BTreeMap<u64, Bounds>,
+    /// The index count of each sub-mesh of each uploaded mesh, by range number.
+    sub_meshes: BTreeMap<u64, Vec<u32>>,
     textures: BTreeMap<u64, Stored>,
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
@@ -68,6 +72,8 @@ struct Stored {
     generation: u64,
     sampler_generation: u64,
     usable: bool,
+    /// Whether it was read and has nothing to draw, which is not a failure (a mesh only).
+    empty: bool,
     /// The epoch of the last snapshot that named it.
     last_named: u64,
 }
@@ -88,6 +94,7 @@ impl OffscreenAdapter {
             shaders: BTreeMap::new(),
             meshes: BTreeMap::new(),
             bounds: BTreeMap::new(),
+            sub_meshes: BTreeMap::new(),
             textures: BTreeMap::new(),
             defaults: BTreeSet::new(),
             blit_mesh: false,
@@ -104,6 +111,11 @@ impl OffscreenAdapter {
     pub fn with_block_sources(mut self, blocks: bool) -> Self {
         self.block_sources = blocks;
         self
+    }
+
+    #[cfg(test)]
+    pub(super) fn mesh_metadata_counts(&self) -> (usize, usize, usize) {
+        (self.meshes.len(), self.bounds.len(), self.sub_meshes.len())
     }
 
     /// Registers what the snapshot needs with `state`, then maps it. What cannot be loaded or
@@ -142,11 +154,7 @@ impl OffscreenAdapter {
         state.retain_render_textures(runtime, &live_targets);
         self.stamp_targets(reclaim::named_targets(snapshot), &live_targets);
         self.register_shaders(snapshot, state, &mut available, &mut notes);
-        let meshes: BTreeSet<u64> = snapshot
-            .renderers
-            .iter()
-            .map(|renderer| renderer.mesh)
-            .collect();
+        let meshes = named_meshes(snapshot);
         let wanted = stored_textures(snapshot);
         // What the snapshot names is stamped before anything is uploaded, so that making room for
         // one upload never gives back another the snapshot is about to use.
@@ -160,6 +168,18 @@ impl OffscreenAdapter {
             .iter()
             .filter(|(identity, _)| available.meshes.contains(identity))
             .map(|(identity, bounds)| (*identity, *bounds))
+            .collect();
+        available.sub_meshes = self
+            .sub_meshes
+            .iter()
+            .filter(|(identity, _)| available.meshes.contains(identity))
+            .map(|(identity, counts)| (*identity, counts.clone()))
+            .collect();
+        available.empty_meshes = self
+            .meshes
+            .iter()
+            .filter(|(_, held)| held.empty)
+            .map(|(identity, _)| *identity)
             .collect();
         available.textures = usable(&self.textures);
         available.default_textures = self.defaults.clone();
@@ -239,148 +259,20 @@ impl OffscreenAdapter {
             }
         }
     }
+}
 
-    fn register_meshes(
-        &mut self,
-        identities: BTreeSet<u64>,
-        assets: &dyn Assets,
-        (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
-        notes: &mut Report,
-    ) {
-        for identity in identities {
-            let known = self.meshes.get(&identity).map_or(0, |held| held.generation);
-            let stored = match assets.mesh(identity, known) {
-                Ok(Some(stored)) => stored,
-                Ok(None) => continue,
-                Err(_) => {
-                    notes.count("mesh:Read");
-                    continue;
-                }
-            };
-            let uploaded = match mesh_of(&stored) {
-                Ok(mesh) => {
-                    match Bounds::of_mesh(&mesh) {
-                        Some(bounds) => self.bounds.insert(identity, bounds),
-                        None => self.bounds.remove(&identity),
-                    };
-                    self.with_room(state, runtime, notes, |state, runtime| {
-                        state.set_mesh(runtime, ids::mesh(identity), &mesh)
-                    })
-                    .map_err(|error| notes.fail("mesh", &error))
-                    .is_ok()
-                }
-                Err(MeshError::Empty(empty)) => {
-                    // Nothing to draw is not a failure. The mesh stays unusable, so renderers of
-                    // it are skipped.
-                    *notes
-                        .census
-                        .entry(format!("mesh with nothing to draw: {empty}"))
-                        .or_default() += 1;
-                    false
-                }
-                Err(error) => {
-                    notes.fail("mesh", &error);
-                    false
-                }
-            };
-            self.meshes.insert(
-                identity,
-                Stored {
-                    generation: stored.generation,
-                    sampler_generation: 0,
-                    usable: uploaded,
-                    last_named: self.epoch,
-                },
-            );
-        }
-    }
-
-    fn register_textures(
-        &mut self,
-        identities: &BTreeSet<u64>,
-        assets: &dyn Assets,
-        (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
-        notes: &mut Report,
-    ) {
-        for &identity in identities {
-            let Some(id) = ids::stored_texture(identity) else {
-                notes.count("texture:IdentityTooLarge");
-                continue;
-            };
-            let held = self.textures.get(&identity).copied();
-            let stored_sampler = assets.sampler(identity).unwrap_or_else(|_| {
-                notes.count("texture:SamplerRead");
-                None
-            });
-            // A sampler that changed alone replaces the texture, whose bytes are read again.
-            let sampler_changed = stored_sampler.as_ref().is_some_and(|found| {
-                held.is_none_or(|held| held.sampler_generation != found.generation)
-            });
-            let known = held
-                .filter(|_| !sampler_changed)
-                .map_or(0, |held| held.generation);
-            let stored = match assets.texture(identity, known) {
-                Ok(Some(stored)) => stored,
-                // None is a texture the engine does not hold, or one it holds unchanged.
-                Ok(None) => {
-                    if held.is_none() {
-                        notes.count("texture:NotStored");
-                    }
-                    continue;
-                }
-                Err(_) => {
-                    notes.count("texture:Read");
-                    continue;
-                }
-            };
-            let sampled = stored_sampler.as_ref().map(sampler_of_stored);
-            let blocks = self.block_sources
-                && runtime
-                    .device()
-                    .features()
-                    .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
-            let uploaded = match texture_of(id, &stored, sampled, blocks) {
-                Ok(texture) => {
-                    let census = format!(
-                        "stored texture {} ({}) uploaded as GraphicsFormat {}",
-                        crate::textures::format_name(stored.format),
-                        if stored.linear { "linear" } else { "sRGB" },
-                        texture.graphics_format
-                    );
-                    let uploaded = self
-                        .with_room(state, runtime, notes, |state, runtime| {
-                            state.set_texture(runtime, &texture)
-                        })
-                        .map_err(|error| notes.fail("texture", &error))
-                        .is_ok();
-                    if uploaded {
-                        *notes.census.entry(census).or_default() += 1;
-                    }
-                    uploaded
-                }
-                Err(error) => {
-                    notes.fail("texture", &error);
-                    notes.count(&format!(
-                        "textureformat:{} {}x{}, {} bytes",
-                        crate::textures::format_name(stored.format),
-                        stored.width,
-                        stored.height,
-                        stored.bytes.len()
-                    ));
-                    false
-                }
-            };
-            self.textures.insert(
-                identity,
-                Stored {
-                    generation: stored.generation,
-                    sampler_generation: stored_sampler.map_or(0, |found| found.generation),
-                    usable: uploaded,
-                    last_named: self.epoch,
-                },
-            );
-        }
-    }
+/// The identities of the meshes the snapshot's renderers and mesh draws name.
+fn named_meshes(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
+    let drawn = snapshot.work.iter().filter_map(|work| match work {
+        OffscreenWork::DrawMesh { mesh, .. } => Some(*mesh),
+        _ => None,
+    });
+    snapshot
+        .renderers
+        .iter()
+        .map(|renderer| renderer.mesh)
+        .chain(drawn)
+        .collect()
 }
 
 fn usable(stored: &BTreeMap<u64, Stored>) -> BTreeSet<u64> {

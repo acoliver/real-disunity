@@ -180,6 +180,11 @@ pub struct Available {
     /// The box of each uploaded mesh's vertices, which a culling plane and a shadow split's sphere
     /// are tested against.
     pub bounds: BTreeMap<u64, Bounds>,
+    /// The index count of each uploaded mesh's sub-meshes, by range number, which a mesh draw
+    /// checks its sub-mesh against.
+    pub sub_meshes: BTreeMap<u64, Vec<u32>>,
+    /// The meshes the host read and found to have nothing to draw. They are not in `meshes`.
+    pub empty_meshes: BTreeSet<u64>,
     /// Whether a probed camera render also gets the changed test renders of [`TEST_VARIANTS`],
     /// each into a scratch copy of its own.
     pub test_variants: bool,
@@ -211,6 +216,14 @@ pub enum Skip {
     UnsupportedSlice,
     /// A target that names a mip level its texture lacks.
     NoSuchMip,
+    /// A mesh draw of a mesh the host's store does not hold.
+    MeshUnavailable,
+    /// A mesh draw of a sub-mesh number past the mesh's sub-meshes.
+    NoSuchSubmesh,
+    /// A mesh draw of a pass number past the shader's passes.
+    NoSuchPass,
+    /// A mesh draw of a mesh with nothing to draw, or of a sub-mesh with no indices.
+    EmptyMesh,
 }
 
 /// Why a renderer was left out of the frame.
@@ -671,7 +684,7 @@ impl<'a> Mapper<'a> {
                 pass: 0,
             }]);
         };
-        let (id, passes) = self.blit_material(material)?;
+        let (id, passes) = self.material_and_passes(material)?;
         self.frame.blit_mesh = Some(BLIT_MESH);
         let passes = match usize::try_from(pass) {
             Ok(pass) => pass..pass + 1,
@@ -687,8 +700,12 @@ impl<'a> Mapper<'a> {
             .collect())
     }
 
-    /// A blit's material, and how many passes its shader has.
-    fn blit_material(&mut self, id: WorldMaterialId) -> Result<(MaterialId, usize), Skip> {
+    /// The frame's material for a world material that a blit or a mesh draw names, and how many
+    /// passes its shader has.
+    pub(super) fn material_and_passes(
+        &mut self,
+        id: WorldMaterialId,
+    ) -> Result<(MaterialId, usize), Skip> {
         let material = self
             .snapshot
             .materials

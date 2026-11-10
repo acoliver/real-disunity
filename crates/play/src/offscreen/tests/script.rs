@@ -10,7 +10,7 @@ use worldrunner_render_program::unity::offscreen::frame::{
 };
 use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue as WorldValue, RenderTextureId, TargetRef, TextureRef,
-    WorldRenderTexture, WorldSampler,
+    WorldRenderTexture, WorldSampler, WorldShader,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{ComponentDesc, ComponentHandle, World};
@@ -263,6 +263,49 @@ fn a_target_that_names_a_cube_face_or_slice_past_the_first_is_skipped() {
         adapted.report.skipped.get(&Skip::UnsupportedSlice),
         Some(&2)
     );
+}
+
+#[test]
+fn a_refused_mesh_draw_is_counted_by_its_reason_and_leaves_the_running_state_alone() {
+    let mut world = world();
+    let a = render_texture(&mut world, [8, 8]);
+    let shader = world
+        .create_shader(WorldShader {
+            name: "Hidden/Portrait".into(),
+            source: None,
+        })
+        .unwrap();
+    let material = world.create_material(shader).unwrap();
+    record(&mut world, target(&[TargetRef::Render(a)], None));
+    for index in 0..2 {
+        record(
+            &mut world,
+            OffscreenWork::DrawMesh {
+                // No mesh of the snapshot is held by the host.
+                mesh: (1 << 41) + index,
+                matrix: Mat4::IDENTITY.to_cols_array(),
+                material,
+                submesh: 0,
+                pass: -1,
+            },
+        );
+    }
+    record(&mut world, clear(true, false, false));
+    let adapted = run(&mut world);
+    assert_eq!(adapted.report.skipped.get(&Skip::MeshUnavailable), Some(&2));
+    assert_eq!(
+        adapted
+            .report
+            .skipped_by_kind
+            .get("DrawMesh: MeshUnavailable"),
+        Some(&2)
+    );
+    assert_eq!(
+        clears(&adapted).len(),
+        1,
+        "the clear after the draws still lands"
+    );
+    assert_eq!(adapted.report.built_by_kind.get("DrawMesh"), None);
 }
 
 #[test]

@@ -13,6 +13,7 @@ internal static class CommandBufferTests
         Lifetime();
         Recording();
         Compute();
+        GlobalBuffersBindWhenTheBufferRuns();
         Console.WriteLine("PASS: CommandBuffer name, Clear, Release, the members that cannot record yet and ComputeBuffer Release");
     }
 
@@ -131,5 +132,34 @@ internal static class CommandBufferTests
         buffer.Dispose();
         Ensure(buffer.count == 4, "count survives Release");
         Throws<ObjectDisposedException>(() => buffer.SetData(new int[4]), "SetData after Release");
+    }
+
+    private static void GlobalBuffersBindWhenTheBufferRuns()
+    {
+        int constants = Shader.PropertyToID("_CommandBufferTestConstants"), structured = Shader.PropertyToID("_CommandBufferTestStructured");
+        using var data = new GraphicsBuffer(GraphicsBuffer.Target.Constant, 16, 16);
+        using var items = new ComputeBuffer(4, 4);
+        var buffer = new CommandBuffer();
+        buffer.SetGlobalConstantBuffer(data, constants, 64, 128);
+        buffer.SetGlobalBuffer(structured, items);
+        Ensure(buffer.commandCount == 2, "each binding is one command");
+        Ensure(!Shader.Globals.ConstantBuffers.ContainsKey(constants) && !Shader.Globals.Buffers.ContainsKey(structured), "recording binds nothing yet");
+        foreach (var send in buffer.Commands()) send();
+        Ensure(Shader.Globals.ConstantBuffers[constants] == new ConstantBufferBinding(data, 64, 128), "the constant buffer is bound with its range when the buffer runs");
+        Ensure(ReferenceEquals(Shader.Globals.Buffers[structured], items), "the structured buffer is bound when the buffer runs");
+        buffer.SetGlobalConstantBuffer(items, "_CommandBufferTestConstants", 0, 16);
+        buffer.SetGlobalBuffer("_CommandBufferTestStructured", data);
+        foreach (var send in buffer.Commands()[2..]) send();
+        Ensure(Shader.Globals.ConstantBuffers[constants] == new ConstantBufferBinding(items, 0, 16), "a later binding by name replaces the earlier one");
+        Ensure(ReferenceEquals(Shader.Globals.Buffers[structured], data), "a later buffer by name replaces the earlier one");
+        Throws<ArgumentNullException>(() => buffer.SetGlobalConstantBuffer((GraphicsBuffer)null!, constants, 0, 16), "a null constant buffer", "buffer");
+        Throws<ArgumentNullException>(() => buffer.SetGlobalBuffer(structured, (ComputeBuffer)null!), "a null buffer", "value");
+        Throws<ArgumentOutOfRangeException>(() => buffer.SetGlobalConstantBuffer(data, constants, -1, 16), "a negative offset", "offset");
+        Throws<ArgumentOutOfRangeException>(() => buffer.SetGlobalConstantBuffer(data, constants, 0, -16), "a negative size", "size");
+        Ensure(buffer.commandCount == 4, "a refused binding records nothing");
+        Shader.Globals.ConstantBuffers.Remove(constants);
+        Shader.Globals.Buffers.Remove(structured);
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.SetGlobalConstantBuffer(data, constants, 0, 16), "a binding on a released buffer", "CommandBuffer");
     }
 }

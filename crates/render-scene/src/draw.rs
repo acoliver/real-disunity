@@ -527,7 +527,7 @@ impl SceneGpu {
     }
 
     // Pair both passes here so object batches, compacted instances and terrain primitives
-    // retain the same API order. Stencil consumption depends on that order for depth ties.
+    // retain the same API order. The last surface in that order wins an exact depth tie.
     fn draw_color_pass(
         &self,
         pass: &mut RenderPass<'_>,

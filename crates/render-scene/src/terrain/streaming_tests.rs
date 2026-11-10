@@ -86,6 +86,32 @@ fn geometry_observations_respect_terminal_and_offscreen_leaves() {
     assert_eq!(stats.drawn_at_detail, 1);
 }
 
+#[test]
+fn camera_order_draws_the_nearest_chunk_first_and_keeps_order_on_equal_distance() {
+    let terrain = terrain(5);
+    let mut chunks = root(&terrain).children().unwrap();
+    chunks.sort();
+    let bounds: Vec<_> = chunks.iter().map(|c| chunk_bounds(&terrain, *c)).collect();
+    // Above the far corner of the last child: that child is nearest, the first is farthest.
+    let corner = bounds[3][1];
+    let order = camera_order(&terrain, &chunks, corner + Vec3::Z * 10.0);
+    assert_eq!(order[0], 3);
+    assert_eq!(order[3], 0);
+    let distance = |index: usize| {
+        let eye = corner + Vec3::Z * 10.0;
+        eye.clamp(bounds[index][0], bounds[index][1]).distance(eye)
+    };
+    assert!(
+        order
+            .windows(2)
+            .all(|pair| distance(pair[0]) <= distance(pair[1]))
+    );
+    // Above the shared centre every child touches the eye column at the same distance.
+    let centre = (bounds[0][1] + bounds[3][0]) / 2.0;
+    let centre = Vec3::new(bounds[0][1].x, bounds[0][1].y, centre.z + 100.0);
+    assert_eq!(camera_order(&terrain, &chunks, centre), [0, 1, 2, 3]);
+}
+
 use super::streaming::*;
 use super::{TerrainMesh, build_terrain_mesh, chunks};
 use glam::{Mat4, Vec3};

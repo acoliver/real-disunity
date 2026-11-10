@@ -93,6 +93,7 @@ impl Casting {
                 &configuration,
                 pipelines.terrain_context().family(),
                 (device, context.submission()),
+                pipelines.frame_layout(),
             ),
             fixed: build_terrain_depth(device, pipelines.frame_layout(), configuration),
             frames,
@@ -192,15 +193,12 @@ fn capture_map(
     (rig, casting): (&Rig<'_>, &Casting),
     (name, index): (&str, usize),
 ) -> (Vec<u8>, DrawCount) {
-    let pipeline = casting
-        .caster
-        .pipeline(&casting.frames[index].0)
-        .expect("the caster prepares against its light frame");
+    let pipeline = casting.caster.pipeline().expect("the caster prepares");
     let mut scene_count = DrawCount::default();
     let scene = render_map(context, |pass| {
         scene_count = rig.gpu.draw_terrain_depth(
             pass,
-            &pipeline,
+            (&pipeline, &casting.frames[index].1),
             (u32::try_from(index).unwrap(), casting.matrices[index]),
         );
     });

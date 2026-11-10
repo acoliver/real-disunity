@@ -492,11 +492,7 @@ impl ShadowedScene {
     /// Prepares the terrain for every pass of the frame before any opens: the prepass, the
     /// forward pass, and the casters of the cascades, and the objects of the forward pass.
     fn prepare_terrain_passes(
-        (gpu, caster, depth_frames): (
-            &SceneGpu,
-            &terrain_caster::TerrainCaster,
-            &[(wgpu::Buffer, wgpu::BindGroup)],
-        ),
+        (gpu, caster): (&SceneGpu, &terrain_caster::TerrainCaster),
         (screen, selected, frame): (
             Option<&crate::scene_metadata::Geometry>,
             &ScenePipelines,
@@ -508,14 +504,12 @@ impl ShadowedScene {
         }
         gpu.prepare_terrain(selected, frame)?;
         gpu.prepare_objects(selected, frame)?;
-        caster
-            .prepare(depth_frames.iter().map(|(buffer, _)| buffer))
-            .map_err(
-                |error| worldrunner_render_post::FrameError::FeaturePreparation {
-                    feature: "terrain shadow caster",
-                    reason: error.to_string(),
-                },
-            )?;
+        caster.pipeline().map_err(|error| {
+            worldrunner_render_post::FrameError::FeaturePreparation {
+                feature: "terrain shadow caster",
+                reason: error.to_string(),
+            }
+        })?;
         Ok(())
     }
 
@@ -566,7 +560,7 @@ impl ShadowedScene {
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
         let screen = scheduler.geometry_for_depth(depth_mode);
         Self::prepare_terrain_passes(
-            (&self.gpu, &self.terrain_caster, &self.depth_frames),
+            (&self.gpu, &self.terrain_caster),
             (screen.as_ref(), &selected, &frame),
         )?;
         let mut cascades = Self::prepare_cascades(
@@ -761,9 +755,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
             ));
             let caster = self
                 .terrain_caster
-                .pipeline(&self.depth_frames[index as usize].0)
-                .expect("the terrain caster prepares against its light frame");
-            let terrain = self.gpu.draw_terrain_depth(pass, &caster, (index, matrix));
+                .pipeline()
+                .expect("the terrain caster is prepared before its passes");
+            let terrain = self
+                .gpu
+                .draw_terrain_depth(pass, (&caster, group), (index, matrix));
             self.gpu.pass_counters.shadows[index as usize].add_recorded(terrain);
         } else {
             if let Some(screen) = &self.screen {

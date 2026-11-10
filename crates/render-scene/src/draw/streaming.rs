@@ -345,19 +345,19 @@ impl Streaming {
         });
     }
 
-    /// Records the resident chunks through a prepared pipeline, one prepared geometry each. The
-    /// chunk's record of the shared instance buffer is its geometry's instance range.
+    /// Records the resident chunks through a prepared pipeline, one prepared geometry each,
+    /// from the chunk nearest `eye` to the farthest. The chunk's record of the shared instance
+    /// buffer is its geometry's instance range.
     pub(super) fn draw_prepared<P: worldrunner_render_program::runtime::PassCommands>(
         &self,
         pass: &mut P,
         pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
-        terrain: &super::GpuTerrain,
+        (terrain, eye): (&super::GpuTerrain, glam::Vec3),
     ) -> super::DrawCount {
-        self.record_prepared(pass, pipeline, terrain, |_| true)
+        self.record_prepared(pass, pipeline, (terrain, Some(eye)), |_| true)
     }
 
-    /// Records the resident chunks whose world bounds `keep` accepts, as
-    /// [`draw_prepared`](Self::draw_prepared) does.
+    /// Records the resident chunks whose world bounds `keep` accepts, in resident order.
     pub(super) fn draw_prepared_where<P: worldrunner_render_program::runtime::PassCommands>(
         &self,
         pass: &mut P,
@@ -366,7 +366,7 @@ impl Streaming {
         keep: impl Fn([glam::Vec3; 2]) -> bool,
     ) -> super::DrawCount {
         let scene = self.scene.terrain().expect("terrain");
-        self.record_prepared(pass, pipeline, terrain, |chunk| {
+        self.record_prepared(pass, pipeline, (terrain, None), |chunk| {
             keep(crate::terrain::streaming::chunk_bounds(scene, *chunk))
         })
     }
@@ -375,12 +375,13 @@ impl Streaming {
         &self,
         pass: &mut P,
         pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
-        terrain: &super::GpuTerrain,
+        (terrain, eye): (&super::GpuTerrain, Option<glam::Vec3>),
         keep: impl Fn(&TerrainChunk) -> bool,
     ) -> super::DrawCount {
         let mut count = super::DrawCount::default();
         self.with_residents(Publications::current().as_ref(), |residents, _| {
-            for (chunk, lod) in residents.iter().filter(|(chunk, _)| keep(chunk)) {
+            let kept: Vec<_> = residents.iter().filter(|(chunk, _)| keep(chunk)).collect();
+            for (chunk, lod) in self.ordered(kept, eye) {
                 self.geometry.draw(
                     pass,
                     pipeline,
@@ -392,6 +393,23 @@ impl Streaming {
             }
         });
         count
+    }
+
+    /// `chunks` from the nearest to `eye` to the farthest, or unchanged without an eye.
+    pub(super) fn ordered<'a, T>(
+        &self,
+        chunks: Vec<&'a (TerrainChunk, T)>,
+        eye: Option<glam::Vec3>,
+    ) -> Vec<&'a (TerrainChunk, T)> {
+        let Some(eye) = eye else {
+            return chunks;
+        };
+        let scene = self.scene.terrain().expect("terrain");
+        let keys: Vec<_> = chunks.iter().map(|(chunk, _)| *chunk).collect();
+        crate::terrain::streaming::camera_order(scene, &keys, eye)
+            .into_iter()
+            .map(|index| chunks[index])
+            .collect()
     }
 }
 /// Keeps the geometry of the chunks `committed` holds, with the buffers it holds them in.

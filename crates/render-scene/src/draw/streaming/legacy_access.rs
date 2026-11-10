@@ -32,9 +32,10 @@ pub(crate) struct LegacyInputs {
 }
 
 impl Streaming {
-    /// The resident chunks the fixed draw would record now: the drawing transaction's when the
-    /// current transaction prepared them, else the committed ones.
-    pub(crate) fn legacy_chunks(&self) -> Vec<Chunk> {
+    /// The resident chunks the fixed draw would record now, from the nearest to `eye` to the
+    /// farthest: the drawing transaction's when the current transaction prepared them, else
+    /// the committed ones.
+    pub(crate) fn legacy_chunks(&self, eye: glam::Vec3) -> Vec<Chunk> {
         let drawing = self.drawing.borrow();
         let committed = self.committed.borrow();
         let residents = drawing
@@ -44,8 +45,8 @@ impl Streaming {
                     .is_some_and(|current| current.same_transaction(&prepared.owner))
             })
             .map_or(&*committed, |prepared| &prepared.residents);
-        residents
-            .iter()
+        self.ordered(residents.iter().collect(), Some(eye))
+            .into_iter()
             .map(|(chunk, lod)| Chunk {
                 record: self.plane_chunks[chunk],
                 vertices: lod.vertices.clone(),
@@ -93,12 +94,14 @@ impl SceneGpu {
         })
     }
 
-    /// The chunks of a streaming terrain, as the fixed draw reads them now.
+    /// The chunks of a streaming terrain, as the fixed draw reads them now, in the order the
+    /// camera passes draw them.
     pub(crate) fn legacy_chunks(&self) -> Vec<Chunk> {
+        let eye = self.drawing_uniform().camera_position;
         self.terrain
             .as_ref()
             .and_then(|terrain| terrain.streaming.as_ref())
-            .map(Streaming::legacy_chunks)
+            .map(|streaming| streaming.legacy_chunks(eye))
             .expect("streaming terrain")
     }
 

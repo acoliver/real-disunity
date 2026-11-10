@@ -42,3 +42,18 @@ fn the_live_water_wgsl_equals_the_frozen_snapshot() {
          (`cp water/<name>.wgsl water/fixtures/<name>.wgsl` from crates/render-scene/src)."
     );
 }
+
+/// The frozen composition is the live one while the files are equal: the fixed path's source
+/// for each of the two bases is `water_source` of that base, text for text. This pins the join
+/// order and the two text edits of the shared files (`@binding(0)` to `@binding(3)` in the
+/// lighting file, `@group(2)` to `@group(1)` in the shadow file), which the file-by-file test
+/// above cannot see.
+#[test]
+fn the_frozen_composition_equals_the_live_one_for_both_bases() {
+    for shadows in [false, true] {
+        assert!(
+            super::fixed::source(shadows) == crate::water::water_source(shadows),
+            "shadows={shadows}: the frozen water composition differs from the live one"
+        );
+    }
+}

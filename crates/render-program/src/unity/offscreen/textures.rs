@@ -241,22 +241,15 @@ fn create_render_texture(
     spec: &RenderTextureSpec,
     storage: bool,
 ) -> Result<TextureInfo, OffscreenError> {
-    if spec.size.contains(&0) || spec.layers == 0 || spec.mips == 0 {
+    let dimension = spec.dimension;
+    let view = dimension
+        .view_dimension()
+        .map_err(|code| OffscreenError::UnknownDimension { id: spec.id, code })?;
+    let layers = spec.layers();
+    if spec.size.contains(&0) || layers == 0 || spec.mips == 0 {
         return Err(OffscreenError::EmptyTexture { id: spec.id });
     }
-    let volume = spec.dimension == RenderDimension::D3;
-    if volume && spec.mips != 1 {
-        return Err(OffscreenError::VolumeShape {
-            id: spec.id,
-            reason: "has one mip",
-        });
-    }
-    if volume && spec.depth_bits != 0 {
-        return Err(OffscreenError::VolumeShape {
-            id: spec.id,
-            reason: "has no depth buffer",
-        });
-    }
+    check_shape(runtime, spec)?;
     let color_format = render_color_format(spec.graphics_format)?;
     let depth_format = depth_format(spec.depth_bits)?;
     let Some(format) = color_format.or(depth_format) else {
@@ -273,11 +266,11 @@ fn create_render_texture(
     }
     let shape = |format| TextureShape {
         size: spec.size,
-        layers: spec.layers,
+        layers,
         mips: spec.mips,
         format,
         storage,
-        volume,
+        view,
     };
     let color = color_format
         .map(|format| runtime.create_empty_texture("offscreen render texture", shape(format)))
@@ -291,7 +284,7 @@ fn create_render_texture(
                     layers: 1,
                     mips: 1,
                     storage: false,
-                    volume: false,
+                    view: wgpu::TextureViewDimension::D2,
                     ..shape(format)
                 }
             } else {
@@ -320,8 +313,8 @@ fn create_render_texture(
         color,
         depth,
         size: spec.size,
-        layers: spec.layers,
-        dimension: spec.dimension,
+        layers,
+        dimension,
         mips: spec.mips,
         format,
         depth_format,
@@ -331,6 +324,43 @@ fn create_render_texture(
         counts: None,
         held_bytes: render_bytes(spec, &runtime.device().limits()),
     })
+}
+
+/// Refuses a shape the state cannot make: a volume with mips or a depth buffer, a cube that is not
+/// square and a depth or layer count past what the device allows.
+fn check_shape(runtime: &ProgramRuntime, spec: &RenderTextureSpec) -> Result<(), OffscreenError> {
+    let id = spec.id;
+    let volume = |reason| OffscreenError::VolumeShape { id, reason };
+    if spec.dimension.is_volume() && spec.mips != 1 {
+        return Err(volume("has one mip"));
+    }
+    if spec.dimension.is_volume() && spec.depth_bits != 0 {
+        return Err(volume("has no depth buffer"));
+    }
+    let cube = matches!(
+        spec.dimension,
+        RenderDimension::Cube | RenderDimension::CubeArray(_)
+    );
+    if cube && spec.size[0] != spec.size[1] {
+        return Err(OffscreenError::CubeShape {
+            id,
+            reason: "is square",
+        });
+    }
+    let limits = runtime.device().limits();
+    let limit = if spec.dimension.is_volume() {
+        limits.max_texture_dimension_3d
+    } else {
+        limits.max_texture_array_layers
+    };
+    if spec.layers() > limit {
+        return Err(OffscreenError::DepthLimit {
+            id,
+            depth: spec.layers(),
+            limit,
+        });
+    }
+    Ok(())
 }
 
 /// The bytes a render texture of `spec` takes: its color levels and its depth buffer. A spec the
@@ -346,7 +376,7 @@ fn render_bytes(spec: &RenderTextureSpec, limits: &wgpu::Limits) -> u64 {
     if let Some(format) = color {
         allocations.texture(
             "render texture",
-            [spec.size[0], spec.size[1], spec.layers],
+            [spec.size[0], spec.size[1], spec.layers()],
             format,
             [spec.mips, 1],
             1,
@@ -357,7 +387,7 @@ fn render_bytes(spec: &RenderTextureSpec, limits: &wgpu::Limits) -> u64 {
         let (layers, mips) = if color.is_some() {
             (1, 1)
         } else {
-            (spec.layers, spec.mips)
+            (spec.layers(), spec.mips)
         };
         allocations.texture(
             "render texture depth",

@@ -318,6 +318,53 @@ assert_eq!(program.external_sets(), [0]);
 
 The draw side is `prepare_imported_draw`, described in the [crate README](../crates/render-program/README.md#lending-a-renderers-resources). A program with no lent set behaves as `graphics_program` always has: `graphics_program_in` with an empty slice builds the same program and shares its pipelines.
 
+### Writing the set once
+
+A lent set is described twice in the examples above: as a `wgpu::BindGroupLayout` the renderer builds its groups against, and as the `ResourceLayout` that says what the shader reads. `ProgramRuntime::set_layout` builds the first from the second, so a set is written once. `external_set` wraps the result for `graphics_program_in`.
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
+# };
+# use worldrunner_render_program::module::StageProgram;
+# use worldrunner_render_program::runtime::ProgramRuntime;
+# fn frame_set(
+#     runtime: &ProgramRuntime,
+#     device: &wgpu::Device,
+#     vertex: &StageProgram,
+#     fragment: &StageProgram,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+let declared = ResourceLayout::new(vec![ResourceBinding {
+    at: BindingAddress { set: 0, binding: 0 },
+    source: BindingSource::Engine(EngineSemantic::named("scene.frame")),
+    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+    kind: ResourceKind::Uniform { min_size: 80 },
+}]);
+let frame = runtime.external_set(declared)?;
+// The renderer builds its per-pass group against `frame.layout`...
+let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+    label: Some("frame"),
+    size: 80,
+    usage: wgpu::BufferUsages::UNIFORM,
+    mapped_at_creation: false,
+});
+let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    label: Some("frame"),
+    layout: &frame.layout,
+    entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
+});
+// ...and lends the same declaration to every program that reads it.
+let program = runtime.graphics_program_in(vertex, fragment, &[frame])?;
+# let _ = (program, group);
+# Ok(())
+# }
+```
+
+- **The entry.** Each declaration becomes one layout entry with its visibility and the binding type its kind names (`ResourceKind::binding_type`). A buffer's `min_size`, when not zero, is the entry's minimum binding size, so wgpu refuses a group whose buffer is smaller, exactly as the engine's hand-written layout would. Unfilterable float textures, non-filtering samplers and comparison samplers are all expressible.
+- **The groups.** A group is valid against the built layout exactly when each resource suits its declaration. `tests/lent/set_layout.rs` builds one layout for a uniform buffer, a read-only storage buffer, an `R32Float` texture with a non-filtering sampler and a depth texture with a comparison sampler, builds a group with no validation error, shows that a short uniform buffer and a plain sampler in the comparison slot are validation errors, binds the group once and reads each binding's contribution back from an `Rgba32Float` target, bitwise.
+- **One set.** Every declaration must name the same set, with no address twice, and a declaration with no bindings has no set: these are `LayoutError::Declaration` and `DuplicateDeclaration`. `external_set` takes the set number from the declarations.
+- **Layout identity.** Every call builds a new layout object. Two layouts with equal entries are still two layouts, and programs given different layouts never share a pipeline. Build the layout once, and clone the `ExternalSet` or the layout for each program.
+
 ### Counting what the runtime builds
 
 `ProgramRuntime::stats()` returns a `RuntimeStats` with the number of shader modules, pipelines, bind groups and draws the runtime has built since it was made. Each count only rises, so a cost test takes a snapshot, runs a frame and compares:
@@ -584,6 +631,7 @@ assert!(matches!(
 
 - **Colour.** A depth-only signature has no colour attachment, so its state has no colour states (`colors: Vec::new()`). A state that describes one is `ProgramError::ColorStatesOnDepthOnly`, and a vertex-only program prepared for a pass that has a colour attachment is `NoFragmentForColors`. A program with a fragment stage may also draw into a depth-only pass, for a fragment stage that discards.
 - **Where.** `prepare_imported_draw` and `prepare_pipeline` take a depth-only signature. `prepare_draw` and materials draw into one colour target, as before. `GraphicsProgram::fragment()` is `None` for a vertex-only program.
+- **A lent set for a vertex-only program.** `vertex_only_program_in(vertex, &[ExternalSet])` lends sets to a vertex-only program as `graphics_program_in` does for a program with a fragment stage. A shadow caster reads one light frame for each cascade. Declared as a set the runtime builds, each frame buffer needs a prepared set and so a prepared pipeline; lent, one program and one prepared pipeline serve every cascade, and the pass binds the cascade's group with `set_bind_group(0, ..)` before it records. Neither the pipeline nor its draws bind set 0, so a group switched between two draws of one pass, or between two passes, is the group the next draw reads. `PreparedProgramDraw::external_sets()` and `PreparedPipeline::external_sets()` list the sets the pass owner must have bound. `tests/lent/depth_only.rs` writes the left half of a depth target from one cascade's frame and the right half from another's, alone in a pass each and switched between two draws of one pass in both orders, and reads the depth back, and draws the same program through a `PreparedPipeline`.
 - **Depth bias.** `DepthState::bias` is part of the pipeline: states that differ in it are different pipelines. The offset added to a fragment's depth is `slope_scale * m + constant * r`, where `m` is the largest slope of the primitive's depth along x or y in texels and `r` the smallest difference the format resolves. For a unorm depth format `r` is `2^-n` for `n` bits, so `Depth16Unorm` moves a primitive of constant depth by `constant / 65536`. A float depth format scales `r` with the primitive's depth, and the exact rule is the device's. A `clamp` other than 0 caps the offset. `tests/lent/depth_only.rs` predicts the written depth in `Depth16Unorm` for a primitive of constant depth and for one of constant slope, and the lavapipe and Radeon renders agree with it to the rounding of the code; other formats are not asserted.
 
 ## Override constants
@@ -657,6 +705,144 @@ let handle = runtime.register_program(ProgramDesc::single(
 - **Cost.** The parsed module is shared and so is the compiled `ShaderModule`: overrides apply when a pipeline is created, so two stages of one source that differ only in their overrides add one pipeline and no module to `RuntimeStats`. The values are part of the stage's `content_key`, and so of the pipeline's cache key, and equal values share a pipeline.
 - **Stages.** Vertex, fragment and compute stages each take their own values, as the stages have their own entry points. A constant with no default that the entry point uses, and that no call set, is the GPU's to refuse when the pipeline is created, as `ProgramError::Gpu`.
 
+## Float textures that cannot be filtered
+
+A `texture_2d<f32>` in WGSL reads as filterable, and so does every `sampler`, but some formats cannot be filtered: `R32Float`, `Rg32Float` and `Rgba32Float` without the device feature `FLOAT32_FILTERABLE`. A shader that samples such a texture, or reads it with `textureLoad`, declares it as an ordinary float texture, and the declaration says what WGSL cannot: `ResourceKind::Texture` with `sample: Float { filterable: false }`. The slot takes the declared sample type, and the binding accepts an import of an unfilterable format.
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind,
+# };
+# fn declare() -> Vec<ResourceBinding> {
+let at = |binding| BindingAddress { set: 0, binding };
+vec![
+    // `var ambient: texture_2d<f32>`, holding an `R32Float` texture.
+    ResourceBinding {
+        at: at(0),
+        source: BindingSource::Engine(EngineSemantic::named("scene.ambient")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Texture {
+            dimension: wgpu::TextureViewDimension::D2,
+            sample: wgpu::TextureSampleType::Float { filterable: false },
+            multisampled: false,
+        },
+    },
+    // `var point: sampler`, which the runtime fills with a nearest-texel sampler.
+    ResourceBinding {
+        at: at(1),
+        source: BindingSource::Unnamed,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Sampler(wgpu::SamplerBindingType::NonFiltering),
+    },
+]
+# }
+```
+
+- **What a declaration may narrow.** `ResourceKind::narrows` is the rule: a `Float { filterable: false }` texture narrows a filterable float texture of the same dimension and multisampling, and a `NonFiltering` sampler narrows a filtering one. Anything else that differs from the shader, such as a `Uint` or `Depth` declaration of a float texture, is still a `LayoutError::Mismatch`. A declaration cannot widen: a multisampled float texture is unfilterable in WGSL, and declaring it filterable is a mismatch.
+- **Imports.** A texture is checked against its slot's sample type when it is imported. An unfilterable format fills an unfilterable slot, and a filterable format fills either. An unfilterable format imported for a binding declared filterable is `ProgramError::WrongResource`, naming the slot and the format, because the binding's declaration is what the layout was built from: an import cannot change a layout that exists. Declare the binding unfilterable to bind both kinds of format.
+- **Samplers.** A sampler binding declared `NonFiltering` and not imported is filled with the runtime's sampler of nearest texel and mip, clamped to the edge. One the owner lends must itself be non-filtering, or wgpu refuses the group (`ProgramError::Gpu`).
+- **The pairing.** A texture declared unfilterable is sampled only with a non-filtering sampler. The runtime reads the shader's sampling calls from the module, and a program that samples an unfilterable texture with a sampler declared filtering is refused when the program is built, as `LayoutError::FilteringSampler`, naming the texture's and the sampler's addresses. A shader that only loads texels (`textureLoad`) pairs the texture with no sampler, and can keep a filtering sampler declared for other textures. The check applies to lent sets too, from their declarations.
+- **Lent sets.** A lent set's declaration is checked with `ResourceKind::same_class`, which ignores the filterable flag and the filtering of a plain sampler, so a lent `NonFiltering` sampler matches the shader's `sampler`.
+
+## Comparison samplers
+
+A comparison sampler (WGSL `sampler_comparison`) compares a reference depth the shader passes with the depth it reads and returns 1 or 0, which is how a shadow map is tested. The runtime does not create one, so a binding of one is declared from an engine semantic, and the owner imports the sampler it made with `SamplerDescriptor::compare` set. The texture it is used with is a depth texture, declared `sample: Depth`.
+
+```rust,no_run
+# use worldrunner_render_program::binding::{
+#     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind,
+# };
+# use worldrunner_render_program::runtime::Import;
+# fn shadow(device: &wgpu::Device) -> (Vec<ResourceBinding>, Import) {
+let at = |binding| BindingAddress { set: 0, binding };
+let declared = vec![
+    // `var shadow: texture_depth_2d`
+    ResourceBinding {
+        at: at(0),
+        source: BindingSource::Engine(EngineSemantic::named("sun.shadow")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Texture {
+            dimension: wgpu::TextureViewDimension::D2,
+            sample: wgpu::TextureSampleType::Depth,
+            multisampled: false,
+        },
+    },
+    // `var compare: sampler_comparison`
+    ResourceBinding {
+        at: at(1),
+        source: BindingSource::Engine(EngineSemantic::named("sun.compare")),
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        kind: ResourceKind::Sampler(wgpu::SamplerBindingType::Comparison),
+    },
+];
+let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+    compare: Some(wgpu::CompareFunction::LessEqual),
+    ..wgpu::SamplerDescriptor::default()
+});
+(declared, Import::sampler(EngineSemantic::named("sun.compare"), sampler))
+# }
+```
+
+- **Where.** A comparison sampler is accepted at a binding whose source is `BindingSource::Engine`, in `prepare_imported_draw` and in sets built by `prepare_set`. A comparison binding with another source, which the runtime would have to fill itself, is `ProgramError::UnsupportedSampler` naming the set and binding, and so is a registered program that declares one. The shader's `sampler_comparison` reflects as `Comparison`, which a declaration must equal.
+- **The sampler's own kind.** wgpu checks that the imported sampler is a comparison sampler when it creates the group, and a plain sampler lent to a comparison slot comes back as `ProgramError::Gpu`.
+- **The result.** `LessEqual` passes where the reference is at most the stored depth. `tests/lent/comparison.rs` stores `Depth16Unorm` codes 16384, 32767, 32768 and 49151 and passes the reference 0.5: the table is `[0, 0, 1, 1]` for `LessEqual` and `[1, 1, 0, 0]` for `Greater`, exact on lavapipe and on the Radeon, including the two codes one step either side of 0.5. `Always` and `Never` give all ones and all zeros.
+
+## Alpha to coverage
+
+In a pass of more than one sample, alpha to coverage lets the fragment's alpha decide how many of a pixel's samples the fragment covers, which gives a cut-out edge such as foliage anti-aliasing without blending or sorting. It is a state: `RasterState::alpha_to_coverage`. The pipeline takes its sample count from the signature and sets alpha to coverage from the state, so the same program draws with and without it as two pipelines.
+
+```rust,no_run
+# use worldrunner_render_program::error::ProgramError;
+# use worldrunner_render_program::runtime::{ImportedDraw, ProgramRuntime, TargetSignature};
+# use worldrunner_render_program::state::RenderState;
+# fn cut_out(
+#     runtime: &mut ProgramRuntime,
+#     draw: &ImportedDraw<'_>,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// `draw.state` is `RenderState { raster: RasterState { alpha_to_coverage: true, .. }, .. }`.
+let four = TargetSignature::attachments(&[wgpu::TextureFormat::Rgba16Float], None, 4)?;
+let prepared = runtime.prepare_imported_draw(draw, four)?;
+
+// A single-sample pass has no samples to drop, so the same state is refused by name.
+let one = TargetSignature::attachments(&[wgpu::TextureFormat::Rgba16Float], None, 1)?;
+assert_eq!(
+    runtime.prepare_imported_draw(draw, one).err(),
+    Some(ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }),
+);
+# let _ = prepared;
+# Ok(())
+# }
+```
+
+- **Where.** `prepare_imported_draw` and `prepare_pipeline` take it with any signature of 2, 4, 8 or 16 samples. `RenderState::check_targets(colors, samples)` checks a state against a signature. `prepare_draw`, materials and registered programs draw into one single-sample target, and `RenderState::check_drawable` refuses it for them with `ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }`.
+- **How many samples.** The coverage is the device's to compute from the alpha of colour attachment 0. `tests/lent/coverage.rs` renders a white fragment of alpha 0, 0.25, 0.5, 0.75 and 1 at 4x into transparent black, resolves into `Rgba16Float` and reads back. Every pixel covers 0, 1, 2, 3 and 4 samples on lavapipe and on the Radeon. Those alphas are exact multiples of a quarter, where the count does not depend on how a device rounds or spreads its samples; an alpha between two multiples is the device's to round, and the test asserts nothing about it.
+- **Mask.** The pipeline's sample mask is all ones.
+
+## Buffer ranges
+
+`Import::buffer` binds a whole buffer. `Import::buffer_range(semantic, buffer, offset, size)` binds `size` bytes from `offset`, so one buffer can hold a table of records, or a ring of frames, and each draw or prepared set reads its own slice. It is accepted wherever an import is: in `ImportedDraw::imports` and in an `ImportTable` for `prepare_set`.
+
+```rust,no_run
+# use worldrunner_render_program::binding::EngineSemantic;
+# use worldrunner_render_program::runtime::{GraphicsProgram, Import, ImportTable, ProgramRuntime};
+# fn slice(
+#     runtime: &mut ProgramRuntime,
+#     program: &GraphicsProgram,
+#     table: wgpu::Buffer,
+# ) -> Result<(), Box<dyn std::error::Error>> {
+// Record 3 of a table whose records are 256 bytes apart.
+let record = Import::buffer_range(EngineSemantic::named("water.record"), table, 3 * 256, 64);
+let set = runtime.prepare_set(program, 1, &ImportTable::new().with(record), Vec::new())?;
+# let _ = set;
+# Ok(())
+# }
+```
+
+- **Alignment.** `offset` must be a multiple of the device's `min_uniform_buffer_offset_alignment` for a uniform binding and of `min_storage_buffer_offset_alignment` for a storage binding, or the import is `ProgramError::BufferRangeMisaligned`, naming the set, binding, offset and alignment. Both are 256 on lavapipe and on the Radeon in the tests, as wgpu's default limits ask.
+- **Size.** `size` must be at least the larger of what the shader needs and what the declaration's `min_size` asks for, or it is `ProgramError::BufferTooSmall` with `have` set to the range's size. An empty range is `BufferTooSmall` too. A range that runs past the end of the buffer, including an offset and size whose sum overflows, is `ProgramError::BufferRangePastBuffer`.
+- **What the shader sees.** The binding starts at `offset`, so the first element of a storage array is the first element of the range, and `arrayLength` is the size divided by the element stride.
+- **Limits.** The device's maximum binding sizes are wgpu's to check when the group is created, as `ProgramError::Gpu`. A range does not use dynamic offsets, so each range is its own bind group, built once for a prepared set.
+
 ## Clip space and depth
 
 A WGSL position is used as written. Clip Y is up, so positive Y lands in the top rows of the target, and depth runs from 0 at the near plane to 1 at the far plane, as wgpu defines them. A counter-clockwise triangle in clip space is a front face under `RenderState::opaque_depth`. SPIR-V stages keep the convention of the SPIR-V reader the crate uses, which flips the position's Y: the same vertices land in the bottom rows. Pick one source format per program and test an asymmetric scene when you switch.
@@ -666,6 +852,6 @@ A WGSL position is used as written. Clip Y is up, so positive Y lands in the top
 - A draw writes one single-sample colour target with an optional depth target whose format has no stencil aspect. Multisampled targets, several colour targets and stencil formats are refused by name.
 - Properties set values and resources. The runtime does not yet fill object, camera or light values for you, so a game sets the matrices and times its shaders read.
 - A constant layout holds scalars, vectors and matrices, and arrays of them. Struct arrays are not represented.
-- Comparison samplers are refused by name when a program is registered, and every sampler is the fixed linear, clamped one.
+- The runtime creates two samplers, the fixed linear one and a nearest-texel one for bindings declared non-filtering. Any other sampler, including every comparison sampler, is lent by its owner through an engine-sourced binding; a comparison sampler declared any other way is refused by name.
 
 Issues [#449](https://github.com/acoliver/real-disunity/issues/449) and [#450](https://github.com/acoliver/real-disunity/issues/450) track the remaining work.

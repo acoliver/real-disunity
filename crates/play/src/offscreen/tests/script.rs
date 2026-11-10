@@ -68,6 +68,8 @@ fn temporary_desc(size: u32) -> WorldRenderTexture {
         depth_bits: 32,
         mip_count: 1,
         srgb: false,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler::default(),
         generation: 0,
     }
@@ -293,7 +295,6 @@ fn a_temporary_render_texture_is_made_for_the_target_that_names_it() {
         [RenderTextureSpec {
             id,
             size: [4, 4],
-            layers: 1,
             dimension: RenderDimension::D2,
             graphics_format: 8,
             depth_bits: 32,

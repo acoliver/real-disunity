@@ -20,6 +20,8 @@ fn texture(mip_count: u32) -> WorldRenderTexture {
         depth_bits: 0,
         mip_count,
         srgb: false,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler::default(),
         generation: 0,
     }

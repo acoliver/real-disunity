@@ -70,6 +70,15 @@ pub(crate) fn fixed_descriptor() -> wgpu::SamplerDescriptor<'static> {
     }
 }
 
+/// The sampler every non-filtering sampler binding without a state gets: nearest texel and mip,
+/// clamped to the edge.
+pub(crate) fn non_filtering_descriptor() -> wgpu::SamplerDescriptor<'static> {
+    wgpu::SamplerDescriptor {
+        label: Some("render-program non-filtering sampler"),
+        ..wgpu::SamplerDescriptor::default()
+    }
+}
+
 /// One checked sampler for the fixed state and one for each state asked for.
 pub struct SamplerCache {
     device: wgpu::Device,

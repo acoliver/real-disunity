@@ -63,6 +63,9 @@ pub struct ProgramRuntime {
     pub(crate) budget: AllocationBudget,
     /// The one sampler every sampler binding gets: linear filtering, clamped to the edge.
     pub(crate) sampler: wgpu::Sampler,
+    /// The sampler of a binding declared non-filtering: nearest texel and mip, clamped to the
+    /// edge.
+    pub(crate) non_filtering_sampler: wgpu::Sampler,
     modules: HashMap<blake3::Hash, wgpu::ShaderModule>,
     /// Bind group layouts by the slots they were made for, so programs with equal slots at a set
     /// share one. Programs are built through `&self`, hence the lock.
@@ -85,6 +88,8 @@ impl ProgramRuntime {
         budget: AllocationBudget,
     ) -> Self {
         let sampler = device.create_sampler(&crate::sampler::fixed_descriptor());
+        let non_filtering_sampler =
+            device.create_sampler(&crate::sampler::non_filtering_descriptor());
         Self {
             device,
             authority,
@@ -93,6 +98,7 @@ impl ProgramRuntime {
             ledger: Ledger::default(),
             budget,
             sampler,
+            non_filtering_sampler,
             modules: HashMap::new(),
             set_layouts: Mutex::new(HashMap::new()),
             storage_support: Mutex::new(HashMap::new()),

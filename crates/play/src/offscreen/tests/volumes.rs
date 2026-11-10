@@ -2,11 +2,10 @@
 //! synchronous flush on a real adapter (lavapipe in CI), and kernels that sample those textures
 //! and copy one layer or slice into a plain texture a pixel read answers.
 //!
-//! The world's render texture description carries a size and no layer count or depth, so the
-//! host takes the dimension from the view the kernel declares and the extent along the layer axis
-//! from the texels the kernel's dispatches cover. Every expected value comes from the formula the
-//! kernel writes, `(16x + 1, 16y + 2, 64z + 3, 255)` in 8-bit channels for texel (x, y) of layer
-//! or slice z, not from the output.
+//! The world's render texture record states the dimension and the layers or depth, and the host
+//! makes the texture with them, whatever extent a dispatch covers. Every expected value comes
+//! from the formula the kernel writes, `(16x + 1, 16y + 2, 64z + 3, 255)` in 8-bit channels for
+//! texel (x, y) of layer or slice z, not from the output.
 
 use std::path::Path;
 
@@ -14,12 +13,12 @@ use worldrunner_render_program::unity::synthetic::compute_spirv;
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, ComputeShaderId, OffscreenWork, PropertyValue, RenderTextureId, ShaderSource,
-    TextureRef, WorldComputeShader,
+    TextureRef, WorldComputeShader, dimension,
 };
 
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::flush::host;
-use super::gpu::{Quad, SIDE, target, vector};
+use super::gpu::{Quad, SIDE, shaped_target, target, vector};
 use super::kernels::compute_bytes::{Binding, Kernel, Variant};
 use super::kernels::{shader_bytes, write_compute};
 use super::support::{snapshot, texture_slot, world};
@@ -27,13 +26,16 @@ use super::support::{snapshot, texture_slot, world};
 /// `GraphicsFormat` 8, four 8-bit channels; 52, four 32-bit floats.
 const RGBA8: u32 = 8;
 const RGBA32_FLOAT: u32 = 52;
-/// The layers or slices the writing dispatch covers.
+/// The layers or slices the record states.
 const DEPTH: u32 = 3;
+/// The record's dimension and depth of a 2D array and of a 3D texture of `DEPTH`.
+const ARRAY_RECORD: (u32, u32) = (dimension::TEX_2D_ARRAY, DEPTH);
+const VOLUME_RECORD: (u32, u32) = (dimension::TEX_3D, DEPTH);
 /// The dimension codes a kernel states for a sampled 2D, 3D and 2D-array texture.
 const ARRAY: i32 = 5;
 const VOLUME: i32 = 3;
 
-fn code(wgsl: &str) -> Vec<u8> {
+pub(super) fn code(wgsl: &str) -> Vec<u8> {
     compute_spirv(wgsl, "main")
         .iter()
         .flat_map(|word| word.to_le_bytes())
@@ -41,7 +43,7 @@ fn code(wgsl: &str) -> Vec<u8> {
 }
 
 /// A kernel that writes the pattern into every layer or slice of `_Volume`.
-fn writer(declaration: &str, store: &str, dimension: i32) -> Kernel {
+pub(super) fn writer(declaration: &str, store: &str, dimension: i32) -> Kernel {
     let wgsl = format!(
         "@group(0) @binding(0) var volume: {declaration};
          @compute @workgroup_size(2, 2, 1) fn main(@builtin(global_invocation_id) id: vec3<u32>) {{
@@ -59,7 +61,7 @@ const PATTERN: &str = "vec4<f32>(
     f32(64u * id.z + 3u) / 255.0,
     1.0)";
 
-fn array_writer() -> Kernel {
+pub(super) fn array_writer() -> Kernel {
     writer(
         "texture_storage_2d_array<rgba8unorm, write>",
         &format!("textureStore(volume, vec2<i32>(id.xy), i32(id.z), {PATTERN});"),
@@ -67,7 +69,7 @@ fn array_writer() -> Kernel {
     )
 }
 
-fn volume_writer() -> Kernel {
+pub(super) fn volume_writer() -> Kernel {
     writer(
         "texture_storage_3d<rgba8unorm, write>",
         &format!("textureStore(volume, vec3<i32>(id), {PATTERN});"),
@@ -91,7 +93,7 @@ fn gatherer(sampled: &str, load: &str, dimension: i32, at: u32) -> Kernel {
     Kernel::single(&format!("Gather{at}"), variant)
 }
 
-fn array_gatherer(at: u32) -> Kernel {
+pub(super) fn array_gatherer(at: u32) -> Kernel {
     gatherer(
         "texture_2d_array<f32>",
         "textureLoad(source, vec2<i32>(id.xy), AT, 0)",
@@ -100,7 +102,7 @@ fn array_gatherer(at: u32) -> Kernel {
     )
 }
 
-fn volume_gatherer(at: u32) -> Kernel {
+pub(super) fn volume_gatherer(at: u32) -> Kernel {
     gatherer(
         "texture_3d<f32>",
         "textureLoad(source, vec3<i32>(vec2<i32>(id.xy), AT), 0)",
@@ -110,7 +112,7 @@ fn volume_gatherer(at: u32) -> Kernel {
 }
 
 /// A host whose `volumes` shader has `kernels`, the first of which writes.
-fn volumes_host(directory: &Path, kernels: Vec<Kernel>) -> OffscreenHost {
+pub(super) fn volumes_host(directory: &Path, kernels: Vec<Kernel>) -> OffscreenHost {
     write_compute(
         directory,
         "volumes",
@@ -119,7 +121,7 @@ fn volumes_host(directory: &Path, kernels: Vec<Kernel>) -> OffscreenHost {
     host(directory)
 }
 
-fn compute_shader_of(world: &mut World, kernels: &[&str]) -> ComputeShaderId {
+pub(super) fn compute_shader_of(world: &mut World, kernels: &[&str]) -> ComputeShaderId {
     world
         .create_compute_shader(WorldComputeShader {
             name: "volumes".into(),
@@ -139,7 +141,13 @@ fn compute_shader_of(world: &mut World, kernels: &[&str]) -> ComputeShaderId {
         .unwrap()
 }
 
-fn bind(world: &mut World, shader: ComputeShaderId, kernel: u32, name: &str, to: RenderTextureId) {
+pub(super) fn bind(
+    world: &mut World,
+    shader: ComputeShaderId,
+    kernel: u32,
+    name: &str,
+    to: RenderTextureId,
+) {
     world
         .set_compute_property(
             shader,
@@ -150,21 +158,21 @@ fn bind(world: &mut World, shader: ComputeShaderId, kernel: u32, name: &str, to:
 }
 
 /// The texels of the pattern at layer or slice `z`, row by row from row 0, as floats.
-fn pattern(z: u32) -> Vec<f32> {
+pub(super) fn pattern(z: u32) -> Vec<f32> {
     (0..SIDE)
         .flat_map(|y| (0..SIDE).flat_map(move |x| [16 * x + 1, 16 * y + 2, 64 * z + 3, 255]))
         .map(|byte| f32::from(u8::try_from(byte).unwrap()) / 255.0)
         .collect()
 }
 
-fn flush(host: &mut OffscreenHost, world: &mut World) -> FlushOutcome {
+pub(super) fn flush(host: &mut OffscreenHost, world: &mut World) -> FlushOutcome {
     let snapshot = snapshot(world);
     let outcome = host.flush(&snapshot, &Quad).unwrap();
     outcome.apply(world).unwrap();
     outcome
 }
 
-fn failures(outcome: &FlushOutcome) -> Vec<(&str, usize)> {
+pub(super) fn failures(outcome: &FlushOutcome) -> Vec<(&str, usize)> {
     outcome
         .report
         .failures
@@ -178,12 +186,12 @@ fn failures(outcome: &FlushOutcome) -> Vec<(&str, usize)> {
 /// pixels. Returns the flush and the answers, in the order of the layers or slices.
 fn written_and_gathered(
     kernels: Vec<Kernel>,
-    format: u32,
+    (format, record): (u32, (u32, u32)),
 ) -> (FlushOutcome, Vec<Option<Vec<f32>>>) {
     let directory = tempfile::tempdir().unwrap();
     let mut host = volumes_host(directory.path(), kernels);
     let mut world = world();
-    let volume = target(&mut world, format);
+    let volume = shaped_target(&mut world, (format, 1), record);
     let names = kernel_names();
     let shader = compute_shader_of(
         &mut world,
@@ -213,7 +221,7 @@ fn a_kernel_writes_every_layer_of_an_array_texture_and_each_layer_reads_back_exa
         .chain((0..DEPTH).map(array_gatherer))
         .collect();
 
-    let (outcome, answers) = written_and_gathered(kernels, RGBA8);
+    let (outcome, answers) = written_and_gathered(kernels, (RGBA8, ARRAY_RECORD));
 
     assert!(failures(&outcome).is_empty(), "{:?}", failures(&outcome));
     assert_eq!(outcome.report.census["dispatches ran"], 4);
@@ -227,7 +235,7 @@ fn a_kernel_writes_every_slice_of_a_3d_texture_and_each_slice_reads_back_exactly
         .chain((0..DEPTH).map(volume_gatherer))
         .collect();
 
-    let (outcome, answers) = written_and_gathered(kernels, RGBA8);
+    let (outcome, answers) = written_and_gathered(kernels, (RGBA8, VOLUME_RECORD));
 
     assert!(failures(&outcome).is_empty(), "{:?}", failures(&outcome));
     assert_eq!(outcome.report.census["dispatches ran"], 4);
@@ -245,7 +253,7 @@ fn a_pixel_read_of_a_3d_texture_of_floats_answers_its_first_slice() {
     );
     let mut host = volumes_host(directory.path(), vec![write]);
     let mut world = world();
-    let volume = target(&mut world, RGBA32_FLOAT);
+    let volume = shaped_target(&mut world, (RGBA32_FLOAT, 1), VOLUME_RECORD);
     let shader = compute_shader_of(&mut world, &["Write"]);
     bind(&mut world, shader, 0, "_Volume", volume);
     world.dispatch_compute(shader, 0, [2, 2, DEPTH]).unwrap();
@@ -270,7 +278,7 @@ fn a_blit_that_names_a_3d_texture_is_refused_by_name_and_the_rest_runs() {
     let directory = tempfile::tempdir().unwrap();
     let mut host = volumes_host(directory.path(), vec![volume_writer()]);
     let mut world = world();
-    let volume = target(&mut world, RGBA8);
+    let volume = shaped_target(&mut world, (RGBA8, 1), VOLUME_RECORD);
     let copied = target(&mut world, RGBA8);
     let shader = compute_shader_of(&mut world, &["Write"]);
     bind(&mut world, shader, 0, "_Volume", volume);
@@ -314,7 +322,7 @@ fn a_layer_is_still_there_in_a_later_flush_that_only_reads_it() {
         .collect();
     let mut host = volumes_host(directory.path(), kernels);
     let mut world = world();
-    let volume = target(&mut world, RGBA8);
+    let volume = shaped_target(&mut world, (RGBA8, 1), ARRAY_RECORD);
     let names = kernel_names();
     let shader = compute_shader_of(
         &mut world,
@@ -352,4 +360,9 @@ fn a_kernel_that_views_an_array_is_left_out_by_name_when_the_texture_is_plain() 
 
     assert_eq!(failures(&outcome), [("dispatch:TextureDimension", 1)]);
     assert!(!outcome.report.census.contains_key("dispatches ran"));
+    let reason = &outcome.report.examples["dispatch:TextureDimension"];
+    assert!(
+        reason.contains("D2Array") && reason.contains("render texture is D2"),
+        "{reason}"
+    );
 }

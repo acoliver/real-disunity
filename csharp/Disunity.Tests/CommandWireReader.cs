@@ -135,9 +135,11 @@ internal static unsafe class CommandWireReader
         {
             var (w, h, format, depth, mips) = (U32(), U32(), U32(), U32(), U32());
             var srgb = Bool();
+            var (dimension, volumeDepth) = (U32(), U32());
             var (wu, wv, ww, filter, aniso, bias) = (U32(), U32(), U32(), U32(), U32(), F32());
             U64();
-            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
+            var shape = dimension == 2 && volumeDepth == 1 ? "" : $" shape={dimension}x{volumeDepth}";
+            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb}{shape} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
         }
     }
 }

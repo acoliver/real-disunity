@@ -28,6 +28,8 @@ fn description() -> DisunityRenderTexture {
         srgb: 1,
         filter: 1,
         aniso_level: 1,
+        dimension: 2,
+        volume_depth: 1,
         ..Default::default()
     }
 }

@@ -14,7 +14,7 @@ struct ReflectionCamera {
     let normal = textureLoad(normals, p, 0);
     if normal.a == 0.0 || (camera.settings.z > 0.0 && surface.a >= camera.settings.z) || camera.settings.w != 0.0 { discard; }
     let uv = pixel.xy / camera.size.xy;
-    let receiver = reflection_receiver(p, uv, sample);
+    let receiver = reflection_receiver(p, sample);
     if receiver.owner == 0u { discard; }
     let reflection = reconstructed_reflection(uv, sample, receiver, surface.a);
     if reflection.a <= 0.0 { discard; }

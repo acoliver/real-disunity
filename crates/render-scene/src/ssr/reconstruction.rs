@@ -6,8 +6,9 @@ mod tests;
 
 pub(super) fn source(levels: usize) -> String {
     let mut source = format!(
-        "{}\n{}\nfn reflection_extent(level: u32) -> vec2<i32> {{ switch level {{",
+        "{}\n{}\n{}\nfn reflection_extent(level: u32) -> vec2<i32> {{ switch level {{",
         include_str!("reconstruction_receiver.wgsl"),
+        include_str!("reconstruction_geometry.wgsl"),
         include_str!("reconstruction.wgsl"),
     );
     for level in 0..levels {

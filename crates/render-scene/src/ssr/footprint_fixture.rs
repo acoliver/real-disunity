@@ -27,11 +27,32 @@ pub(super) fn source(case: Case, pair: bool) -> String {
 }
 
 pub(super) fn capture(context: &GpuContext, case: Case) -> (Capture, Capture) {
+    capture_shaded(context, case, false)
+}
+
+pub(super) fn capture_shaded(
+    context: &GpuContext,
+    case: Case,
+    perturbed: bool,
+) -> (Capture, Capture) {
     let config = FrameConfig::new(SIZE, wgpu::TextureFormat::Rgba16Float, case.samples);
     let mut screen = SceneMetadata::new(context.device(), SIZE, neutral_ao()).unwrap();
     let ssr = Ssr::new(context.device(), config, policy(case), &mut screen).unwrap();
     let water = super::super::water_tests::water_fixture(context, config);
     initialize(context, &ssr, &water, case);
+    if perturbed {
+        let normal = [0.2, 0.0, 0.979_795_9, 1.0];
+        upload(
+            context,
+            &ssr.normals,
+            &normal.repeat(usize::try_from(SIZE[0] * SIZE[1]).unwrap()),
+        );
+        fill(
+            context,
+            &water.receivers[0][0],
+            "vec4<f32>(0.2, 0.0, 0.9797959, 1.0)",
+        );
+    }
     let target = water.receivers[1][0].clone();
     commit(context, &ssr, &target);
     reduce(context, &ssr);

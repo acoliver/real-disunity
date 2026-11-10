@@ -24,9 +24,9 @@ Each MSAA sample has a horizontal lane in the existing SSR radiance targets. Cei
 ## Receiver-compatible reconstruction
 
 Resolve classifies raw trace receivers before mixing their radiance. Opaque
-descriptors use the actual opaque normal and the opaque depth at that receiver's
-pixel. Water descriptors use the published normal and sample offset with that
-sample's raw forward depth. Water resolve binds the scheduled scene depth in
+descriptors unproject the opaque depth at its full-resolution pixel centre,
+independently of the trace-grid centre. Water descriptors use the published
+normal and sample offset with that sample's raw forward depth. Water resolve binds the scheduled scene depth in
 place of the reduced final-depth input; its opaque shoreline check reduces those
 raw samples conservatively and rejects any pixel with water coverage in any lane.
 AO has a separate binding and never supplies a receiver normal.
@@ -34,10 +34,15 @@ AO has a separate binding and never supplies a receiver normal.
 Two receivers must have the same owner, normalized-normal dot product at least
 0.9, and symmetric tangent-plane residual at most
 `max(0.01 metres, 0.001 * min(view_depth_a, view_depth_b))`. The residual is the
-larger absolute projection of their position difference onto either normal.
-These tolerances approximate surface continuity using shading normals, not mesh
-identity. Strong normal maps can split a surface, while sufficiently close,
-coplanar objects of the same receiver type can share support.
+larger absolute projection of their position difference onto either geometric
+plane normal. Each plane uses the nearest same-owner depth neighbour on each
+pixel axis, avoiding a farther silhouette or depth step when a nearer neighbour
+exists. If an axis has no covered neighbour, the published shading normal is the
+remaining local plane estimate. Where depth samples span a plane, shading
+normals govern angular rejection only; normal-map perturbations do not tilt the
+depth-continuity plane. These local estimates approximate surface continuity
+rather than mesh identity.
+Sufficiently close, coplanar objects of the same receiver type can share support.
 
 For nonzero roughness at LOD at most one, resolve integrates raw trace texels
 with a separable tent of radius `clamp(2 * exp2(lod), 2, 4)`. Beyond LOD one the

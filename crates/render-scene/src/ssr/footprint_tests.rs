@@ -157,6 +157,36 @@ fn gpu_footprint_opaque_normal_edge_uses_real_normals_with_ao() {
 }
 
 #[test]
+fn gpu_footprint_shading_normal_does_not_change_coplanar_support() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    for water in [false, true] {
+        for scale in [1_000_000, 500_000] {
+            let case = Case {
+                scale,
+                roughness: 0.1,
+                samples: 1,
+                edge: Edge::None,
+                ao: false,
+                full: false,
+                water,
+            };
+            let (pairs, _) = fixture::capture_shaded(&context, case, true);
+            let expected = reference(case, 0);
+            let index = usize::try_from((SIZE[1] / 2 * SIZE[0] + SIZE[0] / 2) * 4).unwrap();
+            for channel in 0..4 {
+                assert!(
+                    (pairs[0][index + channel] - expected[channel]).abs() <= 0.0005,
+                    "coplanar support {case:?}: {} != {}",
+                    pairs[0][index + channel],
+                    expected[channel]
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn footprint_shader_variants_validate_without_device() {
     for samples in [1, 4] {
         for full in [false, true] {

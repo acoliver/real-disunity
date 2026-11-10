@@ -4,8 +4,8 @@ using UnityEngine;
 using UnityEngine.TextCore.LowLevel;
 
 /// <summary>Script assets and fonts a player's scene plan holds: a scene script's field names the asset, which
-/// is enabled before the scene's scripts, holds its own fields and the font it names, and may name assets that
-/// name it back.</summary>
+/// is enabled before the scene's scripts, after its fields are bound and every asset of the scene exists, holds its
+/// own fields and the font it names, and may name assets that name it back.</summary>
 internal static class PlayerSceneAssetTests
 {
     public sealed class Settings : ScriptableObject
@@ -14,7 +14,10 @@ internal static class PlayerSceneAssetTests
         public int count = 0;
         public Settings? next = null;
         public Font? face = null;
-        private void OnEnable() => Instance = this;
+        public int countAtEnable = -1;
+        public bool nextExistedAtEnable;
+        public int enables;
+        private void OnEnable() { Instance = this; countAtEnable = count; nextExistedAtEnable = next != null; enables++; }
     }
 
     public sealed class Holder : MonoBehaviour
@@ -55,6 +58,11 @@ internal static class PlayerSceneAssetTests
         Expect.That(first.next is { count: 2, name: "second" } && ReferenceEquals(first.next.next, first), "assets that name each other are built once each");
         Expect.That(ReferenceEquals(Settings.Instance, first.next) && ReferenceEquals(holder.instanceAtEnable, first.next), "the assets are enabled before the scene's scripts");
         Expect.That(first.face is { name: "Sans" } && ReferenceEquals(first.face, first.next!.face), "a font the assets name is one object");
+        var second = first.next!;
+        Expect.That(first.countAtEnable == 1 && second.countAtEnable == 2, "each asset's fields are bound before its OnEnable");
+        Expect.That(first.enables == 1 && second.enables == 1, $"each asset is enabled once: {first.enables} and {second.enables}");
+        Expect.That(first.nextExistedAtEnable && second.nextExistedAtEnable,
+            "every asset of the scene exists before the first one is enabled, so one enabled first sees the other");
         Expect.Equal(FontEngineError.Success, FontEngine.LoadFontFace(first.face!, 40), "a face loads from the font's range of the data file");
         Console.WriteLine("PASS: a player scene plan builds the script assets and fonts its scripts reference");
     }

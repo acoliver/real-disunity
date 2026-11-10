@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use crate::binding::ResourceLayout;
-use crate::error::ProgramError;
+use crate::binding::{BindingSource, ResourceLayout};
+use crate::error::{ProgramError, StorageImageError};
 use crate::layout::ProgramLayout;
 use crate::module::{StageKind, StageProgram};
 use crate::pipeline_key::Key;
@@ -113,6 +113,18 @@ fn expect(stage: &StageProgram, expected: StageKind) -> Result<(), ProgramError>
     Err(ProgramError::WrongStage { expected, found })
 }
 
+/// A set is lent once.
+fn check_distinct(external: &[ExternalSet]) -> Result<(), ProgramError> {
+    match external
+        .iter()
+        .enumerate()
+        .find(|(index, lent)| external[..*index].iter().any(|other| other.set == lent.set))
+    {
+        Some((_, repeated)) => Err(ProgramError::ExternalSetConflict { set: repeated.set }),
+        None => Ok(()),
+    }
+}
+
 impl ProgramRuntime {
     /// Builds the layouts of a compute stage.
     ///
@@ -141,9 +153,29 @@ impl ProgramRuntime {
         &self,
         vertex: &StageProgram,
     ) -> Result<GraphicsProgram, ProgramError> {
+        self.vertex_only_program_in(vertex, &[])
+    }
+
+    /// Like [`vertex_only_program`](Self::vertex_only_program), with the sets of `external` lent:
+    /// the owner of the pass binds them, and each layout is used as given in the pipeline layout.
+    /// A shadow caster's light frame is the case: the pass binds the frame of the cascade it
+    /// draws, so one prepared draw serves every cascade, where a set the runtime builds would
+    /// need one prepared draw for each. The rules are those of
+    /// [`graphics_program_in`](Self::graphics_program_in).
+    ///
+    /// # Errors
+    /// Also fails with `ExternalSetConflict` when a set is lent twice, with a layout error that
+    /// names a resource a lent declaration does not list or lists as another class, and with
+    /// `TooManyGroups` when a lent set is above the device's limit.
+    pub fn vertex_only_program_in(
+        &self,
+        vertex: &StageProgram,
+        external: &[ExternalSet],
+    ) -> Result<GraphicsProgram, ProgramError> {
         expect(vertex, StageKind::Vertex)?;
-        let layout = ProgramLayout::build_in(&[vertex], &[])?;
-        let gpu = self.gpu_layout(layout, &[])?;
+        check_distinct(external)?;
+        let layout = ProgramLayout::build_in(&[vertex], external)?;
+        let gpu = self.gpu_layout(layout, external)?;
         Ok(GraphicsProgram {
             vertex: vertex.clone(),
             fragment: None,
@@ -186,15 +218,7 @@ impl ProgramRuntime {
     ) -> Result<GraphicsProgram, ProgramError> {
         expect(vertex, StageKind::Vertex)?;
         expect(fragment, StageKind::Fragment)?;
-        if let Some(repeated) = external
-            .iter()
-            .enumerate()
-            .find(|(index, lent)| external[..*index].iter().any(|other| other.set == lent.set))
-        {
-            return Err(ProgramError::ExternalSetConflict {
-                set: repeated.1.set,
-            });
-        }
+        check_distinct(external)?;
         let layout = ProgramLayout::build_in(&[vertex, fragment], external)?;
         let gpu = self.gpu_layout(layout, external)?;
         Ok(GraphicsProgram {
@@ -224,6 +248,7 @@ impl ProgramRuntime {
                 limit,
             });
         }
+        self.check_storage_image_count(&layout)?;
         let mut groups = Vec::new();
         let mut set_keys = Vec::new();
         for set in 0..sets {
@@ -256,6 +281,35 @@ impl ProgramRuntime {
         })
     }
 
+    /// The device allows only so many storage images in a stage; a program that binds more is
+    /// refused here by name, where wgpu would reject its layout with a message.
+    fn check_storage_image_count(&self, layout: &ProgramLayout) -> Result<(), ProgramError> {
+        let limit = self.device.limits().max_storage_textures_per_shader_stage;
+        for (stage, visibility) in [
+            (StageKind::Vertex, wgpu::ShaderStages::VERTEX),
+            (StageKind::Fragment, wgpu::ShaderStages::FRAGMENT),
+            (StageKind::Compute, wgpu::ShaderStages::COMPUTE),
+        ] {
+            let count = layout
+                .slots()
+                .iter()
+                .filter(|slot| {
+                    matches!(slot.ty, wgpu::BindingType::StorageTexture { .. })
+                        && slot.visibility.contains(visibility)
+                })
+                .count();
+            let count = u32::try_from(count).unwrap_or(u32::MAX);
+            if count > limit {
+                return Err(ProgramError::StorageImageLimit {
+                    stage,
+                    count,
+                    limit,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// The layout of `set`, and the key that names it. Programs whose slots at a set are equal
     /// get one layout object, so a group built for one fits the others.
     fn group_layout(
@@ -269,13 +323,25 @@ impl ProgramRuntime {
         }
         let mut entries = Vec::new();
         for slot in slots {
+            // The runtime has no comparison sampler to fill a binding with, so one is only
+            // accepted where the owner lends it.
             if matches!(
                 slot.ty,
                 wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison)
-            ) {
+            ) && !matches!(slot.source, BindingSource::Engine(_))
+            {
                 return Err(ProgramError::UnsupportedSampler {
                     set,
                     binding: slot.binding,
+                });
+            }
+            if let wgpu::BindingType::StorageTexture { access, format, .. } = slot.ty
+                && !self.supports_storage_image(format, access)
+            {
+                return Err(ProgramError::StorageImage {
+                    set,
+                    binding: slot.binding,
+                    error: StorageImageError::Unsupported { format, access },
                 });
             }
             entries.push(wgpu::BindGroupLayoutEntry {

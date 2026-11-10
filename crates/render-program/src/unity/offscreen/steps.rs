@@ -5,9 +5,8 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 
 use worldrunner_render_post::contracts::{
-    AllocationKey, BufferUse, BufferUseKind, ColorAttachment, DepthAttachment, DrawGeometry,
-    IndexBinding, RasterId, RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation,
-    TypedWork,
+    AllocationKey, BufferUse, BufferUseKind, ColorAttachment, DrawGeometry, IndexBinding, RasterId,
+    RasterPass, ResourceLifetime, ResourceUse, TextureCopy, TypedOperation, TypedWork,
 };
 use worldrunner_render_post::{AttachmentLoad, StageId};
 
@@ -18,14 +17,22 @@ use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
 use super::error::OffscreenError;
-use super::frame::{Camera, Material, OffscreenFrame, Record, SubMesh};
+use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
+use super::list_steps::{self, Loads};
 use super::plan::{DrawPlan, DrawSpec, Services, VertexPlan};
+use super::probe::{DrawTriangles, MeshPositions, ProgramProbes};
+use super::resample::{ResampleStep, resample_step};
 use super::textures::TextureInfo;
 use super::tracker::Tracker;
-use super::{CameraCauses, CameraDraws, CameraPassReport, UnmatchedPasses};
+use super::{
+    CameraCauses, CameraDraws, CameraPassReport, CameraProbe, PassSetup, ProgramProbe,
+    SampledTexture, UnmatchedPasses,
+};
 
 /// One draw of a camera's pass.
 pub(super) struct CameraDraw {
+    pub(super) shader: ShaderId,
+    pub(super) mesh: MeshId,
     pub(super) plan: DrawPlan,
     pub(super) vertices: VertexPlan,
     pub(super) geometry: DrawGeometry,
@@ -51,9 +58,27 @@ pub(super) enum Step {
         draws: Vec<CameraDraw>,
     },
     Blit(BlitStep),
+    Resample(Box<ResampleStep>),
 }
 
-fn raster_id(name: &'static str, index: usize) -> RasterId {
+/// The global values and keywords the draws read: the frame's own until a record replaces them.
+#[derive(Clone, Copy)]
+pub(super) struct Globals<'a> {
+    pub(super) layer: &'a PropertyLayer,
+    pub(super) keywords: &'a [String],
+}
+
+/// How the draws of one pass look: which pass of a shader draws, the view's values, the winding,
+/// the globals and the target's formats.
+pub(super) struct Look<'a> {
+    pub(super) selector: &'a PassSelector,
+    pub(super) values: &'a PropertyLayer,
+    pub(super) front_face: wgpu::FrontFace,
+    pub(super) globals: Globals<'a>,
+    pub(super) signature: TargetSignature,
+}
+
+pub(super) fn raster_id(name: &'static str, index: usize) -> RasterId {
     RasterId::new(
         StageId::new(name, 0),
         u32::try_from(index).unwrap_or(u32::MAX),
@@ -66,19 +91,45 @@ pub(super) fn plan_steps(
     frame: &OffscreenFrame,
 ) -> Result<Vec<Step>, OffscreenError> {
     let mut steps = Vec::new();
+    let mut globals = Globals {
+        layer: &frame.globals,
+        keywords: &frame.global_keywords,
+    };
     for (index, record) in frame.records.iter().enumerate() {
-        steps.push(match record {
+        let step = match record {
+            Record::Globals(state) => {
+                globals = Globals {
+                    layer: &state.values,
+                    keywords: &state.keywords,
+                };
+                continue;
+            }
             Record::CameraRender { camera, target } => {
-                camera_step(svc, frame, index, (*camera, *target))?
+                camera_step(svc, frame, index, globals, (*camera, *target))?
             }
             Record::Blit {
                 source,
                 target,
                 material,
                 pass,
-            } => blit_step(svc, frame, index, (*source, *target), (*material, *pass))?,
+            } => blit_step(
+                svc,
+                frame,
+                index,
+                globals,
+                (*source, *target),
+                (*material, *pass),
+            )?,
             Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
-        });
+            Record::Clear { target, clear } => {
+                match list_steps::clear_step(svc, index, *target, clear)? {
+                    Some(step) => step,
+                    None => continue,
+                }
+            }
+            Record::Draws(list) => list_steps::list_step(svc, frame, index, globals, list)?,
+        };
+        steps.push(step);
     }
     Ok(steps)
 }
@@ -87,6 +138,7 @@ fn camera_step(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
     index: usize,
+    globals: Globals<'_>,
     (camera_id, target): (CameraId, TextureId),
 ) -> Result<Step, OffscreenError> {
     let camera = frame
@@ -96,16 +148,36 @@ fn camera_step(
     require_render_texture(svc, target)?;
     let signature = svc.signature(target)?;
     let mut draws = Vec::new();
+    let counted_before = frame
+        .probe
+        .test_targets
+        .contains(&target)
+        .then(|| svc.counts.clone());
     let unmatched_before = svc.counts.unmatched;
     let missing_before = svc.counts.missing_texture;
     let channel_before = svc.counts.missing_channel;
     svc.counts.current = CameraCauses::default();
     let outer_missing = std::mem::take(svc.missing);
+    svc.probing = frame.probe.targets.contains(&target);
+    let variant = frame.probe.variants.get(&target).copied();
+    svc.constant_fragment = variant.is_some_and(|variant| variant.constant_fragment);
+    let look = Look {
+        selector: &camera.pass,
+        values: &camera.values,
+        front_face: camera.front_face,
+        globals,
+        signature,
+    };
     for visible in visible_draws(svc, frame, camera)? {
-        if let Some(draw) = planned_draw(svc, frame, (camera, signature), visible)? {
+        if let Some(mut draw) = planned_draw(svc, frame, &look, visible)? {
+            if let Some(variant) = variant {
+                variant.apply(&mut draw.plan.state);
+            }
             draws.push(draw);
         }
     }
+    svc.constant_fragment = false;
+    let probed = std::mem::take(&mut svc.probing);
     svc.counts.cameras.push(CameraDraws {
         camera: camera_id,
         target,
@@ -117,9 +189,15 @@ fn camera_step(
     let causes = std::mem::take(&mut svc.counts.current);
     svc.counts.camera_causes.push(causes);
     let without_value = std::mem::replace(svc.missing, outer_missing);
-    let report = pass_report((camera_id, target), svc, &draws, &without_value);
+    let mut report = pass_report((camera_id, target), (&*svc, camera), &draws, &without_value);
+    if probed {
+        report.programs = program_probes(svc, &frame.probe, &draws);
+    }
     svc.counts.passes.push(report);
     svc.missing.extend(without_value);
+    if let Some(before) = counted_before {
+        svc.counts.forget_since(before);
+    }
     let pass = camera_pass(
         svc,
         raster_id("offscreen camera", index),
@@ -137,8 +215,8 @@ fn camera_step(
 /// How the camera's draws were set up: the target's formats, the states of the draws and the names
 /// the draws read with no value.
 fn pass_report(
-    (camera, target): (CameraId, TextureId),
-    svc: &Services<'_>,
+    (camera_id, target): (CameraId, TextureId),
+    (svc, camera): (&Services<'_>, &Camera),
     draws: &[CameraDraw],
     without_value: &std::collections::BTreeSet<String>,
 ) -> CameraPassReport {
@@ -152,18 +230,120 @@ fn pass_report(
             state.depth_compare,
             state.depth_write,
             write_mask(state.color_write),
-            if state.blend.is_some() { "on" } else { "off" }
+            blend_words(state.blend)
         );
         *states.entry(words).or_default() += 1;
     }
     CameraPassReport {
-        camera,
+        camera: camera_id,
         target,
         color: info.and_then(|info| info.color.map(|_| info.format)),
         depth: info.and_then(|info| info.depth_format),
         states: states.into_iter().collect(),
         without_value: without_value.iter().cloned().collect(),
+        setup: PassSetup {
+            viewport: info.map_or([0, 0], |info| info.size),
+            color: match (
+                info.is_some_and(|info| info.color.is_some()),
+                camera.clear_color,
+            ) {
+                (false, _) => "no color".to_owned(),
+                (true, Some(c)) => {
+                    format!("clear [{:?}, {:?}, {:?}, {:?}]", c[0], c[1], c[2], c[3])
+                }
+                (true, None) => "load".to_owned(),
+            },
+            depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
+                (None, _) => "no depth".to_owned(),
+                (Some(_), true) => format!("clear {DEPTH_CLEAR:?}"),
+                (Some(_), false) => "load".to_owned(),
+            },
+        },
+        programs: Vec::new(),
     }
+}
+
+/// The layers of a camera draw's values, highest first: the names of the places in an
+/// [`Origin::Layer`](super::Origin).
+pub const DRAW_LAYERS: [&str; 6] = [
+    "per-draw",
+    "camera",
+    "property block",
+    "material",
+    "material fallback",
+    "globals",
+];
+
+/// The depth a camera that clears depth clears to.
+pub(super) const DEPTH_CLEAR: f32 = 1.0;
+
+/// What the probed camera's draws did, by program.
+fn program_probes(
+    svc: &Services<'_>,
+    names: &CameraProbe,
+    draws: &[CameraDraw],
+) -> Vec<ProgramProbe> {
+    let mut probes = ProgramProbes::default();
+    for draw in draws {
+        let Some(facts) = &draw.plan.facts else {
+            continue;
+        };
+        let Ok(mesh) = svc.meshes.get(draw.mesh) else {
+            continue;
+        };
+        let positions = MeshPositions {
+            vertices: u64::from(mesh.vertex_count),
+            positions: mesh.positions.as_deref(),
+        };
+        let textures = facts.textures.iter().map(|(name, texture)| {
+            let info = svc.textures.get(*texture).ok();
+            SampledTexture {
+                name: name.clone(),
+                texture: *texture,
+                uploaded: info.is_some_and(|info| info.spec.is_none()),
+                texels: info.and_then(|info| info.counts).map(|(texels, _)| texels),
+                nonzero: info
+                    .and_then(|info| info.counts)
+                    .map(|(_, nonzero)| nonzero),
+            }
+        });
+        let triangles = DrawTriangles {
+            indices: mesh.cpu_indices.as_deref(),
+            elements: draw.geometry.elements.clone(),
+            base_vertex: draw.geometry.base_vertex,
+            cull: draw.plan.state.cull,
+            front_face: draw.front_face,
+        };
+        probes.add(
+            (draw.shader, draw.plan.entry.pass),
+            names,
+            facts,
+            (&positions, &triangles),
+            textures,
+        );
+    }
+    probes.finish()
+}
+
+/// A blend state in words: `off`, or its color and alpha equations as `operation source
+/// destination`.
+fn blend_words(blend: Option<wgpu::BlendState>) -> String {
+    let equation = |part: wgpu::BlendComponent| {
+        format!(
+            "{:?} {:?} {:?}",
+            part.operation, part.src_factor, part.dst_factor
+        )
+    };
+    blend.map_or_else(
+        || "off".to_owned(),
+        |blend| {
+            format!(
+                "on (color {}, alpha {})",
+                equation(blend.color),
+                equation(blend.alpha)
+            )
+        },
+    )
 }
 
 /// The channels a color write mask lets through, as `RGBA` with the ones it blocks left out, or
@@ -191,10 +371,10 @@ fn write_mask(mask: wgpu::ColorWrites) -> String {
 /// indices, a draw whose shader has no pass the camera selects, a draw whose pass samples a
 /// texture no layer names and a draw whose mesh lacks a channel the pass reads give none; the
 /// last three are counted.
-fn planned_draw(
+pub(super) fn planned_draw(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
-    (camera, signature): (&Camera, TargetSignature),
+    look: &Look<'_>,
     (material_id, renderer_id, slot): (MaterialId, crate::ids::RendererId, usize),
 ) -> Result<Option<CameraDraw>, OffscreenError> {
     let renderer = &frame.renderers[&renderer_id];
@@ -204,18 +384,21 @@ fn planned_draw(
         .ok_or(OffscreenError::NoShader(material_id))?;
     let layers = [
         &renderer.per_draw,
-        &camera.values,
+        look.values,
         &renderer.block,
         &material.properties,
-        &frame.globals,
+        &material.fallback,
+        look.globals.layer,
     ];
     let spec = DrawSpec {
         shader,
-        keywords: keywords(material, frame),
-        selector: camera.pass.clone(),
+        keywords: keywords(material, look.globals),
+        selector: look.selector.clone(),
         layers: Layers::new(&layers),
     };
-    let sub = svc.meshes.get(renderer.mesh)?.sub_meshes[slot];
+    let Some(sub) = svc.meshes.get(renderer.mesh)?.sub_meshes.get(slot).copied() else {
+        return Ok(None);
+    };
     if sub.count == 0 {
         return Ok(None);
     }
@@ -226,7 +409,7 @@ fn planned_draw(
         &spec,
         renderer.mesh,
         sub,
-        (signature, camera.front_face),
+        (look.signature, look.front_face),
     );
     if planned.is_err() {
         svc.constants.rollback(constants_mark);
@@ -238,7 +421,7 @@ fn planned_draw(
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
             svc.counts.unmatched += 1;
-            left_out(svc, spec.shader, &camera.pass);
+            left_out(svc, spec.shader, look.selector);
             Ok(None)
         }
         Err(OffscreenError::MissingTexture { name }) => {
@@ -324,16 +507,16 @@ fn visible_draws(
         .collect())
 }
 
-fn keywords<'a>(material: &'a Material, frame: &'a OffscreenFrame) -> Vec<&'a str> {
+fn keywords<'a>(material: &'a Material, globals: Globals<'a>) -> Vec<&'a str> {
     material
         .keywords
         .iter()
-        .chain(&frame.global_keywords)
+        .chain(globals.keywords)
         .map(String::as_str)
         .collect()
 }
 
-fn camera_draw(
+pub(super) fn camera_draw(
     svc: &mut Services<'_>,
     spec: &DrawSpec<'_>,
     mesh: MeshId,
@@ -368,6 +551,8 @@ fn camera_draw(
         instances: 0..1,
     };
     Ok(CameraDraw {
+        shader: spec.shader,
+        mesh,
         plan,
         vertices,
         geometry,
@@ -377,7 +562,10 @@ fn camera_draw(
     })
 }
 
-fn require_render_texture(svc: &Services<'_>, id: TextureId) -> Result<(), OffscreenError> {
+pub(super) fn require_render_texture(
+    svc: &Services<'_>,
+    id: TextureId,
+) -> Result<(), OffscreenError> {
     if svc.textures.get(id)?.spec.is_none() {
         return Err(OffscreenError::NotRenderTexture(id));
     }
@@ -393,63 +581,24 @@ fn camera_pass(
     target: TextureId,
     draws: &[CameraDraw],
 ) -> Result<RasterPass, OffscreenError> {
-    let (imported, _) = svc.import(target)?;
-    let mut uses = Vec::new();
-    for draw in draws {
-        for usage in &draw.plan.texture_uses {
-            push_use(&mut uses, usage.clone());
-        }
-    }
-    let color = imported
-        .color
-        .map(|key| {
-            let (before, after) = svc.tracker.write(key, 0, 0);
-            let view = svc
-                .tracker
-                .cell_view(key, (0, 0), wgpu::TextureAspect::All, after)?;
-            Ok::<_, OffscreenError>(ColorAttachment {
-                view,
-                before: camera.clear_color.is_none().then_some(before),
-                load: camera.clear_color.map_or(AttachmentLoad::Load, |c| {
-                    AttachmentLoad::ClearColor(wgpu::Color {
-                        r: c[0],
-                        g: c[1],
-                        b: c[2],
-                        a: c[3],
-                    })
-                }),
-                store: wgpu::StoreOp::Store,
-                resolve: None,
-            })
-        })
-        .transpose()?;
-    let depth = imported
-        .depth
-        .map(|key| {
-            let (before, after) = svc.tracker.write(key, 0, 0);
-            let view = svc
-                .tracker
-                .cell_view(key, (0, 0), wgpu::TextureAspect::All, after)?;
-            Ok::<_, OffscreenError>(DepthAttachment {
-                view,
-                before: (!camera.clear_depth).then_some(before),
-                load: if camera.clear_depth {
-                    AttachmentLoad::ClearDepth(1.0)
-                } else {
-                    AttachmentLoad::Load
-                },
-                store: wgpu::StoreOp::Store,
-                read_only: false,
-            })
-        })
-        .transpose()?;
-    Ok(RasterPass {
+    let whole = Some(Attachment {
+        texture: target,
+        mip: 0,
+    });
+    let loads = Loads {
+        color: camera.clear_color,
+        depth: camera.clear_depth.then_some(DEPTH_CLEAR),
+    };
+    list_steps::attachments_pass(
+        svc,
         id,
-        colors: color.into_iter().map(Some).collect(),
-        depth,
-        uses,
-        bindings: Vec::new(),
-    })
+        Attachments {
+            color: whole,
+            depth: whole,
+        },
+        &loads,
+        draws,
+    )
 }
 
 pub(super) fn push_use(uses: &mut Vec<ResourceUse>, usage: ResourceUse) {
@@ -530,12 +679,13 @@ fn blit_step(
     svc: &mut Services<'_>,
     frame: &OffscreenFrame,
     index: usize,
+    globals: Globals<'_>,
     (source, target): (TextureId, TextureId),
     (material, pass): (Option<MaterialId>, usize),
 ) -> Result<Step, OffscreenError> {
     require_render_texture(svc, target)?;
     let Some(material_id) = material else {
-        return plain_blit(svc, index, source, target).map(Step::Ready);
+        return plain_blit(svc, index, source, target);
     };
     let material = frame
         .materials
@@ -546,10 +696,15 @@ fn blit_step(
         .ok_or(OffscreenError::NoShader(material_id))?;
     let mesh = frame.blit_mesh.ok_or(OffscreenError::NoBlitMesh)?;
     let overlay = source_layer(svc, frame, source)?;
-    let layers = [&overlay, &material.properties, &frame.globals];
+    let layers = [
+        &overlay,
+        &material.properties,
+        &material.fallback,
+        globals.layer,
+    ];
     let spec = DrawSpec {
         shader,
-        keywords: keywords(material, frame),
+        keywords: keywords(material, globals),
         selector: PassSelector::Index(pass),
         layers: Layers::new(&layers),
     };
@@ -621,26 +776,17 @@ fn blit_vertex_count(svc: &Services<'_>, mesh: MeshId) -> Result<u32, OffscreenE
     Ok(info.vertex_count)
 }
 
-/// A blit with no material copies the texture when the sizes and formats agree.
+/// A blit with no material copies the texture when the sizes and formats agree, and otherwise
+/// draws the source over the target.
 fn plain_blit(
     svc: &mut Services<'_>,
     index: usize,
     source: TextureId,
     target: TextureId,
-) -> Result<TypedOperation, OffscreenError> {
+) -> Result<Step, OffscreenError> {
     let (from, to) = (svc.textures.get(source)?, svc.textures.get(target)?);
-    let reason = if from.size != to.size {
-        Some(format!("the sizes are {:?} and {:?}", from.size, to.size))
-    } else if from.format != to.format {
-        Some(format!(
-            "the formats are {:?} and {:?}",
-            from.format, to.format
-        ))
-    } else {
-        None
-    };
-    if let Some(reason) = reason {
-        return Err(OffscreenError::BlitNeedsMaterial { reason });
+    if from.size != to.size || from.format != to.format {
+        return resample_step(svc, index, (source, target));
     }
     copy_cells(
         svc,
@@ -648,6 +794,7 @@ fn plain_blit(
         (source, 0, 0),
         (target, 0, 0),
     )
+    .map(Step::Ready)
 }
 
 fn copy_step(

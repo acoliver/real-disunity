@@ -25,4 +25,5 @@ mod ranges;
 mod read_texture;
 mod rig;
 mod state;
+mod storage_images;
 mod surface;

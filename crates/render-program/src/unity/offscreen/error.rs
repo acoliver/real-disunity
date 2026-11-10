@@ -44,6 +44,22 @@ pub enum OffscreenError {
     },
     #[error("render texture {id:?} has no size, layers or mips")]
     EmptyTexture { id: TextureId },
+    #[error("render texture {id:?} is 3D and {reason}")]
+    VolumeShape { id: TextureId, reason: &'static str },
+    #[error("render texture {id:?} is a cube and {reason}")]
+    CubeShape { id: TextureId, reason: &'static str },
+    #[error("render texture {id:?} has dimension code {code}, which the host has no shape for")]
+    UnknownDimension { id: TextureId, code: u32 },
+    #[error(
+        "render texture {id:?} is {depth} deep or has that many layers and the device allows {limit}"
+    )]
+    DepthLimit {
+        id: TextureId,
+        depth: u32,
+        limit: u32,
+    },
+    #[error("texture {0:?} is 3D, which only a kernel reads or writes, so no record can name it")]
+    VolumeInGraph(TextureId),
     #[error("shader {0:?} is not registered")]
     UnknownShader(ShaderId),
     #[error("material {0:?} is not in the frame")]
@@ -76,7 +92,7 @@ pub enum OffscreenError {
     MixedInputNumbering { low: i8, high: i8 },
     #[error("mesh {mesh:?}: {reason}")]
     BadMesh { mesh: MeshId, reason: String },
-    #[error("a blit without a material needs the same size and format; {reason}")]
+    #[error("a blit without a material cannot draw this source; {reason}")]
     BlitNeedsMaterial { reason: String },
     #[error("a blit with a material needs the frame to name a blit mesh")]
     NoBlitMesh,

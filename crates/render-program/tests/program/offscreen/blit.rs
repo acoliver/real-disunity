@@ -1,6 +1,7 @@
 //! `Graphics.Blit`: a material pass over a fullscreen quad, or a plain copy.
 
 use std::collections::BTreeMap;
+use worldrunner_render_program::layers::PropertyLayer;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
 use worldrunner_render_program::unity::offscreen::OffscreenError;
@@ -45,6 +46,7 @@ fn frame(tint: [f32; 4], pass: usize, size: [u32; 2]) -> OffscreenFrame {
                 shader: Some(SHADER),
                 keywords: Vec::new(),
                 properties: layer(&[("_Tint", tint)]),
+                fallback: PropertyLayer::default(),
                 render_queue: 2000,
             },
         )]),
@@ -143,24 +145,6 @@ fn a_blit_without_a_material_copies_a_source_of_the_same_size_and_format() {
     }];
     let result = blit(&mut rig, &copy);
     assert_eq!(result, halves([4, 4]));
-}
-
-#[test]
-fn a_blit_without_a_material_between_other_sizes_is_a_named_error() {
-    let mut rig = Rig::new();
-    setup(&mut rig, "_MainTex", [4, 4]);
-    let mut scale = frame([1.0; 4], 0, [2, 2]);
-    scale.records = vec![Record::Blit {
-        source: SOURCE,
-        target: TARGET,
-        material: None,
-        pass: 0,
-    }];
-    let error = rig.build(&scale).err().unwrap();
-    assert!(
-        matches!(&error, OffscreenError::BlitNeedsMaterial { reason } if reason.contains("sizes")),
-        "{error}"
-    );
 }
 
 #[test]

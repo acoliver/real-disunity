@@ -9,8 +9,9 @@ use worldrunner_render_gpu::texture::{TextureKind, TextureLayer, TextureUpload, 
 
 use crate::bind::Snapshot;
 use crate::binding::BindingAddress;
-use crate::budget::Reservation;
+use crate::budget::{Note, Reservation};
 use crate::error::ProgramError;
+use crate::import::default_dimension;
 use crate::resources::TextureHandle;
 use crate::resources::{BufferEntry, BufferHandle, TargetEntry, TargetHandle, TextureEntry};
 use crate::runtime::ProgramRuntime;
@@ -63,7 +64,7 @@ impl ProgramRuntime {
         if !contents.is_empty() {
             allocations.buffer("render-program buffer", contents.len() as u64, 1);
         }
-        let reservation = self.admit(allocations)?;
+        let reservation = self.admit(allocations, Note::new(label, ""))?;
         let usage = wgpu::BufferUsages::UNIFORM
             | wgpu::BufferUsages::STORAGE
             | wgpu::BufferUsages::VERTEX
@@ -119,7 +120,7 @@ impl ProgramRuntime {
         // admitted now and held by the frame.
         let mut allocations = AllocationSet::default();
         allocations.buffer("render-program write", len, 1);
-        let staged = Arc::new(self.admit(allocations)?);
+        let staged = Arc::new(self.admit(allocations, Note::new("write staging", ""))?);
         let staging = self.guarded(|| {
             upload_buffer(
                 &self.device,
@@ -184,7 +185,8 @@ impl ProgramRuntime {
             [1, 1],
             1,
         );
-        let reservation = self.admit(allocations)?;
+        let note = Note::new(label, format!("{}x{} {format:?}", size[0], size[1]));
+        let reservation = self.admit(allocations, note)?;
         let texture = self.guarded(|| {
             upload.upload(
                 &self.device,
@@ -231,7 +233,11 @@ impl ProgramRuntime {
                 1,
             );
         }
-        let reservation = self.admit(allocations)?;
+        let note = Note::new(
+            label,
+            format!("{}x{} {color:?} with depth {depth:?}", size[0], size[1]),
+        );
+        let reservation = self.admit(allocations, note)?;
         let attachment = wgpu::TextureUsages::RENDER_ATTACHMENT;
         let color = self.new_texture(
             label,
@@ -248,8 +254,8 @@ impl ProgramRuntime {
     }
 
     /// Creates an empty 2D texture of `layers` array layers and `mips` mip levels, usable as a
-    /// render attachment, as a sampled texture and as a copy source and destination. A new
-    /// texture holds zeros.
+    /// render attachment, as a sampled texture and as a copy source and destination, or a 3D
+    /// texture of that depth, which is not a render attachment. A new texture holds zeros.
     ///
     /// # Errors
     /// Fails when the budget or the device refuses the texture.
@@ -267,7 +273,14 @@ impl ProgramRuntime {
             [shape.mips, 1],
             1,
         );
-        let reservation = self.admit(allocations)?;
+        let note = Note::new(
+            label,
+            format!(
+                "{}x{}x{} {:?} {} mips",
+                shape.size[0], shape.size[1], shape.layers, shape.format, shape.mips
+            ),
+        );
+        let reservation = self.admit(allocations, note)?;
         let texture = self.guarded(|| {
             self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
@@ -278,9 +291,74 @@ impl ProgramRuntime {
                 },
                 mip_level_count: shape.mips,
                 sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
+                dimension: if shape.volume() {
+                    wgpu::TextureDimension::D3
+                } else {
+                    wgpu::TextureDimension::D2
+                },
                 format: shape.format,
                 usage: shape.usage(),
+                view_formats: &[],
+            })
+        })?;
+        Ok(self
+            .store
+            .add_texture(entry_viewed(texture, shape.view), reservation))
+    }
+
+    /// Creates a texture that kernels bind as a storage image and draws sample, holding zeros.
+    /// `size` is width, height and, for a 2D texture, the number of array layers or, for a 3D
+    /// texture, the depth; `dimension` is 2D or 3D. It has one mip level, can be copied from and
+    /// to, and is bound for storage through its first and only mip level.
+    ///
+    /// # Errors
+    /// Fails with `UnsupportedStorageFormat` when the device cannot bind `format` as a storage
+    /// image, and when the dimension is not 2D or 3D, the size has a zero, or the budget
+    /// or the device refuses the texture.
+    pub fn create_storage_texture(
+        &mut self,
+        label: &str,
+        size: [u32; 3],
+        dimension: wgpu::TextureDimension,
+        format: wgpu::TextureFormat,
+    ) -> Result<TextureHandle, ProgramError> {
+        self.authority.check_device()?;
+        if dimension == wgpu::TextureDimension::D1 || size.contains(&0) {
+            return Err(ProgramError::InvalidAllocation(
+                "a storage texture is 2D or 3D and has no empty side",
+            ));
+        }
+        // A texture that one access can bind may be bound with any weaker one.
+        let access = wgpu::StorageTextureAccess::WriteOnly;
+        if !self.supports_storage_image(format, access) {
+            return Err(ProgramError::UnsupportedStorageFormat { format, access });
+        }
+        let mut allocations = AllocationSet::default();
+        allocations.texture("render-program storage texture", size, format, [1, 1], 1);
+        let note = Note::new(
+            label,
+            format!(
+                "{}x{}x{} {dimension:?} {format:?} storage",
+                size[0], size[1], size[2]
+            ),
+        );
+        let reservation = self.admit(allocations, note)?;
+        let texture = self.guarded(|| {
+            self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: size[0],
+                    height: size[1],
+                    depth_or_array_layers: size[2],
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension,
+                format,
+                usage: wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             })
         })?;
@@ -360,16 +438,31 @@ pub(crate) struct TextureShape {
     pub(crate) layers: u32,
     pub(crate) mips: u32,
     pub(crate) format: wgpu::TextureFormat,
+    /// Whether a kernel binds the texture as a storage image, which the format must allow.
+    pub(crate) storage: bool,
+    /// The dimension of the default view, which is the one a kernel or a draw samples the texture
+    /// through. A 3D view makes a 3D texture with `layers` as its depth.
+    pub(crate) view: wgpu::TextureViewDimension,
 }
 
 impl TextureShape {
+    fn volume(self) -> bool {
+        self.view == wgpu::TextureViewDimension::D3
+    }
+
     fn usage(self) -> wgpu::TextureUsages {
-        let attachment = if self.format.is_compressed() {
+        let attachment = if self.format.is_compressed() || self.volume() {
             wgpu::TextureUsages::empty()
         } else {
             wgpu::TextureUsages::RENDER_ATTACHMENT
         };
+        let storage = if self.storage {
+            wgpu::TextureUsages::STORAGE_BINDING
+        } else {
+            wgpu::TextureUsages::empty()
+        };
         attachment
+            | storage
             | wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::COPY_SRC
             | wgpu::TextureUsages::COPY_DST
@@ -377,8 +470,22 @@ impl TextureShape {
 }
 
 fn entry(texture: wgpu::Texture) -> TextureEntry {
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    TextureEntry { texture, view }
+    let dimension = default_dimension(&texture);
+    entry_viewed(texture, dimension)
+}
+
+/// A texture with the default view made in `dimension`, which a one-layer array or a cube needs
+/// said, since the default for a texture is a plain 2D view or an array view by its layers.
+fn entry_viewed(texture: wgpu::Texture, dimension: wgpu::TextureViewDimension) -> TextureEntry {
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(dimension),
+        ..wgpu::TextureViewDescriptor::default()
+    });
+    TextureEntry {
+        texture,
+        view,
+        dimension,
+    }
 }
 
 /// The bytes, extended with zeros to a multiple of four as buffer copies require.

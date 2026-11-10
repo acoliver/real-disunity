@@ -56,10 +56,20 @@ impl TerrainChunk {
 
 /// Admitted next leaves in chunk-key order and complete chunk uploads.
 /// Removed leaves are evicted; upload priority is independent of resident order.
+/// A replacement is admitted only when every chunk it uploads is ready, so the
+/// current leaves keep covering the grid while a replacement's meshes are built.
 #[derive(Debug)]
 pub struct TerrainSelection {
     pub leaves: Vec<TerrainChunk>,
     pub uploads: Vec<TerrainChunk>,
+    /// Chunks of replacements the budget admits that wait for their meshes, in priority order.
+    pub unready: Vec<TerrainChunk>,
+    /// Built chunks kept for a later frame: those of admitted replacements that wait for an
+    /// unready sibling, and built prefetched chunks.
+    pub held: Vec<TerrainChunk>,
+    /// Unbuilt chunks of the next replacements past this frame's upload budget, in priority
+    /// order, so that their meshes are built while this frame's uploads are drawn.
+    pub prefetch: Vec<TerrainChunk>,
     /// Desired selection and replacement work remaining after budget admission.
     pub observation: TerrainSelectionObservation,
 }
@@ -83,83 +93,176 @@ pub(crate) fn observe(
 }
 
 fn observation(desired: &[TerrainChunk], leaves: &[TerrainChunk]) -> TerrainSelectionObservation {
+    let refinements = Nested::new(desired);
     let drawn_coarse = leaves
         .iter()
-        .filter(|leaf| {
-            desired
-                .iter()
-                .any(|next| next != *leaf && contains(**leaf, *next))
-        })
+        .filter(|leaf| refinements.inside(**leaf))
         .count();
+    let drawn = Nested::new(leaves);
     TerrainSelectionObservation {
         selected_leaves: desired.len(),
         drawn_at_detail: leaves.len() - drawn_coarse,
         drawn_coarse,
-        unresolved_leaves: desired.iter().filter(|node| !leaves.contains(node)).count(),
+        unresolved_leaves: desired.iter().filter(|node| !drawn.has(**node)).count(),
     }
 }
 
 /// Refines by projected cell footprint. Cached splits merge below 1/1.2 of the
 /// threshold. Every replacement is atomic, so budget pressure retains coverage.
 /// Resident limits include old leaves and replacement uploads during preparation.
+/// Every chunk counts as ready, so the selection never waits for a mesh.
 pub fn select(
     terrain: &SceneTerrain,
     current: &[TerrainChunk],
     matrix: Mat4,
     viewport: [u32; 2],
 ) -> TerrainSelection {
-    select_with_retired(terrain, current, matrix, viewport, 0)
+    select_with_retired(terrain, current, matrix, viewport, 0, &|_| true)
 }
 
+/// The leaves, uploads and replacement work of one selection, built up in admission order.
+struct Plan<'a> {
+    leaves: Vec<TerrainChunk>,
+    uploads: Vec<TerrainChunk>,
+    /// Chunks of admitted replacements that wait on a mesh, ready or not.
+    held: Vec<TerrainChunk>,
+    /// Chunks of replacements past the upload budget, ready or not.
+    prefetch: Vec<TerrainChunk>,
+    ready: &'a dyn Fn(TerrainChunk) -> bool,
+}
+impl<'a> Plan<'a> {
+    fn new(current: &[TerrainChunk], ready: &'a dyn Fn(TerrainChunk) -> bool) -> Self {
+        Self {
+            leaves: current.to_vec(),
+            uploads: Vec::new(),
+            held: Vec::new(),
+            prefetch: Vec::new(),
+            ready,
+        }
+    }
+    /// Held replacements count against every budget as if they were uploaded, so that the
+    /// plan equals the one for fully built meshes and a build is requested only for work the
+    /// budget would admit.
+    fn admitted(&self) -> usize {
+        self.uploads.len() + self.held.len()
+    }
+    fn is_ready(&self, chunk: TerrainChunk) -> bool {
+        (self.ready)(chunk)
+    }
+    /// Requests a replacement the upload budget defers by one frame. Without this the worker
+    /// idles in every frame that admits a full budget, which halves refinement throughput.
+    /// Prefetch is limited to one more frame's budget and to the resident limit.
+    fn prefetch(
+        &mut self,
+        children: &[TerrainChunk],
+        occupied: usize,
+        policy: TerrainStreamingPolicy,
+    ) {
+        let requested = self.prefetch.len() + children.len();
+        if requested <= policy.uploads_per_frame() as usize
+            && occupied + self.admitted() + requested <= policy.maximum_resident_chunks() as usize
+        {
+            self.prefetch.extend_from_slice(children);
+        }
+    }
+    fn finish(self, desired: &[TerrainChunk]) -> TerrainSelection {
+        let (mut held, unready): (Vec<_>, _) = self
+            .held
+            .into_iter()
+            .partition(|chunk| (self.ready)(*chunk));
+        let (built, prefetch): (Vec<_>, _) = self
+            .prefetch
+            .into_iter()
+            .partition(|chunk| (self.ready)(*chunk));
+        held.extend(built);
+        let mut leaves = self.leaves;
+        leaves.sort_unstable();
+        TerrainSelection {
+            observation: observation(desired, &leaves),
+            leaves,
+            uploads: self.uploads,
+            unready,
+            held,
+            prefetch,
+        }
+    }
+}
+
+/// `ready` says whether a chunk's mesh is built. A replacement with an unbuilt chunk is
+/// held back and reported in `unready`, and its leaves keep being drawn.
 pub(crate) fn select_with_retired(
     terrain: &SceneTerrain,
     current: &[TerrainChunk],
     matrix: Mat4,
     viewport: [u32; 2],
     retired: usize,
+    ready: &dyn Fn(TerrainChunk) -> bool,
 ) -> TerrainSelection {
     let policy = terrain.streaming_policy().expect("streaming policy");
-    let mut leaves = current.to_vec();
-    let mut uploads = Vec::new();
-    let root = TerrainChunk::root(terrain, policy);
+    let mut plan = Plan::new(current, ready);
     let desired = desired(terrain, current, matrix, viewport);
-    merge(terrain, root, &desired, &mut leaves, &mut uploads);
-    if current.len() + retired + uploads.len() > policy.maximum_resident_chunks() as usize {
-        leaves = current.to_vec();
-        uploads.clear();
+    merge(
+        terrain,
+        TerrainChunk::root(terrain, policy),
+        &desired,
+        &mut plan,
+    );
+    if current.len() + retired + plan.admitted() > policy.maximum_resident_chunks() as usize {
+        plan = Plan::new(current, ready);
     }
-    let mut candidates = leaves.clone();
-    candidates.sort_by(|a, b| {
-        error(terrain, *b, matrix, viewport).total_cmp(&error(terrain, *a, matrix, viewport))
+    refine(
+        terrain,
+        &desired,
+        (matrix, viewport),
+        current.len() + retired,
+        &mut plan,
+    );
+    plan.finish(&desired)
+}
+
+fn refine(
+    terrain: &SceneTerrain,
+    desired: &[TerrainChunk],
+    (matrix, viewport): (Mat4, [u32; 2]),
+    occupied: usize,
+    plan: &mut Plan<'_>,
+) {
+    let policy = terrain.streaming_policy().expect("streaming policy");
+    // Each leaf's footprint is projected once, not once per comparison of the sort.
+    let mut candidates: Vec<_> = plan
+        .leaves
+        .iter()
+        .map(|leaf| (error(terrain, *leaf, matrix, viewport), *leaf))
+        .collect();
+    candidates.sort_by(|(error_a, a), (error_b, b)| {
+        error_b
+            .total_cmp(error_a)
             // Larger strides precede smaller strides, ordering levels from the root.
             .then_with(|| b.stride.cmp(&a.stride))
             .then_with(|| a.cmp(b))
     });
-    for node in candidates {
+    let refinements = Nested::new(desired);
+    for (_, node) in candidates {
         let Some(children) = node.children() else {
             continue;
         };
-        if !desired
-            .iter()
-            .any(|next| *next != node && contains(node, *next))
-        {
+        if !refinements.inside(node) {
             continue;
         }
-        if uploads.len() + children.len() > policy.uploads_per_frame() as usize
-            || current.len() + retired + uploads.len() + children.len()
+        if plan.admitted() + children.len() > policy.uploads_per_frame() as usize
+            || occupied + plan.admitted() + children.len()
                 > policy.maximum_resident_chunks() as usize
         {
+            plan.prefetch(&children, occupied, policy);
             continue;
         }
-        leaves.retain(|leaf| *leaf != node);
-        leaves.extend(children.iter().copied());
-        uploads.extend(children);
-    }
-    leaves.sort_unstable();
-    TerrainSelection {
-        observation: observation(&desired, &leaves),
-        leaves,
-        uploads,
+        if children.iter().all(|child| plan.is_ready(*child)) {
+            plan.leaves.retain(|leaf| *leaf != node);
+            plan.leaves.extend(children.iter().copied());
+            plan.uploads.extend(children);
+        } else {
+            plan.held.extend(children);
+        }
     }
 }
 
@@ -167,24 +270,54 @@ fn merge(
     terrain: &SceneTerrain,
     node: TerrainChunk,
     desired: &[TerrainChunk],
-    leaves: &mut Vec<TerrainChunk>,
-    uploads: &mut Vec<TerrainChunk>,
+    plan: &mut Plan<'_>,
 ) {
-    if leaves.contains(&node) {
+    if plan.leaves.contains(&node) {
         return;
     }
     let policy = terrain.streaming_policy().expect("streaming policy");
     if desired.contains(&node) {
-        if uploads.is_empty() && leaves.len() < policy.maximum_resident_chunks() as usize {
-            leaves.retain(|leaf| !contains(node, *leaf));
-            leaves.push(node);
-            uploads.push(node);
+        if plan.admitted() == 0 && plan.leaves.len() < policy.maximum_resident_chunks() as usize {
+            if plan.is_ready(node) {
+                plan.leaves.retain(|leaf| !contains(node, *leaf));
+                plan.leaves.push(node);
+                plan.uploads.push(node);
+            } else {
+                plan.held.push(node);
+            }
         }
     } else if let Some(children) = node.children() {
         for child in children {
-            merge(terrain, child, desired, leaves, uploads);
+            merge(terrain, child, desired, plan);
         }
     }
+}
+/// The chunks a shadow cascade casts terrain from: the quadtree selection for the cascade's
+/// light matrix at `size` texels square, refined from the root without upload or resident
+/// budgets, and never finer than the `camera` leaves. A cascade texel covers far more ground
+/// than the camera pixel the drawn chunks were refined for, so casting the camera's chunks
+/// spends most of the caster time on triangles the shadow map cannot resolve; where the camera
+/// draws coarser than the cascade would, the camera's detail is already enough.
+pub(crate) fn caster_leaves(
+    terrain: &SceneTerrain,
+    matrix: Mat4,
+    size: u32,
+    camera: &[TerrainChunk],
+) -> Vec<TerrainChunk> {
+    let policy = terrain.streaming_policy().expect("streaming policy");
+    let threshold = f64::from(policy.split_error_millipixels()) / 1000.0;
+    let camera = Nested::new(camera);
+    let mut pending = vec![TerrainChunk::root(terrain, policy)];
+    let mut leaves = Vec::new();
+    while let Some(node) = pending.pop() {
+        let split = camera.inside(node) && error(terrain, node, matrix, [size, size]) > threshold;
+        match node.children() {
+            Some(children) if split => pending.extend(children),
+            _ => leaves.push(node),
+        }
+    }
+    leaves.sort_unstable();
+    leaves
 }
 fn desired(
     terrain: &SceneTerrain,
@@ -195,10 +328,9 @@ fn desired(
     let policy = terrain.streaming_policy().expect("streaming policy");
     let mut pending = vec![TerrainChunk::root(terrain, policy)];
     let mut selected = Vec::new();
+    let leaves = Nested::new(current);
     while let Some(node) = pending.pop() {
-        let refined = current
-            .iter()
-            .any(|leaf| *leaf != node && contains(node, *leaf));
+        let refined = leaves.inside(node);
         let footprint = error(terrain, node, matrix, viewport);
         let threshold = f64::from(policy.split_error_millipixels());
         let subdivide = if refined {
@@ -213,6 +345,30 @@ fn desired(
         }
     }
     selected
+}
+
+/// Chunks sorted by their minimum corner, so that the ones that can lie inside a window are a
+/// contiguous run: those whose first minimum coordinate falls within the window's span.
+pub(super) struct Nested(Vec<TerrainChunk>);
+impl Nested {
+    pub(super) fn new(chunks: &[TerrainChunk]) -> Self {
+        let mut sorted = chunks.to_vec();
+        sorted.sort_unstable();
+        Self(sorted)
+    }
+    /// Whether a chunk other than `parent` lies inside it.
+    pub(super) fn inside(&self, parent: TerrainChunk) -> bool {
+        let start = self
+            .0
+            .partition_point(|chunk| chunk.minimum[0] < parent.minimum[0]);
+        self.0[start..]
+            .iter()
+            .take_while(|chunk| chunk.minimum[0] <= parent.maximum[0])
+            .any(|chunk| *chunk != parent && contains(parent, *chunk))
+    }
+    pub(super) fn has(&self, chunk: TerrainChunk) -> bool {
+        self.0.binary_search(&chunk).is_ok()
+    }
 }
 
 fn contains(parent: TerrainChunk, child: TerrainChunk) -> bool {
@@ -258,6 +414,28 @@ pub(crate) fn chunk_bounds(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3;
     let maximum = corners.iter().copied().fold(Vec3::NEG_INFINITY, Vec3::max);
     minimum.z -= 1.0;
     [minimum, maximum]
+}
+
+/// Positions in `chunks` from the nearest chunk to `eye` to the farthest, measured to the
+/// nearest point of each chunk's world bounds. Chunks at equal distance keep their order.
+///
+/// Camera passes draw terrain in this order so near terrain fills depth first and hidden
+/// terrain behind it fails the depth test before it is shaded.
+pub(crate) fn camera_order(
+    terrain: &SceneTerrain,
+    chunks: &[TerrainChunk],
+    eye: Vec3,
+) -> Vec<usize> {
+    let distances: Vec<f32> = chunks
+        .iter()
+        .map(|chunk| {
+            let [low, high] = chunk_bounds(terrain, *chunk);
+            eye.clamp(low, high).distance_squared(eye)
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..chunks.len()).collect();
+    order.sort_by(|a, b| distances[*a].total_cmp(&distances[*b]));
+    order
 }
 
 fn points(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3; 8] {

@@ -3,6 +3,8 @@
 pub(crate) mod chunks;
 pub mod pages;
 pub(crate) mod planes;
+pub(crate) mod prepared;
+pub(crate) mod program;
 pub mod streaming;
 use glam::{DVec3, Vec3};
 use thiserror::Error;
@@ -310,6 +312,16 @@ impl<'a> TerrainGrid<'a> {
     }
 }
 
+#[cfg(test)]
+mod capture_tests;
+#[cfg(test)]
+mod cost_tests;
+#[cfg(test)]
+mod family_tests;
+#[cfg(test)]
+mod path_tests;
+#[cfg(test)]
+mod program_tests;
 #[cfg(test)]
 mod tests;
 

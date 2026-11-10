@@ -112,10 +112,53 @@ impl Assets for GpuFlush<'_> {
     }
 }
 
+/// What a mesh that has nothing to draw holds. A mesh like that is skipped without a failure and
+/// counted by this description, which has no counts that differ from mesh to mesh.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Emptiness {
+    /// Whether the mesh has vertices.
+    pub vertices: bool,
+    /// Whether the mesh has indices.
+    pub indices: bool,
+    /// The sub-mesh records, and the distinct topologies among them in ascending order.
+    pub ranges: usize,
+    pub topologies: Vec<u32>,
+}
+
+impl std::fmt::Display for Emptiness {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} sub-meshes with topologies {:?}, {} indices, {} vertices",
+            self.ranges,
+            self.topologies,
+            if self.indices { "with" } else { "no" },
+            if self.vertices { "with" } else { "no" },
+        )
+    }
+}
+
+impl Emptiness {
+    fn of(mesh: &MeshChannels) -> Self {
+        let mut topologies: Vec<u32> = mesh.ranges.iter().map(|range| range.topology).collect();
+        topologies.sort_unstable();
+        topologies.dedup();
+        Self {
+            vertices: mesh.vertex_count > 0,
+            indices: !mesh.indices.is_empty(),
+            ranges: mesh.ranges.len(),
+            topologies,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MeshError {
-    #[error("the mesh has no triangles")]
-    NoTriangles,
+    /// Not a failure: no sub-mesh has an index to draw, or the mesh has no vertices.
+    #[error("the mesh has nothing to draw: {0}")]
+    Empty(Emptiness),
+    #[error("a sub-mesh draws from indices, and the mesh has none")]
+    IndicesMissing,
     #[error("the mesh has no position channel")]
     NoPositions,
     #[error("channel {number} has {found} floats for {expected}")]
@@ -185,13 +228,18 @@ fn sub_meshes(mesh: &MeshChannels) -> Result<Vec<SubMesh>, MeshError> {
 /// The stored channels of a mesh as a render-program mesh.
 ///
 /// # Errors
-/// Fails when the mesh has no position channel or no triangles, a channel does not have
-/// `dimension` floats for each vertex, a range that draws is not triangles, or the mesh has more
-/// sub-meshes than a renderer has slots.
+/// Fails with [`MeshError::Empty`] when there is nothing to draw: no vertices, or no sub-mesh
+/// with an index to draw. Fails by name when a sub-mesh draws from indices the mesh lacks, the mesh
+/// has no position channel, a channel does not have `dimension` floats for each vertex, a range
+/// that draws is not triangles, or the mesh has more sub-meshes than a renderer has slots.
 pub fn mesh_of(stored: &MeshChannels) -> Result<Mesh, MeshError> {
     let vertices = stored.vertex_count as usize;
-    if stored.indices.is_empty() || stored.ranges.iter().all(|range| range.count == 0) {
-        return Err(MeshError::NoTriangles);
+    let draws = stored.ranges.iter().any(|range| range.count > 0);
+    if stored.vertex_count == 0 || !draws {
+        return Err(MeshError::Empty(Emptiness::of(stored)));
+    }
+    if stored.indices.is_empty() {
+        return Err(MeshError::IndicesMissing);
     }
     if !stored
         .channels
@@ -272,9 +320,30 @@ pub fn sampler_of_world(sampler: &WorldSampler) -> SamplerState {
     }
 }
 
+/// The `GraphicsFormat` of a stored block-compressed texture's blocks and the bytes per 4x4 block,
+/// for the engine `TextureFormat`s the device samples as they are: DXT1 (10), DXT5 (12), BC7 (25)
+/// and BC4 (26). They follow the texture's colour space. BC4 has no sRGB form, so a BC4 texture
+/// that is not linear is decoded like the decoded path reads it. BC6H (24) is handled apart
+/// because it is always sent as blocks.
+fn block_upload(stored: &PlayerTexture) -> Option<(u32, usize, &'static str)> {
+    let (srgb, linear, bytes, name) = match stored.format {
+        10 => (96, 97, 8, "DXT1"),
+        12 => (100, 101, 16, "DXT5"),
+        25 => (108, 109, 16, "BC7"),
+        26 if stored.linear => (102, 102, 8, "BC4"),
+        _ => return None,
+    };
+    Some((if stored.linear { linear } else { srgb }, bytes, name))
+}
+
 /// A stored texture's base level as a source texture. Its rows stay bottom first, as the engine
 /// stores them, which is the orientation of a render texture's rows (see
 /// `camera::clip_from_gl`). It is read with `sampler`, or the fixed sampler without one.
+///
+/// With `blocks`, a DXT1, DXT5, BC4 or BC7 texture whose sides are multiples of four goes to the
+/// device as the blocks it was stored in, which sample to the texels the decoder here produces
+/// and take a quarter to an eighth of the space. Without it, or for a texture of another size,
+/// they are decoded to RGBA8.
 ///
 /// # Errors
 /// Fails with the texture's own error when its format is not one the host decodes or its bytes
@@ -283,13 +352,27 @@ pub fn texture_of(
     id: TextureId,
     stored: &PlayerTexture,
     sampler: Option<SamplerState>,
+    blocks: bool,
 ) -> Result<SourceTexture, PlayerTextureError> {
     if stored.format == BC6H {
         return Ok(SourceTexture {
             id,
             size: [stored.width, stored.height],
             graphics_format: BC6H_UFLOAT,
-            bytes: bc6h_base_level(stored)?,
+            bytes: block_base_level(stored, "BC6H", 16)?,
+            sampler,
+        });
+    }
+    if let Some((graphics_format, block_bytes, name)) = block_upload(stored)
+        && blocks
+        && stored.width.is_multiple_of(4)
+        && stored.height.is_multiple_of(4)
+    {
+        return Ok(SourceTexture {
+            id,
+            size: [stored.width, stored.height],
+            graphics_format,
+            bytes: block_base_level(stored, name, block_bytes)?,
             sampler,
         });
     }
@@ -306,19 +389,22 @@ pub fn texture_of(
     })
 }
 
-/// The blocks of a BC6H texture's base level, rows as the engine stores them. The texture holds
-/// 4x4 texel blocks of 16 bytes; the levels after the base are not carried.
-fn bc6h_base_level(stored: &PlayerTexture) -> Result<Vec<u8>, PlayerTextureError> {
-    const BLOCK_BYTES: usize = 16;
+/// The blocks of a block-compressed texture's base level, rows as the engine stores them. The
+/// texture holds 4x4 texel blocks of `block_bytes`; the levels after the base are not carried.
+fn block_base_level(
+    stored: &PlayerTexture,
+    format: &'static str,
+    block_bytes: usize,
+) -> Result<Vec<u8>, PlayerTextureError> {
     const BLOCK_SIDE: u32 = 4;
     let blocks = |side: u32| side.div_ceil(BLOCK_SIDE) as usize;
-    let needed = blocks(stored.width) * blocks(stored.height) * BLOCK_BYTES;
+    let needed = blocks(stored.width) * blocks(stored.height) * block_bytes;
     stored
         .bytes
         .get(..needed)
         .map(<[u8]>::to_vec)
         .ok_or(PlayerTextureError::Short {
-            format: "BC6H",
+            format,
             width: stored.width,
             height: stored.height,
             needed,

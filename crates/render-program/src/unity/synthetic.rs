@@ -128,6 +128,19 @@ pub fn vector_member(name: &str, offset: i32) -> BufferMember {
     }
 }
 
+/// A float 4x4 matrix member of a constant buffer.
+pub fn matrix_member(name: &str, offset: i32) -> BufferMember {
+    BufferMember {
+        name: name.to_owned(),
+        kind: 0,
+        rows: 4,
+        columns: 4,
+        is_matrix: true,
+        array_size: 0,
+        offset,
+    }
+}
+
 pub fn constant_buffer(name: &str, size: i32, members: Vec<BufferMember>) -> ConstantBuffer {
     ConstantBuffer {
         name: name.to_owned(),

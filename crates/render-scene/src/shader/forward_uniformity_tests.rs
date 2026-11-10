@@ -1,4 +1,6 @@
 //! Transitive forward guard: rejection must not precede any quad-sensitive work.
+#[path = "card_rejection_tests.rs"]
+mod card_rejection;
 use super::*;
 
 fn safe_block(

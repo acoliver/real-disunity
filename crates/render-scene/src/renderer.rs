@@ -44,12 +44,14 @@
 //! Stencil consumption preserves the first primitive at a tied minimum depth.
 
 pub(crate) mod depth;
+#[cfg(test)]
+pub(crate) mod legacy_objects;
+#[cfg(test)]
+pub(crate) mod legacy_terrain;
 mod objects;
 pub(crate) mod overlay;
-mod pages;
-#[cfg(test)]
-pub(crate) use pages::test_sources as terrain_test_sources;
 mod specular;
+mod terrain_access;
 mod unlit;
 pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::{constants as specular_constants, unlit_source};
@@ -58,20 +60,17 @@ use depth::DepthMode;
 use std::borrow::Cow;
 
 use wgpu::{
-    BindGroupLayout, ColorTargetState, ColorWrites, Device, Extent3d, Face, FragmentState,
-    FrontFace, MultisampleState, PipelineCompilationOptions, PipelineLayout,
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline,
-    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, Texture, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages, VertexBufferLayout, VertexState,
-    VertexStepMode,
+    BindGroupLayout, ColorTargetState, ColorWrites, Device, Extent3d, FragmentState, FrontFace,
+    MultisampleState, PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor,
+    PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor,
+    ShaderModuleDescriptor, ShaderSource, Texture, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsages, VertexBufferLayout, VertexState, VertexStepMode,
 };
 
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
 use crate::pipeline::PipelineKey;
 use crate::shader::{self, ENVIRONMENT_WGSL, TERRAIN_WGSL};
-use crate::upload::{
-    frame_bind_group_layout, material_bind_group_layout, terrain_bind_group_layout,
-};
+use crate::upload::{frame_bind_group_layout, material_bind_group_layout};
 use crate::view::Viewport;
 
 /// Depth format for independent scene draws and light-space depth.
@@ -87,12 +86,9 @@ pub struct ScenePipelines {
     pub(crate) depth: DepthMode,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
-    terrain_layout: BindGroupLayout,
     pipelines: ObjectPipelines,
-    terrain: RenderPipeline,
-    pub(crate) cached_terrain: RenderPipeline,
-    pub(crate) layered: Option<pages::LayeredPipelines>,
-    pub(crate) cached_terrain_layout: BindGroupLayout,
+    /// Terrain programs of this context on the program runtime.
+    terrain_context: crate::terrain::program::Context,
     /// The colour attachments of the pass the dynamic unlit-alpha material draws into, from the
     /// same target list the object pipelines have.
     unlit_colors: Vec<TextureFormat>,
@@ -233,9 +229,11 @@ impl ScenePipelines {
             device,
             target,
             (source, terrain_source),
-            shadow_layout,
-            screen_layout,
-            ([0; 7], FrontFace::Ccw, DepthMode::Independent),
+            (shadow_layout, screen_layout),
+            (
+                ([0; 7], FrontFace::Ccw, DepthMode::Independent),
+                &crate::terrain::program::Family::default(),
+            ),
         )
     }
 
@@ -243,10 +241,13 @@ impl ScenePipelines {
         device: &Device,
         target: (TextureFormat, u32),
         sources: (&str, &str),
-        shadow_layout: Option<&BindGroupLayout>,
-        screen_layout: Option<&BindGroupLayout>,
-        options: ([u32; 7], FrontFace, DepthMode),
+        layouts: (Option<&BindGroupLayout>, Option<&BindGroupLayout>),
+        (options, family): (
+            ([u32; 7], FrontFace, DepthMode),
+            &crate::terrain::program::Family,
+        ),
     ) -> Self {
+        let (shadow_layout, screen_layout) = layouts;
         let (source, terrain_source) = sources;
         let mut constants = specular::constants(options.0).to_vec();
         specular::raster_constants(&mut constants, options.1);
@@ -254,8 +255,7 @@ impl ScenePipelines {
         let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
-        let terrain_layout = terrain_bind_group_layout(device);
-        let mut groups = pipeline_groups(
+        let groups = pipeline_groups(
             &frame_layout,
             &material_layout,
             shadow_layout,
@@ -263,9 +263,6 @@ impl ScenePipelines {
         );
         let layout = scene_layout(device, "environment", &groups);
 
-        let vertex_attributes = vertex_attributes();
-        let instance_attributes = instance_attributes();
-        let buffers = vertex_buffers(&vertex_attributes, &instance_attributes);
         let targets = source_targets(source, color_format);
 
         let pipelines = ObjectPipelines::new(
@@ -276,27 +273,30 @@ impl ScenePipelines {
             (samples, &constants, options.1),
             (source.contains(crate::velocity::MARKER), options.2),
         );
-        groups[1] = Some(&terrain_layout);
-        let (terrain, cached_terrain_layout, cached_terrain, layered) = pages::build_terrain_set(
-            device,
-            &groups,
-            terrain_source,
-            &buffers,
-            &targets,
-            (samples, &constants, options.1, options.2),
+        let terrain_context = crate::terrain::program::Context::new(
+            crate::terrain::program::Description {
+                device: device.clone(),
+                terrain_source: terrain_source.into(),
+                colors: targets.iter().flatten().map(|t| t.format).collect(),
+                samples,
+                front_face: options.1,
+                depth: options.2,
+                constants: constants.clone(),
+                frame: frame_layout.clone(),
+                shadow: shadow_layout.cloned(),
+                screen: screen_layout.cloned(),
+            },
+            family,
         );
         Self {
-            layered,
             specialization: specular::Specialization::new(
                 device,
-                source,
-                terrain_source,
-                shadow_layout,
-                screen_layout,
+                (source, terrain_source),
+                (shadow_layout, screen_layout),
                 options,
+                family,
             ),
-            cached_terrain_layout,
-            cached_terrain,
+            terrain_context,
             color_format,
             samples,
             depth: options.2,
@@ -304,9 +304,7 @@ impl ScenePipelines {
             velocity: source.contains(crate::velocity::MARKER),
             frame_layout,
             material_layout,
-            terrain_layout,
             pipelines,
-            terrain,
             unlit_colors: targets.iter().flatten().map(|t| t.format).collect(),
         }
     }
@@ -351,18 +349,6 @@ impl ScenePipelines {
     #[must_use]
     pub const fn material_layout(&self) -> &BindGroupLayout {
         &self.material_layout
-    }
-
-    /// Returns the pipeline the terrain surface draws through.
-    #[must_use]
-    pub const fn terrain(&self) -> &RenderPipeline {
-        &self.terrain
-    }
-
-    /// Returns the layout terrain bind groups must be built against.
-    #[must_use]
-    pub const fn terrain_layout(&self) -> &BindGroupLayout {
-        &self.terrain_layout
     }
 }
 
@@ -468,71 +454,6 @@ pub(super) fn build_variant(
             ..Default::default()
         },
         fragment: Some(fragment),
-        multiview_mask: None,
-        cache: None,
-    })
-}
-
-/// Builds the single pipeline the terrain surface draws through.
-///
-/// Terrain needs exactly one pipeline where the environment needs four, and the
-/// reason is that both properties the key encodes are settled here rather than
-/// varying. Terrain is never masked: the alpha channel of a terrain albedo is a
-/// height field driving the splat blend, not coverage, so a discard would punch
-/// holes in the ground rather than cut out foliage. And terrain is never
-/// double-sided: it is a heightfield seen from above, so the back faces culled
-/// here are faces of the world's underside that nothing can reach.
-///
-/// Everything shared with [`build`] is shared deliberately and must stay that
-/// way. Terrain and the props standing on it write the same depth buffer in the
-/// same pass, so a difference in depth format, comparison or write enable would
-/// not shade wrongly - it would sort wrongly, and plants would sink into or
-/// float above the ground they are placed on. The winding is shared for the
-/// same reason the terrain mesh emits its corners in the order it does:
-/// reversing it culls the visible surface and renders the world inside out.
-fn build_terrain(
-    device: &Device,
-    layout: &PipelineLayout,
-    source: &str,
-    buffers: &[Option<VertexBufferLayout<'_>>],
-    targets: &[Option<ColorTargetState>],
-    target: (u32, &[(&str, f64)], FrontFace, DepthMode),
-) -> RenderPipeline {
-    let (samples, constants, front_face, depth) = target;
-    let module = scene_shader(device, "terrain", source);
-
-    device.create_render_pipeline(&RenderPipelineDescriptor {
-        label: Some("terrain"),
-        layout: Some(layout),
-        vertex: VertexState {
-            module: &module,
-            entry_point: Some(shader::TERRAIN_VERTEX_ENTRY_POINT),
-            compilation_options: PipelineCompilationOptions::default(),
-            buffers,
-        },
-        primitive: PrimitiveState {
-            topology: PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face,
-            cull_mode: Some(Face::Back),
-            unclipped_depth: false,
-            polygon_mode: PolygonMode::Fill,
-            conservative: false,
-        },
-        depth_stencil: Some(depth.state(true)),
-        multisample: MultisampleState {
-            count: samples,
-            ..Default::default()
-        },
-        fragment: Some(FragmentState {
-            module: &module,
-            entry_point: Some(shader::TERRAIN_FRAGMENT_ENTRY_POINT),
-            compilation_options: PipelineCompilationOptions {
-                constants,
-                ..Default::default()
-            },
-            targets,
-        }),
         multiview_mask: None,
         cache: None,
     })
@@ -701,6 +622,22 @@ fn scene_layout(
 }
 
 fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
+    let mut targets = base_source_targets(source, format);
+    targets.extend(
+        crate::scene_metadata::receiver::source_formats(source)
+            .into_iter()
+            .map(|format| {
+                Some(ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: ColorWrites::ALL,
+                })
+            }),
+    );
+    targets
+}
+
+fn base_source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
     if source.contains(crate::velocity::MARKER) {
         let reflection = source.contains("struct ReflectionOutput");
         let mut targets = if reflection {

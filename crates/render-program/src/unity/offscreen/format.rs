@@ -18,10 +18,19 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
 
 /// The wgpu format of an uploaded source texture: a render format, or a block-compressed format
 /// the player stores and the device samples as it is. BC6H (106) is unsigned-float, the form the
-/// managed engine's texture format 24 maps to.
+/// managed engine's texture format 24 maps to. DXT1 (96 sRGB, 97 linear), DXT5 (100, 101), BC4
+/// (102, one unsigned-normalised channel) and BC7 (108, 109) are the other block formats.
 pub(crate) fn source_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenError> {
+    use wgpu::TextureFormat as F;
     match code {
-        106 => Ok(wgpu::TextureFormat::Bc6hRgbUfloat),
+        96 => Ok(F::Bc1RgbaUnormSrgb),
+        97 => Ok(F::Bc1RgbaUnorm),
+        100 => Ok(F::Bc3RgbaUnormSrgb),
+        101 => Ok(F::Bc3RgbaUnorm),
+        102 => Ok(F::Bc4RUnorm),
+        106 => Ok(F::Bc6hRgbUfloat),
+        108 => Ok(F::Bc7RgbaUnormSrgb),
+        109 => Ok(F::Bc7RgbaUnorm),
         _ => color_format(code),
     }
 }
@@ -94,6 +103,27 @@ mod tests {
             render_color_format(106),
             Err(OffscreenError::UnsupportedFormat { code: 106 })
         ));
+    }
+
+    #[test]
+    fn a_source_may_be_any_block_format_the_player_stores() {
+        use wgpu::TextureFormat as F;
+        for (code, format) in [
+            (96, F::Bc1RgbaUnormSrgb),
+            (97, F::Bc1RgbaUnorm),
+            (100, F::Bc3RgbaUnormSrgb),
+            (101, F::Bc3RgbaUnorm),
+            (102, F::Bc4RUnorm),
+            (106, F::Bc6hRgbUfloat),
+            (108, F::Bc7RgbaUnormSrgb),
+            (109, F::Bc7RgbaUnorm),
+        ] {
+            assert_eq!(source_format(code).unwrap(), format, "code {code}");
+            assert!(
+                render_color_format(code).is_err(),
+                "a block format is never a render target (code {code})"
+            );
+        }
     }
 
     #[test]

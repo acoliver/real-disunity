@@ -121,6 +121,19 @@ The scene's pass does not clip: `DynamicQuad::clip_rect` splits draws there and 
 
 `src/dynamic/capture_tests.rs` draws quads, sprites and glyphs with this path and with a test-only copy of the former fixed pipeline and material bind group, on one device, under each target set above with the auxiliary attachments pre-filled, and requires every attachment to match byte for byte. It prints a hash per attachment, which was identical before and after the change on the Radeon 780M and on llvmpipe.
 
+
+## Terrain on the program runtime
+
+Terrain draws through `render-program` in every forward context: plain, velocity, SSAO and its gather receiver, reflection, and each of them as a shadow receiver, at one or four samples, and in the metadata prepass (the normal output and the merged normal and material output, with the camera uniform lent at set 3), the opaque term replays and the shadow casters. The shader source is the scene's own, byte for byte (`terrain/fixtures` freezes `terrain.wgsl` and the page and layered sources, and `the_live_terrain_wgsl_equals_the_frozen_snapshot` fails when the live text drifts). Only the machinery moved.
+
+- **Programs.** `terrain::program::Context` holds one program per surface source for a `ScenePipelines`: palette (`Plain`), baked `Pages`, `Layered` sources and `LayeredPages`. A surface is a feature set (`TERRAIN_PAGES`, `TERRAIN_LAYERED`); the composition is `terrain::program::source`. The frame's specular convention and winding are override constants of the fragment stage, so a specialization is a cheap program, not a sibling set of compiled pipelines. Derived bindings at set 1 are the ones the shader reads: seven for `Plain`, four for `Pages` and for `LayeredPages` (the same four, because cached pages replace the source composer), fifteen for `Layered`.
+- **Sets the pass owner binds.** The frame group (set 0), the shadow map (set 2) and the screen group (set 3) are lent as `ExternalSet`s over the layouts the scene already uses. The pass binds them once, as it did, and the runtime builds no bind group for them. The terrain's own set 1 is a `PreparedSet` built from the buffers and textures the scene retains, once per terrain and pipeline context, with one per page table for the cached surfaces. A set stays with its context's runtime and material layout.
+- **Receiver payload.** Paired single-sample shadow contexts declare the lossless displacement arrays at set 2 bindings 3 and 4 in the lent shadow group. Terrain loads its fragment's payload in every forward depth mode, including page and layered surfaces. The material's prepared set stays at set 1; the pass binds the payload with its shadow map.
+- **Depth reuse.** A context's `DepthMode` (independent, shared, prepass or reuse, from the forward depth reuse of single-sample frames with a complete prepass) gives the terrain program its depth format and its `RenderState`: the same `DepthMode::state` the object pipelines use, so reuse terrain tests depth `Equal` without writing it and tests and zeroes the stencil mark with reference `STENCIL_REFERENCE`, which the pass sets once. The runtime draws stencil from that state (`render-program` README, "Stencil").
+- **Cost.** A frame records one `PreparedPipeline` and a `GeometryDraw` per resident chunk: `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map), the same as the fixed path. A chunk's record of the shared instance buffer is its geometry's instance range rather than a bound slice. Pipelines, sets and chunk geometry are prepared the first time a pass needs them and found in maps afterwards. `encode_scene`, `ShadowedScene` and `encode_resident` prepare the terrain's pipeline for the pass, the prepass and the forward pass alike, after the frame's pages are prepared and before any pass opens, where a refusal is still an error (`SceneGpu::prepare_terrain`); a term replay does the same before it opens its pass. A raw `SceneGpu::draw` prepares what it finds missing as it records. A streamed chunk's geometry is made when the chunk is uploaded and dropped when it retires, before new uploads are admitted, so the geometry never holds a buffer the streaming budget has stopped counting. A prepared set belongs to the runtime and the program layout of the context that built it, so a scene's terrain keeps one per context that has drawn it: independently built pipelines, and the forward pipelines a renderer replacement builds again, each make their own. Sets and pipelines are kept per context and dropped with the context they were made for, so the pipelines a term replay builds for one frame leave nothing in the caches of a long-lived scene, and frames over the same chunks add nothing to `RuntimeStats`. The runtime is shared by a `ScenePipelines` and every sibling specialized from it, so a terrain pipeline compiles once per context for any number of scenes. `src/terrain/cost_tests.rs` holds these claims.
+- **Shadow caster.** `shadows::terrain_caster::TerrainCaster` replaces the fixed caster pipeline: a vertex-only program (`vs_terrain_depth` over the shadow depth source) on `TargetSignature::depth_only(Depth32Float, 1)`, with the caster's state (back faces culled, the configured depth test with writes, and its depth bias, slope included). Each cascade's light frame buffer is the program's set 0, lent as an import and prepared once per buffer, so a scene prepares four sets for each frame slot it draws. `ShadowedScene` prepares them with its other per-frame preparation, and recording is the commands the fixed caster recorded, `2 + 4C` for C chunks, over the same chunk geometry as the forward draw. `SceneGpu::terrain_caster_selection` keeps the cascade's frustum and slice hull test in one place for the draw and the captures. A `vertex_only_program_in` that lends the engine's frame group would remove the four sets; the runtime has no such constructor yet.
+- **No fixed pipelines.** `ScenePipelines` holds no terrain pipeline, bind group layout or bind group: every context's terrain, caster and prepass records through the program runtime, and a context whose screen group the program does not lend fails to build its terrain program rather than drawing another way. `renderer/legacy_terrain/` (a test-only module directory) is a frozen copy of the whole fixed path for the byte-equality captures in `terrain/capture_tests` (plain, pages, layered and layered pages across the twelve forward target sets and the six single-sample ones again with shared depth and with depth reuse, where the depth and stencil planes are compared too; the gather receivers, shadow receivers, specialization, and streaming residency; the metadata prepass in both outputs with independent, shared and winner-marking depth; and the six capture terms in the plain, shadowed, ambient and reflection replays; the shadow caster's depth texels in four cascades over the whole terrain with and without a depth bias, and over streamed chunks with the cascades' volumes and a slice hull). Each capture also asserts that the runtime recorded the terrain once and prepared a pipeline and set for it.
+
 ## Player offscreen operations
 
 `SceneGpu::admit_offscreen` carries an `AdmittedOffscreen` from `worldrunner-render-program` into the next frame encoded with this scene: camera renders into render textures, `Graphics.Blit` material passes and texture copies, already checked by the render-post executor's contract as `TypedOperation`s. `compositor::encode_scene` takes them after it has checked the admitted draws and before it declares the stock passes, so they are the first commands the frame records in the same encoder and so the same submission. They are encoded through the frame's pass timer, so with timing configured each one is a `PassId::Operation` at the head of `FrameTiming::passes`, ahead of the stock opaque pass. No second scheduler was added: the scene's only change is where it calls `AdmittedOffscreen::encode`.
@@ -192,16 +205,29 @@ uses mutually exclusive explicit-gradient and explicit-level-zero branches accor
 to the atlas policy. Gradients include the material mip bias; clamped UVs and
 per-texture insets determine each footprint. CPU Naga-IR tests bound reconstruction
 calls and require blended level-zero samples to exclude the gradient branch.
-Forward cards filter alpha and capture its width, auxiliary footprints, normal frames,
-decal position gradients and shadow gradients before rejecting fragments. Shadow
+Unpaired and multisampled forward cards filter alpha and capture its width, auxiliary
+footprints, normal frames, decal position gradients and shadow gradients before
+rejecting fragments. Shadow
 preparation uses the decal-modified normal and its opposite for transmission. Under
 alpha-to-coverage, only zero computed coverage is rejected; below-cutoff or raw zero
 alpha can still own samples. Survivors sample AO, emission, shadows and environment
 and evaluate lighting. Card term captures reuse the prepared shadow inputs for
 sun visibility; every term assembly is covered by the forward derivative guard.
 Ordinary materials retain their shading path.
-Metadata captures atlas footprints, normal frames and decal gradients before alpha,
-distance-fade and relief-visibility rejection. Only survivors sample normal/surface
+Paired single-sample receiver consumers prepare every card footprint, cotangent
+derivative input and decal displacement before albedo rejection. Tangent-frame
+arithmetic stays beside normal sampling to retain its floating-point evaluation.
+They defer surface/normal samples,
+contact, decals and receiver-shadow preparation until the fragment survives the
+unchanged visibility, geometry and alpha predicates. Relief still exports its
+reconstructed fragment depth. Receiver-producing metadata evaluates mapped normals,
+decals and receiver derivatives before rejecting quad lanes. Masked card casters
+capture the albedo footprint before geometry/fade rejection, then evaluate the same
+blended alpha and shadow cutoff. Multisampled and unpaired forward paths keep their
+existing evaluation order.
+Metadata without receiver publication captures atlas footprints, normal frames and
+decal gradients before alpha, distance-fade and relief-visibility rejection.
+Only survivors sample normal/surface
 maps and project decals. Samples after either rejection use explicit gradients or
 levels. Relief position is reconstructed once and reused by shading and depth output.
 Normal, surface-channel and decal evaluation expand from shared source bodies.
@@ -403,11 +429,45 @@ Receiver position and normal derivatives are captured before cascade selection o
 coverage rejection. Each cascade transforms those displacements and applies the
 projection quotient rule before solving the shadow-UV depth gradient. Differencing
 rounded atlas coordinates would magnify cancellation at large world offsets.
+Paired single-sample frames publish those receiver displacements once in the
+metadata prepass. Forward lighting loads them at the raster pixel in both depth
+policies. Both producer and consumer retain invariant position outputs even
+with independent depth textures. One receiver uses `Rgba32Float` and `Rg32Float`
+array textures, 24 bytes per
+pixel. Nonzero normal bias with live transmission adds an independently evaluated
+opposite-normal receiver in a second array layer, for 48 bytes per pixel. The
+producer evaluates `dpdx(P) + dpdx(N) * bias` and its vertical counterpart; it does
+not differentiate a rounded biased position or compress the vectors. The cascade
+projection and degeneracy rule consume these f32 values unchanged. Unpaired,
+multisampled and prepass-free frames evaluate the local derivatives.
+
+`ReceiverGradientReservation` bounds this storage in `RendererConfiguration`.
+The default reserves both receivers for dynamic scene admission; `Front` reserves
+24 bytes per metadata pixel and `None` excludes paired shadow receivers. The
+viewer selects `None` without shadows, `Front` for zero normal bias and `Opposing`
+for biased shadows that can gain transmission materials. Textures are created
+at the reserved maximum layout when live shadow receivers first need them, and
+remain owned by that metadata allocation generation even while receivers are
+absent. Front/opposing layout, bias and output changes specialize the producer
+and select views of the same backing without allocating replacement textures.
+Reconfiguration or resize replaces the metadata generation through its existing
+allocation accounting. Admission rejects a layout
+that exceeds the reservation, device colour-attachment count and byte limits, or
+the complete forward context's fragment sampled-texture limit, before receiver
+pipeline creation or drawing. Uncached layered terrain with reflections and a
+payload requires 17 fragment textures; the corresponding local-derivative context
+requires 15. An unsupported paired context returns `FrameError::UnsupportedEffect`
+without switching to local derivatives. Existing unpaired and multisampled
+contexts keep their own limits and depth policies.
+The device requests up to 64 attachment bytes per sample when supported; merged
+normal/material metadata plus both receivers needs 64 bytes and six attachments.
+
 The CPU shadow call-graph guard forbids derivatives and implicit texture samples in
-loops or varying control flow; Metal differential fixtures check independent-depth
-and prepass-owned-depth colour bytes. Neither guard establishes cross-pipeline
-fragment arithmetic invariance on every backend.
-The blend fraction is in millionths; zero disables blending. Array layer count
+loops or varying control flow. A relief-depth dependency guard compares shared
+reconstruction inputs and return paths. These source guards do not establish
+cross-pipeline fragment arithmetic invariance on every backend. GPU attachment
+differentials check forward colour, metadata, depth, velocity and receiver payloads.
+The blend fraction is in millionths; zero disables blending. Active receiver layout
 changes take effect at the next encode without replacing resident scene handles.
 Coverage values exceeding the adapter's u32 millimetre range are rejected during fit.
 

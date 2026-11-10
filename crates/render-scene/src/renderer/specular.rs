@@ -35,6 +35,16 @@ pub(crate) fn constants(options: [u32; 7]) -> [(&'static str, f64); 7] {
 
 type RasterKey = ([u32; 7], u8, super::DepthMode);
 
+/// What a set of pipelines was built from, for the frozen terrain path to rebuild.
+#[cfg(test)]
+pub(super) struct Parts<'a> {
+    pub object_source: &'a str,
+    pub terrain_source: &'a str,
+    pub shadow: Option<&'a wgpu::BindGroupLayout>,
+    pub screen: Option<&'a wgpu::BindGroupLayout>,
+    pub options: ([u32; 7], wgpu::FrontFace),
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Specialization {
     device: wgpu::Device,
@@ -46,15 +56,22 @@ pub(super) struct Specialization {
     options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
     cache: Rc<RefCell<BTreeMap<RasterKey, ScenePipelines>>>,
     gather: Rc<RefCell<Option<ScenePipelines>>>,
+    /// The program runtime every sibling of these pipelines shares, so a terrain pipeline
+    /// compiles once per context however many scenes and specializations draw with it.
+    family: crate::terrain::program::Family,
+    receivers:
+        Rc<RefCell<BTreeMap<crate::scene_metadata::receiver::ReceiverLayout, ScenePipelines>>>,
 }
 impl Specialization {
     pub fn new(
         device: &wgpu::Device,
-        source: &str,
-        terrain: &str,
-        shadow: Option<&wgpu::BindGroupLayout>,
-        screen: Option<&wgpu::BindGroupLayout>,
+        (source, terrain): (&str, &str),
+        (shadow, screen): (
+            Option<&wgpu::BindGroupLayout>,
+            Option<&wgpu::BindGroupLayout>,
+        ),
         options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
+        family: &crate::terrain::program::Family,
     ) -> Self {
         Self {
             device: device.clone(),
@@ -66,6 +83,8 @@ impl Specialization {
             options,
             cache: Rc::default(),
             gather: Rc::default(),
+            family: family.clone(),
+            receivers: Rc::default(),
         }
     }
 }
@@ -73,9 +92,124 @@ impl Specialization {
     pub(super) fn unlit_source(&self) -> &str {
         &self.unlit
     }
+
+    /// The object source, the terrain source, the lent shadow and screen layouts and the
+    /// options these pipelines were built with.
+    #[cfg(test)]
+    pub(super) fn parts(&self) -> Parts<'_> {
+        Parts {
+            object_source: &self.source,
+            terrain_source: &self.terrain,
+            shadow: self.shadow.as_ref(),
+            screen: self.screen.as_ref(),
+            options: (self.options.0, self.options.1),
+        }
+    }
 }
 
 impl ScenePipelines {
+    pub(crate) fn for_receiver_gradients(
+        &self,
+        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+    ) -> Self {
+        let spec = &self.specialization;
+        spec.receivers
+            .borrow_mut()
+            .entry(receiver)
+            .or_insert_with(|| {
+                let source =
+                    crate::scene_metadata::receiver::consumer_source(&spec.source, receiver, false);
+                let terrain =
+                    crate::scene_metadata::receiver::consumer_source(&spec.terrain, receiver, true);
+                let layout = crate::scene_metadata::receiver::shadow_layout(&spec.device);
+                let mut selected = Self::with_constants(
+                    &spec.device,
+                    (self.color_format, self.samples),
+                    (&source, &terrain),
+                    (Some(&layout), spec.screen.as_ref()),
+                    (spec.options, &spec.family),
+                );
+                selected.ssao = self.ssao;
+                selected
+            })
+            .clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_receiver_reference(
+        &self,
+        reference: crate::scene_metadata::receiver::ReceiverReference,
+        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+    ) -> Self {
+        let spec = &self.specialization;
+        let sources = [&spec.source, &spec.terrain].map(|source| {
+            assert!(!source.contains("scene_receiver_load("));
+            assert!(source.contains("dpdx(position) + dpdx(normal) * shadow.bias.y"));
+            if reference.probe() {
+                let source = crate::scene_metadata::receiver::probe_source(source);
+                if matches!(
+                    reference,
+                    crate::scene_metadata::receiver::ReceiverReference::BlackShared
+                ) {
+                    source.replace(
+                        "scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
+                        "scene_probe_dx = vec3<f32>(0.0); scene_probe_dy = vec3<f32>(0.0);",
+                    )
+                } else if matches!(
+                    reference,
+                    crate::scene_metadata::receiver::ReceiverReference::OffsetProbeReuse
+                        | crate::scene_metadata::receiver::ReceiverReference::StoredOffsetProbeReuse
+                ) {
+                    source.replace(
+                        "scene_probe_dx = receiver_dx;",
+                        "scene_probe_dx = receiver_dx + vec3<f32>(0.25, 0.5, 1.0);",
+                    )
+                } else {
+                    source
+                }
+            } else {
+                source.to_string()
+            }
+        });
+        let layout = crate::scene_metadata::receiver::shadow_layout(&spec.device);
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (&sources[0], &sources[1]),
+            (Some(&layout), spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        if reference.local() {
+            selected
+        } else {
+            let selected = selected.for_receiver_gradients(receiver);
+            if matches!(
+                reference,
+                crate::scene_metadata::receiver::ReceiverReference::LateCardRejection
+            ) {
+                selected.with_late_card_rejection()
+            } else {
+                selected
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn with_late_card_rejection(&self) -> Self {
+        let spec = &self.specialization;
+        let source = crate::scene_metadata::receiver::late_card_source(&spec.source);
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (&source, &spec.terrain),
+            (spec.shadow.as_ref(), spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        selected
+    }
+
     pub(crate) fn for_depth(&self, depth: super::DepthMode) -> Self {
         if depth == self.depth {
             return self.clone();
@@ -91,9 +225,8 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&spec.source, &spec.terrain),
-                    spec.shadow.as_ref(),
-                    spec.screen.as_ref(),
-                    options,
+                    (spec.shadow.as_ref(), spec.screen.as_ref()),
+                    (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
                 selected
@@ -130,9 +263,8 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&source, &terrain),
-                    spec.shadow.as_ref(),
-                    Some(&layout),
-                    spec.options,
+                    (spec.shadow.as_ref(), Some(&layout)),
+                    (spec.options, &spec.family),
                 );
                 selected.ssao = self.ssao;
                 selected
@@ -184,9 +316,8 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&spec.source, &spec.terrain),
-                    spec.shadow.as_ref(),
-                    spec.screen.as_ref(),
-                    options,
+                    (spec.shadow.as_ref(), spec.screen.as_ref()),
+                    (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
                 selected
@@ -261,13 +392,10 @@ mod tests {
                     let first = pipelines.for_convention(convention);
                     let again = pipelines.for_convention(convention);
                     assert_eq!(first.get(key), again.get(key));
-                    assert_eq!(first.terrain(), again.terrain());
-                    assert_eq!(first.cached_terrain, again.cached_terrain);
                     if convention == SceneSpecularConvention::default() {
                         assert_eq!(first.get(key), pipelines.get(key));
                     } else {
                         assert_ne!(first.get(key), pipelines.get(key));
-                        assert_ne!(first.terrain(), pipelines.terrain());
                     }
                 }
             }
@@ -317,9 +445,5 @@ fn winding_uses_existing_specialization_cache_without_changing_default_pipelines
     assert_eq!(right.get(key), pipelines.get(key));
     assert_eq!(left.get(key), again.get(key));
     assert_ne!(left.get(key), right.get(key));
-    assert_ne!(left.terrain(), right.terrain());
-    assert_eq!(left.terrain(), again.terrain());
-    assert_ne!(left.cached_terrain, right.cached_terrain);
-    assert_eq!(left.cached_terrain, again.cached_terrain);
     assert_eq!(pipelines.specialization.cache.borrow().len(), 1);
 }

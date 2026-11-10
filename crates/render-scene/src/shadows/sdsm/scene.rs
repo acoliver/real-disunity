@@ -190,6 +190,11 @@ impl ShadowedScene {
             .into());
         }
         state.select_time(self.scheduler.selected_time);
+        self.scheduler.prepare_receiver_gradients(
+            context.device(),
+            &self.gpu,
+            self.settings.normal_bias_meters,
+        )?;
         self.scheduler
             .prepare_scene_inputs(context.device(), &self.gpu);
         let metadata = state.bind(context, &self.scheduler, attachments.0.size())?;
@@ -273,6 +278,9 @@ impl ShadowedScene {
             input.metadata.passes.depth_levels()[0],
         ];
         written.extend(material.as_ref());
+        if let Some(receiver) = &input.metadata.receiver {
+            written.extend(receiver.textures.iter());
+        }
         let metadata = self.scheduler.capture_texture_keys(&written)?;
         let scene_depth = self
             .scheduler
@@ -512,7 +520,7 @@ fn capture_writes(
     scene_depth: worldrunner_render_gpu::submission::capture::WriteKey,
     reduction: worldrunner_render_gpu::submission::capture::WriteKey,
 ) -> Result<CaptureWrites, worldrunner_render_gpu::submission::capture::WriteError> {
-    // Opaque consumes stencil and water writes depth after the metadata prefix.
+    // Water writes depth after the metadata prefix.
     suffix.retain(|key| *key == scene_depth || !metadata.contains(key));
     prefix.extend(metadata);
     prefix.push(reduction);

@@ -1,10 +1,12 @@
 //! Stock scheduling, temporal identity and immutable products across water, resize and slots.
 use super::*;
 use worldrunner_render_post::{AttachmentView, ResourceRef, ToneMap};
+#[path = "receiver_gradients.rs"]
+mod receiver_gradients;
 #[path = "depth_reuse_transitions.rs"]
 mod transitions;
 
-fn source() -> RenderScene {
+pub(super) fn source() -> RenderScene {
     let base = terrain_scene(1);
     let mut parts = effect_parts();
     parts.anti_alias = SceneAntiAlias::taa(900_000);
@@ -103,17 +105,55 @@ fn stage_quad(context: &GpuContext, gpu: &mut SceneGpu, pipelines: &ScenePipelin
     .unwrap();
 }
 
-fn draw_frame(
+pub(super) fn draw_frame(
     context: &GpuContext,
     renderer: &mut FrameRenderer,
     gpu: (&mut SceneGpu, &ScenePipelines),
-    mut shadowed: Option<&mut crate::shadows::ShadowedScene>,
+    shadowed: Option<&mut crate::shadows::ShadowedScene>,
     source: &RenderScene,
     index: usize,
     time: f32,
 ) -> Vec<Vec<u8>> {
+    draw_frame_at(
+        context,
+        renderer,
+        gpu,
+        shadowed,
+        (source, index, time),
+        pose(),
+        worldrunner_camera::ViewConvention::RIGHT_HANDED,
+    )
+}
+
+fn draw_frame_at(
+    context: &GpuContext,
+    renderer: &mut FrameRenderer,
+    gpu: (&mut SceneGpu, &ScenePipelines),
+    shadowed: Option<&mut crate::shadows::ShadowedScene>,
+    source_frame: (&RenderScene, usize, f32),
+    pose: CameraPose,
+    convention: worldrunner_camera::ViewConvention,
+) -> Vec<Vec<u8>> {
+    draw_frame_with_view(context, renderer, gpu, shadowed, source_frame, |viewport| {
+        SceneView::with_convention(pose, camera(), viewport, convention).unwrap()
+    })
+}
+
+fn draw_frame_with_view(
+    context: &GpuContext,
+    renderer: &mut FrameRenderer,
+    gpu: (&mut SceneGpu, &ScenePipelines),
+    mut shadowed: Option<&mut crate::shadows::ShadowedScene>,
+    source_frame: (&RenderScene, usize, f32),
+    camera: impl FnOnce(Viewport) -> SceneView,
+) -> Vec<Vec<u8>> {
+    let (source, index, time) = source_frame;
     let device = context.device();
     let (gpu, pipelines) = gpu;
+    assert_eq!(
+        renderer.water.is_some(),
+        !source.effects().unwrap().water_bodies().is_empty()
+    );
     if index == 2 {
         renderer.resize(device, [67, 51]).unwrap();
     }
@@ -131,22 +171,23 @@ fn draw_frame(
         renderer.targets().scene().texture(),
     )
     .unwrap();
+    let independent = renderer
+        .receiver_reference
+        .filter(|mode| mode.depth() != crate::renderer::depth::DepthMode::Reuse)
+        .map(|mode| crate::ssao::passes::texture(device, size, mode.depth().format()));
     let depth = AttachmentView::new(
         ResourceRef::new("scene depth"),
-        renderer.targets().depth().texture(),
+        independent
+            .as_ref()
+            .unwrap_or(renderer.targets().depth().texture()),
     )
     .unwrap();
     let output =
         worldrunner_render_post::color_texture(device, "temporal differential", size, COLOR_FORMAT);
-    let view = SceneView::new(
-        pose(),
-        camera(),
-        Viewport {
-            width: size[0],
-            height: size[1],
-        },
-    )
-    .unwrap();
+    let view = camera(Viewport {
+        width: size[0],
+        height: size[1],
+    });
     let frame = FrameUniform::new(&view, source.effects()).unwrap();
     context
         .submission()
@@ -177,31 +218,50 @@ fn draw_frame(
         .unwrap()
         .submit()
         .unwrap();
-    let mut products = frame_products(context, renderer, index % 3);
+    let mut products = frame_products(context, renderer, index % 3, Some(depth.texture()));
     products.push(capture::read(context, &output));
     products
 }
 
-fn frame_products(context: &GpuContext, renderer: &FrameRenderer, slot: usize) -> Vec<Vec<u8>> {
+fn frame_products(
+    context: &GpuContext,
+    renderer: &FrameRenderer,
+    slot: usize,
+    depth: Option<&wgpu::Texture>,
+) -> Vec<Vec<u8>> {
     let screen = renderer.ssao.as_ref().unwrap();
+    if renderer.ssr.is_none() {
+        return [
+            renderer.targets().scene().texture(),
+            depth.unwrap_or(renderer.targets().depth().texture()),
+            &screen.normals,
+            screen.passes.depth_levels()[0],
+        ]
+        .map(|texture| capture::read(context, texture))
+        .to_vec();
+    }
     let reflections = renderer.ssr.as_ref().unwrap();
     let snapshots = &renderer.snapshots.as_ref().unwrap()[slot];
     let mut textures = vec![
         renderer.targets().scene().texture(),
-        renderer.targets().depth().texture(),
+        depth.unwrap_or(renderer.targets().depth().texture()),
         &screen.normals,
         reflections.material_target(),
         screen.passes.depth_levels()[0],
         renderer.targets().velocity_texture().unwrap(),
     ];
-    assert_ne!(
-        capture::read(context, &snapshots.depth),
-        capture::read(context, &snapshots.final_depth),
-        "water fixture must write depth in front of opaque receivers"
-    );
+    if renderer.water.is_some() {
+        assert_ne!(
+            capture::read(context, &snapshots.depth),
+            capture::read(context, &snapshots.final_depth),
+            "water fixture must write depth in front of opaque receivers"
+        );
+    }
     textures.extend([&snapshots.color, &snapshots.depth, &snapshots.final_depth]);
     textures.extend(reflections.textures());
-    textures.extend(renderer.water.as_ref().unwrap().receivers[slot].iter());
+    if let Some(water) = &renderer.water {
+        textures.extend(water.receivers[slot].iter());
+    }
     textures
         .iter()
         .map(|texture| capture::read(context, texture))
@@ -221,7 +281,7 @@ fn gpu_paired_depth_preserves_water_sky_temporal_slots_resize_and_shadows() {
     }
 }
 
-fn shadow_settings() -> crate::shadows::DirectionalShadowSettings {
+pub(super) fn shadow_settings() -> crate::shadows::DirectionalShadowSettings {
     crate::shadows::DirectionalShadowSettings {
         resolution: 32,
         focus_meters: glam::Vec3::ZERO,
@@ -305,7 +365,7 @@ fn sdsm_frame(context: &GpuContext, independent: bool) -> Vec<Vec<u8>> {
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));
     assert_eq!(shadowed.last_depth_fit(), Some(fit));
     // Reading all products requires the suffix to have completed Opaque, snapshots and water.
-    let products = frame_products(context, &scheduler, 0);
+    let products = frame_products(context, &scheduler, 0, None);
     assert!(
         products[1]
             .chunks_exact(4)

@@ -93,6 +93,8 @@ wire_struct!(WorldRenderTexture {
     depth_bits,
     mip_count,
     srgb,
+    dimension,
+    volume_depth,
     sampler,
     generation
 });

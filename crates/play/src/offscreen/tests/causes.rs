@@ -15,7 +15,7 @@ fn a_failure_is_counted_by_its_name_and_by_the_names_nested_in_it() {
     report.fail("rendertexture", &multisampled);
     report.fail("rendertexture", &multisampled);
     let storage = OffscreenError::Program(ProgramError::from(LayoutError::UnsupportedParameter {
-        kind: "storage image".to_owned(),
+        kind: "texture dimension 7".to_owned(),
     }));
     report.fail("record", &storage);
 
@@ -26,7 +26,7 @@ fn a_failure_is_counted_by_its_name_and_by_the_names_nested_in_it() {
         2
     );
     assert_eq!(report.causes["record:Program/Layout/Declaration"], 1);
-    assert!(report.examples["record:Program/Layout/Declaration"].contains("storage image"));
+    assert!(report.examples["record:Program/Layout/Declaration"].contains("texture dimension 7"));
     assert_eq!(
         report.examples["rendertexture:Program/UnsupportedTarget/Multisampled"],
         "the pass has 4 samples per pixel; program draws are single-sample"

@@ -28,12 +28,10 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 
 use crate::PlayError;
 use crate::offscreen::{
-    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Report,
-    Settings, WorkTrace,
+    ComputeAdapter, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels, Reclaimed,
+    Report, Settings, WorkTrace,
 };
-
-/// Bytes of GPU storage the program runtime may hold.
-const RUNTIME_BUDGET: u64 = 512 << 20;
+use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
 /// The most dispatch traces a report keeps.
 const MAX_TRACES: usize = 32;
@@ -93,8 +91,19 @@ pub struct GpuWorkReport {
     /// Compute buffers written back and the bytes of them that are not zero.
     pub buffers_written: usize,
     pub nonzero_values: usize,
+    /// Pixel reads of render textures answered, and left unanswered by the reason.
+    pub pixel_reads: usize,
+    pub pixel_reads_refused: BTreeMap<String, usize>,
     /// The most bytes of GPU storage the runtime held after a flush.
     pub peak_live_bytes: u64,
+    /// The most bytes the runtime held at any moment, not only after a flush.
+    pub peak_runtime_bytes: u64,
+    /// What the runtime held when the budget first refused an allocation, and the frame it was
+    /// in.
+    pub refusal_holdings: Vec<String>,
+    pub refusal_frame: u64,
+    /// The uploaded textures and meshes given back to make room.
+    pub reclaimed: Reclaimed,
     /// The records of frames and flushes the GPU refused whole. Their other counts are not in the
     /// totals above, which a refused piece of work never reaches.
     pub refused_records: usize,
@@ -119,8 +128,18 @@ pub struct GpuWorkReport {
     pub defaulted_channels: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
-    /// The script commands left out, and the textures the globals held, by description.
-    pub unsupported_work: BTreeMap<String, usize>,
+    /// What the adapter mapped, by description (see `Report::census`).
+    pub census: BTreeMap<String, usize>,
+    /// What the culling records and renderer lists did, by description, and the draws the lists
+    /// recorded and left out for want of a pass, a texture or a mesh channel.
+    pub lists: BTreeMap<String, usize>,
+    pub list_renders: usize,
+    pub list_draws: usize,
+    pub list_unmatched: usize,
+    /// The textures the globals held, by description.
+    /// The world's records the adapter ran or built, and those it left out as `kind: reason`.
+    pub built_by_kind: BTreeMap<String, usize>,
+    pub skipped_by_kind: BTreeMap<String, usize>,
     pub global_textures: BTreeMap<String, usize>,
     /// Time spent in the frame path and in flushes.
     pub frame_time: Duration,
@@ -155,6 +174,11 @@ impl GpuWorkReport {
         for (name, count) in &report.failures {
             *self.failures.entry(name.clone()).or_default() += count;
         }
+        self.reclaimed.add(report.reclaimed);
+        if self.refusal_holdings.is_empty() && !report.holdings.is_empty() {
+            self.refusal_holdings.clone_from(&report.holdings);
+            self.refusal_frame = self.frames;
+        }
         for (cause, count) in &report.causes {
             *self.causes.entry(cause.clone()).or_default() += count;
         }
@@ -181,8 +205,21 @@ impl GpuWorkReport {
         for (name, count) in &report.defaulted_channels {
             *self.defaulted_channels.entry(name.clone()).or_default() += count;
         }
-        for (name, count) in &report.unsupported_work {
-            *self.unsupported_work.entry(name.clone()).or_default() += count;
+        for (name, count) in report.lists.named() {
+            *self.lists.entry(name).or_default() += count;
+        }
+        self.list_renders += report.list_draws.len();
+        self.list_draws += report.list_draws.iter().map(|l| l.drawn).sum::<usize>();
+        self.list_unmatched += report
+            .list_draws
+            .iter()
+            .map(|l| l.unmatched + l.missing_texture + l.missing_channel)
+            .sum::<usize>();
+        for (name, count) in &report.built_by_kind {
+            *self.built_by_kind.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.skipped_by_kind {
+            *self.skipped_by_kind.entry(name.clone()).or_default() += count;
         }
         for (name, count) in &report.global_textures {
             *self.global_textures.entry(name.clone()).or_default() += count;
@@ -196,6 +233,13 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.census {
+            *self.census.entry(name.clone()).or_default() += count;
+        }
+        self.pixel_reads += report.pixel_reads;
+        for (reason, count) in &report.pixel_reads_refused {
+            *self.pixel_reads_refused.entry(reason.clone()).or_default() += count;
         }
         for entry in &report.unmatched_passes {
             let name = format!(
@@ -238,14 +282,21 @@ impl GpuWorkReport {
             "[gpu] camera renders {}, draws recorded {}, draws left out for want of a pass {}",
             self.camera_renders, self.camera_draws, self.camera_unmatched
         );
+        eprintln!(
+            "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
+            self.list_renders, self.list_draws, self.list_unmatched
+        );
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
             ("draws without a texture", &self.missing_textures),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
-            ("script commands left out", &self.unsupported_work),
+            ("renderer lists", &self.lists),
+            ("records built, by kind", &self.built_by_kind),
+            ("records skipped, by kind", &self.skipped_by_kind),
             ("global textures at a flush", &self.global_textures),
+            ("census", &self.census),
             (
                 "texture properties without a texture",
                 &self.unresolved_textures,
@@ -267,14 +318,31 @@ impl GpuWorkReport {
             "[gpu] compute buffers written {}, non-zero values {}",
             self.buffers_written, self.nonzero_values
         );
+        eprintln!("[gpu] pixel reads answered {}", self.pixel_reads);
+        for (reason, count) in &self.pixel_reads_refused {
+            eprintln!("[gpu] pixel reads refused: {reason}: {count}");
+        }
         eprintln!(
             "[gpu] refused whole: {} frames or flushes with {} records",
             self.refused_works, self.refused_records
         );
         eprintln!(
-            "[gpu] most storage held after a flush {} bytes",
-            self.peak_live_bytes
+            "[gpu] most storage held after a flush {} bytes, at any moment {} bytes",
+            self.peak_live_bytes, self.peak_runtime_bytes
         );
+        eprintln!(
+            "[gpu] given back to make room: {} textures, {} render textures, {} meshes, {} bytes",
+            self.reclaimed.textures,
+            self.reclaimed.targets,
+            self.reclaimed.meshes,
+            self.reclaimed.bytes
+        );
+        for line in &self.refusal_holdings {
+            eprintln!(
+                "[gpu] held when the budget first refused, in frame {}: {line}",
+                self.refusal_frame
+            );
+        }
         eprintln!(
             "[gpu] time in the frame path {:?}, in flushes {:?}",
             self.frame_time, self.flush_time
@@ -285,19 +353,72 @@ impl GpuWorkReport {
     }
 }
 
-/// The device the headless player asks for: the default limits and block compression where offered, except that one buffer may hold
-/// the whole storage budget, since the program arena is reserved as one buffer of that size.
-fn device_requirements() -> DeviceRequirements {
+/// The storage budget for `adapter`: see [`storage_budget`].
+fn storage_choice(adapter: &wgpu::Adapter) -> Choice {
+    let env = std::env::var(STORAGE_BUDGET_ENV).ok();
+    storage_budget::choose(
+        env.as_deref(),
+        adapter.get_info().device_type,
+        host_available_bytes(),
+    )
+}
+
+/// The device the headless player asks for: the default limits and block compression where
+/// offered, with buffers as large as the storage budget allows (the adapter's own limit when that
+/// is less, since the budget does not need one buffer to hold it). It prefers eight storage images in a stage where the adapter has them, because two of the Old
+/// World's compute variants bind five and the default limit is four; an adapter that does not has
+/// the default limit and leaves those two variants out by name.
+fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequirements {
+    let default = wgpu::Limits::default();
+    let required = wgpu::Limits {
+        max_buffer_size: budget
+            .max(default.max_buffer_size)
+            .min(available.max_buffer_size),
+        ..default
+    };
     DeviceRequirements {
         // The player stores some textures block-compressed; a device without the feature leaves
         // them out by name.
         optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
-        required_limits: wgpu::Limits {
-            max_buffer_size: RUNTIME_BUDGET,
-            ..wgpu::Limits::default()
-        },
+        optional_limits: Some(wgpu::Limits {
+            max_storage_textures_per_shader_stage: PREFERRED_STORAGE_IMAGES,
+            ..required.clone()
+        }),
+        required_limits: required,
         ..DeviceRequirements::default()
     }
+}
+
+/// The storage images a stage may bind that the device is asked for.
+const PREFERRED_STORAGE_IMAGES: u32 = 8;
+
+/// Builds every compute kernel variant of the player in `data` as a compute program on the
+/// device the headless player asks for, and counts what the device cannot hold by cause.
+///
+/// # Errors
+/// Fails with the reason when the machine has no adapter or device, or the player cannot be read.
+pub fn compute_census(data: &Path) -> Result<(String, crate::offscreen::ComputeCensus), String> {
+    let instance = headless_instance();
+    let adapter =
+        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .map_err(|error| format!("no adapter: {error}"))?;
+    let budget = storage_choice(&adapter).bytes;
+    let requirements = device_requirements(budget, &adapter.limits());
+    let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+        .map_err(|error| format!("no device: {error}"))?;
+    let name = format!(
+        "{}, {} storage images in a stage",
+        adapter.get_info().name,
+        device.limits().max_storage_textures_per_shader_stage
+    );
+    let runtime = ProgramRuntime::new(
+        device,
+        SubmissionAuthority::new(queue),
+        AllocationBudget(budget),
+    );
+    crate::offscreen::compute_census(data, &runtime)
+        .map(|census| (name, census))
+        .map_err(|error| error.to_string())
 }
 
 /// A device and the player's offscreen host on it.
@@ -326,11 +447,12 @@ impl PlayerGpu {
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .map_err(|error| format!("no adapter: {error}"))?;
-        let (device, queue, _) =
-            pollster::block_on(request_device(&adapter, &device_requirements()))
-                .map_err(|error| format!("no device: {error}"))?;
+        let choice = storage_choice(&adapter);
+        let requirements = device_requirements(choice.bytes, &adapter.limits());
+        let (device, queue, _) = pollster::block_on(request_device(&adapter, &requirements))
+            .map_err(|error| format!("no device: {error}"))?;
         let authority = SubmissionAuthority::new(queue);
-        let budget = AllocationBudget(RUNTIME_BUDGET);
+        let budget = AllocationBudget(choice.bytes);
         let runtime = ProgramRuntime::new(device.clone(), authority.clone(), budget);
         let limits = device.limits();
         let mut renderer = Configuration::new(
@@ -338,11 +460,14 @@ impl PlayerGpu {
             (),
             AllocationSet::default(),
             &limits,
-            AllocationBudget(RUNTIME_BUDGET * 4),
+            AllocationBudget(budget.0.saturating_mul(4)),
         )
         .map_err(|error| format!("no renderer configuration: {error}"))?;
         let reservation = renderer
-            .reserve::<()>(&limits, ProgramRuntime::arena_allocations(budget.0))
+            .reserve::<()>(
+                &limits,
+                ProgramRuntime::arena_allocations_within(budget.0, &limits),
+            )
             .map_err(|error| format!("no arena reservation: {error:?}"))?;
         let arena = runtime
             .open_arena(reservation)
@@ -351,14 +476,15 @@ impl PlayerGpu {
         let device_line = format!(
             "adapter {} ({:?}), buffer limits: max_buffer_size {}, max_uniform_buffer_binding_size \
              {}, max_storage_buffer_binding_size {}, min_uniform_buffer_offset_alignment {}, \
-             runtime budget {}",
+             runtime budget {} ({})",
             info.name,
             info.backend,
             limits.max_buffer_size,
             limits.max_uniform_buffer_binding_size,
             limits.max_storage_buffer_binding_size,
             limits.min_uniform_buffer_offset_alignment,
-            budget.0
+            budget.0,
+            choice.source
         );
         let settings = Settings::cameras();
         let offscreen = OffscreenHost::new(
@@ -397,6 +523,7 @@ impl PlayerGpu {
             report.flushes += 1;
             report.flush_time += started.elapsed();
             report.peak_live_bytes = report.peak_live_bytes.max(offscreen.borrow().live_bytes());
+            report.peak_runtime_bytes = offscreen.borrow().peak_bytes();
             let outcome = outcome.inspect_err(|message| {
                 *report.errors.entry(message.clone()).or_default() += 1;
             })?;
@@ -449,6 +576,7 @@ impl PlayerGpu {
                 *report.errors.entry(error.to_string()).or_default() += 1;
             }
         }
+        report.peak_runtime_bytes = self.offscreen.borrow().peak_bytes();
         report.frame_time += started.elapsed();
         report.frames += 1;
         Ok(())
@@ -541,14 +669,55 @@ mod tests {
         assert_eq!(report.work.len(), 3, "every piece of work keeps its trace");
     }
 
+    /// The limits an adapter that offers `storage_images` storage images in a stage and buffers
+    /// of `adapter_buffer` bytes would give the player's request for a budget of `budget`.
+    fn negotiated(storage_images: u32, adapter_buffer: u64, budget: u64) -> wgpu::Limits {
+        let available = wgpu::Limits {
+            max_buffer_size: adapter_buffer,
+            max_storage_textures_per_shader_stage: storage_images,
+            ..wgpu::Limits::default()
+        };
+        worldrunner_render_gpu::device::negotiate(
+            wgpu::Features::empty(),
+            &available,
+            &device_requirements(budget, &available),
+        )
+        .unwrap()
+        .limits
+    }
+
     #[test]
-    fn the_headless_device_can_hold_the_whole_storage_budget_in_one_arena_buffer() {
+    fn the_headless_device_asks_for_the_storage_images_the_old_world_kernels_bind_when_offered() {
+        let budget = storage_budget::DEFAULT_BYTES;
+        // Two Old World compute variants bind five storage images in their one stage, one more
+        // than the default limit of four.
+        let offered = negotiated(16, budget * 2, budget);
+        assert!(offered.max_storage_textures_per_shader_stage >= 5);
+        assert_eq!(offered.max_buffer_size, budget);
+        assert_eq!(
+            negotiated(4, budget * 2, budget).max_storage_textures_per_shader_stage,
+            4,
+            "an adapter at the default limit still gets a device"
+        );
+    }
+
+    #[test]
+    fn an_adapter_whose_buffers_are_smaller_than_the_budget_still_gets_a_device() {
+        // The budget is a total, not a buffer: the device takes the adapter's largest buffer.
+        let default = wgpu::Limits::default().max_buffer_size;
+        let limits = negotiated(16, default, 4 * default);
+        assert_eq!(limits.max_buffer_size, default);
+        assert!(limits.max_storage_textures_per_shader_stage >= 5);
+    }
+
+    #[test]
+    fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
         let directory = tempfile::tempdir().unwrap();
         let gpu = PlayerGpu::headless(directory.path()).unwrap();
-        assert_eq!(gpu.storage_budget(), RUNTIME_BUDGET);
+        assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
         assert!(
-            gpu.storage_budget() > 256 << 20,
-            "the Old World frames need more than the default buffer limit"
+            gpu.report().device.contains("runtime budget"),
+            "the report says where the budget came from"
         );
     }
 }

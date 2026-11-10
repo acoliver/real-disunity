@@ -25,14 +25,20 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: a render target with no world form throws NotSupportedException naming it");
             SetRenderTargetOverloads();
             Console.WriteLine("PASS: SetRenderTarget records its colors, depth, mip level, cube face and depth slice for each overload");
+            SetRenderTargetCanBeForbidden();
+            Console.WriteLine("PASS: SetRenderTarget throws and records nothing while ThrowOnSetRenderTarget is set");
             ClearOverloads();
             Console.WriteLine("PASS: ClearRenderTarget records which parts clear, the color, the depth and the stencil");
             GlobalsAreRecordedInOrder();
             Console.WriteLine("PASS: SetGlobal values, textures and keywords are recorded by name and id and not folded into the global state");
             TemporariesCarryTheirDescriptions();
             Console.WriteLine("PASS: GetTemporaryRT and ReleaseTemporaryRT record the description the arguments give");
+            TemporariesCarryTheirShape();
+            Console.WriteLine("PASS: a temporary of an array or volume descriptor records its dimension and depth");
             BlitAndCopyRecordRenderTextures();
             Console.WriteLine("PASS: CommandBuffer.Blit and CopyTexture record render texture draws and refuse targets they cannot hold");
+            ViewProjectionIsRecordedColumnByColumn();
+            Console.WriteLine("PASS: SetViewProjectionMatrices records both matrices column by column, and the world refuses a value that is not finite");
             ReleasedAndNullBuffersAreRefused();
             Console.WriteLine("PASS: executing a null or released command buffer throws");
         }
@@ -107,6 +113,25 @@ internal static class CommandBufferExecutionTests
         Expect.Equal(0, Taken().Length, "a second Submit sends nothing");
         Expect.That(second.commandCount == 1, "the buffer keeps its commands after being queued");
         Throws<ArgumentNullException>(() => context.ExecuteCommandBuffer(null!), "a null buffer");
+    }
+
+    private static void SetRenderTargetCanBeForbidden()
+    {
+        Taken();
+        Expect.That(!CommandBuffer.ThrowOnSetRenderTarget, "SetRenderTarget is allowed by default");
+        Expect.That(!Watermark.IsVisible(), "the engine draws no watermark");
+        var buffer = new CommandBuffer();
+        CommandBuffer.ThrowOnSetRenderTarget = true;
+        try
+        {
+            Expect.Throws<InvalidOperationException>(() => buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget), "one target");
+            Expect.Throws<InvalidOperationException>(() => buffer.SetRenderTarget(new RenderTargetIdentifier[] { BuiltinRenderTextureType.CameraTarget },
+                BuiltinRenderTextureType.None), "several targets");
+        }
+        finally { CommandBuffer.ThrowOnSetRenderTarget = false; }
+        buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
+        Graphics.ExecuteCommandBuffer(buffer);
+        Same(["SetRenderTarget colors=[Camera] depth=- mip=0 face=-1 slice=0"], Taken(), "only the call made after clearing the flag");
     }
 
     private static void TargetsResolveByKind()
@@ -216,6 +241,27 @@ internal static class CommandBufferExecutionTests
         Taken();
     }
 
+    private static void ViewProjectionIsRecordedColumnByColumn()
+    {
+        var buffer = new CommandBuffer();
+        var view = Matrix4x4.Translate(new Vector3(1, 2, 3));
+        var projection = new Matrix4x4(new Vector4(1, 2, 3, 4), new Vector4(5, 6, 7, 8), new Vector4(9, 10, 11, 12), new Vector4(13, 14, 15, 16));
+        buffer.SetViewProjectionMatrices(view, projection);
+        Expect.Equal(1, buffer.commandCount, "one command is recorded");
+        Expect.Equal(0, Taken().Length, "nothing reaches the world before the buffer runs");
+        Graphics.ExecuteCommandBuffer(buffer);
+        Same(["ViewProjection view=(1 0 0 0 0 1 0 0 0 0 1 0 1 2 3 1) projection=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)"], Taken(),
+            "the matrices as the world holds them");
+        var bad = new CommandBuffer();
+        var nan = Matrix4x4.identity;
+        nan[2, 3] = float.NaN;
+        bad.SetViewProjectionMatrices(Matrix4x4.identity, nan);
+        Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(bad), "a projection that is not finite");
+        Expect.Equal(0, Taken().Length, "a refused change records nothing");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.SetViewProjectionMatrices(view, projection), "a released buffer");
+    }
+
     private static void GlobalsAreRecordedInOrder()
     {
         var texture = Target();
@@ -264,6 +310,17 @@ internal static class CommandBufferExecutionTests
         empty.SetGlobalFloat("", 1f);
         Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(empty), "an empty name reaches the world and is refused there");
         Taken();
+    }
+
+    private static void TemporariesCarryTheirShape()
+    {
+        var buffer = new CommandBuffer();
+        buffer.GetTemporaryRT(21, new RenderTextureDescriptor(8, 4, RenderTextureFormat.RFloat, 0) { dimension = TextureDimension.Tex2DArray, volumeDepth = 4 });
+        buffer.GetTemporaryRT(22, new RenderTextureDescriptor(8, 8, RenderTextureFormat.ARGBFloat, 0) { dimension = TextureDimension.Tex3D, volumeDepth = 6 });
+        Graphics.ExecuteCommandBuffer(buffer);
+        var taken = Taken();
+        Expect.That(taken.Length == 2 && taken[0].Contains(" shape=5x4 ", StringComparison.Ordinal) && taken[1].Contains(" shape=3x6 ", StringComparison.Ordinal),
+            $"an array and a volume keep their shape: {string.Join(" | ", taken)}");
     }
 
     private static void TemporariesCarryTheirDescriptions()

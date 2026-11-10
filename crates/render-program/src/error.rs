@@ -99,11 +99,65 @@ pub enum ProgramError {
         have: u64,
     },
     #[error(
-        "set {set} binding {binding} is a comparison sampler, which this renderer does not create"
+        "set {set} binding {binding} is bound to a buffer range at offset {offset}, which is not a multiple of the device's offset alignment {alignment}"
+    )]
+    BufferRangeMisaligned {
+        set: u32,
+        binding: u32,
+        offset: u64,
+        alignment: u64,
+    },
+    #[error(
+        "set {set} binding {binding} is bound to {size} bytes at offset {offset} of a buffer of {len} bytes"
+    )]
+    BufferRangePastBuffer {
+        set: u32,
+        binding: u32,
+        offset: u64,
+        size: u64,
+        len: u64,
+    },
+    #[error(
+        "set {set} binding {binding} is a storage image the bound texture does not suit: {error}"
+    )]
+    StorageImage {
+        set: u32,
+        binding: u32,
+        error: StorageImageError,
+    },
+    #[error(
+        "the program binds {count} storage images in its {stage:?} stage and the device allows {limit}"
+    )]
+    StorageImageLimit {
+        stage: crate::module::StageKind,
+        count: u32,
+        limit: u32,
+    },
+    #[error("the device cannot bind {format:?} as a storage image with {access:?} access")]
+    UnsupportedStorageFormat {
+        format: wgpu::TextureFormat,
+        access: wgpu::StorageTextureAccess,
+    },
+    #[error(
+        "set {set} binding {binding} and set {other_set} binding {other_binding} bind one texture \
+         and at least one of them writes it, which one pass cannot do"
+    )]
+    AliasedTexture {
+        set: u32,
+        binding: u32,
+        other_set: u32,
+        other_binding: u32,
+    },
+    #[error(
+        "set {set} binding {binding} is a comparison sampler, which the runtime does not create: declare it from an engine semantic and import one"
     )]
     UnsupportedSampler { set: u32, binding: u32 },
     #[error("the program uses bind group {set}, above the device's limit of {limit}")]
     TooManyGroups { set: u32, limit: u32 },
+    #[error(
+        "the state asks for alpha to coverage, which needs a pass of more than one sample per pixel, and the pass has {samples}"
+    )]
+    AlphaToCoverageNeedsSamples { samples: u32 },
     #[error("the state asks for {what}, which this renderer does not draw")]
     UnsupportedState { what: &'static str },
     #[error("the target has no depth attachment but a depth clear or test was requested")]
@@ -143,8 +197,8 @@ pub enum ProgramError {
     ForeignArena,
     #[error("the draws were prepared for {prepared:?} and the pass is {pass:?}")]
     TargetMismatch {
-        prepared: crate::packet::TargetSignature,
-        pass: crate::packet::TargetSignature,
+        prepared: Box<crate::packet::TargetSignature>,
+        pass: Box<crate::packet::TargetSignature>,
     },
     #[error("the allocation is invalid: {0}")]
     InvalidAllocation(&'static str),
@@ -172,6 +226,33 @@ pub enum ProgramError {
     Gpu(String),
     #[error("reading back from the GPU failed: {0}")]
     Readback(String),
+}
+
+/// Why a texture does not suit the storage image a shader declares.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum StorageImageError {
+    #[error("the shader declares {declared:?} and the texture is {found:?}")]
+    Format {
+        declared: wgpu::TextureFormat,
+        found: wgpu::TextureFormat,
+    },
+    #[error("the texture's usage {usage:?} does not include storage binding")]
+    Usage { usage: wgpu::TextureUsages },
+    #[error(
+        "the shader's {declared:?} view needs a texture of another shape than a {found:?} texture of {layers} layers"
+    )]
+    Dimension {
+        declared: wgpu::TextureViewDimension,
+        found: wgpu::TextureDimension,
+        layers: u32,
+    },
+    #[error("the texture has {samples} samples per texel and a storage image has one")]
+    Multisampled { samples: u32 },
+    #[error("the device cannot bind {format:?} as a storage image with {access:?} access")]
+    Unsupported {
+        format: wgpu::TextureFormat,
+        access: wgpu::StorageTextureAccess,
+    },
 }
 
 /// A pass the runtime does not draw into.

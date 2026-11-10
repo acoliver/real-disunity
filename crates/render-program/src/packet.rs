@@ -20,14 +20,15 @@ use crate::resources::{BoundResource, Pins, Resource, TargetHandle};
 use crate::runtime::ProgramRuntime;
 use crate::state::{ColorState, DepthState, RenderState};
 
-/// The most colour attachments a signature describes.
-pub const MAX_COLOR_ATTACHMENTS: usize = 4;
+/// The most colour attachments a signature describes: wgpu's default `max_color_attachments`.
+pub const MAX_COLOR_ATTACHMENTS: usize = 8;
 
 /// The attachments of a pass: what a pipeline must agree with to draw in it.
 ///
-/// A signature exists only for what the runtime draws into: one to four colour attachments of
+/// A signature exists only for what the runtime draws into: one to eight colour attachments of
 /// one sample count (1, 2, 4, 8 or 16) and, optionally, a depth attachment. Renderer-owned
-/// stencil is preserved by program draws. A depth attachment with no colour attachment is
+/// stencil is preserved by program draws, and tested and written only by the prepared pipelines
+/// whose state names it. A depth attachment with no colour attachment is
 /// the one signature [`depth_only`](Self::depth_only) makes.
 /// [`new`](Self::new) describes the pass the runtime opens for its own targets, one
 /// single-sample colour attachment, and [`attachments`](Self::attachments) the passes a
@@ -117,14 +118,15 @@ impl TargetSignature {
         Self::build(&[], Some(depth), samples)
     }
 
-    /// The signature of a pass a renderer opens: one to four colour attachments, the first of
+    /// The signature of a pass a renderer opens: one to eight colour attachments, the first of
     /// which the fragment stage writes and the others of which a draw may leave unwritten with
     /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with one colour
     /// attachment, one sample and no stencil aspect is equal to [`new`](Self::new)'s.
-    /// Combined depth/stencil formats are admitted; program draws neither test nor write stencil.
+    /// Combined depth/stencil formats are admitted. Program draws neither test nor write stencil,
+    /// except the prepared pipelines whose [`RenderState::stencil`] names it.
     ///
     /// # Errors
-    /// Fails by name for a count of colour attachments outside one to four, a sample count
+    /// Fails by name for a count of colour attachments outside one to eight, a sample count
     /// that is not a power of two up to 16, and an attachment format without depth.
     pub fn attachments(
         colors: &[wgpu::TextureFormat],
@@ -177,6 +179,13 @@ impl TargetSignature {
     #[must_use]
     pub fn depth(&self) -> Option<wgpu::TextureFormat> {
         self.depth.map(DepthFormat::format)
+    }
+
+    /// Whether the depth attachment has a stencil aspect, which a stencil state needs.
+    #[must_use]
+    pub fn has_stencil(&self) -> bool {
+        self.depth()
+            .is_some_and(|format| format.has_stencil_aspect())
     }
 
     #[must_use]
@@ -486,6 +495,11 @@ impl ProgramRuntime {
                 colors: request.signature.color_count(),
             });
         }
+        if request.state.stencil.is_some() && !request.signature.has_stencil() {
+            return Err(ProgramError::UnsupportedState {
+                what: "stencil without a stencil attachment",
+            });
+        }
         let key = request.key();
         if let Some(pipeline) = self.render_pipelines.get(&key) {
             return Ok(pipeline.clone());
@@ -568,12 +582,16 @@ pub(crate) fn with_pipeline_descriptor<T>(
             format,
             depth_write_enabled: Some(depth.write),
             depth_compare: Some(depth.test),
-            stencil: wgpu::StencilState::default(),
+            stencil: state
+                .stencil
+                .as_ref()
+                .map_or_else(wgpu::StencilState::default, |stencil| stencil.ops.clone()),
             bias: depth.bias,
         }),
         multisample: wgpu::MultisampleState {
             count: signature.samples,
-            ..wgpu::MultisampleState::default()
+            mask: !0,
+            alpha_to_coverage_enabled: state.raster.alpha_to_coverage,
         },
         fragment: fragment_stage.map(|(stage, module)| wgpu::FragmentState {
             module,

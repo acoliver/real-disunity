@@ -164,6 +164,7 @@ fn gpu_explicit_defaults_preserve_image_and_uniform_bytes() {
     expected.extend(cascades.splits);
     expected.extend(cascades.view_depth.to_array());
     expected.extend(cascades.depth_bias);
+    expected.extend([0.0; 4]);
     assert_eq!(
         encoded,
         expected

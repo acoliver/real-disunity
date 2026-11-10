@@ -18,7 +18,9 @@ mod context;
 mod material;
 mod offscreen;
 mod properties;
+mod readback;
 mod render_texture;
+mod renderer_lists;
 mod slab;
 pub mod snapshot;
 pub mod snapshot_wire;
@@ -36,7 +38,9 @@ pub use properties::{
     MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, PropertyValue, ShaderProperties, TextureRef,
     TextureSlot,
 };
-pub use render_texture::{WorldRenderTexture, WorldSampler};
+pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
+pub use render_texture::{MAX_VOLUME_DEPTH, WorldRenderTexture, WorldSampler, dimension};
+pub use renderer_lists::{MAX_LIST_PASS_TAGS, RendererListDesc};
 pub use snapshot::{CameraView, GraphicsSnapshot, RendererView};
 
 use slab::Slab;
@@ -93,6 +97,14 @@ pub enum GraphicsError {
     InvalidComputeBuffer,
     #[error("the data range lies outside the compute buffer")]
     ComputeRange,
+    #[error(
+        "a pixel read needs a non-empty rectangle inside the render texture of at most 67108864 texels"
+    )]
+    ReadbackRect,
+    #[error("the pixel request is unknown, taken already or from an earlier frame")]
+    UnknownReadback,
+    #[error("the pixel data must hold width * height * 4 floats")]
+    ReadbackLength,
 }
 
 impl GraphicsError {
@@ -195,8 +207,15 @@ pub(crate) struct GraphicsState {
     offscreen: Vec<OffscreenWork>,
     /// The handles the frame's records issued, which later records of the frame may name.
     handles: std::collections::BTreeSet<u64>,
+    /// The renderer lists among the handles.
+    lists: std::collections::BTreeSet<u64>,
     /// The pass immediate-mode draws use; not part of the snapshot.
     active_pass: Option<ActivePass>,
+    /// The pixel reads scripts asked for and nobody took.
+    readbacks: readback::Readbacks,
+    /// The render textures destroyed after a record of the frame named them; the frame's snapshot
+    /// keeps their descriptions.
+    retired_textures: std::collections::BTreeMap<RenderTextureId, WorldRenderTexture>,
 }
 
 impl GraphicsState {
@@ -204,6 +223,9 @@ impl GraphicsState {
     pub(crate) fn begin_frame(&mut self) {
         self.offscreen.clear();
         self.handles.clear();
+        self.lists.clear();
+        self.readbacks.clear();
+        self.retired_textures.clear();
     }
 
     pub(crate) const fn new() -> Self {
@@ -217,7 +239,10 @@ impl GraphicsState {
             global: GlobalShaderState::new(),
             offscreen: Vec::new(),
             handles: std::collections::BTreeSet::new(),
+            lists: std::collections::BTreeSet::new(),
             active_pass: None,
+            readbacks: readback::Readbacks::new(),
+            retired_textures: std::collections::BTreeMap::new(),
         }
     }
 }

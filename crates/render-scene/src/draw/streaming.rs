@@ -1,3 +1,7 @@
+pub(crate) mod casters;
+#[cfg(test)]
+pub(crate) mod legacy_access;
+mod meshes;
 mod observations;
 mod replacement;
 mod residency;
@@ -5,7 +9,11 @@ mod residents;
 #[cfg(test)]
 pub(in crate::draw) mod schedule_tests;
 use super::{GpuLod, SceneGpu};
-use crate::terrain::streaming::{TerrainChunk, select_with_retired};
+use crate::terrain::prepared::ChunkGeometry;
+use crate::terrain::streaming::{TerrainChunk, TerrainSelection, select_with_retired};
+#[cfg(test)]
+pub(crate) use meshes::await_builds;
+use meshes::{Built, MeshBuilds};
 use residents::insert;
 use std::{cell::RefCell, rc::Rc};
 use worldrunner_render_gpu::submission::{Publications, SubmissionAuthority};
@@ -25,6 +33,10 @@ pub(super) struct Streaming {
     frozen: Rc<std::cell::Cell<bool>>,
     replacement: RefCell<Option<replacement::Replacement>>,
     residency: residency::Residency,
+    /// The program geometry of the committed and drawn chunks, and no others.
+    geometry: Rc<ChunkGeometry>,
+    pub(super) builds: RefCell<MeshBuilds>,
+    casters: RefCell<casters::CasterTerrain>,
 }
 #[derive(Debug)]
 struct Prepared {
@@ -39,7 +51,12 @@ struct Prepared {
 impl Streaming {
     pub fn new(scene: RenderScene, root: GpuLod, authority: &SubmissionAuthority) -> Self {
         let terrain = scene.terrain().expect("terrain");
-        let chunk = TerrainChunk::root(terrain, terrain.streaming_policy().expect("policy"));
+        let policy = terrain.streaming_policy().expect("policy");
+        let chunk = TerrainChunk::root(terrain, policy);
+        let builds = MeshBuilds::new(
+            scene.shared_terrain().expect("terrain").clone(),
+            policy.uploads_per_frame(),
+        );
         Self {
             plane_chunks: crate::terrain::planes::chunk_indices(terrain),
             scene,
@@ -51,6 +68,9 @@ impl Streaming {
             frozen: Rc::default(),
             replacement: RefCell::new(None),
             residency: residency::Residency::new(),
+            geometry: Rc::default(),
+            builds: RefCell::new(builds),
+            casters: RefCell::default(),
         }
     }
     fn reuse_prepared(
@@ -104,22 +124,11 @@ impl Streaming {
         self.retired
             .borrow_mut()
             .retain(|(serial, _)| *serial > completed);
-        let terrain = self.scene.terrain().expect("terrain");
         let old = self.committed.borrow();
+        self.release_geometry(&old);
         let current: Vec<_> = old.iter().map(|(key, _)| *key).collect();
-        let retired_count = self
-            .retired
-            .borrow()
-            .iter()
-            .map(|(_, chunks)| chunks.len())
-            .sum();
-        let selection = select_with_retired(
-            terrain,
-            &current,
-            frame.selection_view_projection(),
-            viewport,
-            retired_count,
-        );
+        let mut builds = self.builds.borrow_mut();
+        let selection = self.select(&mut builds, &current, frame, viewport)?;
         #[cfg(test)]
         let uploads = selection.uploads.len();
         let mut residents: Residents = old
@@ -128,14 +137,15 @@ impl Streaming {
             .cloned()
             .collect();
         let mut uploaded = false;
-        for chunk in selection.uploads {
-            if !selection.leaves.contains(&chunk) {
+        for chunk in &selection.uploads {
+            if !selection.leaves.contains(chunk) {
                 continue;
             }
-            let lod = upload_chunk(context, terrain, chunk)?;
-            insert(&mut residents, chunk, lod);
+            let built = builds.get(*chunk).expect("an admitted chunk has a mesh");
+            insert(&mut residents, *chunk, upload_built(context, built)?);
             uploaded = true;
         }
+        builds.update(&selection)?;
         self.residency
             .observe(residents.iter().map(|(key, _)| *key), uploaded);
         *self.drawing.borrow_mut() = Some(Prepared {
@@ -152,10 +162,60 @@ impl Streaming {
         self.stage_residents(context, residents);
         Ok(())
     }
+    /// Ends the geometry's hold on the buffers of every chunk `committed` does not hold. A chunk
+    /// that left residency is counted as retired until its frames complete, and a cancelled
+    /// frame's uploads are gone with its drawing state, but the geometry's hold on their buffers
+    /// is counted nowhere. It ends when the chunk retires and again before uploads are admitted,
+    /// which also covers uploads of a frame that never committed.
+    fn release_geometry(&self, committed: &Residents) {
+        release(&self.geometry, committed);
+    }
+    /// Chooses the next leaves from the meshes built so far. Tests wait for the builds a
+    /// selection asks for, so that a chunk selected in a frame uploads in that frame.
+    fn select(
+        &self,
+        builds: &mut MeshBuilds,
+        current: &[TerrainChunk],
+        frame: &crate::frame::FrameUniform,
+        viewport: [u32; 2],
+    ) -> Result<TerrainSelection, FrameError> {
+        builds.collect()?;
+        let terrain = self.scene.terrain().expect("terrain");
+        let retired = self
+            .retired
+            .borrow()
+            .iter()
+            .map(|(_, chunks)| chunks.len())
+            .sum();
+        let choose = |builds: &MeshBuilds| {
+            select_with_retired(
+                terrain,
+                current,
+                frame.selection_view_projection(),
+                viewport,
+                retired,
+                &|chunk| builds.is_ready(chunk),
+            )
+        };
+        let selection = choose(builds);
+        #[cfg(test)]
+        let selection = {
+            let mut selection = selection;
+            while meshes::awaiting_builds() && !selection.unready.is_empty() {
+                builds.update(&selection)?;
+                builds.wait_idle();
+                builds.collect()?;
+                selection = choose(builds);
+            }
+            selection
+        };
+        Ok(selection)
+    }
     fn stage_residents(&self, context: &PrepareContext<'_>, residents: Residents) {
         let destination = self.committed.clone();
         let retired = self.retired.clone();
         let authority = self.authority.clone();
+        let geometry = self.geometry.clone();
         crate::compositor::publication::stage(context, &self.committed, move || {
             let removed = destination
                 .borrow()
@@ -168,6 +228,7 @@ impl Streaming {
                     .borrow_mut()
                     .push((authority.submitted_serial(), removed));
             }
+            release(&geometry, &residents);
             *destination.borrow_mut() = residents;
         });
     }
@@ -179,6 +240,18 @@ impl Streaming {
             .unwrap()
             .residents
             .iter()
+            .map(|(_, lod)| lod.vertices.clone())
+            .collect()
+    }
+    /// The vertex buffers of the chunks that are committed or being drawn.
+    #[cfg(test)]
+    pub(super) fn resident_buffers(&self) -> Vec<wgpu::Buffer> {
+        let drawing = self.drawing.borrow();
+        let drawn = drawing.iter().flat_map(|prepared| &prepared.residents);
+        self.committed
+            .borrow()
+            .iter()
+            .chain(drawn)
             .map(|(_, lod)| lod.vertices.clone())
             .collect()
     }
@@ -241,50 +314,113 @@ impl Streaming {
                 ) <= threshold
         }))
     }
-    pub fn draw(
+    /// The chunks a draw in the transaction `owner` records: the ones that transaction prepared,
+    /// or the committed ones. `read` also gets the committed ones.
+    fn with_residents<R>(
         &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        instances: &wgpu::Buffer,
-    ) -> super::DrawCount {
-        self.draw_where(pass, instances, |_| true)
-    }
-
-    /// Draws the resident chunks whose world bounds `keep` accepts.
-    pub fn draw_where(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        instances: &wgpu::Buffer,
-        keep: impl Fn(super::visibility::Bounds) -> bool,
-    ) -> super::DrawCount {
-        let terrain = self.scene.terrain().expect("terrain");
-        let mut count = super::DrawCount::default();
+        owner: Option<&Publications>,
+        read: impl FnOnce(&Residents, &Residents) -> R,
+    ) -> R {
         let drawing = self.drawing.borrow();
         let committed = self.committed.borrow();
         let residents = drawing
             .as_ref()
-            .filter(|prepared| {
-                Publications::current()
-                    .is_some_and(|current| current.same_transaction(&prepared.owner))
-            })
+            .filter(|prepared| owner.is_some_and(|owner| owner.same_transaction(&prepared.owner)))
             .map_or(&*committed, |prepared| &prepared.residents);
-        for (chunk, lod) in residents {
-            let [min, max] = crate::terrain::streaming::chunk_bounds(terrain, *chunk);
-            if !keep(super::visibility::Bounds { min, max }) {
-                continue;
+        read(residents, &committed)
+    }
+
+    /// Makes the geometry the program runtime draws for the chunks this transaction uploaded, so
+    /// that the draw only looks it up. Geometry of chunks that left residency was dropped when
+    /// the transaction was prepared, before its uploads were admitted.
+    pub(super) fn prepare_geometry(&self, owner: &Publications, terrain: &super::GpuTerrain) {
+        self.with_residents(Some(owner), |residents, _| {
+            for (chunk, lod) in residents {
+                self.geometry.prepare(
+                    (*chunk, self.plane_chunks[chunk]),
+                    (&lod.vertices, &lod.indices, lod.index_count),
+                    &terrain.instances,
+                );
             }
-            let offset = u64::from(self.plane_chunks[chunk]) * crate::geometry::INSTANCE_STRIDE;
-            pass.set_vertex_buffer(
-                1,
-                instances.slice(offset..offset + crate::geometry::INSTANCE_STRIDE),
-            );
-            pass.set_vertex_buffer(0, lod.vertices.slice(..));
-            pass.set_index_buffer(lod.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..lod.index_count, 0, 0..1);
-            count.draw(1);
-        }
+        });
+    }
+
+    /// Records the resident chunks through a prepared pipeline, one prepared geometry each,
+    /// from the chunk nearest `eye` to the farthest. The chunk's record of the shared instance
+    /// buffer is its geometry's instance range.
+    pub(super) fn draw_prepared<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        (terrain, eye): (&super::GpuTerrain, glam::Vec3),
+    ) -> super::DrawCount {
+        self.record_prepared(pass, pipeline, (terrain, Some(eye)), |_| true)
+    }
+
+    /// Records the resident chunks whose world bounds `keep` accepts, in resident order.
+    pub(super) fn draw_prepared_where<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        terrain: &super::GpuTerrain,
+        keep: impl Fn([glam::Vec3; 2]) -> bool,
+    ) -> super::DrawCount {
+        let scene = self.scene.terrain().expect("terrain");
+        self.record_prepared(pass, pipeline, (terrain, None), |chunk| {
+            keep(crate::terrain::streaming::chunk_bounds(scene, *chunk))
+        })
+    }
+
+    fn record_prepared<P: worldrunner_render_program::runtime::PassCommands>(
+        &self,
+        pass: &mut P,
+        pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
+        (terrain, eye): (&super::GpuTerrain, Option<glam::Vec3>),
+        keep: impl Fn(&TerrainChunk) -> bool,
+    ) -> super::DrawCount {
+        let mut count = super::DrawCount::default();
+        self.with_residents(Publications::current().as_ref(), |residents, _| {
+            let kept: Vec<_> = residents.iter().filter(|(chunk, _)| keep(chunk)).collect();
+            for (chunk, lod) in self.ordered(kept, eye) {
+                self.geometry.draw(
+                    pass,
+                    pipeline,
+                    (*chunk, self.plane_chunks[chunk]),
+                    (&lod.vertices, &lod.indices, lod.index_count),
+                    &terrain.instances,
+                );
+                count.draw(1);
+            }
+        });
         count
     }
+
+    /// `chunks` from the nearest to `eye` to the farthest, or unchanged without an eye.
+    pub(super) fn ordered<'a, T>(
+        &self,
+        chunks: Vec<&'a (TerrainChunk, T)>,
+        eye: Option<glam::Vec3>,
+    ) -> Vec<&'a (TerrainChunk, T)> {
+        let Some(eye) = eye else {
+            return chunks;
+        };
+        let scene = self.scene.terrain().expect("terrain");
+        let keys: Vec<_> = chunks.iter().map(|(chunk, _)| *chunk).collect();
+        crate::terrain::streaming::camera_order(scene, &keys, eye)
+            .into_iter()
+            .map(|index| chunks[index])
+            .collect()
+    }
 }
+/// Keeps the geometry of the chunks `committed` holds, with the buffers it holds them in.
+fn release(geometry: &ChunkGeometry, committed: &Residents) {
+    geometry.retain(|chunk, vertices| {
+        committed
+            .iter()
+            .any(|(key, lod)| key == chunk && lod.vertices == *vertices)
+    });
+}
+
 #[cfg(test)]
 fn record_preparation(prepared: &Prepared, uploads: usize) {
     super::STREAMING_PREPARATIONS.with_borrow_mut(|observations| {
@@ -306,12 +442,16 @@ fn upload_chunk(
     terrain: &worldrunner_render_plan::SceneTerrain,
     chunk: TerrainChunk,
 ) -> Result<GpuLod, FrameError> {
-    let mesh = crate::terrain::chunks::build(terrain, chunk).map_err(|error| {
-        FrameError::FeaturePreparation {
+    upload_built(context, &crate::terrain::chunks::build(terrain, chunk))
+}
+
+fn upload_built(context: &mut PrepareContext<'_>, built: &Built) -> Result<GpuLod, FrameError> {
+    let mesh = built
+        .as_ref()
+        .map_err(|error| FrameError::FeaturePreparation {
             feature: "terrain streaming",
             reason: error.to_string(),
-        }
-    })?;
+        })?;
     Ok(GpuLod {
         transition: None,
         vertices: buffer(
@@ -346,6 +486,14 @@ fn buffer(
     buffer
 }
 impl SceneGpu {
+    /// The vertex buffers the program geometry cache holds for streamed chunks.
+    #[cfg(test)]
+    pub(crate) fn cached_chunk_buffers(&self) -> Vec<wgpu::Buffer> {
+        self.terrain
+            .as_ref()
+            .and_then(|terrain| terrain.streaming.as_ref())
+            .map_or_else(Vec::new, |streaming| streaming.geometry.buffers())
+    }
     /// Changes whenever the casters a shadow cascade would draw change: placements and
     /// caster membership, or the resident terrain chunk buffers. Both inputs only
     /// increase, so the sum never repeats a value a retained cascade was rendered with.
@@ -354,7 +502,12 @@ impl SceneGpu {
             .terrain
             .as_ref()
             .and_then(|terrain| terrain.streaming.as_ref())
-            .map_or(0, |streaming| streaming.residency.generation());
+            .map_or(0, |streaming| {
+                streaming
+                    .residency
+                    .generation()
+                    .wrapping_add(streaming.casters.borrow().generation())
+            });
         self.caster_generation().wrapping_add(terrain)
     }
     pub(crate) fn prepare_frame_geometry(
@@ -367,6 +520,26 @@ impl SceneGpu {
         self.prepare_terrain_geometry(device, encoder, frame, viewport)?;
         self.prepare_sky(device, encoder, frame)?;
         self.prepare_terrain_pages(device, encoder, frame, viewport)
+    }
+    /// Prepares the terrain each shadow cascade casts for its fitted light `matrices`, in the
+    /// frame `encoder` records, before any cascade pass opens.
+    pub(crate) fn prepare_caster_terrain(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        matrices: &[glam::Mat4],
+        map_size: u32,
+    ) -> Result<(), FrameError> {
+        let Some(terrain) = &self.terrain else {
+            return Ok(());
+        };
+        let Some(streaming) = &terrain.streaming else {
+            return Ok(());
+        };
+        let mut context = PrepareContext::new(device, encoder)?;
+        streaming.prepare_casters(&mut context, matrices, map_size)?;
+        context.finish();
+        Ok(())
     }
     pub(crate) fn prepare_terrain_geometry(
         &self,
@@ -382,6 +555,9 @@ impl SceneGpu {
         {
             let mut context = PrepareContext::new(device, encoder)?;
             streaming.prepare(&mut context, frame, viewport)?;
+            if let Some(terrain) = &self.terrain {
+                streaming.prepare_geometry(&context.publications(), terrain);
+            }
             context.finish();
         }
         Ok(())

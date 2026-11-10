@@ -199,7 +199,7 @@ fn map_read(context: &crate::device::GpuContext, buffer: &wgpu::Buffer, side: u3
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     context
         .device()

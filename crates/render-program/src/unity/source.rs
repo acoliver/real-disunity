@@ -76,6 +76,9 @@ pub(crate) trait Source {
 
     /// The structured buffers and unordered access views, which hold the buffers a host binds.
     fn storage_buffers(&self) -> Vec<WantedStorage>;
+
+    /// The storage images, which hold the textures a host binds.
+    fn storage_images(&self) -> Vec<WantedStorage>;
 }
 
 impl Source for StageParameters {
@@ -104,6 +107,13 @@ impl Source for StageParameters {
         match self {
             Self::Program(parameters) => parameters.storage_buffers(),
             Self::Variant(parameters) => parameters.storage_buffers(),
+        }
+    }
+
+    fn storage_images(&self) -> Vec<WantedStorage> {
+        match self {
+            Self::Program(parameters) => parameters.storage_images(),
+            Self::Variant(parameters) => parameters.storage_images(),
         }
     }
 }
@@ -193,6 +203,12 @@ impl Source for ProgramParameters {
         });
         structured.chain(writable).collect()
     }
+
+    /// An editor-style program lists unordered access views without saying what they hold, and
+    /// no storage image has been measured in one.
+    fn storage_images(&self) -> Vec<WantedStorage> {
+        Vec::new()
+    }
 }
 
 fn simple(binding: &Binding, what: &str, class: Class) -> Result<Class, LayoutError> {
@@ -245,7 +261,7 @@ fn variant_class(kind: &ResourceKind) -> Result<Class, LayoutError> {
         }),
         ResourceKind::ConstantBuffer => Ok(Class::ConstantBuffer),
         ResourceKind::Buffer => Ok(Class::StorageBuffer),
-        ResourceKind::StorageImage => Err(unsupported("storage image")),
+        ResourceKind::StorageImage => Ok(Class::StorageImage),
         ResourceKind::Sampler { .. } => Ok(Class::Sampler),
     }
 }
@@ -313,6 +329,18 @@ impl Source for VariantParameters {
         self.bindings
             .iter()
             .filter(|binding| binding.kind == ResourceKind::Buffer)
+            .map(|binding| WantedStorage {
+                at: At::slot(binding.slot),
+                name: ParamName::Named(binding.name.clone()),
+                stages: Some(binding.slot.stages),
+            })
+            .collect()
+    }
+
+    fn storage_images(&self) -> Vec<WantedStorage> {
+        self.bindings
+            .iter()
+            .filter(|binding| binding.kind == ResourceKind::StorageImage)
             .map(|binding| WantedStorage {
                 at: At::slot(binding.slot),
                 name: ParamName::Named(binding.name.clone()),

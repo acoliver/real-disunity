@@ -22,7 +22,7 @@ fn two_storage_bindings_preserve_linear_scene_and_reject_layered_upload() {
     let (device, queue) = limited_device(limits);
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let pipelines = ScenePipelines::new(&device, COLOR_FORMAT);
-    assert!(pipelines.layered.is_none());
+    assert!(!pipelines.layered_terrain_supported());
     let authority = SubmissionAuthority::new(queue);
     let linear = super::super::terrain_scene(1);
     assert!(SceneGpu::upload(&device, &authority, &linear, &pipelines).is_ok());

@@ -44,14 +44,28 @@ impl World {
                     TargetRef::Temporary(_) | TargetRef::CameraTarget | TargetRef::None => Ok(()),
                 }
             }
+            OffscreenWork::SetViewProjection { view, projection } => {
+                if view.iter().chain(projection).all(|value| value.is_finite()) {
+                    Ok(())
+                } else {
+                    Err(GraphicsError::NotFinite.into())
+                }
+            }
             _ => Ok(()),
         }
     }
 
     /// Remembers the handle a record issues.
     pub(super) fn note_handle(&mut self, work: &OffscreenWork) {
-        if let OffscreenWork::Cull { id, .. } = work {
-            self.graphics.handles.insert(*id);
+        match work {
+            OffscreenWork::Cull { id, .. } => {
+                self.graphics.handles.insert(*id);
+            }
+            OffscreenWork::CreateRendererList { id, .. } => {
+                self.graphics.handles.insert(*id);
+                self.graphics.lists.insert(*id);
+            }
+            _ => {}
         }
     }
 

@@ -265,14 +265,14 @@ fn a_signature_describes_one_to_four_attachments_of_a_power_of_two_samples() {
         TargetSignature::new(&colors(1), Some(DEPTH), 1).unwrap(),
         "one single-sample colour attachment is the signature the runtime's own targets have"
     );
-    for count in 1..=4 {
+    for count in 1..=8 {
         let signature = TargetSignature::attachments(&colors(count), Some(DEPTH), 4).unwrap();
         assert_eq!(signature.color_count(), count);
         assert_eq!(signature.samples(), 4);
     }
     assert!(matches!(
-        TargetSignature::attachments(&colors(5), None, 1).unwrap_err(),
-        ProgramError::UnsupportedTarget(UnsupportedTarget::ColorAttachments { count: 5 })
+        TargetSignature::attachments(&colors(9), None, 1).unwrap_err(),
+        ProgramError::UnsupportedTarget(UnsupportedTarget::ColorAttachments { count: 9 })
     ));
     assert!(matches!(
         TargetSignature::attachments(&[], None, 1).unwrap_err(),

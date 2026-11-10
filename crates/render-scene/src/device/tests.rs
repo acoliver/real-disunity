@@ -8,6 +8,12 @@ fn scene_device_requests_adapter_array_capacity_and_preserves_other_limits() {
         actual.max_texture_array_layers,
         available.max_texture_array_layers
     );
+    assert_eq!(
+        actual.max_color_attachment_bytes_per_sample,
+        available.max_color_attachment_bytes_per_sample.min(64)
+    );
+    actual.max_color_attachment_bytes_per_sample =
+        wgpu::Limits::default().max_color_attachment_bytes_per_sample;
     actual.max_texture_array_layers = wgpu::Limits::default().max_texture_array_layers;
     actual.max_sampled_textures_per_shader_stage =
         wgpu::Limits::default().max_sampled_textures_per_shader_stage;

@@ -53,6 +53,10 @@ internal static class LightTests
         Ensure(light.cullingMask == -1 && light.renderingLayerMask == 1 && light.bounceIntensity == 1f, "masks and bounce");
         Ensure(light.colorTemperature == 6570f && !light.useColorTemperature && light.cookieSize == 10f && light.cookie is null, "temperature and cookie");
         Ensure(light.lightmapBakeType == LightmapBakeType.Realtime && light.enabled, "bake type and enabled");
+        var baked = light.bakingOutput;
+        Ensure(!baked.isBaked && baked.lightmapBakeType == LightmapBakeType.Realtime && baked.mixedLightingMode == MixedLightingMode.IndirectOnly
+            && baked.occlusionMaskChannel == -1 && baked.probeOcclusionLightIndex == -1, "a light reports that it was never baked");
+        Expect.Throws<NotSupportedException>(() => light.bakingOutput = baked, "the baking output cannot be set");
         Ensure(light.gameObject.GetComponent<Light>() == light, "GetComponent finds the light");
         light.type = LightType.Spot;
         light.intensity = 3f;

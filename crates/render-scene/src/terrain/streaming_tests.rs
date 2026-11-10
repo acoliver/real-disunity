@@ -20,7 +20,7 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     let terrain = terrain(5);
     let children = root(&terrain).children().unwrap();
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
-    let blocked = select_with_retired(&terrain, &children, matrix, [128; 2], 1);
+    let blocked = select_with_retired(&terrain, &children, matrix, [128; 2], 1, &|_| true);
     let before = crate::draw::geometry_statistics::measure(&blocked.leaves, blocked.observation);
     let mut expected = children;
     expected.sort();
@@ -29,7 +29,7 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     assert_eq!(before.selected_leaves, 1);
     assert_eq!(before.unresolved_leaves, 1);
     assert!(!before.complete);
-    let admitted = select_with_retired(&terrain, &blocked.leaves, matrix, [128; 2], 0);
+    let admitted = select_with_retired(&terrain, &blocked.leaves, matrix, [128; 2], 0, &|_| true);
     let after = crate::draw::geometry_statistics::measure(&admitted.leaves, admitted.observation);
     assert_eq!(admitted.leaves, [root(&terrain)]);
     assert_eq!(admitted.uploads, [root(&terrain)]);
@@ -84,6 +84,32 @@ fn geometry_observations_respect_terminal_and_offscreen_leaves() {
     assert!(stats.complete);
     assert_eq!(stats.selected_leaves, 1);
     assert_eq!(stats.drawn_at_detail, 1);
+}
+
+#[test]
+fn camera_order_draws_the_nearest_chunk_first_and_keeps_order_on_equal_distance() {
+    let terrain = terrain(5);
+    let mut chunks = root(&terrain).children().unwrap();
+    chunks.sort();
+    let bounds: Vec<_> = chunks.iter().map(|c| chunk_bounds(&terrain, *c)).collect();
+    // Above the far corner of the last child: that child is nearest, the first is farthest.
+    let corner = bounds[3][1];
+    let order = camera_order(&terrain, &chunks, corner + Vec3::Z * 10.0);
+    assert_eq!(order[0], 3);
+    assert_eq!(order[3], 0);
+    let distance = |index: usize| {
+        let eye = corner + Vec3::Z * 10.0;
+        eye.clamp(bounds[index][0], bounds[index][1]).distance(eye)
+    };
+    assert!(
+        order
+            .windows(2)
+            .all(|pair| distance(pair[0]) <= distance(pair[1]))
+    );
+    // Above the shared centre every child touches the eye column at the same distance.
+    let centre = (bounds[0][1] + bounds[3][0]) / 2.0;
+    let centre = Vec3::new(bounds[0][1].x, bounds[0][1].y, centre.z + 100.0);
+    assert_eq!(camera_order(&terrain, &chunks, centre), [0, 1, 2, 3]);
 }
 
 use super::streaming::*;
@@ -341,4 +367,264 @@ fn upload_budget_and_hysteresis_preserve_complete_leaf_sets() {
             leaves = plan.leaves;
         }
     }
+}
+
+fn budgeted(uploads: u32) -> SceneTerrain {
+    terrain(1000).with_streaming_policy(Some(
+        TerrainStreamingPolicy::new(8, 1000, uploads, 12000).unwrap(),
+    ))
+}
+
+#[test]
+fn unbuilt_children_keep_the_parent_and_are_requested_in_admission_order() {
+    let terrain = budgeted(4);
+    let leaves = [root(&terrain)];
+    let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
+    let built = select(&terrain, &leaves, matrix, [128; 2]);
+    let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| false);
+    assert_eq!(built.uploads.len(), 4);
+    assert_eq!(waiting.leaves, leaves);
+    assert!(waiting.uploads.is_empty());
+    assert!(waiting.held.is_empty());
+    assert_eq!(waiting.unready, built.uploads);
+    assert_eq!(waiting.observation.drawn_coarse, 1);
+    assert_eq!(waiting.observation.unresolved_leaves, 4);
+}
+
+#[test]
+fn one_unbuilt_child_holds_back_the_whole_replacement() {
+    let terrain = budgeted(4);
+    let leaves = [root(&terrain)];
+    let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
+    let children = select(&terrain, &leaves, matrix, [128; 2]).uploads;
+    let missing = children[3];
+    let ready = |chunk: TerrainChunk| chunk != missing;
+    let plan = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &ready);
+    assert_eq!(plan.leaves, leaves);
+    assert!(plan.uploads.is_empty());
+    assert_eq!(plan.unready, [missing]);
+    assert_eq!(plan.held, children[..3]);
+}
+
+#[test]
+fn built_children_are_admitted_as_before() {
+    let terrain = budgeted(4);
+    let leaves = [root(&terrain)];
+    let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
+    let expected = select(&terrain, &leaves, matrix, [128; 2]);
+    let plan = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| true);
+    assert_eq!(plan.leaves, expected.leaves);
+    assert_eq!(plan.uploads, expected.uploads);
+    assert!(plan.unready.is_empty() && plan.held.is_empty());
+}
+
+#[test]
+fn unbuilt_merge_keeps_the_children_until_the_parent_is_built() {
+    let terrain = terrain(5);
+    let children = root(&terrain).children().unwrap();
+    let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
+    let waiting = select_with_retired(&terrain, &children, matrix, [128; 2], 0, &|_| false);
+    let mut expected = children.clone();
+    expected.sort();
+    assert_eq!(waiting.leaves, expected);
+    assert!(waiting.uploads.is_empty());
+    assert_eq!(waiting.unready, [root(&terrain)]);
+    let built = select_with_retired(&terrain, &children, matrix, [128; 2], 0, &|_| true);
+    assert_eq!(built.leaves, [root(&terrain)]);
+    assert_eq!(built.uploads, [root(&terrain)]);
+}
+
+#[test]
+fn requests_stay_within_the_budget_that_would_admit_the_uploads() {
+    let matrix = ortho(16.0, [16.0, 32.0, 100.0]);
+    let terrain = budgeted(4);
+    let mut leaves = vec![root(&terrain)];
+    for _ in 0..3 {
+        leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
+    }
+    for retired in [0, 995, 1000] {
+        let built = select_with_retired(&terrain, &leaves, matrix, [128; 2], retired, &|_| true);
+        let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], retired, &|_| false);
+        assert!(waiting.unready.len() <= 4, "{}", waiting.unready.len());
+        assert_eq!(waiting.unready, built.uploads);
+        assert_eq!(waiting.leaves, leaves);
+    }
+    let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
+    assert!(blocked.unready.is_empty());
+}
+
+#[test]
+fn replacements_past_the_upload_budget_are_prefetched_without_being_admitted() {
+    let matrix = ortho(16.0, [16.0, 32.0, 100.0]);
+    let terrain = budgeted(4);
+    let mut leaves = vec![root(&terrain)];
+    for _ in 0..3 {
+        leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
+    }
+    let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| false);
+    assert_eq!(waiting.unready.len(), 4);
+    assert_eq!(waiting.prefetch.len(), 4);
+    assert!(
+        waiting
+            .prefetch
+            .iter()
+            .all(|chunk| !waiting.unready.contains(chunk))
+    );
+    assert_eq!(waiting.leaves, leaves);
+    let prefetched = waiting.prefetch.clone();
+    let ready = |chunk: TerrainChunk| prefetched.contains(&chunk);
+    let deferred = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &ready);
+    assert_eq!(deferred.unready, waiting.unready);
+    assert!(deferred.prefetch.is_empty());
+    assert_eq!(deferred.held, prefetched);
+    assert!(deferred.uploads.is_empty());
+    let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
+    assert!(blocked.prefetch.is_empty());
+}
+
+/// Every chunk of the quadtree down to `depth` levels below `node`.
+fn nodes(node: TerrainChunk, depth: u32, out: &mut Vec<TerrainChunk>) {
+    out.push(node);
+    if depth > 0
+        && let Some(children) = node.children()
+    {
+        for child in children {
+            nodes(child, depth - 1, out);
+        }
+    }
+}
+
+#[test]
+fn nested_lookup_agrees_with_scanning_every_chunk() {
+    let terrain = terrain(1000);
+    let mut queries = Vec::new();
+    nodes(root(&terrain), 4, &mut queries);
+    queries.extend((0..40u32).map(|i| TerrainChunk {
+        minimum: [(i * 7) % 33, (i * 13) % 33],
+        maximum: [(i * 7) % 33 + i % 9, (i * 13) % 33 + i % 5],
+        stride: 1 << (i % 4),
+    }));
+    let mut sets = vec![queries.clone()];
+    for (width, eye) in [(16.0, [16.0, 32.0, 100.0]), (64.0, [4.0, 60.0, 100.0])] {
+        let mut leaves = vec![root(&terrain)];
+        for _ in 0..4 {
+            leaves = select(&terrain, &leaves, ortho(width, eye), [128; 2]).leaves;
+            sets.push(leaves.clone());
+        }
+    }
+    for set in &sets {
+        let nested = Nested::new(set);
+        for query in &queries {
+            let scanned = set.iter().any(|chunk| {
+                chunk != query
+                    && (0..2).all(|axis| {
+                        query.minimum[axis] <= chunk.minimum[axis]
+                            && query.maximum[axis] >= chunk.maximum[axis]
+                    })
+            });
+            assert_eq!(nested.inside(*query), scanned, "{query:?}");
+            assert_eq!(nested.has(*query), set.contains(query), "{query:?}");
+        }
+    }
+}
+
+fn covered_samples(leaves: &[TerrainChunk]) -> std::collections::BTreeMap<[u32; 2], usize> {
+    let mut cells = std::collections::BTreeMap::new();
+    for leaf in leaves {
+        for y in leaf.minimum[1]..leaf.maximum[1] {
+            for x in leaf.minimum[0]..leaf.maximum[0] {
+                *cells.entry([x, y]).or_insert(0) += 1;
+            }
+        }
+    }
+    cells
+}
+
+#[test]
+fn caster_leaves_tile_the_grid_and_coarsen_with_a_smaller_map() {
+    let terrain = terrain(1000);
+    let whole = root(&terrain);
+    let light = ortho(48.0, [16.0, 16.0, 100.0]);
+    let finest = converged(&terrain, light, 1 << 16);
+    let mut previous: Option<Vec<TerrainChunk>> = None;
+    for size in [2048, 512, 128, 32] {
+        let leaves = caster_leaves(&terrain, light, size, &finest);
+        let cells = covered_samples(&leaves);
+        let expected =
+            (whole.maximum[0] - whole.minimum[0]) * (whole.maximum[1] - whole.minimum[1]);
+        assert_eq!(cells.len(), expected as usize, "size {size} leaves a hole");
+        assert!(
+            cells.values().all(|count| *count == 1),
+            "size {size} overlaps"
+        );
+        if let Some(finer) = &previous {
+            assert!(leaves.len() <= finer.len(), "size {size}");
+            assert!(
+                leaves.iter().all(|leaf| finer.iter().any(|fine| {
+                    (0..2).all(|axis| {
+                        leaf.minimum[axis] <= fine.minimum[axis]
+                            && leaf.maximum[axis] >= fine.maximum[axis]
+                    })
+                })),
+                "size {size} refines where a larger map did not"
+            );
+        }
+        previous = Some(leaves);
+    }
+    assert!(previous.unwrap().len() < caster_leaves(&terrain, light, 2048, &finest).len());
+}
+
+#[test]
+fn caster_leaves_match_a_camera_selection_converged_at_the_same_size() {
+    let terrain = terrain(1000);
+    let light = ortho(48.0, [16.0, 16.0, 100.0]);
+    let mut leaves = vec![root(&terrain)];
+    for _ in 0..64 {
+        let next = select(&terrain, &leaves, light, [512, 512]);
+        if next.uploads.is_empty() {
+            break;
+        }
+        leaves = next.leaves;
+    }
+    assert_eq!(
+        caster_leaves(&terrain, light, 512, &converged(&terrain, light, 1 << 16)),
+        leaves
+    );
+}
+
+/// The camera leaves a selection converges to from the root at `size` pixels square.
+fn converged(terrain: &SceneTerrain, matrix: Mat4, size: u32) -> Vec<TerrainChunk> {
+    let mut leaves = vec![root(terrain)];
+    for _ in 0..64 {
+        let next = select(terrain, &leaves, matrix, [size, size]);
+        if next.uploads.is_empty() {
+            break;
+        }
+        leaves = next.leaves;
+    }
+    leaves
+}
+
+#[test]
+fn caster_leaves_are_never_finer_than_the_camera_leaves() {
+    let terrain = terrain(1000);
+    let light = ortho(48.0, [16.0, 16.0, 100.0]);
+    let camera = converged(&terrain, ortho(64.0, [32.0, 32.0, 100.0]), 128);
+    let leaves = caster_leaves(&terrain, light, 2048, &camera);
+    let unclamped = caster_leaves(&terrain, light, 2048, &converged(&terrain, light, 1 << 16));
+    assert!(
+        leaves.len() < unclamped.len(),
+        "{} of {}",
+        leaves.len(),
+        unclamped.len()
+    );
+    for leaf in &leaves {
+        assert!(
+            !camera.iter().any(|coarse| coarse != leaf
+                && (0..2).all(|axis| coarse.minimum[axis] <= leaf.minimum[axis]
+                    && coarse.maximum[axis] >= leaf.maximum[axis])),
+            "{leaf:?} is finer than a camera leaf"
+        );
+    }
+    assert_eq!(covered_samples(&leaves), covered_samples(&camera));
 }

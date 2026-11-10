@@ -1,6 +1,6 @@
 //! Builds the worlds, snapshots and resources the tests map.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use glam::{Quat, Vec3};
 use worldrunner_world_simulation::graphics::{
@@ -14,7 +14,7 @@ use worldrunner_world_simulation::{
     ObjectHandle, World, WorldSettings,
 };
 
-use super::super::defaults::DefaultTexture;
+use super::super::defaults::{DefaultTexture, ShaderFill};
 use super::super::frame::{Available, ShaderInfo};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
@@ -31,6 +31,8 @@ pub fn render_texture(world: &mut World, size: [u32; 2]) -> RenderTextureId {
             depth_bits: 0,
             mip_count: 1,
             srgb: false,
+            dimension: 2,
+            volume_depth: 1,
             sampler: WorldSampler::default(),
             generation: 0,
         })
@@ -149,8 +151,10 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
                     *id,
                     ShaderInfo {
                         passes,
+                        light_modes: Vec::new(),
                         queue: 2000,
                         texture_defaults: Vec::new(),
+                        fill: ShaderFill::default(),
                     },
                 )
             })
@@ -158,6 +162,8 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
         meshes: snapshot.renderers.iter().map(|r| r.mesh).collect(),
         textures: textures.iter().copied().collect::<BTreeSet<_>>(),
         default_textures: DefaultTexture::ALL.into_iter().collect(),
+        bounds: BTreeMap::new(),
+        test_variants: false,
     }
 }
 

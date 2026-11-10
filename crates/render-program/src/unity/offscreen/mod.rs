@@ -13,9 +13,12 @@ mod error;
 mod finish;
 mod format;
 pub mod frame;
+mod list_steps;
 mod meshes;
 mod plan;
+mod probe;
 mod readback;
+mod resample;
 mod steps;
 mod textures;
 mod tracker;
@@ -34,6 +37,7 @@ use crate::budget::Reservation;
 use crate::error::ProgramError;
 use crate::ids::{CameraId, MeshId, ShaderId, TextureId};
 use crate::offscreen::AdmittedOffscreen;
+use crate::program::GraphicsProgram;
 use crate::resources::{BufferHandle, Pins, TextureHandle};
 use crate::runtime::ProgramRuntime;
 use crate::sampler::SamplerCache;
@@ -49,7 +53,12 @@ use textures::TextureTable;
 use tracker::Tracker;
 
 pub use error::OffscreenError;
+pub use probe::{
+    CONSTANT_COLOR, CameraProbe, ClipCounts, MemberOrigin, Origin, PassSetup, ProgramProbe,
+    SampledTexture, StateVariant, TriangleCounts,
+};
 pub use readback::PendingImage;
+pub use steps::DRAW_LAYERS;
 
 /// What offscreen work keeps between frames: shaders, meshes, textures, programs and pipelines.
 pub struct OffscreenState {
@@ -60,6 +69,8 @@ pub struct OffscreenState {
     /// The constants inputs a mesh has no channel for read, made when the first frame is built.
     defaults: Option<DefaultBuffers>,
     samplers: SamplerCache,
+    /// The built-in program of a blit between textures of other sizes or formats.
+    resample: Option<GraphicsProgram>,
     draws: HashMap<blake3::Hash, CheckedDraw>,
     /// The buffers the frame's constants are uploaded into, one for each chunk, with their sizes.
     constants: Vec<(BufferHandle, u64)>,
@@ -85,6 +96,7 @@ impl OffscreenState {
             meshes: MeshTable::default(),
             defaults: None,
             samplers: SamplerCache::new(runtime.device()),
+            resample: None,
             draws: HashMap::new(),
             constants: Vec::new(),
             constants_limit: None,
@@ -137,6 +149,36 @@ impl OffscreenState {
         self.meshes.set(runtime, id, mesh)
     }
 
+    /// Gives back the storage of the uploaded source texture `id` and returns its bytes, or `None`
+    /// for an id that names no uploaded source. The storage counts against the budget until the
+    /// GPU has finished with it and the runtime collects it. A render texture is released by
+    /// [`retain_render_textures`](Self::retain_render_textures), not here.
+    pub fn release_source_texture(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        id: TextureId,
+    ) -> Option<u64> {
+        self.textures.release_source(runtime, id)
+    }
+
+    /// Gives back the storage of mesh `id` and returns its bytes, or `None` for a mesh the state
+    /// does not hold. The storage counts against the budget until the runtime collects it.
+    pub fn release_mesh(&mut self, runtime: &mut ProgramRuntime, id: MeshId) -> Option<u64> {
+        self.meshes.release(runtime, id)
+    }
+
+    /// The bytes the render textures of `specs` would add to the runtime's storage: those the
+    /// state has not made, or made from another spec. A host that must make room asks before it
+    /// builds the frame.
+    #[must_use]
+    pub fn new_render_texture_bytes(
+        &self,
+        runtime: &ProgramRuntime,
+        specs: &[frame::RenderTextureSpec],
+    ) -> u64 {
+        self.textures.new_render_bytes(runtime, specs)
+    }
+
     /// The runtime texture behind an id, for a draw that samples it after the offscreen work: the
     /// color of a render texture, or its depth when it has no color.
     #[must_use]
@@ -145,6 +187,84 @@ impl OffscreenState {
             .get(id)
             .ok()
             .map(textures::TextureInfo::primary)
+    }
+
+    /// The render textures the state holds and the bytes each takes in the runtime's budget, in
+    /// id order. A host that must make room chooses among them.
+    #[must_use]
+    pub fn render_textures_held(&self) -> Vec<(TextureId, u64)> {
+        self.textures.render_held()
+    }
+
+    /// Gives back the storage of the render texture `id` and returns its bytes, or `None` for an id
+    /// that names no render texture the state holds. The next frame that names the texture makes
+    /// it again, empty. The storage counts against the budget until the GPU has finished with it
+    /// and the runtime collects it.
+    pub fn release_render_texture(
+        &mut self,
+        runtime: &mut ProgramRuntime,
+        id: TextureId,
+    ) -> Option<u64> {
+        self.textures.release_render(runtime, id)
+    }
+
+    /// The bytes of staging a read of the first mip of texture `id` takes from the budget, or
+    /// `None` for an id the state does not hold and for a format that cannot be copied by byte.
+    #[must_use]
+    pub fn read_bytes(&self, id: TextureId) -> Option<u64> {
+        self.textures.read_bytes(id)
+    }
+
+    /// Marks render textures as ones a kernel binds as storage images. A marked texture is made
+    /// with storage binding usage when the device binds its color format as a storage image, and
+    /// is made again, empty, by the first frame that names it after it was marked while it had
+    /// none. A texture stays marked, so later frames keep it. A marked texture whose format the
+    /// device cannot bind is made without storage binding, as [`texture_storage`](Self::texture_storage)
+    /// shows.
+    pub fn bind_as_storage(&mut self, ids: impl IntoIterator<Item = TextureId>) {
+        self.textures.bind_as_storage(ids);
+    }
+
+    /// The color format of the render texture `id` and whether it allows storage binding, or
+    /// `None` for an id that names no texture the state holds. A depth-only render texture
+    /// reports its depth format.
+    #[must_use]
+    pub fn texture_storage(&self, id: TextureId) -> Option<(wgpu::TextureFormat, bool)> {
+        self.textures
+            .get(id)
+            .ok()
+            .map(|info| (info.format, info.storage))
+    }
+
+    /// The dimension of the view a draw or a kernel samples the texture through: the one its
+    /// spec names, 2D for an uploaded source. `None` for an id that names no texture the state
+    /// holds.
+    #[must_use]
+    pub fn texture_view_dimension(&self, id: TextureId) -> Option<wgpu::TextureViewDimension> {
+        let info = self.textures.get(id).ok()?;
+        info.dimension.view_dimension().ok()
+    }
+
+    /// The dimension of the view a kernel binds the texture as a storage image through. It is
+    /// the sampled view, except that a cube or a cube array is written face by face through a 2D
+    /// array of their faces, since a storage image has no cube view. `None` for an id that names
+    /// no texture the state holds.
+    #[must_use]
+    pub fn storage_view_dimension(&self, id: TextureId) -> Option<wgpu::TextureViewDimension> {
+        let view = self.texture_view_dimension(id)?;
+        Some(match view {
+            wgpu::TextureViewDimension::Cube | wgpu::TextureViewDimension::CubeArray => {
+                wgpu::TextureViewDimension::D2Array
+            }
+            other => other,
+        })
+    }
+
+    /// The dimension, with its layers or depth, the state made the texture `id` with, or `None`
+    /// for an id that names no texture the state holds.
+    #[must_use]
+    pub fn texture_dimension(&self, id: TextureId) -> Option<frame::RenderDimension> {
+        self.textures.get(id).ok().map(|info| info.dimension)
     }
 
     /// Gives back the storage of the render textures that `live` does not name. A render texture
@@ -198,6 +318,7 @@ impl OffscreenState {
                 shaders: &mut self.shaders,
                 programs: &mut self.programs,
                 samplers: &mut self.samplers,
+                resample: &mut self.resample,
                 textures: &self.textures,
                 meshes: &self.meshes,
                 defaults,
@@ -206,9 +327,14 @@ impl OffscreenState {
                 missing: &mut missing,
                 counts: &mut counts,
                 shares: &mut shares,
+                probing: false,
+                constant_fragment: false,
             };
+            // A 3D texture is for kernels; only a record that names it is refused.
             for spec in &frame.render_textures {
-                services.import(spec.id)?;
+                if !spec.dimension.is_volume() {
+                    services.import(spec.id)?;
+                }
             }
             let steps = steps::plan_steps(&mut services, frame)?;
             (steps, later_reads(&mut services, frame)?)
@@ -446,6 +572,17 @@ pub struct CameraDraws {
     pub missing_channel: usize,
 }
 
+/// What one draw list recorded and left out. The draws left out are counted as a camera's are.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListDraws {
+    /// The color texture the list drew into, or its depth texture when it has no color.
+    pub target: TextureId,
+    pub drawn: usize,
+    pub unmatched: usize,
+    pub missing_texture: usize,
+    pub missing_channel: usize,
+}
+
 /// Why one camera render left draws out: the texture properties no layer named and the
 /// (source channel, shader input) pairs its meshes lacked, each with the draws it cost.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -475,6 +612,10 @@ pub struct CameraPassReport {
     pub states: Vec<(String, usize)>,
     /// The names of the values no layer gave, which the draws read as zero or the pass's default.
     pub without_value: Vec<String>,
+    /// How the target was set up: its viewport and what the pass clears.
+    pub setup: PassSetup,
+    /// What the draws did, by program, when the host asked about this render; else empty.
+    pub programs: Vec<ProgramProbe>,
 }
 
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
@@ -564,6 +705,12 @@ impl OffscreenOperations {
     #[must_use]
     pub fn camera_draws(&self) -> Vec<CameraDraws> {
         self.counts.cameras.clone()
+    }
+
+    /// What each draw list recorded and left out, in call order.
+    #[must_use]
+    pub fn list_draws(&self) -> Vec<ListDraws> {
+        self.counts.lists.clone()
     }
 
     /// Why each camera render left draws out, in the order of [`camera_draws`](Self::camera_draws).

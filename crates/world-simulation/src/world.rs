@@ -259,6 +259,7 @@ impl World {
             | ComponentDesc::GUILayer { .. }
             | ComponentDesc::FlareLayer { .. }
             | ComponentDesc::Animator { .. }
+            | ComponentDesc::Skybox { .. }
             | ComponentDesc::ParticleSystem
             | ComponentDesc::SortingGroup(_) => self.owns_unretired(owner, desc),
             #[cfg(feature = "ui")]

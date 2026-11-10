@@ -135,6 +135,15 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_setup_camera", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_setup_camera(ulong world, ulong camera, float* view, float* projection, DisunityTargetRef* target);
         /// <summary>
+        ///  Records the view and projection that the draws after it use: 16 floats each, column-major,
+        ///  as a camera setup carries them. It names no camera and leaves the bound targets as they are.
+        ///
+        ///  # Safety
+        ///  `view` and `projection` are readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_view_projection", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_view_projection(ulong world, float* view, float* projection);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety
@@ -225,6 +234,67 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_shader_property_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_shader_property_read(ulong world, uint scope, ulong target, byte* name, uint length, DisunityPropertyRead* output);
+        /// <summary>
+        ///  Records a read of the `width` by `height` texels of mip 0 of a render texture whose bottom
+        ///  left texel is at (`x`, `y`), and writes the id of the request to `request`. The rectangle must
+        ///  be non-empty and inside the texture. The host answers with `width * height * 4` floats (red,
+        ///  green, blue, alpha per texel, bottom row first, as the texture stores them).
+        ///
+        ///  # Safety
+        ///  `request` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_read_pixels", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_read_pixels(ulong world, ulong texture, uint x, uint y, uint width, uint height, ulong* request);
+        /// <summary>
+        ///  Writes the texels the host read for a request: `count` floats, which must be the request's
+        ///  `width * height * 4`. A rejected call changes nothing and leaves the request open.
+        ///
+        ///  # Safety
+        ///  `data` is readable for `count` floats, or null when `count` is zero.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_pixels_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_pixels_write(ulong world, ulong request, float* data, uint count);
+        /// <summary>
+        ///  Takes the texels the host wrote for a request into `data` (`capacity` floats) and writes how
+        ///  many floats that is to `written`; taking closes the request. When the host wrote nothing,
+        ///  or the request is unknown or taken already, it writes 0 and succeeds. A `capacity` below the
+        ///  answer is rejected and leaves the answer for a retry.
+        ///
+        ///  # Safety
+        ///  `data` is writable for `capacity` floats, or null when `capacity` is zero; `written` is
+        ///  writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_pixels_take", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_pixels_take(ulong world, ulong request, float* data, uint capacity, uint* written);
+        /// <summary>
+        ///  Creates a list that draws the renderers the culling result `desc.cull` kept, with the pass tags
+        ///  at `tags` (`desc.tags_len` bytes: names joined by zero bytes, 1 to 16 names), and writes the
+        ///  list id to `list`. A rejected call writes nothing and records nothing.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `tags` is readable for `desc.tags_len` bytes, or null when
+        ///  the length is zero; `list` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_renderer_list_create_draw", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_renderer_list_create_draw(ulong world, DisunityDrawRendererList* desc, byte* tags, ulong* list);
+        /// <summary>
+        ///  Creates a list of the shadow casters the culling result `desc.cull` kept for one light, with
+        ///  the `desc.plane_count` split culling planes at `planes` (4 floats each: a normal and a
+        ///  distance), and writes the list id to `list`. A rejected call writes nothing and records
+        ///  nothing.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `planes` is readable for `desc.plane_count` planes of 4
+        ///  floats, or null when the count is zero; `list` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_renderer_list_create_shadow", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_renderer_list_create_shadow(ulong world, DisunityShadowRendererList* desc, float* planes, ulong* list);
+        /// <summary>
+        ///  Records that the renderer list `list`, created earlier in the frame, draws into the bound
+        ///  targets from here.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_renderer_list", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_renderer_list(ulong world, ulong list);
         /// <summary>
         ///  Writes the length of the snapshot to `length`. With a zero `capacity` that is all it does.
         ///  Otherwise `capacity` bytes at `buffer` must hold the snapshot: it is copied there and the

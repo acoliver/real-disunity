@@ -22,7 +22,7 @@ handle!(
     BufferHandle
 );
 handle!(
-    /// A 2D texture the runtime owns.
+    /// A texture the runtime owns.
     TextureHandle
 );
 handle!(
@@ -74,6 +74,8 @@ pub(crate) struct BufferEntry {
 pub(crate) struct TextureEntry {
     pub(crate) texture: wgpu::Texture,
     pub(crate) view: wgpu::TextureView,
+    /// How `view` was made, which a view cannot be asked.
+    pub(crate) dimension: wgpu::TextureViewDimension,
 }
 
 pub(crate) struct TargetEntry {

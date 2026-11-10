@@ -158,22 +158,25 @@ fn a_binding_naming_other_stages_fails_the_layout_by_a_named_cause() {
 
 #[test]
 fn an_unsupported_binding_fails_the_layout_by_a_named_cause() {
-    let image = ResourceBinding {
+    let multisampled = ResourceBinding {
         name: "Image".to_owned(),
         slot: DescriptorSlot {
             binding: 4,
             ..slot(VERTEX)
         },
-        kind: ResourceKind::StorageImage,
+        kind: ResourceKind::Texture {
+            sampler: None,
+            dimension: 5,
+        },
     };
     let report = report_of(
-        &parameters(vec![block_binding(VERTEX), image]),
+        &parameters(vec![block_binding(VERTEX), multisampled]),
         &[vertex_stage()],
     );
     assert_eq!(report.layouts, 0);
     assert_eq!(
         report.layout_failures.keys().collect::<Vec<_>>(),
-        ["unsupported parameter: storage image"]
+        ["multisampled texture, code 5"]
     );
 }
 

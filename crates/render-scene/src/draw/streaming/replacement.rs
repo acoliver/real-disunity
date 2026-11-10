@@ -52,6 +52,10 @@ impl Streaming {
             .filter(|(chunk, _)| compatible && !remaining.contains(chunk))
             .cloned()
             .collect();
+        let builds = super::MeshBuilds::new(
+            scene.shared_terrain().expect("terrain").clone(),
+            policy.uploads_per_frame(),
+        );
         *old.drawing.borrow_mut() = None;
         old.frozen.set(true);
         Some(Self {
@@ -64,6 +68,9 @@ impl Streaming {
             authority: old.authority.clone(),
             frozen: Rc::default(),
             residency: super::residency::Residency::new(),
+            geometry: Rc::default(),
+            builds: RefCell::new(builds),
+            casters: RefCell::default(),
             replacement: RefCell::new(Some(Replacement {
                 remaining: Rc::new(RefCell::new(remaining)),
                 old: old.committed.clone(),

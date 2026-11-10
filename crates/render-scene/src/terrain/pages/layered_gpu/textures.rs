@@ -12,7 +12,7 @@ pub(crate) const ARRAY_LIMIT: u32 = 7;
 #[derive(Debug)]
 pub(crate) struct ResidentSource {
     pub buffers: Vec<wgpu::Buffer>,
-    pub(super) textures: Vec<wgpu::Texture>,
+    pub textures: Vec<wgpu::Texture>,
     pub views: Vec<wgpu::TextureView>,
     pub samplers: [wgpu::Sampler; 2],
     checked_samplers: [CheckedSampler; 2],
@@ -313,28 +313,6 @@ impl LayeredGpuSource {
             .collect();
         Ok((textures, samplers))
     }
-}
-
-pub(crate) fn draw_layout() -> Vec<wgpu::BindGroupLayoutEntry> {
-    let mut entries: Vec<_> = (0..ARRAY_LIMIT)
-        .map(|index| wgpu::BindGroupLayoutEntry {
-            binding: 11 + index,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        })
-        .collect();
-    entries.extend((21..23).map(|binding| wgpu::BindGroupLayoutEntry {
-        binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
-        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-        count: None,
-    }));
-    entries
 }
 
 #[cfg(test)]

@@ -13,7 +13,6 @@ impl SceneGpu {
         &mut self,
         device: &wgpu::Device,
         authority: &SubmissionAuthority,
-        pipelines: &crate::renderer::ScenePipelines,
         scene: &worldrunner_render_plan::RenderScene,
     ) -> Result<(), super::DrawError> {
         let Some(policy) = scene
@@ -25,7 +24,6 @@ impl SceneGpu {
         self.enable_terrain_pages(
             device,
             authority,
-            pipelines,
             TerrainPageSource {
                 settings: policy.settings(),
                 slots: policy.slots(),
@@ -76,7 +74,6 @@ impl SceneGpu {
         &mut self,
         device: &wgpu::Device,
         authority: &SubmissionAuthority,
-        pipelines: &crate::renderer::ScenePipelines,
         source: TerrainPageSource,
     ) -> Result<(), ConfigurationError<DriverAllocationError>> {
         let terrain = self.terrain.as_mut().ok_or(ConfigurationError::Invalid(
@@ -95,38 +92,6 @@ impl SceneGpu {
             terrain.layered.clone(),
         )?;
         pages.elevation = terrain.page_elevation;
-        let view = pages.cache.texture_view();
-        for table in &pages.tables {
-            pages.groups.push(super::resources::terrain_bind_group(
-                device,
-                if terrain.layered.is_some() {
-                    &pipelines
-                        .layered
-                        .as_ref()
-                        .expect("validated layered device")
-                        .cached_layout
-                } else {
-                    &pipelines.cached_terrain_layout
-                },
-                &terrain.sampler,
-                (
-                    &terrain.uniform,
-                    &terrain.retained[3],
-                    &terrain.retained[..3],
-                    terrain
-                        .layered
-                        .as_ref()
-                        .map(|source| {
-                            source
-                                .resident(device, authority.queue())
-                                .expect("source admitted")
-                        })
-                        .as_deref(),
-                    &terrain.triangle_source,
-                ),
-                Some((&view, table)),
-            ));
-        }
         terrain.pages = Some(std::cell::RefCell::new(pages));
         Ok(())
     }

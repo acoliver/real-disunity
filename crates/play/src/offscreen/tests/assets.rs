@@ -8,7 +8,9 @@ use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_render_program::unity::offscreen::frame::{ChannelFormat, MeshIndices};
 use worldrunner_world_simulation::graphics::WorldSampler;
 
-use super::super::assets::{MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of};
+use super::super::assets::{
+    Emptiness, MeshError, mesh_of, sampler_of_stored, sampler_of_world, texture_of,
+};
 
 fn channel(number: u32, dimension: u32, data: Vec<f32>) -> StoredChannel {
     StoredChannel {
@@ -157,12 +159,100 @@ fn a_range_of_another_topology_is_refused_by_the_name_of_the_topology() {
     assert!(mesh_of(&empty).is_ok());
 }
 
+fn empty_of(stored: &MeshChannels) -> Emptiness {
+    match mesh_of(stored).unwrap_err() {
+        MeshError::Empty(empty) => empty,
+        other => panic!("an empty mesh, not {other:?}"),
+    }
+}
+
+#[test]
+fn a_mesh_with_nothing_to_draw_is_empty_by_what_it_holds() {
+    // Vertices and one sub-mesh record with no indices.
+    let mut no_indices = mesh();
+    no_indices.indices.clear();
+    no_indices.ranges = vec![triangles(0, 0)];
+    assert_eq!(
+        empty_of(&no_indices),
+        Emptiness {
+            vertices: true,
+            indices: false,
+            ranges: 1,
+            topologies: vec![0],
+        }
+    );
+    // Vertices alone: no indices and no sub-mesh records.
+    let mut bare = mesh();
+    bare.indices.clear();
+    bare.ranges.clear();
+    assert_eq!(
+        empty_of(&bare),
+        Emptiness {
+            vertices: true,
+            indices: false,
+            ranges: 0,
+            topologies: Vec::new(),
+        }
+    );
+    // Indices that no sub-mesh reads: two empty records, one of lines.
+    let mut unread = mesh();
+    unread.ranges = vec![
+        triangles(0, 0),
+        MeshRange {
+            topology: 2,
+            ..triangles(0, 0)
+        },
+    ];
+    assert_eq!(
+        empty_of(&unread),
+        Emptiness {
+            vertices: true,
+            indices: true,
+            ranges: 2,
+            topologies: vec![0, 2],
+        }
+    );
+    // No vertices at all.
+    let mut none = mesh();
+    none.vertex_count = 0;
+    none.channels.clear();
+    none.indices.clear();
+    none.ranges.clear();
+    assert_eq!(
+        empty_of(&none),
+        Emptiness {
+            vertices: false,
+            indices: false,
+            ranges: 0,
+            topologies: Vec::new(),
+        }
+    );
+}
+
+#[test]
+fn an_emptiness_is_described_without_counts_that_differ_between_meshes() {
+    let empty = Emptiness {
+        vertices: true,
+        indices: false,
+        ranges: 2,
+        topologies: vec![0, 4],
+    };
+    assert_eq!(
+        empty.to_string(),
+        "2 sub-meshes with topologies [0, 4], no indices, with vertices"
+    );
+}
+
+#[test]
+fn a_sub_mesh_that_draws_from_indices_the_mesh_lacks_is_refused_by_name() {
+    let mut lacking = mesh();
+    lacking.indices.clear();
+    lacking.ranges = vec![triangles(0, 3)];
+    assert_eq!(mesh_of(&lacking).unwrap_err(), MeshError::IndicesMissing);
+}
+
 #[test]
 fn a_mesh_that_cannot_be_drawn_is_named() {
-    let mut empty = mesh();
-    empty.indices.clear();
-    empty.ranges = vec![triangles(0, 0)];
-    assert_eq!(mesh_of(&empty).unwrap_err(), MeshError::NoTriangles);
     let mut no_positions = mesh();
     no_positions.channels.remove(0);
     assert_eq!(mesh_of(&no_positions).unwrap_err(), MeshError::NoPositions);
@@ -276,13 +366,19 @@ fn texture(format: u32, linear: bool, bytes: Vec<u8>) -> PlayerTexture {
 #[test]
 fn a_color_texture_is_srgb_rgba8_and_a_data_texture_is_linear_with_the_same_texels() {
     let texels = vec![10, 20, 30, 40, 50, 60, 70, 80];
-    let color = texture_of(TextureId(9), &texture(4, false, texels.clone()), None).unwrap();
+    let color = texture_of(
+        TextureId(9),
+        &texture(4, false, texels.clone()),
+        None,
+        false,
+    )
+    .unwrap();
     assert_eq!(
         (color.id, color.size, color.graphics_format),
         (TextureId(9), [2, 1], 4)
     );
     assert_eq!(color.bytes, texels);
-    let data = texture_of(TextureId(9), &texture(4, true, texels.clone()), None).unwrap();
+    let data = texture_of(TextureId(9), &texture(4, true, texels.clone()), None, false).unwrap();
     assert_eq!(data.graphics_format, 8);
     assert_eq!(data.bytes, texels);
     assert!(color.sampler.is_none());
@@ -296,7 +392,7 @@ fn rows_stay_bottom_first_as_the_engine_stores_them() {
         vec![1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4],
     );
     stored.height = 2;
-    let made = texture_of(TextureId(1), &stored, None).unwrap();
+    let made = texture_of(TextureId(1), &stored, None, false).unwrap();
     assert_eq!(
         made.bytes[..8],
         [1, 1, 1, 1, 2, 2, 2, 2],
@@ -310,23 +406,30 @@ fn rgb24_gains_an_opaque_alpha_and_alpha8_becomes_white_with_that_alpha() {
         TextureId(1),
         &texture(3, false, vec![1, 2, 3, 4, 5, 6]),
         None,
+        false,
     )
     .unwrap();
     assert_eq!(rgb.bytes, [1, 2, 3, 255, 4, 5, 6, 255]);
-    let alpha = texture_of(TextureId(1), &texture(1, true, vec![7, 9]), None).unwrap();
+    let alpha = texture_of(TextureId(1), &texture(1, true, vec![7, 9]), None, false).unwrap();
     assert_eq!(alpha.bytes, [255, 255, 255, 7, 255, 255, 255, 9]);
 }
 
 #[test]
 fn a_texture_in_a_format_the_host_cannot_read_or_cut_short_is_an_error() {
-    assert!(texture_of(TextureId(1), &texture(27, false, vec![0; 16]), None).is_err());
-    assert!(texture_of(TextureId(1), &texture(4, false, vec![0; 7]), None).is_err());
+    assert!(texture_of(TextureId(1), &texture(27, false, vec![0; 16]), None, false).is_err());
+    assert!(texture_of(TextureId(1), &texture(4, false, vec![0; 7]), None, false).is_err());
 }
 
 #[test]
 fn a_stored_texture_is_read_with_the_sampler_it_is_given() {
     let state = sampler_of_stored(&stored_sampler([1, 1, 0], 0));
-    let made = texture_of(TextureId(1), &texture(4, false, vec![0; 8]), Some(state)).unwrap();
+    let made = texture_of(
+        TextureId(1),
+        &texture(4, false, vec![0; 8]),
+        Some(state),
+        false,
+    )
+    .unwrap();
     assert_eq!(made.sampler, Some(state));
 }
 
@@ -336,7 +439,7 @@ fn a_bc6h_texture_keeps_the_blocks_of_its_base_level_as_unsigned_float_blocks() 
     let bytes: Vec<u8> = (0..48).collect();
     let mut stored = texture(24, true, bytes.clone());
     (stored.width, stored.height, stored.mips) = (8, 4, 2);
-    let made = texture_of(TextureId(3), &stored, None).unwrap();
+    let made = texture_of(TextureId(3), &stored, None, false).unwrap();
     assert_eq!((made.size, made.graphics_format), ([8, 4], 106));
     assert_eq!(made.bytes, bytes[..32]);
     assert!(made.sampler.is_none());
@@ -346,11 +449,91 @@ fn a_bc6h_texture_keeps_the_blocks_of_its_base_level_as_unsigned_float_blocks() 
 fn a_bc6h_texture_cut_short_of_its_base_level_is_an_error() {
     let mut stored = texture(24, true, vec![0; 31]);
     (stored.width, stored.height) = (8, 4);
-    let error = texture_of(TextureId(3), &stored, None).unwrap_err();
+    let error = texture_of(TextureId(3), &stored, None, false).unwrap_err();
     assert!(
         matches!(
             error,
             crate::textures::PlayerTextureError::Short {
+                needed: 32,
+                actual: 31,
+                ..
+            }
+        ),
+        "{error}"
+    );
+}
+
+/// A stored block texture of `width` by `height` texels with `bytes`.
+fn blocks_of(
+    format: u32,
+    linear: bool,
+    (width, height): (u32, u32),
+    bytes: Vec<u8>,
+) -> PlayerTexture {
+    PlayerTexture {
+        width,
+        height,
+        ..texture(format, linear, bytes)
+    }
+}
+
+#[test]
+fn dxt1_dxt5_bc4_and_bc7_keep_their_blocks_in_the_colour_space_they_are_stored_in() {
+    // Each format with the bytes of one block, then of a second (the next level, which is not
+    // carried): the first block goes up as it is.
+    let cases = [
+        (10, 8, [(false, 96), (true, 97)]),
+        (12, 16, [(false, 100), (true, 101)]),
+        (25, 16, [(false, 108), (true, 109)]),
+        // BC4 has no sRGB form: a data texture goes up as blocks, a colour one is decoded.
+        (26, 8, [(false, 4), (true, 102)]),
+    ];
+    for (format, block, spaces) in cases {
+        for (linear, code) in spaces {
+            let bytes: Vec<u8> = (0..u8::try_from(block * 2).unwrap()).collect();
+            let stored = blocks_of(format, linear, (4, 4), bytes.clone());
+            let made = texture_of(TextureId(1), &stored, None, true).unwrap();
+            assert_eq!(
+                (made.size, made.graphics_format),
+                ([4, 4], code),
+                "format {format} linear {linear}"
+            );
+            if code == 4 {
+                assert_eq!(made.bytes.len(), 4 * 4 * 4, "format {format} decoded");
+            } else {
+                assert_eq!(made.bytes, bytes[..block], "format {format}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_block_texture_is_decoded_when_blocks_are_not_wanted_or_its_sides_are_not_whole_blocks() {
+    let bytes = vec![0; 16 * 4];
+    let stored = blocks_of(12, false, (4, 4), bytes.clone());
+    let decoded = texture_of(TextureId(1), &stored, None, false).unwrap();
+    assert_eq!(
+        (decoded.graphics_format, decoded.bytes.len()),
+        (4, 4 * 4 * 4)
+    );
+    // A 6x4 texture has two blocks across but is not a multiple of four wide.
+    let stored = blocks_of(12, false, (6, 4), bytes);
+    let decoded = texture_of(TextureId(1), &stored, None, true).unwrap();
+    assert_eq!(
+        (decoded.graphics_format, decoded.bytes.len()),
+        (4, 6 * 4 * 4)
+    );
+}
+
+#[test]
+fn a_block_texture_cut_short_of_its_base_level_is_an_error_by_its_name() {
+    let stored = blocks_of(25, false, (8, 4), vec![0; 31]);
+    let error = texture_of(TextureId(1), &stored, None, true).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            crate::textures::PlayerTextureError::Short {
+                format: "BC7",
                 needed: 32,
                 actual: 31,
                 ..

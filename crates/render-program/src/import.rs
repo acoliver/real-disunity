@@ -53,9 +53,12 @@ impl ImportedTexture {
     }
 }
 
-/// The dimension of a texture's default view.
+/// The dimension of a texture's default view: 3D for a 3D texture, else 2D for one layer and a
+/// 2D array for several.
 pub(crate) fn default_dimension(texture: &wgpu::Texture) -> wgpu::TextureViewDimension {
-    if texture.depth_or_array_layers() > 1 {
+    if texture.dimension() == wgpu::TextureDimension::D3 {
+        wgpu::TextureViewDimension::D3
+    } else if texture.depth_or_array_layers() > 1 {
         wgpu::TextureViewDimension::D2Array
     } else {
         wgpu::TextureViewDimension::D2
@@ -65,7 +68,14 @@ pub(crate) fn default_dimension(texture: &wgpu::Texture) -> wgpu::TextureViewDim
 /// A buffer, texture view or sampler an owner lends to a draw.
 #[derive(Clone, Debug)]
 pub enum ImportedResource {
+    /// The whole buffer.
     Buffer(wgpu::Buffer),
+    /// `size` bytes of `buffer` from `offset`.
+    BufferRange {
+        buffer: wgpu::Buffer,
+        offset: u64,
+        size: u64,
+    },
     Texture(ImportedTexture),
     Sampler(wgpu::Sampler),
 }
@@ -74,6 +84,7 @@ impl ImportedResource {
     pub(crate) fn describe(&self) -> &'static str {
         match self {
             Self::Buffer(_) => "an imported buffer",
+            Self::BufferRange { .. } => "an imported buffer range",
             Self::Texture(_) => "an imported texture",
             Self::Sampler(_) => "an imported sampler",
         }
@@ -93,6 +104,25 @@ impl Import {
         Self {
             semantic,
             resource: ImportedResource::Buffer(buffer),
+        }
+    }
+
+    /// `size` bytes of `buffer` from `offset`, for a binding that reads a slice of a larger
+    /// buffer: one record of a table, one frame of a ring.
+    #[must_use]
+    pub fn buffer_range(
+        semantic: EngineSemantic,
+        buffer: wgpu::Buffer,
+        offset: u64,
+        size: u64,
+    ) -> Self {
+        Self {
+            semantic,
+            resource: ImportedResource::BufferRange {
+                buffer,
+                offset,
+                size,
+            },
         }
     }
 
@@ -218,7 +248,9 @@ impl ProgramRuntime {
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
         self.authority.check_device()?;
-        let colors = draw.state.check_targets(signature.color_count())?;
+        let colors = draw
+            .state
+            .check_targets(signature.color_count(), signature.samples())?;
         if draw.instances.start > draw.instances.end {
             return Err(ProgramError::InstanceRange {
                 start: draw.instances.start,

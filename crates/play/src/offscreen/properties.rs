@@ -4,8 +4,9 @@
 //! later kind of floats, integers, vectors, matrices, since a layer holds one value for a name.
 //! A matrix keeps its 16 floats in the order the world stores them, column by column, which is
 //! the order the layer copies into a constant buffer. A texture slot becomes a texture input
-//! under its name. Its scale and offset are not mapped: render-program's property convention
-//! names no member that carries them (see the crate documentation).
+//! under its name. Its scale and offset reach a shader as the vector `<name>_ST` of the fallback
+//! layer ([`fallback_layer`]), where they sit below anything a property block or the material
+//! sets.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -14,10 +15,11 @@ use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
 use worldrunner_render_program::sampler::SamplerState;
 use worldrunner_world_simulation::graphics::{
-    RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
+    PropertyValue as WorldValue, RenderTextureId, ShaderProperties, TextureRef, WorldRenderTexture,
 };
 
 use super::assets::sampler_of_world;
+use super::defaults::ShaderFill;
 use super::ids;
 
 /// Why a texture property is counted that was given its shader's default.
@@ -30,6 +32,8 @@ pub struct Textures<'a> {
     used: BTreeSet<RenderTextureId>,
     /// Properties that named no texture the frame can read, by `name: reason`.
     unresolved: BTreeMap<String, usize>,
+    /// The values the fallback layers were given, by the rule that gave them.
+    filled: BTreeMap<&'static str, usize>,
 }
 
 impl<'a> Textures<'a> {
@@ -45,6 +49,7 @@ impl<'a> Textures<'a> {
             stored,
             used: BTreeSet::new(),
             unresolved: BTreeMap::new(),
+            filled: BTreeMap::new(),
         }
     }
 
@@ -90,6 +95,12 @@ impl<'a> Textures<'a> {
         &self.unresolved
     }
 
+    /// The values the fallback layers were given so far, by the rule that gave them.
+    #[must_use]
+    pub fn filled(&self) -> &BTreeMap<&'static str, usize> {
+        &self.filled
+    }
+
     /// The render textures named so far.
     #[must_use]
     pub fn used(&self) -> &BTreeSet<RenderTextureId> {
@@ -115,6 +126,27 @@ pub fn values(properties: &ShaderProperties) -> PropertySet {
         set.set(name, PropertyValue::Matrix(*value));
     }
     set
+}
+
+/// Sets `value` in the global `layer`: a texture the frame can read replaces the one of its name
+/// and one it cannot read takes the name away, since a global names one texture at most.
+pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut Textures<'_>) {
+    match value {
+        WorldValue::Float(name, held) => layer.values.set(name, PropertyValue::Float(*held)),
+        WorldValue::Int(name, held) => layer.values.set(name, PropertyValue::Int(*held)),
+        WorldValue::Vector(name, held) => layer.values.set(name, PropertyValue::Vector(*held)),
+        WorldValue::Matrix(name, held) => layer.values.set(name, PropertyValue::Matrix(*held)),
+        WorldValue::Texture(name, slot) => match textures.resolve(&slot.texture) {
+            Some((texture, sampler)) => {
+                layer
+                    .textures
+                    .insert(name.clone(), TextureInput { texture, sampler });
+            }
+            None => {
+                layer.textures.remove(name);
+            }
+        },
+    }
 }
 
 /// The layer of `properties`.
@@ -175,6 +207,73 @@ pub fn layer_with_defaults(
                 .entry(format!("{name}: {DEFAULT_READ}"))
                 .or_default() += 1;
         }
+    }
+    layer
+}
+
+/// The rule that gives `<name>_ST` the scale and offset of a texture slot the material lists.
+pub const RULE_SLOT_SCALE_OFFSET: &str = "the material's texture scale and offset";
+/// The rule that gives `<name>_ST` the world's default scale and offset to a texture property
+/// the shader declares and the material lists no slot for.
+pub const RULE_DEFAULT_SCALE_OFFSET: &str = "the default scale and offset of an unlisted texture";
+/// The rules that give a property the default its shader declares.
+pub const RULE_DEFAULT_FLOAT: &str = "the shader's default float";
+pub const RULE_DEFAULT_VECTOR: &str = "the shader's default vector";
+pub const RULE_DEFAULT_INT: &str = "the shader's default integer";
+
+/// The values a material has no property for, as a layer below the material's own:
+///
+/// * `<name>_ST` of every texture the material lists or its shader declares, as the four floats
+///   scale x, scale y, offset x, offset y (the world's default scale of one and offset of zero for
+///   a texture the material lists no slot for);
+/// * the default the shader declares for each colour, vector, float, range and integer property.
+///
+/// A name the material sets itself, as any kind of value, is left to it. A renderer's property
+/// block sits above the material, so what it sets wins over the fallback too.
+pub fn fallback_layer(
+    properties: &ShaderProperties,
+    fill: &ShaderFill,
+    textures: &mut Textures<'_>,
+) -> PropertyLayer {
+    let held = values(properties);
+    let mut layer = PropertyLayer::default();
+    let mut note = |rule: &'static str| *textures.filled.entry(rule).or_default() += 1;
+    let slots = properties
+        .textures
+        .iter()
+        .map(|(name, slot)| (name.as_str(), Some(slot)))
+        .chain(
+            fill.textures
+                .iter()
+                .filter(|name| !properties.textures.iter().any(|(held, _)| held == *name))
+                .map(|name| (name.as_str(), None)),
+        );
+    for (name, slot) in slots {
+        let st = format!("{name}_ST");
+        if held.get(&st).is_some() {
+            continue;
+        }
+        let (scale, offset) = slot.map_or(([1.0; 2], [0.0; 2]), |slot| (slot.scale, slot.offset));
+        layer.values.set(
+            &st,
+            PropertyValue::Vector([scale[0], scale[1], offset[0], offset[1]]),
+        );
+        note(if slot.is_some() {
+            RULE_SLOT_SCALE_OFFSET
+        } else {
+            RULE_DEFAULT_SCALE_OFFSET
+        });
+    }
+    for (name, value) in &fill.values {
+        if held.get(name).is_some() || layer.values.get(name).is_some() {
+            continue;
+        }
+        layer.values.set(name, value.clone());
+        note(match value {
+            PropertyValue::Float(_) => RULE_DEFAULT_FLOAT,
+            PropertyValue::Int(_) => RULE_DEFAULT_INT,
+            _ => RULE_DEFAULT_VECTOR,
+        });
     }
     layer
 }

@@ -9,9 +9,10 @@
 //!
 //! [`ShaderSupply`]: super::shaders::ShaderSupply
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
+use worldrunner_render_program::error::{ProgramError, StorageImageError};
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::runtime::{
     BoundResource, BufferHandle, ComputeProgram, ProgramRuntime,
@@ -20,15 +21,19 @@ use worldrunner_render_program::unity::constants::pack_layout;
 use worldrunner_render_program::unity::module::StageProgram;
 use worldrunner_render_program::unity::offscreen::OffscreenState;
 use worldrunner_render_program::unity::targets::{
-    BufferTarget, ConstantBufferTarget, TextureTarget,
+    BufferTarget, ConstantBufferTarget, ImageTarget, TextureTarget,
 };
 use worldrunner_world_simulation::graphics::{
-    ComputeBindings, ComputeBufferId, ComputeShaderId, GraphicsSnapshot, TextureRef,
+    ComputeBindings, ComputeBufferId, ComputeShaderId, GraphicsSnapshot, OffscreenWork, TextureRef,
     WorldComputeShader,
 };
 
 use super::ids;
 use super::properties::values;
+
+mod evidence;
+
+use evidence::pairings;
 
 /// How a dispatch was bound and what came of it, for the report.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -47,6 +52,9 @@ pub struct DispatchTrace {
     pub constants_missing: Vec<String>,
     /// The textures the kernel declares, in the order it declares them.
     pub textures: Vec<TextureTrace>,
+    /// The storage images the kernel declares, in the order it declares them, with what the
+    /// dispatch bound to each.
+    pub images: Vec<TextureTrace>,
     /// The names of the textures the dispatch sets, whether or not the kernel declares them.
     pub textures_set: Vec<String>,
     /// The buffers the kernel declares.
@@ -56,6 +64,14 @@ pub struct DispatchTrace {
     pub outcome: String,
     /// Whether the buffers were read back after the dispatch.
     pub read_back: bool,
+    /// Each render texture the dispatch names for a texture or storage image of the kernel, as the
+    /// `GraphicsFormat` code of the render texture and what the kernel declares at that binding.
+    /// They are recorded before anything is bound, so a texture the host cannot make is paired
+    /// too.
+    pub pairings: Vec<String>,
+    /// For a dispatch left out because a binding does not suit the render texture's shape, the
+    /// view the kernel declares and the shape the world's record gave the texture.
+    pub reason: String,
 }
 
 impl DispatchTrace {
@@ -78,6 +94,9 @@ impl DispatchTrace {
             self.constants_missing.join(", ")
         ));
         lines.push(format!("  textures set [{}]", self.textures_set.join(", ")));
+        if !self.reason.is_empty() {
+            lines.push(format!("  left out: {}", self.reason));
+        }
         for texture in &self.textures {
             lines.push(format!(
                 "  texture {} from {}, on the GPU {}, camera renders before {} drew {} left out {} \
@@ -102,6 +121,27 @@ impl DispatchTrace {
             for note in &texture.camera_notes {
                 lines.push(format!("    {note}"));
             }
+            if let Some(test) = &texture.test_render {
+                lines.push(format!("    test render: {test}"));
+            }
+            for variant in &texture.variant_renders {
+                lines.push(format!("    test render with {variant}"));
+            }
+            for source in &texture.sampled {
+                lines.push(format!(
+                    "    sampled {} (texture {}): uploaded {}, read back from the GPU {}",
+                    source.name,
+                    source.texture.0,
+                    source.uploaded,
+                    source.on_the_gpu.as_deref().unwrap_or("not read")
+                ));
+            }
+        }
+        for image in &self.images {
+            lines.push(format!(
+                "  storage image {} from {}, on the GPU {}",
+                image.name, image.source, image.resolved
+            ));
         }
         for buffer in &self.buffers {
             lines.push(format!(
@@ -136,6 +176,24 @@ pub struct TextureTrace {
     pub before_dispatch: Option<String>,
     /// How each camera render into the texture drew: its target, state and the values it lacked.
     pub camera_notes: Vec<String>,
+    /// How many texels of the camera's test render into a scratch copy differ from its clear,
+    /// which are the texels a fragment was written to, against all the texels.
+    pub test_render: Option<String>,
+    /// The same for the changed test renders, each as `what is changed: counts`, in the order of
+    /// the variants.
+    pub variant_renders: Vec<String>,
+    /// The uploaded textures the camera renders into this texture sampled.
+    pub sampled: Vec<SampledSource>,
+}
+
+/// An uploaded texture a camera render sampled: what the bytes uploaded held and what the GPU
+/// copy holds when read back, as counts of texels (blocks, for a block-compressed format).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SampledSource {
+    pub name: String,
+    pub texture: TextureId,
+    pub uploaded: String,
+    pub on_the_gpu: Option<String>,
 }
 
 /// A buffer a kernel declares and what the dispatch bound to it.
@@ -221,6 +279,7 @@ struct Kernel {
     program: ComputeProgram,
     constants: Vec<ConstantBufferTarget>,
     textures: Vec<TextureTarget>,
+    images: Vec<ImageTarget>,
     buffers: Vec<BufferTarget>,
 }
 
@@ -376,9 +435,125 @@ fn textures(
         entry.resolved = handle.is_some();
         trace.textures.push(entry);
         let handle = handle.ok_or_else(|| "TextureUnavailable".to_owned())?;
+        // A texture of another shape than the kernel's view would fail the whole submission.
+        let declared = kernel
+            .program
+            .layout()
+            .slot(target.set, target.binding)
+            .map(|slot| slot.ty);
+        if let Some(wgpu::BindingType::Texture { view_dimension, .. }) = declared
+            && state.texture_view_dimension(id) != Some(view_dimension)
+        {
+            trace.reason = shape_reason(state, id, view_dimension);
+            return Err("TextureDimension".to_owned());
+        }
         bound.push(BoundResource::texture(target.set, target.binding, handle));
     }
     Ok(bound)
+}
+
+/// Why a binding does not suit the render texture: the view the kernel declares and the shape the
+/// world's record gave the texture.
+fn shape_reason(
+    state: &OffscreenState,
+    id: TextureId,
+    declared: wgpu::TextureViewDimension,
+) -> String {
+    let held = state
+        .texture_dimension(id)
+        .map_or_else(|| "unknown".to_owned(), |shape| format!("{shape:?}"));
+    format!("the kernel declares a {declared:?} view and the render texture is {held}")
+}
+
+/// The storage images `kernel` declares, bound by name to the render textures the dispatch's
+/// properties name. Only a render texture can be one, because the host makes those with storage
+/// binding usage when a kernel binds them; the name of the cause is `StorageSource` for any other
+/// texture, `StorageFormat` for a render texture whose format the device cannot bind as storage.
+fn images(
+    kernel: &Kernel,
+    state: &OffscreenState,
+    (bindings, trace): (&ComputeBindings, &mut DispatchTrace),
+) -> Result<Vec<BoundResource>, String> {
+    let mut bound = Vec::new();
+    for target in &kernel.images {
+        let name = target
+            .name
+            .resolve(&[])
+            .map_err(|_| "TextureName".to_owned())?;
+        let mut entry = TextureTrace {
+            name: name.to_owned(),
+            source: "unset".to_owned(),
+            ..TextureTrace::default()
+        };
+        let texture = bindings
+            .properties
+            .textures
+            .iter()
+            .find(|(property, _)| property == name)
+            .map(|(_, slot)| &slot.texture);
+        let Some(texture) = texture else {
+            trace.images.push(entry);
+            return Err("MissingTexture".to_owned());
+        };
+        texture_source(texture).clone_into(&mut entry.source);
+        let id = match texture {
+            TextureRef::Render(id) => Some(ids::render_texture(*id)),
+            TextureRef::Asset(_) | TextureRef::Global(_) | TextureRef::None => None,
+        };
+        entry.texture = id;
+        let Some(id) = id else {
+            trace.images.push(entry);
+            return Err("StorageSource".to_owned());
+        };
+        let held = state.texture_storage(id).zip(state.texture_handle(id));
+        entry.resolved = held.is_some();
+        trace.images.push(entry);
+        let ((_, storage), handle) = held.ok_or_else(|| "TextureUnavailable".to_owned())?;
+        if !storage {
+            return Err("StorageFormat".to_owned());
+        }
+        // The kernel's view must be the one the record's shape binds through.
+        let declared = kernel
+            .program
+            .layout()
+            .slot(target.set, target.binding)
+            .map(|slot| slot.ty);
+        if let Some(wgpu::BindingType::StorageTexture { view_dimension, .. }) = declared
+            && state.storage_view_dimension(id) != Some(view_dimension)
+        {
+            trace.reason = shape_reason(state, id, view_dimension);
+            return Err("StorageDimension".to_owned());
+        }
+        bound.push(BoundResource::texture(target.set, target.binding, handle));
+    }
+    Ok(bound)
+}
+
+/// The name of the cause a kernel's program cannot be built for: a storage image the device
+/// cannot hold, or `ProgramLayout`.
+pub(super) fn program_cause(error: &ProgramError) -> &'static str {
+    match error {
+        ProgramError::StorageImage { .. } | ProgramError::StorageImageLimit { .. } => {
+            storage_cause(error)
+        }
+        _ => "ProgramLayout",
+    }
+}
+
+/// The name of the cause a texture is refused as a storage image for.
+fn storage_cause(error: &ProgramError) -> &'static str {
+    match error {
+        ProgramError::StorageImage { error, .. } => match error {
+            StorageImageError::Format { .. } => "StorageFormatMismatch",
+            StorageImageError::Usage { .. } => "StorageUsage",
+            StorageImageError::Dimension { .. } => "StorageDimension",
+            StorageImageError::Multisampled { .. } => "StorageSamples",
+            StorageImageError::Unsupported { .. } => "StorageUnsupported",
+        },
+        ProgramError::StorageImageLimit { .. } => "StorageLimit",
+        ProgramError::AliasedTexture { .. } => "StorageAliased",
+        _ => "StorageImage",
+    }
 }
 
 /// What kind of texture a reference names, for the trace.
@@ -452,16 +627,62 @@ impl ComputeAdapter {
             .map_err(|error| error.name().to_owned())?;
         let program = stage
             .neutral()
-            .map_err(worldrunner_render_program::error::ProgramError::from)
+            .map_err(ProgramError::from)
             .and_then(|neutral| runtime.compute_program(&neutral))
-            .map_err(|_| "ProgramLayout".to_owned())?;
+            .map_err(|error| program_cause(&error).to_owned())?;
         let layout = |_| "TargetLayout".to_owned();
         Ok(Rc::new(Kernel {
             program,
             constants: stage.constant_buffer_targets().map_err(layout)?,
             textures: stage.texture_targets().map_err(layout)?,
+            images: stage.image_targets().map_err(layout)?,
             buffers: stage.buffer_targets().map_err(layout)?,
         }))
+    }
+
+    /// The render textures the dispatches of `snapshot` bind as storage images, by the names their
+    /// kernels declare. A host marks them before it builds the frame, so they are made with
+    /// storage binding usage. A kernel that cannot be loaded names none, and its dispatch is left
+    /// out by the cause when it is prepared.
+    pub fn storage_textures(
+        &mut self,
+        runtime: &ProgramRuntime,
+        snapshot: &GraphicsSnapshot,
+    ) -> BTreeSet<TextureId> {
+        let mut found = BTreeSet::new();
+        for work in &snapshot.work {
+            let OffscreenWork::Dispatch {
+                shader,
+                kernel,
+                bindings,
+                ..
+            } = work
+            else {
+                continue;
+            };
+            let Some(world_shader) = snapshot.compute_shaders.get(shader) else {
+                continue;
+            };
+            let Ok(kernel) = self.kernel(runtime, *shader, world_shader, *kernel) else {
+                continue;
+            };
+            for target in &kernel.images {
+                let Ok(name) = target.name.resolve(&[]) else {
+                    continue;
+                };
+                let property = bindings
+                    .properties
+                    .textures
+                    .iter()
+                    .find(|(property, _)| property == name);
+                if let Some((_, slot)) = property
+                    && let TextureRef::Render(id) = &slot.texture
+                {
+                    found.insert(ids::render_texture(*id));
+                }
+            }
+        }
+        found
     }
 
     /// Prepares one dispatch of `snapshot`'s work, uploading what it binds. The error is the
@@ -499,6 +720,7 @@ impl ComputeAdapter {
         }
         trace.variant = self.supply.describe(shader, index);
         let kernel = self.kernel(runtime, id, shader, index)?;
+        trace.pairings = pairings(&kernel, snapshot, bindings);
         let mut bound = Vec::new();
         let set = values(&bindings.properties);
         for target in &kernel.constants {
@@ -521,7 +743,13 @@ impl ComputeAdapter {
             bound.push(BoundResource::buffer(target.set, target.binding, handle));
         }
         bound.extend(textures(&kernel, state, (bindings, trace))?);
+        bound.extend(images(&kernel, state, (bindings, trace))?);
         bound.extend(buffers.bind(&kernel, (runtime, snapshot), (bindings, trace))?);
+        // A texture the kernel writes must suit its binding and appear once, or the dispatch would
+        // fail the whole submission it is recorded into.
+        runtime
+            .check_storage_images(&kernel.program, &bound)
+            .map_err(|error| storage_cause(&error).to_owned())?;
         "bound".clone_into(&mut trace.outcome);
         Ok(Prepared {
             kernel,

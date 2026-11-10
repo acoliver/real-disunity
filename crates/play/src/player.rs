@@ -186,7 +186,14 @@ fn write_request(
         .join(path_component(&identity.company_name))
         .join(path_component(&identity.product_name));
     let request = output.join("request.json");
-    let mut body = request_body(data, [plan, resources, &persistent], &identity, launch);
+    let cache = output.join("callback-cache");
+    let mut body = request_body(
+        data,
+        [plan, resources, &persistent],
+        &identity,
+        launch,
+        &cache,
+    );
     body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
         body["quality"] = serde_json::json!(quality);
@@ -199,12 +206,14 @@ fn write_request(
 /// directory. The managed side derives the player's executable path from `player` and the
 /// platform in `identity`, and puts `arguments` after it in `Environment.GetCommandLineArgs()`.
 /// `screen` is the window size, listed as `screen` when there is a window. `plugins` are listed as
-/// `plugins` when there are any.
+/// `plugins` when there are any. `callback_cache` is where the managed side keeps the player's
+/// assemblies rewritten so the delegates they give native code stay callable.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
     identity: &PlayerIdentity,
     launch: PlayerLaunch,
+    callback_cache: &Path,
 ) -> serde_json::Value {
     let [plan, resources, persistent] = paths;
     let PlayerLaunch {
@@ -220,6 +229,7 @@ fn request_body(
         "persistent": persistent,
         "arguments": arguments,
         "first_texture": FIRST_TEXTURE,
+        "callback_cache": callback_cache,
     });
     if let Some(screen) = screen {
         body["screen"] = serde_json::json!(screen);
@@ -260,6 +270,10 @@ pub enum GpuWork {
     /// Never touches a device: the run is the one before the offscreen host existed.
     Off,
 }
+
+/// The environment variable that makes a headless run print the GPU report after every frame, not
+/// only at the end.
+const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
 
 /// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
 /// player's offscreen work on a device when there is one ([`GpuWork::Auto`]). The error names the
@@ -302,6 +316,13 @@ pub fn run_player_with(
             .and_then(|()| present_meshes(&mut host, &mut meshes))
             .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)));
         times.push(started.elapsed());
+        // A run that dies in a later frame still leaves the counts of the frames before it.
+        if std::env::var_os(REPORT_EACH_FRAME).is_some()
+            && let Some(gpu) = &gpu
+        {
+            eprintln!("[gpu] report after frame {frame}");
+            gpu.report().print();
+        }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
             break;
@@ -375,6 +396,7 @@ mod tests {
                 screen,
                 plugins: &[],
             },
+            Path::new("/out/callback-cache"),
         )
     }
 
@@ -389,8 +411,17 @@ mod tests {
                 plugins: &plugins,
                 ..PlayerLaunch::default()
             },
+            Path::new("/out/callback-cache"),
         );
         assert_eq!(request["plugins"], serde_json::json!(["/a/Plugins", "b"]));
+    }
+
+    #[test]
+    fn the_request_names_the_directory_for_player_assemblies_rewritten_at_load() {
+        assert_eq!(
+            body(&[])["callback_cache"],
+            serde_json::json!("/out/callback-cache")
+        );
     }
 
     #[test]

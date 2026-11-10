@@ -49,10 +49,12 @@ pub fn plan_presentation(
     )?;
     options.capture_pool.validate()?;
     let policy = super::PresentationPolicy {
+        receiver_gradients: crate::presentation::receiver_reservation(options.shadows),
         budget: options.presentation_budget,
         recipes: !matches!(capture, PresentationCapture::Ordinary),
         capture_pool: options.capture_pool.clone(),
     };
+    settings.receiver_gradients = policy.receiver_gradients;
     let pool = policy.pool_bytes(&settings)?;
     let capture_size = recipe_settings(
         size,

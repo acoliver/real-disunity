@@ -23,7 +23,9 @@ use super::super::compute::ComputeAdapter;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
-use super::gpu::{BareQuad, MESH, Quad, SIDE, Synthetic, gpu, shader, target, vector};
+use super::gpu::{
+    BareQuad, MESH, Quad, SIDE, Synthetic, gpu, gpu_with_budget, shader, target, vector,
+};
 use super::kernels::{copy_object, text_object, write_compute};
 use super::support::{
     camera, compute_buffer, compute_shader, dispatch, render_texture, renderer_with, snapshot,
@@ -47,8 +49,20 @@ pub(super) fn host(directory: &Path) -> OffscreenHost {
     host_with(directory, settings)
 }
 
+/// As `host`, on a runtime that may hold `budget` bytes.
+pub(super) fn host_with_budget(directory: &Path, budget: u64) -> OffscreenHost {
+    let settings = Settings {
+        light_modes: vec!["Alpha".to_owned()],
+        ..Settings::default()
+    };
+    host_on(directory, settings, gpu_with_budget(budget))
+}
+
 fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
-    let gpu = gpu();
+    host_on(directory, settings, gpu())
+}
+
+fn host_on(directory: &Path, settings: Settings, gpu: super::gpu::Gpu) -> OffscreenHost {
     OffscreenHost::new(
         gpu.runtime,
         gpu.arena,
@@ -396,6 +410,22 @@ fn the_trace_reads_as_report_lines() {
             "    camera CameraId(0) drew 1 into color Some(R16Float) depth None, states \
              [(\"cull None, depth test LessEqual write true, color mask RGBA, blend off\", 1)], \
              without a value []",
+            "    setup: viewport [4, 4], color clear [0.25, 0.0, 1.0, 1.0] (Some(R16Float)), depth \
+             no depth (None)",
+            "    program shader 4294967296 pass 0: 1 draws, 4 vertices, clip positions inside 0, \
+             outside 0, behind 0, as transposes inside 0, outside 0, behind 0, without positions 0, \
+             without matrices 1; vertex constants without a value [], zero []; fragment constants \
+             without a value [], zero []; triangles 0 (behind the camera 0, outside the clip \
+             volume 0, without area 0; wound counter-clockwise in clip space with Y up 0, \
+             clockwise 0; culled by the state 0, drawn 0); fragment constants with no value or \
+             zero, by where they came from []; textures []",
+            "    test render: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with cull None: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with blend off: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with depth test Always: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with a fragment stage that writes a constant: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with cull None, blend off and depth test Always: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
+            "    test render with cull None, blend off, depth test Always and a constant fragment stage: 8 of 16 texels differ from the clear ([0.3125, 0.6875, 0.4375, 0.8125])",
             "  buffer _Output 64 bytes, non-zero words 0 before, Some(16) after",
         ]
     );
@@ -738,5 +768,21 @@ fn render_textures_that_each_fit_the_budget_but_not_together_keep_the_first_and_
         (trace.phases.refusals, trace.phases.probes),
         (1, 3),
         "{trace:?}"
+    );
+}
+
+#[test]
+fn a_render_texture_a_kernel_samples_is_paired_with_the_sample_type_it_declares() {
+    let (outcome, _) = traced_flush();
+    let pairings: Vec<_> = outcome
+        .report
+        .census
+        .iter()
+        .filter(|(name, _)| name.contains(" sampled as "))
+        .map(|(name, count)| (name.as_str(), *count))
+        .collect();
+    assert_eq!(
+        pairings,
+        [("render texture format 45 sampled as Float D2", 1)]
     );
 }

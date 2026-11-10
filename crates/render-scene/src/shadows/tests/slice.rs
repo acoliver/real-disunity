@@ -204,3 +204,67 @@ fn gpu_cascades_draw_only_the_terrain_chunks_their_slice_can_sample() {
         );
     }
 }
+
+fn terrain_calls_per_cascade(
+    context: &GpuContext,
+    renderer: &mut ShadowedScene,
+    view: &SceneView,
+    camera_casters: bool,
+) -> (crate::offscreen::RgbaImage, Vec<u64>) {
+    crate::draw::CAMERA_CASTERS.set(camera_casters);
+    let (image, _) = render(context, renderer, view, false);
+    crate::draw::CAMERA_CASTERS.set(false);
+    let calls = renderer
+        .scene_mut()
+        .statistics()
+        .passes
+        .shadow_cascades
+        .iter()
+        .map(|count| count.calls)
+        .collect();
+    (image, calls)
+}
+
+#[test]
+fn gpu_far_cascades_cast_fewer_terrain_chunks_than_the_camera_draws() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = terrain_source();
+    // A small map wants coarser casters than the chunks the camera draws.
+    let small = DirectionalShadowSettings {
+        resolution: 32,
+        ..settings()
+    };
+    let mut own = ShadowedScene::new(&context, &source, small).unwrap();
+    let mut camera = ShadowedScene::new(&context, &source, small).unwrap();
+    let view = turned_view(TARGETS[0]);
+    for _ in 0..4 {
+        terrain_calls_per_cascade(&context, &mut own, &view, false);
+        terrain_calls_per_cascade(&context, &mut camera, &view, true);
+    }
+    let (image, own_calls) = terrain_calls_per_cascade(&context, &mut own, &view, false);
+    let (reference, camera_calls) = terrain_calls_per_cascade(&context, &mut camera, &view, true);
+    assert!(
+        own_calls[3] < camera_calls[3],
+        "the far cascade casts the camera's chunks: {own_calls:?} against {camera_calls:?}"
+    );
+    assert!(
+        own_calls.iter().sum::<u64>() < camera_calls.iter().sum::<u64>(),
+        "{own_calls:?} against {camera_calls:?}"
+    );
+    // Coarser casters move self-shadow edges on the terrain; they must not darken or light it
+    // as a whole.
+    let difference: u64 = image
+        .pixels
+        .iter()
+        .zip(&reference.pixels)
+        .map(|(a, b)| u64::from(a.abs_diff(*b)))
+        .sum();
+    let channels = u64::try_from(image.pixels.len()).expect("pixel count");
+    let thousandths = difference * 1000 / channels;
+    println!("CASTER-IMAGE mean_difference_thousandths={thousandths}");
+    assert!(
+        thousandths < 1000,
+        "coarse casters changed the image by {thousandths}/1000 per channel"
+    );
+}

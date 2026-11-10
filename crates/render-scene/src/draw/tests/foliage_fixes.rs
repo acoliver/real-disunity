@@ -168,7 +168,7 @@ fn enabled_contact_retains_reduced_samples_with_triangle_source() {
     )
     .unwrap();
     assert_eq!(gpu.retained.contact_heights.size(), 48);
-    assert_eq!(gpu.terrain.as_ref().unwrap().triangle_source.size(), 188);
+    assert_eq!(gpu.terrain.as_ref().unwrap().resources.planes.size(), 188);
     let smallest = contact_scene(-500, true, false);
     let source = crate::terrain::planes::HeightfieldPlanes::new(smallest.terrain().unwrap());
     assert_eq!(source.bytes.len(), 80);

@@ -211,12 +211,12 @@ impl SceneGpu {
         })
     }
 
-    /// Draws the terrain into shadow cascade `index` through the cascade's prepared pipeline,
-    /// which binds the cascade's light frame.
+    /// Draws the terrain into shadow cascade `index` through the caster's prepared pipeline, with
+    /// the cascade's light frame group lent at set 0.
     pub(crate) fn draw_terrain_depth<P: PassCommands>(
         &self,
         pass: &mut P,
-        pipeline: &PreparedPipeline,
+        (pipeline, frame): (&PreparedPipeline, &wgpu::BindGroup),
         (index, matrix): (u32, Mat4),
     ) -> DrawCount {
         let Some(keep) = self.terrain_caster_selection(index, matrix) else {
@@ -224,6 +224,7 @@ impl SceneGpu {
         };
         let terrain = self.terrain.as_ref().expect("a selection has terrain");
         pipeline.bind(pass);
+        pass.set_bind_group(0, frame);
         let Some(streaming) = &terrain.streaming else {
             return Self::draw_terrain_mesh(pass, pipeline, terrain);
         };

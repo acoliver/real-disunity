@@ -46,7 +46,7 @@ fn gpu_forward_depth_reuse_matches_invariant_baseline_all_attachment_bytes() {
 }
 
 #[test]
-fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
+fn gpu_depth_reuse_preserves_last_tie_and_rejects_clear_depth() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (name, scene, pose) in fixtures::ties() {
@@ -83,11 +83,11 @@ fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
             );
         } else {
             assert!(new[6].chunks_exact(4).any(|p| p != 1.0_f32.to_le_bytes()));
-            let winner = fixtures::first_winner(&scene);
+            let winner = fixtures::last_winner(&scene);
             let expected = capture::frame(&context, (&winner, pose), (false, 0.0));
             assert_eq!(
                 old, expected,
-                "{name}: first API-order surface must win the tie"
+                "{name}: last API-order surface must win the tie"
             );
         }
     }

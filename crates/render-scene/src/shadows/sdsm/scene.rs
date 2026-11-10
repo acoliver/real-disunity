@@ -520,7 +520,7 @@ fn capture_writes(
     scene_depth: worldrunner_render_gpu::submission::capture::WriteKey,
     reduction: worldrunner_render_gpu::submission::capture::WriteKey,
 ) -> Result<CaptureWrites, worldrunner_render_gpu::submission::capture::WriteError> {
-    // Opaque consumes stencil and water writes depth after the metadata prefix.
+    // Water writes depth after the metadata prefix.
     suffix.retain(|key| *key == scene_depth || !metadata.contains(key));
     prefix.extend(metadata);
     prefix.push(reduction);

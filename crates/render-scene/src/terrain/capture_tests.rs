@@ -414,8 +414,8 @@ pub(super) fn capture(rig: &Rig<'_>, case: &Case<'_>) -> Captured {
 /// The depth representation is the one `case.pipelines` were built for. In the paired modes the
 /// depth and stencil planes are compared along with the colour attachments, and each mode's
 /// effect on them is checked: shared and prepass terrain writes depth, prepass terrain marks its
-/// winners in the stencil, and reuse terrain draws exactly those winners, leaves the depth as
-/// the prepass wrote it and consumes every stencil mark.
+/// winners in the stencil, and reuse terrain draws exactly those winners and leaves the depth
+/// and stencil as the prepass wrote them.
 pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -> Captured {
     let frame = Frame::new(rig, case);
     let mode = case.pipelines.depth;
@@ -600,9 +600,9 @@ fn check_planes(case: &Case<'_>, (depth, stencil): (&[u8], &[u8]), untouched: &[
                 "{name}: reuse terrain changed the prepass depth"
             );
             assert_eq!(
-                marked(stencil),
-                0,
-                "{name}: reuse terrain left winners unconsumed"
+                stencil,
+                untouched[1].as_slice(),
+                "{name}: reuse terrain changed the prepass stencil"
             );
         }
     }

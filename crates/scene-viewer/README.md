@@ -239,7 +239,6 @@ resident geometry. `None` follows the direct sun. Direct lighting, sky and the
 celestial sun are unchanged. Interactive frames and same-frame captures use the
 same shadow direction, including when depth fitting is enabled.
 
-## Batch object updates
 ## Retained reflection settings
 
 A `RetainedUpdate::Settings` that changes only screen-space reflection parameters,
@@ -248,6 +247,7 @@ and keeps the resident scene. Turning reflections on or off changes the receiver
 pipelines, so that update prepares a new resident scene in the background. Changes to
 SSAO, water, atmosphere or sky also prepare a new resident scene.
 
+## Batch object updates
 
 `RetainedUpdate::Objects(Vec<SceneObjectEdit>)` applies many `Add { id, object }`,
 `Replace { id, object }` and `Remove(id)` edits as one atomic update that takes one
@@ -481,6 +481,14 @@ residency; an unchanged subsequent frame reports zero uploaded bytes.
 transparent water, background sky including discs, and four shadow cascades.
 Skipped cascades report zero for that frame. Metadata, water masks, dynamic
 quads and separate celestial mesh passes are excluded.
+
+Captures request a [forced cascade refresh](src/renderer.rs) when directional
+shadows are enabled, including [every rendered recipe sample](src/renderer/capture/advanced.rs).
+Their frozen `observation.scene.passes.shadow_cascades` counters describe that
+capture submission. Measure map reuse with `statistics()` from successive ordinary
+submissions under the configured [refresh policy](../render-shadow/src/refresh.rs);
+its default intervals request a refresh every frame. Zero caster draws alone do
+not establish that receiver sampling is disabled.
 
 `scene.effects.shadows` reports installation of the directional shadow feature
 and its mesh and terrain receiver bindings. Cached cascades remain installed

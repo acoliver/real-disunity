@@ -19,5 +19,6 @@ mod resample;
 mod resolve;
 mod rig;
 mod sampler;
+mod shapes;
 mod storage;
 mod volume;

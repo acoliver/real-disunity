@@ -99,6 +99,25 @@ pub enum ProgramError {
         have: u64,
     },
     #[error(
+        "set {set} binding {binding} is bound to a buffer range at offset {offset}, which is not a multiple of the device's offset alignment {alignment}"
+    )]
+    BufferRangeMisaligned {
+        set: u32,
+        binding: u32,
+        offset: u64,
+        alignment: u64,
+    },
+    #[error(
+        "set {set} binding {binding} is bound to {size} bytes at offset {offset} of a buffer of {len} bytes"
+    )]
+    BufferRangePastBuffer {
+        set: u32,
+        binding: u32,
+        offset: u64,
+        size: u64,
+        len: u64,
+    },
+    #[error(
         "set {set} binding {binding} is a storage image the bound texture does not suit: {error}"
     )]
     StorageImage {
@@ -130,11 +149,15 @@ pub enum ProgramError {
         other_binding: u32,
     },
     #[error(
-        "set {set} binding {binding} is a comparison sampler, which this renderer does not create"
+        "set {set} binding {binding} is a comparison sampler, which the runtime does not create: declare it from an engine semantic and import one"
     )]
     UnsupportedSampler { set: u32, binding: u32 },
     #[error("the program uses bind group {set}, above the device's limit of {limit}")]
     TooManyGroups { set: u32, limit: u32 },
+    #[error(
+        "the state asks for alpha to coverage, which needs a pass of more than one sample per pixel, and the pass has {samples}"
+    )]
+    AlphaToCoverageNeedsSamples { samples: u32 },
     #[error("the state asks for {what}, which this renderer does not draw")]
     UnsupportedState { what: &'static str },
     #[error("the target has no depth attachment but a depth clear or test was requested")]

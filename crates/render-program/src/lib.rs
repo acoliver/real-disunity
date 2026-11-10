@@ -37,6 +37,7 @@ pub mod runtime;
 pub mod sampler;
 mod schema;
 mod set;
+mod set_layout;
 pub mod state;
 mod stats;
 pub mod targets;

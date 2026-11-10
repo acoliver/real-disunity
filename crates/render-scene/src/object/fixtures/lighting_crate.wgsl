@@ -105,5 +105,3 @@ fn scene_disk_direction(reflected: vec3<f32>, center: vec3<f32>, radius: f32) ->
     if dot(radial, radial) > 0.0 { tangent = radial; }
     return normalize(center * radius_cosine + normalize(tangent) * radius_sine);
 }
-
-

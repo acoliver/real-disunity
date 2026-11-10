@@ -35,6 +35,8 @@ macro_rules! shared_tail {
 /// `shader::ENVIRONMENT_WGSL` as it was at the freeze.
 pub(crate) const ENVIRONMENT: &str = concat!(
     fixture!("lighting_crate"),
+    // The crate's text ends in two blank lines, which the snapshot file leaves out.
+    "\n\n",
     fixture!("post_crate"),
     fixture!("lighting"),
     fixture!("ambient_visibility"),
@@ -49,6 +51,8 @@ pub(crate) const ENVIRONMENT: &str = concat!(
 pub(crate) const SHADOWED: &str = concat!(
     fixture!("shadow_crate"),
     fixture!("lighting_crate"),
+    // The crate's text ends in two blank lines, which the snapshot file leaves out.
+    "\n\n",
     fixture!("post_crate"),
     fixture!("lighting"),
     fixture!("ambient_visibility"),

@@ -21,7 +21,9 @@ macro_rules! pairs {
 #[test]
 fn the_live_object_wgsl_equals_the_frozen_snapshot() {
     let pairs = pairs! {
-        "lighting_crate" => worldrunner_render_lighting::lighting_wgsl!(),
+        "lighting_crate" => worldrunner_render_lighting::lighting_wgsl!()
+            .strip_suffix("\n\n")
+            .expect("the lighting crate's text ends in two blank lines, left out of the snapshot"),
         "post_crate" => worldrunner_render_post::post_wgsl!(),
         "shadow_crate" => worldrunner_render_shadow::shadow_wgsl!(),
         "lighting" => include_str!("../shader/lighting.wgsl"),

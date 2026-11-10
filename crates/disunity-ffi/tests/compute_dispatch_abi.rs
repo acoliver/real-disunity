@@ -353,6 +353,8 @@ fn compute_dispatches_keep_their_place_among_blits() {
         mip_count: 1,
         filter: 1,
         aniso_level: 1,
+        dimension: 2,
+        volume_depth: 1,
         ..Default::default()
     };
     let mut target = 0;

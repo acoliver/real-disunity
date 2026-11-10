@@ -61,9 +61,15 @@ public sealed partial class CommandBuffer
     {
         ArgumentNullException.ThrowIfNull(colors);
         ThrowIfReleased();
-        var member2 = $"CommandBuffer.{member}";
         if (ThrowOnSetRenderTarget)
-            throw new InvalidOperationException($"{member2} is not allowed while ThrowOnSetRenderTarget is set; a render graph pass binds its targets through the graph");
+            throw new InvalidOperationException($"CommandBuffer.{member} is not allowed while ThrowOnSetRenderTarget is set; a render graph pass binds its targets through the graph");
+        BindTargets(member, colors, depth, mip, face, slice);
+    }
+
+    /// <summary>Records a binding of the targets, whatever <see cref="ThrowOnSetRenderTarget"/> says.</summary>
+    private void BindTargets(string member, RenderTargetIdentifier[] colors, RenderTargetIdentifier? depth, int? mip, CubemapFace? face, int? slice)
+    {
+        var member2 = $"CommandBuffer.{member}";
         var targets = colors.Select(color => CommandTarget.Of(color, member2)).ToArray();
         var depthTarget = depth is { } d ? CommandTarget.Of(d, member2) : (CommandTarget?)null;
         var first = targets.Length > 0 ? targets[0] : depthTarget ?? default;

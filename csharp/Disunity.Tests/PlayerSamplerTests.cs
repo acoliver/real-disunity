@@ -2,6 +2,7 @@ using Disunity.Hosting;
 using Disunity.Native;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 
 /// <summary>A texture's wrap modes, filter, anisotropy and mip bias reach the host with the texture, and again when a setter changes them.</summary>
 internal static class PlayerSamplerTests
@@ -15,6 +16,7 @@ internal static class PlayerSamplerTests
             UpdatesAStoredTextureWhenASetterChangesIt();
             GivesNoIdentityToATextureASetterChanges();
             SendsTheSamplerOfARenderTexture();
+            SendsTheShapeOfARenderTexture();
         }
         finally { DisunityHost.UnloadWorld(); }
     }
@@ -91,6 +93,23 @@ internal static class PlayerSamplerTests
         var late = new Texture2D(2, 2) { filterMode = FilterMode.Point };
         Expect.That(Read(late.RendererIdentity).filter == 0, "a value set before the identity is stored with the texture");
         Console.WriteLine("PASS: setters before the first store only keep the value for the store");
+    }
+
+    private static void SendsTheShapeOfARenderTexture()
+    {
+        var plain = ReadRenderTexture(new RenderTexture(16, 16, 0).WorldId);
+        Expect.That(plain.dimension == 2 && plain.volume_depth == 1, "a plain render texture is one 2D slice");
+        var array = new RenderTextureDescriptor(8, 4, RenderTextureFormat.RFloat, 0) { dimension = TextureDimension.Tex2DArray, volumeDepth = 4 };
+        var layers = ReadRenderTexture(new RenderTexture(array).WorldId);
+        Expect.That(layers.dimension == 5 && layers.volume_depth == 4, "a 2D array keeps its layers");
+        var volume = new RenderTexture(8, 8, 0) { dimension = TextureDimension.Tex3D, volumeDepth = 6 };
+        var slices = ReadRenderTexture(volume.WorldId);
+        Expect.That(slices.dimension == 3 && slices.volume_depth == 6, "a 3D texture keeps its slices");
+        var cube = new RenderTexture(8, 8, 0) { dimension = TextureDimension.Cube, volumeDepth = 6 };
+        var faces = ReadRenderTexture(cube.WorldId);
+        Expect.That(faces.dimension == 4 && faces.volume_depth == 1, "a cube sends one slice whatever its volume depth says");
+        Expect.Throws<ArgumentException>(() => new RenderTexture(new RenderTextureDescriptor(8, 8) { dimension = TextureDimension.None }), "a render texture of no dimension");
+        Console.WriteLine("PASS: a render texture sends its dimension and volume depth, one slice for 2D and cube");
     }
 
     private static void SendsTheSamplerOfARenderTexture()

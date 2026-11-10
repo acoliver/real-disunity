@@ -77,6 +77,8 @@ public partial class RenderTexture : Texture
         if (desc.width <= 0) throw new ArgumentException("RenderTexture width must be greater than zero", "desc.width");
         if (desc.height <= 0) throw new ArgumentException("RenderTexture height must be greater than zero", "desc.height");
         if (desc.volumeDepth < 1) throw new ArgumentException("RenderTexture volumeDepth must be at least one", "desc.volumeDepth");
+        if (desc.dimension is not (TextureDimension.Tex2D or TextureDimension.Tex3D or TextureDimension.Cube or TextureDimension.Tex2DArray or TextureDimension.CubeArray))
+            throw new ArgumentException($"RenderTexture dimension {desc.dimension} is not a dimension a render texture can have", "desc.dimension");
         if (desc.msaaSamples is not (1 or 2 or 4 or 8)) throw new ArgumentException("RenderTexture antiAliasing must be 1, 2, 4 or 8", "desc.msaaSamples");
     }
 
@@ -196,11 +198,16 @@ public partial class RenderTexture : Texture
     internal ulong WorldId => WorldLink.Id;
 
     /// <summary>The world's description: the depth bits are the texture's (0, 16, 24 or 32) and the mip count is that of the chain, at most 15.</summary>
+    /// <summary>Whether the dimension has more than one slice, layer or face set: a 3D texture or an array. A 2D texture or
+    /// a cube ignores <see cref="volumeDepth"/>.</summary>
+    private bool Shaped => dimension is TextureDimension.Tex3D or TextureDimension.Tex2DArray or TextureDimension.CubeArray;
+
     internal DisunityRenderTexture Describe() => new()
     {
         width = (uint)width, height = (uint)height, format = (uint)(int)_desc.graphicsFormat,
         depth_bits = (uint)Math.Max(depth, 0),
         mip_count = (uint)Math.Clamp(mipmapCount, 1, 15), srgb = sRGB ? 1u : 0u,
+        dimension = (uint)(int)this.dimension, volume_depth = Shaped ? (uint)Math.Max(volumeDepth, 1) : 1u,
         wrap_u = Sampler.wrap_u, wrap_v = Sampler.wrap_v, wrap_w = Sampler.wrap_w, filter = Sampler.filter,
         aniso_level = Sampler.aniso_level, mip_bias = Sampler.mip_bias,
     };

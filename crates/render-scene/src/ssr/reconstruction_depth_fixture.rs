@@ -5,6 +5,15 @@ pub(in crate::ssr::tests) fn texture(
     config: FrameConfig,
     metres: &str,
 ) -> wgpu::Texture {
+    projected_texture(context, config, metres, frame().view_projection)
+}
+
+pub(in crate::ssr::tests) fn projected_texture(
+    context: &GpuContext,
+    config: FrameConfig,
+    metres: &str,
+    projection: glam::Mat4,
+) -> wgpu::Texture {
     let texture = context.device().create_texture(&wgpu::TextureDescriptor {
         label: Some("reconstruction raw forward depth"),
         size: wgpu::Extent3d {
@@ -19,7 +28,7 @@ pub(in crate::ssr::tests) fn texture(
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
-    let pipeline = pipeline(context, config.samples, metres);
+    let pipeline = pipeline(context, config.samples, metres, projection);
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     let mut encoder = context.submission().begin(context.device()).unwrap();
     {
@@ -41,8 +50,7 @@ pub(in crate::ssr::tests) fn texture(
     texture
 }
 
-fn source(metres: &str) -> String {
-    let projection = frame().view_projection;
+fn source(metres: &str, projection: glam::Mat4) -> String {
     format!(
         "{}\n@fragment fn fs_depth(@builtin(position) p: vec4<f32>, @builtin(sample_index) lane: u32) -> @builtin(frag_depth) f32 {{ let z = -({metres}); return ({} * z + {}) / -z; }}",
         include_str!("../ssao/fullscreen.wgsl"),
@@ -51,8 +59,13 @@ fn source(metres: &str) -> String {
     )
 }
 
-fn pipeline(context: &GpuContext, samples: u32, metres: &str) -> wgpu::RenderPipeline {
-    let shader = source(metres);
+fn pipeline(
+    context: &GpuContext,
+    samples: u32,
+    metres: &str,
+    projection: glam::Mat4,
+) -> wgpu::RenderPipeline {
+    let shader = source(metres, projection);
     let module = context
         .device()
         .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -101,7 +114,7 @@ fn reconstruction_depth_planes_validate_without_device() {
         "select(3.0, 6.0, p.x > 9.0)",
         "3.0 + f32(lane)",
     ] {
-        let shader = source(metres);
+        let shader = source(metres, frame().view_projection);
         let module = naga::front::wgsl::parse_str(&shader)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&shader)));
         naga::valid::Validator::new(

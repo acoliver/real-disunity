@@ -26,10 +26,21 @@ Each MSAA sample has a horizontal lane in the existing SSR radiance targets. Cei
 Resolve classifies raw trace receivers before mixing their radiance. Opaque
 descriptors unproject the opaque depth at its full-resolution pixel centre,
 independently of the trace-grid centre. Water descriptors use the published
-normal and sample offset with that sample's raw forward depth. Water resolve binds the scheduled scene depth in
-place of the reduced final-depth input; its opaque shoreline check reduces those
-raw samples conservatively and rejects any pixel with water coverage in any lane.
-AO has a separate binding and never supplies a receiver normal.
+normal and sample offset with that sample's raw forward depth. Water resolve binds
+the scheduled raw scene depth in place of the reduced final-depth input, without
+an extra sampled texture. Its opaque visibility check rejects a pixel if any
+sample lane has nonzero water-normal alpha, and accepts it otherwise. Water is
+the only depth writer between the opaque and final snapshots, and every passing
+water fragment publishes nonzero normal alpha. The numeric depth comparison is
+removed because raw-depth unprojection and the opaque snapshot compute depth
+through different float32 operations; their rounding differences reject visible
+opaque receivers. Raw depth still reconstructs water receiver positions.
+
+This coverage rule is more conservative than main's minimum-snapshot comparison
+at a multisampled pixel where a water sample lies in front of a far opaque sample
+while a nearer opaque sample sets the minimum depth. Main can accept the opaque
+receiver there; the water resolve rejects it. AO has a separate binding and never
+supplies a receiver normal.
 
 Two receivers must have the same owner, normalized-normal dot product at least
 0.9, and symmetric tangent-plane residual at most

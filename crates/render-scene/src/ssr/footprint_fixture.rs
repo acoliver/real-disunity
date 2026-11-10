@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "snapshot_tests.rs"]
+mod snapshot_tests;
+
 type Capture = Vec<Vec<f32>>;
 
 pub(super) fn source(case: Case, pair: bool) -> String {

@@ -61,10 +61,16 @@ weight. Rejected receivers contribute neither pair nor denominator. Floor-droppe
 subtrees remain excluded; ceil partial bins retain equal-child weights. Each LOD
 is normalized independently before fractional-LOD interpolation.
 
-The direct check and fallback cost grow with the raw footprint, including on the
-homogeneous path. Broad roughness over large images can therefore be expensive;
-this implementation has no receiver-compatibility summary pyramid. Full native
-mips retain their logical extents and two-axis sample packing. Resolve requires
+The direct check and fallback each visit up to `4^level` raw receivers per
+coarse tap, including on the homogeneous path. At full image sizes the resulting
+fragment workload can trigger a GPU hang and abort later command buffers. An
+unexecuted SDSM reduction can then read back four zero words, which depth fitting
+correctly rejects as malformed evidence. This implementation has no
+receiver-compatibility summary pyramid or resolution-independent work bound;
+full native mip reconstruction is not safe for production-sized rough surfaces.
+The full-size SDSM/SSR GPU regression exercises this failure without private
+content. Full native mips retain their logical extents and two-axis sample
+packing. Resolve requires
 11 sampled textures for full mips, or `levels + 10` for separate levels, plus one
 when application AO is enabled. Unsupported device budgets fail before allocation.
 

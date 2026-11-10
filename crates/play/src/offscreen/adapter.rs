@@ -23,7 +23,7 @@ use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
 
-use super::assets::{Assets, MeshError, mesh_of, sampler_of_stored, texture_of};
+use super::assets::{Assets, sampler_of_stored, texture_of};
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
 use super::frame::{
@@ -36,6 +36,7 @@ use super::script::temporary_ids;
 use super::shaders::{ShaderLoader, ShaderSupply};
 use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
+mod meshes;
 mod reclaim;
 
 /// What the adapter keeps between frames.
@@ -255,68 +256,6 @@ impl OffscreenAdapter {
                 }
                 Err(error) => notes.fail("defaulttexture", &error),
             }
-        }
-    }
-
-    fn register_meshes(
-        &mut self,
-        identities: BTreeSet<u64>,
-        assets: &dyn Assets,
-        (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
-        notes: &mut Report,
-    ) {
-        for identity in identities {
-            let known = self.meshes.get(&identity).map_or(0, |held| held.generation);
-            let stored = match assets.mesh(identity, known) {
-                Ok(Some(stored)) => stored,
-                Ok(None) => continue,
-                Err(_) => {
-                    notes.count("mesh:Read");
-                    continue;
-                }
-            };
-            let mut nothing_to_draw = false;
-            let uploaded = match mesh_of(&stored) {
-                Ok(mesh) => {
-                    match Bounds::of_mesh(&mesh) {
-                        Some(bounds) => self.bounds.insert(identity, bounds),
-                        None => self.bounds.remove(&identity),
-                    };
-                    self.sub_meshes.insert(
-                        identity,
-                        mesh.sub_meshes.iter().map(|sub| sub.count).collect(),
-                    );
-                    self.with_room(state, runtime, notes, |state, runtime| {
-                        state.set_mesh(runtime, ids::mesh(identity), &mesh)
-                    })
-                    .map_err(|error| notes.fail("mesh", &error))
-                    .is_ok()
-                }
-                Err(MeshError::Empty(empty)) => {
-                    // Nothing to draw is not a failure. The mesh stays unusable, so renderers of
-                    // it are skipped and a mesh draw of it is refused as empty.
-                    nothing_to_draw = true;
-                    *notes
-                        .census
-                        .entry(format!("mesh with nothing to draw: {empty}"))
-                        .or_default() += 1;
-                    false
-                }
-                Err(error) => {
-                    notes.fail("mesh", &error);
-                    false
-                }
-            };
-            self.meshes.insert(
-                identity,
-                Stored {
-                    generation: stored.generation,
-                    sampler_generation: 0,
-                    usable: uploaded,
-                    empty: nothing_to_draw,
-                    last_named: self.epoch,
-                },
-            );
         }
     }
 

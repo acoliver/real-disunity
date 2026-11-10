@@ -32,7 +32,7 @@ use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::{Settings, Skip};
 use super::super::kernels::PlayerKernels;
 use super::super::shaders::{LoadedShader, ShaderLoadError, ShaderSupply};
-use super::gpu::{SIDE, gpu, shader, target, vector};
+use super::gpu::{Gpu, SIDE, gpu, gpu_with_budget, shader, target, vector};
 use super::support::{snapshot, world};
 
 const ARGB32: u32 = 8;
@@ -342,7 +342,15 @@ impl Run {
 }
 
 fn host(kernels: PlayerKernels) -> OffscreenHost {
-    let gpu = gpu();
+    host_over(gpu(), kernels)
+}
+
+/// A host whose runtime may hold `budget` bytes of storage.
+fn host_with_budget(kernels: PlayerKernels, budget: u64) -> OffscreenHost {
+    host_over(gpu_with_budget(budget), kernels)
+}
+
+fn host_over(gpu: Gpu, kernels: PlayerKernels) -> OffscreenHost {
     OffscreenHost::new(
         gpu.runtime,
         gpu.arena,

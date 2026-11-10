@@ -72,16 +72,16 @@ impl Assets for Textures {
 }
 
 /// A runtime with a budget, a state and an adapter, over the device and arena it was made on.
-struct Room {
-    runtime: ProgramRuntime,
-    state: OffscreenState,
-    adapter: OffscreenAdapter,
+pub(super) struct Room {
+    pub(super) runtime: ProgramRuntime,
+    pub(super) state: OffscreenState,
+    pub(super) adapter: OffscreenAdapter,
     textures: Textures,
     device: (wgpu::Device, SubmissionAuthority, ProgramArena),
 }
 
 impl Room {
-    fn new(budget: u64) -> Self {
+    pub(super) fn new(budget: u64) -> Self {
         let Gpu {
             device,
             authority,

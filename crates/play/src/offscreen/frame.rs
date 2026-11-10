@@ -16,7 +16,7 @@ use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
     ComputeBindings, MaterialId as WorldMaterialId, OffscreenWork, RenderTextureId,
-    ShaderId as WorldShaderId, TextureRef,
+    ShaderId as WorldShaderId, TextureRef, WorldRenderTexture, dimension,
 };
 use worldrunner_world_simulation::presentation::CameraClear;
 
@@ -249,6 +249,20 @@ pub struct Adapted {
     /// The dispatches and pixel reads of the snapshot, in call order. The frame holds none: a
     /// host that runs them splits `frame.records` at these places.
     pub placements: Vec<Placed>,
+}
+
+/// The shape the world's description of a render texture states. A code the world does not
+/// define is carried as unknown, for the state to refuse by name.
+pub(super) fn render_dimension(texture: &WorldRenderTexture) -> RenderDimension {
+    let depth = texture.volume_depth;
+    match texture.dimension {
+        dimension::TEX_2D => RenderDimension::D2,
+        dimension::TEX_2D_ARRAY => RenderDimension::D2Array(depth),
+        dimension::TEX_3D => RenderDimension::D3(depth),
+        dimension::CUBE => RenderDimension::Cube,
+        dimension::CUBE_ARRAY => RenderDimension::CubeArray(depth / 6),
+        other => RenderDimension::Unknown(other),
+    }
 }
 
 /// A render texture's side as a float. Sides above 65535 saturate, and none reaches them.
@@ -845,8 +859,7 @@ impl<'a> Mapper<'a> {
             self.frame.render_textures.push(RenderTextureSpec {
                 id: ids::render_texture(id),
                 size: [texture.width, texture.height],
-                layers: 1,
-                dimension: RenderDimension::D2,
+                dimension: render_dimension(texture),
                 graphics_format: texture.format,
                 depth_bits: u8::try_from(texture.depth_bits).unwrap_or(u8::MAX),
                 mips: texture.mip_count,

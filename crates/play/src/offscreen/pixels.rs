@@ -94,7 +94,7 @@ impl Wanted {
 
 /// Whether a `GraphicsFormat` code names a format of integer texels (unsigned or signed).
 ///
-/// The codes are the managed engine's own enumeration in `csharp/Disunity/Enums/Other.cs`: the
+/// The codes are the managed engine's own enumeration in `csharp/Disunity/Enums/ExperimentalRendering.cs`: the
 /// 8, 16 and 32-bit integers (13 to 20, 29 to 44), the blue-first 8-bit integers (62 to 65) and
 /// the packed 10-bit integers (76, 77, 79 and 80).
 #[must_use]

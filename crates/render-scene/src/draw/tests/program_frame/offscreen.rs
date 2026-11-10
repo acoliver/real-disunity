@@ -141,8 +141,11 @@ fn texture(id: TextureId, layers: u32) -> RenderTextureSpec {
     RenderTextureSpec {
         id,
         size: [8, 8],
-        layers,
-        dimension: RenderDimension::D2,
+        dimension: if layers == 1 {
+            RenderDimension::D2
+        } else {
+            RenderDimension::D2Array(layers)
+        },
         graphics_format: 8,
         depth_bits: 0,
         mips: 1,

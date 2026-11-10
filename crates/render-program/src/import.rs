@@ -68,7 +68,14 @@ pub(crate) fn default_dimension(texture: &wgpu::Texture) -> wgpu::TextureViewDim
 /// A buffer, texture view or sampler an owner lends to a draw.
 #[derive(Clone, Debug)]
 pub enum ImportedResource {
+    /// The whole buffer.
     Buffer(wgpu::Buffer),
+    /// `size` bytes of `buffer` from `offset`.
+    BufferRange {
+        buffer: wgpu::Buffer,
+        offset: u64,
+        size: u64,
+    },
     Texture(ImportedTexture),
     Sampler(wgpu::Sampler),
 }
@@ -77,6 +84,7 @@ impl ImportedResource {
     pub(crate) fn describe(&self) -> &'static str {
         match self {
             Self::Buffer(_) => "an imported buffer",
+            Self::BufferRange { .. } => "an imported buffer range",
             Self::Texture(_) => "an imported texture",
             Self::Sampler(_) => "an imported sampler",
         }
@@ -96,6 +104,25 @@ impl Import {
         Self {
             semantic,
             resource: ImportedResource::Buffer(buffer),
+        }
+    }
+
+    /// `size` bytes of `buffer` from `offset`, for a binding that reads a slice of a larger
+    /// buffer: one record of a table, one frame of a ring.
+    #[must_use]
+    pub fn buffer_range(
+        semantic: EngineSemantic,
+        buffer: wgpu::Buffer,
+        offset: u64,
+        size: u64,
+    ) -> Self {
+        Self {
+            semantic,
+            resource: ImportedResource::BufferRange {
+                buffer,
+                offset,
+                size,
+            },
         }
     }
 
@@ -221,7 +248,9 @@ impl ProgramRuntime {
         signature: TargetSignature,
     ) -> Result<PreparedProgramDraw, ProgramError> {
         self.authority.check_device()?;
-        let colors = draw.state.check_targets(signature.color_count())?;
+        let colors = draw
+            .state
+            .check_targets(signature.color_count(), signature.samples())?;
         if draw.instances.start > draw.instances.end {
             return Err(ProgramError::InstanceRange {
                 start: draw.instances.start,

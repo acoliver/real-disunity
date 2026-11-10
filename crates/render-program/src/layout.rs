@@ -59,6 +59,15 @@ pub enum LayoutError {
         declared: wgpu::ShaderStages,
         needed: wgpu::ShaderStages,
     },
+    #[error(
+        "the shader samples the unfilterable float texture at set {texture_set} binding {texture} with the filtering sampler at set {sampler_set} binding {sampler}; declare the sampler non-filtering"
+    )]
+    FilteringSampler {
+        texture_set: u32,
+        texture: u32,
+        sampler_set: u32,
+        sampler: u32,
+    },
     #[error("set {set} binding {binding} is {first} in one stage and {second} in another")]
     Conflict {
         set: u32,
@@ -121,6 +130,7 @@ impl ProgramLayout {
                     .filter(|unused| external.iter().all(|lent| lent.set != unused.set)),
             );
         }
+        check_sampling(stages, &merged, external)?;
         Ok(Self {
             slots: merged.into_values().collect(),
             unused,
@@ -146,7 +156,43 @@ impl ProgramLayout {
     }
 }
 
-fn check_unique(declared: &ResourceLayout) -> Result<(), LayoutError> {
+/// A texture declared unfilterable is not sampled with a sampler declared filtering: wgpu refuses
+/// the pair when it creates the pipeline, and this names it first.
+fn check_sampling(
+    stages: &[&StageProgram],
+    merged: &BTreeMap<(u32, u32), Slot>,
+    external: &[ExternalSet],
+) -> Result<(), LayoutError> {
+    let declared = |(set, binding): (u32, u32)| match external.iter().find(|lent| lent.set == set) {
+        Some(lent) => lent
+            .bindings
+            .find(BindingAddress { set, binding })
+            .map(|found| found.kind.binding_type()),
+        None => merged.get(&(set, binding)).map(|slot| slot.ty),
+    };
+    for stage in stages {
+        for pair in stage.sampling_pairs() {
+            if let (
+                Some(wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    ..
+                }),
+                Some(wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)),
+            ) = (declared(pair.texture), declared(pair.sampler))
+            {
+                return Err(LayoutError::FilteringSampler {
+                    texture_set: pair.texture.0,
+                    texture: pair.texture.1,
+                    sampler_set: pair.sampler.0,
+                    sampler: pair.sampler.1,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn check_unique(declared: &ResourceLayout) -> Result<(), LayoutError> {
     for (index, binding) in declared.bindings.iter().enumerate() {
         if declared.bindings[..index]
             .iter()
@@ -235,7 +281,7 @@ fn stage_slot(
         set: at.set,
         binding: at.binding,
         visibility: found.visibility,
-        ty: resource.ty,
+        ty: found.kind.refine(&resource.ty),
         min_size: resource.min_size.max(found.kind.min_size()),
         source: found.source.clone(),
     })

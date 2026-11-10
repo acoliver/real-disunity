@@ -32,10 +32,8 @@ use super::ids;
 use super::properties::values;
 
 mod evidence;
-mod shapes;
 
 use evidence::pairings;
-pub use shapes::StorageShape;
 
 /// How a dispatch was bound and what came of it, for the report.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -71,6 +69,9 @@ pub struct DispatchTrace {
     /// They are recorded before anything is bound, so a texture the host cannot make is paired
     /// too.
     pub pairings: Vec<String>,
+    /// For a dispatch left out because a binding does not suit the render texture's shape, the
+    /// view the kernel declares and the shape the world's record gave the texture.
+    pub reason: String,
 }
 
 impl DispatchTrace {
@@ -93,6 +94,9 @@ impl DispatchTrace {
             self.constants_missing.join(", ")
         ));
         lines.push(format!("  textures set [{}]", self.textures_set.join(", ")));
+        if !self.reason.is_empty() {
+            lines.push(format!("  left out: {}", self.reason));
+        }
         for texture in &self.textures {
             lines.push(format!(
                 "  texture {} from {}, on the GPU {}, camera renders before {} drew {} left out {} \
@@ -285,12 +289,10 @@ struct Held {
     kernel: Result<Rc<Kernel>, String>,
 }
 
-/// What the adapter keeps between frames: the kernels it has loaded, and the shape of each render
-/// texture a kernel binds as a storage image.
+/// What the adapter keeps between frames: the kernels it has loaded.
 pub struct ComputeAdapter {
     supply: Box<dyn ComputeSupply>,
     kernels: BTreeMap<(ComputeShaderId, u32), Held>,
-    shapes: BTreeMap<TextureId, StorageShape>,
 }
 
 /// A dispatch ready to record.
@@ -433,7 +435,7 @@ fn textures(
         entry.resolved = handle.is_some();
         trace.textures.push(entry);
         let handle = handle.ok_or_else(|| "TextureUnavailable".to_owned())?;
-        // A texture of another dimension than the kernel's view would fail the whole submission.
+        // A texture of another shape than the kernel's view would fail the whole submission.
         let declared = kernel
             .program
             .layout()
@@ -442,11 +444,25 @@ fn textures(
         if let Some(wgpu::BindingType::Texture { view_dimension, .. }) = declared
             && state.texture_view_dimension(id) != Some(view_dimension)
         {
+            trace.reason = shape_reason(state, id, view_dimension);
             return Err("TextureDimension".to_owned());
         }
         bound.push(BoundResource::texture(target.set, target.binding, handle));
     }
     Ok(bound)
+}
+
+/// Why a binding does not suit the render texture: the view the kernel declares and the shape the
+/// world's record gave the texture.
+fn shape_reason(
+    state: &OffscreenState,
+    id: TextureId,
+    declared: wgpu::TextureViewDimension,
+) -> String {
+    let held = state
+        .texture_dimension(id)
+        .map_or_else(|| "unknown".to_owned(), |shape| format!("{shape:?}"));
+    format!("the kernel declares a {declared:?} view and the render texture is {held}")
 }
 
 /// The storage images `kernel` declares, bound by name to the render textures the dispatch's
@@ -495,6 +511,18 @@ fn images(
         let ((_, storage), handle) = held.ok_or_else(|| "TextureUnavailable".to_owned())?;
         if !storage {
             return Err("StorageFormat".to_owned());
+        }
+        // The kernel's view must be the one the record's shape binds through.
+        let declared = kernel
+            .program
+            .layout()
+            .slot(target.set, target.binding)
+            .map(|slot| slot.ty);
+        if let Some(wgpu::BindingType::StorageTexture { view_dimension, .. }) = declared
+            && state.storage_view_dimension(id) != Some(view_dimension)
+        {
+            trace.reason = shape_reason(state, id, view_dimension);
+            return Err("StorageDimension".to_owned());
         }
         bound.push(BoundResource::texture(target.set, target.binding, handle));
     }
@@ -557,7 +585,6 @@ impl ComputeAdapter {
         Self {
             supply: Box::new(supply),
             kernels: BTreeMap::new(),
-            shapes: BTreeMap::new(),
         }
     }
 
@@ -627,8 +654,8 @@ impl ComputeAdapter {
             let OffscreenWork::Dispatch {
                 shader,
                 kernel,
-                groups,
                 bindings,
+                ..
             } = work
             else {
                 continue;
@@ -636,15 +663,9 @@ impl ComputeAdapter {
             let Some(world_shader) = snapshot.compute_shaders.get(shader) else {
                 continue;
             };
-            let thread_depth = world_shader
-                .kernels
-                .get(*kernel as usize)
-                .and_then(|listed| listed.thread_group_size)
-                .map_or(1, |size| size[2]);
             let Ok(kernel) = self.kernel(runtime, *shader, world_shader, *kernel) else {
                 continue;
             };
-            let covered = groups[2].saturating_mul(thread_depth).max(1);
             for target in &kernel.images {
                 let Ok(name) = target.name.resolve(&[]) else {
                     continue;
@@ -657,17 +678,7 @@ impl ComputeAdapter {
                 if let Some((_, slot)) = property
                     && let TextureRef::Render(id) = &slot.texture
                 {
-                    let id = ids::render_texture(*id);
-                    found.insert(id);
-                    let declared = kernel
-                        .program
-                        .layout()
-                        .slot(target.set, target.binding)
-                        .map(|slot| slot.ty);
-                    if let Some(wgpu::BindingType::StorageTexture { view_dimension, .. }) = declared
-                    {
-                        self.note_shape(id, view_dimension, covered);
-                    }
+                    found.insert(ids::render_texture(*id));
                 }
             }
         }

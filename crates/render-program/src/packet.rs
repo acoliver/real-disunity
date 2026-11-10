@@ -590,7 +590,8 @@ pub(crate) fn with_pipeline_descriptor<T>(
         }),
         multisample: wgpu::MultisampleState {
             count: signature.samples,
-            ..wgpu::MultisampleState::default()
+            mask: !0,
+            alpha_to_coverage_enabled: state.raster.alpha_to_coverage,
         },
         fragment: fragment_stage.map(|(stage, module)| wgpu::FragmentState {
             module,

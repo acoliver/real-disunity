@@ -340,7 +340,6 @@ fn a_temporary_render_texture_is_made_for_the_target_that_names_it() {
         [RenderTextureSpec {
             id,
             size: [4, 4],
-            layers: 1,
             dimension: RenderDimension::D2,
             graphics_format: 8,
             depth_bits: 32,

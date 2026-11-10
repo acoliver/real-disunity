@@ -1,6 +1,6 @@
-//! Render textures of several layers or of a depth: the state makes the dimension the spec asks
-//! for, a kernel's view of it is the matching one, and the graph of records refuses a 3D texture
-//! by name.
+//! Render textures of several layers, of a depth or of cube faces: the state makes the dimension
+//! the spec names with the layers it states, a kernel's or a draw's view of it is the matching one,
+//! and the graph of records refuses a 3D texture by name.
 
 use wgpu::TextureViewDimension as View;
 use worldrunner_render_program::ids::TextureId;
@@ -15,9 +15,8 @@ const ARRAY: TextureId = TextureId(10);
 const VOLUME: TextureId = TextureId(11);
 const PLAIN: TextureId = TextureId(12);
 
-fn spec(id: TextureId, dimension: RenderDimension, layers: u32) -> RenderTextureSpec {
+fn spec(id: TextureId, dimension: RenderDimension) -> RenderTextureSpec {
     RenderTextureSpec {
-        layers,
         dimension,
         ..texture(id.0, [4, 4])
     }
@@ -32,9 +31,9 @@ fn frame(specs: Vec<RenderTextureSpec>) -> OffscreenFrame {
 
 fn all_three() -> OffscreenFrame {
     frame(vec![
-        spec(ARRAY, RenderDimension::D2, 4),
-        spec(VOLUME, RenderDimension::D3, 5),
-        spec(PLAIN, RenderDimension::D2, 1),
+        spec(ARRAY, RenderDimension::D2Array(4)),
+        spec(VOLUME, RenderDimension::D3(5)),
+        spec(PLAIN, RenderDimension::D2),
     ])
 }
 
@@ -60,7 +59,7 @@ fn the_state_makes_the_dimension_and_extent_the_spec_asks_for() {
 #[test]
 fn a_texture_whose_dimension_changed_is_made_again() {
     let mut rig = Rig::new();
-    rig.build(&frame(vec![spec(VOLUME, RenderDimension::D2, 5)]))
+    rig.build(&frame(vec![spec(VOLUME, RenderDimension::D2Array(5))]))
         .unwrap();
     assert_eq!(
         rig.state.texture_view_dimension(VOLUME),
@@ -68,7 +67,7 @@ fn a_texture_whose_dimension_changed_is_made_again() {
     );
     let before = rig.state.texture_handle(VOLUME).unwrap();
 
-    rig.build(&frame(vec![spec(VOLUME, RenderDimension::D3, 5)]))
+    rig.build(&frame(vec![spec(VOLUME, RenderDimension::D3(5))]))
         .unwrap();
 
     assert_eq!(rig.state.texture_view_dimension(VOLUME), Some(View::D3));
@@ -78,7 +77,7 @@ fn a_texture_whose_dimension_changed_is_made_again() {
 #[test]
 fn a_3d_texture_has_one_mip_and_no_depth_buffer() {
     let mut rig = Rig::new();
-    let mut mips = spec(VOLUME, RenderDimension::D3, 5);
+    let mut mips = spec(VOLUME, RenderDimension::D3(5));
     mips.mips = 2;
     let error = rig.build(&frame(vec![mips])).err().unwrap();
     assert!(
@@ -91,7 +90,7 @@ fn a_3d_texture_has_one_mip_and_no_depth_buffer() {
         ),
         "{error}"
     );
-    let mut depth = spec(VOLUME, RenderDimension::D3, 5);
+    let mut depth = spec(VOLUME, RenderDimension::D3(5));
     depth.depth_bits = 16;
     let error = rig.build(&frame(vec![depth])).err().unwrap();
     assert!(

@@ -409,7 +409,6 @@ impl Mapper<'_> {
                 Some(RenderTextureSpec {
                     id: *id,
                     size: [desc.width, desc.height],
-                    layers: 1,
                     dimension: RenderDimension::D2,
                     graphics_format: desc.format,
                     depth_bits: u8::try_from(desc.depth_bits).unwrap_or(u8::MAX),

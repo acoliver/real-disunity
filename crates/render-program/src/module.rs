@@ -7,8 +7,8 @@ use naga::valid::{Capabilities, ModuleInfo, ValidationFlags, Validator};
 
 use crate::binding::ResourceLayout;
 use crate::constants::BoundConstantLayout;
-use crate::reflect::reflect;
 pub use crate::reflect::{Reflected, StorageImageUse};
+use crate::reflect::{SamplingPair, reflect, sampling_pairs};
 
 /// A pipeline stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,6 +290,13 @@ impl StageProgram {
         &self.resources
     }
 
+    /// The textures and samplers the entry point samples together, by address.
+    pub(crate) fn sampling_pairs(&self) -> Vec<SamplingPair> {
+        entry_index(&self.parsed, &self.module.entry_point, self.module.kind)
+            .map(|entry| sampling_pairs(&self.parsed.module, &self.parsed.info, entry))
+            .unwrap_or_default()
+    }
+
     /// The module as naga parsed it.
     #[must_use]
     pub fn naga_module(&self) -> &naga::Module {
@@ -431,7 +438,13 @@ fn reflected(
     entry_point: &str,
     kind: StageKind,
 ) -> Result<Arc<[Reflected]>, ModuleError> {
-    let entry = parsed
+    let entry = entry_index(parsed, entry_point, kind)?;
+    Ok(reflect(&parsed.module, &parsed.info, entry)?.into())
+}
+
+/// The index of the `kind` entry point `entry_point` in `parsed`.
+fn entry_index(parsed: &Parsed, entry_point: &str, kind: StageKind) -> Result<usize, ModuleError> {
+    parsed
         .module
         .entry_points
         .iter()
@@ -439,8 +452,7 @@ fn reflected(
         .ok_or_else(|| ModuleError::EntryPointMissing {
             name: entry_point.to_owned(),
             kind,
-        })?;
-    Ok(reflect(&parsed.module, &parsed.info, entry)?.into())
+        })
 }
 
 /// A hash of the source alone.

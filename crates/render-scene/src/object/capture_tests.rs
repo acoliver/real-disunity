@@ -13,7 +13,7 @@
 //!
 //! The scenes cover the 32 `PipelineKey` variants. [`scenes::surface_specs`],
 //! [`scenes::impostor_specs`] and relief impostors draw through `SceneGpu::draw_color`. The keys
-//! no material reaches are drawn by [`Masked`], which sends the index of one of the
+//! no material reaches are drawn with a mask, which sends the index of one of the
 //! [`scenes::base_specs`] cards to the pipeline of the key `index ^ mask`, on the scene's and on
 //! the fixed path's pipelines alike.
 
@@ -39,7 +39,7 @@ pub(in crate::object) mod scenes;
 mod shadow;
 mod variants;
 
-pub(in crate::object) use legacy::{Legacy, Masked};
+pub(in crate::object) use legacy::Legacy;
 
 /// The attachments of a pass and the sample count of its pipelines.
 #[derive(Clone, Copy)]
@@ -332,12 +332,7 @@ pub(in crate::object) fn capture(rig: &mut Rig<'_>, legacy: &Legacy, case: &Case
             assert_eq!(drawn.sky, DrawCount::default(), "the fixture draws no sky");
         } else {
             let frame = gpu.legacy_objects().frame;
-            gpu.draw_objects(
-                pass,
-                &frame,
-                &Masked(selected.object_pipelines(), case.mask),
-                None,
-            );
+            gpu.draw_objects_prepared_masked(pass, &frame, selected.object_context(), case.mask);
         }
     });
     let mut recorded = Recorded::default();

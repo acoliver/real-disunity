@@ -89,6 +89,8 @@ pub struct ScenePipelines {
     pipelines: ObjectPipelines,
     /// Terrain programs of this context on the program runtime.
     terrain_context: crate::terrain::program::Context,
+    /// Object programs of this context on the program runtime, which draw the forward passes.
+    object_context: crate::object::program::Context,
     /// The colour attachments of the pass the dynamic unlit-alpha material draws into, from the
     /// same target list the object pipelines have.
     unlit_colors: Vec<TextureFormat>,
@@ -288,6 +290,22 @@ impl ScenePipelines {
             },
             family,
         );
+        let object_context = crate::object::program::Context::new(
+            crate::object::program::Description {
+                device: device.clone(),
+                source: source.into(),
+                colors: targets.iter().flatten().map(|t| t.format).collect(),
+                samples,
+                front_face: options.1,
+                depth: options.2,
+                previous_transforms: source.contains(crate::velocity::MARKER),
+                constants: constants.clone(),
+                frame: frame_layout.clone(),
+                shadow: shadow_layout.cloned(),
+                screen: screen_layout.cloned(),
+            },
+            family,
+        );
         Self {
             specialization: specular::Specialization::new(
                 device,
@@ -297,6 +315,7 @@ impl ScenePipelines {
                 family,
             ),
             terrain_context,
+            object_context,
             color_format,
             samples,
             depth: options.2,

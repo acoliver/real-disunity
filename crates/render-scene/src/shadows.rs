@@ -490,7 +490,7 @@ impl ShadowedScene {
     }
 
     /// Prepares the terrain for every pass of the frame before any opens: the prepass, the
-    /// forward pass, and the casters of the cascades.
+    /// forward pass, and the casters of the cascades, and the objects of the forward pass.
     fn prepare_terrain_passes(
         (gpu, caster, depth_frames): (
             &SceneGpu,
@@ -507,6 +507,7 @@ impl ShadowedScene {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
         }
         gpu.prepare_terrain(selected, frame)?;
+        gpu.prepare_objects(selected, frame)?;
         caster
             .prepare(depth_frames.iter().map(|(buffer, _)| buffer))
             .map_err(

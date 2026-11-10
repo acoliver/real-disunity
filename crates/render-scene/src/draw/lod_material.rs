@@ -1,4 +1,14 @@
-use super::{MATERIAL_GROUP, SceneGpu, visibility::SelectedRange};
+use std::cell::RefCell;
+use std::ops::{Index, Range};
+
+use wgpu::{BindGroup, Buffer, RenderPass, RenderPipeline};
+use worldrunner_render_program::runtime::PassCommands;
+
+use super::{
+    DrawCount, FRAME_GROUP, FrameUniform, MATERIAL_GROUP, SceneGpu, SelectionPublication,
+    selection_reuse,
+    visibility::{SelectedRange, Selection},
+};
 
 /// Render state the current selection's draws have already set. wgpu validates and encodes
 /// every state call again, including a pipeline change to the pipeline already bound, so
@@ -12,7 +22,7 @@ pub(super) struct BoundState {
 
 impl BoundState {
     /// Records that `pipeline` and `material` are bound and returns which of them must be set.
-    fn bind(&mut self, pipeline: usize, material: usize) -> (bool, bool) {
+    pub(super) fn bind(&mut self, pipeline: usize, material: usize) -> (bool, bool) {
         let set_pipeline = self.pipeline != Some(pipeline);
         if set_pipeline {
             self.pipeline = Some(pipeline);
@@ -24,85 +34,226 @@ impl BoundState {
     }
 }
 
-impl SceneGpu {
-    pub(super) fn record_lod_range(
-        &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
-        range: &SelectedRange,
-        state: &mut BoundState,
-    ) -> super::DrawCount {
-        let batch = &self.instances.batches[&range.key];
-        pass.set_vertex_buffer(
-            1,
-            batch
-                .buffer
-                .as_ref()
-                .expect("flushed instance buffer")
-                .slice(..),
-        );
-        // Only velocity pipelines declare this buffer; the others ignore the extra binding.
-        if let Some(previous) = &batch.previous {
-            pass.set_vertex_buffer(2, previous.slice(..));
+/// One indexed draw of a selected range: the pipeline and material of a material slot, the
+/// indices it draws and the instances it draws them for.
+#[derive(Clone, Debug)]
+pub(super) struct Draw {
+    pub pipeline: usize,
+    pub material: usize,
+    pub indices: Range<u32>,
+    pub instances: Range<u32>,
+}
+
+/// Where the draws of a selection go. The walk over a selection says which buffers a draw reads
+/// and in what order, and a sink decides how they reach the pass: the fixed path sets each
+/// buffer as it is named, and the runtime path draws a geometry over them.
+pub(super) trait DrawSink {
+    /// The instance buffer of the draws that follow, and the previous-instance buffer when the
+    /// batch has one.
+    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>);
+    /// The vertex buffer of the level the next draws read.
+    fn vertices(&mut self, vertices: &Buffer);
+    /// The index buffer of the level the next draws read.
+    fn indices(&mut self, indices: &Buffer);
+    fn draw(&mut self, draw: Draw);
+}
+
+/// Records the fixed pipelines' draws: a render pipeline for each key and a bind group for each
+/// material.
+pub(super) struct FixedSink<'a, P: ?Sized, I: ?Sized> {
+    pass: &'a mut P,
+    pipelines: &'a I,
+    materials: &'a [BindGroup],
+    state: BoundState,
+}
+
+impl<'a, P: ?Sized, I: ?Sized> FixedSink<'a, P, I> {
+    pub(super) fn new(pass: &'a mut P, pipelines: &'a I, materials: &'a [BindGroup]) -> Self {
+        Self {
+            pass,
+            pipelines,
+            materials,
+            state: BoundState::default(),
         }
-        self.record_lod_draws(pass, pipelines, range, state)
+    }
+}
+
+impl<P, I> DrawSink for FixedSink<'_, P, I>
+where
+    P: PassCommands + ?Sized,
+    I: Index<usize, Output = RenderPipeline> + ?Sized,
+{
+    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>) {
+        self.pass.set_vertex_buffer(1, current);
+        // Only velocity pipelines declare this buffer; the others ignore the extra binding.
+        if let Some(previous) = previous {
+            self.pass.set_vertex_buffer(2, previous);
+        }
     }
 
-    /// Draws the instances `range.slots` of the buffer already bound as vertex buffer 1.
+    fn vertices(&mut self, vertices: &Buffer) {
+        self.pass.set_vertex_buffer(0, vertices);
+    }
+
+    fn indices(&mut self, indices: &Buffer) {
+        self.pass
+            .set_index_buffer(indices, wgpu::IndexFormat::Uint32);
+    }
+
+    fn draw(&mut self, draw: Draw) {
+        let (set_pipeline, set_material) = self.state.bind(draw.pipeline, draw.material);
+        if set_pipeline {
+            self.pass.set_pipeline(&self.pipelines[draw.pipeline]);
+        }
+        if set_material {
+            self.pass
+                .set_bind_group(MATERIAL_GROUP, &self.materials[draw.material]);
+        }
+        self.pass.draw_indexed(draw.indices, 0, draw.instances);
+    }
+}
+
+/// A view's selected objects and the frame they were selected for.
+pub(super) struct ObjectView {
+    pub(super) frame: FrameUniform,
+    pub(super) published: std::rc::Rc<RefCell<Selection>>,
+    pub(super) selection: Selection,
+}
+
+impl SceneGpu {
+    /// Records the view's objects with fixed render pipelines, one for each pipeline index:
+    /// the shadow casters', the metadata prepass's and the capture terms'.
+    pub(crate) fn draw_objects(
+        &self,
+        pass: &mut RenderPass<'_>,
+        frame_group: &BindGroup,
+        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+    ) -> SelectionPublication {
+        let view = self.begin_objects(pass, frame_group, shadow_matrix);
+        let mut sink = FixedSink::new(pass, pipelines, &self.materials);
+        let count = self.record_selection(
+            &mut sink,
+            (shadow_matrix, &view.frame),
+            &view.selection.ranges,
+        );
+        self.end_objects(view, shadow_matrix, count)
+    }
+
+    /// Selects the view's objects and binds the frame group, which both ways of recording them
+    /// do before the first draw.
+    pub(super) fn begin_objects<P: PassCommands + ?Sized>(
+        &self,
+        pass: &mut P,
+        frame_group: &BindGroup,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+    ) -> ObjectView {
+        assert!(
+            self.instances
+                .batches
+                .values()
+                .all(|batch| !batch.has_pending()),
+            "flush instance updates before drawing"
+        );
+        let frame = self
+            .drawing_frame
+            .borrow()
+            .as_ref()
+            .and_then(|(owner, frame)| {
+                worldrunner_render_gpu::submission::Publications::current()
+                    .filter(|current| current.same_transaction(owner))
+                    .map(|_| *frame)
+            })
+            .or_else(|| self.frame.get())
+            .expect("set a frame before drawing");
+        let published = self.views[selection_reuse::view_index(shadow_matrix)]
+            .published
+            .clone();
+        let selection = self.select_objects(shadow_matrix, &frame);
+        pass.set_bind_group(FRAME_GROUP, frame_group);
+        ObjectView {
+            frame,
+            published,
+            selection,
+        }
+    }
+
+    /// Counts what was recorded for a shadow cascade and publishes the selection.
+    pub(super) fn end_objects(
+        &self,
+        view: ObjectView,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+        count: DrawCount,
+    ) -> SelectionPublication {
+        if let Some((index, _)) = shadow_matrix {
+            self.pass_counters.shadows[index as usize].record(count);
+        }
+        SelectionPublication {
+            destination: view.published,
+            selection: view.selection,
+        }
+    }
+
+    pub(super) fn record_lod_range(
+        &self,
+        sink: &mut impl DrawSink,
+        range: &SelectedRange,
+    ) -> DrawCount {
+        let batch = &self.instances.batches[&range.key];
+        sink.instances(
+            batch.buffer.as_ref().expect("flushed instance buffer"),
+            batch.previous.as_ref(),
+        );
+        self.record_lod_draws(sink, range)
+    }
+
+    /// Draws the instances `range.slots` of the buffer the sink already holds as the instances.
     pub(super) fn record_lod_draws(
         &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
+        sink: &mut impl DrawSink,
         range: &SelectedRange,
-        state: &mut BoundState,
-    ) -> super::DrawCount {
+    ) -> DrawCount {
         let (_, mesh, _) = range.key;
         let lod = &self.meshes[mesh].lods[range.lod];
-        pass.set_vertex_buffer(0, lod.vertices.slice(..));
-        let mut count = self.record_lod_slots(pass, (pipelines, state), range, range.lod);
+        sink.vertices(&lod.vertices);
+        let mut count = self.record_lod_slots(sink, range, range.lod);
         if let Some(vertices) = &lod.transition {
-            pass.set_vertex_buffer(0, vertices.slice(..));
+            sink.vertices(vertices);
             // The complement belongs to the preceding level, including its materials.
-            count.add(self.record_lod_slots(pass, (pipelines, state), range, range.lod - 1));
+            count.add(self.record_lod_slots(sink, range, range.lod - 1));
         }
         count
     }
 
     fn record_lod_slots(
         &self,
-        pass: &mut wgpu::RenderPass<'_>,
-        bind: (
-            &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
-            &mut BoundState,
-        ),
+        sink: &mut impl DrawSink,
         range: &SelectedRange,
         level: usize,
-    ) -> super::DrawCount {
-        let (pipelines, state) = bind;
-        let mut count = super::DrawCount::default();
+    ) -> DrawCount {
+        let mut count = DrawCount::default();
         let instances = u64::from(range.slots.end - range.slots.start);
         let (pipeline, mesh, material) = range.key;
         let lod = &self.meshes[mesh].lods[level];
-        let mut draw = |pass: &mut wgpu::RenderPass<'_>, pipeline: usize, material: usize| {
-            let (set_pipeline, set_material) = state.bind(pipeline, material);
-            if set_pipeline {
-                pass.set_pipeline(&pipelines[pipeline]);
-            }
-            if set_material {
-                pass.set_bind_group(MATERIAL_GROUP, &self.materials[material], &[]);
-            }
-        };
-        pass.set_index_buffer(lod.indices.slice(..), wgpu::IndexFormat::Uint32);
+        sink.indices(&lod.indices);
         if let Some(slots) = &self.mesh_selection[mesh].material_slots[level] {
             for slot in slots {
                 let material = slot.material().raw() as usize;
-                draw(pass, self.instances.pipelines[material], material);
-                pass.draw_indexed(slot.indices(), 0, range.slots.clone());
+                sink.draw(Draw {
+                    pipeline: self.instances.pipelines[material],
+                    material,
+                    indices: slot.indices(),
+                    instances: range.slots.clone(),
+                });
                 count.draw(instances);
             }
         } else {
-            draw(pass, pipeline, material);
-            pass.draw_indexed(0..lod.index_count, 0, range.slots.clone());
+            sink.draw(Draw {
+                pipeline,
+                material,
+                indices: 0..lod.index_count,
+                instances: range.slots.clone(),
+            });
             count.draw(instances);
         }
         count

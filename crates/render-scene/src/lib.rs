@@ -15,7 +15,6 @@ pub mod dynamic;
 pub mod frame;
 pub mod geometry;
 mod instances;
-#[cfg(test)]
 mod object;
 pub mod offscreen;
 pub mod pipeline;

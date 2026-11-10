@@ -20,6 +20,8 @@ mod gather_origin_tests;
 mod grid_confidence_tests;
 #[path = "grid_tests.rs"]
 mod grid_tests;
+#[path = "hit_facing_tests.rs"]
+mod hit_facing_tests;
 #[path = "msaa.rs"]
 mod msaa;
 #[path = "numerical.rs"]

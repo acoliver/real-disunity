@@ -69,11 +69,14 @@ pub(super) fn trace_source(
     settings: &SceneSsr,
     size: [u32; 2],
 ) -> String {
-    let source = super::pyramid::trace_source(
-        gpu::configured_trace_source(samples, water, settings.radiance_rounding),
-        samples,
-        settings,
-    );
+    let source = gpu::configured_trace_source(samples, water, settings.radiance_rounding);
+    let source = match settings.hit_facing {
+        worldrunner_render_plan::SceneSsrHitFacing::ShadingNormal => source,
+        worldrunner_render_plan::SceneSsrHitFacing::Any => {
+            source.replace(" || dot(hit_normal.xyz, direction) >= 0.0", "")
+        }
+    };
+    let source = super::pyramid::trace_source(source, samples, settings);
     if settings.traversal != SceneSsrTraversal::Grid {
         return source;
     }

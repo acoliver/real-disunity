@@ -77,11 +77,12 @@ pub use scene::{
     SceneMeshLod, SceneObject, SceneParts, ScenePlacement, ScenePostStage, SceneResources,
     SceneRotation, SceneShadowCascades, SceneShadowFilter, SceneShadowSampling, SceneSky,
     SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver,
-    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrLodMapping, SceneSsrPassBehind,
-    SceneSsrPyramid, SceneSsrTraversal, SceneSun, SceneTerrain, SceneTerrainAppearance,
-    SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform, SceneValidationError,
-    SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy, TexelFormat,
-    TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler, TextureWrap,
+    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrHitFacing, SceneSsrLodMapping,
+    SceneSsrPassBehind, SceneSsrPyramid, SceneSsrTraversal, SceneSun, SceneTerrain,
+    SceneTerrainAppearance, SceneTerrainParts, SceneTerrainSurface, SceneTexture, SceneTransform,
+    SceneValidationError, SceneVertex, SceneWaterBody, SceneWaterSurface, TerrainLodPolicy,
+    TexelFormat, TextureColorSpace, TextureEncoding, TextureFilter, TextureHandle, TextureSampler,
+    TextureWrap,
 };
 pub use scene::{SceneMaterialChannels, TextureChannel};
 pub use scene::{

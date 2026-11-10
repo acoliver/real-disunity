@@ -22,6 +22,9 @@ pub enum SceneSsrHitFacing {
     ShadingNormal,
     /// Accept either target orientation, including single-sided back sides.
     Any,
+    /// Accept either target orientation for water receivers only.
+    /// Opaque receivers still reject hits by the target's shading normal.
+    AnyForWaterReceivers,
 }
 
 /// Depth-grid stepping and reduction used by reflection tracing.
@@ -315,6 +318,19 @@ mod tests {
         }
         value["hit_facing"] = serde_json::json!("Unknown");
         assert!(serde_json::from_value::<SceneSsr>(value).is_err());
+    }
+
+    #[test]
+    fn water_receiver_hit_facing_roundtrips_and_missing_field_defaults() {
+        let mut value = serde_json::to_value(SceneSsr::default()).unwrap();
+        value["hit_facing"] = serde_json::json!("AnyForWaterReceivers");
+        let policy = serde_json::from_value::<SceneSsr>(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(policy).unwrap(), value);
+        value.as_object_mut().unwrap().remove("hit_facing");
+        assert_eq!(
+            serde_json::from_value::<SceneSsr>(value).unwrap(),
+            SceneSsr::default()
+        );
     }
 
     #[test]

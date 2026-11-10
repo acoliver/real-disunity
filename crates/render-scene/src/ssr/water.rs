@@ -123,3 +123,43 @@ fn reconstruction_source(source: &str) -> String {
             "let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);\n    if water_normal.a != 0.0 { return reflection_water_receiver(p, sample, water_normal); }",
         )
 }
+
+pub(super) fn hit_facing_source(source: &str) -> String {
+    let source = source
+        .replace(
+            "if water_normal.a != 0.0 {",
+            "let receiver_is_water = water_normal.a != 0.0;\n    if receiver_is_water {",
+        )
+        .replace(
+            " || dot(hit_normal.xyz, direction) >= 0.0",
+            " || (!receiver_is_water && dot(hit_normal.xyz, direction) >= 0.0)",
+        );
+    let grid = source.find("fn grid_reflection(").expect("grid reflection");
+    let source = format!(
+        "{}{}",
+        &source[..grid],
+        source[grid..].replace("!receiver_is_water", "!policy.receiver_is_water")
+    );
+    grid_receiver_policy(&source)
+}
+
+fn grid_receiver_policy(source: &str) -> String {
+    source
+        .replace("width: vec2<f32>, allowance: u32,", "width: vec2<f32>, allowance: u32, receiver_is_water: bool,")
+        .replace("grid_reflection(centre, direction, origin_uv, roughness)", "grid_reflection(centre, direction, origin_uv, water_receiver_policy(roughness, receiver_is_water))")
+        .replace("origin_uv: vec2<f32>, roughness: f32) -> vec4<f32>", "origin_uv: vec2<f32>, policy: GridPolicy) -> vec4<f32>")
+        .replace(
+            "let intersection = grid_walk(GridRay(first, last, weighted, reciprocal),\n        GridPolicy(grid_size, depth_limit, camera.traversal.z, u32(camera.settings.x),\n            vec2<f32>(camera.settings.y, camera.traversal.y),\n            reflection_pass_count(roughness, camera.traversal.w, camera.behind)));",
+            "var grid_policy = policy;\n    grid_policy.size = grid_size;\n    grid_policy.end = depth_limit;\n    let intersection = grid_walk(GridRay(first, last, weighted, reciprocal), grid_policy);",
+        ) + r"
+fn water_receiver_policy(roughness: f32, receiver_is_water: bool) -> GridPolicy {
+    var policy: GridPolicy;
+    policy.skip = camera.traversal.z;
+    policy.budget = u32(camera.settings.x);
+    policy.width = vec2<f32>(camera.settings.y, camera.traversal.y);
+    policy.allowance = reflection_pass_count(roughness, camera.traversal.w, camera.behind);
+    policy.receiver_is_water = receiver_is_water;
+    return policy;
+}
+"
+}

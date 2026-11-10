@@ -71,7 +71,11 @@ pub(super) fn trace_source(
 ) -> String {
     let source = gpu::configured_trace_source(samples, water, settings.radiance_rounding);
     let source = match settings.hit_facing {
-        worldrunner_render_plan::SceneSsrHitFacing::ShadingNormal => source,
+        worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers if water => {
+            super::water::hit_facing_source(&source)
+        }
+        worldrunner_render_plan::SceneSsrHitFacing::ShadingNormal
+        | worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers => source,
         worldrunner_render_plan::SceneSsrHitFacing::Any => {
             source.replace(" || dot(hit_normal.xyz, direction) >= 0.0", "")
         }

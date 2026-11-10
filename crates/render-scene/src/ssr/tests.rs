@@ -42,6 +42,8 @@ mod replacement_tests;
 mod roughness_policy_tests;
 #[path = "trace_extent_tests.rs"]
 mod trace_extent_tests;
+#[path = "water_hit_facing_tests.rs"]
+mod water_hit_facing_tests;
 #[path = "water_tests.rs"]
 pub(crate) mod water_tests;
 use super::*;

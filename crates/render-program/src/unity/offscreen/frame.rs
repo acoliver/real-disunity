@@ -17,16 +17,62 @@ use super::probe::CameraProbe;
 /// The name a blit binds its source under unless the frame says otherwise.
 pub const DEFAULT_MAIN_TEXTURE: &str = "_MainTex";
 
-/// The dimension of a render texture's storage.
+/// The dimension of a render texture's storage, with the layers it holds where that is a choice.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RenderDimension {
-    /// A 2D texture of [`RenderTextureSpec::layers`] array layers.
+    /// A plain 2D texture of one layer.
     #[default]
     D2,
-    /// A 3D texture whose depth is [`RenderTextureSpec::layers`]. It has one mip and no depth
-    /// buffer, and only kernels read and write it: a record of the frame that names it is
-    /// refused as `VolumeInGraph`, and a pixel read answers its first slice.
-    D3,
+    /// A 2D array of this many layers, which may be one.
+    D2Array(u32),
+    /// A 3D texture this many slices deep. It has one mip and no depth buffer, and only kernels
+    /// read and write it: a record of the frame that names it is refused as `VolumeInGraph`, and
+    /// a pixel read answers its first slice.
+    D3(u32),
+    /// A cube of six square faces, which a draw samples through a cube view.
+    Cube,
+    /// This many cubes, six faces each.
+    CubeArray(u32),
+    /// A dimension code the host has no shape for; the state refuses it as `UnknownDimension`
+    /// and makes nothing.
+    Unknown(u32),
+}
+
+impl RenderDimension {
+    /// The array layers, or the slices of a volume, the storage holds: 1 for a plain texture, 6
+    /// for a cube and none for a dimension the host could not map.
+    #[must_use]
+    pub const fn layers(self) -> u32 {
+        match self {
+            Self::D2 => 1,
+            Self::D2Array(layers) | Self::D3(layers) => layers,
+            Self::Cube => 6,
+            Self::CubeArray(cubes) => cubes.saturating_mul(6),
+            Self::Unknown(_) => 0,
+        }
+    }
+
+    /// The view dimension a draw samples the texture through, or the code of a dimension the host
+    /// could not map.
+    ///
+    /// # Errors
+    /// Fails with the code of an [`Unknown`](Self::Unknown) dimension.
+    pub const fn view_dimension(self) -> Result<wgpu::TextureViewDimension, u32> {
+        Ok(match self {
+            Self::D2 => wgpu::TextureViewDimension::D2,
+            Self::D2Array(_) => wgpu::TextureViewDimension::D2Array,
+            Self::D3(_) => wgpu::TextureViewDimension::D3,
+            Self::Cube => wgpu::TextureViewDimension::Cube,
+            Self::CubeArray(_) => wgpu::TextureViewDimension::CubeArray,
+            Self::Unknown(code) => return Err(code),
+        })
+    }
+
+    /// Whether the texture is 3D.
+    #[must_use]
+    pub const fn is_volume(self) -> bool {
+        matches!(self, Self::D3(_))
+    }
 }
 
 /// A render texture or texture array the frame draws into, copies into or samples. The state
@@ -35,8 +81,7 @@ pub enum RenderDimension {
 pub struct RenderTextureSpec {
     pub id: TextureId,
     pub size: [u32; 2],
-    /// Array layers of a 2D texture, 1 for a plain render texture; the depth of a 3D one.
-    pub layers: u32,
+    /// The shape of the storage and its layers or depth.
     pub dimension: RenderDimension,
     /// The engine's `GraphicsFormat` value of the color format.
     pub graphics_format: u32,
@@ -46,6 +91,14 @@ pub struct RenderTextureSpec {
     /// Must agree with the format.
     pub srgb: bool,
     pub generation: u64,
+}
+
+impl RenderTextureSpec {
+    /// The array layers or slices the texture holds.
+    #[must_use]
+    pub const fn layers(&self) -> u32 {
+        self.dimension.layers()
+    }
 }
 
 /// A material: a shader, keywords and properties.

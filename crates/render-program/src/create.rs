@@ -11,6 +11,7 @@ use crate::bind::Snapshot;
 use crate::binding::BindingAddress;
 use crate::budget::{Note, Reservation};
 use crate::error::ProgramError;
+use crate::import::default_dimension;
 use crate::resources::TextureHandle;
 use crate::resources::{BufferEntry, BufferHandle, TargetEntry, TargetHandle, TextureEntry};
 use crate::runtime::ProgramRuntime;
@@ -290,7 +291,7 @@ impl ProgramRuntime {
                 },
                 mip_level_count: shape.mips,
                 sample_count: 1,
-                dimension: if shape.volume {
+                dimension: if shape.volume() {
                     wgpu::TextureDimension::D3
                 } else {
                     wgpu::TextureDimension::D2
@@ -300,7 +301,9 @@ impl ProgramRuntime {
                 view_formats: &[],
             })
         })?;
-        Ok(self.store.add_texture(entry(texture), reservation))
+        Ok(self
+            .store
+            .add_texture(entry_viewed(texture, shape.view), reservation))
     }
 
     /// Creates a texture that kernels bind as a storage image and draws sample, holding zeros.
@@ -437,13 +440,18 @@ pub(crate) struct TextureShape {
     pub(crate) format: wgpu::TextureFormat,
     /// Whether a kernel binds the texture as a storage image, which the format must allow.
     pub(crate) storage: bool,
-    /// Whether the texture is 3D, with `layers` as its depth.
-    pub(crate) volume: bool,
+    /// The dimension of the default view, which is the one a kernel or a draw samples the texture
+    /// through. A 3D view makes a 3D texture with `layers` as its depth.
+    pub(crate) view: wgpu::TextureViewDimension,
 }
 
 impl TextureShape {
+    fn volume(self) -> bool {
+        self.view == wgpu::TextureViewDimension::D3
+    }
+
     fn usage(self) -> wgpu::TextureUsages {
-        let attachment = if self.format.is_compressed() || self.volume {
+        let attachment = if self.format.is_compressed() || self.volume() {
             wgpu::TextureUsages::empty()
         } else {
             wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -462,8 +470,22 @@ impl TextureShape {
 }
 
 fn entry(texture: wgpu::Texture) -> TextureEntry {
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    TextureEntry { texture, view }
+    let dimension = default_dimension(&texture);
+    entry_viewed(texture, dimension)
+}
+
+/// A texture with the default view made in `dimension`, which a one-layer array or a cube needs
+/// said, since the default for a texture is a plain 2D view or an array view by its layers.
+fn entry_viewed(texture: wgpu::Texture, dimension: wgpu::TextureViewDimension) -> TextureEntry {
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(dimension),
+        ..wgpu::TextureViewDescriptor::default()
+    });
+    TextureEntry {
+        texture,
+        view,
+        dimension,
+    }
 }
 
 /// The bytes, extended with zeros to a multiple of four as buffer copies require.

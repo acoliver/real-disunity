@@ -21,6 +21,8 @@ fn render_texture(world: u64) -> u64 {
         mip_count: 1,
         filter: 1,
         aniso_level: 1,
+        dimension: 2,
+        volume_depth: 1,
         ..Default::default()
     };
     let mut id = 0;

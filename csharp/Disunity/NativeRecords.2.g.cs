@@ -363,7 +363,8 @@ namespace Disunity.Native
 
     /// <summary>
     ///  A render texture's description; booleans are 0 or 1. `format` is the engine's
-    ///  `GraphicsFormat` value. `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
+    ///  `GraphicsFormat` value. `dimension` is its `TextureDimension` (2D, 3D, cube, 2D array or cube
+    ///  array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube). `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
     ///  with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -375,6 +376,8 @@ namespace Disunity.Native
         public uint depth_bits;
         public uint mip_count;
         public uint srgb;
+        public uint dimension;
+        public uint volume_depth;
         public uint wrap_u;
         public uint wrap_v;
         public uint wrap_w;

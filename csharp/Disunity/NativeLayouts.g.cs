@@ -583,14 +583,16 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityRenderTexture>("depth_bits").ToInt32() != 12) throw new InvalidOperationException("DisunityRenderTexture.depth_bits offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("mip_count").ToInt32() != 16) throw new InvalidOperationException("DisunityRenderTexture.mip_count offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("srgb").ToInt32() != 20) throw new InvalidOperationException("DisunityRenderTexture.srgb offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_u").ToInt32() != 24) throw new InvalidOperationException("DisunityRenderTexture.wrap_u offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_v").ToInt32() != 28) throw new InvalidOperationException("DisunityRenderTexture.wrap_v offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_w").ToInt32() != 32) throw new InvalidOperationException("DisunityRenderTexture.wrap_w offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("filter").ToInt32() != 36) throw new InvalidOperationException("DisunityRenderTexture.filter offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("aniso_level").ToInt32() != 40) throw new InvalidOperationException("DisunityRenderTexture.aniso_level offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("mip_bias").ToInt32() != 44) throw new InvalidOperationException("DisunityRenderTexture.mip_bias offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 48) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
-        if (Marshal.SizeOf<DisunityRenderTexture>() != 56 || typeof(DisunityRenderTexture).GetFields().Length != 13) throw new InvalidOperationException("DisunityRenderTexture layout");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("dimension").ToInt32() != 24) throw new InvalidOperationException("DisunityRenderTexture.dimension offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("volume_depth").ToInt32() != 28) throw new InvalidOperationException("DisunityRenderTexture.volume_depth offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_u").ToInt32() != 32) throw new InvalidOperationException("DisunityRenderTexture.wrap_u offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_v").ToInt32() != 36) throw new InvalidOperationException("DisunityRenderTexture.wrap_v offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_w").ToInt32() != 40) throw new InvalidOperationException("DisunityRenderTexture.wrap_w offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("filter").ToInt32() != 44) throw new InvalidOperationException("DisunityRenderTexture.filter offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("aniso_level").ToInt32() != 48) throw new InvalidOperationException("DisunityRenderTexture.aniso_level offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("mip_bias").ToInt32() != 52) throw new InvalidOperationException("DisunityRenderTexture.mip_bias offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 56) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
+        if (Marshal.SizeOf<DisunityRenderTexture>() != 64 || typeof(DisunityRenderTexture).GetFields().Length != 15) throw new InvalidOperationException("DisunityRenderTexture layout");
         if (Marshal.OffsetOf<DisunityTargetRef>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTargetRef.kind offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("name_id").ToInt32() != 4) throw new InvalidOperationException("DisunityTargetRef.name_id offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("render").ToInt32() != 8) throw new InvalidOperationException("DisunityTargetRef.render offset");
@@ -675,5 +677,5 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 8;
+    internal const uint Version = 9;
 }

@@ -68,6 +68,8 @@ fn temporary_desc(size: u32) -> WorldRenderTexture {
         depth_bits: 32,
         mip_count: 1,
         srgb: false,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler::default(),
         generation: 0,
     }

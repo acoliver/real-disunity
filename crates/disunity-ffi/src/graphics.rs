@@ -325,7 +325,8 @@ pub unsafe extern "C" fn disunity_material_read(
 }
 
 /// A render texture's description; booleans are 0 or 1. `format` is the engine's
-/// `GraphicsFormat` value. `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
+/// `GraphicsFormat` value. `dimension` is its `TextureDimension` (2D, 3D, cube, 2D array or cube
+/// array) and `volume_depth` its slices, layers or cube-array faces (1 for 2D and cube). `wrap_*`, `filter`, `aniso_level` and `mip_bias` are the sampler,
 /// with the values of `DisunitySampler`. `generation` is ignored on input and starts at 1.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -336,6 +337,8 @@ pub struct DisunityRenderTexture {
     pub depth_bits: u32,
     pub mip_count: u32,
     pub srgb: u32,
+    pub dimension: u32,
+    pub volume_depth: u32,
     pub wrap_u: u32,
     pub wrap_v: u32,
     pub wrap_w: u32,
@@ -357,6 +360,8 @@ impl DisunityRenderTexture {
             depth_bits: self.depth_bits,
             mip_count: self.mip_count,
             srgb: self.srgb == 1,
+            dimension: self.dimension,
+            volume_depth: self.volume_depth,
             sampler: WorldSampler {
                 wrap_u: self.wrap_u,
                 wrap_v: self.wrap_v,
@@ -435,6 +440,8 @@ pub unsafe extern "C" fn disunity_render_texture_read(
                 depth_bits: held.depth_bits,
                 mip_count: held.mip_count,
                 srgb: u32::from(held.srgb),
+                dimension: held.dimension,
+                volume_depth: held.volume_depth,
                 wrap_u: held.sampler.wrap_u,
                 wrap_v: held.sampler.wrap_v,
                 wrap_w: held.sampler.wrap_w,

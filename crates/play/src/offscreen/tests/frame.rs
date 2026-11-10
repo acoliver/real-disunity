@@ -250,6 +250,8 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
         depth_bits: 0,
         mip_count: 1,
         srgb: false,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler::default(),
         generation: 0,
     };
@@ -432,6 +434,8 @@ fn a_render_texture_keeps_its_format_depth_mips_srgb_and_generation() {
         depth_bits: 24,
         mip_count: 4,
         srgb: true,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler::default(),
         generation: 0,
     };
@@ -888,6 +892,8 @@ fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
         depth_bits: 0,
         mip_count: 1,
         srgb: false,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler {
             wrap_u: 1,
             wrap_v: 2,

@@ -23,7 +23,7 @@ use worldrunner_world_simulation::graphics::{
     OffscreenWork, PropertyValue, ShaderId as WorldShaderId, ShaderSource, TextureRef,
 };
 
-use super::assets::{Assets, sampler_of_stored, texture_of};
+use super::assets::Assets;
 use super::bounds::Bounds;
 use super::defaults::DefaultTexture;
 use super::frame::{
@@ -38,6 +38,7 @@ use worldrunner_world_simulation::graphics::GraphicsSnapshot;
 
 mod meshes;
 mod reclaim;
+mod textures;
 
 /// What the adapter keeps between frames.
 pub struct OffscreenAdapter {
@@ -256,94 +257,6 @@ impl OffscreenAdapter {
                 }
                 Err(error) => notes.fail("defaulttexture", &error),
             }
-        }
-    }
-
-    fn register_textures(
-        &mut self,
-        identities: &BTreeSet<u64>,
-        assets: &dyn Assets,
-        (state, runtime): (&mut OffscreenState, &mut ProgramRuntime),
-        notes: &mut Report,
-    ) {
-        for &identity in identities {
-            let Some(id) = ids::stored_texture(identity) else {
-                notes.count("texture:IdentityTooLarge");
-                continue;
-            };
-            let held = self.textures.get(&identity).copied();
-            let stored_sampler = assets.sampler(identity).unwrap_or_else(|_| {
-                notes.count("texture:SamplerRead");
-                None
-            });
-            // A sampler that changed alone replaces the texture, whose bytes are read again.
-            let sampler_changed = stored_sampler.as_ref().is_some_and(|found| {
-                held.is_none_or(|held| held.sampler_generation != found.generation)
-            });
-            let known = held
-                .filter(|_| !sampler_changed)
-                .map_or(0, |held| held.generation);
-            let stored = match assets.texture(identity, known) {
-                Ok(Some(stored)) => stored,
-                // None is a texture the engine does not hold, or one it holds unchanged.
-                Ok(None) => {
-                    if held.is_none() {
-                        notes.count("texture:NotStored");
-                    }
-                    continue;
-                }
-                Err(_) => {
-                    notes.count("texture:Read");
-                    continue;
-                }
-            };
-            let sampled = stored_sampler.as_ref().map(sampler_of_stored);
-            let blocks = self.block_sources
-                && runtime
-                    .device()
-                    .features()
-                    .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
-            let uploaded = match texture_of(id, &stored, sampled, blocks) {
-                Ok(texture) => {
-                    let census = format!(
-                        "stored texture {} ({}) uploaded as GraphicsFormat {}",
-                        crate::textures::format_name(stored.format),
-                        if stored.linear { "linear" } else { "sRGB" },
-                        texture.graphics_format
-                    );
-                    let uploaded = self
-                        .with_room(state, runtime, notes, |state, runtime| {
-                            state.set_texture(runtime, &texture)
-                        })
-                        .map_err(|error| notes.fail("texture", &error))
-                        .is_ok();
-                    if uploaded {
-                        *notes.census.entry(census).or_default() += 1;
-                    }
-                    uploaded
-                }
-                Err(error) => {
-                    notes.fail("texture", &error);
-                    notes.count(&format!(
-                        "textureformat:{} {}x{}, {} bytes",
-                        crate::textures::format_name(stored.format),
-                        stored.width,
-                        stored.height,
-                        stored.bytes.len()
-                    ));
-                    false
-                }
-            };
-            self.textures.insert(
-                identity,
-                Stored {
-                    generation: stored.generation,
-                    sampler_generation: stored_sampler.map_or(0, |found| found.generation),
-                    usable: uploaded,
-                    empty: false,
-                    last_named: self.epoch,
-                },
-            );
         }
     }
 }

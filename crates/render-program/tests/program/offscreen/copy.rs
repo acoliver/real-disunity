@@ -2,7 +2,9 @@
 
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::unity::offscreen::OffscreenError;
-use worldrunner_render_program::unity::offscreen::frame::{OffscreenFrame, Record};
+use worldrunner_render_program::unity::offscreen::frame::{
+    OffscreenFrame, Record, RenderDimension,
+};
 
 use super::rig::{BLUE, GREEN, RED, Rig, ZERO, image, pixel, source, texture};
 
@@ -22,7 +24,7 @@ fn copy(source: TextureId, target: TextureId, to: (u32, u32), from: (u32, u32)) 
 
 fn array(size: [u32; 2], layers: u32, mips: u32) -> OffscreenFrame {
     let mut spec = texture(12, size);
-    spec.layers = layers;
+    spec.dimension = RenderDimension::D2Array(layers);
     spec.mips = mips;
     OffscreenFrame {
         render_textures: vec![spec],

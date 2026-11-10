@@ -27,7 +27,7 @@ use worldrunner_render_program::unity::synthetic::{
 use worldrunner_unity_serialized::shader::ShaderProperty;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, MaterialId, OffscreenWork, PropertyValue, RenderTextureId, ShaderProperties,
-    ShaderSource, TextureRef, WorldRenderTexture, WorldSampler, WorldShader,
+    ShaderSource, TextureRef, WorldRenderTexture, WorldSampler, WorldShader, dimension,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{MeshRenderer, World};
@@ -65,6 +65,7 @@ impl ShaderSupply for Synthetic {
             }
             "blit" => blit_passes("_MainTex"),
             "gradient" => gradient_passes(),
+            "cubeblit" => super::shapes::cube_blit_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
             // named after the file.
             "default_white" | "default_black" | "default_bump" => {
@@ -335,6 +336,15 @@ pub(super) fn target(world: &mut World, format: u32) -> RenderTextureId {
 }
 
 fn target_with_mips(world: &mut World, format: u32, mip_count: u32) -> RenderTextureId {
+    shaped_target(world, (format, mip_count), (dimension::TEX_2D, 1))
+}
+
+/// A `SIDE` by `SIDE` render texture whose record states `dimension` and `volume_depth`.
+pub(super) fn shaped_target(
+    world: &mut World,
+    (format, mip_count): (u32, u32),
+    (dimension, volume_depth): (u32, u32),
+) -> RenderTextureId {
     world
         .create_render_texture(WorldRenderTexture {
             width: SIDE,
@@ -343,8 +353,8 @@ fn target_with_mips(world: &mut World, format: u32, mip_count: u32) -> RenderTex
             depth_bits: 0,
             mip_count,
             srgb: false,
-            dimension: 2,
-            volume_depth: 1,
+            dimension,
+            volume_depth,
             sampler: WorldSampler::default(),
             generation: 0,
         })

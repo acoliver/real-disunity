@@ -1,10 +1,11 @@
 //! Fixed-function state a pipeline is built from, as plain data.
 //!
-//! The state describes more than the runtime draws today: stencil, alpha to coverage and several
-//! colour targets are representable, and [`RenderState::check_drawable`] names the ones a draw
-//! refuses. A depth bias is drawn: it is part of [`DepthState`] and of the pipeline. Stencil is
-//! drawn by the prepared pipelines of a renderer's own pass ([`RenderState::check_targets`]),
+//! The state describes more than the plain draws use: stencil, alpha to coverage and several
+//! colour targets are representable, and [`RenderState::check_drawable`] names the ones a plain
+//! draw refuses. A depth bias is drawn: it is part of [`DepthState`] and of the pipeline. Stencil
+//! is drawn by the prepared pipelines of a renderer's own pass ([`RenderState::check_targets`]),
 //! whose depth attachment has a stencil aspect, and refused by the plain and material draws.
+//! Alpha to coverage is drawn into a pass of more than one sample, and refused at one.
 
 use crate::error::ProgramError;
 
@@ -20,6 +21,9 @@ pub struct RasterState {
     pub cull: Option<wgpu::Face>,
     /// The winding that counts as a front face, in framebuffer space.
     pub front_face: wgpu::FrontFace,
+    /// Lets the fragment's alpha decide how many of a pixel's samples it covers. A pass of one
+    /// sample has nothing to drop, so the state is refused there with
+    /// [`ProgramError::AlphaToCoverageNeedsSamples`].
     pub alpha_to_coverage: bool,
 }
 
@@ -95,14 +99,16 @@ impl RenderState {
         }
     }
 
-    /// Checks that a draw into one colour target can use this state and returns that target's
-    /// state.
+    /// Checks that a draw into one single-sample colour target can use this state and returns
+    /// that target's state.
     ///
     /// # Errors
-    /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses.
+    /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses, and
+    /// with `AlphaToCoverageNeedsSamples` for alpha to coverage, which a single sample cannot
+    /// use.
     pub fn check_drawable(&self) -> Result<ColorState, ProgramError> {
         self.check_no_stencil()?;
-        self.check_fixed_function()?;
+        self.check_alpha_to_coverage(1)?;
         match self.colors.as_slice() {
             [Some(color)] => Ok(*color),
             [None] => Err(unwritten()),
@@ -112,18 +118,24 @@ impl RenderState {
         }
     }
 
-    /// Checks that a draw into `count` colour targets can use this state and returns each
+    /// Checks that a draw into `count` colour targets of `samples` per pixel can use this state and returns each
     /// target's state, in target order. A target the fragment stage does not write is
     /// expressed by an empty write mask, which keeps the attachment compatible with the pass.
     /// A depth-only pass has `count` 0 and takes a state with no colour targets. A stencil state
-    /// is accepted here; the pipeline checks it against the pass's depth attachment.
+    /// is accepted here; the pipeline checks it against the pass's depth attachment. Alpha to
+    /// coverage needs `samples` above 1.
     ///
     /// # Errors
     /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses,
+    /// with `AlphaToCoverageNeedsSamples` when alpha to coverage is asked for and `samples` is 1,
     /// with `ColorStatesOnDepthOnly` when `count` is 0 and the state describes colour targets
     /// and with `ColorStates` when the state does not describe each of the `count` targets.
-    pub fn check_targets(&self, count: usize) -> Result<Vec<ColorState>, ProgramError> {
-        self.check_fixed_function()?;
+    pub fn check_targets(
+        &self,
+        count: usize,
+        samples: u32,
+    ) -> Result<Vec<ColorState>, ProgramError> {
+        self.check_alpha_to_coverage(samples)?;
         if count == 0 && !self.colors.is_empty() {
             return Err(ProgramError::ColorStatesOnDepthOnly {
                 states: self.colors.len(),
@@ -141,11 +153,9 @@ impl RenderState {
             .collect()
     }
 
-    fn check_fixed_function(&self) -> Result<(), ProgramError> {
-        if self.raster.alpha_to_coverage {
-            return Err(ProgramError::UnsupportedState {
-                what: "alpha to coverage",
-            });
+    fn check_alpha_to_coverage(&self, samples: u32) -> Result<(), ProgramError> {
+        if self.raster.alpha_to_coverage && samples <= 1 {
+            return Err(ProgramError::AlphaToCoverageNeedsSamples { samples });
         }
         Ok(())
     }
@@ -191,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn stencil_and_alpha_to_coverage_are_refused_by_name() {
+    fn stencil_and_alpha_to_coverage_are_refused_by_the_plain_draw_by_name() {
         let mut state = RenderState::opaque_depth();
         state.stencil = Some(StencilState {
             ops: wgpu::StencilState::default(),
@@ -200,7 +210,10 @@ mod tests {
         assert_eq!(refused(&state), "stencil");
         let mut state = RenderState::opaque_depth();
         state.raster.alpha_to_coverage = true;
-        assert_eq!(refused(&state), "alpha to coverage");
+        assert_eq!(
+            state.check_drawable().unwrap_err(),
+            ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }
+        );
     }
 
     #[test]
@@ -211,9 +224,22 @@ mod tests {
             reference: 1,
         });
         assert_eq!(refused(&state), "stencil");
-        assert!(state.check_targets(1).is_ok());
+        assert!(state.check_targets(1, 1).is_ok());
+    }
+
+    #[test]
+    fn alpha_to_coverage_describes_a_multisampled_pass_and_is_refused_at_one_sample() {
+        let mut state = RenderState::opaque_depth();
         state.raster.alpha_to_coverage = true;
-        assert_eq!(refused_targets(&state, 1), "alpha to coverage");
+        for samples in [2, 4, 8, 16] {
+            assert!(state.check_targets(1, samples).is_ok());
+        }
+        assert_eq!(
+            state.check_targets(1, 1).unwrap_err(),
+            ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }
+        );
+        state.raster.alpha_to_coverage = false;
+        assert!(state.check_targets(1, 1).is_ok());
     }
 
     #[test]
@@ -225,21 +251,21 @@ mod tests {
             clamp: 0.01,
         };
         assert!(state.check_drawable().is_ok());
-        assert!(state.check_targets(1).is_ok());
+        assert!(state.check_targets(1, 1).is_ok());
     }
 
     #[test]
     fn a_depth_only_pass_takes_a_state_with_no_colour_targets() {
         let mut state = RenderState::opaque_depth();
         assert_eq!(
-            state.check_targets(0).unwrap_err(),
+            state.check_targets(0, 1).unwrap_err(),
             ProgramError::ColorStatesOnDepthOnly { states: 1 }
         );
         state.colors.clear();
-        assert_eq!(state.check_targets(0).unwrap(), Vec::new());
+        assert_eq!(state.check_targets(0, 1).unwrap(), Vec::new());
         // The same state does not describe a pass that has a colour attachment.
         assert_eq!(
-            state.check_targets(1).unwrap_err(),
+            state.check_targets(1, 1).unwrap_err(),
             ProgramError::ColorStates {
                 states: 0,
                 targets: 1
@@ -265,11 +291,11 @@ mod tests {
             blend: None,
             write_mask: wgpu::ColorWrites::empty(),
         }));
-        let colors = state.check_targets(2).unwrap();
+        let colors = state.check_targets(2, 1).unwrap();
         assert_eq!(colors[0].write_mask, wgpu::ColorWrites::ALL);
         assert_eq!(colors[1].write_mask, wgpu::ColorWrites::empty());
         assert_eq!(
-            state.check_targets(3).unwrap_err(),
+            state.check_targets(3, 1).unwrap_err(),
             ProgramError::ColorStates {
                 states: 2,
                 targets: 3
@@ -277,19 +303,10 @@ mod tests {
         );
         state.colors[1] = None;
         assert_eq!(
-            state.check_targets(2).unwrap_err(),
+            state.check_targets(2, 1).unwrap_err(),
             ProgramError::UnsupportedState {
                 what: "an unwritten colour target"
             }
         );
-        state.raster.alpha_to_coverage = true;
-        assert_eq!(refused_targets(&state, 2), "alpha to coverage");
-    }
-
-    fn refused_targets(state: &RenderState, count: usize) -> &'static str {
-        match state.check_targets(count) {
-            Err(ProgramError::UnsupportedState { what }) => what,
-            other => panic!("expected a refusal, got {other:?}"),
-        }
     }
 }

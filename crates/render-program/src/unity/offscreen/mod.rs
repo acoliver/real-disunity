@@ -236,16 +236,35 @@ impl OffscreenState {
             .map(|info| (info.format, info.storage))
     }
 
-    /// The dimension of the view a kernel or a draw binds the storage `texture_handle` gives: 3D
-    /// for a 3D texture, a 2D array for a 2D texture of several layers, else 2D. `None` for an id
-    /// that names no texture the state holds.
+    /// The dimension of the view a draw or a kernel samples the texture through: the one its
+    /// spec names, 2D for an uploaded source. `None` for an id that names no texture the state
+    /// holds.
     #[must_use]
     pub fn texture_view_dimension(&self, id: TextureId) -> Option<wgpu::TextureViewDimension> {
-        self.textures.get(id).ok().map(|info| match info.dimension {
-            frame::RenderDimension::D3 => wgpu::TextureViewDimension::D3,
-            frame::RenderDimension::D2 if info.layers > 1 => wgpu::TextureViewDimension::D2Array,
-            frame::RenderDimension::D2 => wgpu::TextureViewDimension::D2,
+        let info = self.textures.get(id).ok()?;
+        info.dimension.view_dimension().ok()
+    }
+
+    /// The dimension of the view a kernel binds the texture as a storage image through. It is
+    /// the sampled view, except that a cube or a cube array is written face by face through a 2D
+    /// array of their faces, since a storage image has no cube view. `None` for an id that names
+    /// no texture the state holds.
+    #[must_use]
+    pub fn storage_view_dimension(&self, id: TextureId) -> Option<wgpu::TextureViewDimension> {
+        let view = self.texture_view_dimension(id)?;
+        Some(match view {
+            wgpu::TextureViewDimension::Cube | wgpu::TextureViewDimension::CubeArray => {
+                wgpu::TextureViewDimension::D2Array
+            }
+            other => other,
         })
+    }
+
+    /// The dimension, with its layers or depth, the state made the texture `id` with, or `None`
+    /// for an id that names no texture the state holds.
+    #[must_use]
+    pub fn texture_dimension(&self, id: TextureId) -> Option<frame::RenderDimension> {
+        self.textures.get(id).ok().map(|info| info.dimension)
     }
 
     /// Gives back the storage of the render textures that `live` does not name. A render texture
@@ -313,7 +332,7 @@ impl OffscreenState {
             };
             // A 3D texture is for kernels; only a record that names it is refused.
             for spec in &frame.render_textures {
-                if spec.dimension != frame::RenderDimension::D3 {
+                if !spec.dimension.is_volume() {
                     services.import(spec.id)?;
                 }
             }

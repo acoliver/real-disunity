@@ -296,6 +296,66 @@ fn gpu_snapshot_single_water_lane_rejects_opaque_but_not_neighbour() {
 }
 
 #[test]
+fn gpu_snapshot_packed_water_coverage_rejects_opaque_and_resolves_water() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let case = case(true);
+    let config = FrameConfig::new(SIZE, wgpu::TextureFormat::Rgba16Float, 1);
+    let mut screen = SceneMetadata::new(context.device(), SIZE, neutral_ao()).unwrap();
+    let ssr = Ssr::new(context.device(), config, policy(case), &mut screen).unwrap();
+    let water = water_tests::water_fixture(&context, config);
+    initialize(&context, &ssr, &water, case);
+    // Octahedral (0, 0) decodes to +Z; blue stores F0.x and alpha stores -1-F0.z.
+    fill(
+        &context,
+        &water.receivers[0][0],
+        &format!(
+            "select(vec4<f32>(0.0), vec4<f32>(0.0, 0.0, 0.25, -1.25), p.x < {}.0)",
+            SIZE[0] - 1
+        ),
+    );
+    for texture in &ssr.reflections {
+        upload(
+            &context,
+            texture,
+            &[0.25, 0.5, 0.75, 1.0]
+                .repeat(usize::try_from(texture.width() * texture.height()).unwrap()),
+        );
+    }
+    let views = inputs(&context, &ssr, &water, config, "100.0", "50.0");
+    let target = &water.receivers[1][0];
+    commit_camera(&context, &ssr, target);
+    let normal = owner_source(case, true).replace(
+        "vec4<f32>(f32(reflection_surface(p, sample).owner))",
+        "water_receiver_normal(textureLoad(water_normals, p, 0))",
+    );
+    let visibility = snapshot_source(case, 4).replace("if reflection.a <= 0.0 { discard; }", "");
+    let sources = [
+        visibility,
+        owner_source(case, true),
+        normal,
+        source(case, true),
+    ];
+    let captures = sources.map(|source| {
+        let pipeline = gpu::pipeline(context.device(), &source, 1, false);
+        let group = gpu::group(context.device(), &pipeline, Some(&ssr.uniform), &views[1]);
+        render(&context, target, &pipeline, &[&group]);
+        read_lane(&context, target, 0)
+    });
+    let [visibility, owners, normals, pairs] = captures;
+    let neighbour = usize::try_from((SIZE[0] - 1) * 4).unwrap();
+    let coverage = read_lane(&context, &water.receivers[0][0], 0);
+    assert_eq!(coverage[3].to_bits(), (-1.25f32).to_bits());
+    assert_eq!(coverage[neighbour + 3].to_bits(), 0.0f32.to_bits());
+    assert_eq!(bits(&visibility[..4]), bits(&[0.0; 4]));
+    assert_eq!(bits(&visibility[neighbour..neighbour + 4]), bits(&[1.0; 4]));
+    assert_eq!(bits(&owners[..4]), bits(&[2.0; 4]));
+    assert_eq!(bits(&owners[neighbour..neighbour + 4]), bits(&[1.0; 4]));
+    assert_eq!(bits(&normals[..4]), bits(&[0.0, 0.0, 1.0, 1.0]));
+    assert_eq!(bits(&pairs[..4]), bits(&[0.25, 0.5, 0.75, 1.0]));
+}
+
+#[test]
 fn water_visibility_source_checks_all_lanes_without_comparing_depths() {
     let source = snapshot_source(
         Case {

@@ -73,6 +73,8 @@ packing. All receiver bindings are also needed by the level-zero kernels;
 resolve requires
 11 sampled textures for full mips, or `levels + 10` for separate levels, plus one
 when application AO is enabled. Unsupported device budgets fail before allocation.
+SixLevels with depth-relative AO requires 17 sampled textures per stage and is
+rejected on a 16-texture device with "reflection resolve exceeds sampled texture limit".
 
 
 `set_reflection_composition(Composition::Additive)` explicitly selects the existing additive algorithm for opaque receivers. Existing callers without installed reflection maps retain that algorithm. Water receivers use environment replacement because their forward shader already contains the environment lobe.

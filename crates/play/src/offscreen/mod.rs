@@ -58,6 +58,7 @@ mod holdings;
 mod ids;
 mod kernels;
 mod lists;
+mod mesh_draw;
 mod pass_notes;
 mod pixels;
 mod probe;

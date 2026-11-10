@@ -669,6 +669,15 @@ producer in this crate. It ships off.
 
 ## Cascade refresh scheduling
 
+`ShadowedScene::set_shadows_enabled` controls directional shadows on the existing
+resident scene and defaults to enabled. Disabled frames skip caster passes and
+receiver sampling while retaining geometry, placements and cached maps. They do
+not advance cascade refresh frames or consume a pending capture request.
+Reenabling validates retained maps against caster edits, settings and the next
+view before reuse; invalid maps refresh through the existing policy. A capture
+requested while disabled runs on the next successfully submitted enabled frame.
+This scene-wide control does not implement managed per-camera `renderShadows`.
+
 `DirectionalShadowSettings::refresh_policy` defaults to
 `CascadeRefreshPolicy::default()`: every cascade renders every submitted frame.
 An opt-in policy declares four frame intervals and periodic phases, a maximum

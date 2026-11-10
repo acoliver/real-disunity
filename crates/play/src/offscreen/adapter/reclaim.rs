@@ -79,7 +79,9 @@ pub(super) fn named_targets(snapshot: &GraphicsSnapshot) -> BTreeSet<TextureId> 
 }
 
 impl OffscreenAdapter {
-    /// Notes that the snapshot names the meshes and textures given.
+    /// Notes that the snapshot names the meshes and textures given. A mesh that holds no storage
+    /// and that the snapshot does not name is forgotten: the engine gives it again when it is
+    /// named, and nothing is lost by reading it again.
     pub(super) fn stamp(&mut self, meshes: &BTreeSet<u64>, textures: &BTreeSet<u64>) {
         for (named, held) in [(meshes, &mut self.meshes), (textures, &mut self.textures)] {
             for identity in named {
@@ -88,6 +90,8 @@ impl OffscreenAdapter {
                 }
             }
         }
+        self.meshes
+            .retain(|_, held| held.usable || held.last_named == self.epoch);
     }
 
     /// Notes that the snapshot names the render textures given, and forgets the ones that no
@@ -211,6 +215,8 @@ impl OffscreenAdapter {
                 }
                 Holding::Mesh(identity) => {
                     self.meshes.remove(&identity);
+                    self.bounds.remove(&identity);
+                    self.sub_meshes.remove(&identity);
                     reclaimed.meshes += 1;
                 }
                 Holding::Target(id) => {

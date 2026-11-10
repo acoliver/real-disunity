@@ -4,7 +4,7 @@
 //! name space holds render textures and the textures the player stored, so render textures take
 //! the top bit and a stored texture whose identity already has it cannot be named.
 
-use worldrunner_render_program::ids::{MaterialId, MeshId, ShaderId, TextureId};
+use worldrunner_render_program::ids::{MaterialId, MeshId, RendererId, ShaderId, TextureId};
 use worldrunner_world_simulation::graphics::{
     MaterialId as WorldMaterialId, RenderTextureId, ShaderId as WorldShaderId,
 };
@@ -25,6 +25,8 @@ const PROBE_SCRATCH: u64 = 1 << 62;
 /// Where the number of a test render's variant sits in a scratch copy's id, above any
 /// generation a world's render texture reaches. Variant 0 is the render as declared.
 const PROBE_VARIANT_SHIFT: u32 = 52;
+/// Set in the id of a renderer that a mesh draw makes.
+const MESH_DRAW: u64 = 1 << 63;
 /// Set in the id of a material made from a world material and a renderer's own render queue.
 const QUEUED_MATERIAL: u64 = 1 << 63;
 
@@ -97,6 +99,13 @@ pub fn stored_texture(identity: u64) -> Option<TextureId> {
 #[must_use]
 pub fn default_texture(index: u64) -> TextureId {
     TextureId(DEFAULT_TEXTURES + index.min(15))
+}
+
+/// The renderer a mesh draw of the frame makes for itself, counted from 0. The renderers of the
+/// snapshot are numbered by their index, from 0 as well, so these take the top bit.
+#[must_use]
+pub fn mesh_draw_renderer(number: u64) -> RendererId {
+    RendererId(MESH_DRAW | number)
 }
 
 #[must_use]

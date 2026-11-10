@@ -465,7 +465,7 @@ impl SceneGpu {
         let queue = authority.queue();
         let (textures, new_views) = upload_textures(device, authority, &prepared.textures)?;
         let old_count = self.retained.textures.len();
-        let (groups, uniforms) = {
+        let (groups, uniforms, tables) = {
             let resident = &self.retained.textures;
             let lookup = |handle: TextureHandle| -> TextureView {
                 let index = table_index(handle);
@@ -496,6 +496,8 @@ impl SceneGpu {
         self.retained.textures.extend(textures);
         self.retained.material_uniforms.extend(uniforms);
         self.materials.extend(groups);
+        self.objects.extend(tables);
+        self.objects.warm(pipelines.object_context());
         self.meshes.extend(meshes);
         self.mesh_selection.extend(prepared.selection);
         self.instances
@@ -564,9 +566,11 @@ impl SceneGpu {
         };
         self.resource_counters.replace_texture(index, bytes);
         self.retained.textures[index] = texture;
-        for (at, group) in groups {
+        for (at, (group, table)) in groups {
             self.materials[at] = group;
+            self.objects.replace(at, table);
         }
+        self.objects.warm(pipelines.object_context());
         // Alpha-tested casters cut their shadow from the replaced texels.
         self.casters.global();
         Ok(())
@@ -608,10 +612,15 @@ fn new_material_groups(
     queue: &wgpu::Queue,
     inputs: &GroupInputs<'_>,
     materials: &[worldrunner_render_plan::SceneMaterial],
-) -> (Vec<wgpu::BindGroup>, Vec<wgpu::Buffer>) {
+) -> (
+    Vec<wgpu::BindGroup>,
+    Vec<wgpu::Buffer>,
+    Vec<worldrunner_render_program::runtime::ImportTable>,
+) {
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut groups = Vec::with_capacity(materials.len());
     let mut uniforms = Vec::with_capacity(materials.len());
+    let mut tables = Vec::with_capacity(materials.len());
     for material in materials {
         let uniform = upload_buffer(
             device,
@@ -621,8 +630,10 @@ fn new_material_groups(
             &crate::pipeline::MaterialUniform::from_material(material).to_bytes(),
         );
         let sampler = samplers.get(device, material);
-        groups.push(material_group(device, inputs, material, &uniform, sampler));
+        let (group, table) = material_group(device, inputs, material, &uniform, sampler);
+        groups.push(group);
+        tables.push(table);
         uniforms.push(uniform);
     }
-    (groups, uniforms)
+    (groups, uniforms, tables)
 }

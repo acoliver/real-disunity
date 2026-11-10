@@ -21,3 +21,17 @@ impl ScenePipelines {
         &self.terrain_context
     }
 }
+
+impl ScenePipelines {
+    /// The object programs of this context.
+    pub(crate) fn object_context(&self) -> &crate::object::program::Context {
+        &self.object_context
+    }
+
+    /// What the program runtime that records objects has built. It is apart from the terrain's:
+    /// both are made once for a family of pipelines.
+    #[cfg(test)]
+    pub(crate) fn object_runtime_stats(&self) -> worldrunner_render_program::runtime::RuntimeStats {
+        self.object_context.family().object_stats()
+    }
+}

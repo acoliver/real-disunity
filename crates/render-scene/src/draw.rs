@@ -35,6 +35,7 @@ mod dynamic;
 #[cfg(test)]
 mod legacy_object_access;
 mod lod_material;
+mod object_runtime;
 pub(crate) mod overlay;
 mod pages;
 pub(crate) mod pass_statistics;
@@ -260,6 +261,9 @@ pub struct SceneGpu {
     /// The committed frame group and the frame slot whose uniform it binds.
     committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
     materials: Vec<BindGroup>,
+    /// What the program runtime draws objects with: the resources each material lends, and the
+    /// sets and pipelines prepared from them.
+    objects: crate::object::prepared::PreparedObjects,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
     instances: Instances,
@@ -333,7 +337,7 @@ impl SceneGpu {
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
-        let (materials, material_uniforms) = resources::scene_materials(
+        let (materials, material_uniforms, material_imports) = resources::scene_materials(
             device,
             queue,
             scene,
@@ -342,6 +346,9 @@ impl SceneGpu {
             &contact_heights,
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
+        let objects =
+            crate::object::prepared::PreparedObjects::new(authority.clone(), material_imports);
+        objects.warm(pipelines.object_context());
         let terrain = resources::upload_terrain(
             device,
             authority,
@@ -370,6 +377,7 @@ impl SceneGpu {
             frame_group: frame_slots[0].1.clone(),
             frame_slots,
             materials,
+            objects,
             meshes,
             mesh_selection: prepared.selection,
             instances: Instances::new(scene).tracking_previous(pipelines.writes_velocity()),
@@ -534,7 +542,13 @@ impl SceneGpu {
         let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
-        let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
+        // The metadata prepass and the capture terms (`dynamic` is false) draw objects with the
+        // fixed pipelines.
+        let selection = if dynamic {
+            self.draw_objects_prepared(pass, &frame_group, pipelines.object_context())
+        } else {
+            self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None)
+        };
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if dynamic {
@@ -560,47 +574,6 @@ impl SceneGpu {
                 pipelines.has_ao_receiver(),
                 terrain_bound && pipelines.has_ao_receiver(),
             ),
-        }
-    }
-
-    pub(crate) fn draw_objects(
-        &self,
-        pass: &mut RenderPass<'_>,
-        frame_group: &BindGroup,
-        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
-        shadow_matrix: Option<(u32, glam::Mat4)>,
-    ) -> SelectionPublication {
-        assert!(
-            self.instances
-                .batches
-                .values()
-                .all(|batch| !batch.has_pending()),
-            "flush instance updates before drawing"
-        );
-        let frame = self
-            .drawing_frame
-            .borrow()
-            .as_ref()
-            .and_then(|(owner, frame)| {
-                worldrunner_render_gpu::submission::Publications::current()
-                    .filter(|current| current.same_transaction(owner))
-                    .map(|_| *frame)
-            })
-            .or_else(|| self.frame.get())
-            .expect("set a frame before drawing");
-        let published = self.views[selection_reuse::view_index(shadow_matrix)]
-            .published
-            .clone();
-        let selection = self.select_objects(shadow_matrix, &frame);
-        pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
-        let count =
-            self.record_selection(pass, pipelines, (shadow_matrix, &frame), &selection.ranges);
-        if let Some((index, _)) = shadow_matrix {
-            self.pass_counters.shadows[index as usize].record(count);
-        }
-        SelectionPublication {
-            destination: published,
-            selection,
         }
     }
 

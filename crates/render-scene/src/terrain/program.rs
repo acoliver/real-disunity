@@ -17,7 +17,10 @@
 //! data by [`TerrainUniformState`](crate::terrain_uniform::TerrainUniformState) and lent as a
 //! buffer, so there is one source of truth for its offsets.
 
+mod family;
 pub(crate) mod source;
+
+pub(crate) use family::{Family, WeakFamily};
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -25,8 +28,6 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use wgpu::{BindGroupLayout, Device, FrontFace, ShaderStages, TextureFormat};
-use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, EngineSemantic, ResourceBinding, ResourceKind, ResourceLayout,
     StorageAccess,
@@ -36,14 +37,12 @@ use worldrunner_render_program::module::{
     StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
 };
 use worldrunner_render_program::runtime::{
-    ExternalSet, GraphicsProgram, ProgramRuntime, RuntimeStats, TargetSignature,
+    ExternalSet, GraphicsProgram, ProgramRuntime, TargetSignature,
 };
-use worldrunner_render_program::state::{
-    ColorState, DepthState, RasterState, RenderState, StencilState,
-};
+use worldrunner_render_program::state::{RasterState, RenderState};
 use worldrunner_render_program::variant::{FeatureId, FeatureSet};
 
-use crate::renderer::depth::{DepthMode, STENCIL_REFERENCE};
+use crate::renderer::depth::DepthMode;
 use crate::terrain_uniform::TERRAIN_UNIFORM_BYTES;
 
 /// The engine semantics terrain's bindings are filled from.
@@ -135,7 +134,7 @@ impl Surface {
     }
 }
 
-fn declare(
+pub(crate) fn declare(
     (set, binding): (u32, u32),
     name: &str,
     visibility: ShaderStages,
@@ -149,7 +148,10 @@ fn declare(
     }
 }
 
-fn texture(dimension: wgpu::TextureViewDimension, sample: wgpu::TextureSampleType) -> ResourceKind {
+pub(crate) fn texture(
+    dimension: wgpu::TextureViewDimension,
+    sample: wgpu::TextureSampleType,
+) -> ResourceKind {
     ResourceKind::Texture {
         dimension,
         sample,
@@ -157,21 +159,21 @@ fn texture(dimension: wgpu::TextureViewDimension, sample: wgpu::TextureSampleTyp
     }
 }
 
-fn float(dimension: wgpu::TextureViewDimension) -> ResourceKind {
+pub(crate) fn float(dimension: wgpu::TextureViewDimension) -> ResourceKind {
     texture(
         dimension,
         wgpu::TextureSampleType::Float { filterable: true },
     )
 }
 
-fn read_only(min_size: u64) -> ResourceKind {
+pub(crate) fn read_only(min_size: u64) -> ResourceKind {
     ResourceKind::Storage {
         access: StorageAccess::ReadOnly,
         min_size,
     }
 }
 
-fn filtering() -> ResourceKind {
+pub(crate) fn filtering() -> ResourceKind {
     ResourceKind::Sampler(wgpu::SamplerBindingType::Filtering)
 }
 
@@ -316,7 +318,7 @@ pub(crate) fn frame_bindings() -> ResourceLayout {
 }
 
 /// What the shader reads from the shadow map group, set 2.
-fn shadow_bindings(receiver: bool) -> ResourceLayout {
+pub(crate) fn shadow_bindings(receiver: bool) -> ResourceLayout {
     let fragment = ShaderStages::FRAGMENT;
     let mut bindings = vec![
         declare(
@@ -405,7 +407,7 @@ impl Screen {
         }
     }
 
-    fn bindings(self) -> ResourceLayout {
+    pub(crate) fn bindings(self) -> ResourceLayout {
         use wgpu::TextureViewDimension::{Cube, D2};
         let fragment = ShaderStages::FRAGMENT;
         if self == Self::Camera {
@@ -499,19 +501,6 @@ pub(crate) struct Description {
     pub screen: Option<BindGroupLayout>,
 }
 
-/// The program runtime of a family of pipelines: the pipelines a scene was built with and the
-/// siblings it specializes from them. Terrain pipelines compile once per context however many
-/// scenes draw with it. It is made when the first terrain is drawn, from that scene's
-/// submission authority, and counts nothing against a budget: the resources it draws with are
-/// lent by the scene, which has its own accounting.
-#[derive(Clone, Default)]
-pub(crate) struct Family(Rc<FamilyState>);
-
-#[derive(Default)]
-struct FamilyState {
-    runtime: RefCell<Option<ProgramRuntime>>,
-}
-
 /// A context that does not keep its programs alive.
 #[derive(Clone, Debug)]
 pub(crate) struct WeakContext(std::rc::Weak<ContextState>);
@@ -519,38 +508,6 @@ pub(crate) struct WeakContext(std::rc::Weak<ContextState>);
 impl WeakContext {
     pub(crate) fn alive(&self) -> bool {
         self.0.strong_count() > 0
-    }
-}
-
-impl std::fmt::Debug for Family {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Family")
-            .field("stats", &self.stats())
-            .finish_non_exhaustive()
-    }
-}
-
-impl Family {
-    /// What the runtime has built so far.
-    pub(crate) fn stats(&self) -> RuntimeStats {
-        self.0
-            .runtime
-            .borrow()
-            .as_ref()
-            .map_or_else(RuntimeStats::default, ProgramRuntime::stats)
-    }
-
-    /// Runs `build` against the runtime, making it from `authority` first if no scene has.
-    pub(crate) fn with<R>(
-        &self,
-        (device, authority): (&Device, &SubmissionAuthority),
-        build: impl FnOnce(&mut ProgramRuntime) -> R,
-    ) -> R {
-        let mut runtime = self.0.runtime.borrow_mut();
-        let runtime = runtime.get_or_insert_with(|| {
-            ProgramRuntime::new(device.clone(), authority.clone(), AllocationBudget(0))
-        });
-        build(runtime)
     }
 }
 
@@ -624,34 +581,14 @@ impl Context {
     /// depth and stencil state is the pass's [`DepthMode`] for a drawing that writes depth: the
     /// same function the object pipelines use, so the two cannot disagree.
     pub(crate) fn state(&self) -> RenderState {
-        let depth = self.0.description.depth.state(true);
-        RenderState {
-            raster: RasterState {
+        self.0.description.depth.render_state(
+            self.0.description.colors.len(),
+            RasterState {
                 cull: Some(wgpu::Face::Back),
                 front_face: self.0.description.front_face,
                 alpha_to_coverage: false,
             },
-            depth: Some(DepthState {
-                test: depth
-                    .depth_compare
-                    .expect("a depth mode always names its test"),
-                write: depth
-                    .depth_write_enabled
-                    .expect("a depth mode always names its write"),
-                bias: depth.bias,
-            }),
-            colors: vec![
-                Some(ColorState {
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                });
-                self.0.description.colors.len()
-            ],
-            stencil: (depth.stencil != wgpu::StencilState::default()).then_some(StencilState {
-                ops: depth.stencil,
-                reference: STENCIL_REFERENCE,
-            }),
-        }
+        )
     }
 
     fn external(&self) -> Vec<ExternalSet> {

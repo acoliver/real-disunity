@@ -79,6 +79,39 @@ fn position_capture_sources_validate_for_both_signed_zeros_and_outputs() {
 }
 
 #[test]
+fn position_capture_survives_every_terrain_runtime_surface() {
+    for output in [
+        super::super::MetadataOutput::Normal,
+        super::super::MetadataOutput::Merged,
+    ] {
+        for bias in [0.0, -0.0] {
+            let (_, terrain) = producer_sources(
+                output,
+                ReceiverLayout::Front,
+                bias,
+                ReceiverCapture::Position,
+            );
+            for source in crate::terrain::program::source::test_sources(&terrain) {
+                let body = function_source(&source, "fs_terrain");
+                assert_eq!(body.matches("scene_capture_receiver(").count(), 1);
+                assert!(body.contains("receiver_0_a, receiver_0_b"));
+                assert_eq!(source_formats(&source), ReceiverLayout::Front.formats());
+                let capture = function_source(&source, "scene_capture_receiver");
+                assert!(capture.contains("let dx_0 = dpdx(position);"));
+                assert!(capture.contains("let dy_0 = dpdy(position);"));
+                let module = naga::front::wgsl::parse_str(&source).unwrap();
+                naga::valid::Validator::new(
+                    naga::valid::ValidationFlags::all(),
+                    naga::valid::Capabilities::all(),
+                )
+                .validate(&module)
+                .unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 #[should_panic(expected = "evaluation != ReceiverCapture::Position")]
 fn position_capture_rejects_nonzero_bias() {
     producer_sources(

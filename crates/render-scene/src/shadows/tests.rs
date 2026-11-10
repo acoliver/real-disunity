@@ -25,6 +25,7 @@ mod subresources;
 mod terms;
 mod terrain;
 mod timing_probe;
+mod toggle;
 mod validation;
 mod water_identity;
 mod water_pcf5;

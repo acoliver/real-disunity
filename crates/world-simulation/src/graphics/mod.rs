@@ -35,8 +35,8 @@ pub use context::MAX_CULL_PLANES;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
 pub use offscreen::{MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
-    MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, PropertyValue, ShaderProperties, TextureRef,
-    TextureSlot,
+    MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue,
+    ShaderProperties, TextureRef, TextureSlot,
 };
 pub use readback::{MAX_PENDING_READBACKS, MAX_READBACK_TEXELS};
 pub use render_texture::{MAX_VOLUME_DEPTH, WorldRenderTexture, WorldSampler, dimension};
@@ -67,6 +67,8 @@ pub enum GraphicsError {
     NotFinite,
     #[error("a texture property names a nonzero asset or a live render texture")]
     InvalidTexture,
+    #[error("a vector or matrix array property holds 1 to 1023 elements")]
+    InvalidPropertyArrayLength,
     #[error("a set of properties holds at most 1024 values of one kind")]
     TooManyProperties,
     #[error("a material or the global state holds at most 256 keywords or disabled passes")]

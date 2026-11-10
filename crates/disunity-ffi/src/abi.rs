@@ -70,7 +70,7 @@ impl DisunityResult {
         }
     }
 
-    fn error(detail: u64) -> Self {
+    pub(crate) fn error(detail: u64) -> Self {
         Self {
             code: result_code::ERROR,
             detail,

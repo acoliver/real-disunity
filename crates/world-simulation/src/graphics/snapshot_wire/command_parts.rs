@@ -1,5 +1,6 @@
 //! The encodings of the work command buffers record.
 use super::WireError;
+use super::array_parts::{read_array, read_array_name, write_array, write_array_name};
 use super::codec::{Reader, Wire, Writer};
 use super::context_parts::{read_context, write_context};
 use super::scene_parts::{
@@ -45,6 +46,8 @@ const PROPERTY_INT: u8 = 1;
 const PROPERTY_VECTOR: u8 = 2;
 const PROPERTY_MATRIX: u8 = 3;
 const PROPERTY_TEXTURE: u8 = 4;
+const PROPERTY_VECTOR_ARRAY: u8 = 5;
+const PROPERTY_MATRIX_ARRAY: u8 = 6;
 
 impl Wire for PropertyValue {
     fn write(&self, out: &mut Writer) -> Result<(), WireError> {
@@ -54,13 +57,26 @@ impl Wire for PropertyValue {
             Self::Vector(name, value) => write_named(out, PROPERTY_VECTOR, name, value),
             Self::Matrix(name, value) => write_named(out, PROPERTY_MATRIX, name, value),
             Self::Texture(name, value) => write_named(out, PROPERTY_TEXTURE, name, value),
+            Self::VectorArray(name, values) => {
+                write_array_value(out, PROPERTY_VECTOR_ARRAY, name, values)
+            }
+            Self::MatrixArray(name, values) => {
+                write_array_value(out, PROPERTY_MATRIX_ARRAY, name, values)
+            }
         }
     }
 
     fn read(input: &mut Reader<'_>) -> Result<Self, WireError> {
         let tag = u8::read(input)?;
-        if tag > PROPERTY_TEXTURE {
+        if tag > PROPERTY_MATRIX_ARRAY {
             return Err(WireError::UnknownTag(u32::from(tag)));
+        }
+        if tag >= PROPERTY_VECTOR_ARRAY {
+            let name = read_array_name(input)?;
+            return Ok(match tag {
+                PROPERTY_VECTOR_ARRAY => Self::VectorArray(name, read_array(input)?),
+                _ => Self::MatrixArray(name, read_array(input)?),
+            });
         }
         let name = String::read(input)?;
         Ok(match tag {
@@ -71,6 +87,17 @@ impl Wire for PropertyValue {
             _ => Self::Texture(name, TextureSlot::read(input)?),
         })
     }
+}
+
+fn write_array_value<const N: usize>(
+    out: &mut Writer,
+    tag: u8,
+    name: &str,
+    values: &[[f32; N]],
+) -> Result<(), WireError> {
+    tag.write(out)?;
+    write_array_name(out, name)?;
+    write_array(out, values)
 }
 
 fn write_named(out: &mut Writer, tag: u8, name: &str, value: &impl Wire) -> Result<(), WireError> {

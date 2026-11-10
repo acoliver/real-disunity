@@ -2,7 +2,7 @@
 //! of the frame name them by. A handle is an id the script's side issues, nonzero and unused by
 //! any record of the frame; the world remembers the ids it was given and forgets them when the
 //! frame's work is taken or dropped.
-use super::{GraphicsError, OffscreenWork, TargetRef};
+use super::{GraphicsError, MaterialId, OffscreenWork, TargetRef};
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
 /// Most planes one culling result holds.
@@ -51,6 +51,13 @@ impl World {
                     Err(GraphicsError::NotFinite.into())
                 }
             }
+            OffscreenWork::DrawMesh {
+                mesh,
+                matrix,
+                material,
+                pass,
+                ..
+            } => self.check_draw_mesh(*mesh, matrix, *material, *pass),
             _ => Ok(()),
         }
     }
@@ -67,6 +74,22 @@ impl World {
             }
             _ => {}
         }
+    }
+
+    fn check_draw_mesh(
+        &self,
+        mesh: u64,
+        matrix: &[f32; 16],
+        material: MaterialId,
+        pass: i32,
+    ) -> Result<(), WorldError> {
+        if mesh == 0 || pass < -1 {
+            return Err(GraphicsError::InvalidOffscreen.into());
+        }
+        if !matrix.iter().all(|value| value.is_finite()) {
+            return Err(GraphicsError::NotFinite.into());
+        }
+        self.material(material).map(drop)
     }
 
     fn check_new_handle(&self, id: u64) -> Result<(), WorldError> {

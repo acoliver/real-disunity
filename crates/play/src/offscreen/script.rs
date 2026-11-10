@@ -139,6 +139,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::CreateRendererList { .. } => "CreateRendererList",
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
+        OffscreenWork::DrawMesh { .. } => "DrawMesh",
     }
 }
 
@@ -222,6 +223,7 @@ impl Mapper<'_> {
                 self.set_view_projection(view, projection);
                 Ok(Vec::new())
             }
+            OffscreenWork::DrawMesh { .. } => Err(Skip::MeshDrawNotDrawn),
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }

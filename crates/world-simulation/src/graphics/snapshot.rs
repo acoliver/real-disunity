@@ -100,7 +100,7 @@ impl GraphicsSnapshot {
         Ok(snapshot)
     }
 
-    /// The materials the blits and the renderers name, and their shaders. A destroyed material
+    /// The materials the blits, mesh draws and renderers name, and their shaders. A destroyed material
     /// or shader is left out.
     fn copy_materials(&mut self, world: &World) {
         let named: BTreeSet<MaterialId> = self
@@ -108,6 +108,7 @@ impl GraphicsSnapshot {
             .iter()
             .filter_map(|work| match work {
                 OffscreenWork::Blit { material, .. } => *material,
+                OffscreenWork::DrawMesh { material, .. } => Some(*material),
                 _ => None,
             })
             .chain(

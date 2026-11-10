@@ -3,7 +3,8 @@ use wgpu::{
     TextureFormat,
 };
 
-/// The depth modes of the fixed path, as `renderer::depth::DepthMode` had them at the freeze.
+/// The depth modes of the fixed path, as `renderer::depth::DepthMode` has them. The object
+/// shading is frozen; the depth contract follows the renderer's tie rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Depth {
     Independent,
@@ -44,7 +45,6 @@ impl Depth {
             depth_fail_op: StencilOperation::Keep,
             pass_op: match self {
                 Self::Prepass => StencilOperation::Replace,
-                Self::Reuse => StencilOperation::Zero,
                 _ => StencilOperation::Keep,
             },
         };
@@ -54,14 +54,14 @@ impl Depth {
             depth_compare: Some(if self == Self::Reuse {
                 CompareFunction::Equal
             } else {
-                CompareFunction::Less
+                CompareFunction::LessEqual
             }),
             stencil: if matches!(self, Self::Prepass | Self::Reuse) {
                 StencilState {
                     front: face,
                     back: face,
                     read_mask: 1,
-                    write_mask: 1,
+                    write_mask: u32::from(self == Self::Prepass),
                 }
             } else {
                 StencilState::default()

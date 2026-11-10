@@ -1,6 +1,6 @@
 //! A fullscreen operation may read vertex streams, and the streams are checked like those of a
 //! draw packet.
-use super::operations_draw_support::{BLACK, GREEN, Rig, pixel, quad, reads};
+use super::operations_draw_test_support::{BLACK, GREEN, Rig, pixel, quad, reads};
 use super::operations_tests::{buffer, id, underlying};
 use crate::contracts::*;
 

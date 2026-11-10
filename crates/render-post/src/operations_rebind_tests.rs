@@ -1,6 +1,6 @@
 //! A checked draw can be rebound to other bindings and geometry without creating its pipeline
 //! again, and only to bindings and geometry the pipeline was made for.
-use super::operations_draw_support::{BLACK, BLUE, RED, Rig, geometry, pixel, quad, reads};
+use super::operations_draw_test_support::{BLACK, BLUE, RED, Rig, geometry, pixel, quad, reads};
 use super::operations_tests::{id, underlying};
 use crate::contracts::*;
 

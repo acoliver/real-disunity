@@ -211,6 +211,8 @@ pub enum Skip {
     UnsupportedSlice,
     /// A target that names a mip level its texture lacks.
     NoSuchMip,
+    /// A draw of a mesh by a command buffer, which the host records and does not draw yet.
+    MeshDrawNotDrawn,
 }
 
 /// Why a renderer was left out of the frame.

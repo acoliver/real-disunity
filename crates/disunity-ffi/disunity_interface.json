@@ -733,6 +733,11 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_offscreen_draw_mesh",
+      "since": "9.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_offscreen_draw_renderer_list",
       "since": "8.0.0",
       "rets": "DisunityResult"

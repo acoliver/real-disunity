@@ -22,6 +22,8 @@ mod optical_render_tests;
 mod optics_tests;
 #[path = "pcf5_tests.rs"]
 mod pcf5_tests;
+#[path = "program_tests.rs"]
+mod program_tests;
 #[path = "regressions.rs"]
 mod regressions;
 #[path = "retained_environment_tests.rs"]

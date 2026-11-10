@@ -70,7 +70,7 @@ fn variants(settings: SceneSsr, samples: u32, size: [u32; 2]) {
                 source
             };
             assert!(source.contains("var normals: texture_2d<f32>"));
-            assert!(source.contains("if compatible { return reflected(level, uv, sample); }"));
+            assert!(source.contains("if level > 0u { return reflected(level, uv, sample); }"));
             assert_eq!(source.contains("var water_depth:"), water);
             assert_eq!(source.contains("var application_ao:"), ao);
             validate(&source);
@@ -143,4 +143,15 @@ fn resolve_texture_budget_includes_normals_and_ao_independently() {
             assert!(pyramid::validate(config, &settings, &limits).is_err());
         }
     }
+}
+
+#[test]
+fn ssr_reconstruction_has_constant_receiver_work_bound() {
+    let source = include_str!("reconstruction.wgsl");
+    let level = source.split("fn reflection_level(").nth(1).unwrap();
+    assert!(level.contains("if level > 0u { return reflected(level, uv, sample); }"));
+    assert!(!source.contains("reflection_bin_"));
+    assert!(!source.contains("reflection_leaf_weight"));
+    assert!(source.contains("i < 4u"));
+    assert!(source.contains("clamp(2.0 * exp2(lod), 2.0, 4.0)"));
 }

@@ -52,25 +52,25 @@ there is no cap on its support. Perfect mirrors use receiver-gated level-zero
 bilinear reconstruction. Compatible alpha-zero misses remain in the denominator
 of every kernel. Premultiplied RGB and alpha always share the same weights.
 
-For each requested mip level, resolve verifies every raw receiver contributing
-to its four bilinear coarse taps. Homogeneous support samples the existing mip
-texture, including its storage rounding. A rejected receiver triggers a raw
-gather over those same reduction trees. Each leaf's weight is the product of
-reciprocal valid-child counts along its tree, multiplied by the coarse bilinear
-weight. Rejected receivers contribute neither pair nor denominator. Floor-dropped
-subtrees remain excluded; ceil partial bins retain equal-child weights. Each LOD
-is normalized independently before fractional-LOD interpolation.
+Receiver classification is restricted to raw reflection level zero. Its bilinear
+kernel visits at most four trace receivers. The low-LOD tent visits at most 81
+candidate texels (a radius-four, nine-by-nine box), regardless of image size or
+mip count. Compatible alpha-zero misses retain their measure in both kernels.
+Levels above zero return the existing prefiltered radiance mip directly, using
+its bilinear kernel and storage rounding. Fractional LOD interpolation and the
+bounded tent transition described above remain unchanged.
 
-The direct check and fallback each visit up to `4^level` raw receivers per
-coarse tap, including on the homogeneous path. At full image sizes the resulting
-fragment workload can trigger a GPU hang and abort later command buffers. An
-unexecuted SDSM reduction can then read back four zero words, which depth fitting
-correctly rejects as malformed evidence. This implementation has no
-receiver-compatibility summary pyramid or resolution-independent work bound;
-full native mip reconstruction is not safe for production-sized rough surfaces.
-The full-size SDSM/SSR GPU regression exercises this failure without private
-content. Full native mips retain their logical extents and two-axis sample
-packing. Resolve requires
+The radiance reduction averages premultiplied RGB and confidence without
+receiver ownership. Broad roughness therefore shares the existing mip policy;
+water at roughness 0.1 and half-resolution LOD zero gets the finite compatible
+footprint. Enumerating raw receivers beneath a broad mip is prohibited: four
+level-eight taps can cover 262,144 receiver checks per fragment, causing Metal
+GPU hangs and leaving later SDSM statistics unexecuted. SDSM continues to reject
+malformed zeroed statistics. The full-size SDSM/SSR regression checks both water
+roughness cases, and a full-size rough receiver test compares against direct mip
+sampling. Full native mips retain their logical extents and two-axis sample
+packing. All receiver bindings are also needed by the level-zero kernels;
+resolve requires
 11 sampled textures for full mips, or `levels + 10` for separate levels, plus one
 when application AO is enabled. Unsupported device budgets fail before allocation.
 

@@ -3,7 +3,7 @@ use super::*;
 type Capture = Vec<Vec<f32>>;
 
 pub(super) fn source(case: Case, pair: bool) -> String {
-    let sizes = policy(case).radiance_extents(SIZE);
+    let sizes = policy(case).radiance_extents(case.size);
     let mut source = gpu::configured_resolve_source(
         sizes.len(),
         case.samples,
@@ -35,27 +35,41 @@ pub(super) fn capture_shaded(
     case: Case,
     perturbed: bool,
 ) -> (Capture, Capture) {
-    let config = FrameConfig::new(SIZE, wgpu::TextureFormat::Rgba16Float, case.samples);
-    let mut screen = SceneMetadata::new(context.device(), SIZE, neutral_ao()).unwrap();
+    capture_variant(context, case, perturbed, false)
+}
+
+pub(super) fn check_mip_kernel(context: &GpuContext, case: Case) {
+    let actual = capture_variant(context, case, false, false);
+    let expected = capture_variant(context, case, false, true);
+    for (got, want) in [(&actual.0, &expected.0), (&actual.1, &expected.1)] {
+        assert!(
+            got.iter()
+                .flatten()
+                .map(|v| v.to_bits())
+                .eq(want.iter().flatten().map(|v| v.to_bits())),
+            "existing mip kernel bytes {case:?}",
+        );
+    }
+    assert!(expected.0.iter().flatten().any(|&value| value > 0.0));
+}
+
+fn capture_variant(
+    context: &GpuContext,
+    case: Case,
+    perturbed: bool,
+    mip_reference: bool,
+) -> (Capture, Capture) {
+    let config = FrameConfig::new(case.size, wgpu::TextureFormat::Rgba16Float, case.samples);
+    let mut screen = SceneMetadata::new(context.device(), case.size, neutral_ao()).unwrap();
     let ssr = Ssr::new(context.device(), config, policy(case), &mut screen).unwrap();
     let water = super::super::water_tests::water_fixture(context, config);
     initialize(context, &ssr, &water, case);
     if perturbed {
-        let normal = [0.2, 0.0, 0.979_795_9, 1.0];
-        upload(
-            context,
-            &ssr.normals,
-            &normal.repeat(usize::try_from(SIZE[0] * SIZE[1]).unwrap()),
-        );
-        fill(
-            context,
-            &water.receivers[0][0],
-            "vec4<f32>(0.2, 0.0, 0.9797959, 1.0)",
-        );
+        perturb_normals(context, &ssr, &water, case);
     }
     let target = water.receivers[1][0].clone();
     commit(context, &ssr, &target);
-    reduce(context, &ssr);
+    reduce(context, &ssr, case.size);
     let mut views = vec![
         view(&ssr.material),
         view(&ssr.normals),
@@ -69,12 +83,14 @@ pub(super) fn capture_shaded(
             Edge::Depth => "select(3.0, 4.0, p.x > 9.0)",
             Edge::None | Edge::Normal | Edge::Ownership => "3.0",
         };
-        let depth = super::super::water_tests::raw_depth::texture(context, config, metres);
+        let metres = metres.replace("9.0", &format!("{}.0", case.size[0] / 2 + 1));
+        let depth = super::super::water_tests::raw_depth::texture(context, config, &metres);
         water::Inputs::new(&water, 0).resolve_views(&mut views, view(&depth));
     }
     ssr.application_views(&mut views);
     let captures = [true, false].map(|pair| {
-        let pipeline = gpu::pipeline(context.device(), &source(case, pair), case.samples, false);
+        let shader = mip_source(case, pair, mip_reference);
+        let pipeline = gpu::pipeline(context.device(), &shader, case.samples, false);
         let group = gpu::group(context.device(), &pipeline, Some(&ssr.uniform), &views);
         render(context, &target, &pipeline, &[&group]);
         (0..case.samples)
@@ -85,16 +101,48 @@ pub(super) fn capture_shaded(
     (pairs, deltas)
 }
 
+fn perturb_normals(context: &GpuContext, ssr: &Ssr, water: &crate::water::Water, case: Case) {
+    let normal = [0.2, 0.0, 0.979_795_9, 1.0];
+    upload(
+        context,
+        &ssr.normals,
+        &normal.repeat(usize::try_from(case.size[0] * case.size[1]).unwrap()),
+    );
+    fill(
+        context,
+        &water.receivers[0][0],
+        "vec4<f32>(0.2, 0.0, 0.9797959, 1.0)",
+    );
+}
+
+fn mip_source(case: Case, pair: bool, mip_reference: bool) -> String {
+    let source = source(case, pair);
+    if !mip_reference {
+        return source;
+    }
+    // Bypass receiver reconstruction only for the broad mip taps. The finite
+    // level-zero tent and its fractional transition remain under test.
+    source
+        .replace(
+            "reflection_level(lower, uv, sample, receiver)",
+            "reflected(lower, uv, sample)",
+        )
+        .replace(
+            "reflection_level(upper, uv, sample, receiver)",
+            "reflected(upper, uv, sample)",
+        )
+}
+
 fn view(texture: &wgpu::Texture) -> wgpu::TextureView {
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
 fn initialize(context: &GpuContext, ssr: &Ssr, water: &crate::water::Water, case: Case) {
-    let count = usize::try_from(SIZE[0] * SIZE[1]).unwrap();
-    let normals: Vec<_> = (0..SIZE[1])
+    let count = usize::try_from(case.size[0] * case.size[1]).unwrap();
+    let normals: Vec<_> = (0..case.size[1])
         .flat_map(|_| {
-            (0..SIZE[0]).flat_map(|x| {
-                if matches!(case.edge, Edge::Normal) && x > SIZE[0] / 2 {
+            (0..case.size[0]).flat_map(|x| {
+                if matches!(case.edge, Edge::Normal) && x > case.size[0] / 2 {
                     [1.0, 0.0, 0.0, 1.0]
                 } else {
                     [0.0, 0.0, 1.0, 1.0]
@@ -109,10 +157,10 @@ fn initialize(context: &GpuContext, ssr: &Ssr, water: &crate::water::Water, case
         &[1.0, 1.0, 1.0, case.roughness].repeat(count),
     );
     upload(context, &ssr.source_depth, &opaque_depths(case));
-    let depths: Vec<_> = (0..SIZE[1])
+    let depths: Vec<_> = (0..case.size[1])
         .flat_map(|_| {
-            (0..SIZE[0]).map(|x| {
-                if matches!(case.edge, Edge::Depth) && x > SIZE[0] / 2 {
+            (0..case.size[0]).map(|x| {
+                if matches!(case.edge, Edge::Depth) && x > case.size[0] / 2 {
                     4.0
                 } else {
                     3.0
@@ -137,11 +185,11 @@ fn initialize(context: &GpuContext, ssr: &Ssr, water: &crate::water::Water, case
 }
 
 fn opaque_depths(case: Case) -> Vec<f32> {
-    (0..SIZE[1])
+    (0..case.size[1])
         .flat_map(|_| {
-            (0..SIZE[0]).map(|x| {
+            (0..case.size[0]).map(|x| {
                 // Coplanar opaque poison isolates ownership from depth rejection.
-                if case.water && !(matches!(case.edge, Edge::Ownership) && x > SIZE[0] / 2) {
+                if case.water && !(matches!(case.edge, Edge::Ownership) && x > case.size[0] / 2) {
                     6.0
                 } else {
                     3.0
@@ -159,7 +207,8 @@ fn initialize_water(context: &GpuContext, water: &crate::water::Water, case: Cas
         }
         Edge::None | Edge::Depth => "vec4<f32>(0.0, 0.0, 1.0, 1.0)",
     };
-    fill(context, &water.receivers[0][0], normal);
+    let normal = normal.replace("9.0", &format!("{}.0", case.size[0] / 2 + 1));
+    fill(context, &water.receivers[0][0], &normal);
     fill(
         context,
         &water.receivers[0][1],
@@ -173,7 +222,7 @@ fn initialize_water(context: &GpuContext, water: &crate::water::Water, case: Cas
 }
 
 fn upload_trace(context: &GpuContext, ssr: &Ssr, case: Case) {
-    let [width, height] = policy(case).radiance_extents(SIZE)[0];
+    let [width, height] = policy(case).radiance_extents(case.size)[0];
     let grid = if case.full {
         pyramid::lane_grid(case.samples)
     } else {
@@ -217,7 +266,7 @@ fn commit(context: &GpuContext, ssr: &Ssr, target: &wgpu::Texture) {
     encoder.finish().submit().unwrap();
 }
 
-fn reduce(context: &GpuContext, ssr: &Ssr) {
+fn reduce(context: &GpuContext, ssr: &Ssr, size: [u32; 2]) {
     let mut encoder = context.submission().begin(context.device()).unwrap();
     for index in 1..ssr.reflections.len() {
         let inputs = [ssr.reflection_view(index - 1)];
@@ -228,7 +277,7 @@ fn reduce(context: &GpuContext, ssr: &Ssr) {
             &inputs,
         );
         let target = ssr.reflection_view(index);
-        let size = ssr.settings.radiance_extents(SIZE)[index];
+        let size = ssr.settings.radiance_extents(size)[index];
         let grid = if pyramid::shared(&ssr.settings) {
             pyramid::lane_grid(ssr.capture_samples)
         } else {
@@ -294,11 +343,25 @@ fn read_lane(context: &GpuContext, target: &wgpu::Texture, lane: u32) -> Vec<f32
     );
     let pipeline = gpu::pipeline(context.device(), &shader, 1, false);
     let group = gpu::group(context.device(), &pipeline, None, &[view(target)]);
-    let output =
-        crate::ssao::passes::texture(context.device(), SIZE, wgpu::TextureFormat::Rgba16Float);
+    let output = crate::ssao::passes::texture(
+        context.device(),
+        [target.width(), target.height()],
+        wgpu::TextureFormat::Rgba16Float,
+    );
     render(context, &output, &pipeline, &[&group]);
-    read(context, &output)
-        .chunks_exact(2)
-        .map(|v| ::half::f16::from_le_bytes(v.try_into().unwrap()).to_f32())
-        .collect()
+    let size = [target.width(), target.height()];
+    let budget = (u64::from(size[0]) * 8)
+        .next_multiple_of(u64::from(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT))
+        * u64::from(size[1]);
+    Readback::new(
+        context.device(),
+        FrameConfig::new(size, output.format(), 1),
+        budget,
+    )
+    .unwrap()
+    .read(context.device(), context.submission(), &output)
+    .unwrap()
+    .chunks_exact(2)
+    .map(|v| ::half::f16::from_le_bytes(v.try_into().unwrap()).to_f32())
+    .collect()
 }

@@ -2,8 +2,8 @@ use super::*;
 
 #[path = "footprint_fixture.rs"]
 mod fixture;
-#[path = "footprint_reference.rs"]
-mod reference;
+#[path = "footprint_mip_tests.rs"]
+mod mip_tests;
 
 #[derive(Clone, Copy, Debug)]
 enum Edge {
@@ -15,6 +15,8 @@ enum Edge {
 
 #[derive(Clone, Copy, Debug)]
 struct Case {
+    size: [u32; 2],
+    rounding: worldrunner_render_plan::SceneDownsampleRounding,
     scale: u32,
     roughness: f32,
     samples: u32,
@@ -29,6 +31,7 @@ const SIZE: [u32; 2] = [17, 13];
 fn policy(case: Case) -> SceneSsr {
     SceneSsr {
         resolution_scale_micro: case.scale,
+        radiance_rounding: case.rounding,
         roughness_cutoff_disabled: true,
         application_lod: worldrunner_render_plan::SceneSsrLodMapping::RoughnessDownsample,
         composition: worldrunner_render_plan::SceneSsrComposition::ReplaceEnvironment,
@@ -46,7 +49,7 @@ fn policy(case: Case) -> SceneSsr {
 // trace samples. This oracle enumerates the entire logical image, independently
 // of the shader's bounded gather and physical lane packing.
 fn reference(case: Case, lane: u32) -> [f32; 4] {
-    let sizes = policy(case).radiance_extents(SIZE);
+    let sizes = policy(case).radiance_extents(case.size);
     let [width, height] = sizes[0];
     let lod = (case.roughness * gpu::scalar(u32::try_from(sizes.len() - 1).unwrap())
         - if case.scale == 500_000 { 1.0 } else { 0.0 })
@@ -69,15 +72,14 @@ fn reference(case: Case, lane: u32) -> [f32; 4] {
         }
     }
     let coverage = numerator / denominator / gpu::scalar(lane + 1);
-    let coverage = if lod > 1.0 {
-        reference::multiscale(case, lane, lod, coverage)
-    } else {
-        coverage
-    };
     [0.25 * coverage, 0.5 * coverage, 0.75 * coverage, coverage]
 }
 
 fn check_case(context: &GpuContext, case: Case, failures: &mut Vec<String>) {
+    if reflection_lod(case) > 1.0 {
+        fixture::check_mip_kernel(context, case);
+        return;
+    }
     let (pairs, deltas) = fixture::capture(context, case);
     for lane in 0..case.samples {
         let expected = reference(case, lane);
@@ -111,6 +113,8 @@ fn matrix(edge: Edge, water: bool) {
             for roughness in [0.1, 0.5] {
                 for full in [false, true] {
                     let case = Case {
+                        size: SIZE,
+                        rounding: worldrunner_render_plan::SceneDownsampleRounding::Ceil,
                         scale,
                         roughness,
                         samples,
@@ -163,6 +167,8 @@ fn gpu_footprint_shading_normal_does_not_change_coplanar_support() {
     for water in [false, true] {
         for scale in [1_000_000, 500_000] {
             let case = Case {
+                size: SIZE,
+                rounding: worldrunner_render_plan::SceneDownsampleRounding::Ceil,
                 scale,
                 roughness: 0.1,
                 samples: 1,
@@ -192,6 +198,8 @@ fn footprint_shader_variants_validate_without_device() {
         for full in [false, true] {
             for ao in [false, true] {
                 let case = Case {
+                    size: SIZE,
+                    rounding: worldrunner_render_plan::SceneDownsampleRounding::Ceil,
                     scale: 500_000,
                     roughness: 0.1,
                     samples,
@@ -218,4 +226,30 @@ fn footprint_shader_variants_validate_without_device() {
             }
         }
     }
+}
+
+fn reflection_lod(case: Case) -> f32 {
+    (case.roughness
+        * gpu::scalar(u32::try_from(policy(case).radiance_extents(case.size).len() - 1).unwrap())
+        - if case.scale == 500_000 { 1.0 } else { 0.0 })
+    .max(0.0)
+}
+
+#[test]
+fn gpu_footprint_full_size_rough_receiver_matches_existing_mip_kernel() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let case = Case {
+        size: [1512, 807],
+        rounding: worldrunner_render_plan::SceneDownsampleRounding::Floor,
+        scale: 500_000,
+        roughness: 1.0,
+        samples: 1,
+        edge: Edge::Ownership,
+        ao: true,
+        full: true,
+        water: true,
+    };
+    assert!(reflection_lod(case) >= 6.0);
+    fixture::check_mip_kernel(&context, case);
 }

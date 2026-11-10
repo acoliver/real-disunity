@@ -20,6 +20,8 @@ fn description() -> WorldRenderTexture {
         depth_bits: 24,
         mip_count: 3,
         srgb: true,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler {
             filter: 2,
             ..WorldSampler::default()
@@ -365,8 +367,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_three_and_every_command_round_trips() {
-    assert_eq!(WIRE_VERSION, 3);
+fn the_wire_version_is_four_and_every_command_round_trips() {
+    assert_eq!(WIRE_VERSION, 4);
     let mut world = world();
     let id = texture(&mut world);
     let records = every_command(id);

@@ -38,7 +38,8 @@ After an intentional ABI change:
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 5 retains revision 4 batch construction, object wake and body position
+   Revision 9 adds the dimension and volume depth to `DisunityRenderTexture`, so
+   native and managed peers built for revision 8 refuse it. Revision 5 retains revision 4 batch construction, object wake and body position
    constraints, and moves canvas scale out of the Canvas record into
    `disunity_canvas_scale_read`, `_write` and `_factor`. Native and managed hosts
    require revision 5. Rebuild all peers.

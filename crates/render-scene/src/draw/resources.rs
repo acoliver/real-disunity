@@ -1,3 +1,5 @@
+use worldrunner_render_program::runtime::ImportTable;
+
 use super::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, DrawError, FRAME_UNIFORM_BYTES,
     GpuLod, GpuMesh, GpuTerrain, Queue, RenderScene, Sampler, TerrainUniformState, Texture,
@@ -81,14 +83,15 @@ pub(super) struct GroupInputs<'a> {
 }
 
 /// Binds one material's maps, its uniform and the shared contact heights, filling absent maps
-/// with the placeholder.
+/// with the placeholder. The same resources are lent to the program runtime as the table its
+/// prepared set is made from.
 pub(super) fn material_group(
     device: &Device,
     inputs: &GroupInputs<'_>,
     material: &worldrunner_render_plan::SceneMaterial,
     uniform: &Buffer,
     sampler: &Sampler,
-) -> BindGroup {
+) -> (BindGroup, ImportTable) {
     let optional = |handle: Option<TextureHandle>| {
         handle.map_or_else(
             || inputs.placeholder.clone(),
@@ -114,26 +117,33 @@ pub(super) fn material_group(
                 .map(worldrunner_render_plan::ScenePlanarWindField::texture),
         ),
     ];
-    crate::upload::extended_material_group(
+    let maps = [&bound[0], &bound[1], &bound[2], &bound[3], &bound[4]];
+    let extra = [&extra[0], &extra[1], &extra[2]];
+    let group = crate::upload::extended_material_group(
         device,
         inputs.layout,
         uniform,
-        crate::upload::MaterialTextureBindings {
-            maps: [&bound[0], &bound[1], &bound[2], &bound[3], &bound[4]],
-            extra: [&extra[0], &extra[1], &extra[2]],
-        },
+        crate::upload::MaterialTextureBindings { maps, extra },
         sampler,
         inputs.heights,
-    )
+    );
+    let imports = crate::object::prepared::imports(
+        &crate::object::prepared::MaterialViews { maps, extra },
+        uniform,
+        sampler,
+        inputs.heights,
+    );
+    (group, imports)
 }
 
-/// Builds one bind group per material, filling absent maps with the placeholder.
+/// Builds one bind group per material, filling absent maps with the placeholder, with the
+/// uniform buffer and the program runtime's imports of each.
 pub(super) fn upload_materials(
     device: &Device,
     queue: &Queue,
     scene: &RenderScene,
     bindings: &MaterialBindings<'_>,
-) -> (Vec<BindGroup>, Vec<Buffer>) {
+) -> (Vec<BindGroup>, Vec<Buffer>, Vec<ImportTable>) {
     let views = bindings.views;
     let lookup = |handle: TextureHandle| views[table_index(handle)].clone();
     let inputs = GroupInputs {
@@ -145,6 +155,7 @@ pub(super) fn upload_materials(
     let mut samplers = crate::sampling::MaterialSamplers::default();
     let mut groups = Vec::new();
     let mut uniforms = Vec::new();
+    let mut tables = Vec::new();
     for material in scene.resources().materials() {
         let uniform = upload_buffer(
             device,
@@ -154,10 +165,12 @@ pub(super) fn upload_materials(
             &super::fade::uniform(scene, material),
         );
         let sampler = samplers.get(device, material);
-        groups.push(material_group(device, &inputs, material, &uniform, sampler));
+        let (group, table) = material_group(device, &inputs, material, &uniform, sampler);
+        groups.push(group);
+        tables.push(table);
         uniforms.push(uniform);
     }
-    (groups, uniforms)
+    (groups, uniforms, tables)
 }
 
 /// Uploads already packed mesh levels without processing source geometry.
@@ -446,7 +459,7 @@ pub(super) fn scene_materials(
     pipelines: &crate::renderer::ScenePipelines,
     textures: (&[TextureView], &TextureView),
     heights: &Buffer,
-) -> (Vec<BindGroup>, Vec<Buffer>) {
+) -> (Vec<BindGroup>, Vec<Buffer>, Vec<ImportTable>) {
     upload_materials(
         device,
         queue,

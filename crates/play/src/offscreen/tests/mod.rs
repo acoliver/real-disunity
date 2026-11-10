@@ -12,6 +12,7 @@ mod empty_meshes;
 mod fallback;
 mod flush;
 mod frame;
+mod global_arrays;
 mod gpu;
 mod kernels;
 mod lists;

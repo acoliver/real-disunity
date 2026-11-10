@@ -67,6 +67,50 @@ fn a_name_that_two_kinds_hold_takes_the_later_kind() {
 }
 
 #[test]
+fn an_array_keeps_its_name_and_its_elements_in_order() {
+    let vectors = vec![[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]];
+    let matrices: Vec<[f32; 16]> = [0_u8, 100]
+        .iter()
+        .map(|first| std::array::from_fn(|index| f32::from(first + u8::try_from(index).unwrap())))
+        .collect();
+    let found = properties(vec![
+        WorldValue::VectorArray("_Weights".into(), vectors.clone()),
+        WorldValue::MatrixArray("_Bones".into(), matrices.clone()),
+    ]);
+    let (render, stored) = no_textures();
+    let layer = layer(&found, &mut Textures::new(&render, &stored));
+    assert_eq!(
+        layer.values.get("_Weights"),
+        Some(&PropertyValue::VectorArray(vectors))
+    );
+    assert_eq!(
+        layer.values.get("_Bones"),
+        Some(&PropertyValue::MatrixArray(matrices)),
+        "each matrix keeps its sixteen floats in the order the world stores them"
+    );
+}
+
+#[test]
+fn a_name_that_a_single_value_and_an_array_hold_takes_the_array_and_the_matrix_array_last() {
+    let found = properties(vec![
+        WorldValue::Matrix("_Single".into(), [3.0; 16]),
+        WorldValue::VectorArray("_Single".into(), vec![[4.0; 4]]),
+        WorldValue::VectorArray("_Arrays".into(), vec![[5.0; 4]]),
+        WorldValue::MatrixArray("_Arrays".into(), vec![[6.0; 16]]),
+    ]);
+    let (render, stored) = no_textures();
+    let layer = layer(&found, &mut Textures::new(&render, &stored));
+    assert_eq!(
+        layer.values.get("_Single"),
+        Some(&PropertyValue::VectorArray(vec![[4.0; 4]]))
+    );
+    assert_eq!(
+        layer.values.get("_Arrays"),
+        Some(&PropertyValue::MatrixArray(vec![[6.0; 16]]))
+    );
+}
+
+#[test]
 fn a_texture_slot_names_a_render_texture_a_stored_texture_or_nothing() {
     let mut world = world();
     let live = render_texture(&mut world, [4, 4]);

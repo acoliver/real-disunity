@@ -111,6 +111,11 @@ impl OffscreenAdapter {
         self
     }
 
+    #[cfg(test)]
+    pub(super) fn mesh_metadata_counts(&self) -> (usize, usize, usize) {
+        (self.meshes.len(), self.bounds.len(), self.sub_meshes.len())
+    }
+
     /// Registers what the snapshot needs with `state`, then maps it. What cannot be loaded or
     /// uploaded is counted in the report's failures and left out of the frame.
     pub fn adapt(

@@ -211,6 +211,8 @@ impl OffscreenAdapter {
                 }
                 Holding::Mesh(identity) => {
                     self.meshes.remove(&identity);
+                    self.bounds.remove(&identity);
+                    self.sub_meshes.remove(&identity);
                     reclaimed.meshes += 1;
                 }
                 Holding::Target(id) => {

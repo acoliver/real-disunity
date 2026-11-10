@@ -42,6 +42,8 @@ const BLUE: [u8; 4] = [0, 0, 255, 255];
 const MESH: u64 = (1 << 41) + 5;
 const OTHER_MESH: u64 = (1 << 41) + 6;
 
+mod persistent;
+
 /// A vertex stage that places its position by the draw's matrices, a fragment stage that writes
 /// the material's `_Tint` and one that writes its `_Over`.
 const WGSL: &str = "
@@ -231,8 +233,13 @@ fn stored(meshes: impl IntoIterator<Item = (u64, MeshChannels)>) -> Meshes {
 fn scene() -> (World, RenderTextureId) {
     let mut world = world();
     let drawn = target(&mut world, ARGB32);
+    bind_and_clear(&mut world, drawn);
+    (world, drawn)
+}
+
+fn bind_and_clear(world: &mut World, drawn: RenderTextureId) {
     record(
-        &mut world,
+        world,
         OffscreenWork::SetRenderTarget {
             color: vec![TargetRef::Render(drawn)],
             depth: None,
@@ -242,7 +249,7 @@ fn scene() -> (World, RenderTextureId) {
         },
     );
     record(
-        &mut world,
+        world,
         OffscreenWork::ClearRenderTarget {
             color: true,
             depth: false,
@@ -252,7 +259,6 @@ fn scene() -> (World, RenderTextureId) {
             stencil_value: 0,
         },
     );
-    (world, drawn)
 }
 
 fn record(world: &mut World, work: OffscreenWork) {
@@ -335,13 +341,9 @@ impl Run {
     }
 }
 
-fn flush(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
-    let request = world
-        .request_texture_pixels(drawn, 0, 0, SIDE, SIDE)
-        .unwrap();
-    let directory = tempfile::tempdir().unwrap();
+fn host(kernels: PlayerKernels) -> OffscreenHost {
     let gpu = gpu();
-    let mut host = OffscreenHost::new(
+    OffscreenHost::new(
         gpu.runtime,
         gpu.arena,
         OffscreenAdapter::with_supply(
@@ -351,8 +353,25 @@ fn flush(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
                 ..Settings::default()
             },
         ),
-        ComputeAdapter::new(PlayerKernels::new(directory.path())),
-    );
+        ComputeAdapter::new(kernels),
+    )
+}
+
+fn flush(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = host(PlayerKernels::new(directory.path()));
+    flush_in(&mut host, world, drawn, meshes)
+}
+
+fn flush_in(
+    host: &mut OffscreenHost,
+    world: &mut World,
+    drawn: RenderTextureId,
+    meshes: &Meshes,
+) -> Run {
+    let request = world
+        .request_texture_pixels(drawn, 0, 0, SIDE, SIDE)
+        .unwrap();
     let snapshot = snapshot(world);
     let outcome = host.flush(&snapshot, meshes).unwrap();
     outcome.apply(world).unwrap();
@@ -365,9 +384,11 @@ fn flush(world: &mut World, drawn: RenderTextureId, meshes: &Meshes) -> Run {
 }
 
 /// The 8-bit value the target held for a channel that came back as a float.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0 to 255 after rounding
 fn byte(channel: f32) -> u8 {
-    (channel * 255.0).round() as u8
+    let rounded = (channel * 255.0).round();
+    (0..=u8::MAX)
+        .find(|value| f32::from(*value).to_bits() == rounded.to_bits())
+        .expect("readback channel must represent an RGBA8 value")
 }
 
 #[test]

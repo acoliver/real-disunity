@@ -26,7 +26,7 @@ use super::super::flush::OffscreenHost;
 use super::super::frame::{Reclaimed, Report, Settings};
 use super::super::ids;
 use super::super::kernels::PlayerKernels;
-use super::gpu::{Gpu, Quad, Synthetic, gpu_with_budget, shader};
+use super::gpu::{Gpu, MESH, Quad, Synthetic, gpu_with_budget, shader};
 use super::support::{material, render_texture, set, snapshot, texture_slot, world};
 
 const A: u64 = 1 << 40;
@@ -465,4 +465,76 @@ fn a_render_texture_a_material_property_holds_is_named_and_stays() {
     built.unwrap();
     assert_eq!(reclaimed.targets, 1);
     assert_eq!(room.held(), [Targets::id(b), Targets::id(c)]);
+}
+
+struct Meshes;
+
+impl Assets for Meshes {
+    fn mesh(&self, _: u64, known: u64) -> Result<Option<MeshChannels>, AssetError> {
+        Quad.mesh(MESH, known)
+    }
+
+    fn texture(&self, _: u64, _: u64) -> Result<Option<PlayerTexture>, AssetError> {
+        Ok(None)
+    }
+
+    fn sampler(&self, _: u64) -> Result<Option<TextureSampler>, AssetError> {
+        Ok(None)
+    }
+}
+
+#[test]
+fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
+    let mut room = Room::new(64 << 20);
+    let mut world = world();
+    let shader = shader(&mut world, "camera");
+    let material = material(&mut world, shader);
+    let target = render_texture(&mut world, [4, 4]);
+    for identity in (MESH..MESH + 16).chain(std::iter::once(MESH)) {
+        world
+            .record_offscreen(OffscreenWork::SetRenderTarget {
+                color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
+                    target,
+                )],
+                depth: None,
+                mip: 0,
+                face: -1,
+                slice: -1,
+            })
+            .unwrap();
+        world
+            .record_offscreen(OffscreenWork::DrawMesh {
+                mesh: identity,
+                matrix: glam::Mat4::IDENTITY.to_cols_array(),
+                material,
+                submesh: 0,
+                pass: 0,
+            })
+            .unwrap();
+        let drawing = snapshot(&mut world);
+        let adapted = room
+            .adapter
+            .adapt(&drawing, &Meshes, &mut room.state, &mut room.runtime);
+        assert!(
+            adapted.report.failures.is_empty(),
+            "{:?}",
+            adapted.report.failures
+        );
+        assert_eq!(adapted.report.built_by_kind["DrawMesh"], 1);
+        assert_eq!(room.adapter.mesh_metadata_counts(), (1, 1, 1));
+        let budget = room.runtime.budget().0;
+        let protected = room
+            .adapter
+            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        assert_eq!(protected.meshes, 0);
+        drop(adapted);
+
+        room.adapt(&snapshot(&mut world));
+        let reclaimed = room
+            .adapter
+            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        assert_eq!(reclaimed.meshes, 1);
+        assert!(reclaimed.bytes > 0);
+        assert_eq!(room.adapter.mesh_metadata_counts(), (0, 0, 0));
+    }
 }

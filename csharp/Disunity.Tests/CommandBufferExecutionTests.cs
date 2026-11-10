@@ -39,6 +39,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: CommandBuffer.Blit and CopyTexture record render texture draws and refuse targets they cannot hold");
             ViewProjectionIsRecordedColumnByColumn();
             Console.WriteLine("PASS: SetViewProjectionMatrices records both matrices column by column, and the world refuses a value that is not finite");
+            DrawMeshIsRecordedInOrder();
+            Console.WriteLine("PASS: DrawMesh records the mesh identity, matrix, material, sub-mesh and pass after the target, clear and view of the portrait helper, and the world refuses a matrix that is not finite");
             ReleasedAndNullBuffersAreRefused();
             Console.WriteLine("PASS: executing a null or released command buffer throws");
         }
@@ -260,6 +262,41 @@ internal static class CommandBufferExecutionTests
         Expect.Equal(0, Taken().Length, "a refused change records nothing");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.SetViewProjectionMatrices(view, projection), "a released buffer");
+    }
+
+    private static void DrawMeshIsRecordedInOrder()
+    {
+        var target = Target();
+        var mesh = new Mesh();
+        mesh.vertices = [new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(0, 1, 0)];
+        mesh.triangles = [0, 1, 2];
+        mesh.subMeshCount = 2;
+        var material = new Material(Material.SpriteLit);
+        var buffer = new CommandBuffer();
+        buffer.SetRenderTarget(target);
+        buffer.ClearRenderTarget(true, true, Color.clear);
+        buffer.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.Ortho(0, 1, 0, 1, 0.1f, 100f));
+        buffer.DrawMesh(mesh, Matrix4x4.TRS(-Vector3.forward, Quaternion.identity, Vector3.one), material, 0, 0);
+        buffer.DrawMesh(mesh, Matrix4x4.identity, material);
+        buffer.DrawMesh(mesh, Matrix4x4.identity, material, 1, 3);
+        Expect.Equal(0, Taken().Length, "nothing reaches the world before the buffer runs");
+        Graphics.ExecuteCommandBuffer(buffer);
+        var taken = Taken();
+        var (identity, id) = (mesh.RendererIdentity, material.WorldLink.Id);
+        Expect.That(identity >= DisunityHost.FirstPlayerMeshIdentity, "reading the identity stores the mesh with the host");
+        Same(["SetRenderTarget", "Clear", "ViewProjection", "DrawMesh", "DrawMesh", "DrawMesh"], taken.Select(line => line.Split(' ')[0]).ToArray(),
+            "the order the buffer recorded");
+        Same([
+            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 -0 -0 -1 1) material={id} submesh=0 pass=0",
+            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1) material={id} submesh=0 pass=-1",
+            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1) material={id} submesh=1 pass=3",
+        ], taken[3..], "each draw as the world holds it");
+        var bad = new CommandBuffer();
+        var nan = Matrix4x4.identity;
+        nan[1, 2] = float.PositiveInfinity;
+        bad.DrawMesh(mesh, nan, material);
+        Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(bad), "a matrix that is not finite");
+        Expect.Equal(0, Taken().Length, "a refused draw records nothing");
     }
 
     private static void GlobalsAreRecordedInOrder()

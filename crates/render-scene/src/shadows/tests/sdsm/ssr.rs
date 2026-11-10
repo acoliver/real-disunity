@@ -5,7 +5,7 @@ use worldrunner_render_post::ToneMap;
 
 const SIZE: [u32; 2] = [1512, 807];
 
-fn source() -> RenderScene {
+fn source(roughness_micro: u32) -> RenderScene {
     let base = scene(&[[0, 0, 1000]], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
     parts.ssao = Some(crate::ssr::neutral_ao());
@@ -14,7 +14,7 @@ fn source() -> RenderScene {
         north_min_millimeters: -3000,
         east_extent_millimeters: 3000,
         north_extent_millimeters: 6000,
-        roughness_micro: 100_000,
+        roughness_micro,
         height_millimeters: 100,
         ..super::super::unsupported_water_body()
     });
@@ -98,9 +98,14 @@ fn renderers(context: &GpuContext, source: &RenderScene) -> (FrameRenderer, Shad
 fn gpu_sdsm_full_radiance_water_ssr_preserves_reductions_across_frames() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let source = source();
-    let view = full_view(&source);
-    let (mut frame, mut renderer) = renderers(&context, &source);
+    for roughness in [100_000, 1_000_000] {
+        render_frames(&context, &source(roughness));
+    }
+}
+
+fn render_frames(context: &GpuContext, source: &RenderScene) {
+    let view = full_view(source);
+    let (mut frame, mut renderer) = renderers(context, source);
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         frame.targets().scene().texture(),
@@ -113,7 +118,7 @@ fn gpu_sdsm_full_radiance_water_ssr_preserves_reductions_across_frames() {
     .unwrap();
     for source_frame in 0..6 {
         let fit = renderer
-            .render_depth_fitted_with(&context, &view, (&color, &depth), source_frame, &mut frame)
+            .render_depth_fitted_with(context, &view, (&color, &depth), source_frame, &mut frame)
             .unwrap();
         context
             .device()

@@ -275,8 +275,9 @@ impl<'a> TerrainGrid<'a> {
     ///
     /// The differences are taken between the *selected* neighbours rather than
     /// the original ones, so the normals describe the surface actually being
-    /// drawn. Shading a reduced mesh with full-resolution normals would light
-    /// detail that no longer has silhouette to match it.
+    /// drawn. The fragment stage lights terrain from the full-resolution
+    /// heightfield instead (`terrain_pixel_normal`), so a reduced mesh keeps the
+    /// lighting of the finest one; these vertex normals remain the skirts'.
     fn normal(&self, column: usize, row: usize) -> Vec3 {
         let (west, east) = neighbours(self.columns.len(), column);
         let east_rise = f64::from(self.height(self.columns[east], self.rows[row]))

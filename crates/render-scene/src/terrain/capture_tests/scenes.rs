@@ -108,12 +108,35 @@ fn effects() -> SceneEffects {
 /// A rolling `EDGE` by `EDGE` terrain of two surfaces, a metre between samples, centred on the
 /// origin.
 fn rolling() -> SceneTerrain {
+    rolling_with(TerrainLodPolicy::FullResolution)
+}
+
+/// [`rolling`] with the mesh reduction `lod_policy` selects.
+fn rolling_with(lod_policy: TerrainLodPolicy) -> SceneTerrain {
+    grid_terrain(
+        |column, row| {
+            i32::try_from((column * 37 + row * 91 + column * row * 13) % 11).unwrap() * 90 - 450
+        },
+        lod_policy,
+    )
+}
+
+/// Ridges and valleys along both axes that crease only on even samples, so every two by two
+/// block of cells is one plane: a grid halved once draws exactly the same surface.
+fn creased_with(lod_policy: TerrainLodPolicy) -> SceneTerrain {
+    let tent = |sample: usize| (i32::try_from(sample % 4).unwrap() - 2).abs() * 400 - 400;
+    grid_terrain(|column, row| tent(column) + tent(row), lod_policy)
+}
+
+/// An `EDGE` by `EDGE` terrain of two surfaces, a metre between samples, centred on the origin,
+/// with the heights `height` gives each column and row.
+fn grid_terrain(
+    height: impl Fn(usize, usize) -> i32,
+    lod_policy: TerrainLodPolicy,
+) -> SceneTerrain {
     let samples = (EDGE * EDGE) as usize;
     let heights = (0..samples)
-        .map(|index| {
-            let (column, row) = (index % EDGE as usize, index / EDGE as usize);
-            i32::try_from((column * 37 + row * 91 + column * row * 13) % 11).unwrap() * 90 - 450
-        })
+        .map(|index| height(index % EDGE as usize, index / EDGE as usize))
         .collect();
     let indices = (0..samples)
         .map(|index| u8::from((index % 4 + index / 4) % 3 == 0))
@@ -134,7 +157,7 @@ fn rolling() -> SceneTerrain {
                 )
             })
             .collect(),
-        lod_policy: TerrainLodPolicy::FullResolution,
+        lod_policy,
     })
     .expect("the fixture terrain validates")
 }
@@ -160,6 +183,11 @@ fn scene_with(
 /// The terrain as one mesh, with the conventional palette arrays and a type grid.
 pub(in crate::terrain) fn plain() -> RenderScene {
     scene(rolling(), resources())
+}
+
+/// The creased terrain as one mesh under `lod_policy`.
+pub(in crate::terrain) fn creased(lod_policy: TerrainLodPolicy) -> RenderScene {
+    scene(creased_with(lod_policy), resources())
 }
 
 /// The plain terrain in a scene that requests screen-space reflections.

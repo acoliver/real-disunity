@@ -26,7 +26,7 @@ use super::super::flush::OffscreenHost;
 use super::super::frame::{Reclaimed, Report, Settings};
 use super::super::ids;
 use super::super::kernels::PlayerKernels;
-use super::gpu::{Gpu, Quad, Synthetic, gpu_with_budget, shader};
+use super::gpu::{Gpu, MESH, Quad, Synthetic, gpu_with_budget, shader};
 use super::support::{material, render_texture, set, snapshot, texture_slot, world};
 
 const A: u64 = 1 << 40;
@@ -72,16 +72,16 @@ impl Assets for Textures {
 }
 
 /// A runtime with a budget, a state and an adapter, over the device and arena it was made on.
-struct Room {
-    runtime: ProgramRuntime,
-    state: OffscreenState,
-    adapter: OffscreenAdapter,
+pub(super) struct Room {
+    pub(super) runtime: ProgramRuntime,
+    pub(super) state: OffscreenState,
+    pub(super) adapter: OffscreenAdapter,
     textures: Textures,
     device: (wgpu::Device, SubmissionAuthority, ProgramArena),
 }
 
 impl Room {
-    fn new(budget: u64) -> Self {
+    pub(super) fn new(budget: u64) -> Self {
         let Gpu {
             device,
             authority,
@@ -465,4 +465,123 @@ fn a_render_texture_a_material_property_holds_is_named_and_stays() {
     built.unwrap();
     assert_eq!(reclaimed.targets, 1);
     assert_eq!(room.held(), [Targets::id(b), Targets::id(c)]);
+}
+
+struct Meshes;
+
+impl Assets for Meshes {
+    fn mesh(&self, _: u64, known: u64) -> Result<Option<MeshChannels>, AssetError> {
+        Quad.mesh(MESH, known)
+    }
+
+    fn texture(&self, _: u64, _: u64) -> Result<Option<PlayerTexture>, AssetError> {
+        Ok(None)
+    }
+
+    fn sampler(&self, _: u64) -> Result<Option<TextureSampler>, AssetError> {
+        Ok(None)
+    }
+}
+
+#[test]
+fn evicting_meshes_releases_their_metadata_and_later_draws_reload_them() {
+    let mut room = Room::new(64 << 20);
+    let mut world = world();
+    let shader = shader(&mut world, "camera");
+    let material = material(&mut world, shader);
+    let target = render_texture(&mut world, [4, 4]);
+    for identity in (MESH..MESH + 16).chain(std::iter::once(MESH)) {
+        world
+            .record_offscreen(OffscreenWork::SetRenderTarget {
+                color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
+                    target,
+                )],
+                depth: None,
+                mip: 0,
+                face: -1,
+                slice: -1,
+            })
+            .unwrap();
+        world
+            .record_offscreen(OffscreenWork::DrawMesh {
+                mesh: identity,
+                matrix: glam::Mat4::IDENTITY.to_cols_array(),
+                material,
+                submesh: 0,
+                pass: 0,
+            })
+            .unwrap();
+        let drawing = snapshot(&mut world);
+        let adapted = room
+            .adapter
+            .adapt(&drawing, &Meshes, &mut room.state, &mut room.runtime);
+        assert!(
+            adapted.report.failures.is_empty(),
+            "{:?}",
+            adapted.report.failures
+        );
+        assert_eq!(adapted.report.built_by_kind["DrawMesh"], 1);
+        assert_eq!(room.adapter.mesh_metadata_counts(), (1, 1, 1));
+        let budget = room.runtime.budget().0;
+        let protected = room
+            .adapter
+            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        assert_eq!(protected.meshes, 0);
+        drop(adapted);
+
+        room.adapt(&snapshot(&mut world));
+        let reclaimed = room
+            .adapter
+            .make_room_for(&mut room.state, &mut room.runtime, budget);
+        assert_eq!(reclaimed.meshes, 1);
+        assert!(reclaimed.bytes > 0);
+        assert_eq!(room.adapter.mesh_metadata_counts(), (0, 0, 0));
+    }
+}
+
+#[test]
+fn mixed_pressure_evicts_old_source_and_target_but_preserves_a_global_target() {
+    let held = held_after_two_frames();
+    let new_target_bytes = 128 * 128 * 4;
+    let mut room = Room::new(held + new_target_bytes - 128);
+    let mut targets = Targets::new();
+    let (newer, protected) = (targets.a, targets.b);
+    let destination = render_texture(&mut targets.world, [128, 128]);
+
+    let mut first = targets.naming(&[protected]);
+    first
+        .materials
+        .values_mut()
+        .next()
+        .unwrap()
+        .properties
+        .textures
+        .push(("_RetiredSource".into(), texture_slot(TextureRef::Asset(A))));
+    room.frame(&first).0.unwrap();
+    room.frame(&targets.naming(&[newer])).0.unwrap();
+    assert_eq!(room.runtime.live_bytes(), held + TEXTURE_BYTES);
+
+    targets
+        .world
+        .set_global_property(WorldValue::Texture(
+            "_Protected".into(),
+            texture_slot(TextureRef::Render(protected)),
+        ))
+        .unwrap();
+    let current = targets.naming(&[destination]);
+    let (built, reclaimed) = room.frame(&current);
+    built.unwrap();
+
+    assert_eq!(
+        (reclaimed.textures, reclaimed.targets, reclaimed.bytes),
+        (1, 1, TEXTURE_BYTES + 8 * 8 * 4)
+    );
+    assert_eq!(
+        room.held(),
+        [Targets::id(protected), Targets::id(destination)]
+    );
+    assert_eq!(
+        room.runtime.live_bytes(),
+        held + new_target_bytes - 8 * 8 * 4
+    );
 }

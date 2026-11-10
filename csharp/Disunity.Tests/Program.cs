@@ -467,6 +467,7 @@ PlayablesTests.Run();
 JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();
+CommandBufferCameraTests.Run();
 CommandBufferRenderPassTests.Run();
 SubPassDescriptorTests.Run();
 ObjectModelTests.Run();

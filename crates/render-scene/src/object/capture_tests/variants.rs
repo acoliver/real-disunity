@@ -9,11 +9,21 @@ use crate::renderer::legacy_objects::Recipe;
 /// Captures the cards of `specs` in the target set `index` of the forward sets, drawing through
 /// the scene's own entry point.
 fn one(index: usize, specs: &[Spec], moving: bool) -> Captured {
+    one_at(index, specs, moving, None)
+}
+
+/// [`one`], with the frame drawn at `clock` milliseconds of the animation clock when one is
+/// given. The scene and the fixed path draw the same frame, so both read that clock.
+fn one_at(index: usize, specs: &[Spec], moving: bool, clock: Option<u32>) -> Captured {
     let context = context();
     let config = &CONFIGS[index];
     let built = build(context.device(), config);
     let source = frozen_source(&built.pipelines, recipe(config.kind));
-    let mut rig = Rig::moving(&context, &built.pipelines, &scenes::scene(specs), moving);
+    let rig = Rig::moving(&context, &built.pipelines, &scenes::scene(specs), moving);
+    let mut rig = match clock {
+        Some(milliseconds) => rig.at_clock(milliseconds),
+        None => rig,
+    };
     let legacy = Legacy::new(&context, &rig.selected(&built.pipelines), &source);
     capture(
         &mut rig,
@@ -115,6 +125,22 @@ fn the_previous_instance_stream_decides_the_velocity_target_like_the_fixed_pipel
             "{formats}: moving the cards left the velocity target alone"
         );
     }
+}
+
+/// The fixture wind has a period of 1000 ms and no phase, so its displacement is zero at 0 ms
+/// and the whole amplitude at 250 ms. The 32-key matrix draws at 0 ms, where wind moves nothing.
+/// Here the foliage cards are drawn at both clocks: the depth plane differs between them, so
+/// the clock reached the vertices, and at each clock it is what the fixed pipeline wrote.
+#[test]
+fn wind_at_a_quarter_period_moves_the_foliage_like_the_fixed_pipeline() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let depth = |captured: &Captured| captured.images.last().expect("a depth plane").clone();
+    let still = one_at(HDR_1X, &scenes::surface_specs(), true, Some(0));
+    let blown = one_at(HDR_1X, &scenes::surface_specs(), true, Some(250));
+    assert!(
+        depth(&blown) != depth(&still),
+        "a quarter period of wind left the depth plane as it was"
+    );
 }
 
 #[test]

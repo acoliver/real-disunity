@@ -81,6 +81,46 @@ impl DepthMode {
     }
 }
 
+impl DepthMode {
+    /// The program runtime's state of a draw that writes depth and every one of `colors`
+    /// attachments without blending, under this mode's depth and stencil test: the translation
+    /// of [`state`](Self::state) that terrain and objects share, so that neither can disagree
+    /// with the fixed pipelines' depth reuse.
+    pub(crate) fn render_state(
+        self,
+        colors: usize,
+        raster: worldrunner_render_program::state::RasterState,
+    ) -> worldrunner_render_program::state::RenderState {
+        use worldrunner_render_program::state::{
+            ColorState, DepthState, RenderState, StencilState as ProgramStencil,
+        };
+        let depth = self.state(true);
+        RenderState {
+            raster,
+            depth: Some(DepthState {
+                test: depth
+                    .depth_compare
+                    .expect("a depth mode always names its test"),
+                write: depth
+                    .depth_write_enabled
+                    .expect("a depth mode always names its write"),
+                bias: depth.bias,
+            }),
+            colors: vec![
+                Some(ColorState {
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                });
+                colors
+            ],
+            stencil: (depth.stencil != StencilState::default()).then_some(ProgramStencil {
+                ops: depth.stencil,
+                reference: STENCIL_REFERENCE,
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -66,6 +66,7 @@ pub fn encode_resident(
         scene.prepare_terrain_pages(device, encoder, &scene.resident_frame(), color.size())?;
     }
     scene.prepare_terrain(pipelines, &scene.resident_frame())?;
+    scene.prepare_objects(pipelines, &scene.resident_frame())?;
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(renderer.color_attachment(color.resource(), color));
     pass.depth = Some(super::attachment(depth.resource(), depth, true));

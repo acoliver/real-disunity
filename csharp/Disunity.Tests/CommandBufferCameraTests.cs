@@ -4,8 +4,8 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using static GraphicsTestSupport;
 
-/// <summary>CommandBuffer.SetupCameraProperties records the camera's view and projection when it is called, the global array
-/// members bind a copy of their values when the buffer runs, and the DrawProcedural overloads name themselves.</summary>
+/// <summary>CommandBuffer.SetupCameraProperties records the camera's view and projection when it is called, and the global array
+/// and DrawProcedural members name themselves and record nothing, through a real world and the public execution paths.</summary>
 internal static class CommandBufferCameraTests
 {
     public static void Run()
@@ -15,21 +15,21 @@ internal static class CommandBufferCameraTests
         {
             CameraSetupRecordsViewAndProjectionAsTheyAreNow();
             Console.WriteLine("PASS: CommandBuffer.SetupCameraProperties records the camera's view and projection as they are when it is called");
+            CameraSetupLeavesTheBoundTargetAndDefersToSubmit();
+            Console.WriteLine("PASS: CommandBuffer.SetupCameraProperties keeps the bound target, ignores the camera's own, and the context sends it at Submit");
             CameraSetupRefusesWhatItCannotRecord();
             Console.WriteLine("PASS: CommandBuffer.SetupCameraProperties refuses a null or destroyed camera and a released buffer");
+            GlobalArraysNameThemselvesAndRecordNothing();
+            Console.WriteLine("PASS: every SetGlobal*Array overload throws NotSupportedException naming itself, records nothing and changes no global or world state");
+            GlobalArraysRefuseAReleasedBufferFirst();
+            Console.WriteLine("PASS: a released buffer throws ObjectDisposedException from every global array overload, including a null or empty array");
+            DrawProceduralNamesItself();
+            Console.WriteLine("PASS: CommandBuffer.DrawProcedural throws NotSupportedException naming itself and records nothing");
         }
         finally
         {
             DisunityHost.UnloadWorld();
         }
-        VectorArraysBindWhenTheBufferRuns();
-        Console.WriteLine("PASS: SetGlobalVectorArray binds a copy of the values when the buffer runs, by id and by name, from an array or a list");
-        FloatAndMatrixArraysBindWhenTheBufferRuns();
-        Console.WriteLine("PASS: SetGlobalFloatArray and SetGlobalMatrixArray bind a copy of the values when the buffer runs");
-        GlobalArraysRefuseWhatTheyCannotRecord();
-        Console.WriteLine("PASS: the global array members refuse a null or empty array and a released buffer, and record nothing");
-        DrawProceduralNamesItself();
-        Console.WriteLine("PASS: CommandBuffer.DrawProcedural throws NotSupportedException naming itself and records nothing");
     }
 
     private static Camera NewCamera()
@@ -90,75 +90,105 @@ internal static class CommandBufferCameraTests
         Throws<ObjectDisposedException>(() => buffer.SetupCameraProperties(NewCamera()), "a released buffer", "CommandBuffer");
     }
 
-    private static void VectorArraysBindWhenTheBufferRuns()
+    private static void CameraSetupLeavesTheBoundTargetAndDefersToSubmit()
     {
-        int id = Shader.PropertyToID("_CommandBufferTestVectors"), byName = Shader.PropertyToID("_CommandBufferTestVectorsByName");
-        int byList = Shader.PropertyToID("_CommandBufferTestVectorsByList"), byNameList = Shader.PropertyToID("_CommandBufferTestVectorsByNameList");
-        var values = new[] { new Vector4(1, 2, 3, 4), new Vector4(5, 6, 7, 8) };
+        var camera = NewCamera();
+        var (cameraTarget, bound) = (NewTarget(), NewTarget());
+        camera.targetTexture = cameraTarget;
+        Ensure(cameraTarget.WorldId != bound.WorldId, "the camera's target differs from the bound target");
         var buffer = new CommandBuffer();
-        buffer.SetGlobalVectorArray(id, values);
-        buffer.SetGlobalVectorArray("_CommandBufferTestVectorsByName", values);
-        buffer.SetGlobalVectorArray(byList, new List<Vector4>(values));
-        buffer.SetGlobalVectorArray("_CommandBufferTestVectorsByNameList", new List<Vector4>(values));
-        Ensure(buffer.commandCount == 4, "each call is one command");
-        Ensure(new[] { id, byName, byList, byNameList }.All(key => !Shader.Globals.VectorArrays.ContainsKey(key)), "recording binds nothing yet");
-        values[0] = new Vector4(-1, -1, -1, -1);
-        values[1] = Vector4.zero;
-        foreach (var send in buffer.Commands()) send();
-        foreach (var key in new[] { id, byName, byList, byNameList })
-            Ensure(Shader.GetGlobalVectorArray(key)!.SequenceEqual(new[] { new Vector4(1, 2, 3, 4), new Vector4(5, 6, 7, 8) }),
-                $"the values from when the call was made are bound when the buffer runs (property {key})");
-        buffer.SetGlobalVectorArray(id, new[] { new Vector4(9, 9, 9, 9) });
-        foreach (var send in buffer.Commands()[4..]) send();
-        Ensure(Shader.GetGlobalVectorArray(id)!.SequenceEqual(new[] { new Vector4(9, 9, 9, 9) }), "a later binding replaces the earlier one");
-        foreach (var key in new[] { id, byName, byList, byNameList }) Shader.Globals.VectorArrays.Remove(key);
-    }
-
-    private static void FloatAndMatrixArraysBindWhenTheBufferRuns()
-    {
-        string[] floatNames = ["_CbFloatsId", "_CbFloatsName", "_CbFloatsIdList", "_CbFloatsNameList"];
-        string[] matrixNames = ["_CbMatricesId", "_CbMatricesName", "_CbMatricesIdList", "_CbMatricesNameList"];
-        var floatValues = new[] { 1f, 2f, 3f };
-        var matrixValues = new[] { Matrix4x4.identity, Matrix4x4.Translate(new Vector3(1, 2, 3)) };
-        var buffer = new CommandBuffer();
-        buffer.SetGlobalFloatArray(Shader.PropertyToID(floatNames[0]), floatValues);
-        buffer.SetGlobalFloatArray(floatNames[1], floatValues);
-        buffer.SetGlobalFloatArray(Shader.PropertyToID(floatNames[2]), new List<float>(floatValues));
-        buffer.SetGlobalFloatArray(floatNames[3], new List<float>(floatValues));
-        buffer.SetGlobalMatrixArray(Shader.PropertyToID(matrixNames[0]), matrixValues);
-        buffer.SetGlobalMatrixArray(matrixNames[1], matrixValues);
-        buffer.SetGlobalMatrixArray(Shader.PropertyToID(matrixNames[2]), new List<Matrix4x4>(matrixValues));
-        buffer.SetGlobalMatrixArray(matrixNames[3], new List<Matrix4x4>(matrixValues));
-        Ensure(buffer.commandCount == 8, "each call is one command");
-        Ensure(floatNames.All(name => Shader.GetGlobalFloatArray(name) == null) && matrixNames.All(name => Shader.GetGlobalMatrixArray(name) == null),
-            "recording binds nothing yet");
-        floatValues[0] = 100f;
-        matrixValues[1] = Matrix4x4.zero;
-        foreach (var send in buffer.Commands()) send();
-        var expected = new[] { Matrix4x4.identity, Matrix4x4.Translate(new Vector3(1, 2, 3)) };
-        foreach (var name in floatNames)
-            Ensure(Shader.GetGlobalFloatArray(name)!.SequenceEqual(new[] { 1f, 2f, 3f }), $"the float values from when the call was made are bound ({name})");
-        foreach (var name in matrixNames)
-            Ensure(Shader.GetGlobalMatrixArray(name)!.SequenceEqual(expected), $"the matrix values from when the call was made are bound ({name})");
-        foreach (var name in floatNames) Shader.Globals.FloatArrays.Remove(Shader.PropertyToID(name));
-        foreach (var name in matrixNames) Shader.Globals.MatrixArrays.Remove(Shader.PropertyToID(name));
-    }
-
-    private static void GlobalArraysRefuseWhatTheyCannotRecord()
-    {
-        var buffer = new CommandBuffer();
-        Throws<ArgumentNullException>(() => buffer.SetGlobalVectorArray(1, (Vector4[])null!), "a null vector array", "values");
-        Throws<ArgumentNullException>(() => buffer.SetGlobalVectorArray("_X", (List<Vector4>)null!), "a null vector list", "values");
-        Throws<ArgumentNullException>(() => buffer.SetGlobalFloatArray(1, (float[])null!), "a null float array", "values");
-        Throws<ArgumentNullException>(() => buffer.SetGlobalFloatArray("_X", (List<float>)null!), "a null float list", "values");
-        Throws<ArgumentNullException>(() => buffer.SetGlobalMatrixArray(1, (Matrix4x4[])null!), "a null matrix array", "values");
-        Throws<ArgumentNullException>(() => buffer.SetGlobalMatrixArray("_X", (List<Matrix4x4>)null!), "a null matrix list", "values");
-        Throws<ArgumentException>(() => buffer.SetGlobalVectorArray(1, new Vector4[0]), "an empty array", "at least one element");
-        Ensure(buffer.commandCount == 0, "a refused array records nothing");
+        buffer.SetRenderTarget(bound);
+        buffer.SetupCameraProperties(camera);
+        Ensure(buffer.commandCount == 2, "the target and the setup are two commands");
+        new ScriptableRenderContext().Submit();
+        CommandWireReader.Take();
+        Graphics.ExecuteCommandBuffer(buffer);
+        var direct = CommandWireReader.Take();
+        Ensure(direct.Length == 2, $"two records: {string.Join(" | ", direct)}");
+        Ensure(direct[0] == $"SetRenderTarget colors=[Render:{bound.WorldId}] depth=- mip=0 face=-1 slice=0", $"the bound target: {direct[0]}");
+        Ensure(direct[1].StartsWith("ViewProjection ", StringComparison.Ordinal), $"the camera matrices only: {direct[1]}");
+        Ensure(!direct.Any(record => record.StartsWith("SetupCamera", StringComparison.Ordinal) || record.Contains($"Render:{cameraTarget.WorldId}")),
+            "the camera's own target is never bound");
+        var context = new ScriptableRenderContext();
+        context.ExecuteCommandBuffer(buffer);
+        Ensure(ScriptableRenderContext.PendingCount == 2 && CommandWireReader.Take().Length == 0, "the context holds both commands until Submit");
+        context.Submit();
+        Ensure(CommandWireReader.Take().SequenceEqual(direct), "Submit sends the same two records as Graphics.ExecuteCommandBuffer");
         buffer.Release();
-        Throws<ObjectDisposedException>(() => buffer.SetGlobalVectorArray(1, new[] { Vector4.one }), "a released buffer", "CommandBuffer");
-        Throws<ObjectDisposedException>(() => buffer.SetGlobalFloatArray("_X", new[] { 1f }), "a released buffer", "CommandBuffer");
-        Throws<ObjectDisposedException>(() => buffer.SetGlobalMatrixArray("_X", new List<Matrix4x4> { Matrix4x4.identity }), "a released buffer", "CommandBuffer");
+    }
+
+    private static RenderTexture NewTarget()
+    {
+        var texture = new RenderTexture(16, 16, 0, RenderTextureFormat.ARGB32);
+        texture.Create();
+        return texture;
+    }
+
+    private const string FloatsId = "_CbFloatsId", VectorsId = "_CbVectorsId", MatricesId = "_CbMatricesId";
+
+    /// <summary>The twelve overloads, with the values chosen by <paramref name="mode"/>: "values", "null" or "empty".</summary>
+    private static (string Member, Action Call)[] ArrayCalls(CommandBuffer buffer, string mode)
+    {
+        var (floats, vectors, matrices) = (Pick(mode, new[] { 1f, 2f }), Pick(mode, new[] { Vector4.one, Vector4.zero }),
+            Pick(mode, new[] { Matrix4x4.identity, Matrix4x4.zero }));
+        var (floatList, vectorList, matrixList) = (PickList(mode, floats), PickList(mode, vectors), PickList(mode, matrices));
+        var (floatId, vectorId, matrixId) = (Shader.PropertyToID(FloatsId), Shader.PropertyToID(VectorsId), Shader.PropertyToID(MatricesId));
+        return
+        [
+            (nameof(CommandBuffer.SetGlobalFloatArray), () => buffer.SetGlobalFloatArray(FloatsId, floats!)),
+            (nameof(CommandBuffer.SetGlobalFloatArray), () => buffer.SetGlobalFloatArray(FloatsId, floatList!)),
+            (nameof(CommandBuffer.SetGlobalFloatArray), () => buffer.SetGlobalFloatArray(floatId, floatList!)),
+            (nameof(CommandBuffer.SetGlobalFloatArray), () => buffer.SetGlobalFloatArray(floatId, floats!)),
+            (nameof(CommandBuffer.SetGlobalVectorArray), () => buffer.SetGlobalVectorArray(VectorsId, vectors!)),
+            (nameof(CommandBuffer.SetGlobalVectorArray), () => buffer.SetGlobalVectorArray(VectorsId, vectorList!)),
+            (nameof(CommandBuffer.SetGlobalVectorArray), () => buffer.SetGlobalVectorArray(vectorId, vectorList!)),
+            (nameof(CommandBuffer.SetGlobalVectorArray), () => buffer.SetGlobalVectorArray(vectorId, vectors!)),
+            (nameof(CommandBuffer.SetGlobalMatrixArray), () => buffer.SetGlobalMatrixArray(MatricesId, matrices!)),
+            (nameof(CommandBuffer.SetGlobalMatrixArray), () => buffer.SetGlobalMatrixArray(MatricesId, matrixList!)),
+            (nameof(CommandBuffer.SetGlobalMatrixArray), () => buffer.SetGlobalMatrixArray(matrixId, matrixList!)),
+            (nameof(CommandBuffer.SetGlobalMatrixArray), () => buffer.SetGlobalMatrixArray(matrixId, matrices!)),
+        ];
+    }
+
+    private static T[]? Pick<T>(string mode, T[] values) => mode switch { "null" => null, "empty" => [], _ => values };
+
+    private static List<T>? PickList<T>(string mode, T[]? values) => mode == "null" ? null : new List<T>(values ?? []);
+
+    private static void GlobalArraysNameThemselvesAndRecordNothing()
+    {
+        var (floatId, vectorId, matrixId) = (Shader.PropertyToID(FloatsId), Shader.PropertyToID(VectorsId), Shader.PropertyToID(MatricesId));
+        var (floats, vectors, matrices) = (new[] { 7f }, new[] { new Vector4(7, 7, 7, 7) }, new[] { Matrix4x4.Translate(new Vector3(7, 7, 7)) });
+        Shader.SetGlobalFloatArray(floatId, floats);
+        Shader.SetGlobalVectorArray(vectorId, vectors);
+        Shader.SetGlobalMatrixArray(matrixId, matrices);
+        var buffer = new CommandBuffer();
+        new ScriptableRenderContext().Submit();
+        CommandWireReader.Take();
+        foreach (var mode in new[] { "values", "null", "empty" })
+            foreach (var (member, call) in ArrayCalls(buffer, mode))
+                Throws<NotSupportedException>(call, $"{member} with {mode}", $"CommandBuffer.{member}", "cannot record this member yet");
+        Ensure(buffer.commandCount == 0, "a refused array records nothing");
+        Ensure(Shader.GetGlobalFloatArray(floatId)!.SequenceEqual(floats) && Shader.GetGlobalVectorArray(vectorId)!.SequenceEqual(vectors)
+            && Shader.GetGlobalMatrixArray(matrixId)!.SequenceEqual(matrices), "the shaders' global arrays are unchanged");
+        Graphics.ExecuteCommandBuffer(buffer);
+        Ensure(CommandWireReader.Take().Length == 0, "executing the buffer sends the world nothing");
+        var context = new ScriptableRenderContext();
+        context.ExecuteCommandBuffer(buffer);
+        context.Submit();
+        Ensure(ScriptableRenderContext.PendingCount == 0 && CommandWireReader.Take().Length == 0, "submitting a context sends the world nothing");
+        Shader.Globals.FloatArrays.Remove(floatId);
+        Shader.Globals.VectorArrays.Remove(vectorId);
+        Shader.Globals.MatrixArrays.Remove(matrixId);
+        buffer.Release();
+    }
+
+    private static void GlobalArraysRefuseAReleasedBufferFirst()
+    {
+        var buffer = new CommandBuffer();
+        buffer.Release();
+        foreach (var mode in new[] { "values", "null", "empty" })
+            foreach (var (member, call) in ArrayCalls(buffer, mode))
+                Throws<ObjectDisposedException>(call, $"{member} with {mode} on a released buffer", "CommandBuffer");
     }
 
     private static void DrawProceduralNamesItself()
@@ -178,6 +208,8 @@ internal static class CommandBufferCameraTests
         };
         foreach (var call in calls) Throws<NotSupportedException>(call, "DrawProcedural", "CommandBuffer.DrawProcedural", "cannot record this member yet");
         Ensure(buffer.commandCount == 0, "a procedural draw records nothing");
+        Graphics.ExecuteCommandBuffer(buffer);
+        Ensure(CommandWireReader.Take().Length == 0, "executing the buffer sends the world nothing");
         buffer.Release();
         Throws<ObjectDisposedException>(calls[0], "a released buffer", "CommandBuffer");
     }

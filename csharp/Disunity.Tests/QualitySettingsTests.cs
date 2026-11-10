@@ -31,6 +31,7 @@ internal static class QualitySettingsTests
         Expect.Equal(150f, QualitySettings.shadowDistance, "shadowDistance");
         Expect.That(QualitySettings.enableLODCrossFade, "enableLODCrossFade is on by default");
         Expect.Equal(ShadowQuality.All, QualitySettings.shadows, "shadows");
+        Expect.Equal(ShadowmaskMode.DistanceShadowmask, QualitySettings.shadowmaskMode, "shadowmaskMode");
         Expect.Equal(ColorSpace.Gamma, QualitySettings.activeColorSpace, "activeColorSpace");
         Expect.Equal(0, QualitySettings.GetQualityLevel(), "GetQualityLevel");
         Expect.Sequence(new[] { "Default" }, QualitySettings.names, "names");
@@ -47,6 +48,7 @@ internal static class QualitySettingsTests
         QualitySettings.shadowDistance = 40f;
         QualitySettings.shadows = ShadowQuality.HardOnly;
         QualitySettings.enableLODCrossFade = false;
+        QualitySettings.shadowmaskMode = ShadowmaskMode.Shadowmask;
         Expect.Equal(4, QualitySettings.antiAliasing, "antiAliasing");
         Expect.Equal(2, QualitySettings.globalTextureMipmapLimit, "globalTextureMipmapLimit");
         Expect.Equal(1, QualitySettings.maximumLODLevel, "maximumLODLevel");
@@ -56,6 +58,7 @@ internal static class QualitySettingsTests
         Expect.Equal(40f, QualitySettings.shadowDistance, "shadowDistance");
         Expect.Equal(ShadowQuality.HardOnly, QualitySettings.shadows, "shadows");
         Expect.That(!QualitySettings.enableLODCrossFade, "enableLODCrossFade");
+        Expect.Equal(ShadowmaskMode.Shadowmask, QualitySettings.shadowmaskMode, "shadowmaskMode");
     }
 
     private static void Validation()
@@ -81,6 +84,7 @@ internal static class QualitySettingsTests
         foreach (var bad in new[] { 0f, -1f, float.NaN, float.PositiveInfinity })
             Expect.Throws<ArgumentOutOfRangeException>(() => QualitySettings.lodBias = bad, "lodBias " + bad);
         Expect.Throws<ArgumentOutOfRangeException>(() => QualitySettings.shadows = (ShadowQuality)9, "undefined shadow quality");
+        Expect.Throws<ArgumentOutOfRangeException>(() => QualitySettings.shadowmaskMode = (ShadowmaskMode)7, "undefined shadowmask mode");
     }
 
     private static void Levels()
@@ -129,6 +133,7 @@ internal static class QualitySettingsTests
         QualitySettings.vSyncCount = 4;
         QualitySettings.shadowDistance = 5f;
         QualitySettings.enableLODCrossFade = false;
+        QualitySettings.shadowmaskMode = ShadowmaskMode.Shadowmask;
         DisunityHost.SetColorSpace(ColorSpace.Linear);
         DisunityHost.SetQualityLevels(["Low", "High"], 1);
         DisunityHost.LoadWorld();
@@ -138,6 +143,7 @@ internal static class QualitySettingsTests
             Expect.Equal(1, QualitySettings.vSyncCount, "vSyncCount reset");
             Expect.Equal(150f, QualitySettings.shadowDistance, "shadowDistance reset");
             Expect.That(QualitySettings.enableLODCrossFade, "enableLODCrossFade reset");
+            Expect.Equal(ShadowmaskMode.DistanceShadowmask, QualitySettings.shadowmaskMode, "shadowmaskMode reset");
             Expect.Equal(ColorSpace.Gamma, QualitySettings.activeColorSpace, "color space reset");
             Expect.Sequence(new[] { "Default" }, QualitySettings.names, "levels reset");
             Expect.Equal(0, QualitySettings.GetQualityLevel(), "level reset");

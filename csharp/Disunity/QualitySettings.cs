@@ -6,7 +6,7 @@ namespace UnityEngine;
 /// The quality settings, held as static state that resets to the defaults below when a world loads.
 /// The defaults are the engine's choices: one level named "Default", anti-aliasing off, no mipmap
 /// limit, no LOD level limit, two queued frames, vertical sync every frame, LOD bias 1, shadow
-/// distance 150, all shadows, gamma color space. The engine does not know the values of each of a
+/// distance 150, all shadows, distance shadowmask, gamma color space. The engine does not know the values of each of a
 /// project's quality levels yet, so switching levels changes only the current index and leaves
 /// every stored value as it is. <see cref="SetQualityLevel(int)"/> clamps an index past the last
 /// level to the last level. Each level can name a render pipeline asset; a host supplies them with
@@ -26,6 +26,7 @@ public static class QualitySettings
     private static float _lodBias = 1f;
     private static float _shadowDistance = 150f;
     private static ShadowQuality _shadows = ShadowQuality.All;
+    private static ShadowmaskMode _shadowmask = ShadowmaskMode.DistanceShadowmask;
     private static ColorSpace _colorSpace = ColorSpace.Gamma;
     private static bool _lodCrossFade = true;
 
@@ -101,6 +102,18 @@ public static class QualitySettings
         {
             if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "unknown shadow quality");
             lock (Gate) _shadows = value;
+        }
+    }
+
+    /// <summary>How baked shadow masks mix with realtime shadows. The engine bakes no lighting, so it only stores the value
+    /// for the render pipeline to read.</summary>
+    public static ShadowmaskMode shadowmaskMode
+    {
+        get { lock (Gate) return _shadowmask; }
+        set
+        {
+            if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value), value, "unknown shadowmask mode");
+            lock (Gate) _shadowmask = value;
         }
     }
 
@@ -194,6 +207,7 @@ public static class QualitySettings
             (_level, _antiAliasing, _mipmapLimit, _maximumLod, _queuedFrames, _vSync) = (0, 0, 0, 0, 2, 1);
             (_lodBias, _shadowDistance, _shadows, _colorSpace) = (1f, 150f, ShadowQuality.All, ColorSpace.Gamma);
             _lodCrossFade = true;
+            _shadowmask = ShadowmaskMode.DistanceShadowmask;
         }
     }
 

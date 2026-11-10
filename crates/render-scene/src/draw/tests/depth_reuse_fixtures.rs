@@ -168,12 +168,17 @@ fn deformed() -> RenderScene {
     )
 }
 
-pub(super) fn first_winner(source: &RenderScene) -> RenderScene {
-    let first = &source.geometry().meshes()[0].lods()[0];
+/// The tie scene reduced to its last surface in API order: the second quad of the
+/// shared mesh, or the second object when the quads are separate draws.
+pub(super) fn last_winner(source: &RenderScene) -> RenderScene {
+    let lod = &source.geometry().meshes()[0].lods()[0];
+    let objects = source.geometry().objects();
+    let within = objects.len() == 1;
+    let quad = if within { 4..8 } else { 0..4 };
     let mesh = SceneMesh::new(vec![
         SceneMeshLod::new(
             0,
-            first.vertices()[..4].to_vec(),
+            lod.vertices()[quad].to_vec(),
             vec![0, 1, 2, 0, 2, 3],
             None,
         )
@@ -182,8 +187,7 @@ pub(super) fn first_winner(source: &RenderScene) -> RenderScene {
     .unwrap();
     RenderScene::new(SceneParts {
         resources: source.resources().clone(),
-        geometry: SceneGeometry::new(vec![mesh], source.geometry().objects()[..1].to_vec())
-            .unwrap(),
+        geometry: SceneGeometry::new(vec![mesh], objects[objects.len() - 1..].to_vec()).unwrap(),
         terrain: None,
         effects: source.effects().cloned(),
     })

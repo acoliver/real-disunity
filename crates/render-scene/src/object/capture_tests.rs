@@ -126,6 +126,13 @@ impl<'a> Rig<'a> {
         place(&mut self.gpu, shift);
     }
 
+    /// Draws the rig's frame at `milliseconds` of the animation clock, which periodic wind reads.
+    pub(in crate::object) fn at_clock(mut self, milliseconds: u32) -> Self {
+        self.frame.animation_time_milliseconds = milliseconds;
+        self.gpu.set_frame(self.context.queue(), self.frame);
+        self
+    }
+
     /// Makes the scene's receiver the one `receiver` names.
     pub(in crate::object) fn receiving(mut self, receiver: SceneSsaoReceiver) -> Self {
         self.gpu.ssao = Some(SceneSsao {

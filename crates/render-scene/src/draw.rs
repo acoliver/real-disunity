@@ -32,6 +32,8 @@ pub(crate) mod decals;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
+#[cfg(test)]
+mod legacy_object_access;
 mod lod_material;
 pub(crate) mod overlay;
 mod pages;

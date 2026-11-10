@@ -46,7 +46,7 @@ fn gpu_forward_depth_reuse_matches_invariant_baseline_all_attachment_bytes() {
 }
 
 #[test]
-fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
+fn gpu_depth_reuse_preserves_last_tie_and_draws_at_clear_depth() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (name, scene, pose) in fixtures::ties() {
@@ -63,11 +63,13 @@ fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
             assert_eq!(old, new, "{name}, attachment={index}");
         }
         if name == "clear depth one" {
+            // A surface exactly at the clear depth ties with it, so both paths draw it.
             assert!(new[6].chunks_exact(4).all(|p| p == 1.0_f32.to_le_bytes()));
             assert!(
                 new[..6]
                     .iter()
-                    .all(|target| target.iter().all(|byte| *byte == 0))
+                    .any(|target| target.iter().any(|byte| *byte != 0)),
+                "a surface at the clear depth must be drawn"
             );
             let visible = fixtures::depth_boundary(999);
             let control = capture::transformed_frame(
@@ -83,11 +85,11 @@ fn gpu_depth_reuse_preserves_first_tie_and_rejects_clear_depth() {
             );
         } else {
             assert!(new[6].chunks_exact(4).any(|p| p != 1.0_f32.to_le_bytes()));
-            let winner = fixtures::first_winner(&scene);
+            let winner = fixtures::last_winner(&scene);
             let expected = capture::frame(&context, (&winner, pose), (false, 0.0));
             assert_eq!(
                 old, expected,
-                "{name}: first API-order surface must win the tie"
+                "{name}: last API-order surface must win the tie"
             );
         }
     }

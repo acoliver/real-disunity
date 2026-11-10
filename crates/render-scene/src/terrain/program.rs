@@ -288,7 +288,7 @@ fn palette_bindings() -> Vec<ResourceBinding> {
 }
 
 /// What the shader reads from the frame group, set 0.
-fn frame_bindings() -> ResourceLayout {
+pub(crate) fn frame_bindings() -> ResourceLayout {
     use wgpu::TextureViewDimension::D2Array;
     let (fragment, both) = (ShaderStages::FRAGMENT, ShaderStages::VERTEX_FRAGMENT);
     ResourceLayout::new(vec![

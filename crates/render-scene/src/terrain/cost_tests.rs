@@ -406,20 +406,20 @@ fn the_shadow_caster_prepares_before_its_passes_records_the_fixed_commands_and_b
     settle(&context, &rig.gpu, &frame, 6);
     let casting = Casting::new(&context, &built.pipelines, &frame, BIAS);
     let before = built.pipelines.terrain_runtime_stats();
-    casting
-        .caster
-        .prepare(casting.frames.iter().map(|(buffer, _)| buffer))
-        .unwrap();
+    casting.caster.pipeline().unwrap();
     let prepared = built.pipelines.terrain_runtime_stats();
     assert_eq!(prepared.pipelines_built, before.pipelines_built + 1);
-    assert_eq!(prepared.sets_prepared, before.sets_prepared + 4);
+    assert_eq!(
+        prepared.sets_prepared, before.sets_prepared,
+        "the cascades lend their light frames; the caster prepares no set"
+    );
     let mut drawn_chunks = 0;
     for index in 0..4 {
-        let pipeline = casting.caster.pipeline(&casting.frames[index].0).unwrap();
+        let pipeline = casting.caster.pipeline().unwrap();
         let mut recorded = Recorded::default();
         let drawn = rig.gpu.draw_terrain_depth(
             &mut recorded,
-            &pipeline,
+            (&pipeline, &casting.frames[index].1),
             (u32::try_from(index).unwrap(), casting.matrices[index]),
         );
         let mut fixed = Counted::default();
@@ -438,11 +438,11 @@ fn the_shadow_caster_prepares_before_its_passes_records_the_fixed_commands_and_b
     assert!(drawn_chunks > 0);
     for _ in 0..5 {
         for index in 0..4 {
-            let pipeline = casting.caster.pipeline(&casting.frames[index].0).unwrap();
+            let pipeline = casting.caster.pipeline().unwrap();
             render_map(&context, |pass| {
                 rig.gpu.draw_terrain_depth(
                     pass,
-                    &pipeline,
+                    (&pipeline, &casting.frames[index].1),
                     (u32::try_from(index).unwrap(), casting.matrices[index]),
                 );
             });

@@ -299,7 +299,7 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
         ),
         (
             crate::shader::TERRAIN_WGSL,
-            (48_980, 0xa055_4b91_69fa_ff16_c593_ee7c_7301_a789),
+            (51_021, 0x5aee_0909_1af2_a2f6_1004_61bd_40ec_af61),
         ),
         (
             shadowed,
@@ -307,7 +307,7 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
         ),
         (
             shadowed_terrain,
-            (64_869, 0xdb31_8164_dd59_1240_4592_cc2e_6f1a_adba),
+            (66_910, 0xbd8d_3a4a_24dd_031e_115a_6484_d6ec_a69c),
         ),
     ] {
         assert_eq!(source_fingerprint(source), expected);

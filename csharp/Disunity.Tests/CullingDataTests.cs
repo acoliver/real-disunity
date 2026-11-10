@@ -95,9 +95,24 @@ internal static class CullingDataTests
         Throws(() => results.GetReflectionProbeIndexMap(Unity.Collections.Allocator.Temp), "GetReflectionProbeIndexMap");
         Throws(() => results.SetReflectionProbeIndexMap(default), "SetReflectionProbeIndexMap");
         Throws(() => results.GetShadowCasterBounds(0, out _), "GetShadowCasterBounds");
-        Throws(() => _ = results.lightIndexCount, "lightIndexCount");
-        Throws(() => _ = results.reflectionProbeIndexCount, "reflectionProbeIndexCount");
-        Throws(() => _ = results.lightAndReflectionProbeIndexCount, "lightAndReflectionProbeIndexCount");
+        Expect.Equal(0, results.lightIndexCount, "no object has a light index");
+        Expect.Equal(0, results.reflectionProbeIndexCount, "no object has a probe index");
+        Expect.Equal(0, results.lightAndReflectionProbeIndexCount, "no object has either index");
+        Disunity.Hosting.DisunityHost.LoadWorld();
+        try
+        {
+            using var indices = new ComputeBuffer(4, 4);
+            indices.SetData(new[] { 7, 8, 9, 10 });
+            results.FillLightAndReflectionProbeIndices(indices);
+            var read = new int[4];
+            indices.GetData(read);
+            Expect.Sequence(new[] { 7, 8, 9, 10 }, read, "filling with no indices leaves the buffer as it was");
+            using var graphics = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 4, 4);
+            results.FillLightAndReflectionProbeIndices(graphics);
+        }
+        finally { Disunity.Hosting.DisunityHost.UnloadWorld(); }
+        Expect.Throws<ArgumentNullException>(() => results.FillLightAndReflectionProbeIndices((ComputeBuffer)null!), "a null compute buffer");
+        Expect.Throws<ArgumentNullException>(() => results.FillLightAndReflectionProbeIndices((GraphicsBuffer)null!), "a null graphics buffer");
         Throws(() => results.ComputeSpotShadowMatricesAndCullingPrimitives(0, out _, out _, out _), "ComputeSpotShadowMatricesAndCullingPrimitives");
         Throws(() => results.ComputePointShadowMatricesAndCullingPrimitives(0, CubemapFace.PositiveX, 0f, out _, out _, out _), "ComputePointShadowMatricesAndCullingPrimitives");
         Throws(() => results.ComputeDirectionalShadowMatricesAndCullingPrimitives(0, 0, 1, Vector3.zero, 512, 0f, out _, out _, out _), "ComputeDirectionalShadowMatricesAndCullingPrimitives");

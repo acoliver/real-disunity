@@ -416,6 +416,28 @@ pub(crate) fn chunk_bounds(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3;
     [minimum, maximum]
 }
 
+/// Positions in `chunks` from the nearest chunk to `eye` to the farthest, measured to the
+/// nearest point of each chunk's world bounds. Chunks at equal distance keep their order.
+///
+/// Camera passes draw terrain in this order so near terrain fills depth first and hidden
+/// terrain behind it fails the depth test before it is shaded.
+pub(crate) fn camera_order(
+    terrain: &SceneTerrain,
+    chunks: &[TerrainChunk],
+    eye: Vec3,
+) -> Vec<usize> {
+    let distances: Vec<f32> = chunks
+        .iter()
+        .map(|chunk| {
+            let [low, high] = chunk_bounds(terrain, *chunk);
+            eye.clamp(low, high).distance_squared(eye)
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..chunks.len()).collect();
+    order.sort_by(|a, b| distances[*a].total_cmp(&distances[*b]));
+    order
+}
+
 fn points(terrain: &SceneTerrain, node: TerrainChunk) -> [Vec3; 8] {
     let height = elevation(terrain);
     std::array::from_fn(|index| {

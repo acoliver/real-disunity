@@ -497,9 +497,9 @@ plane of adjacent quad lanes; silhouettes and normal quantization limit the mask
 | Ridge | 1 | 135 | 130 | 5 | 24 |
 | Ridge | 3 | 140 | 138 | 2 | 24 |
 
-The old workload's payload differences are not an image bound. Consumer lake and
-slope measurements at Shipped and Original-High remain unmeasured while another
-windowed GPU workload prevents uncontended timing captures.
+The old workload's payload differences are not an image bound. Consumer
+comparisons need identical presets and camera poses. Measurements made alongside
+other windowed GPU workloads are contended and do not establish a speed change.
 
 Nonzero bias evaluates `dP + bias * hardware_dN`, independently for opposing
 normals. It does not differentiate a rounded biased position or compress vectors.

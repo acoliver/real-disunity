@@ -5,7 +5,8 @@ namespace UnityEngine;
 
 /// <summary>
 /// The global shader properties. They are stored and read back, and every float, integer, vector, matrix and texture is
-/// sent to the world's global shader state too (arrays and buffers are not); the host draws with that. A global
+/// sent to the world's global shader state too, and so is every vector and matrix array, which the world keeps in element order (float
+/// arrays throw <see cref="NotSupportedException"/> and buffers are not sent); the host draws with that. A global
 /// that was never set reads as zero, a matrix as identity and a texture as null. As in Unity they can only be
 /// used from the main thread.
 /// </summary>
@@ -56,18 +57,45 @@ public sealed partial class Shader
     public static void SetGlobalConstantBuffer(int nameID, ComputeBuffer value, int offset, int size) => Globals.ConstantBuffers[nameID] = new(value, offset, size);
     public static void SetGlobalConstantBuffer(string name, GraphicsBuffer value, int offset, int size) => SetGlobalConstantBuffer(PropertyToID(name), value, offset, size);
     public static void SetGlobalConstantBuffer(int nameID, GraphicsBuffer value, int offset, int size) => Globals.ConstantBuffers[nameID] = new(value, offset, size);
-    public static void SetGlobalFloatArray(string name, List<float> values) => SetGlobalFloatArray(PropertyToID(name), values);
-    public static void SetGlobalFloatArray(int nameID, List<float> values) => Globals.FloatArrays[nameID] = PropertyStore.Copy(values, "SetGlobalFloatArray");
-    public static void SetGlobalFloatArray(string name, float[] values) => SetGlobalFloatArray(PropertyToID(name), values);
-    public static void SetGlobalFloatArray(int nameID, float[] values) => Globals.FloatArrays[nameID] = PropertyStore.Copy(values, "SetGlobalFloatArray");
+    public static void SetGlobalFloatArray(string name, List<float> values) => throw FloatArrayUnsupported();
+    public static void SetGlobalFloatArray(int nameID, List<float> values) => throw FloatArrayUnsupported();
+    public static void SetGlobalFloatArray(string name, float[] values) => throw FloatArrayUnsupported();
+    public static void SetGlobalFloatArray(int nameID, float[] values) => throw FloatArrayUnsupported();
     public static void SetGlobalVectorArray(string name, List<Vector4> values) => SetGlobalVectorArray(PropertyToID(name), values);
-    public static void SetGlobalVectorArray(int nameID, List<Vector4> values) => Globals.VectorArrays[nameID] = PropertyStore.Copy(values, "SetGlobalVectorArray");
+    public static void SetGlobalVectorArray(int nameID, List<Vector4> values) => StoreVectorArray(nameID, PropertyStore.CopyChecked(values, nameof(SetGlobalVectorArray)));
     public static void SetGlobalVectorArray(string name, Vector4[] values) => SetGlobalVectorArray(PropertyToID(name), values);
-    public static void SetGlobalVectorArray(int nameID, Vector4[] values) => Globals.VectorArrays[nameID] = PropertyStore.Copy(values, "SetGlobalVectorArray");
+    public static void SetGlobalVectorArray(int nameID, Vector4[] values) => StoreVectorArray(nameID, PropertyStore.CopyChecked(values, nameof(SetGlobalVectorArray)));
     public static void SetGlobalMatrixArray(string name, List<Matrix4x4> values) => SetGlobalMatrixArray(PropertyToID(name), values);
-    public static void SetGlobalMatrixArray(int nameID, List<Matrix4x4> values) => Globals.MatrixArrays[nameID] = PropertyStore.Copy(values, "SetGlobalMatrixArray");
+    public static void SetGlobalMatrixArray(int nameID, List<Matrix4x4> values) => StoreMatrixArray(nameID, PropertyStore.CopyChecked(values, nameof(SetGlobalMatrixArray)));
     public static void SetGlobalMatrixArray(string name, Matrix4x4[] values) => SetGlobalMatrixArray(PropertyToID(name), values);
-    public static void SetGlobalMatrixArray(int nameID, Matrix4x4[] values) => Globals.MatrixArrays[nameID] = PropertyStore.Copy(values, "SetGlobalMatrixArray");
+    public static void SetGlobalMatrixArray(int nameID, Matrix4x4[] values) => StoreMatrixArray(nameID, PropertyStore.CopyChecked(values, nameof(SetGlobalMatrixArray)));
+
+    private static NotSupportedException FloatArrayUnsupported([System.Runtime.CompilerServices.CallerMemberName] string member = "") =>
+        new($"Shader.{member}: float arrays are not supported yet, because the world and the host have no float array");
+
+    /// <summary>Stores a checked copy of a global vector array. A loaded world takes it first, so a refusal leaves the stored array as it was.</summary>
+    private static void StoreVectorArray(int nameID, Vector4[] copy)
+    {
+        var store = Globals;
+        if (PropertyName(nameID) is { } name)
+        {
+            WorldGraphics.CheckArrayName(name, nameof(SetGlobalVectorArray));
+            if (DisunityHost.IsLoaded) WorldGraphics.WriteGlobalVectorArray(name, copy);
+        }
+        store.VectorArrays[nameID] = copy;
+    }
+
+    private static void StoreMatrixArray(int nameID, Matrix4x4[] copy)
+    {
+        var store = Globals;
+        if (PropertyName(nameID) is { } name)
+        {
+            WorldGraphics.CheckArrayName(name, nameof(SetGlobalMatrixArray));
+            if (DisunityHost.IsLoaded) WorldGraphics.WriteGlobalMatrixArray(name, copy);
+        }
+        store.MatrixArrays[nameID] = copy;
+    }
+
     public static float GetGlobalFloat(string name) => GetGlobalFloat(PropertyToID(name));
     public static float GetGlobalFloat(int nameID) => Globals.Floats.GetValueOrDefault(nameID);
     public static int GetGlobalInt(string name) => GetGlobalInt(PropertyToID(name));

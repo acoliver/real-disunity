@@ -88,6 +88,40 @@ impl StorageImageUse {
     }
 }
 
+/// A texture and a sampler that the entry point uses together in one sampling call, each as a
+/// `(set, binding)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct SamplingPair {
+    pub(crate) texture: (u32, u32),
+    pub(crate) sampler: (u32, u32),
+}
+
+/// The texture and sampler pairs entry point `entry` samples with, ordered by address.
+pub(crate) fn sampling_pairs(
+    module: &Module,
+    info: &ModuleInfo,
+    entry: usize,
+) -> Vec<SamplingPair> {
+    let address = |handle: naga::Handle<GlobalVariable>| {
+        module.global_variables[handle]
+            .binding
+            .map(|binding| (binding.group, binding.binding))
+    };
+    let mut pairs: Vec<_> = info
+        .get_entry_point(entry)
+        .sampling_set
+        .iter()
+        .filter_map(|key| {
+            Some(SamplingPair {
+                texture: address(key.image)?,
+                sampler: address(key.sampler)?,
+            })
+        })
+        .collect();
+    pairs.sort();
+    pairs
+}
+
 /// Every resource of `module` that entry point `entry` uses.
 pub(crate) fn reflect(
     module: &Module,

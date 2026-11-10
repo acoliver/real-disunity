@@ -46,6 +46,8 @@ pub struct OffscreenAdapter {
     meshes: BTreeMap<u64, Stored>,
     /// The box of each uploaded mesh's vertices.
     bounds: BTreeMap<u64, Bounds>,
+    /// The index count of each sub-mesh of each uploaded mesh, by range number.
+    sub_meshes: BTreeMap<u64, Vec<u32>>,
     textures: BTreeMap<u64, Stored>,
     /// The default textures that were registered.
     defaults: BTreeSet<DefaultTexture>,
@@ -68,6 +70,8 @@ struct Stored {
     generation: u64,
     sampler_generation: u64,
     usable: bool,
+    /// Whether it was read and has nothing to draw, which is not a failure (a mesh only).
+    empty: bool,
     /// The epoch of the last snapshot that named it.
     last_named: u64,
 }
@@ -88,6 +92,7 @@ impl OffscreenAdapter {
             shaders: BTreeMap::new(),
             meshes: BTreeMap::new(),
             bounds: BTreeMap::new(),
+            sub_meshes: BTreeMap::new(),
             textures: BTreeMap::new(),
             defaults: BTreeSet::new(),
             blit_mesh: false,
@@ -142,11 +147,7 @@ impl OffscreenAdapter {
         state.retain_render_textures(runtime, &live_targets);
         self.stamp_targets(reclaim::named_targets(snapshot), &live_targets);
         self.register_shaders(snapshot, state, &mut available, &mut notes);
-        let meshes: BTreeSet<u64> = snapshot
-            .renderers
-            .iter()
-            .map(|renderer| renderer.mesh)
-            .collect();
+        let meshes = named_meshes(snapshot);
         let wanted = stored_textures(snapshot);
         // What the snapshot names is stamped before anything is uploaded, so that making room for
         // one upload never gives back another the snapshot is about to use.
@@ -160,6 +161,18 @@ impl OffscreenAdapter {
             .iter()
             .filter(|(identity, _)| available.meshes.contains(identity))
             .map(|(identity, bounds)| (*identity, *bounds))
+            .collect();
+        available.sub_meshes = self
+            .sub_meshes
+            .iter()
+            .filter(|(identity, _)| available.meshes.contains(identity))
+            .map(|(identity, counts)| (*identity, counts.clone()))
+            .collect();
+        available.empty_meshes = self
+            .meshes
+            .iter()
+            .filter(|(_, held)| held.empty)
+            .map(|(identity, _)| *identity)
             .collect();
         available.textures = usable(&self.textures);
         available.default_textures = self.defaults.clone();
@@ -257,12 +270,17 @@ impl OffscreenAdapter {
                     continue;
                 }
             };
+            let mut nothing_to_draw = false;
             let uploaded = match mesh_of(&stored) {
                 Ok(mesh) => {
                     match Bounds::of_mesh(&mesh) {
                         Some(bounds) => self.bounds.insert(identity, bounds),
                         None => self.bounds.remove(&identity),
                     };
+                    self.sub_meshes.insert(
+                        identity,
+                        mesh.sub_meshes.iter().map(|sub| sub.count).collect(),
+                    );
                     self.with_room(state, runtime, notes, |state, runtime| {
                         state.set_mesh(runtime, ids::mesh(identity), &mesh)
                     })
@@ -271,7 +289,8 @@ impl OffscreenAdapter {
                 }
                 Err(MeshError::Empty(empty)) => {
                     // Nothing to draw is not a failure. The mesh stays unusable, so renderers of
-                    // it are skipped.
+                    // it are skipped and a mesh draw of it is refused as empty.
+                    nothing_to_draw = true;
                     *notes
                         .census
                         .entry(format!("mesh with nothing to draw: {empty}"))
@@ -289,6 +308,7 @@ impl OffscreenAdapter {
                     generation: stored.generation,
                     sampler_generation: 0,
                     usable: uploaded,
+                    empty: nothing_to_draw,
                     last_named: self.epoch,
                 },
             );
@@ -376,11 +396,26 @@ impl OffscreenAdapter {
                     generation: stored.generation,
                     sampler_generation: stored_sampler.map_or(0, |found| found.generation),
                     usable: uploaded,
+                    empty: false,
                     last_named: self.epoch,
                 },
             );
         }
     }
+}
+
+/// The identities of the meshes the snapshot's renderers and mesh draws name.
+fn named_meshes(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
+    let drawn = snapshot.work.iter().filter_map(|work| match work {
+        OffscreenWork::DrawMesh { mesh, .. } => Some(*mesh),
+        _ => None,
+    });
+    snapshot
+        .renderers
+        .iter()
+        .map(|renderer| renderer.mesh)
+        .chain(drawn)
+        .collect()
 }
 
 fn usable(stored: &BTreeMap<u64, Stored>) -> BTreeSet<u64> {

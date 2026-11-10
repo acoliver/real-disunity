@@ -279,7 +279,6 @@ impl OffscreenHost {
         let mut adapted = self
             .adapter
             .adapt(snapshot, assets, &mut self.state, &mut self.runtime);
-        self.compute.shape_textures(&mut adapted.frame);
         adapted.report.phases.adapt = started.elapsed();
         if adapted.frame.records.is_empty() {
             self.note(("frame", live_before), &adapted.report, None);
@@ -318,7 +317,6 @@ impl OffscreenHost {
         let mut adapted =
             self.adapter
                 .adapt_probing(snapshot, assets, &mut self.state, &mut self.runtime, true);
-        self.compute.shape_textures(&mut adapted.frame);
         let reclaimed = self
             .adapter
             .make_room(&mut self.state, &mut self.runtime, &adapted.frame);
@@ -539,7 +537,14 @@ impl OffscreenHost {
         let outcome = match prepared {
             Ok(prepared) => Some(prepared),
             Err(name) => {
-                report.count(&format!("dispatch:{name}"));
+                let cause = format!("dispatch:{name}");
+                report.count(&cause);
+                if !trace.reason.is_empty() {
+                    report
+                        .examples
+                        .entry(cause)
+                        .or_insert_with(|| trace.reason.clone());
+                }
                 name.clone_into(&mut trace.outcome);
                 None
             }

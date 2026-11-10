@@ -59,6 +59,24 @@ internal static class CommandBufferTests
         Ensure(buffer.commandCount == 0, "clearing random-write targets records nothing, since none can be bound");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.ClearRandomWriteTargets(), "a released buffer", "CommandBuffer");
+        FencesHavePassedAndRecordNothing();
+    }
+
+    private static void FencesHavePassedAndRecordNothing()
+    {
+        var buffer = new CommandBuffer();
+        GraphicsFence[] fences = [buffer.CreateAsyncGraphicsFence(), buffer.CreateAsyncGraphicsFence(SynchronisationStage.VertexProcessing),
+            buffer.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.ComputeProcessing)];
+        Ensure(fences.All(fence => fence.passed), "a command buffer's fence has passed");
+        buffer.WaitOnAsyncGraphicsFence(fences[0]);
+        buffer.WaitOnAsyncGraphicsFence(fences[1], SynchronisationStage.PixelProcessing);
+        buffer.WaitOnAsyncGraphicsFence(fences[2], SynchronisationStageFlags.AllGPUOperations);
+        Ensure(buffer.commandCount == 0, "fences and waits record nothing");
+        buffer.Release();
+        Throws<ObjectDisposedException>(() => buffer.CreateAsyncGraphicsFence(), "a fence on a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.CreateGraphicsFence(GraphicsFenceType.CPUSynchronisation, SynchronisationStageFlags.PixelProcessing),
+            "a fence on a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.WaitOnAsyncGraphicsFence(default, SynchronisationStageFlags.PixelProcessing), "a wait on a released buffer", "CommandBuffer");
     }
 
     private static void Compute()

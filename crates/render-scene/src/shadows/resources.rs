@@ -109,6 +109,7 @@ pub(super) fn terrain_caster(
         &caster_configuration(settings, sampling),
         pipelines.terrain_context().family(),
         (context.device(), context.submission()),
+        pipelines.frame_layout(),
     )
 }
 

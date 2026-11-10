@@ -132,7 +132,8 @@ impl SceneGpu {
             pass.set_bind_group(2, shadow);
         }
         let count = if let Some(streaming) = &terrain.streaming {
-            streaming.draw_prepared(pass, &pipeline, terrain)
+            let eye = self.drawing_uniform().camera_position;
+            streaming.draw_prepared(pass, &pipeline, (terrain, eye))
         } else {
             Self::draw_terrain_mesh(pass, &pipeline, terrain)
         };

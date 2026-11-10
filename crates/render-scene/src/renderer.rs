@@ -45,6 +45,8 @@
 
 pub(crate) mod depth;
 #[cfg(test)]
+pub(crate) mod legacy_objects;
+#[cfg(test)]
 pub(crate) mod legacy_terrain;
 mod objects;
 pub(crate) mod overlay;

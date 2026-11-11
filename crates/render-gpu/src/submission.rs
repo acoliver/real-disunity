@@ -142,6 +142,11 @@ impl Publications {
     pub fn status(&self) -> TransactionStatus {
         self.status.get()
     }
+    /// The authority the transaction's frame was begun from, so work that must follow the frame
+    /// (a timestamp resolve, for one) can go through the same exclusion and read its serials.
+    pub fn authority(&self) -> Option<&SubmissionAuthority> {
+        self.authority.as_ref()
+    }
     /// Submitted capture slots may be reused only after the lease's final ticket retires.
     pub fn capture_retired(&self) -> bool {
         self.scope.as_ref().is_some_and(|scope| scope.retired())

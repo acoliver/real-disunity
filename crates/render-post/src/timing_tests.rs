@@ -200,7 +200,9 @@ fn gpu_timing_covers_executor_order_and_unread_ring_never_blocks_rendering() {
     );
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
     render_frames(&device, &queue, &mut chain, &passes, &views, &output_view);
-    let frames = chain.take_timings().unwrap();
+    let expected = if available { TIMING_RING_SIZE } else { 0 };
+    let frames =
+        crate::timing_test_support::take_frames(&device, expected, || chain.take_timings());
     assert_results(&device, &queue, &chain, &passes, &output_view, frames);
     let bytes = Readback::new(
         &device,
@@ -377,7 +379,8 @@ fn assert_results(
                 timeout: Some(std::time::Duration::from_secs(10)),
             })
             .unwrap();
-        assert_eq!(chain.take_timings().unwrap()[0].frame_id, 99);
+        let next = crate::timing_test_support::take_frames(device, 1, || chain.take_timings());
+        assert_eq!(next[0].frame_id, 99);
     } else {
         assert!(frames.is_empty());
     }

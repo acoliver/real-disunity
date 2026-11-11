@@ -1,4 +1,8 @@
 //! Optional pass-boundary queries. Collection never polls or waits for the GPU.
+//!
+//! A sampled frame's timestamps are resolved by a later submission of the frame's own
+//! authority, made once the sampled submission has completed. Metal resolves incomplete or stale
+//! samples when the resolve shares the sampled submission (issue 9f99236ea41c).
 use std::sync::mpsc;
 
 use crate::PassSlot;
@@ -75,6 +79,8 @@ struct Slot {
     resolve: wgpu::Buffer,
     readback: wgpu::Buffer,
     transaction: Option<worldrunner_render_gpu::submission::Publications>,
+    /// Timestamps the sampled frame wrote that are not yet resolved.
+    sampled: Option<Sampled>,
     pending: Option<mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>>,
     frame_id: u64,
     sequence: u64,
@@ -105,10 +111,34 @@ impl Slot {
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             ),
             transaction: None,
+            sampled: None,
             pending: None,
             frame_id: 0,
             sequence: 0,
             passes: Vec::new(),
+        }
+    }
+}
+
+/// A closed frame's timestamps awaiting their resolve: how many, and what has to complete first.
+struct Sampled {
+    count: u32,
+    gate: Option<Gate>,
+}
+
+/// What a sampled frame's resolve waits for, fixed when the frame is first seen submitted.
+enum Gate {
+    /// The frame's authority completing this serial, its submitted serial at that moment.
+    Serial(worldrunner_render_gpu::submission::SubmissionAuthority, u64),
+    /// For a frame recorded outside a transaction, which has no authority: the queue reporting
+    /// that every submission made before this gate was set has completed.
+    Queue(std::sync::Arc<std::sync::atomic::AtomicBool>),
+}
+impl Gate {
+    fn open(&self) -> bool {
+        match self {
+            Self::Serial(authority, serial) => authority.completed_serial() >= *serial,
+            Self::Queue(done) => done.load(std::sync::atomic::Ordering::Acquire),
         }
     }
 }
@@ -144,6 +174,8 @@ impl Stamp {
 /// Begin/finish must bracket one submitted encoder; successfully encoded frames
 /// must be submitted in preparation order, just like resident feature uploads.
 pub struct PassTimer {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
     support: TimingSupport,
     slots: Vec<Slot>,
     active: Option<usize>,
@@ -167,6 +199,8 @@ impl PassTimer {
             (_, true) => TimingSupport::Supported,
         };
         Ok(Self {
+            device: device.clone(),
+            queue: queue.clone(),
             support,
             slots: if support == TimingSupport::Supported {
                 (0..TIMING_RING_SIZE).map(|_| Slot::new(device)).collect()
@@ -198,6 +232,7 @@ impl PassTimer {
                 .as_ref()
                 .is_some_and(|owner| owner.status() == TransactionStatus::Cancelled)
             {
+                slot.sampled = None;
                 slot.pending = None;
                 slot.passes.clear();
                 slot.transaction = None;
@@ -216,7 +251,10 @@ impl PassTimer {
         if self.support != TimingSupport::Supported {
             return;
         }
-        self.active = self.slots.iter().position(|slot| slot.pending.is_none());
+        self.active = self
+            .slots
+            .iter()
+            .position(|slot| slot.pending.is_none() && slot.sampled.is_none());
         self.overflow = false;
         if let Some(index) = self.active {
             let slot = &mut self.slots[index];
@@ -242,7 +280,9 @@ impl PassTimer {
             begin,
         })
     }
-    pub fn finish_frame(&mut self, encoder: &mut wgpu::CommandEncoder) {
+    /// Closes the frame's timestamps. Nothing is recorded into `encoder`: the resolve is a later
+    /// submission that [`take_ready`](Self::take_ready) makes once this frame has completed.
+    pub fn finish_frame(&mut self, _encoder: &mut wgpu::CommandEncoder) {
         let Some(index) = self.active.take() else {
             return;
         };
@@ -255,29 +295,75 @@ impl PassTimer {
             return;
         }
         let count = u32::try_from(slot.passes.len()).expect("bounded timestamp count") * 2;
-        let bytes = u64::from(count) * 8;
-        encoder.resolve_query_set(&slot.queries, 0..count, &slot.resolve, 0);
-        encoder.copy_buffer_to_buffer(&slot.resolve, 0, &slot.readback, 0, bytes);
-        let (send, receive) = mpsc::sync_channel(1);
-        encoder.map_buffer_on_submit(
-            &slot.readback,
-            wgpu::MapMode::Read,
-            0..bytes,
-            move |result| {
-                let _ = send.send(result);
-            },
-        );
-        slot.pending = Some(receive);
+        slot.sampled = Some(Sampled { count, gate: None });
+    }
+    /// Resolves, copies and maps each sampled frame whose submission has completed, in a
+    /// submission of its own through the frame's authority. A frame that has not completed, or an
+    /// authority busy preparing another frame, is tried again at the next call.
+    fn resolve_completed(&mut self) {
+        use worldrunner_render_gpu::submission::TransactionStatus;
+        for slot in &mut self.slots {
+            let Some(sampled) = slot.sampled.as_mut() else {
+                continue;
+            };
+            let authority = match &slot.transaction {
+                Some(owner) if owner.status() != TransactionStatus::Submitted => continue,
+                Some(owner) => owner.authority().cloned(),
+                None => None,
+            };
+            let gate = sampled.gate.get_or_insert_with(|| {
+                if let Some(authority) = &authority {
+                    return Gate::Serial(authority.clone(), authority.submitted_serial());
+                }
+                let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let signal = done.clone();
+                self.queue.on_submitted_work_done(move || {
+                    signal.store(true, std::sync::atomic::Ordering::Release);
+                });
+                Gate::Queue(done)
+            });
+            if !gate.open() {
+                continue;
+            }
+            let bytes = u64::from(sampled.count) * 8;
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("timestamp resolve"),
+                });
+            encoder.resolve_query_set(&slot.queries, 0..sampled.count, &slot.resolve, 0);
+            encoder.copy_buffer_to_buffer(&slot.resolve, 0, &slot.readback, 0, bytes);
+            let (send, receive) = mpsc::sync_channel(1);
+            encoder.map_buffer_on_submit(
+                &slot.readback,
+                wgpu::MapMode::Read,
+                0..bytes,
+                move |result| {
+                    let _ = send.send(result);
+                },
+            );
+            let submitted = if let Some(authority) = &authority {
+                authority.submit_commands([encoder.finish()]).is_ok()
+            } else {
+                self.queue.submit([encoder.finish()]);
+                true
+            };
+            if submitted {
+                slot.sampled = None;
+                slot.pending = Some(receive);
+            }
+        }
     }
     /// Nonblocking. The host drives progress with its normal device polling.
     /// Results preserve encoding order, including when callbacks finish out of order.
     pub fn take_ready(&mut self) -> Result<Vec<FrameTiming>, TimingError> {
         self.discard_cancelled();
+        self.resolve_completed();
         let mut ordered: Vec<_> = self
             .slots
             .iter_mut()
             .filter(|slot| {
-                slot.pending.is_some()
+                (slot.pending.is_some() || slot.sampled.is_some())
                     && slot.transaction.as_ref().is_none_or(|owner| {
                         owner.status()
                             == worldrunner_render_gpu::submission::TransactionStatus::Submitted
@@ -287,7 +373,10 @@ impl PassTimer {
         ordered.sort_by_key(|slot| slot.sequence);
         let mut results = Vec::new();
         for slot in ordered {
-            match slot.pending.as_ref().unwrap().try_recv() {
+            let Some(pending) = slot.pending.as_ref() else {
+                break;
+            };
+            match pending.try_recv() {
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => return Err(TimingError::Callback),
                 Ok(result) => {

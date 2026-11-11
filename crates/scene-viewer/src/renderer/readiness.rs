@@ -80,6 +80,7 @@ impl Renderer {
                 &mut self.presentation,
                 host,
             )?;
+            self.streaming.shadow_policy = host.readiness.shadow_policy;
             if host.readiness.published == published {
                 return Ok(());
             }
@@ -110,6 +111,7 @@ impl Streaming {
             return Ok(());
         }
         if let Some((mut next_resident, scene, _reservation)) = self.preparing.take() {
+            next_resident.apply_shadow_policy(self.shadow_policy())?;
             next_resident.scene_mut().finish_retained_terrain();
             let decals = next_resident.scene_mut().decal_placements();
             next_resident.scene_mut().set_decal_placements(
@@ -246,13 +248,15 @@ impl Streaming {
                 "streamed textures require unavailable device features",
             ));
         }
-        Resident::from_prepared_reusing(
+        let mut resident = Resident::from_prepared_reusing(
             context,
             prepared,
             self.shadows,
             self.profile,
             Some(previous),
-        )
+        )?;
+        resident.apply_shadow_policy(self.shadow_policy())?;
+        Ok(resident)
     }
 }
 
@@ -262,6 +266,7 @@ pub(super) struct Streaming {
     pub retired: std::collections::VecDeque<(u64, Resident)>,
     pub shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
     pub profile: crate::FrameProfile,
+    pub shadow_policy: Option<crate::CameraShadowPolicy>,
     /// Uploads of residents that retired before a frame reported them.
     pub carried: CarriedUploads,
     pub temporal_history_reset: crate::TemporalHistoryReset,
@@ -276,16 +281,32 @@ impl Streaming {
         shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
         profile: crate::FrameProfile,
     ) -> Self {
+        Self::with_shadow_policy(shadows, profile, None)
+    }
+
+    pub fn with_shadow_policy(
+        shadows: Option<worldrunner_render_scene::shadows::DirectionalShadowSettings>,
+        profile: crate::FrameProfile,
+        shadow_policy: Option<crate::CameraShadowPolicy>,
+    ) -> Self {
         Self {
             captures: super::capture::Captures::default(),
             objects: super::retained::Objects::default(),
             retired: std::collections::VecDeque::new(),
             shadows,
             profile,
+            shadow_policy,
             carried: CarriedUploads::default(),
             temporal_history_reset: crate::TemporalHistoryReset::None,
             preparing: None,
         }
+    }
+
+    fn shadow_policy(&self) -> crate::CameraShadowPolicy {
+        self.shadow_policy.unwrap_or(match self.shadows {
+            Some(_) => crate::CameraShadowPolicy::Enabled,
+            None => crate::CameraShadowPolicy::Disabled,
+        })
     }
 }
 

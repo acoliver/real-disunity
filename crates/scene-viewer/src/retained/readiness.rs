@@ -34,6 +34,7 @@ pub(crate) struct Readiness {
     pub page_wait: bool,
     pub geometry_wait: bool,
     pub camera: (CameraPose, SceneCamera, worldrunner_camera::ViewConvention),
+    pub shadow_policy: Option<super::CameraShadowPolicy>,
     pub camera_history: super::camera::CameraHistory,
     #[cfg(test)]
     pub preparation_hook: Option<Box<dyn FnOnce() + Send>>,
@@ -54,9 +55,12 @@ impl Readiness {
 
     pub(crate) fn publish_front(&mut self) -> RetainedUpdate {
         let front = self.queue.pop_front().expect("published front generation");
-        if let Some((pose, lens, convention, continuity)) = front.update.camera_update() {
-            self.camera = (pose, lens, convention);
-            self.camera_history.publish(continuity);
+        if let Some(camera) = front.update.camera_update() {
+            self.camera = (camera.pose, camera.lens, camera.convention);
+            if camera.shadow_policy.is_some() {
+                self.shadow_policy = camera.shadow_policy;
+            }
+            self.camera_history.publish(camera.continuity);
         }
         assert_eq!(front.generation, self.published + 1);
         self.published = front.generation;

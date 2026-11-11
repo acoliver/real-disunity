@@ -1,5 +1,5 @@
 //! Camera discontinuities remain pending until the frame that shows them is submitted.
-use super::{CameraPose, RetainedUpdate, SceneCamera};
+use super::{CameraPose, CameraShadowPolicy, RetainedUpdate, SceneCamera};
 use worldrunner_camera::ViewConvention;
 
 /// Whether a camera update can reuse the preceding view's temporal samples.
@@ -18,6 +18,14 @@ pub enum TemporalHistoryReset {
     CameraCut,
 }
 
+pub(crate) struct CameraUpdate {
+    pub(crate) pose: CameraPose,
+    pub(crate) lens: SceneCamera,
+    pub(crate) convention: ViewConvention,
+    pub(crate) continuity: CameraContinuity,
+    pub(crate) shadow_policy: Option<CameraShadowPolicy>,
+}
+
 impl RetainedUpdate {
     /// Selects continuity explicitly. The ordinary `Camera` variant is continuous.
     pub fn camera_with_continuity(
@@ -34,21 +42,61 @@ impl RetainedUpdate {
         }
     }
 
-    pub(crate) fn camera_update(
-        &self,
-    ) -> Option<(CameraPose, SceneCamera, ViewConvention, CameraContinuity)> {
+    /// Selects native shadow reception in the same ordered camera transaction.
+    pub fn camera_with_shadow_policy(
+        pose: CameraPose,
+        lens: SceneCamera,
+        convention: ViewConvention,
+        continuity: CameraContinuity,
+        shadow_policy: Option<CameraShadowPolicy>,
+    ) -> Self {
+        Self::CameraWithShadowPolicy {
+            pose,
+            lens,
+            convention,
+            continuity,
+            shadow_policy,
+        }
+    }
+
+    pub(crate) fn camera_update(&self) -> Option<CameraUpdate> {
         match *self {
             Self::Camera {
                 pose,
                 lens,
                 convention,
-            } => Some((pose, lens, convention, CameraContinuity::Continuous)),
+            } => Some(CameraUpdate {
+                pose,
+                lens,
+                convention,
+                continuity: CameraContinuity::Continuous,
+                shadow_policy: None,
+            }),
             Self::CameraWithContinuity {
                 pose,
                 lens,
                 convention,
                 continuity,
-            } => Some((pose, lens, convention, continuity)),
+            } => Some(CameraUpdate {
+                pose,
+                lens,
+                convention,
+                continuity,
+                shadow_policy: None,
+            }),
+            Self::CameraWithShadowPolicy {
+                pose,
+                lens,
+                convention,
+                continuity,
+                shadow_policy,
+            } => Some(CameraUpdate {
+                pose,
+                lens,
+                convention,
+                continuity,
+                shadow_policy,
+            }),
             _ => None,
         }
     }

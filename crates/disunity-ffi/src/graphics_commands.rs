@@ -11,7 +11,7 @@ use crate::{
     errors::AbiError,
     graphics::{DisunityRenderTexture, text},
     graphics_context::context_kind,
-    graphics_properties::DisunityTextureSlot,
+    graphics_properties::{DisunityTextureSlot, copy_elements},
 };
 use worldrunner_world_simulation::graphics::{
     MAX_COLOR_TARGETS, OffscreenWork, PropertyValue, RenderTextureId, TargetRef,
@@ -184,6 +184,59 @@ pub unsafe extern "C" fn disunity_offscreen_set_global(
                 ),
             };
         Ok(OffscreenWork::SetGlobal(value))
+    })
+}
+
+/// Records a global vector array to set when the host reaches the record: `count` vectors of 4
+/// floats at `values`, in element order. The count is 1 to 1023 and every float must be finite.
+/// The floats are copied before the call returns. The record changes only the host's global
+/// state at that point in the work; the world's own global state stays as it is.
+///
+/// # Safety
+/// `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_offscreen_set_global_vector_array(
+    world: u64,
+    name: *const u8,
+    length: u32,
+    values: *const f32,
+    count: u32,
+) -> DisunityResult {
+    let elements = match unsafe { copy_elements::<4>(values, count) } {
+        Ok(elements) => elements,
+        Err(refused) => return refused,
+    };
+    record(world, || {
+        let name = unsafe { text(name, length) }?;
+        Ok(OffscreenWork::SetGlobal(PropertyValue::VectorArray(
+            name, elements,
+        )))
+    })
+}
+
+/// Records a global matrix array to set when the host reaches the record: `count` matrices of
+/// 16 floats at `values`, each column-major, in element order. The count is 1 to 1023 and every
+/// float must be finite. The floats are copied before the call returns.
+///
+/// # Safety
+/// `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_offscreen_set_global_matrix_array(
+    world: u64,
+    name: *const u8,
+    length: u32,
+    values: *const f32,
+    count: u32,
+) -> DisunityResult {
+    let elements = match unsafe { copy_elements::<16>(values, count) } {
+        Ok(elements) => elements,
+        Err(refused) => return refused,
+    };
+    record(world, || {
+        let name = unsafe { text(name, length) }?;
+        Ok(OffscreenWork::SetGlobal(PropertyValue::MatrixArray(
+            name, elements,
+        )))
     })
 }
 

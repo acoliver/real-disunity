@@ -5,6 +5,7 @@ use wgpu::{BindGroup, TextureFormat};
 
 use super::{Case, Target, capture_scenes};
 use crate::device::GpuContext;
+use crate::dynamic::capture_tests::shadow_fixture::groups;
 use crate::dynamic::capture_tests::{HDR, VELOCITY, ambient_group, context, reflection_group};
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
@@ -100,123 +101,6 @@ impl Set {
             velocity: self.velocity,
         }
     }
-}
-
-/// One cascade whose clip space maps the cards' depths across the cleared depth. The two frame
-/// slots differ in scale, so a group of another slot shades differently.
-fn uniform(scale: f32) -> Vec<u8> {
-    let mut values = Vec::with_capacity(crate::shadows::SHADOW_UNIFORM_BYTES / 4);
-    for cascade in 0..4 {
-        let mut matrix = glam::Mat4::IDENTITY;
-        if cascade == 0 {
-            matrix = glam::Mat4::from_cols_array(&[
-                scale, 0.0, 0.0, 0.0, //
-                0.0, scale, 0.0, 0.0, //
-                0.0, 0.0, 0.2, 0.0, //
-                0.0, 0.0, 0.5, 1.0,
-            ]);
-        }
-        values.extend(matrix.to_cols_array());
-    }
-    // multiplier, normal bias, grid radius, strength reduction.
-    values.extend([1.0, 0.0, 1.0, 0.0]);
-    // one cascade, no blend, light-space selection, camera near.
-    values.extend([1.0, 0.0, 0.0, 0.1]);
-    values.extend([10.0, 20.0, 30.0, 40.0]);
-    values.extend([0.0, 0.0, -1.0, 0.0]);
-    values.extend([0.001; 4]);
-    // no fade toward lit at the end of the shadow distance.
-    values.extend([0.0; 4]);
-    let bytes: Vec<u8> = values.into_iter().flat_map(f32::to_le_bytes).collect();
-    assert_eq!(bytes.len(), crate::shadows::SHADOW_UNIFORM_BYTES);
-    bytes
-}
-
-/// Four layers of depth, each cleared to one half.
-fn cleared_depth(context: &GpuContext) -> wgpu::Texture {
-    let device = context.device();
-    let depth = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("capture shadow depth"),
-        size: wgpu::Extent3d {
-            width: 32,
-            height: 32,
-            depth_or_array_layers: 4,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-    let mut encoder = context.submission().begin(device).unwrap();
-    for layer in 0..4 {
-        let view = depth.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            base_array_layer: layer,
-            array_layer_count: Some(1),
-            ..wgpu::TextureViewDescriptor::default()
-        });
-        drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("capture shadow clear"),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0.5),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            ..wgpu::RenderPassDescriptor::default()
-        }));
-    }
-    encoder.finish().submit().unwrap();
-    depth
-}
-
-/// The shadow group of each of two frame slots: its uniform and the shared map.
-fn groups(context: &GpuContext) -> [BindGroup; 2] {
-    let device = context.device();
-    let view = cleared_depth(context).create_view(&wgpu::TextureViewDescriptor {
-        dimension: Some(wgpu::TextureViewDimension::D2Array),
-        ..wgpu::TextureViewDescriptor::default()
-    });
-    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("capture shadow sampler"),
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        compare: Some(wgpu::CompareFunction::LessEqual),
-        ..wgpu::SamplerDescriptor::default()
-    });
-    let layout = crate::shadows::water_layout(device);
-    [0.25_f32, 0.2].map(|scale| {
-        let buffer = crate::upload::upload_buffer(
-            device,
-            context.queue(),
-            "capture shadow uniform",
-            wgpu::BufferUsages::UNIFORM,
-            &uniform(scale),
-        );
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("capture shadow"),
-            layout: &layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        })
-    })
 }
 
 /// Pipelines whose objects sample the shadow map, with the group they need at set three.

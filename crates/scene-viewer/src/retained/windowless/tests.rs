@@ -8,6 +8,7 @@ mod lifecycle;
 mod overlay;
 pub(crate) mod pages;
 mod picking;
+mod shadow_policy;
 mod terrain;
 mod timers;
 mod timing;

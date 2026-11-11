@@ -763,6 +763,16 @@
       "rets": "DisunityResult"
     },
     {
+      "name": "disunity_offscreen_set_global_matrix_array",
+      "since": "9.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_offscreen_set_global_vector_array",
+      "since": "9.0.0",
+      "rets": "DisunityResult"
+    },
+    {
       "name": "disunity_offscreen_set_render_target",
       "since": "7.0.0",
       "rets": "DisunityResult"
@@ -840,6 +850,16 @@
     {
       "name": "disunity_shader_float_write",
       "since": "7.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_global_matrix_array_write",
+      "since": "9.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_shader_global_vector_array_write",
+      "since": "9.0.0",
       "rets": "DisunityResult"
     },
     {

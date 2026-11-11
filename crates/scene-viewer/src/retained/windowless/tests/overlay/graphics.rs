@@ -66,6 +66,8 @@ fn opaque_graphic_is_drawn_on_the_shadowed_retained_frame() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = overlay_host().windowless(&mut driver).unwrap();
+    // Present generation 0 before the UI update, so its frame reports the scene's initial uploads.
+    capture(&mut run, &events);
     apply(&mut run, extracted(&world));
     region(&capture(&mut run, &events).1, [255, 0, 0, 255]);
     assert_statistics(&run, 1, 1);

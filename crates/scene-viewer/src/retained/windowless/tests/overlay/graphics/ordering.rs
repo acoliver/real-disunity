@@ -62,6 +62,8 @@ fn text_and_rect_follow_the_same_hierarchy_order_as_pointer_hits_in_both_orders(
         let mut driver = Driver::default();
         let events = driver.events.clone();
         let mut run = overlay_host().windowless(&mut driver).unwrap();
+        // Present generation 0 before the UI update, so its frame reports the scene's initial uploads.
+        capture(&mut run, &events);
         apply(&mut run, ui);
         let expected = if text_on_top {
             [0, 255, 0, 255]

@@ -179,7 +179,16 @@ fn encode_fixture(
         a: 1.0,
     });
     pass.color = Some(attachment);
-    pass.depth = Some(crate::compositor::attachment(depth.resource(), depth, true));
+    let mut depth_attachment = crate::compositor::attachment(depth.resource(), depth, true);
+    // The metadata prepass clears shared depth before the opaque pass.
+    if renderer
+        .ssao
+        .as_ref()
+        .is_some_and(|metadata| metadata.depth == *depth.texture())
+    {
+        depth_attachment.load = AttachmentLoad::Load;
+    }
+    pass.depth = Some(depth_attachment);
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
         .encode_frame(
@@ -344,7 +353,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
     draw_water_with(
         context,
         renderer,
-        (slot, wgpu::LoadOp::Load),
+        (slot, wgpu::LoadOp::Load, DepthMode::Independent, None),
         |feature, pass| {
             feature.draw(
                 &worldrunner_render_post::DrawContext {
@@ -356,22 +365,35 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
     );
 }
 /// Opens the water pass of `slot` over the scene colour (loaded or cleared as `scene_load`
-/// says), the cleared receivers and a cleared depth, and lets `record` draw the feature in it.
+/// says), the cleared receivers and a cleared depth, and lets `record` draw the feature built
+/// for `depth` and `shadow` in it. The pass uses the renderer's depth texture, whose format
+/// `depth` must match. With a shadow group the feature draws its shadowed pipelines.
 fn draw_water_with(
     context: &GpuContext,
     renderer: &crate::compositor::FrameRenderer,
-    (slot, scene_load): (usize, wgpu::LoadOp<wgpu::Color>),
+    (slot, scene_load, depth, shadow): (
+        usize,
+        wgpu::LoadOp<wgpu::Color>,
+        DepthMode,
+        Option<&wgpu::BindGroup>,
+    ),
     record: impl FnOnce(&WaterFeature, &mut wgpu::RenderPass<'_>),
 ) {
     let water = renderer.water.as_ref().unwrap();
-    let feature = water.feature(
+    let feature = water.feature_with_depth(
         context.device(),
         &FrameUniform::new(&fixture_view(), None).unwrap(),
         (2.0, slot),
-        (None, None),
+        (shadow, None),
+        depth,
     );
     let mut encoder = context.submission().begin(context.device()).unwrap();
     {
+        let depth_view = renderer
+            .targets()
+            .depth()
+            .texture()
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let receiver_views: Vec<_> = water.receivers[slot]
             .iter()
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
@@ -400,7 +422,7 @@ fn draw_water_with(
             label: Some("water refraction probe"),
             color_attachments: &colors,
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: renderer.targets().depth(),
+                view: &depth_view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,

@@ -489,7 +489,7 @@ fn a_colour_above_one_or_below_zero_stays_within_the_tint_range() {
 
 #[test]
 fn the_initial_scene_is_valid_before_any_frame_arrives() {
-    let scene = SceneTables::initial_scene().unwrap();
+    let scene = SceneTables::initial_scene(None).unwrap();
     assert!(scene.geometry().objects().is_empty());
     assert_eq!(scene.resources().textures().len(), 1);
     assert_eq!(scene.resources().materials().len(), 1);
@@ -682,7 +682,7 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
         keys: Vec::new(),
     };
     let options: ViewerOptions = viewer_options(&window);
-    let mut viewer = RetainedHost::new(SceneTables::initial_scene().unwrap(), options).unwrap();
+    let mut viewer = RetainedHost::new(SceneTables::initial_scene(None).unwrap(), options).unwrap();
     let mut shown = content(&[100]);
     shown.textures.insert(5, texture(10));
     let mut objects = vec![with_slot(object(1, 100, at(0., 0., 0.)), slot([1.; 4], 5))];
@@ -712,3 +712,6 @@ fn the_viewer_accepts_every_frame_the_tables_produce() {
         assert_eq!(viewer.objects().count(), objects.len());
     }
 }
+
+#[path = "scene_tables_tests/lit.rs"]
+mod lit;

@@ -52,6 +52,7 @@ const ABI_SOURCES: &[&str] = &[
     "src/graphics_snapshot.rs",
     "src/script_messages.rs",
     "src/presentation_ui.rs",
+    "src/presentation_lights.rs",
 ];
 
 fn main() {

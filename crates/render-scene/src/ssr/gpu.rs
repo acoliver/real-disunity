@@ -116,6 +116,7 @@ pub(super) fn resolve_source(levels: usize) -> String {
             include_str!("normal.wgsl")
         )
     );
+    source.push_str(&super::reconstruction::source(levels));
     for index in 0..levels {
         write!(
             source,
@@ -292,9 +293,8 @@ pub(super) fn configured_resolve_source(
     }
     let cosine = "clamp(dot(reflection_normal(normal.xyz), -reflection_incident(uv)), 0.0, 1.0)";
     let published = "textureLoad(forward_environment, p, FORWARD_SAMPLE).a";
-    let source = source
-        .replace("var normals: texture_2d<f32>;", "var application_ao: texture_2d<f32>;")
-        .replace("textureLoad(normals, p, 0)", &format!("vec4<f32>(0.0, 0.0, 1.0, select(0.0, 1.0, {published} > 0.0))"))
+    let binding = levels + 7 + if water { 4 } else { 0 };
+    let source = format!("{source}\n@group(0) @binding({binding}) var application_ao: texture_2d<f32>;")
         .replace(&format!("let cosine = {cosine};"), &if water { format!("let cosine = select({published}, {cosine}, is_water);") } else { format!("let cosine = {published};") })
         .replace("// APPLICATION_AO", if water {
             "if !is_water { let visibility = gathered_visibility(p, cosine, surface.a, sample); factor *= visibility; }"

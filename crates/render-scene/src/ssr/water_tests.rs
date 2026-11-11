@@ -63,6 +63,9 @@ fn gpu_production_water_trace_and_resolve_share_registered_metadata() {
 
 use super::*;
 
+#[path = "reconstruction_depth_fixture.rs"]
+pub(super) mod raw_depth;
+
 fn clear_receivers(context: &GpuContext, water: &crate::water::Water) {
     let mut encoder = context.submission().begin(context.device()).unwrap();
     let views = water.receivers[0]
@@ -143,6 +146,7 @@ fn water_resolve(context: &GpuContext, samples: u32, confidence: f32, partial: b
     let output =
         crate::ssao::passes::texture(context.device(), size, wgpu::TextureFormat::Rgba16Float);
     let inputs = water::Inputs::new(&water, 0);
+    let depth = raw_depth::texture(context, config, "3.0");
     let mut feature = ReflectionFeature {
         water: Some(inputs),
         ssr: &ssr,
@@ -172,7 +176,10 @@ fn water_resolve(context: &GpuContext, samples: u32, confidence: f32, partial: b
             .each_ref()
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
     );
-    feature.water.as_ref().unwrap().resolve_views(&mut views);
+    feature.water.as_ref().unwrap().resolve_views(
+        &mut views,
+        depth.create_view(&wgpu::TextureViewDescriptor::default()),
+    );
     ssr.application_views(&mut views);
     let group = gpu::group(
         context.device(),
@@ -291,7 +298,7 @@ pub(crate) fn replay_water_factor(
             &[1.0; 4].repeat(usize::try_from(texture.width() * texture.height()).unwrap()),
         );
     }
-    let views = replay_views(ssr, water);
+    let views = replay_views(ssr, water, renderer.targets().depth().clone());
     let group = gpu::group(
         context.device(),
         &ssr.water_resolve,
@@ -330,7 +337,11 @@ pub(crate) fn replay_water_factor(
     read(context, &output)
 }
 
-fn replay_views(ssr: &Ssr, water: &crate::water::Water) -> Vec<wgpu::TextureView> {
+fn replay_views(
+    ssr: &Ssr,
+    water: &crate::water::Water,
+    depth: wgpu::TextureView,
+) -> Vec<wgpu::TextureView> {
     let mut views = [
         &ssr.material,
         &ssr.normals,
@@ -345,7 +356,8 @@ fn replay_views(ssr: &Ssr, water: &crate::water::Water) -> Vec<wgpu::TextureView
             .chain(ssr.forward_products.iter())
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
     );
-    water::Inputs::new(water, 0).resolve_views(&mut views);
+    water::Inputs::new(water, 0).resolve_views(&mut views, depth);
+    ssr.application_views(&mut views);
     views
 }
 

@@ -282,6 +282,7 @@ fn application_ao_pairs_half_resolution_with_averaged_depth() {
         [4, 3]
     );
     assert_eq!(ssr.application_ao.format(), wgpu::TextureFormat::Rg16Float);
+    // Separate receiver normals and application AO require one more binding than AO replacing normals.
     let source = gpu::configured_resolve_source(
         6,
         4,
@@ -293,5 +294,5 @@ fn application_ao_pairs_half_resolution_with_averaged_depth() {
         ),
     );
     assert!(source.contains("tap.g * reflection_far_depth()"));
-    assert_eq!(source.matches("@binding(").count(), 17);
+    assert_eq!(source.matches("@binding(").count(), 18);
 }

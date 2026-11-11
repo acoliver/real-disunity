@@ -104,7 +104,7 @@ fn odd_pyramid() -> Vec<Vec<f64>> {
         let mut next = Vec::new();
         for y in 0..next_side {
             for x in 0..next_side {
-                next.push(odd_average(previous, side, [x, y]));
+                next.push(odd_nearest(previous, side, [x, y]));
             }
         }
         levels.push(next);
@@ -113,7 +113,7 @@ fn odd_pyramid() -> Vec<Vec<f64>> {
     levels
 }
 
-fn odd_average(previous: &[f64], side: usize, cell: [usize; 2]) -> f64 {
+fn odd_nearest(previous: &[f64], side: usize, cell: [usize; 2]) -> f64 {
     let mut taps = Vec::new();
     for dy in 0..2 {
         for dx in 0..2 {
@@ -122,7 +122,7 @@ fn odd_average(previous: &[f64], side: usize, cell: [usize; 2]) -> f64 {
             }
         }
     }
-    taps.iter().sum::<f64>() / f64::from(u32::try_from(taps.len()).unwrap())
+    taps.into_iter().fold(f64::MAX, f64::min)
 }
 
 #[test]

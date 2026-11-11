@@ -43,6 +43,14 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
             corner[1] += offset.y - 16.;
         }
         std::sync::Arc::make_mut(&mut ui.texts[0].texture.as_mut().unwrap().bytes).fill(255);
+        // Alpha 0 is the blend boundary with no rounding: the scene bytes stay exact.
+        let mut hidden = ui.clone();
+        hidden.texts[0].color = [1., 0., 0., 0.];
+        apply(&mut run, hidden);
+        assert_eq!(
+            pixel(&capture(&mut run, &events).1, x, y),
+            pixel(&baseline, x, y)
+        );
         apply(&mut run, ui.clone());
         assert_eq!(pixel(&capture(&mut run, &events).1, x, y), [255, 0, 0, 255]);
         let mut front = ui.texts[0].clone();

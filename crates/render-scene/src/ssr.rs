@@ -6,6 +6,7 @@ mod gpu;
 mod grid;
 mod metadata;
 pub(crate) mod pyramid;
+mod reconstruction;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod water;
@@ -169,11 +170,12 @@ impl Ssr {
                 .collect()
         }
     }
-    fn application_views(&self, views: &mut [wgpu::TextureView]) {
+    fn application_views(&self, views: &mut Vec<wgpu::TextureView>) {
         if self.settings.depth_relative_ao {
-            views[1] = self
-                .application_ao
-                .create_view(&wgpu::TextureViewDescriptor::default());
+            views.push(
+                self.application_ao
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+            );
         }
     }
     #[cfg(test)]
@@ -466,7 +468,10 @@ impl PreparedFeature for ReflectionFeature<'_> {
                 .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
         );
         if let Some(water) = &self.water {
-            water.resolve_views(&mut resolve_inputs);
+            water.resolve_views(
+                &mut resolve_inputs,
+                context.resource(water.depth)?.sampled_view(),
+            );
         }
         ssr.application_views(&mut resolve_inputs);
         let resolve_pipeline = if self.water.is_some() {

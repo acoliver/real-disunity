@@ -76,9 +76,9 @@ fn object_programs_built(pipelines: &crate::renderer::ScenePipelines) -> (u64, u
     (stats.pipelines_built, stats.sets_prepared)
 }
 
-/// Objects recorded through the program runtime, as the design's `draws_prepared` assertion for
-/// slice 2: a frame of objects builds pipelines and prepares material sets on the scene's
-/// runtime, which the fixed path never touches.
+/// Upload prepares material sets without building pipelines; the first object frame
+/// builds pipelines on the program runtime. `cost_tests::through_runtime` tallies
+/// commands separately because `draw_color` requires a concrete wgpu render pass.
 #[test]
 fn objects_are_recorded_through_the_program_runtime() {
     use super::capture_tests::{Rig, Target, render, scenes};
@@ -96,7 +96,8 @@ fn objects_are_recorded_through_the_program_runtime() {
         &built.pipelines,
         &scenes::scene(&scenes::base_specs()),
     );
-    let (_, sets) = object_programs_built(&built.pipelines);
+    let (pipelines, sets) = object_programs_built(&built.pipelines);
+    assert_eq!(pipelines, 0, "scene upload builds no object pipelines");
     assert!(sets > 0, "uploading the materials prepares their sets");
     render(
         &context,

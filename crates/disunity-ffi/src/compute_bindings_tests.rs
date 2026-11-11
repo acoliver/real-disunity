@@ -33,7 +33,7 @@ fn a_vector_or_matrix_array_is_refused_by_name_and_not_dropped() {
 }
 
 #[test]
-fn the_five_kinds_a_binding_reader_knows_still_lay_out() {
+fn a_vector_binding_still_lays_out_as_four_floats() {
     let vector = PropertyValue::Vector("_V".into(), [1.0, 2.0, 3.0, 4.0]);
     let flat = Flat::of(&bindings(vector)).unwrap();
     assert_eq!(flat.entries.len(), 1);

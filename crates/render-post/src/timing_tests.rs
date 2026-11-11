@@ -34,6 +34,73 @@ fn gpu_overfull_pass_lists_drop_whole_samples_and_release_timing_admission() {
     device.poll(wgpu::PollType::Poll).unwrap();
 }
 
+/// The sampled frame's own submission carries no resolve. The timestamps are resolved, copied and
+/// mapped by one later submission of the same authority, made only after the sampled submission
+/// completed: Metal resolves incomplete samples when the resolve shares the sampled submission
+/// (issue 9f99236ea41c). The submission serials are what this test observes, so it runs the same
+/// on every adapter with timestamps; the Metal sample rate is checked on Metal itself.
+#[test]
+fn gpu_timestamps_resolve_in_a_later_submission_after_the_sampled_one_completes() {
+    let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timer = PassTimer::new(&device, &queue, TimingMode::Optional).unwrap();
+    if timer.support() == TimingSupport::Unsupported {
+        eprintln!("timestamp capability branch: Unsupported");
+        return;
+    }
+    let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
+    let mut encoder = authority.begin(&device).unwrap();
+    timer.begin_frame(5);
+    let stamp = timer.stamp(PassId::Resolve).unwrap();
+    drop(encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("sampled pass"),
+        timestamp_writes: Some(stamp.compute()),
+    }));
+    timer.finish_frame(&mut encoder);
+    encoder.finish().submit().unwrap();
+    assert_eq!(
+        authority.submitted_serial(),
+        1,
+        "the sampled frame is one submission"
+    );
+    // The authority learns of completion only while the host polls the device, so before any
+    // poll the sampled frame has not completed as far as the timer can tell.
+    assert_eq!(authority.completed_serial(), 0);
+    assert!(timer.take_ready().unwrap().is_empty());
+    assert_eq!(
+        authority.submitted_serial(),
+        1,
+        "nothing is resolved before the sampled submission completes"
+    );
+    let wait = || {
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(10)),
+            })
+            .unwrap();
+    };
+    wait();
+    assert_eq!(
+        authority.completed_serial(),
+        1,
+        "the sampled frame completed"
+    );
+    let mut frames = Vec::new();
+    for _ in 0..4 {
+        frames.extend(timer.take_ready().unwrap());
+        wait();
+    }
+    assert_eq!(
+        authority.submitted_serial(),
+        2,
+        "the resolve is one later submission of the sampled frame's authority"
+    );
+    assert_eq!(frames.len(), 1, "the sampled frame's timing is read back");
+    assert_eq!(frames[0].frame_id, 5);
+    assert_eq!(frames[0].passes.len(), 1);
+    assert_eq!(frames[0].passes[0].pass_id, PassId::Resolve);
+}
+
 fn device(features: wgpu::Features) -> (wgpu::Device, wgpu::Queue) {
     crate::gpu_tests::gpu_with_optional_features(features)
 }

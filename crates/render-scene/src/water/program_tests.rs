@@ -57,3 +57,31 @@ fn the_frozen_composition_equals_the_live_one_for_both_bases() {
         );
     }
 }
+
+/// The body program declares set 0 for itself, while the reactive mask still binds the fixed
+/// groups of `input_layout`. The two must stay one table: a binding, a stage or a kind changed in
+/// one and not the other would bind different inputs on the two paths.
+#[test]
+fn the_body_program_declares_set_zero_as_the_fixed_groups_do() {
+    let fixed = crate::water::input_entries();
+    let program = crate::water::program::bindings();
+    assert_eq!(fixed.len(), program.len(), "both declare every binding");
+    for entry in &fixed {
+        let declared = program
+            .iter()
+            .find(|binding| binding.at.set == 0 && binding.at.binding == entry.binding)
+            .unwrap_or_else(|| panic!("the program does not declare binding {}", entry.binding));
+        assert_eq!(
+            declared.visibility, entry.visibility,
+            "binding {}: stages",
+            entry.binding
+        );
+        assert!(
+            declared.kind.matches(&entry.ty),
+            "binding {}: the program declares {:?}, the fixed group {:?}",
+            entry.binding,
+            declared.kind,
+            entry.ty
+        );
+    }
+}

@@ -34,6 +34,8 @@ internal static unsafe class GlobalArrayTests
         {
             DisunityHost.UnloadWorld();
         }
+        NativeRefusalLeavesNoManagedCopy();
+        Console.WriteLine("PASS: a native refusal of a valid static array (the world's list of that kind is full) throws and leaves the stored arrays and the world as they were");
         ArraysSetBeforeLoadAreSentWhenTheWorldLoads();
         Console.WriteLine("PASS: arrays set while no world is loaded are sent to the global state at load and again at reload, and materials send none");
     }
@@ -340,6 +342,63 @@ internal static unsafe class GlobalArrayTests
         buffer.Release();
         foreach (var (what, _, call) in bad)
             Throws<ObjectDisposedException>(call, $"{what} on a released buffer", "CommandBuffer");
+    }
+
+    /// <summary>Fills the world's own list of global arrays of one kind to its limit with the native bindings, which leave the
+    /// managed store alone, and returns how many names the list took.</summary>
+    private static int FillNativeArrays(bool matrices)
+    {
+        var floats = new float[16];
+        var taken = 0;
+        while (taken < 4096)
+        {
+            var bytes = Encoding.UTF8.GetBytes($"_GaFill{(matrices ? 'M' : 'V')}{taken:D4}");
+            DisunityResult result;
+            fixed (byte* name = bytes)
+            fixed (float* data = floats)
+                result = matrices
+                    ? NativeBindings.disunity_shader_global_matrix_array_write(DisunityHost.WorldHandle, name, (uint)bytes.Length, data, 1)
+                    : NativeBindings.disunity_shader_global_vector_array_write(DisunityHost.WorldHandle, name, (uint)bytes.Length, data, 1);
+            if (result.code != 0) return taken;
+            taken++;
+        }
+        throw new InvalidOperationException("the world's list took 4096 names, so it has no limit to reach");
+    }
+
+    private static void NativeRefusalLeavesNoManagedCopy()
+    {
+        DisunityHost.LoadWorld();
+        try
+        {
+            var kept = Vectors(2, 21f);
+            Shader.SetGlobalVectorArray("_GaKeptVec", kept);
+            Shader.SetGlobalMatrixArray("_GaKeptMat", Matrices(2, 21f));
+            var filledVectors = FillNativeArrays(matrices: false);
+            var filledMatrices = FillNativeArrays(matrices: true);
+            Ensure(filledVectors is >= 1000 and <= 1024 && filledMatrices is >= 1000 and <= 1024, $"the world's lists are full: {filledVectors} vectors, {filledMatrices} matrices");
+
+            var (vectors, matrices) = (Vectors(3, 31f), Matrices(3, 31f));
+            var refused = new (string What, Action Call)[]
+            {
+                ("vector array", () => Shader.SetGlobalVectorArray("_GaOverVec", vectors)),
+                ("vector list by id", () => Shader.SetGlobalVectorArray(Shader.PropertyToID("_GaOverVec"), new List<Vector4>(vectors))),
+                ("matrix array", () => Shader.SetGlobalMatrixArray("_GaOverMat", matrices)),
+                ("matrix list by id", () => Shader.SetGlobalMatrixArray(Shader.PropertyToID("_GaOverMat"), new List<Matrix4x4>(matrices))),
+            };
+            foreach (var (what, call) in refused)
+                Throws<DisunityException>(call, $"a {what} past the world's limit");
+            Ensure(Shader.GetGlobalVectorArray("_GaOverVec") == null && Shader.GetGlobalMatrixArray("_GaOverMat") == null, "a refused array is not stored");
+            Ensure(Shader.GetGlobalVectorArray("_GaKeptVec")!.SequenceEqual(kept), "an earlier array is as it was");
+
+            Trigger();
+            var snapshot = Snapshot();
+            Ensure(Count(snapshot, Encoding.UTF8.GetBytes("_GaOverVec")) == 0 && Count(snapshot, Encoding.UTF8.GetBytes("_GaOverMat")) == 0, "the world holds neither refused name");
+            Ensure(Count(snapshot, VectorEntry("_GaKeptVec", kept)) == 1, "the world still holds the earlier array");
+        }
+        finally
+        {
+            DisunityHost.UnloadWorld();
+        }
     }
 
     private static void ArraysSetBeforeLoadAreSentWhenTheWorldLoads()

@@ -212,7 +212,7 @@ fn split(
     }
 }
 
-fn matrix_array(m: &native::DisunityMatrix) -> [f32; 16] {
+pub(crate) fn matrix_array(m: &native::DisunityMatrix) -> [f32; 16] {
     [
         m.m0, m.m1, m.m2, m.m3, m.m4, m.m5, m.m6, m.m7, m.m8, m.m9, m.m10, m.m11, m.m12, m.m13,
         m.m14, m.m15,

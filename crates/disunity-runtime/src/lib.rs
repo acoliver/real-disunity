@@ -477,9 +477,11 @@ mod input;
 mod mesh_channels;
 mod meshes;
 mod presentation;
+mod presentation_lights;
 mod presentation_ui;
 mod textures;
 
 pub use mesh_channels::{MeshChannel, MeshChannels, MeshRange};
 pub use meshes::{MeshObjectView, MeshRun, MeshSlot, PlayerMesh};
+pub use presentation_lights::PresentationLight;
 pub use textures::{PlayerTexture, TextureSampler};

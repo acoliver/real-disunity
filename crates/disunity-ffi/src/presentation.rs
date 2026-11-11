@@ -171,6 +171,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         use worldrunner_world_simulation::{
             presentation::{
                 extraction::{SpriteTextures, append_ui_from, extract_world},
+                light_views::extract_lights,
                 mesh_objects::extract_mesh_objects,
             },
             ui::{append_graphics, contribution::extract_ui, extract_graphics},
@@ -186,6 +187,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             extract_graphics(&s.native, &ui.layout).map_err(crate::errors::AbiError::from)?;
         let mesh_objects =
             extract_mesh_objects(&s.native).map_err(crate::errors::AbiError::from)?;
+        let lights = extract_lights(&s.native).map_err(crate::errors::AbiError::from)?;
         // Graphics go in first, so the engine's own text of the same sorting key draws over them.
         append_graphics(&mut plan, graphics)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
@@ -193,35 +195,45 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
             next_glyph_texture(&plan.quads, next_texture).ok_or("texture identity exhausted")?;
         append_ui_from(&mut plan, ui, next)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
-        let mut header = DisunityPresentation {
-            width,
-            height,
-            quads: u32::try_from(plan.quads.len()).map_err(|_| "quad count overflow")?,
-            textures: u32::try_from(plan.textures.len()).map_err(|_| "texture count overflow")?,
-            mesh_objects: u32::try_from(mesh_objects.len())
-                .map_err(|_| "mesh object count overflow")?,
-            r: plan.clear[0],
-            g: plan.clear[1],
-            b: plan.clear[2],
-            a: plan.clear[3],
-            ..Default::default()
-        };
-        if let Some(state) = plan.camera_state {
-            header.present = 1;
-            [header.eye_x, header.eye_y, header.eye_z] = state.pose.eye_meters.to_array();
-            [header.forward_x, header.forward_y, header.forward_z] = state.pose.forward.to_array();
-            [header.up_x, header.up_y, header.up_z] = state.pose.up.to_array();
-            write_lens(&mut header, state.lens);
-        }
+        let header = presentation_header(&plan, mesh_objects.len(), [width, height])?;
         s.presentation = Some(plan);
         s.ui_presentation = Some(ui_presentation);
         s.mesh_objects = mesh_objects;
+        s.lights = lights;
         unsafe {
             *output = header;
         }
         Ok(())
     })
 }
+/// The header of a prepared frame: its size, counts, clear colour and presented camera.
+fn presentation_header(
+    plan: &worldrunner_world_simulation::presentation::extraction::WorldRenderPlan,
+    mesh_objects: usize,
+    [width, height]: [u32; 2],
+) -> Result<DisunityPresentation, crate::errors::AbiError> {
+    let mut header = DisunityPresentation {
+        width,
+        height,
+        quads: u32::try_from(plan.quads.len()).map_err(|_| "quad count overflow")?,
+        textures: u32::try_from(plan.textures.len()).map_err(|_| "texture count overflow")?,
+        mesh_objects: u32::try_from(mesh_objects).map_err(|_| "mesh object count overflow")?,
+        r: plan.clear[0],
+        g: plan.clear[1],
+        b: plan.clear[2],
+        a: plan.clear[3],
+        ..Default::default()
+    };
+    if let Some(state) = plan.camera_state {
+        header.present = 1;
+        [header.eye_x, header.eye_y, header.eye_z] = state.pose.eye_meters.to_array();
+        [header.forward_x, header.forward_y, header.forward_z] = state.pose.forward.to_array();
+        [header.up_x, header.up_y, header.up_z] = state.pose.up.to_array();
+        write_lens(&mut header, state.lens);
+    }
+    Ok(header)
+}
+
 /// The identity glyph coverage textures start from: one past the highest identity a quad shows
 /// below the player range, and at least `floor`. Player textures keep their own identities, so
 /// a quad that shows one must not push glyph identities into the range the managed engine

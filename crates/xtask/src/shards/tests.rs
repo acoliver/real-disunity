@@ -146,10 +146,33 @@ fn a_harness_free_name_shared_with_a_libtest_target_is_rejected() {
 fn listing_output_yields_test_names_only() {
     let listing = "alpha::one: test\nalpha::two: test\n\n2 tests, 0 benchmarks\nspeed: benchmark\nalpha::one: test\n\nbeta::three: test\n";
     assert_eq!(
-        parse_names(listing).into_iter().collect::<Vec<_>>(),
+        runnable_names(listing, "").into_iter().collect::<Vec<_>>(),
         ["alpha::one", "alpha::two", "beta::three"]
     );
-    assert!(parse_names("0 tests, 0 benchmarks\n").is_empty());
+    assert!(runnable_names("0 tests, 0 benchmarks\n", "").is_empty());
+}
+
+#[test]
+fn ignored_tests_leave_the_listing_unless_another_binary_runs_the_name() {
+    // Two binaries: `shared` is ignored in the first and runnable in the second.
+    let listing =
+        "alpha::probe: test\nalpha::check: test\nshared: test\n\nshared: test\nbeta::check: test\n";
+    let ignored = "alpha::probe: test\nshared: test\n";
+    assert_eq!(
+        runnable_names(listing, ignored)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["alpha::check", "beta::check", "shared"]
+    );
+    let everywhere = "alpha::probe: test\nshared: test\n\nshared: test\n";
+    assert_eq!(
+        runnable_names(listing, everywhere)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["alpha::check", "beta::check"]
+    );
+    assert!(!LIST_ARGS.contains(&"--include-ignored"));
+    assert_eq!(IGNORED_LIST_ARGS.last(), Some(&"--ignored"));
 }
 
 #[test]
@@ -335,7 +358,6 @@ fn test_arguments_keep_the_selection_and_pass_harness_arguments_last() {
             "--all-features",
             "--lib",
             "--",
-            "--include-ignored",
             "--test-threads=1"
         ]
     );

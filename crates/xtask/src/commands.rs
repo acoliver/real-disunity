@@ -123,15 +123,7 @@ pub fn cargo_args(command: &str, selection: &[String], gpu_required: bool) -> Ve
     if matches!(command, "test" | "doc") && gpu_required {
         // A failing test binary must not stop the binaries after it, or one failure hides the
         // rest of the run; cargo still exits non-zero and lists every failed binary at the end.
-        args.extend(
-            [
-                "--no-fail-fast",
-                "--",
-                "--include-ignored",
-                "--test-threads=1",
-            ]
-            .map(str::to_owned),
-        );
+        args.extend(["--no-fail-fast", "--", "--test-threads=1"].map(str::to_owned));
     }
     args
 }
@@ -161,7 +153,7 @@ fn preflight(root: &Path) -> Result<(), String> {
 /// run no separate complexity or check pass.
 const CI_STEPS: [&str; 4] = ["lint", "build", "test", "doc"];
 
-const GPU_REQUIRED_NOTICE: &str = "GPU required mode: all selected tests, including ignored tests, run without name filters; missing adapters are errors";
+const GPU_REQUIRED_NOTICE: &str = "GPU required mode: all selected tests except ignored ones run without name filters; missing adapters are errors";
 
 /// Every `ci-gpu` check except the test run, which `ci-gpu-shard` splits across runners.
 pub fn ci_gpu_static(root: &Path) -> Result<(), String> {
@@ -313,17 +305,17 @@ mod tests {
     }
 
     #[test]
-    fn required_gpu_runs_every_test_including_ignored_without_filters() {
+    fn required_gpu_runs_every_test_but_the_ignored_ones_without_filters() {
         let args = cargo_args(
             "test",
             &["--workspace".into(), "--all-features".into()],
             true,
         );
-        assert!(args.ends_with(&[
-            "--".into(),
-            "--include-ignored".into(),
-            "--test-threads=1".into()
-        ]));
+        assert!(args.ends_with(&["--".into(), "--test-threads=1".into()]));
+        assert!(
+            !args.iter().any(|arg| arg == "--include-ignored"),
+            "an ignored test runs only by hand: {args:?}"
+        );
         assert!(!args.iter().any(|arg| arg == "--skip"));
         let separator = args.iter().position(|arg| arg == "--").unwrap();
         assert!(

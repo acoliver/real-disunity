@@ -49,6 +49,31 @@ impl DisunityHost {
     }
 }
 
+impl DisunityHost {
+    /// The renderShadows setting of the camera the last call of `export_presentation` presents:
+    /// none when the frame presents no camera or the camera has no camera data. Fails before the
+    /// first frame is prepared.
+    pub fn presentation_render_shadows(&self) -> Result<Option<bool>, HostError> {
+        let world = self.world.ok_or(HostError::NoWorld)?;
+        let read: Count = symbol(&self._library, b"disunity_presentation_render_shadows\0")?;
+        let mut value = u32::MAX;
+        self.check(unsafe { read(world, &mut value) })?;
+        render_shadows(value)
+    }
+}
+
+/// The renderShadows setting the ABI reports: 1 on, 0 off, 2 for no camera data.
+fn render_shadows(value: u32) -> Result<Option<bool>, HostError> {
+    match value {
+        0 => Ok(Some(false)),
+        1 => Ok(Some(true)),
+        2 => Ok(None),
+        _ => Err(HostError::Managed(format!(
+            "presentation renderShadows {value} is out of range"
+        ))),
+    }
+}
+
 fn blank_record() -> native::DisunityLight {
     // SAFETY: the record holds only integers and floats, for which all-zero bytes are valid.
     unsafe { std::mem::zeroed() }
@@ -88,6 +113,14 @@ fn settings(record: &native::DisunityLight) -> Result<LightSettings, HostError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_render_shadows_value_becomes_on_off_or_absent_and_others_are_refused() {
+        assert_eq!(render_shadows(1).unwrap(), Some(true));
+        assert_eq!(render_shadows(0).unwrap(), Some(false));
+        assert_eq!(render_shadows(2).unwrap(), None);
+        assert!(render_shadows(3).is_err());
+    }
 
     fn record() -> native::DisunityLight {
         native::DisunityLight {

@@ -217,8 +217,7 @@ internal sealed partial class SceneLoader
         if (!value.Bool("clear_depth")) throw new SceneLoadException($"{where}: cameras that keep depth are not supported");
         data.renderType = value.Variant<CameraRenderType>("render_type");
         if (value.Int("renderer_index") is var index and not -1) data.SetRenderer(index);
-        // The flag enables 3D shadow maps; URP's 2D renderer takes shadows from 2D lights.
-        if (value.Bool("render_shadows")) differences.Add($"{where}: renders no 3D shadow maps");
+        data.renderShadows = value.Bool("render_shadows");
         data.requiresDepthOption = value.Variant<CameraOverrideOption>("depth_texture");
         data.requiresColorOption = value.Variant<CameraOverrideOption>("opaque_texture");
         var post = value.GetProperty("post_processing");

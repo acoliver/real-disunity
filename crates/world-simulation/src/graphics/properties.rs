@@ -6,6 +6,8 @@ use super::{GraphicsError, RenderTextureId};
 pub const MAX_NAME_BYTES: usize = 256;
 /// Most properties of one kind that one set of properties holds.
 pub const MAX_PROPERTIES_PER_KIND: usize = 1024;
+/// Most vectors or matrices one array property holds.
+pub const MAX_PROPERTY_ARRAY_ELEMENTS: usize = 1023;
 
 /// What a texture property names.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,6 +52,11 @@ pub enum PropertyValue {
     /// Sixteen floats in column-major order.
     Matrix(String, [f32; 16]),
     Texture(String, TextureSlot),
+    /// One to [`MAX_PROPERTY_ARRAY_ELEMENTS`] vectors, each x, y, z, w, in element order.
+    VectorArray(String, Vec<[f32; 4]>),
+    /// One to [`MAX_PROPERTY_ARRAY_ELEMENTS`] matrices in element order, each sixteen floats in
+    /// column-major order: element `column * 4 + row`.
+    MatrixArray(String, Vec<[f32; 16]>),
 }
 
 /// Named shader values, one list per kind, each sorted by name. Setting a name that a list holds
@@ -61,6 +68,8 @@ pub struct ShaderProperties {
     pub vectors: Vec<(String, [f32; 4])>,
     pub matrices: Vec<(String, [f32; 16])>,
     pub textures: Vec<(String, TextureSlot)>,
+    pub vector_arrays: Vec<(String, Vec<[f32; 4]>)>,
+    pub matrix_arrays: Vec<(String, Vec<[f32; 16]>)>,
 }
 
 /// Replaces the value of `name` in a list sorted by name, or inserts it in place.
@@ -128,6 +137,14 @@ fn finite(values: &[f32]) -> Result<(), GraphicsError> {
     }
 }
 
+/// Checks the element count of an array property and that every component is finite.
+fn check_array<const N: usize>(values: &[[f32; N]]) -> Result<(), GraphicsError> {
+    if values.is_empty() || values.len() > MAX_PROPERTY_ARRAY_ELEMENTS {
+        return Err(GraphicsError::InvalidPropertyArrayLength);
+    }
+    values.iter().try_for_each(|element| finite(element))
+}
+
 impl PropertyValue {
     /// The name the value is stored under.
     pub fn name(&self) -> &str {
@@ -136,7 +153,9 @@ impl PropertyValue {
             | Self::Int(name, _)
             | Self::Vector(name, _)
             | Self::Matrix(name, _)
-            | Self::Texture(name, _) => name,
+            | Self::Texture(name, _)
+            | Self::VectorArray(name, _)
+            | Self::MatrixArray(name, _) => name,
         }
     }
 
@@ -149,6 +168,8 @@ impl PropertyValue {
             Self::Int(..) => Ok(()),
             Self::Vector(_, value) => finite(value),
             Self::Matrix(_, value) => finite(value),
+            Self::VectorArray(_, values) => check_array(values),
+            Self::MatrixArray(_, values) => check_array(values),
             Self::Texture(_, slot) => {
                 match &slot.texture {
                     TextureRef::Asset(0) => return Err(GraphicsError::InvalidTexture),
@@ -172,6 +193,8 @@ impl ShaderProperties {
             PropertyValue::Vector(name, value) => upsert(&mut self.vectors, name, value),
             PropertyValue::Matrix(name, value) => upsert(&mut self.matrices, name, value),
             PropertyValue::Texture(name, value) => upsert(&mut self.textures, name, value),
+            PropertyValue::VectorArray(name, value) => upsert(&mut self.vector_arrays, name, value),
+            PropertyValue::MatrixArray(name, value) => upsert(&mut self.matrix_arrays, name, value),
         }
     }
 
@@ -195,6 +218,16 @@ impl ShaderProperties {
         find(&self.textures, name)
     }
 
+    /// A copy of the vectors stored under `name`, in element order.
+    pub fn vector_array(&self, name: &str) -> Option<Vec<[f32; 4]>> {
+        find(&self.vector_arrays, name)
+    }
+
+    /// A copy of the matrices stored under `name`, in element order.
+    pub fn matrix_array(&self, name: &str) -> Option<Vec<[f32; 16]>> {
+        find(&self.matrix_arrays, name)
+    }
+
     /// The values of both sets; where both hold a name of one kind, `over` wins.
     #[must_use]
     pub fn merged_with(&self, over: &Self) -> Self {
@@ -204,6 +237,8 @@ impl ShaderProperties {
             vectors: merge_sorted(&self.vectors, &over.vectors),
             matrices: merge_sorted(&self.matrices, &over.matrices),
             textures: merge_sorted(&self.textures, &over.textures),
+            vector_arrays: merge_sorted(&self.vector_arrays, &over.vector_arrays),
+            matrix_arrays: merge_sorted(&self.matrix_arrays, &over.matrix_arrays),
         }
     }
 
@@ -214,5 +249,7 @@ impl ShaderProperties {
             && self.vectors.is_empty()
             && self.matrices.is_empty()
             && self.textures.is_empty()
+            && self.vector_arrays.is_empty()
+            && self.matrix_arrays.is_empty()
     }
 }

@@ -8,6 +8,7 @@
 //!
 //! A decoder refuses truncated or corrupt input with a named [`WireError`]; it never panics and
 //! never allocates more than the input it was given can fill.
+mod array_parts;
 mod codec;
 mod command_parts;
 mod context_parts;
@@ -20,7 +21,7 @@ use super::{GraphicsSnapshot, OffscreenWork};
 use codec::{Reader, Wire, Writer};
 
 /// The version of the encoding this module reads and writes.
-pub const WIRE_VERSION: u32 = 4;
+pub const WIRE_VERSION: u32 = 5;
 /// Most bytes the body of a snapshot holds.
 pub const MAX_SNAPSHOT_BYTES: u32 = 1 << 31;
 
@@ -47,6 +48,12 @@ pub enum WireError {
     DuplicateKey,
     #[error("bytes follow the end of the snapshot")]
     TrailingBytes,
+    #[error(
+        "a vector or matrix array has no elements, a non-finite component, an empty name or names out of order"
+    )]
+    InvalidPropertyArray,
+    #[error("memory for a vector or matrix array could not be reserved")]
+    AllocationFailed,
 }
 
 /// Encodes a snapshot.

@@ -1,5 +1,6 @@
 //! The encodings of the graphics resources a snapshot holds.
 use super::WireError;
+use super::array_parts::{read_array_list, write_array_list};
 use super::codec::{Reader, Wire, Writer, read_bytes, wire_id, wire_struct, write_bytes};
 use crate::graphics::{
     ComputeBindings, ComputeBufferId, ComputeKernel, ComputeShaderId, GlobalShaderState,
@@ -56,13 +57,29 @@ wire_struct!(TextureSlot {
     scale,
     offset
 });
-wire_struct!(ShaderProperties {
-    floats,
-    ints,
-    vectors,
-    matrices,
-    textures
-});
+impl Wire for ShaderProperties {
+    fn write(&self, out: &mut Writer) -> Result<(), WireError> {
+        self.floats.write(out)?;
+        self.ints.write(out)?;
+        self.vectors.write(out)?;
+        self.matrices.write(out)?;
+        self.textures.write(out)?;
+        write_array_list(out, &self.vector_arrays)?;
+        write_array_list(out, &self.matrix_arrays)
+    }
+
+    fn read(input: &mut Reader<'_>) -> Result<Self, WireError> {
+        Ok(Self {
+            floats: Wire::read(input)?,
+            ints: Wire::read(input)?,
+            vectors: Wire::read(input)?,
+            matrices: Wire::read(input)?,
+            textures: Wire::read(input)?,
+            vector_arrays: read_array_list(input)?,
+            matrix_arrays: read_array_list(input)?,
+        })
+    }
+}
 wire_struct!(ShaderSource { file, path_id });
 wire_struct!(WorldShader { name, source });
 wire_struct!(WorldMaterial {

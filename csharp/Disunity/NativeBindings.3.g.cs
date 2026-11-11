@@ -81,6 +81,27 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_set_global(ulong world, uint kind, byte* name, uint length, float* floats, int int_value, DisunityTextureSlot* slot);
         /// <summary>
+        ///  Records a global vector array to set when the host reaches the record: `count` vectors of 4
+        ///  floats at `values`, in element order. The count is 1 to 1023 and every float must be finite.
+        ///  The floats are copied before the call returns. The record changes only the host's global
+        ///  state at that point in the work; the world's own global state stays as it is.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_vector_array", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_global_vector_array(ulong world, byte* name, uint length, float* values, uint count);
+        /// <summary>
+        ///  Records a global matrix array to set when the host reaches the record: `count` matrices of
+        ///  16 floats at `values`, each column-major, in element order. The count is 1 to 1023 and every
+        ///  float must be finite. The floats are copied before the call returns.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_matrix_array", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_global_matrix_array(ulong world, byte* name, uint length, float* values, uint count);
+        /// <summary>
         ///  Records a global shader keyword to turn on (`enabled` 1) or off (0) when the host reaches
         ///  the record.
         ///
@@ -205,6 +226,26 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_shader_matrix_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_shader_matrix_write(ulong world, uint scope, ulong target, byte* name, uint length, float* values);
+        /// <summary>
+        ///  Sets a global vector array from `count` vectors of 4 floats (x, y, z, w) at `values`, in
+        ///  element order. The count is 1 to 1023 and every float must be finite. The floats are copied
+        ///  before the call returns.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_global_vector_array_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_global_vector_array_write(ulong world, byte* name, uint length, float* values, uint count);
+        /// <summary>
+        ///  Sets a global matrix array from `count` matrices of 16 floats at `values`, each in
+        ///  column-major order, in element order. The count is 1 to 1023 and every float must be finite.
+        ///  The floats are copied before the call returns.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_global_matrix_array_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_global_matrix_array_write(ulong world, byte* name, uint length, float* values, uint count);
         /// <summary>
         ///  Sets a texture property with its scale and offset.
         ///

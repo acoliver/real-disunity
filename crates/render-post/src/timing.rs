@@ -335,9 +335,9 @@ impl PassTimer {
                 None => None,
             };
             let gate = sampled.gate.get_or_insert_with(|| {
-                let authority = authority
-                    .as_ref()
-                    .expect("an untransacted frame's gate is set in finish_frame");
+                let authority = authority.as_ref().expect(
+                    "a transacted frame has an authority: SubmissionAuthority::begin sets it",
+                );
                 Gate::Serial(authority.clone(), authority.submitted_serial())
             });
             if !gate.open() {

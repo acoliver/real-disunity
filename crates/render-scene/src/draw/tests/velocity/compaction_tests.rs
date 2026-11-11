@@ -78,6 +78,7 @@ impl Rig {
 
 #[test]
 fn compacted_and_ranged_velocity_agree_while_an_edit_settles() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut compacted = Rig::new(false);
     let mut ranged = Rig::new(true);
     let mut moving = 0;
@@ -102,6 +103,7 @@ fn compacted_and_ranged_velocity_agree_while_an_edit_settles() {
 
 #[test]
 fn the_frame_after_an_edit_gathers_the_previous_transforms_again() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut rig = Rig::new(false);
     rig.velocity(0);
     let first = rig.staged();

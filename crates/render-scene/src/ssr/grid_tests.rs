@@ -4,6 +4,7 @@ use std::fmt::Write;
 
 #[test]
 fn gpu_grid_binds_complete_chains_within_device_limits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (size, count) in [([65, 33], 8), ([257, 129], 10)] {
         let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
@@ -43,6 +44,7 @@ fn gpu_grid_binds_complete_chains_within_device_limits() {
 
 #[test]
 fn gpu_grid_half_output_domain_produces_reflections() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         traversal: SceneSsrTraversal::Grid,
@@ -57,6 +59,7 @@ fn gpu_grid_half_output_domain_produces_reflections() {
 
 #[test]
 fn gpu_grid_long_hit_requires_more_than_the_old_step_limit() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let depths = pyramid(
         (0..512 * 512)
@@ -87,6 +90,7 @@ fn gpu_grid_long_hit_requires_more_than_the_old_step_limit() {
 
 #[test]
 fn gpu_grid_output_domain_full_chain_and_long_distance_match_cpu() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for base in [0, 1] {
         let depths = pyramid(vec![2500.0; 1024]);
@@ -119,6 +123,7 @@ fn gpu_grid_output_domain_full_chain_and_long_distance_match_cpu() {
 
 #[test]
 fn grid_domain_validation_rejects_unavailable_levels_and_accepts_limits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let policy = SceneSsr {
         traversal: SceneSsrTraversal::Grid,
         grid_domain: worldrunner_render_plan::SceneSsrGridDomain::ReflectionOutput,
@@ -149,6 +154,7 @@ fn grid_domain_validation_rejects_unavailable_levels_and_accepts_limits() {
 
 #[test]
 fn gpu_grid_output_domain_compiles_odd_extents_and_water_msaa() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let size = [33, 25];
@@ -488,6 +494,7 @@ fn shape_depths(shape: u32) -> Vec<Vec<f64>> {
 
 #[test]
 fn gpu_grid_positions_misses_and_mip_selection_match_independent_cpu() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut hits = 0;
     let mut misses = 0;
@@ -537,6 +544,7 @@ fn gpu_grid_positions_misses_and_mip_selection_match_independent_cpu() {
 }
 #[test]
 fn gpu_grid_pass_behind_budget_skip_and_perspective_match_cpu() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let depths = pyramid(
         (0..1024)
@@ -576,6 +584,7 @@ fn gpu_grid_pass_behind_budget_skip_and_perspective_match_cpu() {
 
 #[test]
 fn gpu_default_trace_bytes_match_pre_grid_shader() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let old = gpu::trace_source(1, false).replace(
         &include_str!("trace.wgsl").replace("SAMPLE_LANES", "1"),
@@ -603,6 +612,7 @@ fn gpu_default_trace_bytes_match_pre_grid_shader() {
 
 #[test]
 fn grid_policy_compiles_opaque_water_msaa() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut screen = SceneMetadata::new(context.device(), [33, 25], neutral_ao()).unwrap();
@@ -632,6 +642,7 @@ fn grid_policy_compiles_opaque_water_msaa() {
 
 #[test]
 fn gpu_grid_production_trace_and_average_reduction() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let policy = SceneSsr {
         traversal: SceneSsrTraversal::Grid,
@@ -669,6 +680,7 @@ fn gpu_grid_production_trace_and_average_reduction() {
 
 #[test]
 fn gpu_grid_average_partial_bins_match_valid_tap_oracle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut size = [9u32, 5];
     let mut values: Vec<f32> = (1..=45u16).map(f32::from).collect();

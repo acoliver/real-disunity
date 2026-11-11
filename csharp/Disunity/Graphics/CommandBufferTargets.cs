@@ -12,6 +12,11 @@ namespace UnityEngine.Rendering;
 /// </summary>
 public sealed partial class CommandBuffer
 {
+    /// <summary>While true, every SetRenderTarget overload throws <see cref="InvalidOperationException"/> instead of recording.
+    /// A render graph sets it around the passes it runs, which bind their targets through the graph. The engine declares it
+    /// public so the pipeline packages that set it reach it through the module facade.</summary>
+    public static bool ThrowOnSetRenderTarget;
+
     public void SetRenderTarget(RenderTargetIdentifier rt) => SetTargets(nameof(SetRenderTarget), [rt], null, null, null, null);
 
     public void SetRenderTarget(RenderTargetIdentifier rt, int mipLevel) =>
@@ -56,6 +61,14 @@ public sealed partial class CommandBuffer
     {
         ArgumentNullException.ThrowIfNull(colors);
         ThrowIfReleased();
+        if (ThrowOnSetRenderTarget)
+            throw new InvalidOperationException($"CommandBuffer.{member} is not allowed while ThrowOnSetRenderTarget is set; a render graph pass binds its targets through the graph");
+        BindTargets(member, colors, depth, mip, face, slice);
+    }
+
+    /// <summary>Records a binding of the targets, whatever <see cref="ThrowOnSetRenderTarget"/> says.</summary>
+    private void BindTargets(string member, RenderTargetIdentifier[] colors, RenderTargetIdentifier? depth, int? mip, CubemapFace? face, int? slice)
+    {
         var member2 = $"CommandBuffer.{member}";
         var targets = colors.Select(color => CommandTarget.Of(color, member2)).ToArray();
         var depthTarget = depth is { } d ? CommandTarget.Of(d, member2) : (CommandTarget?)null;

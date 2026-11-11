@@ -14,6 +14,7 @@ pub(super) const PROBE: &str = r"
 
 #[test]
 fn gpu_receiver_selects_split_boundaries_and_blends_continuously() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(&[], 600_000, None),
@@ -74,9 +75,12 @@ pub(super) fn upload_probe(
         depth_bias: [0.0; 4],
         splits: [2.0, 4.0, 6.0, 8.0],
         blend,
+        fade_out: 0.0,
         camera_splits,
         near: 0.0,
         view_depth: Vec4::X,
+        slices: Vec::new(),
+        filter_texels: 1.0,
     };
     context.queue().write_buffer(
         &renderer.map.uniform,
@@ -206,6 +210,7 @@ pub(super) fn render_probe(
 
 #[test]
 fn gpu_multi_cascade_sample_counts_match_main_exactly() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = super::cascades::source_with(
         &scene(&[], 600_000, None),

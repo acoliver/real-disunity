@@ -14,7 +14,7 @@ use worldrunner_render_post::ProjectionJitter;
 const SIZE: [u32; 2] = [64, 32];
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request()).unwrap()
+    GpuContext::shared_for_test().unwrap()
 }
 
 fn renderer(context: &GpuContext) -> FrameRenderer {
@@ -102,6 +102,7 @@ fn assert_matrix_close(actual: Mat4, expected: Mat4) {
 
 #[test]
 fn jitter_is_off_by_default_and_the_prepared_frame_is_untouched() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let renderer = renderer(&context);
     assert_eq!(renderer.projection_jitter(), None);
@@ -114,6 +115,7 @@ fn jitter_is_off_by_default_and_the_prepared_frame_is_untouched() {
 
 #[test]
 fn explicitly_off_matches_a_renderer_that_never_had_jitter() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let absent = renderer(&context);
     let mut toggled = renderer(&context);
@@ -130,6 +132,7 @@ fn explicitly_off_matches_a_renderer_that_never_had_jitter() {
 
 #[test]
 fn first_frame_is_jittered_and_has_no_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -159,6 +162,7 @@ fn first_frame_is_jittered_and_has_no_history() {
 
 #[test]
 fn jitter_changes_only_the_matrix_lanes_of_the_scene_block() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -171,6 +175,7 @@ fn jitter_changes_only_the_matrix_lanes_of_the_scene_block() {
 
 #[test]
 fn preparing_twice_does_not_jitter_twice() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -182,6 +187,7 @@ fn preparing_twice_does_not_jitter_twice() {
 
 #[test]
 fn a_submitted_frame_becomes_the_previous_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -203,6 +209,7 @@ fn a_submitted_frame_becomes_the_previous_frame() {
 
 #[test]
 fn the_jitter_sequence_advances_one_step_per_submitted_frame_and_wraps() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     let short = ProjectionJitter::new(3).unwrap();
@@ -222,6 +229,7 @@ fn the_jitter_sequence_advances_one_step_per_submitted_frame_and_wraps() {
 
 #[test]
 fn a_cancelled_frame_leaves_no_history_and_does_not_advance_the_sequence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -244,6 +252,7 @@ fn a_cancelled_frame_leaves_no_history_and_does_not_advance_the_sequence() {
 
 #[test]
 fn a_cancelled_first_frame_leaves_the_next_frame_without_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -261,6 +270,7 @@ fn a_cancelled_first_frame_leaves_the_next_frame_without_history() {
 
 #[test]
 fn a_failed_preparation_leaves_no_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -280,6 +290,7 @@ fn a_failed_preparation_leaves_no_history() {
 
 #[test]
 fn a_camera_cut_discards_history_and_restarts_the_sequence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -298,6 +309,7 @@ fn a_camera_cut_discards_history_and_restarts_the_sequence() {
 
 #[test]
 fn a_frame_prepared_before_a_cut_does_not_republish_after_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -316,6 +328,7 @@ fn a_frame_prepared_before_a_cut_does_not_republish_after_it() {
 
 #[test]
 fn a_resize_discards_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -329,6 +342,7 @@ fn a_resize_discards_history() {
 
 #[test]
 fn changed_jitter_settings_discard_history_and_identical_ones_keep_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -348,6 +362,7 @@ fn changed_jitter_settings_discard_history_and_identical_ones_keep_it() {
 
 #[test]
 fn a_frame_without_jitter_data_publishes_nothing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -365,6 +380,7 @@ fn a_frame_without_jitter_data_publishes_nothing() {
 #[test]
 fn the_public_descriptor_selects_jitter_and_defaults_to_off() {
     use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostResolve, ToneMap};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let build = |antialiasing| {
         FrameRenderer::hdr_antialiased(
@@ -389,6 +405,7 @@ fn the_public_descriptor_selects_jitter_and_defaults_to_off() {
 fn a_capture_may_stage_the_temporal_history_it_declares() {
     use worldrunner_render_gpu::submission::capture::CaptureWrites;
     use worldrunner_render_post::FrameError;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let mut renderer = renderer(&context);
@@ -426,6 +443,7 @@ fn taa_descriptor() -> worldrunner_render_post::AntiAliasing {
 #[test]
 fn taa_builds_at_construction_with_jitter_enabled_automatically() {
     use worldrunner_render_post::{AntiAliasing, MsaaSamples, PostResolve, ToneMap};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let build = |antialiasing: AntiAliasing, effects| {
         FrameRenderer::hdr_antialiased(
@@ -453,6 +471,7 @@ fn taa_builds_at_construction_with_jitter_enabled_automatically() {
 #[test]
 fn clearing_jitter_while_taa_is_resident_is_a_typed_error_that_keeps_the_sequence() {
     use worldrunner_render_post::{PostError, PostResolve};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.post_requested.resolve = PostResolve::taa(0.9);
@@ -474,6 +493,7 @@ fn clearing_jitter_while_taa_is_resident_is_a_typed_error_that_keeps_the_sequenc
 #[test]
 fn clearing_jitter_is_allowed_without_taa() {
     use worldrunner_render_post::PostResolve;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     assert_eq!(renderer.set_projection_jitter(None), Ok(()));
@@ -487,6 +507,7 @@ fn clearing_jitter_is_allowed_without_taa() {
 
 #[test]
 fn the_first_frame_reports_its_own_clock_and_camera_as_previous() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -498,6 +519,7 @@ fn the_first_frame_reports_its_own_clock_and_camera_as_previous() {
 
 #[test]
 fn a_submitted_frame_publishes_its_clock_and_camera_for_the_next_frame() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -512,6 +534,7 @@ fn a_submitted_frame_publishes_its_clock_and_camera_for_the_next_frame() {
 
 #[test]
 fn a_cancelled_frame_does_not_publish_its_clock_or_camera() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -531,6 +554,7 @@ fn a_cancelled_frame_does_not_publish_its_clock_or_camera() {
 
 #[test]
 fn a_reset_discards_the_previous_clock_and_camera() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -545,6 +569,7 @@ fn a_reset_discards_the_previous_clock_and_camera() {
 
 #[test]
 fn a_frame_prepared_before_a_reset_does_not_republish_its_clock() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -566,6 +591,7 @@ fn a_frame_prepared_before_a_reset_does_not_republish_its_clock() {
 
 #[test]
 fn a_clock_that_moves_backwards_discards_history_and_restarts_the_sequence() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -582,6 +608,7 @@ fn a_clock_that_moves_backwards_discards_history_and_restarts_the_sequence() {
 
 #[test]
 fn an_equal_clock_keeps_history() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -593,6 +620,7 @@ fn an_equal_clock_keeps_history() {
 
 #[test]
 fn a_frame_prepared_before_a_rewind_does_not_republish_after_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     renderer.set_projection_jitter(Some(jitter())).unwrap();
@@ -622,6 +650,7 @@ fn a_frame_prepared_before_a_rewind_does_not_republish_after_it() {
 #[test]
 fn a_ratio_aware_sequence_shifts_the_projection_by_the_offset_over_the_internal_extent() {
     const BOUND: f32 = 1e-5;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let output = SIZE.map(|extent| extent * 2);
     let sequence = ProjectionJitter::for_extents(SIZE, output).unwrap();
     assert_eq!(sequence.length(), 32);
@@ -676,6 +705,7 @@ fn reduced_temporal_renderer(context: &GpuContext) -> ConfiguredFrameRenderer {
 
 #[test]
 fn a_jitter_sequence_shorter_than_the_derived_one_is_rejected_and_the_selection_kept() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = reduced_temporal_renderer(&context);
     let derived = ProjectionJitter::for_extents([43, 32], [64, 48]).unwrap();

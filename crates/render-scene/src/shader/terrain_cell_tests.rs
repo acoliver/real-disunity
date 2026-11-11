@@ -32,10 +32,9 @@ fn boundary_terrain() -> SceneTerrain {
 
 #[test]
 fn terrain_gpu_cells_follow_stored_boundaries_and_outer_edge_ownership() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let fixture = crate::terrain::planes::tests::fixture;
     for terrain in [
         boundary_terrain(),
@@ -51,18 +50,15 @@ fn terrain_gpu_cells_follow_stored_boundaries_and_outer_edge_ownership() {
                 "@group(1) @binding(0) var<uniform> terrain: Terrain;",
                 "var<private> terrain: Terrain;",
             );
-        let words: Vec<_> = planes
+        let mut words: Vec<_> = planes
             .bytes
             .chunks_exact(4)
             .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
             .collect();
-        let result = evaluate_source(
-            &context,
-            &source,
-            &entry(&terrain, &planes),
-            None,
-            Some(&words),
-        );
+        let cases = cases(&terrain, &planes);
+        let entry = entry(&terrain, words.len(), cases.len());
+        words.extend(cases.iter().flat_map(case_words));
+        let result = evaluate_source(&context, &source, &entry, None, Some(&words));
         assert_eq!(
             result[0].to_bits(),
             0,
@@ -127,25 +123,21 @@ fn cases(terrain: &SceneTerrain, planes: &HeightfieldPlanes) -> Vec<Case> {
     cases
 }
 
-fn entry(terrain: &SceneTerrain, planes: &HeightfieldPlanes) -> String {
-    let cases = cases(terrain, planes);
-    let points = cases
-        .iter()
-        .map(|c| {
-            format!(
-                "vec2<f32>(bitcast<f32>({}u),bitcast<f32>({}u))",
-                c.point.x.to_bits(),
-                c.point.y.to_bits(),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let expected = cases
-        .iter()
-        .map(|c| format!("vec3<u32>({}u,{}u,{}u)", c.index, c.cell[0], c.cell[1]))
-        .collect::<Vec<_>>()
-        .join(",");
-    let count = cases.len();
+const CASE_WORDS: usize = 5;
+
+/// The cases follow the plane words in the bound buffer. Written into the shader source as
+/// literal arrays they took minutes to run on lavapipe.
+fn case_words(case: &Case) -> [f32; CASE_WORDS] {
+    [
+        case.point.x,
+        case.point.y,
+        f32::from_bits(case.index),
+        f32::from_bits(case.cell[0]),
+        f32::from_bits(case.cell[1]),
+    ]
+}
+
+fn entry(terrain: &SceneTerrain, cases: usize, count: usize) -> String {
     let origin = [
         terrain.origin_east_millimeters(),
         terrain.origin_north_millimeters(),
@@ -157,13 +149,14 @@ fn entry(terrain: &SceneTerrain, planes: &HeightfieldPlanes) -> String {
 @compute @workgroup_size(1) fn evaluate_math() {{
     terrain.origin_and_spacing = vec4<f32>({},{},{},1.0);
     terrain.dimensions_and_count = vec4<u32>({}u,{}u,1u,0u);
-    let points = array<vec2<f32>,{count}>({points});
-    let expected = array<vec3<u32>,{count}>({expected});
     var failures = 0u;
     for (var i = 0u; i < {count}u; i++) {{
-        let descriptor = terrain_plane_data[3] + expected[i].x * 8u;
-        let cell = terrain_cell(points[i], descriptor);
-        failures += select(0u, 1u, any(cell != expected[i].yz));
+        let o = {cases}u + i * {CASE_WORDS}u;
+        let point = bitcast<vec2<f32>>(vec2<u32>(terrain_plane_data[o], terrain_plane_data[o + 1u]));
+        let descriptor = terrain_plane_data[3] + terrain_plane_data[o + 2u] * 8u;
+        let cell = terrain_cell(point, descriptor);
+        let expected = vec2<u32>(terrain_plane_data[o + 3u], terrain_plane_data[o + 4u]);
+        failures += select(0u, 1u, any(cell != expected));
     }}
     result[0] = vec4<f32>(f32(failures), {count}.0, 0.0, 0.0);
 }}",

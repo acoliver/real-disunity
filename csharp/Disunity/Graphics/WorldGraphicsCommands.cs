@@ -88,6 +88,29 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_setup_camera(World, camera, matrices, matrices + 16, &native));
     }
 
+    /// <summary>Records a view and projection change, each matrix column by column as the world holds it.</summary>
+    internal static void RecordSetViewProjection(Matrix4x4 view, Matrix4x4 projection)
+    {
+        var matrices = stackalloc float[32];
+        for (var column = 0; column < 4; column++)
+            for (var row = 0; row < 4; row++)
+            {
+                matrices[column * 4 + row] = view[row, column];
+                matrices[16 + column * 4 + row] = projection[row, column];
+            }
+        Check(NativeBindings.disunity_offscreen_set_view_projection(World, matrices, matrices + 16));
+    }
+
+    /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it.</summary>
+    internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, int submesh, int pass)
+    {
+        var columns = stackalloc float[16];
+        for (var column = 0; column < 4; column++)
+            for (var row = 0; row < 4; row++)
+                columns[column * 4 + row] = matrix[row, column];
+        Check(NativeBindings.disunity_offscreen_draw_mesh(World, mesh, columns, material, (uint)submesh, pass));
+    }
+
     private static long _lastHandle;
 
     /// <summary>The next id for a culling result or a renderer list. Ids are never reused, so a handle from an earlier frame

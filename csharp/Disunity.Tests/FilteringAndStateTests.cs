@@ -15,7 +15,8 @@ internal static class FilteringAndStateTests
         DisunityHost.LoadWorld();
         try { Drawing(); }
         finally { DisunityHost.UnloadWorld(); }
-        Console.WriteLine("PASS: SortingSettings and DrawingSettings hold their data");
+        ShadowDrawing();
+        Console.WriteLine("PASS: SortingSettings, DrawingSettings and ShadowDrawingSettings hold their data");
     }
 
     private static void Filtering()
@@ -172,5 +173,39 @@ internal static class FilteringAndStateTests
         drawing.overrideMaterialPassIndex = 2;
         drawing.mainLightIndex = 3;
         Expect.That(drawing.perObjectData == PerObjectData.Lightmaps && drawing.overrideMaterialPassIndex == 2 && drawing.mainLightIndex == 3, "settings are writable");
+    }
+
+    private static void ShadowDrawing()
+    {
+        var culling = default(CullingResults);
+        var shadow = new ShadowDrawingSettings(culling, 2);
+        Expect.That(shadow.cullingResults == culling && shadow.lightIndex == 2, "the culling results and light index are kept");
+        Expect.Equal(ShadowObjectsFilter.AllObjects, shadow.objectsFilter, "all objects by default");
+        Expect.Equal(BatchCullingProjectionType.Perspective, shadow.projectionType, "perspective by default");
+        Expect.That(!shadow.useRenderingLayerMaskTest && shadow.splitData == default, "no layer test and an empty split");
+        var orthographic = new ShadowDrawingSettings(culling, 2, BatchCullingProjectionType.Orthographic);
+        Expect.Equal(BatchCullingProjectionType.Orthographic, orthographic.projectionType, "the given projection is kept");
+        Expect.That(orthographic != shadow && shadow == new ShadowDrawingSettings(culling, 2), "equality sees the projection");
+        var split = new ShadowSplitData { cullingSphere = new Vector4(1, 2, 3, 4) };
+        var changed = shadow;
+        changed.splitData = split;
+        changed.objectsFilter = ShadowObjectsFilter.StaticOnly;
+        changed.useRenderingLayerMaskTest = true;
+        changed.lightIndex = 5;
+        Expect.That(changed.splitData.cullingSphere == new Vector4(1, 2, 3, 4) && changed.objectsFilter == ShadowObjectsFilter.StaticOnly
+            && changed.useRenderingLayerMaskTest && changed.lightIndex == 5, "settings are writable");
+        Expect.That(changed != shadow && changed.GetHashCode() != shadow.GetHashCode(), "equality and the hash see the changed settings");
+        var onlySplit = shadow;
+        onlySplit.splitData = split;
+        Expect.That(onlySplit != shadow, "equality sees the split");
+        var onlyLayers = shadow;
+        onlyLayers.useRenderingLayerMaskTest = true;
+        Expect.That(onlyLayers != shadow, "equality sees the layer test");
+        var onlyFilter = shadow;
+        onlyFilter.objectsFilter = ShadowObjectsFilter.DynamicOnly;
+        Expect.That(onlyFilter != shadow && !shadow.Equals((object)onlyFilter) && shadow.Equals((object)new ShadowDrawingSettings(culling, 2)), "equality sees the filter");
+        var onlyLight = shadow;
+        onlyLight.lightIndex = 3;
+        Expect.That(onlyLight != shadow, "equality sees the light index");
     }
 }

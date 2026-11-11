@@ -1,3 +1,6 @@
+#[cfg(test)]
+#[path = "card_rejection_test_support.rs"]
+mod card_rejection_test_support;
 use crate::geometry::{instance_attributes, vertex_attributes};
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
@@ -10,7 +13,8 @@ use worldrunner_render_shadow::{
 
 use super::DirectionalShadowSettings;
 
-const SHADOW_UNIFORM_BYTES: usize = 336;
+/// Bytes of the shadow uniform the shaders read at set 2, binding 0.
+pub(crate) const SHADOW_UNIFORM_BYTES: usize = 352;
 
 pub(super) const SHADOWED_WGSL: &str = concat!(
     worldrunner_render_shadow::shadow_wgsl!(),
@@ -58,12 +62,8 @@ pub(super) fn depth_pipelines(
     pipelines: &ScenePipelines,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-) -> (
-    [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
-    wgpu::RenderPipeline,
-) {
-    let mut configuration = settings.configuration();
-    configuration.caster_bias.slope_scale = slope_bias(sampling);
+) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
+    let configuration = caster_configuration(settings, sampling);
     let module = depth_shader(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shadow caster"),
@@ -76,24 +76,40 @@ pub(super) fn depth_pipelines(
     let vertices = vertex_attributes();
     let instances = instance_attributes();
     let buffers = crate::renderer::vertex_buffers(&vertices, &instances);
-    let terrain = terrain_depth_pipeline(
-        device,
-        &module,
-        pipelines.frame_layout(),
-        &buffers,
-        configuration,
-    );
     // Relief is deliberately flat in directional maps, so its pipelines are identical.
     let objects: [_; 8] = std::array::from_fn(|index| {
         let key = PipelineKey::ALL[(index / 4) * 16 + index % 4];
         object_depth_pipeline(device, key, &layout, &module, &buffers, configuration)
     });
-    (
-        std::array::from_fn(|index| {
-            let key = PipelineKey::ALL[index];
-            objects[usize::from(key.sampling.is_impostor()) * 4 + index % 4].clone()
-        }),
-        terrain,
+    std::array::from_fn(|index| {
+        let key = PipelineKey::ALL[index];
+        objects[usize::from(key.sampling.is_impostor()) * 4 + index % 4].clone()
+    })
+}
+
+/// The caster policy of `settings` with the slope bias of the scene's shadow sampling.
+fn caster_configuration(
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
+) -> worldrunner_render_shadow::DirectionalShadowConfig {
+    let mut configuration = settings.configuration();
+    configuration.caster_bias.slope_scale = slope_bias(sampling);
+    configuration
+}
+
+/// The terrain's caster for `settings`, drawing on the program runtime the receiver pipelines
+/// share.
+pub(super) fn terrain_caster(
+    context: &crate::device::GpuContext,
+    pipelines: &ScenePipelines,
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
+) -> super::terrain_caster::TerrainCaster {
+    super::terrain_caster::TerrainCaster::new(
+        &caster_configuration(settings, sampling),
+        pipelines.terrain_context().family(),
+        (context.device(), context.submission()),
+        pipelines.frame_layout(),
     )
 }
 
@@ -138,49 +154,21 @@ fn object_depth_pipeline(
     )
 }
 
-fn terrain_depth_pipeline(
-    device: &wgpu::Device,
-    module: &wgpu::ShaderModule,
-    frame_layout: &wgpu::BindGroupLayout,
-    buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
-    configuration: worldrunner_render_shadow::DirectionalShadowConfig,
-) -> wgpu::RenderPipeline {
-    let terrain_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("terrain shadow caster"),
-        bind_group_layouts: &[Some(frame_layout)],
-        immediate_size: 0,
-    });
-    worldrunner_render_shadow::create_depth_pipeline(
-        device,
-        DepthPipelineDescriptor {
-            label: Some("terrain"),
-            layout: &terrain_layout,
-            vertex: wgpu::VertexState {
-                module,
-                entry_point: Some("vs_terrain_depth"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers,
-            },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            compare: configuration.caster_compare,
-            bias: configuration.caster_bias,
-            fragment: None,
-        },
-    )
-}
-
 fn depth_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
-    let source = format!(
-        "{ENVIRONMENT_WGSL}\n{}",
-        include_str!("../shader/shadow_depth.wgsl")
-    );
+    let source = depth_source();
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("shadow caster"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     })
+}
+
+pub(crate) fn depth_source() -> String {
+    crate::renderer::depth::DepthMode::Independent
+        .vertex_source(&format!(
+            "{ENVIRONMENT_WGSL}\n{}",
+            include_str!("../shader/shadow_depth.wgsl")
+        ))
+        .into_owned()
 }
 
 #[derive(Debug)]
@@ -189,6 +177,7 @@ pub(super) struct ShadowMap {
     pub uniform: wgpu::Buffer,
     pub group: wgpu::BindGroup,
     slots: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    pub(super) sampler: wgpu::Sampler,
 }
 
 impl ShadowMap {
@@ -260,6 +249,7 @@ impl ShadowMap {
             uniform: slots[0].0.clone(),
             group: slots[0].1.clone(),
             slots,
+            sampler,
         })
     }
 }
@@ -327,6 +317,7 @@ pub(super) fn uniform_bytes_with_sampling(
     values.extend(cascades.splits);
     values.extend(cascades.view_depth.to_array());
     values.extend(cascades.depth_bias);
+    values.extend([cascades.fade_out, 0.0, 0.0, 0.0]);
     values.into_iter().flat_map(f32::to_le_bytes).collect()
 }
 

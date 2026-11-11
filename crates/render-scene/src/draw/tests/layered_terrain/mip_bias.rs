@@ -116,11 +116,13 @@ fn assert_bias_selects_finer_levels(anisotropy: u16, height_of: fn(u32) -> i64) 
 
 #[test]
 fn a_temporal_half_scale_renderer_selects_isotropic_layered_mips_two_levels_finer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_bias_selects_finer_levels(1, height_for);
 }
 
 #[test]
 fn a_temporal_half_scale_renderer_selects_anisotropic_layered_mips_two_levels_finer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_bias_selects_finer_levels(4, aniso_height_for);
 }
 
@@ -129,6 +131,7 @@ fn a_temporal_half_scale_renderer_selects_anisotropic_layered_mips_two_levels_fi
 /// them, untouched. Both draws run the same code on the same device, so the bytes are identical.
 #[test]
 fn a_nonzero_material_mip_bias_leaves_the_baked_pages_unchanged() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for filter in [TerrainSplatFilter::Bilinear, TerrainSplatFilter::Spiral14] {
         let scene = layered_scene(filter);

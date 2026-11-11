@@ -63,6 +63,7 @@ pub(super) fn foliage_scene(
 
 #[test]
 fn tint_and_vertex_ao_endpoints_and_neutral_output_are_exact() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let stock = foliage_scene(None, SceneTint::WHITE, 1_000_000);
     let neutral = foliage_scene(Some(features()), SceneTint::WHITE, 1_000_000);
@@ -101,6 +102,7 @@ fn tint_and_vertex_ao_endpoints_and_neutral_output_are_exact() {
 
 #[test]
 fn wind_and_alpha_have_identical_depth_bytes_in_every_geometry_pass() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let wind = SceneWind::new(
         SceneDirection::new([1_000_000, 0, 0]).unwrap(),
@@ -276,7 +278,11 @@ fn pass_pipelines(
             key,
             &layout,
             &buffers,
-            (1, wgpu::FrontFace::Ccw),
+            (
+                1,
+                wgpu::FrontFace::Ccw,
+                crate::renderer::depth::DepthMode::Independent,
+            ),
             wgpu::FragmentState {
                 module: &module,
                 entry_point: Some(entry),
@@ -372,6 +378,7 @@ fn card_transition_scene(coverage: u32) -> RenderScene {
 
 #[test]
 fn mesh_card_transition_has_exact_complementary_coverage_in_all_passes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let authority =
@@ -437,6 +444,7 @@ fn with_material(scene: &RenderScene, material: &SceneMaterial) -> RenderScene {
 
 #[test]
 fn foliage_translucency_zero_is_stock_and_one_transmits_backlighting() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let stock = scene(SceneAlphaMode::Opaque, true, 1);
     let base = stock.resources().materials()[0];
@@ -514,6 +522,7 @@ pub(super) fn contact_scene(height: i64, contact: bool, black: bool) -> RenderSc
 
 #[test]
 fn terrain_contact_full_and_zero_endpoints_match_exact_material_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut frame = frame_from(pose());
     frame.unlit = true;
@@ -528,6 +537,7 @@ fn terrain_contact_full_and_zero_endpoints_match_exact_material_bytes() {
 
 #[test]
 fn foliage_resources_retire_after_scene_drop() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -566,6 +576,7 @@ fn foliage_resources_retire_after_scene_drop() {
 #[test]
 fn camera_motion_changes_lod_without_repacking_or_reordering_instances() {
     use crate::draw::visibility::{MeshSelection, Selection};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let scene = card_transition_scene(500_000);
     let mut instances = crate::instances::Instances::new(&scene);
     let object = scene.geometry().objects()[0];
@@ -611,6 +622,7 @@ fn camera_motion_changes_lod_without_repacking_or_reordering_instances() {
 
 #[test]
 fn terrain_contact_uses_rendered_lod_triangles_not_discarded_height_samples() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut frame = frame_from(pose());
     frame.unlit = true;

@@ -105,7 +105,7 @@ pub(super) fn effects(density: u32, dome: bool) -> SceneEffects {
         .with_atmosphere(atmosphere(density))
         .unwrap()
 }
-pub(super) fn atmosphere(density: u32) -> SceneAtmosphere {
+pub(crate) fn atmosphere(density: u32) -> SceneAtmosphere {
     let [a, b, c, d] = density.to_le_bytes();
     let density = (f32::from(u16::from_le_bytes([c, d])) * 65_536.0
         + f32::from(u16::from_le_bytes([a, b])))
@@ -297,7 +297,8 @@ pub(super) fn capture(
 }
 #[test]
 fn full_scene_mesh_occlusion_fog_distance_and_single_exposure() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = scene(100_000, true, false);
     let image = render(&context, &source, 2.0);
     let unobstructed = render(&context, &scene(100_000, false, false), 2.0);
@@ -346,7 +347,8 @@ fn full_scene_mesh_occlusion_fog_distance_and_single_exposure() {
 }
 #[test]
 fn dome_texture_is_linear_and_uses_the_existing_scene_upload() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let image = render(&context, &scene(0, false, true), 2.0);
     for (actual, channel) in image.rgb(0).into_iter().zip([64u16, 128, 192]) {
         assert!((actual - 2.0 * f32::from(channel) / 255.0).abs() < 0.002);
@@ -396,7 +398,7 @@ pub(super) fn read(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {
@@ -436,7 +438,8 @@ pub(super) fn draw(
 
 #[test]
 fn dome_without_an_atmosphere_is_rejected_on_upload() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = RenderScene::new(SceneParts {
         resources: SceneResources::new(textures().to_vec(), vec![]).unwrap(),
         geometry: SceneGeometry::new(vec![], vec![]).unwrap(),
@@ -457,7 +460,8 @@ fn dome_without_an_atmosphere_is_rejected_on_upload() {
 
 #[test]
 fn dome_longitudes_poles_and_camera_translation_use_scene_z_up() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = directional_dome();
     for (direction, up, expected) in [
         ([1000, 0, 0], [0.0, 0.0, 1.0], [255u16, 0, 0]),

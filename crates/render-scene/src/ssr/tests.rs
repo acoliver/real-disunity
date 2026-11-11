@@ -53,7 +53,7 @@ fn settings() -> SceneSsr {
     }
 }
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request()).unwrap()
+    GpuContext::shared_for_test().unwrap()
 }
 fn frame() -> FrameUniform {
     FrameUniform {
@@ -97,6 +97,7 @@ fn half(value: f32) -> u16 {
 
 #[test]
 fn half_upload_rounds_to_nearest_ties_to_even() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_eq!(half(1.0 + 2.0f32.powi(-11)), 0x3c00);
     assert_eq!(half(1.0 + 3.0 * 2.0f32.powi(-11)), 0x3c02);
     assert_eq!(half(1.0 + 0.75 * 2.0f32.powi(-10)), 0x3c01);
@@ -133,6 +134,7 @@ fn upload(context: &GpuContext, texture: &wgpu::Texture, values: &[f32]) {
 }
 #[test]
 fn settings_validate_enabled_and_disabled_requests() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert!(validate_settings(&settings()).is_ok());
     for invalid in [
         SceneSsr {
@@ -174,6 +176,7 @@ fn settings_validate_enabled_and_disabled_requests() {
 }
 #[test]
 fn gpu_reflection_resources_compile_and_half_resolution_includes_odd_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for size in [[65, 49], [1, 7], [7, 1]] {
         let mut screen = SceneMetadata::new(context.device(), size, neutral_ao()).unwrap();
@@ -385,6 +388,7 @@ fn trace_fixture_normal(
 
 #[test]
 fn gpu_mirror_reflects_cpu_reference_object_and_rough_surfaces_do_not() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let target = glam::Vec2::new(0.65, 0.35);
     let reflection = trace_fixture(&context, 0.0, target, false);
@@ -407,6 +411,7 @@ fn gpu_mirror_reflects_cpu_reference_object_and_rough_surfaces_do_not() {
 }
 #[test]
 fn gpu_screen_edge_fade_and_ray_miss() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let middle = trace_fixture(&context, 0.0, glam::Vec2::new(0.65, 0.35), false);
     let edge = trace_fixture(&context, 0.0, glam::Vec2::new(0.98, 0.35), false);
@@ -468,6 +473,7 @@ fn attachments(
 }
 #[test]
 fn gpu_production_plan_uses_requested_snapshots_and_rejects_missing_inputs() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = renderer(&context);
     let (color, depth, mut opaque) = attachments(&renderer);

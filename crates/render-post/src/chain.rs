@@ -189,6 +189,16 @@ impl std::fmt::Debug for TimingState {
     }
 }
 impl TimingState {
+    /// Encodes a compiled list with the frame's pass timer.
+    pub fn encode_checked(
+        &self,
+        compiled: &crate::contracts::CompiledOperations,
+        registry: &crate::contracts::ResourceRegistry,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), crate::contracts::ContractError> {
+        let mut timer = self.0.borrow_mut();
+        compiled.encode_checked(registry, encoder, timer.as_mut())
+    }
     /// Attach a provider compute pass to the active frame, if timing is enabled.
     pub fn begin_compute_pass<'a>(
         &self,
@@ -214,8 +224,30 @@ impl<F: StageFactory> PostChain<F> {
         persistent: Resources,
         factory: F,
     ) -> Result<Self, PostError> {
+        Self::with_scene_depth(
+            device,
+            config,
+            persistent,
+            factory,
+            crate::SceneDepth::Independent,
+        )
+    }
+
+    /// Creates frame targets with the stock planner's depth ownership representation.
+    pub fn with_scene_depth(
+        device: &wgpu::Device,
+        config: FrameConfig,
+        persistent: Resources,
+        factory: F,
+        depth: crate::SceneDepth,
+    ) -> Result<Self, PostError> {
         factory.validate_config(device, config)?;
-        let targets = FrameTargets::with_options(device, config, target_options(&factory, config))?;
+        let targets = FrameTargets::with_scene_depth(
+            device,
+            config,
+            target_options(&factory, config),
+            depth,
+        )?;
         let configured = build_slots(&factory, device, &targets, &persistent)?;
         Ok(Self {
             targets,
@@ -299,8 +331,12 @@ impl<F: StageFactory> PostChain<F> {
     ) -> Result<(), PostError> {
         config.validate_device(device)?;
         self.factory.validate_config(device, config)?;
-        let targets =
-            FrameTargets::with_options(device, config, target_options(&self.factory, config))?;
+        let targets = FrameTargets::with_scene_depth(
+            device,
+            config,
+            target_options(&self.factory, config),
+            self.targets.scene_depth(),
+        )?;
         let configured = build_slots(&self.factory, device, &targets, &self.persistent)?;
         for feature in &mut self.features {
             feature.prepared = None;
@@ -582,7 +618,7 @@ impl<F: StageFactory> PostChain<F> {
                 slot: declaration.slot,
             };
             let stamp = self.stamp(crate::PassId::Geometry(declaration.slot));
-            raster.encode_stock_pass(index, encoder, stamp.as_ref(), |pass| {
+            raster.encode_stock_pass(index, declaration.slot, encoder, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature
                         .declaration
@@ -643,8 +679,11 @@ fn build_slots<F: StageFactory>(
     }
     let built = (0..factory.frame_slots())
         .map(|slot| {
-            let set = factory.build_for_slot(device, targets, persistent, slot)?;
+            let mut set = factory.build_for_slot(device, targets, persistent, slot)?;
             set.validate(device)?;
+            for stage in &mut set.stages {
+                stage.label = stage.id.diagnostic_label();
+            }
             Ok(set)
         })
         .collect::<Result<Vec<_>, PostError>>();

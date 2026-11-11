@@ -3,6 +3,8 @@
 pub(crate) mod chunks;
 pub mod pages;
 pub(crate) mod planes;
+pub(crate) mod prepared;
+pub(crate) mod program;
 pub mod streaming;
 use glam::{DVec3, Vec3};
 use thiserror::Error;
@@ -273,8 +275,9 @@ impl<'a> TerrainGrid<'a> {
     ///
     /// The differences are taken between the *selected* neighbours rather than
     /// the original ones, so the normals describe the surface actually being
-    /// drawn. Shading a reduced mesh with full-resolution normals would light
-    /// detail that no longer has silhouette to match it.
+    /// drawn. The fragment stage lights terrain from the full-resolution
+    /// heightfield instead (`terrain_pixel_normal`), so a reduced mesh keeps the
+    /// lighting of the finest one; these vertex normals remain the skirts'.
     fn normal(&self, column: usize, row: usize) -> Vec3 {
         let (west, east) = neighbours(self.columns.len(), column);
         let east_rise = f64::from(self.height(self.columns[east], self.rows[row]))
@@ -310,6 +313,16 @@ impl<'a> TerrainGrid<'a> {
     }
 }
 
+#[cfg(test)]
+mod capture_tests;
+#[cfg(test)]
+mod cost_tests;
+#[cfg(test)]
+mod family_tests;
+#[cfg(test)]
+mod path_tests;
+#[cfg(test)]
+mod program_tests;
 #[cfg(test)]
 mod tests;
 

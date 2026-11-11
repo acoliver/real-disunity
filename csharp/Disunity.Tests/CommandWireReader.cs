@@ -50,6 +50,10 @@ internal static unsafe class CommandWireReader
             9 => $"Release {input.I32()}",
             11 => $"SetupCamera camera={input.Component()} view={input.Floats(16)} projection={input.Floats(16)} target={input.Target()}",
             10 => $"Cull id={input.U64()} camera={input.Component()} mask={input.U32()} planes=[{string.Join(",", input.List(() => input.Floats(4)))}] options={input.U32()}",
+            13 => $"CreateList id={input.U64()} {input.RendererList()}",
+            14 => $"DrawList list={input.U64()}",
+            15 => $"ViewProjection view={input.Floats(16)} projection={input.Floats(16)}",
+            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
@@ -71,6 +75,30 @@ internal static unsafe class CommandWireReader
         public string Floats(int n) => "(" + string.Join(" ", Enumerable.Range(0, n).Select(_ => F32().ToString("R", CultureInfo.InvariantCulture))) + ")";
         public string Text() { var n = (int)U32(); var s = Encoding.UTF8.GetString(bytes, _at, n); _at += n; return s; }
         public IEnumerable<T> List<T>(Func<T> read) { var n = (int)U32(); return Enumerable.Range(0, n).Select(_ => read()).ToList(); }
+        public string RendererList() => U8() switch
+        {
+            0 => DrawList(),
+            1 => ShadowList(),
+            var other => throw new InvalidOperationException($"no renderer list has the tag {other}"),
+        };
+
+        private string DrawList()
+        {
+            var cull = U64();
+            var tags = string.Join(",", List(Text));
+            var (queueMin, queueMax) = (I32(), I32());
+            var (layers, renderingLayers, sorting, perObject) = (U32(), U32(), U32(), U32());
+            var material = Optional(() => U64().ToString());
+            return $"draw cull={cull} tags=[{tags}] queue={queueMin}..{queueMax} layers={layers} renderingLayers={renderingLayers} sorting={sorting} perObject={perObject} material={material} pass={I32()}";
+        }
+
+        private string ShadowList()
+        {
+            var (cull, light) = (U64(), I32());
+            var planes = string.Join(",", List(() => Floats(4)));
+            return $"shadow cull={cull} light={light} planes=[{planes}] sphere={Floats(4)} filter={U32()} projection={U32()} layerTest={U8()}";
+        }
+
         public string Optional(Func<string> read) => U8() == 0 ? "-" : read();
 
         public string Target() => U8() switch
@@ -108,9 +136,11 @@ internal static unsafe class CommandWireReader
         {
             var (w, h, format, depth, mips) = (U32(), U32(), U32(), U32(), U32());
             var srgb = Bool();
+            var (dimension, volumeDepth) = (U32(), U32());
             var (wu, wv, ww, filter, aniso, bias) = (U32(), U32(), U32(), U32(), U32(), F32());
             U64();
-            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
+            var shape = dimension == 2 && volumeDepth == 1 ? "" : $" shape={dimension}x{volumeDepth}";
+            return $"{w}x{h} format={format} depth={depth} mips={mips} srgb={srgb}{shape} wrap={wu}{wv}{ww} filter={filter} aniso={aniso} bias={bias}";
         }
     }
 }

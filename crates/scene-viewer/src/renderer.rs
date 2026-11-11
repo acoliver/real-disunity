@@ -116,6 +116,7 @@ impl Renderer {
             profile,
             scene.effects(),
             &crate::presentation::PresentationPolicy {
+                receiver_gradients: crate::presentation::receiver_reservation(shadows),
                 budget: startup.presentation_budget,
                 capture_pool: crate::CapturePoolPolicy::Fixed(startup.capture_pool),
                 recipes: startup.recipes,
@@ -235,6 +236,9 @@ impl Renderer {
             }
         };
         self.prepare_frame(view, ready.admission.slot())?;
+        if let Some(host) = host.as_deref() {
+            self.prepare_camera_history(host);
+        }
         let output = ready
             .frame
             .texture
@@ -257,6 +261,8 @@ impl Renderer {
             .execution
             .submit_prepared(ready, prepared, &self.context)?;
         if let Some(host) = host {
+            self.submitted_camera_history(host);
+            let temporal_history_reset = self.temporal_history_reset();
             host.present_pick(view.resolved_view());
             let statistics = self.scene_statistics();
             self.streaming.captures.submitted(
@@ -265,6 +271,7 @@ impl Renderer {
                 ticket.clone(),
                 self.frame_time,
                 &statistics,
+                temporal_history_reset,
             )?;
         } else {
             self.streaming.captures.advance_frame();
@@ -598,6 +605,9 @@ pub(crate) mod retained_tests;
 
 #[cfg(test)]
 mod hdr_tests;
+
+#[cfg(test)]
+mod camera_cut_tests;
 
 #[cfg(test)]
 pub(crate) mod sdsm_tests;

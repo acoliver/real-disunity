@@ -205,6 +205,32 @@ path. Graphics already projected to screen pixels are accepted; world graphics
 are rejected. Linear HDR and opaque-term capture products exclude this
 display-space UI. Built-player retained-driver UI export is not connected yet.
 
+## Retained camera updates
+
+`RetainedUpdate::Camera { pose, lens, convention }` preserves temporal history.
+For a teleport, view reset or scene switch, submit
+`RetainedUpdate::camera_with_continuity(pose, lens, convention, CameraContinuity::Cut)`.
+`CameraContinuity::Continuous` has the same behavior as the ordinary `Camera`
+variant and is the continuity default. Both forms validate and publish the camera
+in the ordered retained-update queue.
+
+A cut discards TAA and temporal-upscaler history, restarts projection jitter at
+index zero, and replaces previous camera, jitter and animation time with the new
+frame's values for velocity producers. It also resets shadow depth-fitting
+evidence, contraction filters and retained cascade maps. Exposure adaptation is
+preserved across cuts; the separate `reset_exposure()` API requests an explicit
+restart. SSAO and SSR use current-frame products and have no separate temporal history.
+The reset happens before encoding the first submitted frame with the cut view.
+Multiple published cuts before that submission collapse into one reset. An
+abandoned or cancelled frame does not consume the cut; a later continuous
+update does not erase it.
+
+`RetainedFrameStatistics::temporal_history_reset` and
+`RetainedCaptureObservation::temporal_history_reset` report
+`TemporalHistoryReset::CameraCut` for the affected submission, otherwise `None`.
+Capture observations freeze this field with the source frame's scene statistics;
+accumulated recipes report their first sample after warmup.
+
 ## Retained shadow light
 
 Submit `RetainedUpdate::Settings` with effects updated through
@@ -213,7 +239,6 @@ resident geometry. `None` follows the direct sun. Direct lighting, sky and the
 celestial sun are unchanged. Interactive frames and same-frame captures use the
 same shadow direction, including when depth fitting is enabled.
 
-## Batch object updates
 ## Retained reflection settings
 
 A `RetainedUpdate::Settings` that changes only screen-space reflection parameters,
@@ -222,6 +247,7 @@ and keeps the resident scene. Turning reflections on or off changes the receiver
 pipelines, so that update prepares a new resident scene in the background. Changes to
 SSAO, water, atmosphere or sky also prepare a new resident scene.
 
+## Batch object updates
 
 `RetainedUpdate::Objects(Vec<SceneObjectEdit>)` applies many `Add { id, object }`,
 `Replace { id, object }` and `Remove(id)` edits as one atomic update that takes one
@@ -456,6 +482,14 @@ transparent water, background sky including discs, and four shadow cascades.
 Skipped cascades report zero for that frame. Metadata, water masks, dynamic
 quads and separate celestial mesh passes are excluded.
 
+Captures request a [forced cascade refresh](src/renderer.rs) when directional
+shadows are enabled, including [every rendered recipe sample](src/renderer/capture/advanced.rs).
+Their frozen `observation.scene.passes.shadow_cascades` counters describe that
+capture submission. Measure map reuse with `statistics()` from successive ordinary
+submissions under the configured [refresh policy](../render-shadow/src/refresh.rs);
+its default intervals request a refresh every frame. Zero caster draws alone do
+not establish that receiver sampling is disabled.
+
 `scene.effects.shadows` reports installation of the directional shadow feature
 and its mesh and terrain receiver bindings. Cached cascades remain installed
 and bound even when `scene.passes.shadow_cascades` reports no redraws.
@@ -547,6 +581,18 @@ a new measurement is dropped while rendering continues. Mapping is asynchronous;
 normal nonblocking device polls deliver completions. Reading retains only the
 newest completed sample and never waits or consumes it. Resize and settings
 changes preserve the timing ring and its unread samples.
+
+## Scene antialiasing
+
+Retained HDR hosts take their post resolve from `SceneEffects::anti_alias()`.
+Set `SceneEffectsParts::anti_alias` to
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` for SMAA 1x with luma edges;
+`SceneAntiAlias::Smaa(SceneSmaaSettings { .. })` also supports color edges and
+custom quantities. No `FrameProfile` override is needed. Scene construction
+validates the integer controls before GPU preparation, and SMAA selects no
+projection jitter. The timing sample includes `smaa_edges`, `smaa_weights` and
+`smaa_blend` as separate stage identities. See the
+[scene resolve contract](../render-scene/README.md#scene-authored-smaa).
 
 ## Native-resolution sharpening
 

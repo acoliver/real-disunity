@@ -100,6 +100,17 @@ impl Snapshots {
         } else {
             &self.color_pipeline
         };
+        let depth_view = depth.then(|| {
+            source.texture().create_view(&wgpu::TextureViewDescriptor {
+                aspect: wgpu::TextureAspect::DepthOnly,
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_mip_level: source.resource().mip,
+                mip_level_count: Some(1),
+                base_array_layer: source.resource().layer,
+                array_layer_count: Some(1),
+                ..Default::default()
+            })
+        });
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("opaque snapshot sources"),
             layout: &pipeline.get_bind_group_layout(0),
@@ -110,7 +121,9 @@ impl Snapshots {
                 },
                 wgpu::BindGroupEntry {
                     binding: if depth { 2 } else { 1 },
-                    resource: wgpu::BindingResource::TextureView(source.view()),
+                    resource: wgpu::BindingResource::TextureView(
+                        depth_view.as_ref().unwrap_or_else(|| source.view()),
+                    ),
                 },
             ],
         })

@@ -4,13 +4,13 @@
 use worldrunner_render_gpu::configuration::{AllocationBudget, AllocationSet, Configuration};
 use worldrunner_render_gpu::submission::{LeaseError, PreparedFrame};
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::runtime::{
     BoundResource, DispatchRequest, DrawRequest, Geometry, ProgramArena, ProgramRuntime,
     TargetHandle,
 };
 
 use crate::arena::{ARENA, Draw, admit, admit_geometry, arena_runtime, draw, prepare};
-use crate::common::Gpu;
+use crate::common::{Form, Gpu};
 use crate::compute::kernel_program;
 use crate::patch::state;
 use crate::surface::{Surface, pixel, read};
@@ -557,7 +557,7 @@ fn record_clear(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
 }
 
 fn record_dispatch(gpu: &Gpu, runtime: &mut ProgramRuntime) -> Recorded {
-    let program = kernel_program(runtime);
+    let program = kernel_program(runtime, Form::Program);
     let uniform = runtime.create_buffer("params", &[0; 16]).unwrap();
     let source = runtime.create_buffer("source", &[0; 48]).unwrap();
     let result = runtime.create_buffer("result", &[0; 48]).unwrap();

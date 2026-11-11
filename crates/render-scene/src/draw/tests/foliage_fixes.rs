@@ -69,6 +69,7 @@ fn accepted(
 
 #[test]
 fn screen_pixel_transition_is_exclusive_and_complete_on_overlapping_geometry() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for coverage in [0, 123_457, 500_000, 1_000_000] {
@@ -141,6 +142,7 @@ fn reduced_contact_scene(enabled: bool, steps: u8) -> RenderScene {
 
 #[test]
 fn unused_contact_keeps_only_inactive_binding_with_reduced_terrain() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(
@@ -155,6 +157,7 @@ fn unused_contact_keeps_only_inactive_binding_with_reduced_terrain() {
 
 #[test]
 fn enabled_contact_retains_reduced_samples_with_triangle_source() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(
@@ -165,7 +168,7 @@ fn enabled_contact_retains_reduced_samples_with_triangle_source() {
     )
     .unwrap();
     assert_eq!(gpu.retained.contact_heights.size(), 48);
-    assert_eq!(gpu.terrain.as_ref().unwrap().triangle_source.size(), 188);
+    assert_eq!(gpu.terrain.as_ref().unwrap().resources.planes.size(), 188);
     let smallest = contact_scene(-500, true, false);
     let source = crate::terrain::planes::HeightfieldPlanes::new(smallest.terrain().unwrap());
     assert_eq!(source.bytes.len(), 80);
@@ -173,6 +176,7 @@ fn enabled_contact_retains_reduced_samples_with_triangle_source() {
 
 #[test]
 fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_binding() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (device, queue) =
         pollster::block_on(context.adapter().request_device(&wgpu::DeviceDescriptor {
@@ -225,7 +229,7 @@ fn upload_contact_materials(
     let (_textures, views) =
         super::super::resources::upload_textures(device, authority, &prepared.textures)?;
     let (_placeholder, view) = crate::upload::placeholder_with_view(device, authority.queue());
-    let (groups, _uniforms) = super::super::resources::scene_materials(
+    let (groups, _uniforms, _imports) = super::super::resources::scene_materials(
         device,
         authority.queue(),
         scene,
@@ -287,6 +291,7 @@ fn fitted_normal_scene(fit: bool) -> RenderScene {
 
 #[test]
 fn fitted_normals_match_baked_geometry_in_shading_and_normal_metadata() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let layouts = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let fitted = fitted_normal_scene(true);
@@ -392,6 +397,7 @@ fn assert_flat_lit_pixels_match_model(context: &GpuContext, layouts: &ScenePipel
 #[test]
 fn feature_off_output_matches_stock_shader_snapshot_within_derived_bounds() {
     // Fixtures are the MIT engine's unmodified shaders at 0d387d8718885158cdadb343196a62992420a692.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let stock = concat!(
         worldrunner_render_lighting::lighting_wgsl!(),
         worldrunner_render_post::post_wgsl!(),

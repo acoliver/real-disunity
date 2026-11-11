@@ -6,6 +6,7 @@ use worldrunner_render_post::{StageId, contracts::*};
 
 #[test]
 fn terrain_pages_composition_to_resident_and_cancelled_work_never_publishes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

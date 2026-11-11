@@ -246,10 +246,13 @@ pub enum PlanComponent {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
 pub enum PlanAsset {
-    /// A `ScriptableObject` asset of project script `class`.
+    /// A `ScriptableObject` asset of project script `class`, or of a player's `class` in
+    /// `assembly`.
     Script {
         script: String,
         class: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        assembly: Option<String>,
         name: String,
         fields: serde_json::Value,
     },
@@ -257,6 +260,13 @@ pub enum PlanAsset {
         name: String,
         #[serde(flatten)]
         material: PhysicsMaterial,
+    },
+    /// A font of a player, as [`crate::player_resources::ResourceAsset::Font`].
+    Font {
+        name: String,
+        file: std::path::PathBuf,
+        offset: u64,
+        length: u64,
     },
     /// A shader of a player, as [`crate::player_resources::ResourceAsset::Shader`].
     Shader {
@@ -275,8 +285,8 @@ pub enum PlanAsset {
         path_id: i64,
         kernels: Vec<crate::player_compute::PlanKernel>,
     },
-    /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. Its
-    /// texture slots are empty: a scene plan holds only the textures its sprites draw.
+    /// A material of a player, as [`crate::player_resources::ResourceAsset::Material`]. The
+    /// textures it binds are planned before it.
     Material {
         #[serde(flatten)]
         material: crate::player_materials::PlanMaterial,

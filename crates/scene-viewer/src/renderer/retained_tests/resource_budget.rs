@@ -44,6 +44,8 @@ fn presentation(context: &GpuContext, headroom: u64) -> Presentation {
             crate::FrameProfile::Legacy,
             source().effects(),
             &crate::presentation::PresentationPolicy {
+                receiver_gradients:
+                    worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
                 budget: crate::PresentationBudget(budget).into(),
                 capture_pool: crate::CapturePoolPolicy::default(),
                 recipes: false,
@@ -142,6 +144,7 @@ impl Budgeted {
 
 #[test]
 fn reserved_scene_bytes_equal_the_resident_bytes_through_append_rebuild_append() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut fixture = Budgeted::new(256 * 1024 * 1024);
     let initial = fixture.resident();
     assert_ne!(initial, 0);
@@ -178,6 +181,7 @@ fn reserved_scene_bytes_equal_the_resident_bytes_through_append_rebuild_append()
 #[test]
 fn appends_after_a_rebuild_are_admitted_against_the_whole_rebuilt_set() {
     const MIB: u64 = 1024 * 1024;
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
     let mut fixture = Budgeted::new(9 * MIB);
     let large = |handle| SceneAppend {
         textures: vec![large_texture()],

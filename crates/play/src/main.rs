@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use worldrunner_play::{
-    Capture, Game, PlayDriver, PlayerWindow, ScheduledKey, key_code, play_player_window, prepare,
-    prepare_player, run_player,
+    Capture, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, ScheduledKey, key_code,
+    play_player_window, prepare, prepare_player, run_player_with,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -16,8 +16,12 @@ const WINDOW_SIZE: [u32; 2] = [1920, 1080];
 
 const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N] [--fixed-dt MS]
             [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--font FILE.ttf] [--seed N]
+       play shader-census <player data directory> [texture property]...
+       play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
-            [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...";
+            [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
+            [--gpu-work on|off]
+            [--plugins DIRECTORY]...";
 
 #[derive(Default)]
 struct Arguments {
@@ -28,9 +32,13 @@ struct Arguments {
     keys: Vec<ScheduledInput>,
     captures: Vec<(u64, PathBuf)>,
     font: Option<PathBuf>,
+    /// Extra native plugin directories for a player, in the order given.
+    plugins: Vec<PathBuf>,
     seed: Option<i32>,
     player: Option<PathBuf>,
     scene: Option<String>,
+    /// Whether a headless player run does its offscreen work on a device.
+    gpu_work: GpuWork,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -91,9 +99,17 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                 .push((number(frame, "--capture frame")?, file.into()));
         }
         "--font" => arguments.font = Some(value.into()),
+        "--plugins" => arguments.plugins.push(value.into()),
         "--seed" => arguments.seed = Some(number(value, "--seed")?),
         "--player" => arguments.player = Some(value.into()),
         "--scene" => arguments.scene = Some(value.to_owned()),
+        "--gpu-work" => {
+            arguments.gpu_work = match value {
+                "on" => GpuWork::Auto,
+                "off" => GpuWork::Off,
+                _ => return Err(format!("--gpu-work `{value}` is on or off")),
+            };
+        }
         "--arg" => arguments.command_line.push(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
     }
@@ -128,8 +144,12 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
     // The window opens at `--size`, else at the size the live loop defaults to.
     let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
-    let prepared = prepare_player(data, scene, &arguments.command_line, screen)
-        .map_err(|error| error.to_string())?;
+    let launch = PlayerLaunch {
+        arguments: &arguments.command_line,
+        screen,
+        plugins: &arguments.plugins,
+    };
+    let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
         let window = PlayerWindow {
             title: format!("Disunity: {}", data.display()),
@@ -145,7 +165,13 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let dt = arguments
         .fixed_dt
         .unwrap_or(Duration::from_nanos(1_000_000_000 / 60));
-    run_player(&prepared, arguments.frames.unwrap_or(1), dt).map_err(|error| error.to_string())
+    run_player_with(
+        &prepared,
+        arguments.frames.unwrap_or(1),
+        dt,
+        arguments.gpu_work,
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// Plays `driver` in a window of `--size` (else `size`) and writes the requested captures.
@@ -195,7 +221,16 @@ fn write_captures(captured: &[Capture], requested: &[(u64, PathBuf)]) -> Result<
     Ok(())
 }
 
+/// Native plugin directories apply to a player's imports; an original game has none.
+fn check_plugins(arguments: &Arguments) -> Result<(), String> {
+    if arguments.player.is_none() && !arguments.plugins.is_empty() {
+        return Err("--plugins applies only to --player".into());
+    }
+    Ok(())
+}
+
 fn play(arguments: Arguments) -> Result<(), String> {
+    check_plugins(&arguments)?;
     if let Some(data) = arguments.player.clone() {
         return player(&data, &arguments);
     }
@@ -212,7 +247,65 @@ fn play(arguments: Arguments) -> Result<(), String> {
     )
 }
 
+/// `play shader-census <player data directory>`: loads every shader of the player through the
+/// offscreen adapter's loader and prints counts.
+fn shader_census(directory: &str, properties: &[String]) -> ExitCode {
+    match worldrunner_play::offscreen::shader_census(std::path::Path::new(directory)) {
+        Ok(census) => {
+            println!(
+                "{} shader objects, {} loaded with {} passes, failed by error: {:?}",
+                census.shaders, census.loaded, census.passes, census.failed
+            );
+            println!(
+                "{} loaded shaders have no pass with a LightMode tag; passes by LightMode: {:?}",
+                census.shaders_without_light_mode, census.light_modes
+            );
+            for property in properties {
+                println!(
+                    "{property}: shaders by declared default {:?}",
+                    census.declared_defaults.get(property)
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `play compute-census <player data directory>`: builds every compute kernel variant of the
+/// player on the headless player's device and prints counts.
+fn compute_census(directory: &str) -> ExitCode {
+    match worldrunner_play::compute_census(std::path::Path::new(directory)) {
+        Ok((device, census)) => {
+            println!(
+                "{} compute shader objects, {} kernel variants, {} built as compute programs on {device}, \
+                 left out by cause: {:?}",
+                census.shaders, census.variants, census.programs, census.failed
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [command, directory] = args.as_slice()
+        && command == "compute-census"
+    {
+        return compute_census(directory);
+    }
+    if let [command, directory, properties @ ..] = args.as_slice()
+        && command == "shader-census"
+    {
+        return shader_census(directory, properties);
+    }
     match parse(std::env::args().skip(1)).and_then(play) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -252,6 +345,62 @@ mod tests {
             ["-userdata", "/saves", "-headless", "--flag"]
         );
         assert_eq!(arguments.frames, Some(3));
+    }
+
+    #[test]
+    fn gpu_work_is_on_unless_the_run_says_off() {
+        use worldrunner_play::GpuWork;
+        assert_eq!(
+            parsed(&["--player", "Game_Data"]).expect("parses").gpu_work,
+            GpuWork::Auto
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--gpu-work", "off"])
+                .expect("parses")
+                .gpu_work,
+            GpuWork::Off
+        );
+        assert_eq!(
+            parsed(&["--player", "Game_Data", "--gpu-work", "on"])
+                .expect("parses")
+                .gpu_work,
+            GpuWork::Auto
+        );
+        assert!(parsed(&["--player", "Game_Data", "--gpu-work", "maybe"]).is_err());
+    }
+
+    #[test]
+    fn repeated_plugins_options_keep_their_order() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--plugins",
+            "/a/Plugins",
+            "--plugins",
+            "b",
+        ])
+        .expect("parses");
+        assert_eq!(
+            arguments.plugins,
+            [
+                std::path::PathBuf::from("/a/Plugins"),
+                std::path::PathBuf::from("b")
+            ]
+        );
+    }
+
+    #[test]
+    fn plugins_needs_a_value() {
+        assert!(parsed(&["--player", "Game_Data", "--plugins"]).is_err());
+    }
+
+    #[test]
+    fn plugins_belong_to_a_player() {
+        let game = parsed(&["snake", "--plugins", "/a"]).expect("parses");
+        assert!(super::check_plugins(&game).is_err());
+        let player = parsed(&["--player", "Game_Data", "--plugins", "/a"]).expect("parses");
+        assert!(super::check_plugins(&player).is_ok());
+        assert!(super::check_plugins(&parsed(&["snake"]).expect("parses")).is_ok());
     }
 
     #[test]

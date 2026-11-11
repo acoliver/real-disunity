@@ -14,7 +14,7 @@ use worldrunner_render_post::{
     AttachmentView, FrameConfig, FrameError, HdrPostSettings, PostResolve, ResourceRef, ToneMap,
 };
 use worldrunner_render_program::error::ProgramError;
-use worldrunner_render_program::runtime::{Geometry, ProgramRuntime, TargetSignature};
+use worldrunner_render_program::unity::runtime::{Geometry, ProgramRuntime, TargetSignature};
 
 const HDR: TextureFormat = TextureFormat::Rgba16Float;
 
@@ -50,14 +50,15 @@ fn attempt(fixture: &mut Fixture, signature: TargetSignature) -> (Result<(), Fra
 
 #[test]
 fn draws_prepared_for_other_attachments_are_refused_before_any_draw() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
     let prepared = TargetSignature::new(&[HDR], Some(DEPTH_FORMAT), 1).unwrap();
     let (encoded, scene) = attempt(&mut fixture, prepared);
     assert_eq!(
         refusal(encoded.unwrap_err()),
         ProgramError::TargetMismatch {
-            prepared,
-            pass: fixture.signature()
+            prepared: Box::new(prepared),
+            pass: Box::new(fixture.signature())
         }
         .to_string()
     );
@@ -76,6 +77,7 @@ fn expect_unsupported(mut fixture: Fixture, effect: &'static str) {
 
 #[test]
 fn a_multisampled_scene_refuses_programs_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = settings();
     settings.frame = FrameConfig::new([TARGET; 2], COLOR_FORMAT, 4);
     let fixture = Fixture::new(settings, |device| {
@@ -86,6 +88,7 @@ fn a_multisampled_scene_refuses_programs_by_name() {
 
 #[test]
 fn a_temporally_reconstructed_scene_refuses_programs_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT);
     settings.frame = FrameConfig::new([TARGET; 2], HDR, 1);
     settings.hdr = Some((1.0, ToneMap::Reinhard));
@@ -104,6 +107,7 @@ fn a_temporally_reconstructed_scene_refuses_programs_by_name() {
 
 #[test]
 fn a_scene_with_screen_space_passes_refuses_programs_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = RendererConfiguration::legacy([TARGET; 2], COLOR_FORMAT);
     settings.frame = FrameConfig::new([TARGET; 2], HDR, 1);
     settings.hdr = Some((1.0, ToneMap::Reinhard));
@@ -128,6 +132,7 @@ fn admitted_then_cancelled(fixture: &mut Fixture) {
 
 #[test]
 fn draws_whose_arena_retired_before_encoding_fail_the_frame_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
     admitted_then_cancelled(&mut fixture);
     fixture.arena.retire().unwrap();
@@ -141,6 +146,7 @@ fn draws_whose_arena_retired_before_encoding_fail_the_frame_by_name() {
 
 #[test]
 fn draws_whose_arena_was_dropped_in_the_recording_frame_fail_the_encode_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
     let authority = fixture.context.submission().clone();
     let serial = authority.submitted_serial();
@@ -166,6 +172,7 @@ fn draws_whose_arena_was_dropped_in_the_recording_frame_fail_the_encode_by_name(
 
 #[test]
 fn draws_with_a_range_past_their_buffers_are_refused_at_admission_and_the_frame_stays_stock() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
     let authority = fixture.context.submission().clone();
     let mut recording = authority.begin(fixture.context.device()).unwrap();
@@ -194,6 +201,7 @@ fn draws_with_a_range_past_their_buffers_are_refused_at_admission_and_the_frame_
 
 #[test]
 fn programs_admitted_to_a_scene_encoded_on_the_resident_path_are_refused_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
     let authority = fixture.context.submission().clone();
     let device = fixture.context.device().clone();
@@ -242,6 +250,7 @@ fn programs_admitted_to_a_scene_encoded_on_the_resident_path_are_refused_by_name
 
 #[test]
 fn programs_admitted_to_a_shadowed_scene_are_refused_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
     let settings = DirectionalShadowSettings {
         focus_meters: glam::Vec3::new(0.0, 0.0, 0.5),
@@ -278,6 +287,7 @@ fn programs_admitted_to_a_shadowed_scene_are_refused_by_name() {
 
 #[test]
 fn draws_encoded_into_a_frame_of_another_authority_fail_by_name() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut fixture = stock();
     admitted_then_cancelled(&mut fixture);
     let other = context();
@@ -290,6 +300,7 @@ fn draws_encoded_into_a_frame_of_another_authority_fail_by_name() {
 
 #[test]
 fn an_arena_over_the_renderers_budget_is_refused_at_reservation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let settings = settings();
     let limits = context.device().limits();

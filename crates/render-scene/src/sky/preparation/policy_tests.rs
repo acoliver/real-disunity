@@ -3,7 +3,8 @@ use std::num::NonZeroU64;
 
 #[test]
 fn filter_sample_count_and_source_tail_match_constant_mip_oracle() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let source = mip_distinct_source(&context);
     write_graded_mips(&context, &source);
     // Uncapped footprints use integer LODs, avoiding implementation-defined sampler
@@ -49,7 +50,8 @@ fn filter_sample_count_and_source_tail_match_constant_mip_oracle() {
 
 #[test]
 fn authored_table_keeps_identity_and_view_cosine_roughness_axes() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     for format in [
         wgpu::TextureFormat::Rg16Float,
         wgpu::TextureFormat::Rgba16Float,
@@ -168,7 +170,7 @@ fn read_value(device: &wgpu::Device, readback: &wgpu::Buffer) -> f32 {
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {

@@ -25,6 +25,7 @@ pub(crate) fn settings() -> SceneAtmosphere {
 }
 #[test]
 fn hdr_sky_has_one_exposure_and_does_not_write_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (color, depth) = render(&settings(), 2.0, 1.0);
     assert_half_pixel(&color, [4.0, 4.0, 4.0, 1.0], "radiance 2 at exposure 2");
     assert_eq!(depth.to_bits(), 1.0f32.to_bits());
@@ -35,6 +36,7 @@ fn hdr_sky_has_one_exposure_and_does_not_write_depth() {
 }
 #[test]
 fn solar_disc_uses_frame_sun_direction() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = settings();
     settings.sun_angular_radius_millidegrees = 45_000;
     let (color, _) = render(&settings, 1.0, 1.0);
@@ -152,7 +154,7 @@ impl Targets {
         self.readback
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |result| {
-                send.send(result).unwrap();
+                let _ = send.send(result);
             });
         device
             .poll(wgpu::PollType::Wait {
@@ -181,7 +183,7 @@ pub(super) fn render_frame(
     camera: &FrameUniform,
     clear_depth: f32,
 ) -> (Vec<u8>, f32) {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let frame_layout = crate::upload::frame_bind_group_layout(device);
     let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -235,6 +237,7 @@ fn target(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::Texture {
 #[test]
 fn celestial_discs_cover_the_background_only_in_their_angular_extent() {
     use worldrunner_render_plan::{SceneCelestialDisc, SceneDirection};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = settings();
     sky.discs.push(SceneCelestialDisc {
         direction: SceneDirection::new([0, 1_000_000, 0]).unwrap(),
@@ -257,6 +260,7 @@ fn celestial_discs_cover_the_background_only_in_their_angular_extent() {
 }
 #[test]
 fn fog_is_linear_hdr_and_uses_the_shared_exposure() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = settings();
     sky.fog = Some(worldrunner_render_plan::SceneHeightFog {
         density_policy: worldrunner_render_plan::SceneFogDensityPolicy::BeyondStart,
@@ -275,6 +279,7 @@ fn fog_is_linear_hdr_and_uses_the_shared_exposure() {
 
 #[test]
 fn orthographic_sky_covers_an_off_center_camera_extent() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut camera = test_frame(1.0);
     camera.view_projection =
         glam::camera::rh::proj::directx::orthographic(5.0, 15.0, 5.0, 15.0, 0.1, 1000.0)

@@ -16,7 +16,13 @@ fn color_attachment(color: &ColorAttachment) -> wgpu::RenderPassColorAttachment<
 fn depth_attachment(depth: &DepthAttachment) -> wgpu::RenderPassDepthStencilAttachment<'_> {
     wgpu::RenderPassDepthStencilAttachment {
         view: &depth.view.view,
-        stencil_ops: None,
+        stencil_ops: stencil_operations(
+            depth.view.view.texture().format(),
+            depth.view.range().aspect,
+            depth.read_only,
+            depth.load,
+            depth.store,
+        ),
         depth_ops: (!depth.read_only).then_some(wgpu::Operations {
             load: match depth.load {
                 AttachmentLoad::Load => wgpu::LoadOp::Load,
@@ -26,6 +32,25 @@ fn depth_attachment(depth: &DepthAttachment) -> wgpu::RenderPassDepthStencilAtta
             store: depth.store,
         }),
     }
+}
+
+fn stencil_operations(
+    format: wgpu::TextureFormat,
+    aspect: wgpu::TextureAspect,
+    read_only: bool,
+    load: AttachmentLoad,
+    store: wgpu::StoreOp,
+) -> Option<wgpu::Operations<u32>> {
+    (!read_only && aspect == wgpu::TextureAspect::All && format.has_stencil_aspect()).then_some(
+        wgpu::Operations {
+            load: if load == AttachmentLoad::Load {
+                wgpu::LoadOp::Load
+            } else {
+                wgpu::LoadOp::Clear(0)
+            },
+            store,
+        },
+    )
 }
 
 use super::{
@@ -105,10 +130,11 @@ impl RasterPass {
                 .map(|usage| super::capture::write_key(usage.view.allocation())),
         )
     }
-    pub(super) fn encode(
+    pub(super) fn encode_named(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
+        label: &str,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) {
         let colors: Vec<_> = self
@@ -118,7 +144,7 @@ impl RasterPass {
             .collect();
         let depth = self.depth.as_ref().map(depth_attachment);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(self.id.stage.name),
+            label: Some(label),
             timestamp_writes: stamp.map(crate::timing::Stamp::render),
             color_attachments: &colors,
             depth_stencil_attachment: depth,
@@ -156,19 +182,33 @@ fn attachment_use(
 /// A validated snapshot. Generation checks are repeated before any encoding.
 pub struct CompiledRaster {
     pub(super) passes: Vec<RasterPass>,
+    pub(super) labels: Vec<String>,
 }
-impl CompiledRaster {
+/// Stock schedules select a geometry identity at encode time, without owned labels.
+pub(crate) struct StockRaster {
+    pub(super) passes: Vec<RasterPass>,
+}
+impl StockRaster {
+    #[cfg(test)]
+    pub(crate) fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
+        self.passes.iter().map(|pass| pass.id)
+    }
+
     pub(crate) fn encode_stock_pass(
         &self,
         index: usize,
+        slot: crate::PassSlot,
         encoder: &mut wgpu::CommandEncoder,
         stamp: Option<&crate::timing::Stamp>,
         draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
     ) -> Result<(), ContractError> {
         self.passes[index].validate_writes(encoder)?;
-        self.passes[index].encode(encoder, stamp, draw);
+        let label = crate::PassId::Geometry(slot).encoder_label();
+        self.passes[index].encode_named(encoder, stamp, label.as_ref(), draw);
         Ok(())
     }
+}
+impl CompiledRaster {
     pub fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
         self.passes.iter().map(|pass| pass.id)
     }
@@ -187,9 +227,53 @@ impl CompiledRaster {
                 bindings.validate(registry, pass)?;
             }
         }
-        for pass in &self.passes {
-            pass.encode(encoder, None, |render| draw(pass.id, render));
+        for (pass, label) in self.passes.iter().zip(&self.labels) {
+            pass.encode_named(encoder, None, label, |render| draw(pass.id, render));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod stencil_tests {
+    use super::*;
+    #[test]
+    fn ownership_is_cleared_and_loaded_with_depth_and_not_used_by_read_only_views() {
+        use wgpu::{TextureAspect as A, TextureFormat as F};
+        let seed = stencil_operations(
+            F::Depth32FloatStencil8,
+            A::All,
+            false,
+            AttachmentLoad::ClearDepth(1.0),
+            wgpu::StoreOp::Store,
+        )
+        .unwrap();
+        assert_eq!(seed.load, wgpu::LoadOp::Clear(0));
+        assert_eq!(seed.store, wgpu::StoreOp::Store);
+        let consume = stencil_operations(
+            F::Depth32FloatStencil8,
+            A::All,
+            false,
+            AttachmentLoad::Load,
+            wgpu::StoreOp::Store,
+        )
+        .unwrap();
+        assert_eq!(consume.load, wgpu::LoadOp::Load);
+        for (format, aspect, read_only) in [
+            (F::Depth32Float, A::All, false),
+            (F::Depth32FloatStencil8, A::DepthOnly, false),
+            (F::Depth32FloatStencil8, A::All, true),
+        ] {
+            assert!(
+                stencil_operations(
+                    format,
+                    aspect,
+                    read_only,
+                    AttachmentLoad::Load,
+                    wgpu::StoreOp::Store
+                )
+                .is_none()
+            );
+        }
     }
 }

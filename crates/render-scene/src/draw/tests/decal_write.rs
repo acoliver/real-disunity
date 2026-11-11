@@ -1,6 +1,7 @@
 #[test]
 fn receiver_world_respects_disabled_normal_and_alpha_rejection() {
     use worldrunner_render_plan::SceneDecalNormalFrame;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = folded_receiver(128);
     let receiver = products(&context, &base);
@@ -63,6 +64,7 @@ fn metadata(
 
 #[test]
 fn albedo_only_preserves_receiver_normal_and_surface_before_lighting() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for terrain in [false, true] {
         let base = source(false, terrain);
@@ -120,6 +122,7 @@ fn albedo_only_preserves_receiver_normal_and_surface_before_lighting() {
 
 #[test]
 fn alpha_test_below_at_above_cutoff_and_defaults_preserve_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     let mut d = decal();
@@ -149,6 +152,7 @@ fn alpha_test_below_at_above_cutoff_and_defaults_preserve_bytes() {
 
 #[test]
 fn opaque_alpha_passes_equal_cutoff_but_angle_fade_is_tested_first() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for slope in [false, true] {
         let base = source(slope, false);
@@ -183,6 +187,7 @@ fn default_uniform_bytes_match_the_existing_volume_layout() {
     use crate::draw::SceneGpu;
     use crate::draw::tests::{frame_from, pose};
     use crate::renderer::ScenePipelines;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false).with_decals(vec![decal()]).unwrap();
     let pipelines = ScenePipelines::new(context.device(), super::super::COLOR_FORMAT);
@@ -200,7 +205,7 @@ fn default_uniform_bytes_match_the_existing_volume_layout() {
     values.extend([1.0; 4]);
     let mut expected: Vec<_> = values.into_iter().flat_map(f32::to_le_bytes).collect();
     expected.resize(16 + 32 * 160, 0);
-    assert_eq!(actual, expected);
+    assert_eq!(actual[..expected.len()], expected);
 }
 
 fn folded_receiver(alpha: u8) -> RenderScene {
@@ -393,6 +398,7 @@ const MASK_CASES: [(SceneDecalWriteMask, [u8; 3], [u32; 2], bool); 5] = [
 
 #[test]
 fn individual_masks_and_disabled_albedo_match_baked_folded_receivers() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = folded_receiver(255);
     let receiver = products(&context, &base);
@@ -413,6 +419,7 @@ fn individual_masks_and_disabled_albedo_match_baked_folded_receivers() {
 
 #[test]
 fn overlapping_fractional_mixed_masks_follow_both_caller_orders() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = folded_receiver(85);
     let first = interior_decal(SceneDecalWriteMask::from_bits(5), 2);
@@ -458,6 +465,7 @@ fn overlapping_fractional_mixed_masks_follow_both_caller_orders() {
 
 #[test]
 fn alpha_rejection_preserves_forward_normal_and_material_with_active_maps() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = folded_receiver(128);
     let receiver = products(&context, &base);

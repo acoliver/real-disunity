@@ -3,7 +3,9 @@
 mod backends;
 
 pub use backends::Backend;
-pub use worldrunner_unity_serialized::spirv_prep::{PreparedModule, ResourceBinding, prepare};
+pub use worldrunner_unity_serialized::spirv_prep::{
+    PreparedModule, PreparedStages, ResourceBinding, prepare, prepare_stages,
+};
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 

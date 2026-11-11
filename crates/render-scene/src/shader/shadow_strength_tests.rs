@@ -141,7 +141,8 @@ fn previous_source(source: &str) -> String {
 
 #[test]
 fn roughness_aware_shadow_strength_only_changes_direct_sunlight() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for visibility in [0.0, 0.4] {
         for screen in [1.0, 0.5, 0.1] {
             check_strengths(&context, visibility, screen);

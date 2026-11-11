@@ -46,12 +46,12 @@ pub struct RendererView {
 pub struct GraphicsSnapshot {
     pub shaders: BTreeMap<ShaderId, WorldShader>,
     pub materials: BTreeMap<MaterialId, WorldMaterial>,
-    /// Every live render texture.
+    /// Every live render texture, and each one destroyed after a record of the frame named it.
     pub render_textures: BTreeMap<RenderTextureId, WorldRenderTexture>,
     pub global: Option<GlobalShaderState>,
     /// The frame's records, in call order.
     pub work: Vec<OffscreenWork>,
-    /// The live cameras that camera renders name.
+    /// The live cameras that camera renders, camera setups and culls name.
     pub cameras: BTreeMap<ComponentHandle, CameraView>,
     pub renderers: Vec<RendererView>,
     /// The live compute shaders that the frame's dispatches name.
@@ -70,6 +70,7 @@ impl GraphicsSnapshot {
     /// # Errors
     /// Fails when the world refuses to describe an object it listed.
     pub fn take(world: &mut World) -> Result<Self, WorldError> {
+        let retired = world.take_retired_render_textures();
         let work = world.take_offscreen();
         let mut snapshot = Self {
             work,
@@ -82,12 +83,15 @@ impl GraphicsSnapshot {
         snapshot.render_textures = world
             .render_textures()
             .map(|(id, texture)| (id, *texture))
+            .chain(retired)
             .collect();
         snapshot.cameras = camera_views(world, &snapshot.work);
         let mask = snapshot
             .cameras
             .values()
-            .fold(0, |mask, camera| mask | camera.settings.culling_mask);
+            .fold(cull_masks(&snapshot.work), |mask, camera| {
+                mask | camera.settings.culling_mask
+            });
         if mask != 0 {
             snapshot.renderers = renderer_views(world, mask)?;
         }
@@ -96,7 +100,7 @@ impl GraphicsSnapshot {
         Ok(snapshot)
     }
 
-    /// The materials the blits and the renderers name, and their shaders. A destroyed material
+    /// The materials the blits, mesh draws and renderers name, and their shaders. A destroyed material
     /// or shader is left out.
     fn copy_materials(&mut self, world: &World) {
         let named: BTreeSet<MaterialId> = self
@@ -104,6 +108,7 @@ impl GraphicsSnapshot {
             .iter()
             .filter_map(|work| match work {
                 OffscreenWork::Blit { material, .. } => *material,
+                OffscreenWork::DrawMesh { material, .. } => Some(*material),
                 _ => None,
             })
             .chain(
@@ -145,10 +150,22 @@ impl GraphicsSnapshot {
     }
 }
 
+/// The layers the frame's culls admit, as their own masks give them.
+fn cull_masks(work: &[OffscreenWork]) -> u32 {
+    work.iter().fold(0, |mask, record| match record {
+        OffscreenWork::Cull { culling_mask, .. } => mask | culling_mask,
+        _ => mask,
+    })
+}
+
+/// The live cameras that camera renders, camera setups and culls name.
 fn camera_views(world: &World, work: &[OffscreenWork]) -> BTreeMap<ComponentHandle, CameraView> {
     let mut views = BTreeMap::new();
     for record in work {
-        let OffscreenWork::CameraRender { camera, .. } = record else {
+        let (OffscreenWork::CameraRender { camera, .. }
+        | OffscreenWork::SetupCamera { camera, .. }
+        | OffscreenWork::Cull { camera, .. }) = record
+        else {
             continue;
         };
         let Ok(component) = world.component(*camera) else {

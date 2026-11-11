@@ -35,15 +35,7 @@ fn gpu_overfull_pass_lists_drop_whole_samples_and_release_timing_admission() {
 }
 
 fn device(features: wgpu::Features) -> (wgpu::Device, wgpu::Queue) {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .unwrap();
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_features: features & adapter.features(),
-        ..Default::default()
-    }))
-    .unwrap()
+    crate::gpu_tests::gpu_with_optional_features(features)
 }
 #[test]
 fn unavailable_optional_is_unsupported_and_required_fails() {
@@ -96,7 +88,7 @@ impl StageFactory for Factory {
             0,
             Stage {
                 id: crate::StageId::new("compute probe", 0),
-                label: "compute probe",
+                label: "compute probe".into(),
                 enabled: true,
                 operation: Operation::Compute {
                     pipeline,
@@ -353,7 +345,7 @@ fn gpu_synthetic_counter_wraps_are_unavailable_counted_and_release_slots() {
         slot.readback
             .slice(..16)
             .map_async(wgpu::MapMode::Read, move |result| {
-                send.send(result).unwrap();
+                let _ = send.send(result);
             });
         slot.pending = Some(receive);
         device

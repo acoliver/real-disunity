@@ -1,9 +1,13 @@
+#[cfg(test)]
 use super::{
     ColorTargetState, ColorWrites, Device, FragmentState, ObjectState, PipelineCompilationOptions,
-    PipelineKey, PipelineLayout, RenderPipeline, TextureFormat, VertexBufferLayout, VertexStepMode,
-    build_variant,
+    PipelineKey, PipelineLayout, RenderPipeline, TextureFormat, build_variant,
 };
+use super::{VertexBufferLayout, VertexStepMode};
 
+/// The fixed unlit-alpha pipeline the dynamic quads drew with before they drew through the
+/// program runtime. Only the byte-equality captures build it now, as their reference.
+#[cfg(test)]
 pub(super) fn build(
     device: &Device,
     target: (TextureFormat, u32),
@@ -51,11 +55,14 @@ pub(super) fn build(
                 double_sided: true,
             },
             depth_write: false,
+            depth: super::DepthMode::Independent,
             vertex_entry: "vs_unlit",
         },
     )
 }
 
+/// The vertex buffers of the unlit shader: the vertex and instance streams and a per-instance
+/// tint. The retained-UI overlay's pipeline reads the same three.
 pub(super) fn alpha_buffers<'a>(
     buffers: &[Option<VertexBufferLayout<'a>>; 2],
     tint_attributes: &'a [wgpu::VertexAttribute],

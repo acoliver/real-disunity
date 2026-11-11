@@ -28,6 +28,7 @@ fn rgb(bytes: &[u8]) -> Vec3 {
 }
 #[test]
 fn half_storage_saturates_and_truncates() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert_eq!(quantize(1e5), half::f16::MAX.to_bits());
     for value in [0.00001, 0.12345, 1.2345, 12345.0] {
         let stored = half::f16::from_bits(quantize(value)).to_f32();
@@ -38,6 +39,7 @@ fn half_storage_saturates_and_truncates() {
 #[test]
 #[expect(clippy::cast_precision_loss, reason = "bounded lookup indices")]
 fn every_lookup_row_stores_the_defined_model_with_declared_quantization() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for format in [
         SceneScatteringFormat::Float16,
         SceneScatteringFormat::Float32,
@@ -81,7 +83,8 @@ fn every_lookup_row_stores_the_defined_model_with_declared_quantization() {
 }
 #[test]
 fn preparation_budget_and_cancellation_control_publication() {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let mut maps = None;
     let transaction = context
@@ -138,6 +141,7 @@ fn preparation_budget_and_cancellation_control_publication() {
 }
 #[test]
 fn gpu_lookup_formats_match_their_saturated_or_unquantized_reference() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     let mut frame = render_tests::test_frame(1.0);
     frame.sun_direction = Vec3::Z;
@@ -178,6 +182,7 @@ fn gpu_lookup_formats_match_their_saturated_or_unquantized_reference() {
 
 #[test]
 fn gpu_physical_background_and_discs_share_scattering_exposure_fog_and_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     sky.scattering = Some(settings());
     let mut frame = render_tests::test_frame(1.0);
@@ -220,6 +225,7 @@ fn gpu_physical_background_and_discs_share_scattering_exposure_fog_and_depth() {
 
 #[test]
 fn gpu_elevation_columns_have_no_azimuthal_twilight_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     sky.scattering = Some(SceneScattering {
         aerosol_scattering_pico_per_meter: [0; 3],
@@ -238,6 +244,7 @@ fn gpu_elevation_columns_have_no_azimuthal_twilight_shadow() {
 
 #[test]
 fn gpu_interior_elevation_interpolates_adjacent_quantized_columns() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut sky = render_tests::settings();
     let mut frame = render_tests::test_frame(1.0);
     frame.sun_direction = Vec3::Z;
@@ -284,6 +291,7 @@ fn gpu_interior_elevation_interpolates_adjacent_quantized_columns() {
 
 #[test]
 fn fixed_observer_uses_authored_altitude_and_validates_the_atmosphere_boundary() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut settings = settings();
     for camera in [0.1, 20.0, 1000.0] {
         assert_eq!(
@@ -301,4 +309,122 @@ fn fixed_observer_uses_authored_altitude_and_validates_the_atmosphere_boundary()
     }
     settings.observer_altitude_millimeters = Some(60_000_000);
     assert!(settings.validate().is_err());
+}
+
+fn prepare_frame(lookup: &Lookup, observer: (Vec3, f32), submit: bool) {
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
+    let device = context.device();
+    let identity = std::rc::Rc::new(());
+    let transaction = context
+        .submission()
+        .prepare(device, |encoder, _| {
+            let before = lookup.written.get();
+            lookup.prepare(
+                device,
+                encoder,
+                &identity,
+                observer,
+                AllocationBudget(1_000_000),
+            )?;
+            // Staging never records an upload before submission.
+            assert_eq!(lookup.written.get(), before);
+            Ok::<_, PreparationError>(())
+        })
+        .unwrap();
+    if submit {
+        transaction.submit().unwrap();
+    } else {
+        transaction.cancel();
+    }
+}
+
+fn layout(lookup: &Lookup) -> wgpu::TexelCopyBufferLayout {
+    wgpu::TexelCopyBufferLayout {
+        offset: 0,
+        bytes_per_row: Some(256),
+        rows_per_image: Some(lookup.settings.lookup_rows),
+    }
+}
+
+fn clear_lookup(lookup: &Lookup) {
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
+    let size = lookup.settings.lookup_rows as usize * 256 * 3;
+    context.queue().write_texture(
+        lookup.view.texture().as_image_copy(),
+        &vec![0; size],
+        layout(lookup),
+        lookup.view.texture().size(),
+    );
+}
+
+fn read_lookup(lookup: &Lookup) -> Vec<u8> {
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
+    let device = context.device();
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("lookup readback"),
+        size: u64::from(lookup.settings.lookup_rows) * 256 * 3,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    encoder.copy_texture_to_buffer(
+        lookup.view.texture().as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buffer,
+            layout: layout(lookup),
+        },
+        lookup.view.texture().size(),
+    );
+    context.queue().submit([encoder.finish()]);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    receiver.recv().unwrap().unwrap();
+    let bytes = buffer.slice(..).get_mapped_range().unwrap().to_vec();
+    buffer.unmap();
+    bytes
+}
+
+#[test]
+fn gpu_unchanged_inputs_reuse_the_submitted_columns_and_cancelled_uploads_are_redone() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
+    let lookup = Lookup::new(context.device(), settings());
+    let zeros = vec![0; lookup.settings.lookup_rows as usize * 256 * 3];
+    let low = (Vec3::new(0.0, 0.966, 0.259), 0.1);
+    let elevation = low.0.z.asin();
+    prepare_frame(&lookup, low, true);
+    assert_eq!(
+        lookup.written.get(),
+        Some([elevation.to_bits(), 0.1_f32.to_bits()])
+    );
+    assert_eq!(read_lookup(&lookup), pixels(settings(), elevation, 0.1));
+    // Unchanged inputs encode no upload: a cleared texture stays cleared.
+    clear_lookup(&lookup);
+    prepare_frame(&lookup, low, true);
+    assert_eq!(read_lookup(&lookup), zeros);
+    // A cancelled frame records nothing, so the same new inputs upload on the next frame.
+    let high = (Vec3::Z, 0.1);
+    prepare_frame(&lookup, high, false);
+    assert_eq!(
+        lookup.written.get(),
+        Some([elevation.to_bits(), 0.1_f32.to_bits()])
+    );
+    prepare_frame(&lookup, high, true);
+    // The key is asin(sun.z) as production computes it; platform libm may round asin(1)
+    // one ulp away from FRAC_PI_2.
+    let zenith = 1.0_f32.asin();
+    assert_eq!(
+        lookup.written.get(),
+        Some([zenith.to_bits(), 0.1_f32.to_bits()])
+    );
+    assert_eq!(read_lookup(&lookup), pixels(settings(), zenith, 0.1));
+    // Observer altitude is an input as well.
+    clear_lookup(&lookup);
+    prepare_frame(&lookup, (Vec3::Z, 250.0), true);
+    assert_eq!(read_lookup(&lookup), pixels(settings(), zenith, 250.0));
 }

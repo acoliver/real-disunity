@@ -18,10 +18,13 @@ png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+worldrunner-render-program = { path = "../render-program", features = ["unity"] }
 worldrunner-unity-serialized = { path = "../unity-serialized" }
 
 [dev-dependencies]
+naga = { version = "30.0.0", features = ["spv-in", "spv-out", "wgsl-in"] }
 tempfile.workspace = true
+worldrunner-render-program = { path = "../render-program", features = ["test-support"] }
 worldrunner-original-games = { path = "../original-games" }
 
 [lints]

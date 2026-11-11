@@ -2,7 +2,18 @@ use super::*;
 use std::{path::PathBuf, process::Command, time::Instant};
 use worldrunner_disunity_runtime::ManagedHostConfig;
 
-fn fixture_host() -> DisunityHost {
+/// The turn of one test that boots the managed host. A process holds one host at a time, so a
+/// second test booting while the first runs fails with `AlreadyBooted`, and two fixture builds
+/// at once can collide on the build's output files. Hold the turn for the whole test.
+pub(crate) fn fixture_turn() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TURN.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// A host booted on the portable fixture's managed assembly, with no slice loaded. Take
+/// [`fixture_turn`] first.
+pub(crate) fn booted_fixture_host() -> DisunityHost {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let status = Command::new(env!("CARGO"))
         .args(["build", "--locked", "-p", "worldrunner-disunity-ffi"])
@@ -25,7 +36,7 @@ fn fixture_host() -> DisunityHost {
         root.join(target)
     };
     let managed = root.join("csharp/PortableFixture/bin/Debug/net8.0");
-    let mut host = DisunityHost::boot(&ManagedHostConfig {
+    DisunityHost::boot(&ManagedHostConfig {
         ffi_library: target.join("debug").join(format!(
             "{}worldrunner_disunity_ffi{}",
             std::env::consts::DLL_PREFIX,
@@ -35,7 +46,12 @@ fn fixture_host() -> DisunityHost {
         assembly: managed.join("PortableFixture.dll"),
         bridge_type: "PortableFixture.NativeBridge, PortableFixture".into(),
     })
-    .unwrap();
+    .unwrap()
+}
+
+fn fixture_host() -> DisunityHost {
+    let mut host = booted_fixture_host();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     host.run_slice(&root.join("csharp/PortableFixture/retained-ui.fixture"))
         .unwrap();
     host
@@ -43,6 +59,7 @@ fn fixture_host() -> DisunityHost {
 
 #[test]
 fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_updates() {
+    let _turn = fixture_turn();
     let mut driver = PlayerRetainedDriver::new(
         fixture_host(),
         PlayerWindow {

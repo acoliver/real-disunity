@@ -1,10 +1,9 @@
 use super::gpu_math_bindings::{ground_binding, math_layout};
 #[test]
 fn foliage_wind_fixed_time_and_integer_period_are_deterministic() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for (time, phase, expected) in [
         (0, 0, 0.0),
         (250, 0, 0.5),
@@ -27,10 +26,9 @@ fn foliage_wind_fixed_time_and_integer_period_are_deterministic() {
 
 #[test]
 fn foliage_normals_follow_inverse_transpose_under_mirrored_nonuniform_scale() {
-    let context = pollster::block_on(crate::device::GpuContext::request_with_features(
-        wgpu::Features::empty(),
-    ))
-    .unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for scale in [
         glam::Vec3::new(-2.0, 3.0, 0.5),
         glam::Vec3::new(2.0, 3.0, 0.5),
@@ -60,8 +58,8 @@ use worldrunner_render_lighting::ExposureOwnership;
 
 #[test]
 fn production_shader_preserves_guarded_specular_peak_and_shared_post_math() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let values = evaluate(&context, MATH_ENTRY, None);
     let expected_peak = 0.045_f32.powi(4) / 1e-7;
     assert!(
@@ -86,8 +84,8 @@ const MATH_ENTRY: &str = r"
 
 #[test]
 fn configured_environment_reaches_production_lighting_with_exactly_one_exposure_owner() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for (exposure, multiplier) in [
         (ExposureOwnership::SceneLinear(0.25), 0.25),
         (
@@ -262,7 +260,7 @@ fn read_values(device: &wgpu::Device, readback: &wgpu::Buffer) -> Vec<f32> {
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {
@@ -288,8 +286,8 @@ fn read_values(device: &wgpu::Device, readback: &wgpu::Buffer) -> Vec<f32> {
 
 #[test]
 fn foliage_translucency_and_contact_endpoints_are_exact() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let result = evaluate(
         &context,
         r"
@@ -305,8 +303,8 @@ fn foliage_translucency_and_contact_endpoints_are_exact() {
 
 #[test]
 fn foliage_coverage_endpoints_and_complement_are_exact() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let result = evaluate(
         &context,
         r"
@@ -324,8 +322,8 @@ fn foliage_coverage_endpoints_and_complement_are_exact() {
 
 #[test]
 fn folding_uses_sloped_terrain_and_preserves_intermediate_length() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let terrain = [0.0, 0.0, 1.0, 2.0, 2.0, 1.0, 2.0, 0.0, 0.0, 0.75, 0.0, 0.75];
     for (height, minimum, weight) in [
         (-1.0, 0.0, 0.0),
@@ -357,8 +355,8 @@ fn folding_uses_sloped_terrain_and_preserves_intermediate_length() {
 
 #[test]
 fn mask_coupling_and_shadowed_view_dependent_scattering_match_equations() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let result = evaluate(
         &context,
         r"
@@ -392,8 +390,8 @@ fn mask_coupling_and_shadowed_view_dependent_scattering_match_equations() {
 
 #[test]
 fn scattering_temperature_and_unnormalised_distortion_match_numerical_reference() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let result = evaluate(
         &context,
         r"
@@ -415,8 +413,8 @@ fn scattering_temperature_and_unnormalised_distortion_match_numerical_reference(
 
 #[test]
 fn high_temperature_and_cross_branch_warming_match_independent_values() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for (kelvin, expected) in [
         (6601, [1.0, 0.986_779, 1.0]),
         (8000, [0.867_508_4, 0.901_134_1, 1.0]),
@@ -460,8 +458,8 @@ fn high_temperature_and_cross_branch_warming_match_independent_values() {
 fn sh9_frame_coefficients_match_cpu_polynomial_for_every_slot_and_axis() {
     use glam::Vec3;
     use worldrunner_render_plan::{SceneDiffuseEnvironment, SceneSh9};
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     for slot in 0..9 {
         let mut coefficients = [[0; 3]; 9];
         coefficients[slot] = [250_000, -125_000, 500_000];
@@ -501,7 +499,8 @@ fn selected_specular_conventions_reach_production_kernels() {
         SceneRoughnessRemap, SceneSpecularConvention, SceneSpecularOcclusion,
         SceneSpecularVisibility,
     };
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for (remap, expected) in [
         (SceneRoughnessRemap::Perceptual045, 0.045),
         (SceneRoughnessRemap::Perceptual04, 0.04),
@@ -550,7 +549,8 @@ fn composition_coverage_shared_lighting_in_mesh_terrain_and_water_sources() {
         SceneRoughnessRemap, SceneSpecularConvention, SceneSpecularOcclusion,
         SceneSpecularVisibility,
     };
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let water = crate::water::water_source(false);
     let sources = [
         ENVIRONMENT_WGSL,
@@ -589,7 +589,8 @@ fn composition_coverage_shared_lighting_in_mesh_terrain_and_water_sources() {
 
 #[test]
 fn default_specular_lighting_preserves_retired_float_bytes() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let stock = concat!(
         worldrunner_render_lighting::lighting_wgsl!(),
         worldrunner_render_post::post_wgsl!(),
@@ -658,8 +659,8 @@ mod specular_tests;
 
 #[test]
 fn relief_normal_lighting_and_projected_depth_have_independent_oracles() {
-    let context =
-        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
     let mut frame = configured_frame(ExposureOwnership::SceneLinear(1.0));
     frame.sun_irradiance = glam::Vec3::ZERO;
     let result = evaluate(
@@ -688,7 +689,8 @@ mod shadow_strength_tests;
 
 #[test]
 fn byte_fade_truncates_at_band_and_byte_edges() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for distance in [1.999, 2.0, 2.001, 2.999, 3.0, 3.001, 3.999, 4.0, 4.001] {
         let entry = format!(
             r"
@@ -711,7 +713,8 @@ fn byte_fade_truncates_at_band_and_byte_edges() {
 
 #[test]
 fn partition_byte_fade_matches_every_r8_fraction_bit_for_bit() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let expected = (0_u8..=255)
         .map(|value| format!("{}u", (f32::from(value) / 255.0).to_bits()))
         .collect::<Vec<_>>()

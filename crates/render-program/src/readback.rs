@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 
-use crate::budget::Reservation;
+use crate::budget::{Note, Reservation};
 use crate::error::ProgramError;
-use crate::resources::{BufferHandle, TargetHandle};
+use crate::resources::{BufferHandle, TargetHandle, TextureHandle};
 use crate::runtime::ProgramRuntime;
 
 /// The pixels of a render target's color texture, rows tightly packed.
@@ -190,7 +190,39 @@ impl ProgramRuntime {
     ) -> Result<PendingTargetRead, ProgramError> {
         self.recording(encoder)?;
         let target = self.store.target(handle)?;
-        let texture = &target.color.texture;
+        self.copy_texture(
+            encoder,
+            &target.color.texture,
+            self.store.target_reservation(handle)?,
+        )
+    }
+
+    /// Records a copy of the first mip and layer of a texture into `encoder`, as `read_target`
+    /// does for a render target. The texture needs to allow copies from it.
+    ///
+    /// # Errors
+    /// Fails on an unknown handle, a format that cannot be copied, an encoder that is not the
+    /// authority's or a lost device.
+    pub fn read_texture(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        handle: TextureHandle,
+    ) -> Result<PendingTargetRead, ProgramError> {
+        self.recording(encoder)?;
+        let entry = self.store.texture(handle)?;
+        self.copy_texture(
+            encoder,
+            &entry.texture,
+            self.store.texture_reservation(handle)?,
+        )
+    }
+
+    fn copy_texture(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+        reservation: Arc<Reservation>,
+    ) -> Result<PendingTargetRead, ProgramError> {
         let (width, height) = (texture.width(), texture.height());
         let texel = texture.format().block_copy_size(None).ok_or_else(|| {
             ProgramError::Readback(format!("{:?} cannot be copied", texture.format()))
@@ -200,13 +232,7 @@ impl ProgramRuntime {
         let mut allocations = AllocationSet::default();
         allocations.readback("render-program readback", [width, height], texel, 1);
         let staged = self.staging(u64::from(padded_row) * u64::from(height), allocations)?;
-        self.hold_for_frame(
-            encoder,
-            vec![
-                self.store.target_reservation(handle)?,
-                staged.reservation.clone(),
-            ],
-        )?;
+        self.hold_for_frame(encoder, vec![reservation, staged.reservation.clone()])?;
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -217,7 +243,11 @@ impl ProgramRuntime {
                     rows_per_image: Some(height),
                 },
             },
-            texture.size(),
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
         Ok(PendingTargetRead {
             staged,
@@ -229,7 +259,7 @@ impl ProgramRuntime {
     }
 
     fn staging(&self, size: u64, allocations: AllocationSet) -> Result<Staged, ProgramError> {
-        let reservation = self.admit(allocations)?;
+        let reservation = self.admit(allocations, Note::new("readback staging", ""))?;
         let buffer = self.guarded(|| {
             self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("render-program readback"),

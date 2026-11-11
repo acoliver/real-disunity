@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn gpu_off_camera_terrain_ridge_still_shadows_visible_valley() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let view = SceneView::new(
         crate::CameraPose {
@@ -43,6 +44,7 @@ fn gpu_off_camera_terrain_ridge_still_shadows_visible_valley() {
 
 #[test]
 fn gpu_masked_billboards_receive_terrain_shadows_and_preserve_holes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let view = SceneView::new(
         crate::CameraPose {
@@ -136,6 +138,7 @@ pub(super) fn terrain_scene(source: &RenderScene, ridge: bool, keep_ground: bool
 
 #[test]
 fn gpu_terrain_receives_mesh_and_masked_foliage_shadows_with_holes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for alpha in [None, Some([255, 255, 0, 0])] {
         let source = terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, alpha), false, false);
@@ -153,6 +156,7 @@ fn gpu_terrain_receives_mesh_and_masked_foliage_shadows_with_holes() {
 
 #[test]
 fn gpu_terrain_ridge_casts_onto_valley_and_mesh_with_extended_light_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for objects in [vec![], vec![[-900, 0, 200]]] {
         let source = terrain_scene(&scene(&objects, 600_000, None), true, false);
@@ -176,6 +180,7 @@ fn gpu_terrain_ridge_casts_onto_valley_and_mesh_with_extended_light_depth() {
 
 #[test]
 fn gpu_terrain_shadow_path_preserves_retained_placement_edits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -200,6 +205,7 @@ fn gpu_terrain_shadow_path_preserves_retained_placement_edits() {
 
 #[test]
 fn gpu_masked_billboards_cast_holes_onto_terrain_in_camera_orientation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let view = SceneView::new(
         crate::CameraPose {
@@ -238,6 +244,7 @@ fn gpu_masked_billboards_cast_holes_onto_terrain_in_camera_orientation() {
 
 #[test]
 fn gpu_masked_mesh_receives_terrain_shadow_without_filling_coverage_holes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = terrain_scene(
         &scene(&[[-900, 0, 200]], 600_000, Some([255, 255, 0, 0])),
@@ -266,4 +273,33 @@ fn terrain_maps() -> impl Iterator<Item = SceneTexture> {
             mips: 1,
             bytes: Vec::from(bytes).into(),
         })
+}
+
+/// A retained shadowed scene prepares the terrain receiver and the cascades' casters in its first
+/// frame, and the frames after it build no pipeline, module, bind group or set.
+#[test]
+fn gpu_steady_state_shadowed_terrain_frames_build_nothing_on_the_program_runtime() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = terrain_scene(&scene(&[], 600_000, None), true, false);
+    let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
+    let target = OffscreenTarget::new(context.device(), view().viewport()).unwrap();
+    let before = renderer.pipelines.terrain_runtime_stats();
+    render_target(&mut renderer, &context, &view(), &target).unwrap();
+    let first = renderer.pipelines.terrain_runtime_stats();
+    assert!(
+        first.pipelines_built >= before.pipelines_built + 2,
+        "the first frame builds the receiver's and the caster's pipelines: {first:?}"
+    );
+    for _ in 0..4 {
+        render_target(&mut renderer, &context, &view(), &target).unwrap();
+    }
+    assert_eq!(
+        renderer.pipelines.terrain_runtime_stats(),
+        first,
+        "steady-state shadowed frames build nothing"
+    );
+    println!(
+        "TERRAIN-COST shadowed_scene before={before:?} after_first={first:?} after_four_more=unchanged"
+    );
 }

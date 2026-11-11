@@ -26,6 +26,15 @@ output.resize(device, [new_width, new_height])?;
 
 For an authored effect, implement `StageFactory`; compile custom shaders with `fullscreen_pipeline` / `compute_pipeline` and construct explicit bind groups in `build`. For example, return histogram clear, histogram dispatch, exposure dispatch, bloom draws, then an output draw. A diagnostic exposure override is an in-order `CopyBuffer` stage, not a queue write racing the compute schedule. Updating per-frame uniforms remains a caller responsibility, before submission. An output format change requires a correspondingly configured factory/pipeline; device/surface lifecycle and capture publication remain host responsibilities.
 
+Authored diagnostics follow `StageId`, independently of timestamp-query support.
+`Stage::encoder_label()` supplies the cached name to render and compute descriptors:
+`name` at level zero, `name level N` otherwise. Schedule acceptance refreshes
+`Stage::label` from its identity, so a separate descriptive label cannot override
+the timing name. `PassId` display uses the same spelling in timing reports.
+Typed raster/compute/transfer lists cache their full operation identity, including
+level and occurrence, when compiled. Encoding borrows retained labels without
+formatting allocation; wgpu still performs its own backend label conversions.
+
 The required GPU tests exercise exact copy, HDR/MSAA resolve, nonaligned readback, optional output changes, disabled-stage preservation, history across resize/reconfiguration and typed invalid configurations. They use native PRIMARY backends by default and honor `WGPU_BACKEND`; adapter absence fails rather than skips.
 
 ## Ordered host captures
@@ -35,6 +44,17 @@ For a capture inside an existing frame encoder, construct `Readback` with the **
 Supported native formats are RGBA8/BGRA8 linear and sRGB, RGBA16Float, R32Float and RGBA32Float. Wrong-format, multisampled, array, non-D2, wrong-size and missing-COPY_SRC sources are rejected before copy encoding. Floating-point data is never interpreted or converted: NaN payloads, infinities and signed zeros survive byte-for-byte. `read_encoded_padded` plus `padded_bytes_per_row` retains the GPU copy layout for diagnostic exporters that consume explicit row pitch; ordinary `read_encoded` strips padding.
 
 `BufferReadback` provides the same allocation ceiling, ordered encode, shared 30-second deadline and guaranteed unmap-on-return for opaque diagnostic buffers. Its configured byte count must be nonzero and copy-aligned; encoding copies exactly that count from source offset zero. The provider, not the SDK, interprets exposure/statistics layouts. Capture publication, metadata, float decoding and surface BGRA-to-RGBA packing remain host responsibilities.
+
+## Typed operations
+
+`contracts::TypedOperation` lists work for the executor: raster passes with checked draw packets (`TypedWork::Draws`), fullscreen draws, compute, resolves and copies. `ResourceRegistry::compile_operations` checks the whole list before anything is encoded: every operation declares its texture and buffer uses, each write takes the next version of the subresource it writes, and each read names the version it reads. A read without a producer, a read of a stale version, overlapping incompatible access, a missing usage flag and a stale or leased-out allocation are `ContractError`s. `CompiledOperations::encode_checked` encodes the list in order and `PassId::Operation` names each operation in the frame's timing.
+
+Four additions serve a provider that draws with pipelines it did not author here, such as `worldrunner-render-program`'s offscreen work:
+
+- **`CheckedDraw::rebind(bindings, geometry)`** makes another draw of a draw's pipeline. `CheckedDraw::with_geometry` creates the pipeline every time, which a provider that draws hundreds of meshes with a few programs cannot afford. The new bind groups must have the same layout entries in the same order, the geometry the same number of vertex streams, and a strip topology keeps requiring the pipeline's index format. Ranges and counts are checked as for a new draw. A mismatch is `ContractError::Pipeline`, a range past a buffer `ContractError::Range`. Tests: `operations_rebind_tests`.
+- **`TypedWork::Fullscreen { vertices: Some(FullscreenVertices { streams, count }) }`** draws `count` vertices reading the streams, stream `n` in vertex slot `n`. A fullscreen pipeline whose vertex stage has inputs could not be used before, because the operation drew three vertices with no vertex buffer. Each `VertexStream` gives its view, stride and the extent one vertex reads. Streams are checked like those of a draw packet: a vertex buffer usage, four byte alignment, `count` vertices inside the slice (`ContractError::Range`), and a declared `BufferUseKind::Vertex` read in the operation's `buffers` (`ContractError::Binding`). `vertices: None` is the three-vertex draw as before. Tests: `operations_fullscreen_streams_tests`.
+- **`ResourceRegistry::compile_operations_with_reads(device, operations, reads)`** also checks sampled reads that follow the list in work it does not contain, such as the draws of a stock pass that sample what the list rendered. Each read must name the version the list leaves, so a read of something no operation wrote, of a version a later operation replaced or with another access or kind is an error. The encode checks the read views again. Tests: `operations_reads_tests`.
+- **`TimingState::encode_checked(compiled, registry, encoder)`** encodes a compiled list with the frame's pass timer, which lives in the post chain. A host holding the chain's `TimingState` can then have its operations stamped between `begin_timing` and `finish_timing` like the chain's own passes. Without a timer the list is encoded unstamped. Tests: `timing_operations_tests`.
 
 ## Stock HDR effects
 
@@ -160,6 +180,13 @@ builds a preset. `SmaaSettings::LOW`, `MEDIUM`, `HIGH` and `ULTRA` equal the ref
 | Medium | 0.1 | 8 | off | off |
 | High | 0.1 | 16 | 8 | 25 |
 | Ultra | 0.05 | 32 | 16 | 25 |
+
+Scene consumers author the same resolve through
+`SceneAntiAlias::smaa(SceneSmaaPreset::Ultra)` or
+`SceneAntiAlias::Smaa(SceneSmaaSettings { .. })` in `render-plan`.
+`render-scene` converts the threshold from millionths and preserves every search,
+corner and edge-mode setting. This route selects no automatic jitter and rejects
+any second resolve from an HDR post block or frame descriptor.
 
 Custom values are validated: `threshold` is above 0 and at most 0.5, `max_search_steps`
 is 0 through 112, `max_search_steps_diag` is `None` or 0 through 20, and `corner_rounding`

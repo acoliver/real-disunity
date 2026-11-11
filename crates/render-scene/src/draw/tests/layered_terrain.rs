@@ -161,7 +161,7 @@ fn render_with_source(
     .unwrap();
     gpu.set_frame(context.queue(), *frame);
     if cached {
-        gpu.enable_terrain_pages(device, &authority, &pipelines, page_source())
+        gpu.enable_terrain_pages(device, &authority, page_source())
             .unwrap();
         let mut transaction = authority.begin(device).unwrap();
         gpu.prepare_terrain_pages(device, &mut transaction, frame, [TARGET; 2])
@@ -227,6 +227,7 @@ fn draw_pixels(
 
 #[test]
 fn layered_cached_and_uncached_production_draws_agree_at_matching_resolution() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for filter in [TerrainSplatFilter::Bilinear, TerrainSplatFilter::Spiral14] {
         let scene = layered_scene(filter);
@@ -244,6 +245,7 @@ fn layered_cached_and_uncached_production_draws_agree_at_matching_resolution() {
 
 #[test]
 fn layered_prepared_scene_pixels_match_cpu_reference_with_metallic() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = layered_scene(TerrainSplatFilter::Bilinear);
     let pixels = render_prepared(&context, &scene, false);
@@ -276,6 +278,7 @@ fn layered_prepared_scene_pixels_match_cpu_reference_with_metallic() {
 
 #[test]
 fn scene_policy_installs_layered_pages_and_enforces_allocation_budget() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = layered_scene(TerrainSplatFilter::Bilinear);
     let config = page_source();

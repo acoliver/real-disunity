@@ -32,16 +32,50 @@ impl ShadowSchedule {
         &mut self,
         scheduler: &crate::compositor::FrameRenderer,
         writes_velocity: bool,
+        depth: crate::renderer::depth::DepthMode,
     ) -> Result<(), worldrunner_render_post::FrameError> {
         let velocity = scheduler.velocity_attachment(writes_velocity)?;
+        let old = self
+            .passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_ref())
+            .expect("opaque depth")
+            .resource;
+        let view = self
+            .views
+            .iter_mut()
+            .find(|view| view.resource() == old)
+            .expect("scene depth view");
+        let resource = scheduler.scene_depth_resource(view);
+        *view = view.with_resource(resource)?;
+        self.passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_mut())
+            .expect("opaque depth")
+            .resource = resource;
         let opaque = self
             .passes
             .iter_mut()
             .find(|pass| pass.slot == PassSlot::Opaque)
             .expect("the schedule always has an opaque pass");
+        if depth == crate::renderer::depth::DepthMode::Reuse {
+            opaque.depth.as_mut().expect("opaque depth").load =
+                worldrunner_render_post::AttachmentLoad::Load;
+        }
         crate::compositor::declare_velocity(opaque, &mut self.views, velocity.as_ref())?;
-        if scheduler.ssao.is_some() {
-            crate::ssao::passes::geometry_declaration(&mut self.declaration);
+        if let Some(screen) = &scheduler.ssao {
+            crate::ssao::passes::geometry_declaration(&mut self.declaration, screen.depth.format());
+            if let Some(receiver) = &screen.receiver {
+                self.declaration
+                    .passes
+                    .iter_mut()
+                    .find(|pass| pass.slot == PassSlot::Opaque)
+                    .expect("opaque feature")
+                    .reads
+                    .extend(receiver.resources());
+            }
         }
         Ok(())
     }

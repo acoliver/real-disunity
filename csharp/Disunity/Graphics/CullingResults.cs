@@ -4,8 +4,9 @@ namespace UnityEngine.Rendering;
 
 /// <summary>
 /// What culling found: a handle to the culling result <see cref="ScriptableRenderContext.Cull"/> recorded in the world, which
-/// later draws name. The engine has no light or probe culling, so the three arrays are empty and every method that needs
-/// them throws <see cref="NotSupportedException"/> naming the member. The default value is no result.
+/// later draws name. The engine has no light or probe culling, so the three arrays are empty. With no visible lights or
+/// probes no object has a light or probe index: the index counts are 0 and filling an index buffer writes nothing. Every
+/// other method that needs lights throws <see cref="NotSupportedException"/> naming the member. The default value is no result.
 /// </summary>
 public struct CullingResults : IEquatable<CullingResults>
 {
@@ -16,9 +17,15 @@ public struct CullingResults : IEquatable<CullingResults>
     public readonly NativeArray<VisibleLight> visibleOffscreenVertexLights => default;
     public readonly NativeArray<VisibleReflectionProbe> visibleReflectionProbes => default;
 
-    public readonly int lightIndexCount => throw Unsupported("lightIndexCount");
-    public readonly int reflectionProbeIndexCount => throw Unsupported("reflectionProbeIndexCount");
-    public readonly int lightAndReflectionProbeIndexCount => throw Unsupported("lightAndReflectionProbeIndexCount");
+    public readonly int lightIndexCount => 0;
+    public readonly int reflectionProbeIndexCount => 0;
+    public readonly int lightAndReflectionProbeIndexCount => 0;
+
+    /// <summary>Writes each object's light and probe indices into the buffer. There are none, so the buffer is left as it is.</summary>
+    public readonly void FillLightAndReflectionProbeIndices(ComputeBuffer computeBuffer) => ArgumentNullException.ThrowIfNull(computeBuffer);
+
+    /// <summary>Writes each object's light and probe indices into the buffer. There are none, so the buffer is left as it is.</summary>
+    public readonly void FillLightAndReflectionProbeIndices(GraphicsBuffer buffer) => ArgumentNullException.ThrowIfNull(buffer);
 
     public readonly NativeArray<int> GetLightIndexMap(Allocator allocator) => throw Unsupported("GetLightIndexMap");
     public readonly void SetLightIndexMap(NativeArray<int> lightIndexMap) => throw Unsupported("SetLightIndexMap");

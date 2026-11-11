@@ -68,16 +68,17 @@ fn probe_source(context: &GpuContext, body: SceneWaterBody, source: &str) -> Vec
         };
     let options = [0, 0, 0, 0, mask];
     let pipeline = pipeline_with_source(context.device(), 1, &water.layout, false, options, source);
-    water
-        .specializations
-        .borrow_mut()
-        .insert(options, [pipeline.clone(), pipeline]);
+    water.specializations.borrow_mut().insert(
+        (options, crate::renderer::depth::DepthMode::Independent),
+        [pipeline.clone(), pipeline],
+    );
     seed_tests::render_probe(context, &mut renderer)
 }
 
 #[test]
 fn endpoint_seed_large_origins_use_integer_geometry_before_float_narrowing() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for origin in [
         [2_000_000_000, 1_900_000_000],
         [-2_000_000_000, -1_800_000_000],
@@ -109,7 +110,8 @@ fn endpoint_seed_large_origins_use_integer_geometry_before_float_narrowing() {
 
 #[test]
 fn endpoint_seed_translated_rectangles_and_basins_interpolate_domain_coordinates() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let source = raster_source().replace(
         "(f32(vertex / 6u) + corner.x) / 16.0 - 1.0",
         "corner.x * 2.0 - 1.0",
@@ -147,6 +149,7 @@ fn endpoint_seed_translated_rectangles_and_basins_interpolate_domain_coordinates
 
 #[test]
 fn repeat_vertex_layout_has_no_endpoint_attribute_or_buffer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let body = seed_tests::body(SceneWaterSeedCoordinates::Repeat);
     assert!(endpoint::coordinates(&body).is_none());
     let layouts = geometry::layouts(false);

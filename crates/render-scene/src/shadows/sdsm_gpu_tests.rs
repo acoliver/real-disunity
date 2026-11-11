@@ -9,7 +9,7 @@ use worldrunner_render_gpu::submission::capture::{
 use worldrunner_render_post::AttachmentView;
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap()
+    GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap()
 }
 pub(crate) fn source(
     context: &GpuContext,
@@ -106,6 +106,7 @@ fn input() -> CaptureInput<()> {
 
 #[test]
 fn gpu_same_frame_capture_waits_for_metres_before_suffix_and_publishes_on_submit() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source(&context, [2.7, 7.0, 19.3, 4.0], true);
     let reducer = reducer(&context, &source);
@@ -149,6 +150,7 @@ fn gpu_same_frame_capture_waits_for_metres_before_suffix_and_publishes_on_submit
 
 #[test]
 fn gpu_empty_invalid_cancelled_and_resized_prefixes_have_distinct_outcomes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (values, covered, empty) in [([0.0; 4], false, true), ([f32::NAN; 4], true, false)] {
         let source = source(&context, values, covered);
@@ -191,6 +193,7 @@ fn gpu_empty_invalid_cancelled_and_resized_prefixes_have_distinct_outcomes() {
 
 #[test]
 fn gpu_cancelled_and_resized_prefixes_cannot_refit() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source(&context, [2.0; 4], true);
     let reducer = reducer(&context, &source);
@@ -233,6 +236,7 @@ fn gpu_cancelled_and_resized_prefixes_cannot_refit() {
 
 #[test]
 fn gpu_dropped_prepared_reduction_cannot_start_mapping() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source(&context, [3.0; 4], true);
     let reducer = reducer(&context, &source);
@@ -258,7 +262,9 @@ fn gpu_dropped_prepared_reduction_cannot_start_mapping() {
 
 #[test]
 fn gpu_device_loss_stops_capture_before_fit() {
-    let context = context();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty())).unwrap();
     let source = source(&context, [3.0; 4], true);
     let reducer = reducer(&context, &source);
     let prefix = reducer
@@ -287,6 +293,7 @@ fn gpu_device_loss_stops_capture_before_fit() {
 
 #[test]
 fn gpu_interactive_readback_preserves_delayed_source_and_rebind_invalidates_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let first = source(&context, [2.7, 19.3, 4.0, 7.0], true);
     let mut fitting = DepthFitting::new(
@@ -344,6 +351,7 @@ fn gpu_interactive_readback_preserves_delayed_source_and_rebind_invalidates_it()
 
 #[test]
 fn failed_readback_invalidates_queued_ranges_but_empty_depth_is_successful() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source(&context, [3.0; 4], true);
     let mut fitting = DepthFitting::new(

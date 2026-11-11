@@ -31,16 +31,18 @@ fn overlay_frame() -> crate::frame::FrameUniform {
 
 #[test]
 fn abandoned_overlay_output_does_not_publish_draw_statistics() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for depth_test in [false, true] {
         check_abandonment(depth_test, None);
     }
 }
 #[test]
 fn fully_clipped_depth_tested_overlay_does_not_publish_draws() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     check_abandonment(true, Some([2, 2, 1, 1]));
 }
 fn check_abandonment(depth_test: bool, clip_rect: Option<[u32; 4]>) {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let context = GpuContext::shared_for_test().unwrap();
     let device = context.device();
     let pipelines = ScenePipelines::new(device, OffscreenTarget::COLOR_FORMAT);
     let mut scene = SceneGpu::empty(device, context.submission(), &pipelines).unwrap();
@@ -129,6 +131,7 @@ fn assert_submission(
 
 #[test]
 fn overlay_depth_inventory_reserves_snapshots_only_for_depth_consumers() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     let mut settings =
         super::RendererConfiguration::legacy([64, 64], OffscreenTarget::COLOR_FORMAT);

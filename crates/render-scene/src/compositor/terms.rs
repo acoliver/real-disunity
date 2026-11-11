@@ -75,6 +75,36 @@ impl TermCapture {
                 .as_ref()
                 .map_or(&screen.geometry.ambient, |(_, group)| group)
         });
+        self.replay(encoder, gpu, &pipelines, (shadow.map(|s| s.1), group));
+    }
+    /// Draws the term into this capture's texture with `pipelines`, binding the shadow group at
+    /// set two and the screen group at set three. The terrain's pipeline is prepared before the
+    /// pass opens.
+    ///
+    /// # Panics
+    /// Panics when the terrain program does not prepare against the pipelines' layouts, which
+    /// the program tests rule out for every context the crate builds. A replay returns no error.
+    pub(crate) fn replay(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        gpu: &SceneGpu,
+        pipelines: &ScenePipelines,
+        (shadow, group): (Option<&wgpu::BindGroup>, Option<&wgpu::BindGroup>),
+    ) {
+        gpu.prepare_terrain_replay(pipelines)
+            .expect("the terrain program of a term replay prepares against its layouts");
+        self.record(encoder, (shadow, group), |pass| {
+            gpu.draw_opaque_capture(pass, pipelines, shadow);
+        });
+    }
+    /// Opens the replay pass over this capture's texture and depth, binds the shadow group at set
+    /// two and the screen group at set three, and records `draw` into it.
+    pub(crate) fn record(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        (shadow, group): (Option<&wgpu::BindGroup>, Option<&wgpu::BindGroup>),
+        draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
+    ) {
         let color = self
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -102,13 +132,13 @@ impl TermCapture {
             }),
             ..Default::default()
         });
-        if let Some((_, group)) = shadow {
+        if let Some(group) = shadow {
             pass.set_bind_group(2, group, &[]);
         }
         if let Some(group) = group {
             pass.set_bind_group(3, group, &[]);
         }
-        gpu.draw_opaque_capture(&mut pass, &pipelines, shadow.map(|s| s.1));
+        draw(&mut pass);
     }
 }
 fn pipelines(
@@ -117,8 +147,20 @@ fn pipelines(
     shadow: Option<&wgpu::BindGroupLayout>,
     screen: Option<&crate::scene_metadata::SceneMetadata>,
 ) -> ScenePipelines {
+    let reflection = screen.map(|screen| screen.geometry.forward.is_some());
+    pipelines_for(device, term, shadow, reflection)
+}
+
+/// The pipelines a term replay draws with: `screen` is `None` without screen-space passes and
+/// otherwise whether reflections are installed, which decides the group at set three.
+pub(crate) fn pipelines_for(
+    device: &wgpu::Device,
+    term: CaptureTerm,
+    shadow: Option<&wgpu::BindGroupLayout>,
+    screen: Option<bool>,
+) -> ScenePipelines {
     let (object, terrain) = term_sources(crate::shadows::capture_sources(shadow.is_some()), term);
-    let reflection = screen.is_some_and(|screen| screen.geometry.forward.is_some());
+    let reflection = screen == Some(true);
     let layout = screen.map(|_| {
         if reflection {
             crate::ssr::forward::layout(device)
@@ -167,7 +209,11 @@ pub(crate) fn term_sources(stock: (&str, &str), term: CaptureTerm) -> (String, S
         "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);",
         &format!("return vec4<f32>({terrain_value}, 1.0);"),
     );
-    (object, terrain)
+    let independent = crate::renderer::depth::DepthMode::Independent;
+    (
+        independent.vertex_source(&object).into_owned(),
+        independent.vertex_source(&terrain).into_owned(),
+    )
 }
 
 fn values(term: CaptureTerm) -> (&'static str, &'static str) {
@@ -187,7 +233,7 @@ fn values(term: CaptureTerm) -> (&'static str, &'static str) {
     }
 }
 
-fn sources(stock: (String, String), screen: bool, reflection: bool) -> (String, String) {
+pub(crate) fn sources(stock: (String, String), screen: bool, reflection: bool) -> (String, String) {
     let apply = |source: String, terrain| {
         let source = if screen {
             crate::ssao::ambient_source(&source)

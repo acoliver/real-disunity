@@ -5,6 +5,7 @@ use worldrunner_render_post::ProjectionJitter;
 
 #[test]
 fn shadow_caster_frames_carry_the_light_matrix_without_viewer_jitter() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = FrameRenderer::new(context.device());
     renderer
@@ -29,6 +30,7 @@ fn shadow_caster_frames_carry_the_light_matrix_without_viewer_jitter() {
 
 #[test]
 fn shadow_caster_frames_carry_exactly_zero_material_mip_bias() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut camera = FrameUniform::unlit(&view());
     camera.material_mip_bias = -2.0;
     assert_eq!(camera.to_bytes()[316..320], (-2.0_f32).to_le_bytes());

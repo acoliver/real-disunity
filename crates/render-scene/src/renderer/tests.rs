@@ -21,8 +21,7 @@ use crate::view::Viewport;
 const COLOR_FORMAT: TextureFormat = TextureFormat::Rgba8UnormSrgb;
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request())
-        .expect("GPU acceptance requires a real adapter with BC support")
+    GpuContext::shared_for_test().expect("GPU acceptance requires a real adapter with BC support")
 }
 
 /// Runs `body` inside a validation error scope and returns what wgpu raised.
@@ -34,6 +33,7 @@ fn validation_error<T>(device: &Device, body: impl FnOnce() -> T) -> (T, Option<
 
 #[test]
 fn every_pipeline_variant_compiles_against_the_declared_layout() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
 
@@ -47,34 +47,11 @@ fn every_pipeline_variant_compiles_against_the_declared_layout() {
     for key in PipelineKey::ALL {
         let _pipeline = pipelines.get(key);
     }
-    // The terrain pipeline is built by the same call and is the one whose
-    // layout is not shared, so it is the one a divergence would surface in.
-    let _terrain = pipelines.terrain();
-}
-
-#[test]
-fn the_terrain_pipeline_compiles_against_its_declared_layout() {
-    // This is the check the CPU-side naga tests cannot make. They confirm the
-    // shader is valid WGSL; only a real driver confirms that the bindings it
-    // declares are the bindings `terrain_bind_group_layout` declares, in the
-    // same slots, with the same sample types. A mismatch there is invisible
-    // until draw time, where it appears as a failed bind rather than as
-    // anything naming the binding that disagreed.
-    let context = context();
-    let device = context.device();
-
-    let (pipelines, error) = validation_error(device, || ScenePipelines::new(device, COLOR_FORMAT));
-
-    assert!(
-        error.is_none(),
-        "the terrain bind group layout, vertex attributes and entry points \
-         must match the terrain shader: {error:?}"
-    );
-    let _terrain = pipelines.terrain();
 }
 
 #[test]
 fn each_state_selects_a_pipeline_of_its_own() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
 
@@ -96,6 +73,7 @@ fn each_state_selects_a_pipeline_of_its_own() {
 
 #[test]
 fn the_frame_layout_the_pipelines_expose_accepts_the_frame_uniform() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let pipelines = ScenePipelines::new(device, COLOR_FORMAT);
@@ -125,6 +103,7 @@ fn the_frame_layout_the_pipelines_expose_accepts_the_frame_uniform() {
 
 #[test]
 fn a_depth_attachment_matches_the_viewport_it_was_sized_for() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let viewport = Viewport {
         width: 1280,

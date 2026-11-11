@@ -1,7 +1,7 @@
 //! Runs a built Unity player's scene headless in the managed host.
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use worldrunner_disunity_runtime::{DisunityHost, ManagedHostConfig};
 use worldrunner_original_games::workspace_root;
@@ -14,24 +14,34 @@ use worldrunner_unity_import::{
 
 use crate::PlayError;
 use crate::prepare::{FIRST_TEXTURE, bridge_config, dotnet, run, target, write};
-use crate::{driver::FIRST_COVERAGE_TEXTURE, player_meshes::PlayerMeshes};
+use crate::{driver::FIRST_COVERAGE_TEXTURE, gpu_player::PlayerGpu, player_meshes::PlayerMeshes};
 
 /// A player scene ready to boot: the host configuration and the request its bridge loads.
 pub struct PreparedPlayer {
     pub config: ManagedHostConfig,
     pub request: PathBuf,
+    /// The player's `<Game>_Data` directory, where its shaders and serialized files are read.
+    pub data: PathBuf,
+}
+
+/// How a player is started besides its files: the command line after its executable path,
+/// the size of the window the frame is drawn into, which is the size the player's `Screen`
+/// reports (a headless run gives none), and extra native plugin directories the player
+/// searches after its own `Plugins` directories and the engine's substitutes.
+#[derive(Clone, Copy, Default)]
+pub struct PlayerLaunch<'a> {
+    pub arguments: &'a [String],
+    pub screen: Option<[u32; 2]>,
+    pub plugins: &'a [PathBuf],
 }
 
 /// Writes the script layouts of the player in `data` (its `<Game>_Data` directory), plans
 /// scene file `scene` and the player's resources with them, and builds the managed bridge,
-/// all into `<target>/play/player`. `arguments` become the player's command line after its
-/// executable path. `screen` is the size of the window the frame is drawn into, which is the size
-/// the player's `Screen` reports; a headless run gives none.
+/// all into `<target>/play/player`. `launch` says how the player starts.
 pub fn prepare_player(
     data: &Path,
     scene: &str,
-    arguments: &[String],
-    screen: Option<[u32; 2]>,
+    launch: PlayerLaunch,
 ) -> Result<PreparedPlayer, PlayError> {
     let root = workspace_root()?;
     let output = target(&root).join("play").join("player");
@@ -62,11 +72,12 @@ pub fn prepare_player(
         &output,
         data,
         [&plan_path, &resources_path],
-        (&scenes, arguments, screen),
+        (&scenes, launch),
     )?;
     Ok(PreparedPlayer {
         config: bridge_config(&root, &output)?,
         request,
+        data: data.to_owned(),
     })
 }
 
@@ -157,10 +168,10 @@ fn write_request(
     output: &Path,
     data: &Path,
     plans: [&Path; 2],
-    launch: (&[serde_json::Value], &[String], Option<[u32; 2]>),
+    launch: (&[serde_json::Value], PlayerLaunch),
 ) -> Result<PathBuf, PlayError> {
     let [plan, resources] = plans;
-    let (scenes, arguments, screen) = launch;
+    let (scenes, launch) = launch;
     let identity = player_identity(data)?;
     eprintln!(
         "[player] {} {} {} built with Unity {} for {}",
@@ -175,11 +186,13 @@ fn write_request(
         .join(path_component(&identity.company_name))
         .join(path_component(&identity.product_name));
     let request = output.join("request.json");
+    let cache = output.join("callback-cache");
     let mut body = request_body(
         data,
         [plan, resources, &persistent],
         &identity,
-        (arguments, screen),
+        launch,
+        &cache,
     );
     body["scenes"] = serde_json::Value::Array(scenes.to_vec());
     if let Some(quality) = player_quality(data)? {
@@ -192,15 +205,22 @@ fn write_request(
 /// The bridge's request. `paths` are the scene plan, the resource plan and the persistent data
 /// directory. The managed side derives the player's executable path from `player` and the
 /// platform in `identity`, and puts `arguments` after it in `Environment.GetCommandLineArgs()`.
-/// `screen` is the window size, listed as `screen` when there is a window.
+/// `screen` is the window size, listed as `screen` when there is a window. `plugins` are listed as
+/// `plugins` when there are any. `callback_cache` is where the managed side keeps the player's
+/// assemblies rewritten so the delegates they give native code stay callable.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
     identity: &PlayerIdentity,
-    launch: (&[String], Option<[u32; 2]>),
+    launch: PlayerLaunch,
+    callback_cache: &Path,
 ) -> serde_json::Value {
     let [plan, resources, persistent] = paths;
-    let (arguments, screen) = launch;
+    let PlayerLaunch {
+        arguments,
+        screen,
+        plugins,
+    } = launch;
     let mut body = serde_json::json!({
         "player": data,
         "plan": plan,
@@ -209,9 +229,13 @@ fn request_body(
         "persistent": persistent,
         "arguments": arguments,
         "first_texture": FIRST_TEXTURE,
+        "callback_cache": callback_cache,
     });
     if let Some(screen) = screen {
         body["screen"] = serde_json::json!(screen);
+    }
+    if !plugins.is_empty() {
+        body["plugins"] = serde_json::json!(plugins);
     }
     body
 }
@@ -236,20 +260,69 @@ fn path_component(name: &str) -> String {
     }
 }
 
-/// Boots the host, starts the player's scene and advances it `frames` times by `dt`. The
-/// error names the step that failed: starting the scene or the frame that failed.
+/// Whether a run does the player's offscreen work on a device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GpuWork {
+    /// Takes a device when the machine has an adapter, and runs without GPU work when it has
+    /// none. A frame whose snapshot holds no work leaves the device alone.
+    #[default]
+    Auto,
+    /// Never touches a device: the run is the one before the offscreen host existed.
+    Off,
+}
+
+/// The environment variable that makes a headless run print the GPU report after every frame, not
+/// only at the end.
+const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
+
+/// Boots the host, starts the player's scene and advances it `frames` times by `dt`, with the
+/// player's offscreen work on a device when there is one ([`GpuWork::Auto`]). The error names the
+/// step that failed: starting the scene or the frame that failed.
 pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Result<(), PlayError> {
+    run_player_with(prepared, frames, dt, GpuWork::Auto)
+}
+
+/// [`run_player`] with `gpu` saying whether the offscreen work runs.
+pub fn run_player_with(
+    prepared: &PreparedPlayer,
+    frames: u64,
+    dt: Duration,
+    gpu: GpuWork,
+) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
+    let gpu = match gpu {
+        GpuWork::Off => None,
+        GpuWork::Auto => PlayerGpu::headless(&prepared.data)
+            .inspect_err(|reason| {
+                eprintln!("[gpu] {reason}; the offscreen work does not run");
+            })
+            .ok(),
+    };
+    // Installed before the scene loads: a script may read a compute buffer back while it does.
+    if let Some(gpu) = &gpu {
+        gpu.install(&mut host)?;
+    }
     host.run_slice(&prepared.request)?;
     let nanos = u64::try_from(dt.as_nanos())
         .map_err(|_| PlayError::Invalid("the frame delta is too long".into()))?;
     let mut result = Ok(());
     let mut meshes = PlayerMeshes::default();
+    let mut times = Vec::new();
     for frame in 0..frames {
+        let started = Instant::now();
         let stepped = host
             .advance(nanos, 1_000_000_000)
             .map_err(PlayError::from)
-            .and_then(|()| present_meshes(&mut host, &mut meshes));
+            .and_then(|()| present_meshes(&mut host, &mut meshes))
+            .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)));
+        times.push(started.elapsed());
+        // A run that dies in a later frame still leaves the counts of the frames before it.
+        if std::env::var_os(REPORT_EACH_FRAME).is_some()
+            && let Some(gpu) = &gpu
+        {
+            eprintln!("[gpu] report after frame {frame}");
+            gpu.report().print();
+        }
         if let Err(error) = stepped {
             result = Err(PlayError::Invalid(format!("frame {frame}: {error}")));
             break;
@@ -258,9 +331,28 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     if result.is_ok() {
         eprintln!("[player] ran {frames} frames");
     }
+    report_times(&times);
+    if let Some(gpu) = &gpu {
+        gpu.report().print();
+    }
     // A frame's failure says more than an unload failure that follows it.
     let unloaded = host.unload_slice();
     result.and(unloaded.map_err(PlayError::from))
+}
+
+/// Writes the first, mean and slowest frame time to standard error.
+fn report_times(times: &[Duration]) {
+    let Some(first) = times.first() else {
+        return;
+    };
+    let total: Duration = times.iter().sum();
+    let slowest = times.iter().max().copied().unwrap_or_default();
+    let count = u32::try_from(times.len()).unwrap_or(u32::MAX);
+    eprintln!(
+        "[player] frame time: first {first:?}, mean {:?}, slowest {slowest:?}, {} frames",
+        total / count,
+        times.len()
+    );
 }
 
 /// Prepares the frame's presentation at the size of a small window and brings its meshes in, so a
@@ -299,8 +391,42 @@ mod tests {
             Path::new("/games/Game/Game_Data"),
             [plan, resources, persistent],
             &identity(),
-            (arguments, screen),
+            PlayerLaunch {
+                arguments,
+                screen,
+                plugins: &[],
+            },
+            Path::new("/out/callback-cache"),
         )
+    }
+
+    #[test]
+    fn the_request_lists_the_plugin_directories_in_order() {
+        let plugins = [PathBuf::from("/a/Plugins"), PathBuf::from("b")];
+        let request = request_body(
+            Path::new("/games/Game/Game_Data"),
+            [Path::new("p"), Path::new("r"), Path::new("x")],
+            &identity(),
+            PlayerLaunch {
+                plugins: &plugins,
+                ..PlayerLaunch::default()
+            },
+            Path::new("/out/callback-cache"),
+        );
+        assert_eq!(request["plugins"], serde_json::json!(["/a/Plugins", "b"]));
+    }
+
+    #[test]
+    fn the_request_names_the_directory_for_player_assemblies_rewritten_at_load() {
+        assert_eq!(
+            body(&[])["callback_cache"],
+            serde_json::json!("/out/callback-cache")
+        );
+    }
+
+    #[test]
+    fn a_request_without_plugin_directories_names_none() {
+        assert!(body(&[]).get("plugins").is_none());
     }
 
     #[test]

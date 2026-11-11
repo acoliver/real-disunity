@@ -264,6 +264,7 @@ pub(super) struct Streaming {
     pub profile: crate::FrameProfile,
     /// Uploads of residents that retired before a frame reported them.
     pub carried: CarriedUploads,
+    pub temporal_history_reset: crate::TemporalHistoryReset,
     preparing: Option<(
         Resident,
         worldrunner_render_plan::RenderScene,
@@ -282,6 +283,7 @@ impl Streaming {
             shadows,
             profile,
             carried: CarriedUploads::default(),
+            temporal_history_reset: crate::TemporalHistoryReset::None,
             preparing: None,
         }
     }

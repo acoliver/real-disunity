@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn an_uploaded_scene_groups_its_objects_into_one_batch_per_mesh_and_material() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = scene(SceneAlphaMode::Opaque, false, 4);
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -15,6 +16,7 @@ fn a_masked_material_lands_in_its_own_pipeline_bucket() {
     // The bucket index decides which pipeline is bound, and therefore whether
     // the alpha-testing fragment entry point runs at all. A misfiled batch
     // would render foliage as opaque rectangles.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = scene(
         SceneAlphaMode::Mask {
@@ -37,6 +39,7 @@ fn terrain_no_longer_enters_the_material_batches_however_many_surfaces_it_names(
     // from its own pipeline, and the count that proves it is the batch
     // accounting staying flat as the palette grows. If terrain crept back into
     // the material buckets these totals would climb with the surface count.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     for surfaces in 1..=3 {
@@ -57,6 +60,7 @@ fn terrain_reaches_the_target_rather_than_being_dropped_on_the_way() {
     // must light strictly more pixels than the same scene without. A silently
     // empty vertex buffer, a transposed attribute layout or an index range
     // that never leaves zero would all leave the two counts equal.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let bare = lit_pixels(&render(&context, &scene(SceneAlphaMode::Opaque, false, 1)));
     let composed = lit_pixels(&render(&context, &terrain_scene(1)));
@@ -72,6 +76,7 @@ fn drawing_one_lit_quad_produces_pixels_that_are_not_the_clear_colour() {
     // declared attributes, an instance buffer feeding the model matrix, a
     // material bind group feeding the sampler, and the frame uniform feeding
     // the projection. Any disagreement among them leaves the target black.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pixels = render(&context, &scene(SceneAlphaMode::Opaque, false, 1));
     let lit = lit_pixels(&pixels);
@@ -87,6 +92,7 @@ fn the_quad_covers_a_substantial_share_of_the_frame_rather_than_a_stray_sliver()
     // typically a degenerate edge-on sliver or a single corner. Requiring a
     // large share of the frame is what separates "drew the quad" from "drew a
     // few pixels of something".
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pixels = render(&context, &scene(SceneAlphaMode::Opaque, false, 1));
     let lit = lit_pixels(&pixels);
@@ -102,6 +108,7 @@ fn a_single_sided_quad_wound_the_other_way_is_culled_entirely() {
     // Proves the front-face convention actually reaches the driver. If winding
     // were ignored, this scene would look identical to the one above and the
     // culling test would be vacuous.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = build(
         white_texture(),
@@ -119,6 +126,7 @@ fn a_single_sided_quad_wound_the_other_way_is_culled_entirely() {
 
 #[test]
 fn a_double_sided_quad_wound_the_other_way_still_renders() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = build(
         white_texture(),
@@ -136,6 +144,7 @@ fn the_materials_own_albedo_reaches_the_shader_rather_than_the_placeholder() {
     // would still render a plausible lit surface. Giving the albedo a colour
     // no placeholder carries is what makes that mistake visible: a red quad
     // proves the sampled texels came from the scene's own table.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = build(
         texture(RED_565),
@@ -168,6 +177,7 @@ fn the_materials_own_albedo_reaches_the_shader_rather_than_the_placeholder() {
 
 #[test]
 fn an_unreadable_texture_names_the_offending_table_entry() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let broken = build(
@@ -187,6 +197,7 @@ fn an_unreadable_texture_names_the_offending_table_entry() {
 
 #[test]
 fn a_yaw_locked_card_turns_to_face_a_camera_its_placement_faced_away_from() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // The placement is a half turn, so the authored card faces due north while
     // the camera stands to the south. Single-sided, that is not a dim card but
@@ -206,6 +217,7 @@ fn a_yaw_locked_card_turns_to_face_a_camera_its_placement_faced_away_from() {
 
 #[test]
 fn crossed_quads_are_drawn_as_placed_rather_than_turned_toward_the_camera() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // Crossed quads earn their second quad precisely by not rotating: the
     // policy is a description of the geometry, not a request to face the eye.
@@ -220,6 +232,7 @@ fn crossed_quads_are_drawn_as_placed_rather_than_turned_toward_the_camera() {
 
 #[test]
 fn a_spherical_card_tilts_toward_an_elevated_camera_while_a_yaw_locked_one_stays_upright() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     // Seen from well above, a card pinned upright is foreshortened to roughly
     // the cosine of the elevation, while one free to pitch presents its whole

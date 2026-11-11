@@ -21,7 +21,8 @@ fn fog_oracle(eye: Vec3, offset: Vec3, start: f64) -> f64 {
 
 #[test]
 fn full_ray_fog_matches_quadrature_for_ascending_descending_and_noncentral_rays() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for offset in [
         Vec3::new(0.0, 80.0, 40.0),
         Vec3::new(0.0, 80.0, -40.0),
@@ -73,7 +74,8 @@ fn frame() -> FrameUniform {
 
 #[test]
 fn far_plane_background_matches_forward_depth_for_noncentral_and_sloped_rays() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let frame = frame();
     for direction in [
         Vec3::Y,
@@ -100,7 +102,8 @@ fn far_plane_background_matches_forward_depth_for_noncentral_and_sloped_rays() {
 
 #[test]
 fn default_fog_uniform_and_shader_result_are_identical() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut frame = frame();
     frame.height_fog = Some(HeightFog::new(0.02, 0.03, 0.0, 25.0, Vec3::ZERO).unwrap());
     assert_eq!(&frame.to_bytes()[308..320], &[0; 12]);

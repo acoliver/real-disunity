@@ -1,14 +1,11 @@
 use std::{sync::mpsc, time::Duration};
-use worldrunner_render_gpu::{device::*, resource::*, texture::*};
+use worldrunner_render_gpu::{device::DeviceRequirements, resource::*, texture::*};
 
 #[test]
 fn explicit_material_bindings_reach_shader_without_renumbering() {
-    let instance = headless_instance();
-    let adapter =
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .expect("material regression requires a GPU adapter");
-    let (device, queue, _) =
-        pollster::block_on(request_device(&adapter, &DeviceRequirements::default())).unwrap();
+    let gpu = worldrunner_render_gpu::test_support::TestGpu::shared(&DeviceRequirements::default())
+        .unwrap();
+    let (device, queue) = (gpu.device, gpu.queue);
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("explicit material contract"),
@@ -113,7 +110,7 @@ fn read_values(device: &wgpu::Device, readback: &wgpu::Buffer) -> Vec<u32> {
     readback
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {

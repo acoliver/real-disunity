@@ -42,7 +42,7 @@ internal static class CoroutineInputTests
         DisunityHost.Step(0.02f);
         Require(probe.Calls.SequenceEqual(new[] { "start", "next", "wait", "dispose" }), "native scaled wait completes and disposes");
         probe.Calls.Clear();
-        var stopped = probe.StartCoroutine(probe.Run());
+        var stopped = probe.StartCoroutine(probe.Run()) ?? throw new Exception("an active script's coroutine was refused");
         probe.StopCoroutine(stopped);
         Require(probe.Calls.SequenceEqual(new[] { "start", "dispose" }), "explicit cancellation disposes");
         probe.Calls.Clear();
@@ -50,9 +50,23 @@ internal static class CoroutineInputTests
         probe.gameObject.SetActive(false);
         Require(probe.Calls.SequenceEqual(new[] { "start", "dispose" }), "native deactivation cancels and disposes");
         probe.Calls.Clear();
-        try { probe.StartCoroutine(probe.Run()); throw new Exception("inactive coroutine accepted"); }
-        catch (DisunityException) { }
+        var errors = new List<string>();
+        void Collect(string message, string _, LogType type) { if (type == LogType.Error) errors.Add(message); }
+        Application.logMessageReceived += Collect;
+        Coroutine? refused;
+        try { refused = probe.StartCoroutine(probe.Run()); }
+        finally { Application.logMessageReceived -= Collect; }
+        Require(refused == null, "a coroutine on an inactive script is not started");
+        Require(errors.Count == 1 && errors[0].Contains(nameof(Probe)), "the refused start is logged once, naming the script");
         Require(probe.Calls.Count == 0, "native admission precedes the first iterator body");
+        DisunityHost.Step(0.01f);
+        Require(probe.Calls.Count == 0, "a refused coroutine never runs later");
+        Require(DisunityHost.RefusesCoroutine(new DisunityException(3, DisunityErrorReason.NotReady, "inactive")),
+            "an inactive script's refusal is logged");
+        Require(!DisunityHost.RefusesCoroutine(new DisunityException(3, DisunityErrorReason.InvalidArgument, "binding")),
+            "any other native error from admission propagates");
+        Require(!DisunityHost.RefusesCoroutine(new DisunityException(3, DisunityErrorReason.StaleHandle, "world")),
+            "a stale world propagates");
         DisunityHost.UnloadWorld();
         TestPhaseEdges();
         TestFailureCancellation();

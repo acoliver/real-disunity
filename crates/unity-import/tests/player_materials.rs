@@ -438,33 +438,90 @@ fn write_scene(dir: &Path) {
 }
 
 #[test]
-fn a_scene_plans_its_renderer_materials_with_their_shader_and_no_textures() {
+fn a_scene_plans_its_renderer_materials_after_their_shader_and_textures() {
     let dir = tempfile::tempdir().unwrap();
     write_scene(dir.path());
     let plan = plan_player_scene(dir.path(), "level0", &layouts()).unwrap();
     let [
         PlanAsset::Shader { name, .. },
+        PlanAsset::Texture2D { .. },
         PlanAsset::Material { material },
     ] = &plan.assets[..]
     else {
-        panic!("a shader and a material: {:?}", plan.assets)
+        panic!("a shader, a texture and a material: {:?}", plan.assets)
     };
     assert_eq!(name, "Test/Lit");
     assert_eq!(material.name, "Lit");
-    let planned = serde_json::to_value(&plan.assets[1]).unwrap();
+    let planned = serde_json::to_value(&plan.assets[2]).unwrap();
     assert_eq!(planned["shader"], 0);
-    assert_eq!(planned["textures"][0]["texture"], Json::Null);
+    assert_eq!(planned["textures"][0]["texture"], 1);
     assert_eq!(planned["textures"][0]["name"], "_MainTex");
     let renderer = serde_json::to_value(&plan.objects[0].components[0]).unwrap();
-    assert_eq!(renderer["materials"], json!([1, 1, null, null]));
-    for wanted in [
-        "material Lit: texture slots _MainTex bind null: references Texture2D object 8",
-        "Root: MeshRenderer material 2 references material object 11 of file 1, which did not plan",
-    ] {
-        assert!(
-            plan.differences.iter().any(|line| line.starts_with(wanted)),
-            "{wanted}: {:?}",
-            plan.differences
-        );
-    }
+    assert_eq!(renderer["materials"], json!([2, 2, null, null]));
+    assert!(
+        !plan
+            .differences
+            .iter()
+            .any(|line| line.contains("bind null")),
+        "{:?}",
+        plan.differences
+    );
+    let wanted =
+        "Root: MeshRenderer material 2 references material object 11 of file 1, which did not plan";
+    assert!(
+        plan.differences.iter().any(|line| line.starts_with(wanted)),
+        "{wanted}: {:?}",
+        plan.differences
+    );
+}
+
+#[test]
+fn materials_of_a_scene_that_bind_one_texture_share_its_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = game_object("Root", &[ptr(0, 3), ptr(0, 4)]);
+    let slots = [ptr(1, 10), ptr(1, 12)];
+    write_file(
+        dir.path(),
+        "level0",
+        vec![
+            object(2, ClassId::GAME_OBJECT, root),
+            object(3, ClassId::TRANSFORM, transform(2, ptr(0, 0), &[])),
+            object(
+                4,
+                ClassId::MESH_RENDERER,
+                mesh_renderer_bytes(2, &distinct(), &slots),
+            ),
+        ],
+        &["sharedassets0.assets"],
+    );
+    write_file(
+        dir.path(),
+        "sharedassets0.assets",
+        vec![
+            object(8, ClassId::TEXTURE_2D, texture()),
+            object(9, ClassId::SHADER, lit()),
+            object(
+                10,
+                ClassId::MATERIAL,
+                material("Lit", ptr(0, 9), &[("_MainTex", ptr(0, 8))]),
+            ),
+            object(
+                12,
+                ClassId::MATERIAL,
+                material("Again", ptr(0, 9), &[("_Detail", ptr(0, 8))]),
+            ),
+        ],
+        &[],
+    );
+    let plan = plan_player_scene(dir.path(), "level0", &layouts()).unwrap();
+    let assets = serde_json::to_value(&plan.assets).unwrap();
+    let types: Vec<&str> = assets
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(types, ["Shader", "Texture2D", "Material", "Material"]);
+    assert_eq!(assets[2]["textures"][0]["texture"], 1);
+    assert_eq!(assets[3]["textures"][0]["texture"], 1);
 }

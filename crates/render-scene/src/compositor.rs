@@ -8,7 +8,9 @@ pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
 mod configuration;
 mod depth_prefix;
+pub(crate) mod depth_reuse;
 mod environment;
+mod offscreen;
 mod output;
 mod overlay;
 mod overlay_depth;
@@ -17,6 +19,7 @@ pub(crate) mod publication;
 mod snapshots;
 mod temporal;
 mod validation;
+pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
 use crate::ssao::passes::ScreenFeature;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
@@ -47,6 +50,9 @@ pub struct FrameRenderer {
     post_requested: worldrunner_render_post::HdrPostSettings,
     elapsed_seconds: f32,
     pub(crate) selected_time: Option<std::time::Duration>,
+    pub(crate) receiver_gradients: ReceiverGradientReservation,
+    #[cfg(test)]
+    pub(crate) receiver_reference: Option<crate::scene_metadata::receiver::ReceiverReference>,
     animation_time: Option<u32>,
     frame_delta: f32,
     post_time: std::rc::Rc<std::cell::Cell<f32>>,
@@ -113,6 +119,9 @@ impl FrameRenderer {
             post_requested: worldrunner_render_post::HdrPostSettings::default(),
             elapsed_seconds: 0.0,
             selected_time: None,
+            receiver_gradients: ReceiverGradientReservation::Opposing,
+            #[cfg(test)]
+            receiver_reference: None,
             animation_time: None,
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
@@ -153,7 +162,7 @@ impl FrameRenderer {
     ///
     /// A sample count the adapter cannot render for the scene formats fails with
     /// [`PostError::SampleCount`] before any target is allocated; it is never reduced.
-    /// A resolve other than [`PostResolve::None`] conflicts with a resolve (FXAA or TAA)
+    /// A resolve other than [`PostResolve::None`] conflicts with a resolve
     /// authored in `effects` and is rejected rather than merged.
     ///
     /// `antialiasing.jitter` turns on sub-pixel projection jitter and previous-frame view data;
@@ -201,6 +210,9 @@ impl FrameRenderer {
             post_requested: post,
             elapsed_seconds: 0.0,
             selected_time: None,
+            receiver_gradients: ReceiverGradientReservation::Opposing,
+            #[cfg(test)]
+            receiver_reference: None,
             animation_time: None,
             frame_delta: 0.0,
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
@@ -212,14 +224,20 @@ impl FrameRenderer {
                     crate::scene_metadata::SceneMetadata::new(context.device(), size, *settings)
                 })
                 .transpose()?,
-            chain: PostChain::new(
+            chain: PostChain::with_scene_depth(
                 context.device(),
                 config,
                 Resources::default(),
                 FrameOutput::Hdr(factory),
+                depth_reuse::allocation(
+                    context.device(),
+                    config,
+                    ssao_requested.is_some() || ssr_requested.is_some_and(|ssr| ssr.enabled),
+                ),
             )?,
         };
         renderer.install_reflections(context.device(), size)?;
+        renderer.share_metadata_depth(context.device());
         renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
             renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
@@ -435,6 +453,7 @@ impl FrameRenderer {
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
         }
+        self.share_metadata_depth(device);
         Ok(changed)
     }
     pub fn encode_output(
@@ -520,17 +539,19 @@ impl FrameRenderer {
         frame: &crate::frame::FrameUniform,
         shadow: Option<&wgpu::BindGroup>,
         encoder: &wgpu::CommandEncoder,
+        depth: crate::renderer::depth::DepthMode,
     ) -> Result<(), FrameError> {
         if let Some(water) = &self.water {
             crate::water::surface::validate_inputs(water)?;
         }
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
         self.water_state.borrow_mut().feature = self.water.as_ref().map(|water| {
-            water.feature(
+            water.feature_with_depth(
                 device,
                 frame,
                 (self.elapsed_seconds, self.frame_slot),
                 (shadow, self.targets().temporal_mask_texture()),
+                depth,
             )
         });
         Ok(())
@@ -552,7 +573,17 @@ impl FrameRenderer {
         let mut passes = passes.to_vec();
         let mut views = views.to_vec();
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
-        self.set_water_input(device, &frame, shadow, encoder)?;
+        let depth_mode = if passes
+            .iter()
+            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_ref())
+            .is_some_and(|depth| depth.format.has_stencil_aspect())
+        {
+            crate::renderer::depth::DepthMode::Shared
+        } else {
+            crate::renderer::depth::DepthMode::Independent
+        };
+        self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
         let mut combined = reborrow_features(features);
         let mut screen = ScreenFeature::installed(self.ssao.as_ref(), self.ssr.as_ref(), &frame);
         if let Some(screen) = &mut screen {

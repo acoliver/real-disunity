@@ -1,3 +1,4 @@
+use super::offscreen::encode_player_work;
 use super::{FrameRenderer, attachment, attachment_resource};
 use worldrunner_render_post::{
     AttachmentView, BorrowedFeature, FeatureDeclaration, FrameError, PassDeclaration, PassSlot,
@@ -19,7 +20,7 @@ impl SceneFeature<'_> {
         let mut declaration = FeatureDeclaration::new(PassSlot::Opaque);
         declaration.passes[0].color_format = Some(pipelines.color_format);
         declaration.passes[0].samples = pipelines.samples;
-        declaration.passes[0].depth_format = Some(wgpu::TextureFormat::Depth32Float);
+        declaration.passes[0].depth_format = Some(pipelines.depth.format());
         declaration
     }
 }
@@ -86,6 +87,30 @@ impl PreparedFeature for SceneFeature<'_> {
     }
 }
 
+/// Prepares the terrain pipelines of the passes the scene feature draws terrain in: the
+/// prepass when the frame has screen-space passes, and the colour pass with the forward
+/// pipelines when those are installed. The objects' pipelines are prepared for the colour pass
+/// only: the prepass draws them with the fixed pipelines. Preparing is done before the passes
+/// open, where a refusal is still an error.
+fn prepare_terrain(
+    gpu: &crate::draw::SceneGpu,
+    frame: &crate::frame::FrameUniform,
+    pipelines: &crate::renderer::ScenePipelines,
+    screen: Option<&crate::scene_metadata::Geometry>,
+) -> Result<(), FrameError> {
+    let Some(screen) = screen else {
+        gpu.prepare_terrain(pipelines, frame)?;
+        return gpu.prepare_objects(pipelines, frame);
+    };
+    gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
+    let colour = screen
+        .forward
+        .as_ref()
+        .map_or(pipelines, |(forward, _)| forward);
+    gpu.prepare_terrain(colour, frame)?;
+    gpu.prepare_objects(colour, frame)
+}
+
 /// Adds the velocity attachment, which the main pass clears to zero and never resolves.
 pub(crate) fn declare_velocity(
     opaque: &mut PassDeclaration,
@@ -102,6 +127,19 @@ pub(crate) fn declare_velocity(
     Ok(())
 }
 
+/// Checks the screen-space, water and post settings the scene was uploaded with against the
+/// renderer.
+fn validate_effects(
+    renderer: &mut FrameRenderer,
+    gpu: &crate::draw::SceneGpu,
+    pipelines: &crate::renderer::ScenePipelines,
+) -> Result<(), FrameError> {
+    renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
+    renderer.validate_water(&gpu.water)?;
+    renderer.validate_ssr(gpu.ssr.as_ref())?;
+    renderer.validate_post(gpu.post)
+}
+
 /// Encodes a resident unshadowed scene through the feature boundary.
 /// Checked attachments retain their selected mip, array layer and view format.
 /// The submission and abandonment rules of [`FrameRenderer`] apply.
@@ -114,30 +152,39 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
-    renderer.prepare_scene_inputs(device, gpu);
     renderer.validate_taa_depth(attachments.1)?;
+    validate_effects(renderer, gpu, pipelines)?;
+    if let Some(screen) = &mut renderer.ssao {
+        screen.receiver = None;
+    }
+    renderer.prepare_scene_inputs(device, gpu);
+    let depth_mode = renderer.forward_depth(gpu, attachments.1);
+    let selected = renderer.color_pipelines(pipelines, depth_mode);
+    let pipelines = &selected;
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
-    renderer.validate_ssao(pipelines, gpu.ssao.as_ref())?;
-    renderer.validate_water(&gpu.water)?;
-    renderer.validate_ssr(gpu.ssr.as_ref())?;
-    renderer.validate_post(gpu.post)?;
-    let programs =
-        super::programs::accept(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
     gpu.prepare_terrain_geometry(device, encoder, &frame, color.size())?;
     gpu.prepare_sky(device, encoder, &frame)?;
     gpu.prepare_terrain_pages(device, encoder, &frame, color.size())?;
+    let screen = renderer.geometry_for_depth(depth_mode);
+    prepare_terrain(gpu, &frame, pipelines, screen.as_ref())?;
     let color_id = attachment_resource("scene color", color);
-    let depth_id = attachment_resource("scene depth", depth);
+    let depth_id = renderer.scene_depth_resource(depth);
     let mut opaque = PassDeclaration::new(PassSlot::Opaque);
     opaque.color = Some(renderer.color_attachment(color_id, color));
     opaque.depth = Some(attachment(depth_id, depth, true));
+    if depth_mode == crate::renderer::depth::DepthMode::Reuse {
+        opaque.depth.as_mut().expect("scene depth").load =
+            worldrunner_render_post::AttachmentLoad::Load;
+    }
     let mut declaration = SceneFeature::declaration(pipelines);
-    if renderer.ssao.is_some() {
-        crate::ssao::passes::geometry_declaration(&mut declaration);
+    if let Some(screen) = &renderer.ssao {
+        crate::ssao::passes::geometry_declaration(&mut declaration, screen.depth.format());
     }
     let mut views = vec![
         color.with_resource(color_id)?,
@@ -154,7 +201,7 @@ pub fn encode_scene(
     );
     let mut feature = SceneFeature {
         publications: crate::draw::DrawPublications::default(),
-        screen: renderer.ssao.as_ref().map(|ssao| ssao.geometry.clone()),
+        screen,
         programs,
         gpu,
         pipelines,

@@ -15,6 +15,7 @@ fn placed(position: [i64; 3], rotation: SceneRotation, scale: u64) -> SceneObjec
 
 #[test]
 fn gpu_rotated_and_uniform_scaled_instances_cast_transformed_footprints() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = fixture::caster_scene(
         vec![
@@ -45,6 +46,7 @@ fn gpu_rotated_and_uniform_scaled_instances_cast_transformed_footprints() {
 
 #[test]
 fn gpu_double_sided_backfaces_cast_opaque_and_masked_coverage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let backface = placed(
         [0, 0, 1_000],
@@ -154,6 +156,7 @@ fn billboard_receivers(
 
 #[test]
 fn gpu_billboard_shadows_use_camera_orientation_in_both_passes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for policy in [BillboardPolicy::YawLocked, BillboardPolicy::Spherical] {
         billboard_receivers(&context, policy, &camera([-4_000, 0, 6_500]), true);
@@ -162,6 +165,7 @@ fn gpu_billboard_shadows_use_camera_orientation_in_both_passes() {
 
 #[test]
 fn gpu_billboard_overhead_orientation_fallbacks_have_stable_receiver_coverage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for eye in [[0, 0, 6_500], [2, 0, 6_500], [10, 0, 6_500]] {
         for policy in [BillboardPolicy::YawLocked, BillboardPolicy::Spherical] {

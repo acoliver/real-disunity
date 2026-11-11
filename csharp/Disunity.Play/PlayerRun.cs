@@ -12,7 +12,8 @@ namespace Disunity.Play;
 /// scene, and the scene loads from its plan. A player request is
 /// <c>{"player": data directory, "plan": path, "resources": path, "identity": {...},
 /// "persistent": directory, "arguments": [the player's command line after its executable path],
-/// "first_texture": 1, "quality": {"names": [...], "current": 0},
+/// "first_texture": 1, "plugins": [extra native plugin directories], "callback_cache": directory for rewritten game assemblies,
+/// "quality": {"names": [...], "current": 0},
 /// "scenes": [{"name": ..., "path": ..., "plan": path or null, "error": why it has no plan}]}</c>, with the scene and
 /// resource plans, the player identity and its quality levels (when it defines any)
 /// <c>unity-import</c> writes. <c>scenes</c> lists the player's build in build order for <c>SceneManager</c>. Each step writes a line
@@ -25,9 +26,15 @@ internal static class PlayerRun
         var data = request.GetProperty("player").GetString()!;
         var manifest = PlayerManifest.Read(data);
         Log($"player {data}: {manifest.GameAssemblies.Count} game assemblies, {manifest.Hooks.Count} startup hooks");
-        var plugins = new PlayerNativePlugins(data, DisunityHost.NativeLibraryDirectory, Log);
-        var assemblies = new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins);
+        var plugins = new PlayerNativePlugins(data, DisunityHost.NativeLibraryDirectory, Log, ExtraPluginDirectories(request));
+        // A Mono player gets some class libraries from its runtime and does not ship them; the bridge carries them.
+        var bridge = Path.GetDirectoryName(typeof(PlayerRun).Assembly.Location);
+        // A player's runtime keeps a native thunk for a static callback callable; the host gets the same by loading
+        // assemblies rewritten into the request's cache directory (see PlayerCallbackRewriter).
+        var assemblies = new PlayerAssemblies(Path.Combine(data, "Managed"), typeof(DisunityHost).Assembly, manifest.GameAssemblies, plugins, bridge,
+            CallbackCache(request), Log);
         assemblies.Attach(context);
+        assemblies.ServeDefaultContext();
         // Unity's Mono runtime loads a player into one domain, so a lookup by name, such as
         // BinaryFormatter's or Type.GetType's from class-library code, finds the game's assemblies.
         // Entering the player's context makes those lookups resolve there for the rest of the run.
@@ -79,6 +86,14 @@ internal static class PlayerRun
         Log("scene loaded");
         return scene;
     }
+
+    /// <summary>The request's <c>callback_cache</c>: where rewritten game assemblies are kept, or null for none.</summary>
+    private static string? CallbackCache(JsonElement request) =>
+        request.TryGetProperty("callback_cache", out var directory) ? directory.GetString() : null;
+
+    /// <summary>The request's <c>plugins</c>: extra native plugin directories, searched after the player's own.</summary>
+    private static string[] ExtraPluginDirectories(JsonElement request) =>
+        request.TryGetProperty("plugins", out var plugins) ? plugins.EnumerateArray().Select(directory => directory.GetString()!).ToArray() : Array.Empty<string>();
 
     /// <summary>Runs a startup phase as Unity does: a hook that fails is logged with
     /// <see cref="Debug.LogException(Exception)"/> and the phase goes on.</summary>

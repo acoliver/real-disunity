@@ -1,265 +1,312 @@
-//! Fixed-function render state from a pass's `ShaderState`.
+//! Fixed-function state a pipeline is built from, as plain data.
 //!
-//! The enum values follow the managed engine's own definitions in `Disunity/Enums/Rendering.cs`
-//! (`CullMode`, `CompareFunction`, `BlendMode`, `BlendOp` and `ColorWriteMask`). `BlendOp`
-//! values above `Max` (the logical and advanced blend operations) have no wgpu equivalent and
-//! are rejected as unknown values.
+//! The state describes more than the plain draws use: stencil, alpha to coverage and several
+//! colour targets are representable, and [`RenderState::check_drawable`] names the ones a plain
+//! draw refuses. A depth bias is drawn: it is part of [`DepthState`] and of the pipeline. Stencil
+//! is drawn by the prepared pipelines of a renderer's own pass ([`RenderState::check_targets`]),
+//! whose depth attachment has a stencil aspect, and refused by the plain and material draws.
+//! Alpha to coverage is drawn into a pass of more than one sample, and refused at one.
 
-use worldrunner_unity_serialized::shader_state::{
-    ShaderState, StateValue, StencilOps, TargetBlend,
-};
+use crate::error::ProgramError;
 
-use crate::properties::{PropertySet, PropertyValue, lookup};
+/// What one colour target does with a fragment's colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ColorState {
+    pub blend: Option<wgpu::BlendState>,
+    pub write_mask: wgpu::ColorWrites,
+}
 
-/// State a pipeline needs, for render target 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RasterState {
+    pub cull: Option<wgpu::Face>,
+    /// The winding that counts as a front face, in framebuffer space.
+    pub front_face: wgpu::FrontFace,
+    /// Lets the fragment's alpha decide how many of a pixel's samples it covers. A pass of one
+    /// sample has nothing to drop, so the state is refused there with
+    /// [`ProgramError::AlphaToCoverageNeedsSamples`].
+    pub alpha_to_coverage: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthState {
+    pub test: wgpu::CompareFunction,
+    pub write: bool,
+    pub bias: wgpu::DepthBiasState,
+}
+
+/// The stencil test and operations of a pipeline, and the reference the pass is expected to set.
+///
+/// `ops` is the pipeline's. `reference` is not: it belongs to the pass, which the owner sets with
+/// `set_stencil_reference` once for the pass, as the runtime binds no state the owner holds. It is
+/// carried so that a state says what its test compares against.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StencilState {
+    pub ops: wgpu::StencilState,
+    pub reference: u32,
+}
+
+/// The state of a draw. `colors` has one entry per colour target, `None` for a slot the draw
+/// does not write.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderState {
-    pub cull: Option<wgpu::Face>,
-    pub depth_compare: wgpu::CompareFunction,
-    pub depth_write: bool,
-    pub color_write: wgpu::ColorWrites,
-    pub blend: Option<wgpu::BlendState>,
+    pub raster: RasterState,
+    /// `None` tests nothing and writes no depth.
+    pub depth: Option<DepthState>,
+    pub colors: Vec<Option<ColorState>>,
+    pub stencil: Option<StencilState>,
 }
 
-/// A resolved state and the properties that were missing, so it used their defaults.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ResolvedState {
-    pub state: RenderState,
-    pub defaulted: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, thiserror::Error)]
-pub enum StateError {
-    #[error("{field} has no meaning for the value {value}")]
-    UnknownValue { field: &'static str, value: f32 },
-    #[error("{field} is set to {value}, which this renderer does not draw")]
-    Unsupported { field: &'static str, value: f32 },
-    #[error("state property {property} is not a float")]
-    NotAFloat { property: String },
-    #[error("state property {property} is the integer {value}, beyond any state value")]
-    IntegerOutOfRange { property: String, value: i32 },
-    #[error("the pass has no blend state for render target 0")]
-    NoBlendTarget,
-}
-
-/// Reads state values, remembering the properties that fell back to their defaults.
-struct Resolver<'a> {
-    layers: &'a [&'a PropertySet],
-    defaulted: Vec<String>,
-}
-
-impl Resolver<'_> {
-    fn value(&mut self, value: &StateValue) -> Result<f32, StateError> {
-        let Some(property) = &value.property else {
-            return Ok(value.value);
-        };
-        match lookup(self.layers, property) {
-            Some(PropertyValue::Float(found)) => Ok(*found),
-            // State values are small enums and masks; i16 converts to f32 exactly.
-            Some(PropertyValue::Int(found)) => {
-                i16::try_from(*found)
-                    .map(f32::from)
-                    .map_err(|_| StateError::IntegerOutOfRange {
-                        property: property.clone(),
-                        value: *found,
-                    })
-            }
-            Some(_) => Err(StateError::NotAFloat {
-                property: property.clone(),
+impl RenderState {
+    /// Back faces culled, counter-clockwise fronts, `LessEqual` depth written, one target
+    /// written in all channels without blending.
+    #[must_use]
+    pub fn opaque_depth() -> Self {
+        Self {
+            raster: RasterState {
+                cull: Some(wgpu::Face::Back),
+                front_face: wgpu::FrontFace::Ccw,
+                alpha_to_coverage: false,
+            },
+            depth: Some(DepthState {
+                test: wgpu::CompareFunction::LessEqual,
+                write: true,
+                bias: wgpu::DepthBiasState::default(),
             }),
-            None => {
-                self.defaulted.push(property.clone());
-                Ok(value.value)
-            }
+            colors: vec![Some(ColorState {
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            stencil: None,
         }
     }
 
-    /// A value that must be a whole number from 0 to `max`.
-    fn choice(
-        &mut self,
-        field: &'static str,
-        value: &StateValue,
-        max: u8,
-    ) -> Result<u8, StateError> {
-        let raw = self.value(value)?;
-        (0..=max)
-            .find(|candidate| same(f32::from(*candidate), raw))
-            .ok_or(StateError::UnknownValue { field, value: raw })
-    }
-
-    /// A value that must equal `expected`, for state the renderer does not draw.
-    fn require(
-        &mut self,
-        field: &'static str,
-        value: &StateValue,
-        expected: f32,
-    ) -> Result<(), StateError> {
-        let raw = self.value(value)?;
-        if same(raw, expected) {
-            Ok(())
-        } else {
-            Err(StateError::Unsupported { field, value: raw })
+    /// No culling, no depth, one target written in all channels without blending: the state of
+    /// a triangle that covers a target.
+    #[must_use]
+    pub(crate) fn fullscreen() -> Self {
+        Self {
+            raster: RasterState {
+                cull: None,
+                front_face: wgpu::FrontFace::Ccw,
+                alpha_to_coverage: false,
+            },
+            depth: None,
+            colors: vec![Some(ColorState {
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            stencil: None,
         }
     }
-}
 
-/// Whether two floats are the same value, taking -0 for 0.
-fn same(a: f32, b: f32) -> bool {
-    (a + 0.0).to_bits() == (b + 0.0).to_bits()
-}
+    /// Checks that a draw into one single-sample colour target can use this state and returns
+    /// that target's state.
+    ///
+    /// # Errors
+    /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses, and
+    /// with `AlphaToCoverageNeedsSamples` for alpha to coverage, which a single sample cannot
+    /// use.
+    pub fn check_drawable(&self) -> Result<ColorState, ProgramError> {
+        self.check_no_stencil()?;
+        self.check_alpha_to_coverage(1)?;
+        match self.colors.as_slice() {
+            [Some(color)] => Ok(*color),
+            [None] => Err(unwritten()),
+            _ => Err(ProgramError::UnsupportedState {
+                what: "several colour targets",
+            }),
+        }
+    }
 
-/// Resolves a pass's state, reading each property-controlled value from the first of `layers`
-/// that has it.
-///
-/// # Errors
-/// Fails on a value with no meaning for its field, a property that is not a float, or state
-/// this renderer does not draw.
-pub fn resolve_state(
-    state: &ShaderState,
-    layers: &[&PropertySet],
-) -> Result<ResolvedState, StateError> {
-    let mut reader = Resolver {
-        layers,
-        defaulted: Vec::new(),
-    };
-    reader.unsupported(state)?;
-    let depth = &state.depth;
-    let cull = reader.choice("cull", &depth.cull, 2)?;
-    let compare = reader.choice("ZTest", &depth.test, 8)?;
-    let write = reader.choice("ZWrite", &depth.write, 1)?;
-    let target = state.blend.first().ok_or(StateError::NoBlendTarget)?;
-    let (color_write, blend) = reader.target(target)?;
-    Ok(ResolvedState {
-        state: RenderState {
-            cull: [None, Some(wgpu::Face::Front), Some(wgpu::Face::Back)][usize::from(cull)],
-            depth_compare: COMPARE[usize::from(compare)],
-            depth_write: write == 1,
-            color_write,
-            blend,
-        },
-        defaulted: reader.defaulted,
-    })
-}
+    /// Checks that a draw into `count` colour targets of `samples` per pixel can use this state and returns each
+    /// target's state, in target order. A target the fragment stage does not write is
+    /// expressed by an empty write mask, which keeps the attachment compatible with the pass.
+    /// A depth-only pass has `count` 0 and takes a state with no colour targets. A stencil state
+    /// is accepted here; the pipeline checks it against the pass's depth attachment. Alpha to
+    /// coverage needs `samples` above 1.
+    ///
+    /// # Errors
+    /// Fails with `UnsupportedState` naming the first part of the state that a draw refuses,
+    /// with `AlphaToCoverageNeedsSamples` when alpha to coverage is asked for and `samples` is 1,
+    /// with `ColorStatesOnDepthOnly` when `count` is 0 and the state describes colour targets
+    /// and with `ColorStates` when the state does not describe each of the `count` targets.
+    pub fn check_targets(
+        &self,
+        count: usize,
+        samples: u32,
+    ) -> Result<Vec<ColorState>, ProgramError> {
+        self.check_alpha_to_coverage(samples)?;
+        if count == 0 && !self.colors.is_empty() {
+            return Err(ProgramError::ColorStatesOnDepthOnly {
+                states: self.colors.len(),
+            });
+        }
+        if self.colors.len() != count {
+            return Err(ProgramError::ColorStates {
+                states: self.colors.len(),
+                targets: count,
+            });
+        }
+        self.colors
+            .iter()
+            .map(|color| color.ok_or_else(unwritten))
+            .collect()
+    }
 
-/// Unity's `CompareFunction` in order; `Disabled` is no test, which is `Always`.
-const COMPARE: [wgpu::CompareFunction; 9] = [
-    wgpu::CompareFunction::Always,
-    wgpu::CompareFunction::Never,
-    wgpu::CompareFunction::Less,
-    wgpu::CompareFunction::Equal,
-    wgpu::CompareFunction::LessEqual,
-    wgpu::CompareFunction::Greater,
-    wgpu::CompareFunction::NotEqual,
-    wgpu::CompareFunction::GreaterEqual,
-    wgpu::CompareFunction::Always,
-];
-
-/// Unity's `BlendMode` in order.
-const FACTORS: [wgpu::BlendFactor; 11] = [
-    wgpu::BlendFactor::Zero,
-    wgpu::BlendFactor::One,
-    wgpu::BlendFactor::Dst,
-    wgpu::BlendFactor::Src,
-    wgpu::BlendFactor::OneMinusDst,
-    wgpu::BlendFactor::SrcAlpha,
-    wgpu::BlendFactor::OneMinusSrc,
-    wgpu::BlendFactor::DstAlpha,
-    wgpu::BlendFactor::OneMinusDstAlpha,
-    wgpu::BlendFactor::SrcAlphaSaturated,
-    wgpu::BlendFactor::OneMinusSrcAlpha,
-];
-
-/// Unity's `BlendOp` in order.
-const OPERATIONS: [wgpu::BlendOperation; 5] = [
-    wgpu::BlendOperation::Add,
-    wgpu::BlendOperation::Subtract,
-    wgpu::BlendOperation::ReverseSubtract,
-    wgpu::BlendOperation::Min,
-    wgpu::BlendOperation::Max,
-];
-
-/// Unity's `ColorWriteMask` bits (alpha 1, blue 2, green 4, red 8) as wgpu's.
-const MASK_BITS: [(u8, wgpu::ColorWrites); 4] = [
-    (8, wgpu::ColorWrites::RED),
-    (4, wgpu::ColorWrites::GREEN),
-    (2, wgpu::ColorWrites::BLUE),
-    (1, wgpu::ColorWrites::ALPHA),
-];
-
-impl Resolver<'_> {
-    /// Rejects state the renderer does not draw: stencil, depth bias, alpha to coverage,
-    /// conservative rasterisation and unclipped depth.
-    fn unsupported(&mut self, state: &ShaderState) -> Result<(), StateError> {
-        let depth = &state.depth;
-        self.require("depth clip", &depth.clip, 1.0)?;
-        self.require("depth offset", &depth.offset_factor, 0.0)?;
-        self.require("depth offset", &depth.offset_units, 0.0)?;
-        self.require("alpha to coverage", &depth.alpha_to_mask, 0.0)?;
-        self.require("conservative rasterisation", &depth.conservative, 0.0)?;
-        for ops in [
-            &state.stencil.both,
-            &state.stencil.front,
-            &state.stencil.back,
-        ] {
-            self.stencil_off(ops)?;
+    fn check_alpha_to_coverage(&self, samples: u32) -> Result<(), ProgramError> {
+        if self.raster.alpha_to_coverage && samples <= 1 {
+            return Err(ProgramError::AlphaToCoverageNeedsSamples { samples });
         }
         Ok(())
     }
 
-    /// Stencil ops that keep the buffer and always pass: the same as no stencil.
-    fn stencil_off(&mut self, ops: &StencilOps) -> Result<(), StateError> {
-        for operation in [&ops.pass, &ops.fail, &ops.z_fail] {
-            self.require("stencil", operation, 0.0)?;
+    fn check_no_stencil(&self) -> Result<(), ProgramError> {
+        if self.stencil.is_some() {
+            return Err(ProgramError::UnsupportedState { what: "stencil" });
         }
-        let compare = self.value(&ops.compare)?;
-        if same(compare, 0.0) || same(compare, 8.0) {
-            Ok(())
-        } else {
-            Err(StateError::Unsupported {
-                field: "stencil",
-                value: compare,
-            })
+        Ok(())
+    }
+}
+
+fn unwritten() -> ProgramError {
+    ProgramError::UnsupportedState {
+        what: "an unwritten colour target",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refused(state: &RenderState) -> &'static str {
+        match state.check_drawable() {
+            Err(ProgramError::UnsupportedState { what }) => what,
+            other => panic!("expected a refusal, got {other:?}"),
         }
     }
 
-    fn target(
-        &mut self,
-        target: &TargetBlend,
-    ) -> Result<(wgpu::ColorWrites, Option<wgpu::BlendState>), StateError> {
-        let mask = self.choice("color mask", &target.color_mask, 15)?;
-        let color_write = MASK_BITS
-            .iter()
-            .filter(|(bit, _)| mask & bit != 0)
-            .fold(wgpu::ColorWrites::empty(), |all, (_, write)| all | *write);
-        let color = self.component([&target.src, &target.dst, &target.op])?;
-        let alpha = self.component([&target.src_alpha, &target.dst_alpha, &target.op_alpha])?;
-        let off = wgpu::BlendComponent::REPLACE;
-        let blend = (color != off || alpha != off).then_some(wgpu::BlendState { color, alpha });
-        Ok((color_write, blend))
+    #[test]
+    fn the_opaque_state_is_what_its_name_says_and_is_drawable() {
+        let state = RenderState::opaque_depth();
+        assert_eq!(state.raster.cull, Some(wgpu::Face::Back));
+        assert_eq!(state.raster.front_face, wgpu::FrontFace::Ccw);
+        let depth = state.depth.unwrap();
+        assert_eq!(depth.test, wgpu::CompareFunction::LessEqual);
+        assert!(depth.write);
+        assert_eq!(state.colors.len(), 1);
+        let color = state.colors[0].unwrap();
+        assert_eq!(color.blend, None);
+        assert_eq!(color.write_mask, wgpu::ColorWrites::ALL);
+        assert!(state.check_drawable().is_ok());
     }
 
-    /// One blend equation. Min and max ignore factors in Unity, but wgpu requires `One`.
-    fn component(
-        &mut self,
-        [src, dst, op]: [&StateValue; 3],
-    ) -> Result<wgpu::BlendComponent, StateError> {
-        let src_factor = FACTORS[usize::from(self.choice("blend factor", src, 10)?)];
-        let dst_factor = FACTORS[usize::from(self.choice("blend factor", dst, 10)?)];
-        let operation = OPERATIONS[usize::from(self.choice("blend operation", op, 4)?)];
-        if matches!(
-            operation,
-            wgpu::BlendOperation::Min | wgpu::BlendOperation::Max
-        ) {
-            return Ok(wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::One,
-                operation,
-            });
+    #[test]
+    fn stencil_and_alpha_to_coverage_are_refused_by_the_plain_draw_by_name() {
+        let mut state = RenderState::opaque_depth();
+        state.stencil = Some(StencilState {
+            ops: wgpu::StencilState::default(),
+            reference: 1,
+        });
+        assert_eq!(refused(&state), "stencil");
+        let mut state = RenderState::opaque_depth();
+        state.raster.alpha_to_coverage = true;
+        assert_eq!(
+            state.check_drawable().unwrap_err(),
+            ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }
+        );
+    }
+
+    #[test]
+    fn a_stencil_state_describes_prepared_targets_and_is_refused_by_the_plain_draw() {
+        let mut state = RenderState::opaque_depth();
+        state.stencil = Some(StencilState {
+            ops: wgpu::StencilState::default(),
+            reference: 1,
+        });
+        assert_eq!(refused(&state), "stencil");
+        assert!(state.check_targets(1, 1).is_ok());
+    }
+
+    #[test]
+    fn alpha_to_coverage_describes_a_multisampled_pass_and_is_refused_at_one_sample() {
+        let mut state = RenderState::opaque_depth();
+        state.raster.alpha_to_coverage = true;
+        for samples in [2, 4, 8, 16] {
+            assert!(state.check_targets(1, samples).is_ok());
         }
-        Ok(wgpu::BlendComponent {
-            src_factor,
-            dst_factor,
-            operation,
-        })
+        assert_eq!(
+            state.check_targets(1, 1).unwrap_err(),
+            ProgramError::AlphaToCoverageNeedsSamples { samples: 1 }
+        );
+        state.raster.alpha_to_coverage = false;
+        assert!(state.check_targets(1, 1).is_ok());
+    }
+
+    #[test]
+    fn a_depth_bias_is_part_of_a_drawable_state() {
+        let mut state = RenderState::opaque_depth();
+        state.depth.as_mut().unwrap().bias = wgpu::DepthBiasState {
+            constant: 2,
+            slope_scale: 1.5,
+            clamp: 0.01,
+        };
+        assert!(state.check_drawable().is_ok());
+        assert!(state.check_targets(1, 1).is_ok());
+    }
+
+    #[test]
+    fn a_depth_only_pass_takes_a_state_with_no_colour_targets() {
+        let mut state = RenderState::opaque_depth();
+        assert_eq!(
+            state.check_targets(0, 1).unwrap_err(),
+            ProgramError::ColorStatesOnDepthOnly { states: 1 }
+        );
+        state.colors.clear();
+        assert_eq!(state.check_targets(0, 1).unwrap(), Vec::new());
+        // The same state does not describe a pass that has a colour attachment.
+        assert_eq!(
+            state.check_targets(1, 1).unwrap_err(),
+            ProgramError::ColorStates {
+                states: 0,
+                targets: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_draw_writes_exactly_one_colour_target() {
+        let mut state = RenderState::opaque_depth();
+        state.colors.push(state.colors[0]);
+        assert_eq!(refused(&state), "several colour targets");
+        state.colors = vec![None];
+        assert_eq!(refused(&state), "an unwritten colour target");
+        state.colors = Vec::new();
+        assert_eq!(refused(&state), "several colour targets");
+    }
+
+    #[test]
+    fn several_targets_are_described_one_state_each_with_the_same_fixed_function_rules() {
+        let mut state = RenderState::opaque_depth();
+        state.colors.push(Some(ColorState {
+            blend: None,
+            write_mask: wgpu::ColorWrites::empty(),
+        }));
+        let colors = state.check_targets(2, 1).unwrap();
+        assert_eq!(colors[0].write_mask, wgpu::ColorWrites::ALL);
+        assert_eq!(colors[1].write_mask, wgpu::ColorWrites::empty());
+        assert_eq!(
+            state.check_targets(3, 1).unwrap_err(),
+            ProgramError::ColorStates {
+                states: 2,
+                targets: 3
+            }
+        );
+        state.colors[1] = None;
+        assert_eq!(
+            state.check_targets(2, 1).unwrap_err(),
+            ProgramError::UnsupportedState {
+                what: "an unwritten colour target"
+            }
+        );
     }
 }

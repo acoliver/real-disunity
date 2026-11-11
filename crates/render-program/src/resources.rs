@@ -22,7 +22,7 @@ handle!(
     BufferHandle
 );
 handle!(
-    /// A 2D texture the runtime owns.
+    /// A texture the runtime owns.
     TextureHandle
 );
 handle!(
@@ -74,6 +74,8 @@ pub(crate) struct BufferEntry {
 pub(crate) struct TextureEntry {
     pub(crate) texture: wgpu::Texture,
     pub(crate) view: wgpu::TextureView,
+    /// How `view` was made, which a view cannot be asked.
+    pub(crate) dimension: wgpu::TextureViewDimension,
 }
 
 pub(crate) struct TargetEntry {
@@ -92,7 +94,19 @@ struct Held<T> {
 /// could have used it.
 type Retired = (u64, Box<dyn Any + Send + Sync>);
 
-/// Shares of the reservations of the resources prepared draws use, owned by a [`FrameOwner`].
+/// What a frame holds for the draws it records: shares of the runtime's reservations and the
+/// owners of the resources a draw borrowed instead of having the runtime create.
+struct FrameHold {
+    _reservations: Vec<Arc<Reservation>>,
+    _owners: Vec<Keepalive>,
+}
+
+/// Something the caller keeps alive for as long as a frame that records a borrowing draw can
+/// still be executed by the GPU: the scene object that owns the borrowed buffers, for example.
+pub type Keepalive = Arc<dyn Any + Send + Sync>;
+
+/// Shares of the reservations of the resources prepared draws use, and the owners of the
+/// resources they borrow, held by a [`FrameOwner`].
 ///
 /// Each frame that records the draws retains the owner through [`retain`](Self::retain), and the
 /// shares stay held until that frame's outcome: a cancelled or dropped frame releases them at
@@ -100,7 +114,7 @@ type Retired = (u64, Box<dyn Any + Send + Sync>);
 /// that made the draws. Dropping the pins gives up only the draws' own hold, by detaching the
 /// owner: frames that already retained it can still be submitted and keep it until their outcome.
 pub(crate) struct Pins {
-    owner: Option<FrameOwner<Vec<Arc<Reservation>>>>,
+    owner: Option<FrameOwner<FrameHold>>,
 }
 
 impl Drop for Pins {
@@ -122,8 +136,21 @@ impl Pins {
         authority: &SubmissionAuthority,
         reservations: Vec<Arc<Reservation>>,
     ) -> Self {
+        Self::borrowing(authority, reservations, Vec::new())
+    }
+
+    /// Pins that also hold `owners`, the borrowed resources' owners.
+    pub(crate) fn borrowing(
+        authority: &SubmissionAuthority,
+        reservations: Vec<Arc<Reservation>>,
+        owners: Vec<Keepalive>,
+    ) -> Self {
+        let held = FrameHold {
+            _reservations: reservations,
+            _owners: owners,
+        };
         Self {
-            owner: Some(FrameOwner::new(reservations, authority)),
+            owner: Some(FrameOwner::new(held, authority)),
         }
     }
 

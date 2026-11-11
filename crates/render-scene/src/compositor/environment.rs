@@ -135,7 +135,8 @@ mod tests {
     #[test]
     fn prepared_map_conventions_must_match_frame_and_survive_selection() {
         use worldrunner_render_plan::{SceneSpecularConvention, SceneSpecularVisibility};
-        let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context = crate::device::GpuContext::shared_for_test().unwrap();
         let mut renderer = super::FrameRenderer::new(context.device());
         renderer.environment_conventions[0] = Some(SceneSpecularConvention::default());
         assert!(

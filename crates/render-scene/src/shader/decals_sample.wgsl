@@ -1,5 +1,8 @@
     let gradient_scale = exp2(frame.lighting_options.w);
-    for (var i = 0u; i < scene_decals.count.x; i++) {
+    var candidates = scene_decal_candidates(position);
+    while candidates != 0u {
+        let i = firstTrailingBit(candidates);
+        candidates &= candidates - 1u;
         let decal = scene_decals.volumes[i];
         if (decal.selection.x & receiver) == 0u { continue; }
         let local = (decal.local_from_world * vec4<f32>(position, 1.0)).xyz;

@@ -82,7 +82,8 @@ pub(super) fn consumer(
 
 #[test]
 fn checked_mips_layers_and_versions_reach_all_snapshot_producers() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for (mip, layer) in [(1, 0), (0, 1), (0, 0), (1, 1)] {
         let mut renderer = renderer(&context, 1);
         let mut views = Vec::new();
@@ -167,7 +168,8 @@ fn assert_checked_snapshot(
 
 #[test]
 fn independent_readers_omit_unused_attachments_and_producers() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for name in [
             "opaque snapshot color",
@@ -254,7 +256,8 @@ fn assert_only_producer(
 
 #[test]
 fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let mut renderer = renderer(&context, 1);
     renderer
         .install_water(context.device(), settings())

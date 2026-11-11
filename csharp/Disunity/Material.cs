@@ -156,11 +156,8 @@ public partial class Material : Object
     public string[] shaderKeywords
     {
         get => _keywords.ToArray();
-        set
-        {
-            ArgumentNullException.ThrowIfNull(value);
-            ReplaceKeywords(value);
-        }
+        // Null clears the keywords: URP's post-processing resets its materials that way.
+        set => ReplaceKeywords(value ?? []);
     }
 
     public LocalKeyword[] enabledKeywords

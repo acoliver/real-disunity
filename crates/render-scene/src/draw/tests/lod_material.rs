@@ -80,6 +80,7 @@ pub(super) fn selection_frame(distance: i64) -> FrameUniform {
 
 #[test]
 fn material_slots_preserve_packed_geometry_and_default_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let default = scene(false);
     let explicit = scene(true);
     let plain = super::super::PreparedScene::new(&default).unwrap();
@@ -115,6 +116,7 @@ fn material_slots_preserve_packed_geometry_and_default_pixels() {
 
 #[test]
 fn selected_level_changes_material_topology_and_pipeline() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(
@@ -144,8 +146,48 @@ fn selected_level_changes_material_topology_and_pipeline() {
     assert!(far_count > 20 && far_count < near_count * 3 / 5);
 }
 
+/// A level with two material slots draws twice from one set of buffers. The runtime path sets
+/// the vertex, instance and index buffers once for both, as the fixed path does, and a pipeline
+/// and a material group for each slot.
+#[test]
+fn the_runtime_path_records_the_fixed_commands_for_a_level_with_two_material_slots() {
+    use crate::object::cost_tests::Tally;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let mut gpu = SceneGpu::upload(
+        context.device(),
+        context.submission(),
+        &scene(true),
+        &pipelines,
+    )
+    .unwrap();
+    gpu.flush_instances(context.device(), context.submission())
+        .unwrap();
+    gpu.set_frame(context.queue(), selection_frame(5_001));
+    let frame = gpu.drawing_frame_group();
+    let mut fixed = Tally::default();
+    let view = gpu.begin_objects(&mut fixed, &frame, None);
+    let mut sink = super::super::lod_material::FixedSink::new(
+        &mut fixed,
+        pipelines.object_pipelines(),
+        &gpu.materials,
+    );
+    gpu.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+    let mut runtime = Tally::default();
+    drop(gpu.draw_objects_prepared(&mut runtime, &frame, pipelines.object_context()));
+    assert_eq!(runtime.0, fixed.0);
+    assert_eq!(
+        (runtime.0.draws, runtime.0.pipelines, runtime.0.groups),
+        (2, 2, 3),
+        "two slots with two keys and two materials, under the frame group"
+    );
+    assert_eq!((runtime.0.vertex_buffers, runtime.0.index_buffers), (2, 1));
+}
+
 #[test]
 fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let gpu = SceneGpu::upload(
@@ -174,6 +216,7 @@ fn slot_cutouts_have_the_same_silhouette_in_every_geometry_pass() {
 
 #[test]
 fn scene_rejects_a_level_material_outside_the_resource_table() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let source = scene(true);
     let lod = quad().lods()[0]
         .clone()
@@ -192,7 +235,7 @@ fn scene_rejects_a_level_material_outside_the_resource_table() {
     ));
 }
 
-fn transition_scene(coverage: u32) -> RenderScene {
+pub(super) fn transition_scene(coverage: u32) -> RenderScene {
     use worldrunner_render_plan::SceneCard;
     let near = card(None).lods()[0]
         .clone()
@@ -229,6 +272,7 @@ fn transition_scene(coverage: u32) -> RenderScene {
 
 #[test]
 fn transition_complement_keeps_the_preceding_levels_material() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let mut target = OffscreenTarget::new(

@@ -20,6 +20,16 @@ impl Key {
         self.0.update(format!("{value:?}").as_bytes());
     }
 
+    /// Adds the identity of a wgpu object that compares by identity, such as a bind group layout:
+    /// two handles to one object add the same bytes and two objects with equal descriptors add
+    /// different ones.
+    pub(crate) fn identity(&mut self, object: &impl std::hash::Hash) {
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        object.hash(&mut hasher);
+        self.0.update(&hasher.finish().to_le_bytes());
+    }
+
     pub(crate) fn finish(&self) -> blake3::Hash {
         self.0.finalize()
     }

@@ -39,6 +39,11 @@ pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod effects;
 mod environment;
 pub use environment::{SceneEnvironment, SceneEnvironmentConsumers};
+mod smaa;
+#[cfg(test)]
+mod smaa_tests;
+pub use smaa::{SceneSmaaEdgeDetection, SceneSmaaPreset, SceneSmaaSettings};
+mod shadow_fade;
 mod shadow_sampling;
 pub use shadow_sampling::{SceneShadowFilter, SceneShadowSampling};
 mod lighting;
@@ -284,6 +289,13 @@ impl RenderScene {
     #[must_use]
     pub fn terrain(&self) -> Option<&SceneTerrain> {
         self.terrain.as_deref()
+    }
+
+    /// Returns the terrain handle itself, so a worker thread can read the immutable terrain
+    /// without cloning the scene.
+    #[must_use]
+    pub const fn shared_terrain(&self) -> Option<&std::sync::Arc<SceneTerrain>> {
+        self.terrain.as_ref()
     }
 
     /// Returns the optional environmental profile.

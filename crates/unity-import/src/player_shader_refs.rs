@@ -10,7 +10,9 @@
 
 use std::path::Path;
 
-use worldrunner_unity_serialized::{ClassId, object::PPtr, shader::Shader};
+use worldrunner_unity_serialized::{
+    ClassId, object::PPtr, script_data::ScriptLayouts, shader::Shader,
+};
 
 use crate::{
     plan::PlanAsset,
@@ -97,6 +99,19 @@ fn render_queue(tags: &[(String, String)]) -> Result<i32, String> {
         .map_or(Ok(GEOMETRY_QUEUE), |(_, value)| queue_value(value))
 }
 
+/// The render queue of a decoded shader: its first sub-shader's `Queue` tag, `Geometry` when it
+/// has none or the shader has no sub-shader.
+///
+/// # Errors
+/// Fails with the cause when the tag names a queue the engine cannot read.
+pub fn shader_render_queue(shader: &Shader) -> Result<i32, String> {
+    shader
+        .parsed
+        .sub_shaders
+        .first()
+        .map_or(Ok(GEOMETRY_QUEUE), |sub| render_queue(&sub.tags))
+}
+
 /// Decodes the shader object `key` into what the plan holds, or says why it does not.
 pub(crate) fn decode_shader(
     files: &mut PlayerFiles,
@@ -107,6 +122,7 @@ pub(crate) fn decode_shader(
         .open_path(file)
         .and_then(|open| open.decode(*path_id))
         .map_err(|error| error.to_string())?;
+    let queue = shader_render_queue(&shader)?;
     let name = if shader.parsed.name.is_empty() {
         shader.name
     } else {
@@ -124,7 +140,7 @@ pub(crate) fn decode_shader(
     });
     Ok(ShaderDecl {
         name,
-        render_queue: first.map_or(Ok(GEOMETRY_QUEUE), |sub| render_queue(&sub.tags))?,
+        render_queue: queue,
         pass_count: pass_names.len(),
         pass_names,
         subshader_count: shader.parsed.sub_shaders.len(),
@@ -167,6 +183,8 @@ pub(crate) fn class_of(files: &mut PlayerFiles, key: &ObjectKey) -> Option<Class
 /// referenced. A material's shader is planned before it.
 pub(crate) struct SceneSource {
     files: PlayerFiles,
+    /// The player's script layouts, which decide whether a referenced script asset can be planned.
+    pub(crate) layouts: ScriptLayouts,
     pub(crate) assets: Vec<PlanAsset>,
     pub(crate) planned: Vec<(ObjectKey, usize)>,
     /// What the planned materials could not hold.
@@ -174,9 +192,10 @@ pub(crate) struct SceneSource {
 }
 
 impl SceneSource {
-    pub(crate) fn new(files: PlayerFiles) -> Self {
+    pub(crate) fn new(files: PlayerFiles, layouts: &ScriptLayouts) -> Self {
         Self {
             files,
+            layouts: layouts.clone(),
             assets: Vec::new(),
             planned: Vec::new(),
             differences: Vec::new(),
@@ -215,11 +234,25 @@ impl SceneSource {
         let mut found = Vec::new();
         let planned = plan_material(
             &material,
-            |reference| self.asset(&key.0, reference),
+            |reference| self.material_reference(&key.0, reference),
             &mut found,
         );
         self.differences.append(&mut found);
         Ok(PlanAsset::Material { material: planned })
+    }
+
+    /// The asset index for a reference of a material in `owner`: a texture it binds is planned
+    /// with it, before the material, as a script asset's texture is; anything else is resolved as
+    /// any scene reference.
+    fn material_reference(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
+        let texture = self.files.referenced_file(owner, pptr).is_ok_and(|file| {
+            class_of(&mut self.files, &(file, pptr.path_id)) == Some(ClassId::TEXTURE_2D)
+        });
+        if texture {
+            self.texture_asset(owner, pptr)
+        } else {
+            self.asset(owner, pptr)
+        }
     }
 }
 
@@ -237,6 +270,12 @@ impl PlanSource for SceneSource {
         let class = class_of(&mut self.files, &key);
         if class == Some(ClassId::SPRITE) {
             return self.sprite_asset(&key, pptr);
+        }
+        if class == Some(ClassId::MONO_BEHAVIOUR) {
+            return self.script_asset(&key, pptr);
+        }
+        if class == Some(ClassId::FONT) {
+            return self.font_asset(&key, pptr);
         }
         for held_by_resources in [
             ClassId::TEXTURE_2D,

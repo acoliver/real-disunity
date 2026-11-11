@@ -30,7 +30,7 @@ const TERRAIN_SIGNATURE: &str =
     "fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>";
 const MERGED_FIELDS: &str = "{ @location(0) normal: vec4<f32>, @location(1) material: vec4<f32>, }";
 
-const PREPARATION: &str = concat!(
+pub(super) const PREPARATION: &str = concat!(
     include_str!("normal_prepared.wgsl"),
     include_str!("../shader/normal_sample.wgsl"),
     include_str!("surface_prepared.wgsl"),

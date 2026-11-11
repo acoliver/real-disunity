@@ -35,7 +35,8 @@ fn renderer(
 
 #[test]
 fn authored_refraction_keeps_foreground_rejection_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.refraction_millimeters = Some(4000);
@@ -46,7 +47,8 @@ fn authored_refraction_keeps_foreground_rejection_at_every_supported_sample_coun
 
 #[test]
 fn zero_bound_and_zero_opacity_preserve_original_snapshot_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         for transparent in [false, true] {
             let mut body = settings();
@@ -72,7 +74,8 @@ fn zero_bound_and_zero_opacity_preserve_original_snapshot_at_every_supported_sam
 
 #[test]
 fn authored_optics_publish_fresnel_and_squared_specular_for_ssr() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.material.optics = Some(worldrunner_render_plan::SceneWaterOptics {
@@ -115,7 +118,8 @@ fn authored_optics_publish_fresnel_and_squared_specular_for_ssr() {
 
 #[test]
 fn view_scattering_is_additive_even_without_absorption() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut body = settings();
         body.color_micro = [0; 3];
@@ -138,7 +142,8 @@ fn view_scattering_is_additive_even_without_absorption() {
 #[test]
 fn disabled_optical_controls_match_the_stock_shader_within_derived_bounds_at_every_supported_sample_count()
  {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = renderer(&context, samples, settings());
         let expected = read(&context, renderer.targets().texture());
@@ -193,7 +198,7 @@ fn assert_transparent_water_passes_snapshot(context: &GpuContext, samples: u32) 
 
 /// Fills the snapshot with a constant-depth checker whose even pixels (including the centre)
 /// are (0.25, 0.125, 0.0625, 1). Returns the colour bytes.
-fn upload_checker_snapshot(
+pub(super) fn upload_checker_snapshot(
     context: &GpuContext,
     renderer: &crate::compositor::FrameRenderer,
 ) -> Vec<u8> {

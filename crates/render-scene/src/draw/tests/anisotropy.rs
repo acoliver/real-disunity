@@ -30,6 +30,7 @@ fn channel_material(channel: usize) -> SceneMaterial {
 #[test]
 fn grazing_plane_anisotropy_preserves_minor_axis_checker_detail() {
     // Derive the screen footprint independently of the sampler implementation.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let north_projection = 2.0_f64 / (32.0_f64.powi(2) + 2.0_f64.powi(2)).sqrt();
     let east_texels_per_pixel = 256.0 * 0.25 / 2.0 * 2.2 / 64.0;
     let north_texels_per_pixel = 256.0 * 4.0 / (32.0 * north_projection) * 2.2 / 64.0;
@@ -102,6 +103,7 @@ fn check_channel(context: &GpuContext, channel: usize) {
 
 #[test]
 fn shared_albedo_materials_cache_samplers_by_material_anisotropy() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let one = material(SceneAlphaMode::Opaque, true);
     let sixteen = one.with_anisotropy(TextureAnisotropy::new(16).unwrap());

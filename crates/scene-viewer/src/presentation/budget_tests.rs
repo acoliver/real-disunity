@@ -2,6 +2,68 @@ use super::*;
 use worldrunner_render_gpu::configuration::ConfigurationError;
 
 #[test]
+fn receiver_inventory_reserves_only_the_configured_shadow_bias_domain() {
+    use worldrunner_render_scene::{
+        compositor::ReceiverGradientReservation, shadows::DirectionalShadowSettings,
+    };
+    let shadow = DirectionalShadowSettings {
+        resolution: 32,
+        focus_meters: glam::Vec3::ZERO,
+        half_extent_meters: 10.0,
+        depth_half_extent_meters: 10.0,
+        depth_bias: 0.0,
+        normal_bias_meters: 0.0,
+        refresh_policy: worldrunner_render_scene::shadows::CascadeRefreshPolicy::default(),
+    };
+    let mut settings = RendererConfiguration::legacy([65, 49], COLOR);
+    settings.frame.format = wgpu::TextureFormat::Rgba16Float;
+    settings.hdr = Some((1.0, crate::ToneMap::Reinhard));
+    settings.ssr = Some(worldrunner_render_plan::SceneSsr {
+        enabled: true,
+        ..Default::default()
+    });
+    let mut base = None;
+    for (shadows, expected, bytes) in [
+        (None, ReceiverGradientReservation::None, 0),
+        (Some(shadow), ReceiverGradientReservation::Front, 24),
+        (
+            Some(DirectionalShadowSettings {
+                normal_bias_meters: 0.012,
+                ..shadow
+            }),
+            ReceiverGradientReservation::Opposing,
+            48,
+        ),
+    ] {
+        let reservation = receiver_reservation(shadows);
+        assert_eq!(reservation, expected);
+        let policy = PresentationPolicy {
+            receiver_gradients: reservation,
+            budget: crate::PresentationBudget::default().into(),
+            capture_pool: crate::CapturePoolPolicy::default(),
+            recipes: false,
+        };
+        let (inventory, _) = policy
+            .inventory(
+                settings.clone(),
+                Viewport {
+                    width: 65,
+                    height: 49,
+                },
+                &wgpu::Limits::default(),
+            )
+            .unwrap();
+        assert_eq!(inventory.receiver_gradients, reservation);
+        let total = inventory
+            .allocations()
+            .validate(&wgpu::Limits::default())
+            .unwrap();
+        let empty = *base.get_or_insert(total);
+        assert_eq!(total - empty, bytes * 65 * 49);
+    }
+}
+
+#[test]
 fn default_budget_preserves_ordinary_scene_admission() {
     let options = crate::tests::options();
     assert_eq!(
@@ -82,6 +144,8 @@ fn synthetic_inventory(size: Viewport, options: &crate::ViewerOptions) -> Result
     )?;
     let startup = crate::renderer::Startup::from(options);
     let policy = PresentationPolicy {
+        receiver_gradients:
+            worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
         budget: startup.presentation_budget,
         capture_pool: crate::CapturePoolPolicy::default(),
         recipes: true,
@@ -110,8 +174,8 @@ fn water_frame_storage() -> u64 {
 
 #[test]
 fn retained_startup_and_resize_keep_recipe_reservation() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let size = Viewport {
         width: 8,
         height: 8,
@@ -123,6 +187,8 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(300 * 1024 * 1024).into(),
             capture_pool: crate::CapturePoolPolicy::default(),
             recipes: true,
@@ -151,13 +217,15 @@ fn retained_startup_and_resize_keep_recipe_reservation() {
 
 #[test]
 fn presentation_creation_and_resize_preserve_typed_budget_errors() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let size = Viewport {
         width: 8,
         height: 8,
     };
     let policy = PresentationPolicy {
+        receiver_gradients:
+            worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
         budget: crate::PresentationBudget(1).into(),
         capture_pool: crate::CapturePoolPolicy::default(),
         recipes: false,
@@ -175,6 +243,8 @@ fn presentation_creation_and_resize_preserve_typed_budget_errors() {
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(50_000).into(),
             capture_pool: crate::CapturePoolPolicy::default(),
             recipes: false,

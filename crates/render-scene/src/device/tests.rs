@@ -1,5 +1,6 @@
 #[test]
 fn scene_device_requests_adapter_array_capacity_and_preserves_other_limits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let available = context.adapter().limits();
     let mut actual = context.device().limits();
@@ -7,6 +8,12 @@ fn scene_device_requests_adapter_array_capacity_and_preserves_other_limits() {
         actual.max_texture_array_layers,
         available.max_texture_array_layers
     );
+    assert_eq!(
+        actual.max_color_attachment_bytes_per_sample,
+        available.max_color_attachment_bytes_per_sample.min(64)
+    );
+    actual.max_color_attachment_bytes_per_sample =
+        wgpu::Limits::default().max_color_attachment_bytes_per_sample;
     actual.max_texture_array_layers = wgpu::Limits::default().max_texture_array_layers;
     actual.max_sampled_textures_per_shader_stage =
         wgpu::Limits::default().max_sampled_textures_per_shader_stage;
@@ -16,6 +23,7 @@ fn scene_device_requests_adapter_array_capacity_and_preserves_other_limits() {
 #[test]
 fn adapter_classification_covers_every_device_type() {
     use super::AdapterClass;
+    let _session = crate::test_support::SceneTestSession::acquire();
     for (kind, expected) in [
         (wgpu::DeviceType::DiscreteGpu, AdapterClass::Discrete),
         (wgpu::DeviceType::IntegratedGpu, AdapterClass::Integrated),
@@ -29,6 +37,7 @@ fn adapter_classification_covers_every_device_type() {
 
 #[test]
 fn selected_adapter_identity_matches_actual_device() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let info = context.adapter().get_info();
     let identity = context.adapter_identity();
@@ -49,6 +58,7 @@ fn selected_adapter_identity_matches_actual_device() {
 
 #[test]
 fn dropping_context_releases_its_queue_without_waiting_for_device_loss() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     for _ in 0..3 {
         let context = pollster::block_on(GpuContext::from_instance(&instance)).unwrap();
@@ -69,6 +79,7 @@ fn dropping_context_releases_its_queue_without_waiting_for_device_loss() {
 
 #[test]
 fn device_loss_callback_still_rejects_submissions() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     context.device().destroy();
     context
@@ -90,6 +101,7 @@ fn device_loss_callback_still_rejects_submissions() {
 fn hdr_rejects_extent_invalid_bloom_before_buffer_allocation() {
     use crate::{compositor::FrameRenderer, post_bloom_tests};
     use worldrunner_render_post::{PostError, ToneMap};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -147,6 +159,7 @@ fn hdr_rejects_extent_invalid_bloom_before_buffer_allocation() {
 fn timestamp_negotiation_reports_optional_and_rejects_required_absence() {
     use worldrunner_render_gpu::device::{DeviceRequirements, negotiate};
     use worldrunner_render_post::TimingMode;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     for available in [Features::empty(), Features::TIMESTAMP_QUERY] {
         let optional = negotiate(
@@ -181,6 +194,7 @@ fn timestamp_negotiation_reports_optional_and_rejects_required_absence() {
 #[test]
 fn gpu_optional_timestamp_device_enables_only_available_capability() {
     use worldrunner_render_post::{PassTimer, TimingMode, TimingSupport};
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -239,6 +253,7 @@ fn context() -> GpuContext {
 
 #[test]
 fn block_compression_is_required_rather_than_negotiated() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     assert!(
         REQUIRED_FEATURES.contains(Features::TEXTURE_COMPRESSION_BC),
         "the renderer uploads BC blocks without decoding, so it must demand BC support"
@@ -247,6 +262,7 @@ fn block_compression_is_required_rather_than_negotiated() {
 
 #[test]
 fn a_device_can_be_acquired_on_a_host_with_a_gpu() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let info = context.adapter().get_info();
     assert!(
@@ -261,6 +277,7 @@ fn the_acquired_device_enables_the_features_that_were_required() {
     // Requesting a feature and receiving a device does not by itself prove the
     // feature is on: a device only enables what was asked for, so asking and
     // checking are two different things.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     assert!(
         context.device().features().contains(REQUIRED_FEATURES),
@@ -270,6 +287,7 @@ fn the_acquired_device_enables_the_features_that_were_required() {
 
 #[test]
 fn every_supported_format_can_be_sampled() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for format in SUPPORTED_FORMATS {
         let features = context.adapter().get_texture_format_features(format);
@@ -287,6 +305,7 @@ fn a_device_that_cannot_sample_compressed_textures_is_named_in_the_error() {
     // The failure a user actually hits is "my adapter is too old". An error
     // that says so, and names the adapter, is the difference between a fix and
     // a bug report.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let error = super::DeviceError::MissingFeatures {
         adapter: "Example Adapter".to_owned(),
         missing: Features::TEXTURE_COMPRESSION_BC,
@@ -304,6 +323,7 @@ fn a_device_that_cannot_sample_compressed_textures_is_named_in_the_error() {
 
 #[test]
 fn an_empty_backend_instance_returns_no_adapter() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::empty(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -319,6 +339,7 @@ fn an_empty_backend_instance_returns_no_adapter() {
 
 #[test]
 fn required_gpu_missing_features_are_not_silently_dropped() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         ..wgpu::InstanceDescriptor::new_without_display_handle()

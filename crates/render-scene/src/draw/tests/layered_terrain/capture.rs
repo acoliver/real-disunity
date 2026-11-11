@@ -8,6 +8,7 @@ use worldrunner_render_post::FrameError;
 
 #[test]
 fn layered_production_capture_bakes_cold_and_invalidated_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -15,7 +16,7 @@ fn layered_production_capture_bakes_cold_and_invalidated_pages() {
     let scene = layered_scene(TerrainSplatFilter::Bilinear);
     let mut gpu = SceneGpu::upload(device, &authority, &scene, &pipelines).unwrap();
     gpu.set_frame(context.queue(), matching_frame());
-    gpu.enable_terrain_pages(device, &authority, &pipelines, page_source())
+    gpu.enable_terrain_pages(device, &authority, page_source())
         .unwrap();
     let mut renderer = FrameRenderer::new(device);
     let target = OffscreenTarget::new(

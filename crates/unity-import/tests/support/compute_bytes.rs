@@ -1,43 +1,24 @@
-//! Serialized compute shader objects for tests: the layout of a player's compute shader with one
-//! platform that lists its kernels.
+//! Serialized compute shader objects for tests: a player's compute shader with one SPIR-V
+//! platform that lists its kernels, written by the layout writer of the unity-serialized tests.
 
-use worldrunner_unity_serialized::write::ObjectWriter;
+#![allow(dead_code)]
 
-fn resources(w: &mut ObjectWriter, names: &[&str]) {
-    w.u32(u32::try_from(names.len()).unwrap());
-    for name in names {
-        w.string(name).unwrap();
-        for field in [0, 1, u32::MAX, u32::MAX, 0] {
-            w.u32(field);
-        }
-    }
-}
+#[path = "../../../unity-serialized/tests/support/compute_bytes.rs"]
+mod layout;
 
-fn kernel(w: &mut ObjectWriter, name: &str, size: [u32; 3]) {
-    w.string(name).unwrap();
-    w.u32(1).u32(1).u32(0);
-    resources(w, &["$Globals"]);
-    resources(w, &["_Source"]);
-    w.u32(0);
-    resources(w, &[]);
-    resources(w, &["_Output"]);
-    w.byte_array(&[0x44, 0x58, 0x42, 0x43]).unwrap();
-    w.u32(3).u32(size[0]).u32(size[1]).u32(size[2]);
-    w.u32(50241).u32(0).u32(1).u32(0);
-    for _ in 0..4 {
-        w.u32(0);
-    }
-}
+use layout::{Binding, Kernel, Platform, SPIRV, Variant, compute_shader_bytes};
 
 /// A compute shader named `name` with `kernels`, each with the thread group size it states.
 pub fn compute_shader(name: &str, kernels: &[(&str, [u32; 3])]) -> Vec<u8> {
-    let mut w = ObjectWriter::new(false);
-    w.string(name).unwrap();
-    w.u32(1).u32(2).u32(0);
-    w.u32(u32::try_from(kernels.len()).unwrap());
-    for (kernel_name, size) in kernels {
-        kernel(&mut w, kernel_name, *size);
-    }
-    resources(&mut w, &["$Globals"]);
-    w.finish()
+    let kernels = kernels
+        .iter()
+        .map(|&(kernel_name, size)| {
+            let mut variant = Variant::new(&[0x03, 0x02, 0x23, 0x07], size);
+            variant.constant_buffers = vec![Binding::constant_buffer("$Globals", 1, 0)];
+            variant.textures = vec![Binding::texture("_Source", 0, None, 2)];
+            variant.writable = vec![Binding::writable("_Output", 1)];
+            Kernel::single(kernel_name, variant)
+        })
+        .collect();
+    compute_shader_bytes(name, &[Platform::new(SPIRV, 0, kernels)], false)
 }

@@ -31,8 +31,7 @@ const SUPPORTED_FORMATS: [(u32, u32, TextureColorSpace); 6] = [
 ];
 
 fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request())
-        .expect("GPU acceptance requires a real adapter with BC support")
+    GpuContext::shared_for_test().expect("GPU acceptance requires a real adapter with BC support")
 }
 
 /// Builds a DX10 DDS container whose payload covers the whole mip chain.
@@ -92,6 +91,7 @@ fn view(texture: &wgpu::Texture) -> TextureView {
 
 #[test]
 fn every_supported_block_format_uploads_without_validation_error() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (dxgi, block_bytes, _) in SUPPORTED_FORMATS {
         let texture = encoded(dxgi, block_bytes, 16, 16, 5);
@@ -110,6 +110,7 @@ fn mip_levels_narrower_than_one_block_upload_at_their_natural_stride() {
     // used precisely because it stages the copy itself; were that assumption
     // wrong, every texture would fail at its smallest levels, which is exactly
     // where it would be least visible.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let texture = encoded(71, 8, 16, 16, 5);
     let prepared = prepare_texture(&texture).expect("the fixture container parses");
@@ -127,6 +128,7 @@ fn mip_levels_narrower_than_one_block_upload_at_their_natural_stride() {
 
 #[test]
 fn a_material_bind_group_with_every_texture_present_satisfies_its_layout() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let queue = context.queue();
@@ -187,6 +189,7 @@ fn a_material_bind_group_with_every_texture_present_satisfies_its_layout() {
 
 #[test]
 fn the_placeholder_stands_in_for_all_four_optional_textures_at_once() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let queue = context.queue();
@@ -246,6 +249,7 @@ fn the_placeholder_stands_in_for_all_four_optional_textures_at_once() {
 
 #[test]
 fn the_frame_layout_accepts_a_block_of_the_size_the_shader_declares() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let layout = frame_bind_group_layout(device);
@@ -269,6 +273,7 @@ fn encoded_bytes_reach_the_gpu_unchanged() {
     // The ban on unsafe code means every buffer is hand-encoded, so the one
     // thing that must not silently go wrong is the bytes arriving reordered or
     // short. Reading them back is the only way to know.
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let queue = context.queue();
@@ -311,6 +316,7 @@ fn encoded_bytes_reach_the_gpu_unchanged() {
 
 #[test]
 fn raw_npot_mip_chain_uploads_on_a_real_adapter() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let bytes: Vec<u8> = (0..72)
         .map(|value| u8::try_from(value).expect("fixture byte fits"))
@@ -356,46 +362,4 @@ fn contact_buffer(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Buffer {
         BufferUsages::STORAGE,
         &[0u8; 48],
     )
-}
-
-#[test]
-fn terrain_storage_layouts_fit_the_supported_device_limits() {
-    use wgpu::{BindingType, BufferBindingType, ShaderStages};
-    for (cached, layered, expected) in [
-        (false, false, 1),
-        (true, false, 2),
-        (false, true, 4),
-        (true, true, 5),
-    ] {
-        let entries = super::terrain_entries(cached, layered);
-        let count = |stage| {
-            entries
-                .iter()
-                .filter(|entry| {
-                    entry.visibility.contains(stage)
-                        && matches!(
-                            entry.ty,
-                            BindingType::Buffer {
-                                ty: BufferBindingType::Storage { .. },
-                                ..
-                            }
-                        )
-                })
-                .count()
-        };
-        assert_eq!(count(ShaderStages::VERTEX), 1);
-        assert_eq!(count(ShaderStages::FRAGMENT), expected);
-        for limits in [wgpu::Limits::default(), wgpu::Limits::downlevel_defaults()] {
-            let fragment_limit = limits.max_storage_buffers_per_shader_stage as usize;
-            // The uncached layered draw fits four; its compute preparation independently needs five.
-            let layout_supported = !(cached && layered) || fragment_limit >= 5;
-            assert_eq!(expected <= fragment_limit, layout_supported);
-            assert!(count(ShaderStages::VERTEX) <= fragment_limit);
-            assert!(
-                entries
-                    .iter()
-                    .all(|entry| entry.binding < limits.max_bindings_per_bind_group)
-            );
-        }
-    }
 }

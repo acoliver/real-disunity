@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "label_tests.rs"]
+mod label_tests;
+
 use super::{
     AccessMode, AllocationKey, CompiledOperations, ContractError, ResourceRegistry, TypedOperation,
 };
@@ -33,6 +37,7 @@ impl ResourceRegistry {
         let mut compiled = self.compile_operations(device, &operations)?;
         let suffix = CompiledOperations {
             operations: compiled.operations.split_off(prefix.len()),
+            labels: compiled.labels.split_off(prefix.len()),
             accesses: compiled.accesses.split_off(prefix.len()),
             staging: compiled.staging.split_off(prefix.len()),
         };

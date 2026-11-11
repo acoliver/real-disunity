@@ -17,6 +17,7 @@ public class ScriptableObject : Object
             return alive == 0;
         }
     }
+    internal override Object CloneAsset() => DisunityHost.CloneAsset(this);
     public static T CreateInstance<T>() where T : ScriptableObject => (T)CreateInstance(typeof(T));
     public static ScriptableObject CreateInstance(Type type)
     {

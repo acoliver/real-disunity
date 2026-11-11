@@ -116,6 +116,7 @@ fn reflection_frame(source: &RenderScene) -> FrameUniform {
 
 #[test]
 fn intermediate_fold_matches_unit_normal_in_directional_environment_and_ssr() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let maps = environment_faces(&context, true);
     let folded = fold_reflection_scene(true);

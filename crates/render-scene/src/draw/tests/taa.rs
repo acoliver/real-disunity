@@ -45,6 +45,7 @@ const REFUSED: FrameError = FrameError::UnsupportedEffect("TAA requires the fram
 
 #[test]
 fn a_taa_renderer_accepts_only_its_own_frame_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let taa = renderer(&context, PostResolve::taa(0.9));
     let own = attachment("scene depth", taa.targets().depth().texture());
@@ -58,6 +59,7 @@ fn a_taa_renderer_accepts_only_its_own_frame_depth() {
 
 #[test]
 fn renderers_without_taa_accept_any_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let host = foreign_depth(&context);
     for resolve in [PostResolve::None, PostResolve::fxaa(0.5)] {
@@ -71,6 +73,7 @@ fn renderers_without_taa_accept_any_depth() {
 
 #[test]
 fn encode_scene_refuses_a_host_depth_that_is_not_the_frame_depth_before_changing_state() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     let pipelines = ScenePipelines::with_samples(context.device(), HDR, 1).unwrap();

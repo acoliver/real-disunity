@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn terrain_pages_gpu_outer_edge_keeps_exact_endpoint_at_maximum_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

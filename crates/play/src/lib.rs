@@ -14,8 +14,12 @@ mod bc7_tables;
 mod bc7_tests;
 mod block_texture;
 mod driver;
+#[cfg(test)]
+mod gpu_flush_tests;
+mod gpu_player;
 mod keys;
 mod navigation;
+pub mod offscreen;
 mod player;
 mod player_meshes;
 mod player_textures;
@@ -24,14 +28,18 @@ mod prepare;
 mod retained_driver;
 mod scene_tables;
 mod scene_transform;
+pub mod storage_budget;
 mod textures;
 #[cfg(test)]
 mod textures_tests;
 mod unresolved;
 
 pub use driver::{Capture, PlayDriver};
+pub use gpu_player::{GpuWorkReport, PlayerGpu, compute_census};
 pub use keys::key_code;
-pub use player::{PreparedPlayer, prepare_player, run_player};
+pub use player::{
+    GpuWork, PlayerLaunch, PreparedPlayer, prepare_player, run_player, run_player_with,
+};
 pub use player_meshes::{
     MeshConversionError, PlayerMeshes, PlayerSceneMesh, SlotRun, player_scene_mesh,
 };

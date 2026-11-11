@@ -6,13 +6,13 @@ use super::super::*;
 use crate::compositor::{ConfiguredFrameRenderer, RendererConfiguration};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::{AttachmentView, FrameError, ResourceRef};
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::module::{ResourceBinding, StageKind, StageProgram};
+use worldrunner_render_program::unity::runtime::{
     AdmittedPrograms, BoundResource, DrawPacket, Geometry, GraphicsProgram, ProgramArena,
     ProgramRuntime, TargetSignature, VertexInput,
 };
-use worldrunner_render_program::state::RenderState;
+use worldrunner_render_program::unity::state::RenderState;
 use worldrunner_unity_serialized::shader_program::{
     Binding, ConstantBuffer, ProgramParameters, ValueParam,
 };
@@ -93,11 +93,11 @@ fn parameters() -> ProgramParameters {
 }
 
 fn stage(entry: &str, kind: StageKind, parameters: ProgramParameters) -> StageProgram {
-    let module = worldrunner_render_program::module::StageModule {
+    let module = worldrunner_render_program::unity::module::StageModule {
         words: spirv(),
         entry_point: entry.to_owned(),
         kind,
-        bindings: vec![ModuleBinding {
+        bindings: vec![ResourceBinding {
             set: 0,
             unity_binding: 0,
             binding: 0,
@@ -149,7 +149,17 @@ impl Fixture {
         settings: RendererConfiguration,
         pipelines: impl FnOnce(&Device) -> ScenePipelines,
     ) -> Self {
-        let context = context();
+        Self::with_context(context(), scene, settings, pipelines)
+    }
+
+    /// The same fixture on a device the caller opened, for tests that need a feature the shared
+    /// helper does not request.
+    pub fn with_context(
+        context: GpuContext,
+        scene: &RenderScene,
+        settings: RendererConfiguration,
+        pipelines: impl FnOnce(&Device) -> ScenePipelines,
+    ) -> Self {
         let device = context.device();
         let mut renderer =
             ConfiguredFrameRenderer::new(&context, settings, AllocationBudget(1 << 26)).unwrap();
@@ -409,8 +419,8 @@ fn patch(
     properties.set("_PatchColor", PropertyValue::Vector(color));
     let names = [("_PatchColor".to_owned(), COLOR_NAME)];
     let target = fragment.constant_buffer_targets().unwrap().remove(0);
-    let packed = worldrunner_render_program::constants::pack_constant_buffer(
-        target.buffer,
+    let packed = worldrunner_render_program::unity::constants::pack_layout(
+        &target.buffer,
         &names,
         &[&properties],
         16,

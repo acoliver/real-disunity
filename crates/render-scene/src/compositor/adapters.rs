@@ -38,7 +38,7 @@ impl PreparedFeature for Resident<'_> {
 /// The caller has already set the frame and flushed instance edits. For staged
 /// frame uploads, snapshots and screen effects use [`super::encode_scene`] instead.
 /// This entry retains the legacy exposed sRGB output, with no new post look. It refuses a scene
-/// that holds admitted player program draws; use [`super::encode_scene`] for those.
+/// that holds admitted player program draws or offscreen operations; use [`super::encode_scene`] for those.
 pub fn encode_resident(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
@@ -52,13 +52,21 @@ pub fn encode_resident(
             "player programs on the resident path",
         ));
     }
+    if scene.has_offscreen() {
+        return Err(FrameError::UnsupportedEffect(
+            "offscreen operations on the resident path",
+        ));
+    }
     renderer.prepare_scene_inputs(device, scene);
+    scene.retain_dynamic(encoder, pipelines)?;
     let (color, depth) = attachments;
     scene.prepare_terrain_geometry(device, encoder, &scene.resident_frame(), color.size())?;
     scene.prepare_sky(device, encoder, &scene.resident_frame())?;
     if scene.has_terrain_pages() {
         scene.prepare_terrain_pages(device, encoder, &scene.resident_frame(), color.size())?;
     }
+    scene.prepare_terrain(pipelines, &scene.resident_frame())?;
+    scene.prepare_objects(pipelines, &scene.resident_frame())?;
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     pass.color = Some(renderer.color_attachment(color.resource(), color));
     pass.depth = Some(super::attachment(depth.resource(), depth, true));

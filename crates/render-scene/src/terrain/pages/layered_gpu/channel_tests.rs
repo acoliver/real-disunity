@@ -84,7 +84,7 @@ fn consumer_fixture() -> (SceneTerrain, SceneResources, SceneResources) {
 }
 
 fn compare(terrain: &SceneTerrain, gpu: &SceneResources, cpu: &SceneResources) {
-    let context = pollster::block_on(crate::device::GpuContext::request()).unwrap();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
     let source = LayeredGpuSource::new(terrain, gpu).unwrap();
     let reference = LayeredReference::new(terrain, cpu).unwrap();
     let positions = [[0.1, 0.3], [1.25, 0.75], [-0.25, -0.125]];
@@ -107,6 +107,7 @@ fn compare(terrain: &SceneTerrain, gpu: &SceneResources, cpu: &SceneResources) {
 
 #[test]
 fn bc3_srgb_height_bc5_xy_bc1_roughness_metallic_matches_every_cpu_product() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (terrain, compressed, decoded) = consumer_fixture();
     compare(&terrain, &compressed, &decoded);
     let source = LayeredGpuSource::new(&terrain, &compressed).unwrap();
@@ -116,6 +117,7 @@ fn bc3_srgb_height_bc5_xy_bc1_roughness_metallic_matches_every_cpu_product() {
 
 #[test]
 fn custom_swizzles_xyz_and_smoothness_match_every_cpu_product() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (terrain, _) = super::source_mip_tests::fixture(1700, 900, [1; 3]);
     let mut map =
         TerrainLayerChannelMap::packed(SceneNormalEncoding::Rgb, TextureColorSpace::Linear);
@@ -151,6 +153,7 @@ fn custom_swizzles_xyz_and_smoothness_match_every_cpu_product() {
 
 #[test]
 fn explicit_default_map_is_byte_identical_to_implicit_packing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (terrain, resources) = super::tests::fixture(
         TerrainSplatFilter::Spiral14,
@@ -175,6 +178,7 @@ fn explicit_default_map_is_byte_identical_to_implicit_packing() {
 
 #[test]
 fn channel_maps_reject_missing_components_handles_and_color_mismatches() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (terrain, _, resources) = consumer_fixture();
     let layer = terrain.surfaces()[0].appearance().layered.unwrap();
     let valid = consumer_map();

@@ -174,6 +174,7 @@ fn assert_isolation(before: &[Vec<Vec<u8>>; 2], after: &[Vec<Vec<u8>>; 2], selec
 
 #[test]
 fn stock_adapters_render_only_selected_mip_and_layer() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut shadowed = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -218,6 +219,7 @@ fn stock_adapters_render_only_selected_mip_and_layer() {
 
 #[test]
 fn checked_attachments_reject_out_of_range_selections() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for format in [
         OffscreenTarget::COLOR_FORMAT,

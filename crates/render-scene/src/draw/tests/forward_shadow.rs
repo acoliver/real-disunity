@@ -106,8 +106,9 @@ fn uniform(device: &Device, count: u32) -> wgpu::Buffer {
     floats.extend([0.2, 0.8, 1.5, 4.0]);
     floats.extend([0.0, 0.0, 1.0, 0.0]);
     floats.extend([0.0001; 4]);
+    floats.extend([0.0; 4]);
     let bytes: Vec<_> = floats.into_iter().flat_map(f32::to_le_bytes).collect();
-    assert_eq!(bytes.len(), 336);
+    assert_eq!(bytes.len(), 352);
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: None,
         contents: &bytes,

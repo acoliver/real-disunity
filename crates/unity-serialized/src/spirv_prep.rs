@@ -4,9 +4,30 @@
 //! this order:
 //! 1. Combined image samplers, which naga's SPIR-V frontend does not parse
 //!    (gfx-rs/wgpu#4323), are split into separate images and samplers with
-//!    `spirv-webgpu-transform`. Each sampler gets a binding of its own, and later bindings in
-//!    its descriptor set move up to make room, so [`PreparedModule::bindings`] maps every
-//!    resource's binding in Unity's module to its binding in the prepared one.
+//!    `spirv-webgpu-transform`. Each sampler gets a binding of its own after its image's, and
+//!    later bindings in its descriptor set move up to make room. The transform does this to
+//!    one module at a time: measured on hand-built modules, the sampler takes the next binding
+//!    after its image's and every binding above moves by the number of samplers below it,
+//!    keeping the gaps in Unity's numbering. Two stages of one variant that split different
+//!    samplers, or fewer of them, would therefore number the same Unity binding differently.
+//!    [`prepare_stages`] prepares the stages of a variant together instead, with one plan per
+//!    descriptor set, in `stages`:
+//!    - A Unity binding that any stage splits gets a sampler slot after its image in every
+//!      stage, whether or not the stage declares it. A binding a stage does not declare still
+//!      holds its place in the numbering.
+//!    - Each binding is its Unity binding plus the samplers the plan puts below it in its set.
+//!      For a single stage this is the transform's numbering.
+//!    - After the split, each stage's `Binding` decorations are rewritten to the plan; the
+//!      transform's own numbering is discarded. Nothing else in the module changes.
+//!    - [`PreparedStages`] gives one [`PreparedModule`] per stage, each with the same
+//!      [`PreparedModule::bindings`] table: every Unity binding any stage declares, with the
+//!      prepared binding and sampler binding it has in all of them.
+//!    - Stages that declare one Unity binding as different classes of resource, say a uniform
+//!      buffer in one and a storage buffer in another, have no shared numbering and fail with
+//!      [`PrepareError::BindingClass`]. A combined image sampler and a separate image are both
+//!      textures and share a binding.
+//!
+//!    [`prepare`] is [`prepare_stages`] with one stage.
 //! 2. Specialization constants become plain constants with their default values, which is
 //!    what a pipeline gets when it supplies no specialization data; naga cannot size arrays by
 //!    specialization constants.
@@ -22,6 +43,7 @@
 //!    may not declare; naga panics without it, so `image_coords` declares it.
 
 mod image_coords;
+mod stages;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -34,7 +56,9 @@ use crate::{SerializedError, smolv};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreparedModule {
     pub words: Vec<u32>,
-    /// Every resource with a descriptor set and binding, ordered by set and Unity binding.
+    /// Every resource with a descriptor set and binding, ordered by set and Unity binding. For a
+    /// module prepared with [`prepare_stages`], the resources of all the stages, so it includes
+    /// the bindings this stage does not declare.
     pub bindings: Vec<ResourceBinding>,
 }
 
@@ -50,6 +74,13 @@ pub struct ResourceBinding {
     pub sampler_binding: Option<u32>,
 }
 
+/// The stage modules of one program variant, prepared together: one module per stage, in
+/// the order given, all numbering their bindings by one plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedStages {
+    pub modules: Vec<PreparedModule>,
+}
+
 /// Why a module could not be prepared.
 #[derive(Debug, thiserror::Error)]
 pub enum PrepareError {
@@ -59,6 +90,15 @@ pub enum PrepareError {
     SplitSamplers,
     #[error("the module needs more IDs than SPIR-V allows")]
     IdBound,
+    #[error(
+        "set {set} binding {binding} is {first} in one stage and {second} in another, so no one numbering serves both"
+    )]
+    BindingClass {
+        set: u32,
+        binding: u32,
+        first: &'static str,
+        second: &'static str,
+    },
     #[error("after the sampler split, {0}")]
     Bindings(&'static str),
     #[error(
@@ -80,6 +120,7 @@ impl PrepareError {
             Self::Module(_) => "invalid module".to_owned(),
             Self::SplitSamplers => "sampler split".to_owned(),
             Self::IdBound => "ID bound".to_owned(),
+            Self::BindingClass { .. } => "binding class".to_owned(),
             Self::Bindings(_) => "bindings".to_owned(),
             Self::MsbSignedness => "Msb signedness".to_owned(),
             Self::Panicked { stage, .. } => format!("{stage} panic"),
@@ -87,19 +128,51 @@ impl PrepareError {
     }
 }
 
-/// Applies the five rewrites to a stage module.
+/// Applies the five rewrites to a stage module. This is [`prepare_stages`] with one stage.
 ///
 /// # Errors
-/// Fails when the module is not structurally valid SPIR-V, the sampler split fails, or the
-/// rewrites would need more IDs than SPIR-V allows.
+/// As [`prepare_stages`].
 pub fn prepare(words: &[u32]) -> Result<PreparedModule, PrepareError> {
-    smolv::entry_points(words)?;
-    let split = split_samplers(words)?;
-    smolv::entry_points(&split.words)?;
-    let bindings = resource_bindings(words, &split)?;
-    let words = signed_negate(&spec_defaults(&split.words))?;
-    let words = image_coords::image_coordinate_types(&bit_search_signedness(&words)?)?;
-    Ok(PreparedModule { words, bindings })
+    let mut stages = prepare_stages(&[words])?.modules;
+    stages
+        .pop()
+        .ok_or(PrepareError::Bindings("no module was prepared"))
+}
+
+/// Applies the five rewrites to the stage modules of one program variant, with one binding
+/// numbering for all of them: see [`PreparedStages`]. A variant's stages are prepared
+/// together because Unity binds each resource of the variant at one descriptor set and
+/// binding whichever stage declares it, while the sampler split numbers a module alone.
+///
+/// # Errors
+/// Fails when a module is not structurally valid SPIR-V, the sampler split fails, the
+/// stages declare one Unity binding as different classes of resource
+/// ([`PrepareError::BindingClass`]), or the rewrites would need more IDs than SPIR-V allows.
+pub fn prepare_stages(stages: &[&[u32]]) -> Result<PreparedStages, PrepareError> {
+    let mut split = Vec::with_capacity(stages.len());
+    let mut resources = Vec::with_capacity(stages.len());
+    for words in stages {
+        smolv::entry_points(words)?;
+        let stage = split_samplers(words)?;
+        smolv::entry_points(&stage.words)?;
+        resources.push(stages::stage_resources(words, &stage)?);
+        split.push(stage);
+    }
+    let table = stages::plan(&resources)?;
+    let modules = split
+        .into_iter()
+        .zip(&resources)
+        .map(|(stage, resources)| {
+            let words = stages::renumber(stage.words, resources, &table)?;
+            let words = signed_negate(&spec_defaults(&words))?;
+            let words = image_coords::image_coordinate_types(&bit_search_signedness(&words)?)?;
+            Ok(PreparedModule {
+                words,
+                bindings: table.clone(),
+            })
+        })
+        .collect::<Result<_, PrepareError>>()?;
+    Ok(PreparedStages { modules })
 }
 
 /// A module after the sampler split, with the descriptor set and Unity binding of each
@@ -203,47 +276,6 @@ fn decorated_bindings(words: &[u32]) -> BTreeMap<u32, (u32, u32)> {
         .into_iter()
         .filter_map(|id| Some((id, (*sets.get(&id)?, *bindings.get(&id)?))))
         .collect()
-}
-
-/// Maps each resource's Unity binding to its prepared binding, read from the decorations of
-/// the module before and after the split. A split sampler is the new variable in its set at
-/// the binding after its image's.
-fn resource_bindings(words: &[u32], split: &Split) -> Result<Vec<ResourceBinding>, PrepareError> {
-    let before = decorated_bindings(words);
-    let after = decorated_bindings(&split.words);
-    let added: BTreeSet<(u32, u32)> = after
-        .iter()
-        .filter(|(id, _)| !before.contains_key(id))
-        .map(|(_, &place)| place)
-        .collect();
-    let mut resources = Vec::with_capacity(before.len());
-    for (id, &(set, unity_binding)) in &before {
-        let &(after_set, binding) = after
-            .get(id)
-            .filter(|(after_set, _)| *after_set == set)
-            .ok_or(PrepareError::Bindings("a resource lost its binding"))?;
-        let sampler_binding = if split.combined.contains(&(set, unity_binding)) {
-            let sampler = binding
-                .checked_add(1)
-                .filter(|&b| added.contains(&(after_set, b)));
-            Some(sampler.ok_or(PrepareError::Bindings("a split sampler has no binding"))?)
-        } else {
-            None
-        };
-        resources.push(ResourceBinding {
-            set,
-            unity_binding,
-            binding,
-            sampler_binding,
-        });
-    }
-    if added.len() != split.combined.len() {
-        return Err(PrepareError::Bindings(
-            "new bindings do not match the split samplers",
-        ));
-    }
-    resources.sort_unstable();
-    Ok(resources)
 }
 
 const HEADER_WORDS: usize = 5;

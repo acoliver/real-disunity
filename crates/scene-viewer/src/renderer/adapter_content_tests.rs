@@ -88,9 +88,7 @@ fn retained_and_supplier_startup_borrow_stored_scene() {
 }
 
 fn startup_adapter() -> wgpu::Adapter {
-    let instance =
-        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).unwrap()
+    worldrunner_render_gpu::test_support::TestGpu::shared_adapter().unwrap()
 }
 
 fn assert_storage(expected: &super::RenderScene, actual: &super::RenderScene) {

@@ -583,14 +583,16 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityRenderTexture>("depth_bits").ToInt32() != 12) throw new InvalidOperationException("DisunityRenderTexture.depth_bits offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("mip_count").ToInt32() != 16) throw new InvalidOperationException("DisunityRenderTexture.mip_count offset");
         if (Marshal.OffsetOf<DisunityRenderTexture>("srgb").ToInt32() != 20) throw new InvalidOperationException("DisunityRenderTexture.srgb offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_u").ToInt32() != 24) throw new InvalidOperationException("DisunityRenderTexture.wrap_u offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_v").ToInt32() != 28) throw new InvalidOperationException("DisunityRenderTexture.wrap_v offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_w").ToInt32() != 32) throw new InvalidOperationException("DisunityRenderTexture.wrap_w offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("filter").ToInt32() != 36) throw new InvalidOperationException("DisunityRenderTexture.filter offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("aniso_level").ToInt32() != 40) throw new InvalidOperationException("DisunityRenderTexture.aniso_level offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("mip_bias").ToInt32() != 44) throw new InvalidOperationException("DisunityRenderTexture.mip_bias offset");
-        if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 48) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
-        if (Marshal.SizeOf<DisunityRenderTexture>() != 56 || typeof(DisunityRenderTexture).GetFields().Length != 13) throw new InvalidOperationException("DisunityRenderTexture layout");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("dimension").ToInt32() != 24) throw new InvalidOperationException("DisunityRenderTexture.dimension offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("volume_depth").ToInt32() != 28) throw new InvalidOperationException("DisunityRenderTexture.volume_depth offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_u").ToInt32() != 32) throw new InvalidOperationException("DisunityRenderTexture.wrap_u offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_v").ToInt32() != 36) throw new InvalidOperationException("DisunityRenderTexture.wrap_v offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("wrap_w").ToInt32() != 40) throw new InvalidOperationException("DisunityRenderTexture.wrap_w offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("filter").ToInt32() != 44) throw new InvalidOperationException("DisunityRenderTexture.filter offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("aniso_level").ToInt32() != 48) throw new InvalidOperationException("DisunityRenderTexture.aniso_level offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("mip_bias").ToInt32() != 52) throw new InvalidOperationException("DisunityRenderTexture.mip_bias offset");
+        if (Marshal.OffsetOf<DisunityRenderTexture>("generation").ToInt32() != 56) throw new InvalidOperationException("DisunityRenderTexture.generation offset");
+        if (Marshal.SizeOf<DisunityRenderTexture>() != 64 || typeof(DisunityRenderTexture).GetFields().Length != 15) throw new InvalidOperationException("DisunityRenderTexture layout");
         if (Marshal.OffsetOf<DisunityTargetRef>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityTargetRef.kind offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("name_id").ToInt32() != 4) throw new InvalidOperationException("DisunityTargetRef.name_id offset");
         if (Marshal.OffsetOf<DisunityTargetRef>("render").ToInt32() != 8) throw new InvalidOperationException("DisunityTargetRef.render offset");
@@ -634,6 +636,29 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityPropertyRead>("offset_x").ToInt32() != 48) throw new InvalidOperationException("DisunityPropertyRead.offset_x offset");
         if (Marshal.OffsetOf<DisunityPropertyRead>("offset_y").ToInt32() != 52) throw new InvalidOperationException("DisunityPropertyRead.offset_y offset");
         if (Marshal.SizeOf<DisunityPropertyRead>() != 56 || typeof(DisunityPropertyRead).GetFields().Length != 13) throw new InvalidOperationException("DisunityPropertyRead layout");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("cull").ToInt32() != 0) throw new InvalidOperationException("DisunityDrawRendererList.cull offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("override_material").ToInt32() != 8) throw new InvalidOperationException("DisunityDrawRendererList.override_material offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("queue_min").ToInt32() != 16) throw new InvalidOperationException("DisunityDrawRendererList.queue_min offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("queue_max").ToInt32() != 20) throw new InvalidOperationException("DisunityDrawRendererList.queue_max offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("layer_mask").ToInt32() != 24) throw new InvalidOperationException("DisunityDrawRendererList.layer_mask offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("rendering_layer_mask").ToInt32() != 28) throw new InvalidOperationException("DisunityDrawRendererList.rendering_layer_mask offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("sorting").ToInt32() != 32) throw new InvalidOperationException("DisunityDrawRendererList.sorting offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("per_object").ToInt32() != 36) throw new InvalidOperationException("DisunityDrawRendererList.per_object offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("override_pass").ToInt32() != 40) throw new InvalidOperationException("DisunityDrawRendererList.override_pass offset");
+        if (Marshal.OffsetOf<DisunityDrawRendererList>("tags_len").ToInt32() != 44) throw new InvalidOperationException("DisunityDrawRendererList.tags_len offset");
+        if (Marshal.SizeOf<DisunityDrawRendererList>() != 48 || typeof(DisunityDrawRendererList).GetFields().Length != 10) throw new InvalidOperationException("DisunityDrawRendererList layout");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("sphere_x").ToInt32() != 0) throw new InvalidOperationException("DisunityShadowRendererList.sphere_x offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("sphere_y").ToInt32() != 4) throw new InvalidOperationException("DisunityShadowRendererList.sphere_y offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("sphere_z").ToInt32() != 8) throw new InvalidOperationException("DisunityShadowRendererList.sphere_z offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("sphere_radius").ToInt32() != 12) throw new InvalidOperationException("DisunityShadowRendererList.sphere_radius offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("light_index").ToInt32() != 16) throw new InvalidOperationException("DisunityShadowRendererList.light_index offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("plane_count").ToInt32() != 20) throw new InvalidOperationException("DisunityShadowRendererList.plane_count offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("objects_filter").ToInt32() != 24) throw new InvalidOperationException("DisunityShadowRendererList.objects_filter offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("projection").ToInt32() != 28) throw new InvalidOperationException("DisunityShadowRendererList.projection offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("rendering_layer_test").ToInt32() != 32) throw new InvalidOperationException("DisunityShadowRendererList.rendering_layer_test offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("padding").ToInt32() != 36) throw new InvalidOperationException("DisunityShadowRendererList.padding offset");
+        if (Marshal.OffsetOf<DisunityShadowRendererList>("cull").ToInt32() != 40) throw new InvalidOperationException("DisunityShadowRendererList.cull offset");
+        if (Marshal.SizeOf<DisunityShadowRendererList>() != 48 || typeof(DisunityShadowRendererList).GetFields().Length != 11) throw new InvalidOperationException("DisunityShadowRendererList layout");
         if (Marshal.OffsetOf<DisunityUiDraw>("kind").ToInt32() != 0) throw new InvalidOperationException("DisunityUiDraw.kind offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("hierarchy_order").ToInt32() != 8) throw new InvalidOperationException("DisunityUiDraw.hierarchy_order offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("clip_x").ToInt32() != 16) throw new InvalidOperationException("DisunityUiDraw.clip_x offset");
@@ -652,5 +677,5 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 8;
+    internal const uint Version = 9;
 }

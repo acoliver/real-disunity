@@ -55,6 +55,7 @@ impl ProgramRuntime {
             return Ok(pipeline.clone());
         }
         let module = self.shader_module(&program.stage)?;
+        let constants = program.stage.constants();
         let pipeline = self.guarded(|| {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -62,10 +63,14 @@ impl ProgramRuntime {
                     layout: Some(&program.gpu.pipeline),
                     module: &module,
                     entry_point: Some(&program.stage.module().entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &constants,
+                        ..wgpu::PipelineCompilationOptions::default()
+                    },
                     cache: None,
                 })
         })?;
+        self.counters.pipeline_built();
         self.compute_pipelines.insert(key, pipeline.clone());
         Ok(pipeline)
     }

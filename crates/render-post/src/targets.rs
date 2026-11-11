@@ -138,10 +138,36 @@ impl FrameConfig {
     }
 }
 
+/// Depth allocation selected by the stock frame planner.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SceneDepth {
+    #[default]
+    Independent,
+    /// Single-sample prepass and forward share float depth and one ownership bit.
+    Ownership,
+}
+impl SceneDepth {
+    pub const fn format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Independent => wgpu::TextureFormat::Depth32Float,
+            Self::Ownership => wgpu::TextureFormat::Depth32FloatStencil8,
+        }
+    }
+    fn validate(self, samples: u32, features: wgpu::Features) -> Result<(), PostError> {
+        if self == Self::Ownership
+            && (samples != 1 || !features.contains(wgpu::Features::DEPTH32FLOAT_STENCIL8))
+        {
+            return Err(PostError::UnsupportedFormat(self.format()));
+        }
+        Ok(())
+    }
+}
+
 /// Retains a sampleable resolved target and, optionally, its multisampled scene attachment.
 #[derive(Debug)]
 pub struct FrameTargets {
     config: FrameConfig,
+    scene_depth: SceneDepth,
     texture: wgpu::Texture,
     resolved: wgpu::TextureView,
     multisampled: Option<(wgpu::Texture, wgpu::TextureView)>,
@@ -197,7 +223,18 @@ impl FrameTargets {
         config: FrameConfig,
         options: TargetOptions,
     ) -> Result<Self, PostError> {
+        Self::with_scene_depth(device, config, options, SceneDepth::Independent)
+    }
+
+    /// As [`Self::with_options`], with an explicit depth ownership allocation.
+    pub fn with_scene_depth(
+        device: &wgpu::Device,
+        config: FrameConfig,
+        options: TargetOptions,
+        scene_depth: SceneDepth,
+    ) -> Result<Self, PostError> {
         config.validate_device(device)?;
+        scene_depth.validate(config.samples, device.features())?;
         let texture = color_texture(device, "post resolved scene", config.size, config.format);
         let resolved = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let multisampled = (config.samples > 1).then(|| {
@@ -222,12 +259,20 @@ impl FrameTargets {
                 mip_level_count: 1,
                 sample_count: config.samples,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth32Float,
+                format: scene_depth.format(),
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             })
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .create_view(&wgpu::TextureViewDescriptor {
+                aspect: if scene_depth == SceneDepth::Ownership {
+                    wgpu::TextureAspect::DepthOnly
+                } else {
+                    wgpu::TextureAspect::All
+                },
+                ..Default::default()
+            });
         let velocity = options.velocity.then(|| {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("frame velocity"),
@@ -249,6 +294,7 @@ impl FrameTargets {
             .then(|| mask_texture(device, config.size));
         Ok(Self {
             config,
+            scene_depth,
             texture,
             resolved,
             multisampled,
@@ -321,6 +367,12 @@ impl FrameTargets {
         self.velocity.as_ref().map(|(texture, _)| texture)
     }
 
+    pub const fn scene_depth(&self) -> SceneDepth {
+        self.scene_depth
+    }
+
+    /// Sampleable depth view. Ownership allocations select only the depth aspect;
+    /// construct an all-aspect attachment from its texture to write stencil ownership.
     pub const fn depth(&self) -> &wgpu::TextureView {
         &self.depth
     }
@@ -337,7 +389,7 @@ impl FrameTargets {
     ) {
         if let Some(resolve) = self.resolve() {
             let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frame MSAA resolve"),
+                label: Some(crate::PassId::Resolve.encoder_label().as_ref()),
                 timestamp_writes: stamp.map(crate::timing::Stamp::render),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.scene(),
@@ -422,5 +474,36 @@ pub(crate) const fn extent(size: [u32; 2]) -> wgpu::Extent3d {
         width: size[0],
         height: size[1],
         depth_or_array_layers: 1,
+    }
+}
+
+#[cfg(test)]
+mod depth_allocation_tests {
+    use super::SceneDepth;
+    #[test]
+    fn ownership_requires_single_sampling_and_enabled_stencil_depth() {
+        let enabled = wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        assert!(SceneDepth::Ownership.validate(1, enabled).is_ok());
+        assert!(
+            SceneDepth::Ownership
+                .validate(1, wgpu::Features::empty())
+                .is_err()
+        );
+        for samples in [2, 4, 8] {
+            assert!(SceneDepth::Ownership.validate(samples, enabled).is_err());
+            assert!(
+                SceneDepth::Independent
+                    .validate(samples, wgpu::Features::empty())
+                    .is_ok()
+            );
+        }
+        assert_eq!(
+            SceneDepth::Independent.format(),
+            wgpu::TextureFormat::Depth32Float
+        );
+        assert_eq!(
+            SceneDepth::Ownership.format(),
+            wgpu::TextureFormat::Depth32FloatStencil8
+        );
     }
 }

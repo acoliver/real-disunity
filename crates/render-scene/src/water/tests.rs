@@ -6,12 +6,16 @@ mod authored_tests;
 mod bodies_tests;
 #[path = "budget_tests.rs"]
 mod budget_tests;
+#[path = "capture_tests.rs"]
+mod capture_tests;
 #[path = "contracts.rs"]
 mod contracts;
 #[path = "default_tests.rs"]
 mod default_tests;
 #[path = "diffuse_tests.rs"]
 mod diffuse_tests;
+#[path = "fixed.rs"]
+mod fixed;
 #[path = "lighting_tests.rs"]
 mod lighting_tests;
 #[path = "numerical.rs"]
@@ -22,6 +26,8 @@ mod optical_render_tests;
 mod optics_tests;
 #[path = "pcf5_tests.rs"]
 mod pcf5_tests;
+#[path = "program_tests.rs"]
+mod program_tests;
 #[path = "regressions.rs"]
 mod regressions;
 #[path = "retained_environment_tests.rs"]
@@ -69,6 +75,7 @@ fn settings() -> SceneWaterBody {
 }
 #[test]
 fn absorption_increases_with_distance_and_foreground_is_rejected() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for coefficient in [0.05, 0.1, 0.3] {
         assert!((transmittance(coefficient, 0.0) - 1.0).abs() < f32::EPSILON);
         assert!(transmittance(coefficient, 1.0) > transmittance(coefficient, 5.0));
@@ -103,7 +110,8 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
 }
 #[test]
 fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_every_supported_sample_count() {
-    let context = pollster::block_on(GpuContext::request()).unwrap();
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
     let view = fixture_view();
     let frame = FrameUniform::new(&view, None).unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
@@ -207,7 +215,8 @@ fn assert_snapshots(context: &GpuContext, renderer: &crate::compositor::FrameRen
     );
 }
 
-fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::FrameRenderer) {
+/// The scene depth target as the snapshot's depth copy reads it, one float for each pixel.
+fn surface_depth(context: &GpuContext, renderer: &crate::compositor::FrameRenderer) -> Vec<u8> {
     let snapshot = &renderer.water.as_ref().unwrap().snapshots[1];
     let group = snapshot.source_group(
         context.device(),
@@ -239,7 +248,11 @@ fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::Fram
     );
     encoder.finish().submit().unwrap();
     wait(context.device());
-    let bytes = read(context, &texture);
+    read(context, &texture)
+}
+
+fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::FrameRenderer) {
+    let bytes = surface_depth(context, renderer);
     let offset = (16 * 32 + 16) * 4;
     let depth = f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
     assert!(
@@ -328,6 +341,28 @@ fn draw_water_only(context: &GpuContext, renderer: &crate::compositor::FrameRend
     draw_water_slot(context, renderer, 1);
 }
 fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRenderer, slot: usize) {
+    draw_water_with(
+        context,
+        renderer,
+        (slot, wgpu::LoadOp::Load),
+        |feature, pass| {
+            feature.draw(
+                &worldrunner_render_post::DrawContext {
+                    slot: PassSlot::TransparentWater,
+                },
+                pass,
+            );
+        },
+    );
+}
+/// Opens the water pass of `slot` over the scene colour (loaded or cleared as `scene_load`
+/// says), the cleared receivers and a cleared depth, and lets `record` draw the feature in it.
+fn draw_water_with(
+    context: &GpuContext,
+    renderer: &crate::compositor::FrameRenderer,
+    (slot, scene_load): (usize, wgpu::LoadOp<wgpu::Color>),
+    record: impl FnOnce(&WaterFeature, &mut wgpu::RenderPass<'_>),
+) {
     let water = renderer.water.as_ref().unwrap();
     let feature = water.feature(
         context.device(),
@@ -346,7 +381,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
             resolve_target: None,
             depth_slice: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Load,
+                load: scene_load,
                 store: wgpu::StoreOp::Store,
             },
         })];
@@ -374,12 +409,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
             }),
             ..wgpu::RenderPassDescriptor::default()
         });
-        feature.draw(
-            &worldrunner_render_post::DrawContext {
-                slot: PassSlot::TransparentWater,
-            },
-            &mut pass,
-        );
+        record(&feature, &mut pass);
     }
     renderer.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();

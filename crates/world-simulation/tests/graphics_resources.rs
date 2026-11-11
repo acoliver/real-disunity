@@ -24,6 +24,8 @@ fn target() -> WorldRenderTexture {
         depth_bits: 24,
         mip_count: 3,
         srgb: true,
+        dimension: 2,
+        volume_depth: 1,
         sampler: WorldSampler::default(),
         generation: 99,
     }

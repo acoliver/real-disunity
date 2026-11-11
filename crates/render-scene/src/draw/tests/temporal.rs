@@ -15,6 +15,7 @@ fn renderer(context: &GpuContext) -> FrameRenderer {
 
 #[test]
 fn jitter_explicitly_off_renders_the_bytes_of_a_renderer_without_the_setting() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();
@@ -36,6 +37,7 @@ fn jitter_explicitly_off_renders_the_bytes_of_a_renderer_without_the_setting() {
 
 #[test]
 fn jitter_on_moves_the_drawn_scene_and_publishes_history_when_the_frame_is_submitted() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();
@@ -85,6 +87,7 @@ fn frame_with_history() -> FrameUniform {
 
 #[test]
 fn the_scene_frame_group_carries_the_previous_frame_the_temporal_view_published() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();
@@ -99,6 +102,7 @@ fn the_scene_frame_group_carries_the_previous_frame_the_temporal_view_published(
 
 #[test]
 fn a_frame_without_history_hands_shaders_its_own_matrix_camera_and_clock() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     let pipelines = ScenePipelines::with_samples(context.device(), COLOR_FORMAT, 1).unwrap();

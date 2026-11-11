@@ -3,21 +3,27 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use worldrunner_render_program::constants::pack_constant_buffer;
-use worldrunner_render_program::module::{ModuleBinding, StageKind, StageModule, StageProgram};
 use worldrunner_render_program::properties::{PropertySet, PropertyValue};
-use worldrunner_render_program::runtime::{
+use worldrunner_render_program::unity::buffers::ParamName;
+use worldrunner_render_program::unity::constants::pack_layout;
+use worldrunner_render_program::unity::module::{
+    ResourceBinding, StageKind, StageModule, StageParameters, StageProgram,
+};
+use worldrunner_render_program::unity::runtime::{
     BoundResource, BufferHandle, DrawRequest, Geometry, GraphicsProgram, ProgramRuntime,
     TargetHandle, TargetImage, VertexInput,
 };
-use worldrunner_render_program::state::RenderState;
-use worldrunner_render_program::variant::select_sub_program;
+use worldrunner_render_program::unity::state::RenderState;
+use worldrunner_render_program::unity::variant::{select_player_sub_program, select_sub_program};
+use worldrunner_unity_serialized::shader_parameters::{
+    BufferMember, ConstantBuffer as PlayerBuffer, DescriptorSlot, ResourceKind, VariantParameters,
+};
 use worldrunner_unity_serialized::shader_program::{
-    BindChannels, Binding, ConstantBuffer, Program, ProgramParameters, SamplerParam, SubProgram,
-    TextureParam, ValueParam,
+    BindChannels, Binding, ConstantBuffer, PlayerSubProgram, Program, ProgramParameters,
+    SamplerParam, SubProgram, TextureParam, ValueParam,
 };
 
-use crate::common::{read_target, run, same, spirv};
+use crate::common::{Form, player_binding, read_target, run, same, slot, spirv, split_table};
 use crate::fixtures::textured;
 
 pub const TINT: i32 = 0;
@@ -49,7 +55,20 @@ pub struct Pass {
     pub vertex: Program,
     pub fragment: Program,
     pub blobs: Vec<Vec<u32>>,
-    pub table: Vec<ModuleBinding>,
+    pub table: Vec<ResourceBinding>,
+    /// The player variant's parameters, which describe both stages of every variant; `None`
+    /// when the stages' sub programs carry editor-style parameters.
+    variant: Option<VariantParameters>,
+}
+
+impl Pass {
+    /// What names the main texture in a stage's texture targets.
+    fn main_tex(&self) -> ParamName {
+        match self.variant {
+            None => ParamName::Index(MAIN_TEX),
+            Some(_) => ParamName::Named("_MainTex".to_owned()),
+        }
+    }
 }
 
 fn vector(name_index: i32, offset: i32) -> ValueParam {
@@ -112,6 +131,73 @@ fn parameters(draw_binding: Option<i32>, samplers: Samplers) -> ProgramParameter
     parameters
 }
 
+const VERTEX: u8 = DescriptorSlot::VERTEX;
+const FRAGMENT: u8 = DescriptorSlot::FRAGMENT;
+
+fn member(name: &str, offset: i32) -> BufferMember {
+    BufferMember {
+        name: name.to_owned(),
+        kind: 0,
+        rows: 1,
+        columns: 4,
+        is_matrix: false,
+        array_size: 0,
+        offset,
+    }
+}
+
+/// The pass as a player variant describes it: both stages' buffers and bindings, with the
+/// stages that use each.
+fn variant_parameters(draw_binding: u16, samplers: Samplers) -> VariantParameters {
+    let layout = |name: &str, members, size| PlayerBuffer {
+        name: name.to_owned(),
+        size,
+        members,
+        structs: vec![],
+    };
+    let texture_slot = slot(0, 1, FRAGMENT);
+    let (sampler_slot, sampler_binding) = match samplers {
+        Samplers::Separate => (slot(0, 2, FRAGMENT), true),
+        Samplers::Split => (texture_slot, false),
+    };
+    let texture = ResourceKind::Texture {
+        sampler: Some(sampler_slot),
+        dimension: 4,
+    };
+    let mut bindings = vec![
+        player_binding(
+            "Material",
+            slot(0, 0, VERTEX | FRAGMENT),
+            ResourceKind::ConstantBuffer,
+        ),
+        player_binding(
+            "Draw",
+            slot(0, draw_binding, VERTEX),
+            ResourceKind::ConstantBuffer,
+        ),
+        player_binding("_MainTex", texture_slot, texture),
+    ];
+    if sampler_binding {
+        bindings.push(player_binding(
+            "",
+            sampler_slot,
+            ResourceKind::Sampler { state: 0 },
+        ));
+    }
+    VariantParameters {
+        constant_buffers: vec![
+            layout("", vec![], 0),
+            layout(
+                "Material",
+                vec![member("_Tint", 0), member("_Offset", 16)],
+                32,
+            ),
+            layout("Draw", vec![member("_Scale", 0)], 16),
+        ],
+        bindings,
+    }
+}
+
 fn sub_program(blob_index: u32, keywords: &[u16], parameters: ProgramParameters) -> SubProgram {
     SubProgram {
         blob_index,
@@ -127,28 +213,65 @@ fn sub_program(blob_index: u32, keywords: &[u16], parameters: ProgramParameters)
     }
 }
 
+fn player_sub_program(blob_index: u32, keywords: &[u16]) -> PlayerSubProgram {
+    PlayerSubProgram {
+        blob_index,
+        keyword_indices: keywords.to_vec(),
+        requirements: 0,
+        gpu_program_type: 0,
+    }
+}
+
+/// The vertex and fragment programs, and for a player variant the parameters that describe both.
+fn programs(form: Form, samplers: Samplers) -> (Program, Program, Option<VariantParameters>) {
+    let draw_binding = match samplers {
+        Samplers::Separate => 3,
+        Samplers::Split => 2,
+    };
+    match form {
+        Form::Program => {
+            let vertex_parameters = parameters(Some(draw_binding), samplers);
+            let fragment_parameters = parameters(None, samplers);
+            let vertex = Program {
+                sub_programs: vec![sub_program(0, &[], vertex_parameters)],
+                ..Program::default()
+            };
+            let fragment = Program {
+                sub_programs: vec![
+                    sub_program(1, &[MULTIPLY], fragment_parameters.clone()),
+                    sub_program(2, &[ADD], fragment_parameters),
+                ],
+                keyword_state_mask: vec![MULTIPLY, ADD],
+                ..Program::default()
+            };
+            (vertex, fragment, None)
+        }
+        Form::Variant => {
+            let vertex = Program {
+                player_sub_programs: vec![vec![player_sub_program(0, &[])]],
+                ..Program::default()
+            };
+            let fragment = Program {
+                player_sub_programs: vec![vec![
+                    player_sub_program(1, &[MULTIPLY]),
+                    player_sub_program(2, &[ADD]),
+                ]],
+                keyword_state_mask: vec![MULTIPLY, ADD],
+                ..Program::default()
+            };
+            let variant = variant_parameters(u16::try_from(draw_binding).unwrap(), samplers);
+            (vertex, fragment, Some(variant))
+        }
+    }
+}
+
 /// The pass with a vertex program, and a fragment program of a multiply and an add variant.
-pub fn pass(samplers: Samplers) -> Pass {
-    let (draw_binding, table) = match samplers {
-        Samplers::Separate => (3, (0..4).map(|b| same(0, b)).collect()),
-        Samplers::Split => (
-            2,
-            vec![
-                same(0, 0),
-                ModuleBinding {
-                    set: 0,
-                    unity_binding: 1,
-                    binding: 1,
-                    sampler_binding: Some(2),
-                },
-                ModuleBinding {
-                    set: 0,
-                    unity_binding: 2,
-                    binding: 3,
-                    sampler_binding: None,
-                },
-            ],
-        ),
+/// `form` says whether the variants carry editor-style parameters or are player variants whose
+/// parameters describe both stages.
+pub fn pass(samplers: Samplers, form: Form) -> Pass {
+    let table = match samplers {
+        Samplers::Separate => (0..4).map(|b| same(0, b)).collect(),
+        Samplers::Split => split_table(),
     };
     let names = [
         ("_Tint", TINT),
@@ -160,22 +283,12 @@ pub fn pass(samplers: Samplers) -> Pass {
     ]
     .map(|(name, index)| (name.to_owned(), index))
     .to_vec();
-    let vertex_parameters = parameters(Some(draw_binding), samplers);
-    let fragment_parameters = parameters(None, samplers);
+    let (vertex, fragment, variant) = programs(form, samplers);
     Pass {
         names,
-        vertex: Program {
-            sub_programs: vec![sub_program(0, &[], vertex_parameters)],
-            ..Program::default()
-        },
-        fragment: Program {
-            sub_programs: vec![
-                sub_program(1, &[MULTIPLY], fragment_parameters.clone()),
-                sub_program(2, &[ADD], fragment_parameters),
-            ],
-            keyword_state_mask: vec![MULTIPLY, ADD],
-            ..Program::default()
-        },
+        vertex,
+        fragment,
+        variant,
         blobs: vec![
             spirv(&textured("texel * material.tint")),
             spirv(&textured("texel * material.tint")),
@@ -191,14 +304,23 @@ fn stage(
     enabled: &BTreeSet<u16>,
     entry: (&str, StageKind),
 ) -> StageProgram {
-    let chosen = select_sub_program(program, enabled).unwrap();
+    let (blob_index, parameters): (u32, StageParameters) = match &pass.variant {
+        None => {
+            let chosen = select_sub_program(program, enabled).unwrap();
+            (chosen.blob_index, chosen.parameters.clone().into())
+        }
+        Some(variant) => {
+            let chosen = select_player_sub_program(program, enabled).unwrap();
+            (chosen.blob_index, variant.clone().into())
+        }
+    };
     let module = StageModule {
-        words: pass.blobs[chosen.blob_index as usize].clone(),
+        words: pass.blobs[blob_index as usize].clone(),
         entry_point: entry.0.to_owned(),
         kind: entry.1,
         bindings: pass.table.clone(),
     };
-    StageProgram::new(module, chosen.parameters.clone()).unwrap()
+    StageProgram::new(module, parameters).unwrap()
 }
 
 /// What to draw: the keywords and properties, the render state and the quad's triangles.
@@ -279,8 +401,8 @@ fn constant_bindings(
                 .slot(target.set, target.binding)
                 .unwrap()
                 .min_size;
-            let result = pack_constant_buffer(
-                target.buffer,
+            let result = pack_layout(
+                &target.buffer,
                 &scene.pass.names,
                 &[scene.material, scene.globals],
                 usize::try_from(min).unwrap(),
@@ -359,7 +481,7 @@ pub fn setup(runtime: &mut ProgramRuntime, scene: &Scene<'_>) -> Setup {
         .create_texture_2d("main", [2, 2], wgpu::TextureFormat::Rgba8Unorm, &texels)
         .unwrap();
     for target in fragment.texture_targets().unwrap() {
-        assert_eq!(target.name_index, MAIN_TEX);
+        assert_eq!(target.name, scene.pass.main_tex());
         bindings.push(BoundResource::texture(target.set, target.binding, texture));
     }
 

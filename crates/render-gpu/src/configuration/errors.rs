@@ -54,12 +54,7 @@ mod tests {
 
     #[test]
     fn scoped_failures_and_loss_never_publish() {
-        let instance = crate::device::headless_instance();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .unwrap();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let (device, queue) = crate::test_support::fresh_device();
         let authority = SubmissionAuthority::new(queue);
         let mut config = Configuration::new(
             &authority,
@@ -124,12 +119,10 @@ mod tests {
     }
     #[test]
     fn actual_validation_is_captured_by_production_scope() {
-        let instance = crate::device::headless_instance();
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        let gpu =
+            crate::test_support::TestGpu::shared(&crate::device::DeviceRequirements::default())
                 .unwrap();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let (device, queue) = (gpu.device, gpu.queue);
         let authority = SubmissionAuthority::new(queue);
         let mut config = Configuration::new(
             &authority,

@@ -490,6 +490,24 @@ fn flush_assets(
     ))
 }
 
+/// Answers a pixel read with a texel that names its column and row in the render texture:
+/// (column, row, 0.5, 1).
+fn answer_read(
+    flush: &mut GpuFlush<'_>,
+    request: u64,
+    [x, y, width, height]: [u32; 4],
+) -> Result<(), String> {
+    let mut texels = Vec::new();
+    for row in y..y + height {
+        for column in x..x + width {
+            texels.extend([column as f32, row as f32, 0.5, 1.0]);
+        }
+    }
+    flush
+        .write_texture_pixels(request, &texels)
+        .map_err(|error| error.to_string())
+}
+
 /// A fake executor: for each dispatch it states a group size for a kernel that has none, and
 /// writes `kernel * 100 + groups` into the first buffer bound at the kernel's own slot.
 fn fake_executor(
@@ -503,6 +521,18 @@ fn fake_executor(
         let snapshot = flush.snapshot().map_err(|error| error.to_string())?;
         let mut seen = Seen::new();
         for item in &snapshot.work {
+            if let OffscreenWork::ReadPixels {
+                request,
+                x,
+                y,
+                width,
+                height,
+                ..
+            } = item
+            {
+                answer_read(flush, *request, [*x, *y, *width, *height])?;
+                continue;
+            }
             let OffscreenWork::Dispatch {
                 shader,
                 kernel,
@@ -605,14 +635,18 @@ fn assert_gpu_flush(host: &mut DisunityHost, root: &Path) {
         .map(|state| host.managed_position(state.object).unwrap())
         .collect();
     assert!(
+        positions.contains(&[2., 1., 0.5]),
+        "the managed ReadPixels saw the texels the executor wrote through write_texture_pixels, bottom row first: {positions:?}"
+    );
+    assert!(
         positions.contains(&[6., 105., 421.]),
         "the managed GetData saw what the executor wrote (kernel 0: 6, kernel 1: 105) and the size it stated (4 2 1): {positions:?}"
     );
     let flushes = log.borrow().clone();
     assert_eq!(
         flushes.len(),
-        2,
-        "one flush for the group size and one for the read"
+        3,
+        "one flush for the group size, one for the buffer read and one for the pixel read"
     );
     let names = vec!["_Width".to_owned(), "_Output".to_owned()];
     assert_eq!(
@@ -621,12 +655,12 @@ fn assert_gpu_flush(host: &mut DisunityHost, root: &Path) {
         "the first flush ran both dispatches in call order, each with the values it had"
     );
     assert!(
-        flushes[1].is_empty(),
+        flushes[1].is_empty() && flushes[2].is_empty(),
         "work already taken is not taken again"
     );
     assert_eq!(
         *assets.borrow(),
-        vec![(2, 4, 4, 10); 2],
+        vec![(2, 4, 4, 10); 3],
         "each flush read the texture (2 wide, anisotropy 4) and the mesh (4 vertices, 10 indices)"
     );
     host.unload_slice().unwrap();

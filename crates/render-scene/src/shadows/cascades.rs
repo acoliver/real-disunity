@@ -10,12 +10,21 @@ pub(super) struct CascadeViews {
     pub depth_bias: [f32; 4],
     pub splits: [f32; 4],
     pub blend: f32,
+    /// Fraction of the shadow distance, ending at the last cascade, that fades to lit.
+    pub fade_out: f32,
     pub recurrence: Option<Vec<worldrunner_render_shadow::CascadeInterval>>,
     pub multiplier: f32,
     pub camera_splits: bool,
     pub near: f32,
     pub view_depth: Vec4,
+    /// World corners of each cascade's camera slice; none without camera splits.
+    pub slices: Vec<Option<[Vec3; 8]>>,
+    /// Texels the receiver filter reads beyond a sample's own texel.
+    pub filter_texels: f32,
 }
+
+/// Texels added to a slice hull beyond the filter footprint, for rounding.
+const SLICE_SAFETY_TEXELS: f32 = 2.0;
 
 impl CascadeViews {
     /// Cascades for the declared splits, with casters fitted to them.
@@ -68,7 +77,16 @@ impl CascadeViews {
             splits: [0.0; 4],
             camera_splits: declared.split_distances_millimeters().is_some(),
             near: view.clip_distances_meters()[0],
+            slices: Vec::new(),
+            filter_texels: match declared.sampling().filter {
+                worldrunner_render_plan::SceneShadowFilter::Grid { radius } => {
+                    f32::from(u16::try_from(radius).map_err(|_| ShadowError::InvalidSettings)?)
+                        + 1.0
+                }
+                worldrunner_render_plan::SceneShadowFilter::Bilinear2 => 1.0,
+            },
             blend: meters(declared.blend_band_micro())? / 1000.0,
+            fade_out: meters(declared.fade_out_micro())? / 1000.0,
             view_depth: -view
                 .resolved_view()
                 .reconstruction_view_matrix()
@@ -174,13 +192,73 @@ impl CascadeViews {
         sun: Vec3,
     ) -> Result<(), ShadowError> {
         let count = self.matrices.len();
+        self.slices.clear();
         for index in 0..count {
             let receiver = self.receiver_matrix(index, count, view, settings, sun)?;
             let matrix = valid(gpu.caster_matrix(receiver))?;
             self.depth_bias[index] = normalized_depth_bias(settings, matrix)?;
             self.matrices[index] = matrix;
+            let slice = self.camera_splits.then(|| self.slice_corners(index, view));
+            self.slices.push(slice);
         }
         Ok(())
+    }
+
+    /// Where camera split `index` starts: the previous split's blend band, or the near plane.
+    fn slice_start(&self, index: usize) -> f32 {
+        if let Some(intervals) = &self.recurrence {
+            intervals[index].start
+        } else if index == 0 {
+            self.near
+        } else {
+            let previous_start = if index == 1 {
+                self.near
+            } else {
+                self.splits[index - 2]
+            };
+            self.splits[index - 1] - (self.splits[index - 1] - previous_start) * self.blend
+        }
+    }
+
+    /// World corners of the camera volume whose receivers sample cascade `index`. Receivers
+    /// pick a cascade by view depth, and depth fitting lags the camera, so the first slice
+    /// starts at the camera's near plane. Both ends widen by 1% to absorb rounding.
+    fn slice_corners(&self, index: usize, view: &SceneView) -> [Vec3; 8] {
+        let start = if index == 0 {
+            view.clip_distances_meters()[0]
+        } else {
+            self.slice_start(index)
+        };
+        let resolved = view.resolved_view();
+        let inverse = resolved.reconstruction_projection_matrix().inverse();
+        let world = resolved.reconstruction_view_matrix().inverse();
+        std::array::from_fn(|corner| {
+            let x = if corner & 1 == 0 { -1.0 } else { 1.0 };
+            let y = if corner & 2 == 0 { -1.0 } else { 1.0 };
+            let ray = inverse.project_point3(Vec3::new(x, y, 0.0));
+            let distance = if corner < 4 {
+                start * 0.99
+            } else {
+                self.splits[index] * 1.01
+            };
+            world.transform_point3(ray * (distance / -ray.z))
+        })
+    }
+
+    /// The light-space hull receivers of cascade `index` sample in a map drawn with `matrix`:
+    /// the slice grown by the filter footprint and the receiver normal offset.
+    pub fn slice_hull(
+        &self,
+        index: usize,
+        matrix: Mat4,
+        settings: DirectionalShadowSettings,
+    ) -> Option<crate::draw::SliceHull> {
+        let corners = self.slices.get(index).copied().flatten()?;
+        let texel = 2.0 / f32::from(u16::try_from(settings.resolution).ok()?);
+        let clip_per_meter = matrix.transpose().x_axis.truncate().length();
+        let margin = (self.filter_texels + SLICE_SAFETY_TEXELS) * texel
+            + settings.normal_bias_meters * clip_per_meter;
+        Some(crate::draw::SliceHull::new(&corners, matrix, margin))
     }
 
     fn receiver_matrix(
@@ -192,18 +270,7 @@ impl CascadeViews {
         sun: Vec3,
     ) -> Result<Mat4, ShadowError> {
         if self.camera_splits {
-            let start = if let Some(intervals) = &self.recurrence {
-                intervals[index].start
-            } else if index == 0 {
-                self.near
-            } else {
-                let previous_start = if index == 1 {
-                    self.near
-                } else {
-                    self.splits[index - 2]
-                };
-                self.splits[index - 1] - (self.splits[index - 1] - previous_start) * self.blend
-            };
+            let start = self.slice_start(index);
             worldrunner_render_shadow::stable_frustum_fit(
                 view.resolved_view().reconstruction_view_matrix(),
                 view.resolved_view().reconstruction_projection_matrix(),

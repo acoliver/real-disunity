@@ -38,7 +38,8 @@ After an intentional ABI change:
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 5 retains revision 4 batch construction, object wake and body position
+   Revision 9 adds the dimension and volume depth to `DisunityRenderTexture`, so
+   native and managed peers built for revision 8 refuse it. Revision 5 retains revision 4 batch construction, object wake and body position
    constraints, and moves canvas scale out of the Canvas record into
    `disunity_canvas_scale_read`, `_write` and `_factor`. Native and managed hosts
    require revision 5. Rebuild all peers.
@@ -96,7 +97,12 @@ frame; `Unload` disposes the scene's templates and unloads the world. A request
 with a `player` data directory starts a built Unity player instead: the player's
 assemblies resolve in the same context through `PlayerAssemblies`, its startup
 hooks run in Unity's phase order around the scene, and scripts in the plan are
-found by assembly and full class name (`SceneLoadOptions.Assemblies`).
+found by assembly and full class name (`SceneLoadOptions.Assemblies`). When the
+request names a `callback_cache` directory, `PlayerAssemblies` loads each listed
+game assembly that passes `[MonoPInvokeCallback]` static methods to delegates from a
+copy rewritten with Mono.Cecil (`PlayerCallbackRewriter`), so those delegates are made
+once and kept (`NativeCallbacks.Keep`) and native code can call them after the game
+has dropped them.
 `Disunity.Layouts` writes a player's script layouts for `unity-import`.
 
 CI defines Linux, Windows, and macOS managed jobs. A local Linux result does not

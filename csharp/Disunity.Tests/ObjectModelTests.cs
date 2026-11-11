@@ -183,7 +183,7 @@ internal static class ObjectModelTests
     private static void AsyncCloningFailure()
     {
         using var log = new LogRecorder();
-        var failing = UnityEngine.Object.InstantiateAsync(ScriptableObject.CreateInstance<Asset>(), 1);
+        var failing = UnityEngine.Object.InstantiateAsync(new Font("Plain", []), 1);
         var completed = 0;
         failing.completed += _ => completed++;
         DisunityHost.Step(0.02f);
@@ -230,7 +230,8 @@ internal static class ObjectModelTests
         Ensure(materialCopy.name == "Mat(Clone)" && materialCopy.GetFloat("_Cutoff") == 0.5f && materialCopy.shader == material.shader, "a material clone keeps shader and values");
         var textCopy = UnityEngine.Object.Instantiate(new TextAsset("hello") { name = "t" });
         Ensure(textCopy.text == "hello" && textCopy.name == "t(Clone)", "a text asset clone keeps its text");
-        NotSupported(() => UnityEngine.Object.Instantiate(ScriptableObject.CreateInstance<Asset>()), "cloning a script asset", "Instantiate");
+        var assetCopy = UnityEngine.Object.Instantiate(ScriptableObject.CreateInstance<Asset>());
+        Ensure(assetCopy is Asset && assetCopy.name.EndsWith("(Clone)", StringComparison.Ordinal), "a script asset clone is an asset of the same class named like a clone");
     }
 
     private static void DontDestroy()

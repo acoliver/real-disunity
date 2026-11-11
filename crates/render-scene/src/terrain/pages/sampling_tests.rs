@@ -1,5 +1,6 @@
 mod anisotropy;
 mod borders;
+mod mip_weight;
 mod outer;
 use super::{
     composition::{MaterialImage, MaterialTexel},
@@ -12,6 +13,7 @@ use worldrunner_render_gpu::{configuration::AllocationBudget, submission::Submis
 
 #[test]
 fn terrain_pages_gpu_sampling_uses_nearest_resident_ancestor_and_filter_safe_lod() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

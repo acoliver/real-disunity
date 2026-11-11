@@ -263,7 +263,7 @@ struct TerrainInstanceInput {
 }
 
 struct TerrainVertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
+    @invariant @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) @interpolate(flat) plane_index: u32,
@@ -370,6 +370,38 @@ fn terrain_face_normal(world_xy: vec2<f32>, plane_index: u32, skirt_axis: vec2<f
     return cross(c - a, d - a);
 }
 
+// One full-resolution height, clamped to the grid.
+fn terrain_height_at(sample: vec2<i32>) -> f32 {
+    let last = vec2<i32>(terrain.dimensions_and_count.xy) - vec2<i32>(1);
+    let clamped = vec2<u32>(clamp(sample, vec2<i32>(0), last));
+    return bitcast<f32>(terrain_plane_data[terrain_plane_data[2] + clamped.y * terrain.dimensions_and_count.x + clamped.x]);
+}
+
+// The heightfield normal at one sample, from central differences that shorten to
+// one-sided differences at the grid edge, as the CPU mesh builder computes it.
+fn terrain_sample_normal(sample: vec2<i32>) -> vec3<f32> {
+    let last = vec2<i32>(terrain.dimensions_and_count.xy) - vec2<i32>(1);
+    let low = max(sample - vec2<i32>(1), vec2<i32>(0));
+    let high = min(sample + vec2<i32>(1), last);
+    let run = vec2<f32>(max(high - low, vec2<i32>(1))) * terrain.origin_and_spacing.z;
+    let east = terrain_height_at(vec2<i32>(high.x, sample.y)) - terrain_height_at(vec2<i32>(low.x, sample.y));
+    let north = terrain_height_at(vec2<i32>(sample.x, high.y)) - terrain_height_at(vec2<i32>(sample.x, low.y));
+    return vec3<f32>(-east / run.x, -north / run.y, 1.0);
+}
+
+// Terrain is lit from the full-resolution heightfield at every pixel, so a chunk drawn
+// with coarser triangles keeps the lighting detail of the finest one; the vertex normal
+// of a coarse chunk only describes its own facets. Skirts keep their vertical normal.
+fn terrain_pixel_normal(world_xy: vec2<f32>, skirt_axis: vec2<f32>, interpolated: vec3<f32>) -> vec3<f32> {
+    if any(skirt_axis > vec2<f32>(0.0)) { return normalize(interpolated); }
+    let grid = world_to_grid(world_xy.x, world_xy.y);
+    let base = vec2<i32>(floor(grid));
+    let weight = grid - floor(grid);
+    let south = mix(terrain_sample_normal(base), terrain_sample_normal(base + vec2<i32>(1, 0)), weight.x);
+    let north = mix(terrain_sample_normal(base + vec2<i32>(0, 1)), terrain_sample_normal(base + vec2<i32>(1, 1)), weight.x);
+    return normalize(mix(south, north, weight.y));
+}
+
 // Evaluate the same adjacent pixel pair on both lanes of a 2x2 quad. Solving
 // for displacement avoids subtracting two kilometre-scale world positions.
 fn terrain_quad_footprint(fragment: vec4<f32>, axis: vec2<f32>, normal: vec3<f32>) -> vec2<f32> {
@@ -405,7 +437,7 @@ fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
     // Layer normals have already been unrotated into the shared east/north
     // frame before blending or page storage. Follow east along the heightfield;
     // the right-handed bitangent then follows north on flat ground.
-    let geometric = normalize(input.world_normal);
+    let geometric = terrain_pixel_normal(world_xy, input.skirt_axis, input.world_normal);
     let tangent = normalize(vec3<f32>(geometric.z, 0.0, -geometric.x));
     let bitangent = cross(geometric, tangent);
     let strength = bitcast<f32>(terrain.surfaces[0].normal_strength_bits ^ 0x3f800000u);

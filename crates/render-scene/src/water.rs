@@ -21,6 +21,7 @@ pub(crate) const STAGING_BYTES: u64 = 560 + crate::frame::FRAME_UNIFORM_BYTES as
 pub(crate) const UNIFORM_BYTES: u64 = 768 + crate::frame::FRAME_UNIFORM_BYTES as u64;
 
 use crate::frame::FrameUniform;
+use crate::renderer::depth::DepthMode;
 use geometry::Body;
 use snapshots::Snapshots;
 use worldrunner_render_plan::SceneWaterBody;
@@ -145,6 +146,8 @@ pub fn refraction_pixel(
     }
 }
 
+type RasterKey = ([u32; 5], DepthMode);
+
 #[derive(Clone, Debug)]
 pub(crate) struct Water {
     pub draw_count: crate::draw::pass_statistics::PassCounter,
@@ -156,9 +159,10 @@ pub(crate) struct Water {
     seed_pipelines: std::collections::BTreeMap<u32, [wgpu::RenderPipeline; 2]>,
     layout: wgpu::BindGroupLayout,
     specializations: std::rc::Rc<
-        std::cell::RefCell<std::collections::BTreeMap<[u32; 5], [wgpu::RenderPipeline; 2]>>,
+        std::cell::RefCell<std::collections::BTreeMap<RasterKey, [wgpu::RenderPipeline; 2]>>,
     >,
     samples: u32,
+    depth: DepthMode,
     reactive: reactive::Reactive,
     pub receivers: [[wgpu::Texture; 3]; 3],
     pub environment: [wgpu::TextureView; 2],
@@ -236,6 +240,7 @@ impl Water {
             snapshots: std::array::from_fn(|_| Snapshots::new(device, config)),
             specializations: std::rc::Rc::default(),
             samples: config.samples,
+            depth: DepthMode::Independent,
             reactive: reactive::Reactive::default(),
             pipeline: plain_pipeline,
             shadow_pipeline,
@@ -243,12 +248,24 @@ impl Water {
             layout,
         })
     }
+    #[cfg(test)]
     pub fn feature(
         &self,
         device: &wgpu::Device,
         frame: &FrameUniform,
         timing: (f32, usize),
         inputs: (Option<&wgpu::BindGroup>, Option<&wgpu::Texture>),
+    ) -> WaterFeature {
+        self.feature_with_depth(device, frame, timing, inputs, DepthMode::Independent)
+    }
+
+    pub fn feature_with_depth(
+        &self,
+        device: &wgpu::Device,
+        frame: &FrameUniform,
+        timing: (f32, usize),
+        inputs: (Option<&wgpu::BindGroup>, Option<&wgpu::Texture>),
+        depth: DepthMode,
     ) -> WaterFeature {
         let (time, slot) = timing;
         let (shadow, mask) = inputs;
@@ -262,6 +279,7 @@ impl Water {
             })
             .collect();
         let mut water = self.clone();
+        water.depth = depth;
         let base = frame.specular_convention.shader_options();
         let options = [
             base[0],
@@ -270,8 +288,8 @@ impl Water {
             base[3],
             terms::mask(&self.settings),
         ];
-        if options != [0; 5] {
-            let selected = self.specialized_pipelines(device, options);
+        if options != [0; 5] || depth != DepthMode::Independent {
+            let selected = water.specialized_pipelines(device, options);
             water.pipeline = selected[0].clone();
             water.shadow_pipeline = selected[1].clone();
         }
@@ -282,10 +300,10 @@ impl Water {
                 seed_options[4] |= key;
                 water
                     .seed_pipelines
-                    .insert(key, self.specialized_pipelines(device, seed_options));
+                    .insert(key, water.specialized_pipelines(device, seed_options));
             }
         }
-        let mask = self.mask_draw(device, mask, options);
+        let mask = water.mask_draw(device, mask, options);
         WaterFeature {
             water,
             snapshots: snapshots.clone(),
@@ -306,12 +324,19 @@ impl Water {
     ) -> [wgpu::RenderPipeline; 2] {
         self.specializations
             .borrow_mut()
-            .entry(options)
+            .entry((options, self.depth))
             .or_insert_with(|| {
-                [
-                    pipeline(device, self.samples, &self.layout, false, options),
-                    pipeline(device, self.samples, &self.layout, true, options),
-                ]
+                [false, true].map(|shadows| {
+                    pipeline_with_source_depth(
+                        device,
+                        self.samples,
+                        &self.layout,
+                        shadows,
+                        options,
+                        &water_source(shadows),
+                        self.depth,
+                    )
+                })
             })
             .clone()
     }
@@ -423,6 +448,25 @@ fn pipeline_with_source(
     options: [u32; 5],
     source: &str,
 ) -> wgpu::RenderPipeline {
+    pipeline_with_source_depth(
+        device,
+        samples,
+        layout,
+        shadows,
+        options,
+        source,
+        DepthMode::Independent,
+    )
+}
+fn pipeline_with_source_depth(
+    device: &wgpu::Device,
+    samples: u32,
+    layout: &wgpu::BindGroupLayout,
+    shadows: bool,
+    options: [u32; 5],
+    source: &str,
+    depth: DepthMode,
+) -> wgpu::RenderPipeline {
     let buffers = geometry::layouts(options[4] & endpoint::SPECIALIZATION != 0);
     let source = shadow_response::specialize(source, options[4], shadows);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -469,13 +513,7 @@ fn pipeline_with_source(
             }),
         }),
         primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Less),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
+        depth_stencil: Some(depth.state(true)),
         multisample: wgpu::MultisampleState {
             count: samples,
             ..Default::default()
@@ -579,7 +617,7 @@ impl WaterFeature {
             .remove(0);
         feature.samples = self.snapshots.samples;
         feature.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-        feature.depth_format = Some(wgpu::TextureFormat::Depth32Float);
+        feature.depth_format = Some(self.water.depth.format());
         feature.reads = vec![
             ResourceRef::new("opaque snapshot color"),
             ResourceRef::new("opaque snapshot depth"),

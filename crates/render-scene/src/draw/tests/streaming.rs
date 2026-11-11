@@ -1,3 +1,5 @@
+mod geometry_holds;
+mod meshes;
 mod observations;
 mod order;
 mod replacement;
@@ -28,6 +30,7 @@ fn resident_count(gpu: &SceneGpu) -> usize {
 }
 #[test]
 fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let source = streamed_scene();
@@ -68,6 +71,7 @@ fn chunk_uploads_are_transactional_and_forward_matches_flat_default() {
 }
 #[test]
 fn streaming_admits_contact_pages_and_capture_publications() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = streamed_scene();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -192,12 +196,14 @@ fn withheld_completion(budget: u32) {
 
 #[test]
 fn retired_and_pending_allocations_hold_the_budget_until_completion() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     withheld_completion(5);
     withheld_completion(9);
 }
 
 #[test]
 fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = streamed_scene();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -260,6 +266,7 @@ fn compositor_entry_points_reuse_one_preparation_and_reject_a_second_view() {
 
 #[test]
 fn streaming_allows_non_camera_resident_edits_without_replacing_chunks() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
     let source = streamed_scene();
@@ -282,6 +289,7 @@ fn streaming_allows_non_camera_resident_edits_without_replacing_chunks() {
 
 #[test]
 fn geometry_dependency_waits_for_submitted_chunks_and_rejects_other_sources() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let (context, gpu, frame, _) = withheld_completion_setup(9);
     let request = gpu.terrain_geometry_request(&frame, [TARGET; 2]).unwrap();
     assert!(!gpu.terrain_geometry_ready(&request).unwrap());

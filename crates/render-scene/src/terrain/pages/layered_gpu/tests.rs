@@ -134,6 +134,7 @@ pub(super) fn execute(
 }
 #[test]
 fn gpu_matches_reference_for_dither_crossover_height_and_colorization() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let positions = [
         [0.1, 0.3],
@@ -175,6 +176,7 @@ fn gpu_matches_reference_for_dither_crossover_height_and_colorization() {
 }
 #[test]
 fn layered_pages_publish_three_products_and_evict_atomically() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());
@@ -218,6 +220,7 @@ fn layered_pages_publish_three_products_and_evict_atomically() {
 
 #[test]
 fn layered_admission_includes_height_inputs_and_upload_staging() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
     let authority = SubmissionAuthority::new(context.queue().clone());

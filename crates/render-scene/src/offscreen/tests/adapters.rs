@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn gpu_capture_adapters_and_copy_output_match_direct_capture_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = required_context();
     let scene = fixture::scene(false);
     let view = fixture::view(&scene, viewport(65, 47));

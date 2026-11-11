@@ -14,5 +14,6 @@ Reference pages:
 
 - [Supported UnityEngine API](unity-api.md): every type and member `Disunity.Engine` implements.
 - [Rendering features](rendering.md): what the 2D and 3D renderer can draw and which effects it supports.
+- [Drawing with your own shader programs](render-program-native.md): register a WGSL or SPIR-V program, make a material, set its properties and features by name, and draw it.
 
 Documentation for changing the engine itself, including exact subsystem contracts, is in [dev-docs](../dev-docs/README.md). [What belongs in docs](what-belongs-here.md) explains how these pages are written and what goes where.

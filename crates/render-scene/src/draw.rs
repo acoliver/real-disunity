@@ -3,9 +3,8 @@ use std::array;
 use std::cell::{Cell, RefCell};
 
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindingResource, Buffer,
-    BufferUsages, Device, IndexFormat, Queue, RenderPass, Sampler, Texture, TextureView,
-    TextureViewDescriptor,
+    BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Queue, RenderPass, Sampler, Texture,
+    TextureView, TextureViewDescriptor,
 };
 
 use worldrunner_render_plan::{MaterialHandle, RenderScene, TextureHandle};
@@ -17,8 +16,8 @@ use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, MATERIAL_GROUP, TERRAIN_GROUP, material_sampler, placeholder_with_view,
-    upload_buffer, upload_palette_array, upload_texture, upload_type_grid,
+    FRAME_GROUP, MATERIAL_GROUP, material_sampler, placeholder_with_view, upload_buffer,
+    upload_palette_array, upload_texture, upload_type_grid,
 };
 
 mod append;
@@ -33,7 +32,10 @@ pub(crate) mod decals;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
+#[cfg(test)]
+mod legacy_object_access;
 mod lod_material;
+mod object_runtime;
 pub(crate) mod overlay;
 mod pages;
 pub(crate) mod pass_statistics;
@@ -53,13 +55,19 @@ pub use geometry_statistics::{
 };
 pub use pass_statistics::PassDrawStatistics;
 mod streaming;
+mod terrain_runtime;
 pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
+#[cfg(test)]
+pub(crate) use streaming::await_builds;
+#[cfg(test)]
+pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
+#[cfg(test)]
+pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
-use resources::prepared_terrain;
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
 
@@ -196,7 +204,7 @@ struct GpuMesh {
 /// The terrain surface, as the one draw it has become.
 ///
 /// There is no material index and no batch table entry here. Terrain is a
-/// single mesh drawn once, with its own pipeline and its own bind group, so the
+/// single mesh drawn once, with its own prepared pipeline and material set, so the
 /// indirection the object path needs to share meshes between placements would
 /// only obscure that.
 #[derive(Debug)]
@@ -204,17 +212,16 @@ struct GpuTerrain {
     lod: Option<GpuLod>,
     streaming: Option<streaming::Streaming>,
     instances: Buffer,
-    bind_group: BindGroup,
     bounds: visibility::Bounds,
     page_bounds: [f32; 4],
     page_elevation: [f32; 2],
-    uniform: Buffer,
-    /// Exact f32 heightfield and chunk descriptors for analytic filtering.
-    triangle_source: Buffer,
-    sampler: Sampler,
     pages: Option<RefCell<crate::terrain::pages::scene::ScenePages>>,
-    retained: Vec<Texture>,
     layered: Option<std::sync::Arc<crate::terrain::pages::layered_gpu::LayeredGpuSource>>,
+    /// What the program runtime draws are lent, held by every draw made from it.
+    resources: std::sync::Arc<crate::terrain::prepared::Resources>,
+    /// The pipelines, material sets and chunk geometry prepared for the program runtime.
+    prepared: crate::terrain::prepared::PreparedTerrain,
+    authority: worldrunner_render_gpu::submission::SubmissionAuthority,
 }
 
 /// Resources the bind groups reference.
@@ -251,8 +258,12 @@ pub struct SceneGpu {
     frame_buffer: Buffer,
     frame_group: BindGroup,
     frame_slots: Vec<(Buffer, BindGroup)>,
-    committed_frame_group: std::rc::Rc<RefCell<BindGroup>>,
+    /// The committed frame group and the frame slot whose uniform it binds.
+    committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
     materials: Vec<BindGroup>,
+    /// What the program runtime draws objects with: the resources each material lends, and the
+    /// sets and pipelines prepared from them.
+    objects: crate::object::prepared::PreparedObjects,
     meshes: Vec<GpuMesh>,
     mesh_selection: Vec<MeshSelection>,
     instances: Instances,
@@ -268,7 +279,8 @@ pub struct SceneGpu {
     terrain: Option<GpuTerrain>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
-    programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    player: programs::PlayerWork,
+    unlit: crate::dynamic::UnlitRuntime,
     retained: Retained,
 }
 
@@ -325,7 +337,7 @@ impl SceneGpu {
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
-        let (materials, material_uniforms) = resources::scene_materials(
+        let (materials, material_uniforms, material_imports) = resources::scene_materials(
             device,
             queue,
             scene,
@@ -334,11 +346,18 @@ impl SceneGpu {
             &contact_heights,
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
-        let terrain =
-            prepared_terrain(device, authority, &prepared, pipelines, &sampler, previous)?;
+        let objects =
+            crate::object::prepared::PreparedObjects::new(authority.clone(), material_imports);
+        objects.warm(pipelines.object_context());
+        let terrain = resources::upload_terrain(
+            device,
+            authority,
+            &prepared.scene,
+            &sampler,
+            (prepared.terrain.as_ref(), previous),
+        )?;
         let (decals, frame_slots) =
             decals::Decals::allocate(device, queue, &prepared, pipelines.frame_layout())?;
-        let (frame_buffer, frame_group) = frame_slots[0].clone();
         let gpu = Self {
             pass_counters: pass_statistics::PassCounters::default(),
             effect_statistics: std::rc::Rc::default(),
@@ -353,11 +372,12 @@ impl SceneGpu {
             ssao: scene.effects().and_then(|effects| effects.ssao()).copied(),
             water: water_bodies(scene),
             water_inputs: crate::water::surface::inputs(scene, &views),
-            committed_frame_group: std::rc::Rc::new(RefCell::new(frame_group.clone())),
+            committed_frame_group: std::rc::Rc::new(RefCell::new((frame_slots[0].1.clone(), 0))),
+            frame_buffer: frame_slots[0].0.clone(),
+            frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            frame_buffer,
-            frame_group,
             materials,
+            objects,
             meshes,
             mesh_selection: prepared.selection,
             instances: Instances::new(scene).tracking_previous(pipelines.writes_velocity()),
@@ -368,7 +388,8 @@ impl SceneGpu {
             terrain,
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
-            programs: None,
+            player: programs::PlayerWork::default(),
+            unlit: crate::dynamic::UnlitRuntime::default(),
             retained: Retained {
                 contact_heights,
                 textures,
@@ -377,7 +398,7 @@ impl SceneGpu {
                 material_uniforms,
             },
         };
-        gpu.finish_upload(device, authority, pipelines, scene)
+        gpu.finish_upload(device, authority, scene)
     }
 
     /// Writes the per-frame uniform the next draw will read.
@@ -386,7 +407,7 @@ impl SceneGpu {
         self.decal_counts
             .set([decals::selected_count(&bytes), self.decals.count()]);
         self.frame.set(Some(frame));
-        *self.committed_frame_group.borrow_mut() = self.decals.group();
+        *self.committed_frame_group.borrow_mut() = (self.decals.group(), self.decals.slot);
         *self.drawing_frame.borrow_mut() = None;
         queue.write_buffer(&self.frame_buffer, 0, &frame.to_bytes());
         queue.write_buffer(
@@ -416,7 +437,11 @@ impl SceneGpu {
     /// [`crate::compositor::encode_resident`] to schedule their internal visibility pass.
     ///
     /// # Panics
-    /// Panics when celestial meshes are present, before recording any draws.
+    /// Panics when celestial meshes are present, before recording any draws, and when resident
+    /// dynamic quads were staged with pipelines for a pass other than the one `pipelines`
+    /// describe: staging prepares their draws for the pass of the pipelines it is given. The
+    /// frame entry points ([`crate::compositor::encode_scene`] and the shadowed scene) prepare
+    /// them for their own pass instead.
     pub fn draw(&self, pass: &mut RenderPass<'_>, pipelines: &ScenePipelines) {
         assert!(
             self.celestial.is_none(),
@@ -438,6 +463,8 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         group: &BindGroup,
     ) -> SelectionPublication {
+        // Both passes consume the same camera selection, compacted instances and terrain stream.
+        // The forward-only draws are appended after that paired prefix.
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, false).selection
     }
@@ -482,22 +509,25 @@ impl SceneGpu {
             .expect("set frame before drawing")
     }
 
-    fn drawing_frame_group(&self) -> BindGroup {
-        let transaction_frame = self
-            .drawing_frame
-            .borrow()
-            .as_ref()
-            .is_some_and(|(owner, _)| {
-                worldrunner_render_gpu::submission::Publications::current()
-                    .is_some_and(|current| current.same_transaction(owner))
+    /// The pipelines a draw in `frame` records with: the sibling of `pipelines` that matches the
+    /// scene's AO receiver and the frame's specular convention and winding.
+    fn selected_pipelines(
+        &self,
+        pipelines: &ScenePipelines,
+        frame: &FrameUniform,
+    ) -> ScenePipelines {
+        let receiver = self
+            .ssao
+            .map_or(worldrunner_render_plan::SceneSsaoReceiver::Nearest, |ao| {
+                ao.receiver
             });
-        if transaction_frame {
-            self.decals.group()
-        } else {
-            self.committed_frame_group.borrow().clone()
-        }
+        pipelines
+            .for_receiver(receiver)
+            .for_raster(frame.specular_convention, frame.front_face())
     }
 
+    // Pair both passes here so object batches, compacted instances and terrain primitives
+    // retain the same API order. The last surface in that order wins an exact depth tie.
     fn draw_color_pass(
         &self,
         pass: &mut RenderPass<'_>,
@@ -505,18 +535,21 @@ impl SceneGpu {
         shadow: Option<&BindGroup>,
         dynamic: bool,
     ) -> ColorDraw {
+        if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
+            pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
+        }
         let frame = self.drawing_uniform();
-        let receiver = self
-            .ssao
-            .map_or(worldrunner_render_plan::SceneSsaoReceiver::Nearest, |ao| {
-                ao.receiver
-            });
-        let selected = pipelines.for_receiver(receiver);
-        let selected = selected.for_raster(frame.specular_convention, frame.front_face());
+        let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
-        let selection = self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None);
-        let (terrain, terrain_bound) = self.draw_terrain_color(pass, pipelines, shadow);
+        // The metadata prepass and the capture terms (`dynamic` is false) draw objects with the
+        // fixed pipelines.
+        let selection = if dynamic {
+            self.draw_objects_prepared(pass, &frame_group, pipelines.object_context())
+        } else {
+            self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None)
+        };
+        let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if dynamic {
             if let Some(sky) = &self.sky {
@@ -529,7 +562,8 @@ impl SceneGpu {
                     .bind_background(pass, &frame_group);
                 meshes.draw(pass, pipelines.sky_targets());
             }
-            self.dynamic.draw(pass, &frame_group, pipelines);
+            self.dynamic
+                .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
             selection,
@@ -540,126 +574,6 @@ impl SceneGpu {
                 pipelines.has_ao_receiver(),
                 terrain_bound && pipelines.has_ao_receiver(),
             ),
-        }
-    }
-
-    fn draw_terrain_color(
-        &self,
-        pass: &mut RenderPass<'_>,
-        pipelines: &ScenePipelines,
-        shadow: Option<&BindGroup>,
-    ) -> (DrawCount, bool) {
-        let mut count = DrawCount::default();
-        let mut bound = false;
-        if let Some(terrain) = &self.terrain {
-            let cached_group = terrain
-                .pages
-                .as_ref()
-                .map(|pages| pages.borrow().draw_group());
-            if !matches!(cached_group, Some(None)) {
-                if let Some(Some(group)) = cached_group {
-                    pass.set_pipeline(if terrain.layered.is_some() {
-                        &pipelines
-                            .layered
-                            .as_ref()
-                            .expect("validated layered device")
-                            .cached
-                    } else {
-                        &pipelines.cached_terrain
-                    });
-                    pass.set_bind_group(TERRAIN_GROUP, &group, &[]);
-                } else {
-                    pass.set_pipeline(if terrain.layered.is_some() {
-                        &pipelines
-                            .layered
-                            .as_ref()
-                            .expect("validated layered device")
-                            .terrain
-                    } else {
-                        pipelines.terrain()
-                    });
-                    pass.set_bind_group(TERRAIN_GROUP, &terrain.bind_group, &[]);
-                }
-                if let Some(shadow) = shadow {
-                    pass.set_bind_group(2, shadow, &[]);
-                }
-                bound = true;
-                count = Self::draw_terrain_geometry(pass, terrain);
-            }
-        }
-        (count, bound)
-    }
-
-    pub(crate) fn draw_terrain_depth(
-        &self,
-        pass: &mut RenderPass<'_>,
-        frame: &BindGroup,
-        pipeline: &wgpu::RenderPipeline,
-        matrix: glam::Mat4,
-    ) -> DrawCount {
-        if let Some(terrain) = &self.terrain
-            && visibility::Frustum::new(matrix).intersects(terrain.bounds)
-        {
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(FRAME_GROUP, frame, &[]);
-            return Self::draw_terrain_geometry(pass, terrain);
-        }
-        DrawCount::default()
-    }
-
-    fn draw_terrain_geometry(pass: &mut RenderPass<'_>, terrain: &GpuTerrain) -> DrawCount {
-        if let Some(streaming) = &terrain.streaming {
-            return streaming.draw(pass, &terrain.instances);
-        }
-        let lod = terrain.lod.as_ref().expect("nonstreaming mesh");
-        pass.set_vertex_buffer(0, lod.vertices.slice(..));
-        pass.set_vertex_buffer(1, terrain.instances.slice(..));
-        pass.set_index_buffer(lod.indices.slice(..), IndexFormat::Uint32);
-        pass.draw_indexed(0..lod.index_count, 0, 0..1);
-        DrawCount {
-            calls: 1,
-            instances: 1,
-        }
-    }
-
-    pub(crate) fn draw_objects(
-        &self,
-        pass: &mut RenderPass<'_>,
-        frame_group: &BindGroup,
-        pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
-        shadow_matrix: Option<(u32, glam::Mat4)>,
-    ) -> SelectionPublication {
-        assert!(
-            self.instances
-                .batches
-                .values()
-                .all(|batch| !batch.has_pending()),
-            "flush instance updates before drawing"
-        );
-        let frame = self
-            .drawing_frame
-            .borrow()
-            .as_ref()
-            .and_then(|(owner, frame)| {
-                worldrunner_render_gpu::submission::Publications::current()
-                    .filter(|current| current.same_transaction(owner))
-                    .map(|_| *frame)
-            })
-            .or_else(|| self.frame.get())
-            .expect("set a frame before drawing");
-        let published = self.views[selection_reuse::view_index(shadow_matrix)]
-            .published
-            .clone();
-        let selection = self.select_objects(shadow_matrix, &frame);
-        pass.set_bind_group(FRAME_GROUP, frame_group, &[]);
-        let count =
-            self.record_selection(pass, pipelines, (shadow_matrix, &frame), &selection.ranges);
-        if let Some((index, _)) = shadow_matrix {
-            self.pass_counters.shadows[index as usize].record(count);
-        }
-        SelectionPublication {
-            destination: published,
-            selection,
         }
     }
 
@@ -682,6 +596,33 @@ impl SceneGpu {
         self.views[index + 1].published.borrow().stats.clone()
     }
 
+    pub(crate) fn has_transmission(&self) -> bool {
+        self.instances.batches.iter().any(|(key, batch)| {
+            batch.has_instances()
+                && (self.instances.transmission[key.2]
+                    || self.mesh_selection[key.1]
+                        .material_slots
+                        .iter()
+                        .flatten()
+                        .flatten()
+                        .any(|slot| self.instances.transmission[slot.material().raw() as usize]))
+        })
+    }
+
+    pub(crate) fn has_shadow_receivers(&self) -> bool {
+        self.terrain.is_some()
+            || self
+                .instances
+                .batches
+                .values()
+                .any(crate::instances::batch::InstanceBatch::has_instances)
+    }
+
+    /// Relief fragment-depth equivalence must be proved before consuming its metadata winner.
+    pub(crate) fn has_relief(&self) -> bool {
+        visibility::has_relief(&self.instances, &self.mesh_selection)
+    }
+
     /// Returns live mesh/material batch counts per pipeline variant.
     /// Visibility holes can split a batch into several instanced draws.
     #[must_use]
@@ -701,6 +642,12 @@ mod environment;
 mod prepared;
 mod resources;
 mod selection_reuse;
+mod slice_hull;
+pub(crate) use slice_hull::SliceHull;
+#[cfg(test)]
+pub(crate) use slice_hull::UNCULLED as UNCULLED_CASCADES;
+#[cfg(test)]
+pub(crate) use streaming::casters::CAMERA_CASTERS;
 pub mod source_environment;
 pub use prepared::PreparedScene;
 

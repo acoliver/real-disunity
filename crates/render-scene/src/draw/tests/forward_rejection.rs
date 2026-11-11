@@ -2,15 +2,16 @@
 use super::*;
 
 #[path = "forward_fixtures.rs"]
-mod fixtures;
+pub(super) mod fixtures;
 #[path = "forward_samples.rs"]
-mod samples;
+pub(super) mod samples;
 #[path = "forward_shadow.rs"]
 mod shadow;
 
 #[test]
 fn forward_card_terms_match_frozen_colour_and_coverage() {
     use crate::compositor::terms::CaptureTerm;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut survivors = 0;
     for (name, scene, pose) in fixtures::scenes() {
@@ -53,6 +54,8 @@ fn forward_card_terms_match_frozen_colour_and_coverage() {
 }
 
 fn reference(source: &str) -> String {
+    // Freeze rejection and shading order, but share the corrected shadow-plane math.
+    // The receiver regression separately measures the previous gradient algorithm.
     source
         .replace(
             concat!(include_str!("../../shader/forward_cards.wgsl"), "\n"),
@@ -63,16 +66,12 @@ fn reference(source: &str) -> String {
             include_str!("forward_reference/environment.wgsl"),
         )
         .replace(
-            include_str!("../../shader/shadows.wgsl"),
-            include_str!("forward_reference/shadows.wgsl"),
-        )
-        .replace(
             include_str!("../../shader/unshadowed.wgsl"),
             include_str!("forward_reference/unshadowed.wgsl"),
         )
 }
 
-fn moving_frame(pose: CameraPose, effects: Option<&SceneEffects>) -> FrameUniform {
+pub(super) fn moving_frame(pose: CameraPose, effects: Option<&SceneEffects>) -> FrameUniform {
     let mut frame = FrameUniform::new(&view(pose), effects).unwrap();
     frame.animation_time_milliseconds = 250;
     frame.temporal = Some(crate::frame::temporal::TemporalView {
@@ -181,6 +180,7 @@ fn capture(
 
 #[test]
 fn forward_cards_match_frozen_per_sample_colour_depth_reflection_and_velocity() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut survivors = 0;
     let mut partial = 0;
@@ -252,6 +252,7 @@ fn forward_cards_match_frozen_per_sample_colour_depth_reflection_and_velocity() 
 
 #[test]
 fn frozen_a2c_fixture_retains_below_cutoff_and_raw_zero_alpha_samples() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut below = 0;
     let mut zero = 0;

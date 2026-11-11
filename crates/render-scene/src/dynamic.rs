@@ -24,8 +24,10 @@
 
 mod gpu;
 mod sampling;
+mod unlit;
 pub(crate) mod validation;
-pub(crate) use gpu::{DynamicBindings, DynamicGpu};
+pub(crate) use gpu::{DynamicBindings, DynamicGpu, QuadTarget, SceneStaging};
+pub(crate) use unlit::UnlitRuntime;
 
 /// One unlit alpha-blended quad in canonical Z-up scene space.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -110,6 +112,12 @@ pub enum DynamicError {
     /// A contribution exceeds an enabled device capability or resource limit.
     #[error("dynamic contribution exceeds device support: {0}")]
     DeviceLimit(&'static str),
+    /// The program runtime refused to prepare the quads' draw for the pass.
+    #[error("dynamic quads could not be prepared for the pass: {0}")]
+    Program(#[from] worldrunner_render_program::error::ProgramError),
+    /// The quads were staged for a pass other than the one the frame draws into.
+    #[error("dynamic quads were not prepared for the pass they would draw into")]
+    NotPrepared,
     /// A texture could not be prepared for upload.
     #[error("dynamic texture {index} could not be prepared: {source}")]
     Texture {
@@ -121,5 +129,9 @@ pub enum DynamicError {
     },
 }
 
+#[cfg(test)]
+pub(crate) mod capture_tests;
+#[cfg(test)]
+mod lifetime_tests;
 #[cfg(test)]
 mod tests;

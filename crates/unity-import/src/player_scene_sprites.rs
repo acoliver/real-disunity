@@ -1,8 +1,8 @@
 //! Sprites a scene's script fields reference, as scene plan assets.
 //!
-//! A scene plan holds no textures except the ones its sprites draw. A referenced sprite plans
-//! after its texture, which is shared by the sprites that draw it, and the textures name their
-//! pixels in place (see [`crate::player_sprites::plan_scene_texture`]). A scene plan has no
+//! A scene plan holds only the textures its sprites draw and its script assets and materials
+//! reference. A referenced sprite plans after its texture, which is shared by the sprites that
+//! draw it, and the textures name their pixels in place (see [`crate::player_sprites::plan_scene_texture`]). A scene plan has no
 //! directory of its own, so a sprite the scene shares with the resources is planned again for
 //! each scene.
 
@@ -43,8 +43,9 @@ impl SceneSource {
         Ok(self.push_asset(key.clone(), PlanAsset::Sprite { sprite }))
     }
 
-    /// The index of the texture a sprite of `owner` draws, planned when it is new.
-    fn texture_asset(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
+    /// The index of the texture `pptr` names, as seen from the file `owner`, planned when it is new:
+    /// the one a sprite draws, or one a script asset such as a font atlas holds.
+    pub(crate) fn texture_asset(&mut self, owner: &Path, pptr: PPtr) -> Result<usize, String> {
         if pptr.is_null() {
             return Err("it has none".to_owned());
         }

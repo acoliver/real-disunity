@@ -18,6 +18,7 @@ pub(super) struct OverlayStage {
 }
 impl super::FrameRenderer {
     pub(crate) fn prepare_scene_inputs(&mut self, device: &wgpu::Device, scene: &SceneGpu) {
+        self.prepare_metadata_depth(device, scene);
         self.bind_water_inputs(&scene.water_inputs, scene.pass_counters.water.clone());
         self.overlay.geometry.clone_from(&scene.overlay);
         self.overlay.counter = Some(scene.pass_counters.ui.clone());
@@ -81,11 +82,10 @@ impl OverlayStage {
             if let Some(depth) = &self.depth {
                 pass.set_bind_group(0, depth, &[]);
             }
-            (count, tested) = geometry.geometry.draw_with_pipeline(
+            (count, tested) = geometry.geometry.draw_overlay(
                 &mut pass,
-                None,
                 &pipelines.always,
-                Some(pipelines.size),
+                pipelines.size,
                 pipelines.tested.as_ref(),
             );
         }

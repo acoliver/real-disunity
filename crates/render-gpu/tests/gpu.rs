@@ -180,7 +180,7 @@ fn mapped_rows(
     buffer
         .slice(..)
         .map_async(wgpu::MapMode::Read, move |result| {
-            send.send(result).unwrap();
+            let _ = send.send(result);
         });
     device
         .poll(wgpu::PollType::Wait {
@@ -253,6 +253,8 @@ fn texture_store_reuses_content_only_within_its_device_context() {
     assert_ne!(first, distinct);
     let (other_device, other_queue) =
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    assert_ne!(device, other_device);
+    assert_ne!(queue, other_queue);
     let mut other = CanonicalTextureStore::new(&other_device, &other_queue);
     let independent = stored_pixel(&mut other, "caller:content-a");
     assert_ne!(first, independent);

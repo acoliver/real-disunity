@@ -34,6 +34,14 @@ pub(crate) struct InstanceBatch {
 }
 
 impl InstanceBatch {
+    /// Reuse new-slot initialization to upload current transforms as previous ones.
+    /// Fresh markers are consumed only by submission, so abandonment keeps the reset.
+    pub fn reset_velocity_history(&mut self) {
+        let slots: Vec<_> = self.placements().map(|(slot, _, _)| slot).collect();
+        self.fresh.borrow_mut().extend(slots.iter().copied());
+        self.stale.borrow_mut().extend(slots);
+    }
+
     pub(crate) fn publication_key(&self) -> worldrunner_render_gpu::submission::capture::WriteKey {
         crate::compositor::publication::key(&self.uploaded)
     }
@@ -369,3 +377,7 @@ fn grow(
     batch.buffer_valid.set(false);
     batch.content += 1;
 }
+
+#[cfg(test)]
+#[path = "velocity_reset_cpu_tests.rs"]
+mod velocity_reset_cpu_tests;

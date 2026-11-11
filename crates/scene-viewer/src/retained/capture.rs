@@ -13,6 +13,7 @@ use worldrunner_render_scene::offscreen::RgbaImage;
 pub struct RetainedCaptureObservation {
     pub generation: u64,
     pub scene: super::statistics::SceneStatistics,
+    pub temporal_history_reset: super::TemporalHistoryReset,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,6 +120,7 @@ impl Captures {
         time: std::time::Duration,
         image: RgbaImage,
         scene: &super::statistics::SceneStatistics,
+        temporal_history_reset: super::TemporalHistoryReset,
     ) {
         let generation = self.outstanding[&id];
         self.events.push_back(RetainedEvent::Capture {
@@ -131,6 +133,7 @@ impl Captures {
                 observation: Box::new(RetainedCaptureObservation {
                     generation,
                     scene: *scene,
+                    temporal_history_reset,
                 }),
             },
         });
@@ -161,6 +164,7 @@ impl Captures {
         time: std::time::Duration,
         products: RetainedCaptureProducts,
         scene: &super::statistics::SceneStatistics,
+        temporal_history_reset: super::TemporalHistoryReset,
     ) {
         self.events.push_back(RetainedEvent::Capture {
             id,
@@ -172,6 +176,7 @@ impl Captures {
                 observation: Box::new(RetainedCaptureObservation {
                     generation: self.outstanding[&id],
                     scene: *scene,
+                    temporal_history_reset,
                 }),
             },
         });

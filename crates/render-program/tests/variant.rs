@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use worldrunner_render_program::variant::{
+use worldrunner_render_program::unity::variant::{
     VariantError, declared_keywords, select_player_sub_program, select_sub_program, select_variant,
 };
 use worldrunner_unity_serialized::shader_program::{

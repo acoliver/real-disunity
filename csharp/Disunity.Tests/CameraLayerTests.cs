@@ -27,5 +27,26 @@ internal static class CameraLayerTests
         AudioListener.volume = 1; AudioListener.pause = false;
         DisunityHost.UnloadWorld();
         Console.WriteLine("PASS: native camera-side components, static listener controls and active listener diagnostics");
+        Skyboxes();
+        Console.WriteLine("PASS: a Skybox is a native camera-side component that holds its material");
+    }
+
+    private static void Skyboxes()
+    {
+        DisunityHost.LoadWorld();
+        var camera = DisunityHost.CreateGameObject().AddComponent<Camera>();
+        if (camera.TryGetComponent<Skybox>(out _)) throw new Exception("a camera has no Skybox of its own");
+        var sky = camera.gameObject.AddComponent<Skybox>();
+        if (!sky.enabled || sky.material != null) throw new Exception("a new Skybox is enabled and has no material");
+        if (!camera.TryGetComponent<Skybox>(out var found) || found != sky) throw new Exception("the camera finds its Skybox");
+        sky.enabled = false;
+        if (sky.enabled || sky.isActiveAndEnabled) throw new Exception("a disabled Skybox reads as disabled");
+        var copy = UnityEngine.Object.Instantiate(camera.gameObject).GetComponent<Skybox>()!;
+        if (copy.enabled) throw new Exception("the world holds the enabled flag, so a clone copies it");
+        sky.enabled = true;
+        var material = new Material(Material.SpriteUnlit);
+        sky.material = material;
+        if (sky.material != material) throw new Exception("the Skybox keeps its material");
+        DisunityHost.UnloadWorld();
     }
 }

@@ -2,6 +2,8 @@ mod bias;
 mod cascades;
 mod compaction;
 mod culling;
+mod depth_reuse;
+mod fade;
 mod fixture;
 mod geometry;
 mod hdr;
@@ -16,12 +18,14 @@ mod sampling_cost;
 mod scheduler;
 mod sdsm;
 mod selection;
+mod slice;
 mod ssao;
 mod streaming;
 mod subresources;
 mod terms;
 mod terrain;
 mod timing_probe;
+mod toggle;
 mod validation;
 mod water_identity;
 mod water_pcf5;
@@ -37,7 +41,7 @@ use crate::offscreen::capture_scene;
 use fixture::{scene, settings, view};
 
 fn context() -> GpuContext {
-    let context = pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
         .expect("shadow GPU acceptance requires a real adapter/device; never skip");
     println!("shadow GPU: {:?}", context.adapter().get_info());
     context
@@ -45,6 +49,7 @@ fn context() -> GpuContext {
 
 #[test]
 fn settings_reject_invalid_fits_and_biases() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     settings().validate(&limits).unwrap();
     for invalid in [
@@ -94,6 +99,7 @@ fn settings_reject_invalid_fits_and_biases() {
 
 #[test]
 fn settings_reject_unbounded_allocations_and_honor_device_limits() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let limits = wgpu::Limits::default();
     for resolution in [0, MAX_SHADOW_RESOLUTION + 1, u32::MAX] {
         assert!(matches!(
@@ -117,6 +123,7 @@ fn settings_reject_unbounded_allocations_and_honor_device_limits() {
 
 #[test]
 fn light_projection_maps_focus_and_handles_vertical_sun() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for sun in [Vec3::Z, -Vec3::Z, Vec3::new(0.6, 0.0, 0.8)] {
         let matrix = settings().matrix(sun).unwrap();
         let center = matrix.project_point3(settings().focus_meters);
@@ -134,6 +141,7 @@ fn with_cascades(effects: &SceneEffects, extents: Vec<u64>, blend: u64) -> Scene
 
 #[test]
 fn cascades_and_blending_are_supported_with_a_bounded_count() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let effects = fixture::effects(600_000);
     for supported in [
         with_cascades(&effects, vec![1_000, 4_000], 0),
@@ -145,6 +153,7 @@ fn cascades_and_blending_are_supported_with_a_bounded_count() {
 
 #[test]
 fn shadowed_shader_is_valid_wgsl() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for source in [resources::SHADOWED_WGSL, resources::SHADOWED_TERRAIN_WGSL] {
         let module = naga::front::wgsl::parse_str(source).unwrap();
         naga::valid::Validator::new(
@@ -192,6 +201,7 @@ fn assert_lit(image: &RgbaImage, baseline: &RgbaImage, point: Vec3) {
 
 #[test]
 fn gpu_receiver_darkens_only_in_geometric_shadow_and_has_pcf_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let baseline = capture_scene(&context, &source, &view()).unwrap();
@@ -252,6 +262,7 @@ fn gpu_receiver_darkens_only_in_geometric_shadow_and_has_pcf_edges() {
 
 #[test]
 fn gpu_no_occluder_and_receiver_bias_do_not_create_self_shadow_acne() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let baseline = capture_scene(&context, &source, &view()).unwrap();
@@ -287,6 +298,7 @@ fn gpu_no_occluder_and_receiver_bias_do_not_create_self_shadow_acne() {
 
 #[test]
 fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let mut renderer = ShadowedScene::new(&context, &source, settings()).unwrap();
@@ -335,6 +347,7 @@ fn gpu_retained_frame_updates_light_fit_resolution_and_moves_object_shadow() {
 
 #[test]
 fn gpu_alpha_cutouts_and_multiple_instances_cast_their_actual_coverage() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000], [1_500, 0, 1_000]], 600_000, None);
     let baseline = capture_scene(&context, &source, &view()).unwrap();
@@ -358,6 +371,7 @@ fn gpu_alpha_cutouts_and_multiple_instances_cast_their_actual_coverage() {
 
 #[test]
 fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[], 600_000, None);
     let mut parts = fixture::effects_parts(600_000);
@@ -411,6 +425,7 @@ fn gpu_opt_in_rejects_unsupported_features_and_updates_atomically() {
 
 #[test]
 fn gpu_shadows_leave_ambient_and_emission_intact_and_bias_is_effective() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = scene(&[[0, 0, 1_000]], 600_000, None);
     let baseline = capture_scene(&context, &source, &view()).unwrap();

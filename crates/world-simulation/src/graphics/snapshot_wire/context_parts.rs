@@ -1,10 +1,13 @@
 //! The encodings of the work a scriptable render context records.
 use super::WireError;
 use super::codec::{Reader, Wire, Writer};
+use super::readback_parts::{read_readback, write_readback};
 use crate::graphics::{MAX_CULL_PLANES, OffscreenWork};
 
 pub(super) const WORK_CULL: u8 = 10;
 const WORK_SETUP_CAMERA: u8 = 11;
+const WORK_SET_VIEW_PROJECTION: u8 = 15;
+const WORK_DRAW_MESH: u8 = 16;
 
 /// The most planes a decoder accepts for one culling result.
 fn plane_limit() -> u32 {
@@ -43,7 +46,26 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             projection.write(out)?;
             target.write(out)
         }
-        _ => Err(WireError::UnknownTag(u32::MAX)),
+        OffscreenWork::SetViewProjection { view, projection } => {
+            WORK_SET_VIEW_PROJECTION.write(out)?;
+            view.write(out)?;
+            projection.write(out)
+        }
+        OffscreenWork::DrawMesh {
+            mesh,
+            matrix,
+            material,
+            submesh,
+            pass,
+        } => {
+            WORK_DRAW_MESH.write(out)?;
+            mesh.write(out)?;
+            matrix.write(out)?;
+            material.write(out)?;
+            submesh.write(out)?;
+            pass.write(out)
+        }
+        other => write_readback(other, out),
     }
 }
 
@@ -73,6 +95,17 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             projection: Wire::read(input)?,
             target: Wire::read(input)?,
         }),
-        other => Err(WireError::UnknownTag(u32::from(other))),
+        WORK_SET_VIEW_PROJECTION => Ok(OffscreenWork::SetViewProjection {
+            view: Wire::read(input)?,
+            projection: Wire::read(input)?,
+        }),
+        WORK_DRAW_MESH => Ok(OffscreenWork::DrawMesh {
+            mesh: Wire::read(input)?,
+            matrix: Wire::read(input)?,
+            material: Wire::read(input)?,
+            submesh: Wire::read(input)?,
+            pass: Wire::read(input)?,
+        }),
+        other => read_readback(other, input),
     }
 }

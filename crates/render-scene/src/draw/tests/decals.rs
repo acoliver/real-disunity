@@ -194,6 +194,7 @@ fn srgb(value: f32) -> f32 {
 #[test]
 fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_every_supported_sample_count()
  {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for terrain in [false, true] {
         for slope in [false, true] {
@@ -223,6 +224,7 @@ fn volume_coverage_matches_plane_and_slope_oracle_for_mesh_and_terrain_at_every_
 }
 #[test]
 fn masked_outside_culled_and_removed_decals_preserve_default_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, false);
     for samples in crate::msaa_tests::supported_samples(&context) {
@@ -243,6 +245,7 @@ fn masked_outside_culled_and_removed_decals_preserve_default_bytes() {
 }
 #[test]
 fn albedo_and_scalar_material_channels_are_blended_before_lighting() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let base = source(false, false);
     let mut d = decal();
@@ -287,6 +290,7 @@ fn albedo_and_scalar_material_channels_are_blended_before_lighting() {
 
 #[test]
 fn unsupported_decal_maps_fail_during_cpu_preparation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let scene = terrain_scene(1);
     assert!(
         super::super::PreparedScene::new(
@@ -340,6 +344,7 @@ fn projection_material() -> SceneMaterial {
 
 #[test]
 fn angle_cutoff_and_both_receiver_masks_reject_without_changing_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for terrain in [false, true] {
         let scene = source(true, terrain);
@@ -364,6 +369,7 @@ fn angle_cutoff_and_both_receiver_masks_reject_without_changing_pixels() {
 
 #[test]
 fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let instance = worldrunner_render_gpu::device::headless_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -401,12 +407,13 @@ fn forward_layered_and_cached_pipelines_fit_sixteen_sampled_textures() {
             Some(&shadow),
             Some(&screen),
         );
-        assert!(pipelines.layered.is_some());
+        assert!(pipelines.layered_terrain_supported());
     }
 }
 
 #[test]
 fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = source(false, true).with_decals(vec![decal()]).unwrap();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -415,7 +422,7 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     let mesh = gpu.meshes[0].lods[0].vertices.clone();
     let material = gpu.materials[0].clone();
     let texture = gpu.retained.textures[0].clone();
-    let terrain = gpu.terrain.as_ref().unwrap().uniform.clone();
+    let terrain = gpu.terrain.as_ref().unwrap().resources.uniform.clone();
     let original = capture_gpu(&context, &mut gpu, &pipelines, 1, true);
     let group = gpu.decals.group();
     let mut moved = decal();
@@ -431,11 +438,12 @@ fn retained_transform_and_removal_change_pixels_without_unrelated_allocations() 
     assert_eq!(mesh, gpu.meshes[0].lods[0].vertices);
     assert_eq!(material, gpu.materials[0]);
     assert_eq!(texture, gpu.retained.textures[0]);
-    assert_eq!(terrain, gpu.terrain.as_ref().unwrap().uniform);
+    assert_eq!(terrain, gpu.terrain.as_ref().unwrap().resources.uniform);
 }
 
 #[test]
 fn decal_edits_preserve_resident_terrain_pages() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let scene = super::layered_terrain::layered_scene(
         worldrunner_render_plan::TerrainSplatFilter::Bilinear,
@@ -446,7 +454,6 @@ fn decal_edits_preserve_resident_terrain_pages() {
     gpu.enable_terrain_pages(
         context.device(),
         context.submission(),
-        &pipelines,
         super::layered_terrain::page_source(),
     )
     .unwrap();
@@ -499,6 +506,7 @@ fn decal_edits_preserve_resident_terrain_pages() {
 
 #[test]
 fn bounded_uploads_and_shared_palettes_survive_camera_edits_and_cancelled_frames() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let placements: Vec<_> = (0..2000)
         .map(|i| {
@@ -562,3 +570,56 @@ mod write;
 mod color;
 #[path = "decal_normal_frames.rs"]
 mod normal_frames;
+
+fn placed(x: i64, y: i64, size: u32) -> SceneDecal {
+    let mut placed = decal();
+    placed.transform.position_millimeters = [x, y, 0];
+    placed.dimensions_millimeters = [size, size, 1000];
+    placed
+}
+
+/// A volume turned 45 degrees about the vertical, so its footprint is wider than its size.
+fn yawed(x: i64, y: i64, size: u32) -> SceneDecal {
+    let mut turned = placed(x, y, size);
+    turned.transform.rotation = worldrunner_render_plan::SceneRotation {
+        x: 0,
+        y: 0,
+        z: 382_683,
+        w: 923_880,
+    };
+    turned
+}
+
+fn coverage_frame(context: &GpuContext, scene: &RenderScene, every: bool) -> Vec<u8> {
+    super::super::decals::EVERY_DECAL_VOLUME.set(every);
+    let image = capture(context, scene, 1);
+    super::super::decals::EVERY_DECAL_VOLUME.set(false);
+    image
+}
+
+#[test]
+fn decal_coverage_grid_keeps_mesh_and_terrain_pixels_identical_to_visiting_every_volume() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let decals = vec![
+        placed(-600, -600, 500),
+        placed(650, 500, 400),
+        placed(0, 0, 300),
+        placed(-700, 700, 250),
+        yawed(780, -760, 450),
+    ];
+    for terrain_receiver in [false, true] {
+        let plain = source(false, terrain_receiver);
+        let scene = plain.clone().with_decals(decals.clone()).unwrap();
+        let reference = coverage_frame(&context, &scene, true);
+        assert_ne!(
+            reference,
+            capture(&context, &plain, 1),
+            "decals must reach the target (terrain {terrain_receiver})"
+        );
+        assert!(
+            coverage_frame(&context, &scene, false) == reference,
+            "the grid changed pixels (terrain {terrain_receiver})"
+        );
+    }
+}

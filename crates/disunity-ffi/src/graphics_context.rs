@@ -6,12 +6,15 @@
 //! kind from [`KIND_CULL`] up and a token that `disunity_offscreen_detail` reads the record's
 //! encoded bytes by (see [`crate::graphics_commands`]).
 use crate::{
-    DisunityResult, callbacks::mutate, graphics_commands::DisunityTargetRef, physics::component,
+    DisunityResult, callbacks::mutate, graphics_commands::DisunityTargetRef,
+    graphics_readback::readback_kind, physics::component,
 };
-use worldrunner_world_simulation::graphics::{MAX_CULL_PLANES, OffscreenWork};
+use worldrunner_world_simulation::graphics::{MAX_CULL_PLANES, MaterialId, OffscreenWork};
 
 pub const KIND_CULL: u32 = 10;
 pub const KIND_SETUP_CAMERA: u32 = 11;
+pub const KIND_SET_VIEW_PROJECTION: u32 = 15;
+pub const KIND_DRAW_MESH: u32 = 16;
 
 /// Records a culling of the world's renderers for `camera` under the handle `id`, which later
 /// records of the frame name the result by. The host culls by the layers in `culling_mask`, the
@@ -87,11 +90,78 @@ pub unsafe extern "C" fn disunity_offscreen_setup_camera(
     })
 }
 
+/// Records the view and projection that the draws after it use: 16 floats each, column-major,
+/// as a camera setup carries them. It names no camera and leaves the bound targets as they are.
+///
+/// # Safety
+/// `view` and `projection` are readable for 16 floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_offscreen_set_view_projection(
+    world: u64,
+    view: *const f32,
+    projection: *const f32,
+) -> DisunityResult {
+    if view.is_null() || projection.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let mut matrices = [[0.0_f32; 16]; 2];
+    unsafe {
+        std::ptr::copy_nonoverlapping(view, matrices[0].as_mut_ptr(), 16);
+        std::ptr::copy_nonoverlapping(projection, matrices[1].as_mut_ptr(), 16);
+    }
+    mutate(world, |s| {
+        s.native
+            .record_offscreen(OffscreenWork::SetViewProjection {
+                view: matrices[0],
+                projection: matrices[1],
+            })?;
+        Ok(())
+    })
+}
+
+/// Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
+/// column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
+/// pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
+/// projection. An identity nothing stored is refused.
+///
+/// # Safety
+/// `matrix` is readable for 16 floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_offscreen_draw_mesh(
+    world: u64,
+    mesh: u64,
+    matrix: *const f32,
+    material: u64,
+    submesh: u32,
+    pass: i32,
+) -> DisunityResult {
+    if matrix.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    let mut values = [0.0_f32; 16];
+    unsafe { std::ptr::copy_nonoverlapping(matrix, values.as_mut_ptr(), 16) };
+    mutate(world, |s| {
+        if !s.meshes.contains_key(&mesh) {
+            return Err("a mesh draw names a mesh identity nothing stored".into());
+        }
+        s.native.record_offscreen(OffscreenWork::DrawMesh {
+            mesh,
+            matrix: values,
+            material: MaterialId::from_bits(material),
+            submesh,
+            pass,
+        })?;
+        Ok(())
+    })
+}
+
 /// The kind a taken context record has, or `None` for other work.
 pub(crate) fn context_kind(work: &OffscreenWork) -> Option<u32> {
     match work {
         OffscreenWork::Cull { .. } => Some(KIND_CULL),
         OffscreenWork::SetupCamera { .. } => Some(KIND_SETUP_CAMERA),
-        _ => None,
+        OffscreenWork::SetViewProjection { .. } => Some(KIND_SET_VIEW_PROJECTION),
+        OffscreenWork::DrawMesh { .. } => Some(KIND_DRAW_MESH),
+        other => readback_kind(other),
     }
 }

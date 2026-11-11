@@ -1,7 +1,7 @@
 #[test]
 fn source_preparation_cancellation_releases_only_pending_storage() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let mut presentation = fixed(&context, &source(128));
     let limits = context.device().limits();
     let baseline = presentation.scheduler.resident_bytes(&limits).unwrap();
@@ -62,8 +62,8 @@ fn prepared(scene: &RenderScene) -> worldrunner_render_scene::draw::PreparedScen
 
 #[test]
 fn source_preparation_admission_preserves_presentation() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let mut presentation = Presentation::new(
         &context,
         COLOR,
@@ -111,6 +111,8 @@ pub(crate) fn fixed(
         crate::FrameProfile::Legacy,
         None,
         &PresentationPolicy {
+            receiver_gradients:
+                worldrunner_render_scene::compositor::ReceiverGradientReservation::Opposing,
             budget: crate::PresentationBudget(bytes).into(),
             recipes: false,
             capture_pool: crate::CapturePoolPolicy::default(),
@@ -121,8 +123,8 @@ pub(crate) fn fixed(
 
 #[test]
 fn source_resident_resize_counts_cube_once() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let scene = source(128);
     let mut presentation = fixed(&context, &scene);
     let _resident = resident(&context, &scene, &mut presentation);
@@ -144,8 +146,8 @@ fn source_resident_resize_counts_cube_once() {
 
 #[test]
 fn source_resident_settings_replacement_counts_cube_once() {
-    let context =
-        pollster::block_on(worldrunner_render_scene::device::GpuContext::request()).unwrap();
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = worldrunner_render_scene::device::GpuContext::shared_for_test().unwrap();
     let scene = source(128);
     let mut presentation = fixed(&context, &scene);
     let _resident = resident(&context, &scene, &mut presentation);

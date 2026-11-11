@@ -20,6 +20,8 @@ pub(super) struct Key {
     eye: [i64; 3],
     fade_eye: [u32; 3],
     casters_only: bool,
+    /// Generation of the cascade's slice hull; zero without one.
+    slice: u64,
 }
 
 impl Key {
@@ -30,6 +32,7 @@ impl Key {
             eye: frame.camera_position_millimeters,
             fade_eye: frame.camera_position.to_array().map(f32::to_bits),
             casters_only,
+            slice: 0,
         }
     }
 }
@@ -40,6 +43,7 @@ pub(super) struct View {
     pub published: Rc<RefCell<Selection>>,
     built: RefCell<Option<(Key, Selection)>>,
     pub compaction: super::compaction::Compaction,
+    pub slice: super::slice_hull::CascadeSlice,
     #[cfg(test)]
     pub rebuilds: std::cell::Cell<usize>,
 }
@@ -70,12 +74,30 @@ impl SceneGpu {
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Key {
-        Key::new(
+        let mut key = Key::new(
             self.instances.edits(),
             Self::view_matrix(shadow_matrix, frame),
             frame,
             shadow_matrix.is_some(),
-        )
+        );
+        key.slice = self
+            .view_slice(shadow_matrix)
+            .map_or(0, |(_, generation)| generation);
+        key
+    }
+
+    fn view_slice(
+        &self,
+        shadow_matrix: Option<(u32, glam::Mat4)>,
+    ) -> Option<(super::slice_hull::SliceHull, u64)> {
+        let (_, matrix) = shadow_matrix?;
+        #[cfg(test)]
+        if super::slice_hull::UNCULLED.get() {
+            return None;
+        }
+        self.views[view_index(shadow_matrix)]
+            .slice
+            .for_matrix(matrix)
     }
 
     /// Selects the camera view, or a cascade when `shadow_matrix` is given.
@@ -95,6 +117,7 @@ impl SceneGpu {
         view.rebuilds.set(view.rebuilds.get() + 1);
         let mut selection = view.published.borrow().clone();
         selection.casters_only = key.casters_only;
+        selection.slice = self.view_slice(shadow_matrix).map(|(hull, _)| hull);
         selection.rebuild_with_eye(
             &self.instances,
             &self.mesh_selection,

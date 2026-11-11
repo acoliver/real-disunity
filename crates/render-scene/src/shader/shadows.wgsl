@@ -8,10 +8,31 @@ struct DirectionalShadow {
     splits: vec4<f32>,
     view_depth: vec4<f32>,
     depth_bias: vec4<f32>,
+    // x: fraction of the shadow distance, ending at the last cascade, that fades to lit.
+    fade: vec4<f32>,
 }
 @group(2) @binding(0) var<uniform> shadow: DirectionalShadow;
 @group(2) @binding(1) var shadow_depth: texture_depth_2d_array;
 @group(2) @binding(2) var shadow_sampler: sampler_comparison;
+
+// Weight toward lit across the far fade band. Camera-split cascades measure view depth
+// from the near plane to the last split; light-space boxes use the last box's extent.
+fn shadow_fade_weight(distance: f32, last: vec3<f32>) -> f32 {
+    let fraction = shadow.fade.x;
+    if fraction == 0.0 { return 0.0; }
+    let count = i32(shadow.policy.x);
+    if count == 0 { return 0.0; }
+    var progress = max(abs(last.x), abs(last.y));
+    if shadow.policy.z > 0.5 {
+        progress = (distance - shadow.policy.w) / (shadow.splits[count - 1] - shadow.policy.w);
+    }
+    return clamp((progress - (1.0 - fraction)) / fraction, 0.0, 1.0);
+}
+
+fn faded_shadow_visibility(visibility: f32, weight: f32) -> f32 {
+    if weight == 0.0 { return visibility; }
+    return mix(visibility, 1.0, weight);
+}
 
 fn cascade_visibility(ndc: vec3<f32>, gradient: vec2<f32>, layer: i32) -> f32 {
     let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
@@ -25,27 +46,30 @@ fn cascade_visibility(ndc: vec3<f32>, gradient: vec2<f32>, layer: i32) -> f32 {
         gradient, i32(shadow.bias.z), true);
 }
 
-fn single_shadow_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
-    // Keep the single-map projection scalar through sampling to preserve its rounding.
+fn scene_shadow_gradient(clip: vec4<f32>, receiver_dx: vec3<f32>, receiver_dy: vec3<f32>, layer: i32) -> vec2<f32> {
+    let matrix = shadow.clip_from_world[layer];
+    return rd_shadow_projected_gradient(clip, matrix * vec4<f32>(receiver_dx, 0.0), matrix * vec4<f32>(receiver_dy, 0.0));
+}
+fn single_shadow_visibility(position: vec3<f32>, normal: vec3<f32>, receiver_dx: vec3<f32>, receiver_dy: vec3<f32>) -> f32 {
     let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
     let ndc = clip.xyz / clip.w;
-    let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-    let gradient = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+    let gradient = scene_shadow_gradient(clip, receiver_dx, receiver_dy, 0);
     return cascade_visibility(ndc, gradient, 0);
 }
 
-fn raw_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
-    // The layer count is draw-uniform, so both derivative paths remain uniform.
-    if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 { return single_shadow_visibility(position, normal); }
+fn cascaded_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+    // Capture unbiased displacements once, before cascade selection or projection rounding.
+    let receiver_dx = dpdx(position) + dpdx(normal) * shadow.bias.y;
+    let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y;
+    if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 { return single_shadow_visibility(position, normal, receiver_dx, receiver_dy); }
     var coordinates: array<vec3<f32>, 4>;
     var gradients: array<vec2<f32>, 4>;
     // Derivatives must precede divergent coverage and cascade selection.
     for (var i = 0; i < 4; i += 1) {
         let clip = shadow.clip_from_world[i] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
         let ndc = clip.xyz / clip.w;
-        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
         coordinates[i] = ndc;
-        gradients[i] = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+        gradients[i] = scene_shadow_gradient(clip, receiver_dx, receiver_dy, i);
     }
     let count = i32(shadow.policy.x);
     let distance = dot(shadow.view_depth, vec4<f32>(position, 1.0));
@@ -82,6 +106,15 @@ fn raw_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     return mix(current, next, weight);
 }
 
+fn raw_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+    let visibility = cascaded_sunlight_visibility(position, normal);
+    if shadow.fade.x == 0.0 { return visibility; }
+    let last = max(i32(shadow.policy.x) - 1, 0);
+    let clip = shadow.clip_from_world[last] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
+    let distance = dot(shadow.view_depth, vec4<f32>(position, 1.0));
+    return faded_shadow_visibility(visibility, shadow_fade_weight(distance, clip.xyz / clip.w));
+}
+
 fn direct_sunlight_visibility(visibility: f32) -> f32 {
     if shadow.bias.w == 0.0 { return visibility; }
     return mix(1.0, visibility, 1.0 - shadow.bias.w);
@@ -97,12 +130,13 @@ struct SceneCardShadow {
     gradients: array<vec2<f32>, 4>,
 }
 fn scene_prepare_card_shadow(position: vec3<f32>, normal: vec3<f32>) -> SceneCardShadow {
+    let receiver_dx = dpdx(position) + dpdx(normal) * shadow.bias.y;
+    let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y;
     var prepared: SceneCardShadow;
     if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 {
         let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
         let ndc = clip.xyz / clip.w;
-        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-        let gradient = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+        let gradient = scene_shadow_gradient(clip, receiver_dx, receiver_dy, 0);
         prepared.single_ndc = ndc;
         prepared.single_gradient = gradient;
         return prepared;
@@ -110,13 +144,12 @@ fn scene_prepare_card_shadow(position: vec3<f32>, normal: vec3<f32>) -> SceneCar
     for (var i = 0; i < 4; i += 1) {
         let clip = shadow.clip_from_world[i] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
         let ndc = clip.xyz / clip.w;
-        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
         prepared.coordinates[i] = ndc;
-        prepared.gradients[i] = rd_shadow_plane_gradient(dpdx(uv), dpdy(uv), dpdx(ndc.z), dpdy(ndc.z));
+        prepared.gradients[i] = scene_shadow_gradient(clip, receiver_dx, receiver_dy, i);
     }
     return prepared;
 }
-fn scene_card_shadow_visibility(position: vec3<f32>, prepared: SceneCardShadow) -> f32 {
+fn cascaded_card_shadow_visibility(position: vec3<f32>, prepared: SceneCardShadow) -> f32 {
     if shadow.policy.x == 1.0 && shadow.policy.z < 0.5 {
         return cascade_visibility(prepared.single_ndc, prepared.single_gradient, 0);
     }
@@ -153,4 +186,15 @@ fn scene_card_shadow_visibility(position: vec3<f32>, prepared: SceneCardShadow) 
     let weight = clamp((progress - (1.0 - fade_fraction)) / fade_fraction, 0.0, 1.0);
     let next = cascade_visibility(prepared.coordinates[selected + 1], prepared.gradients[selected + 1], selected + 1);
     return mix(current, next, weight);
+}
+
+fn scene_card_shadow_visibility(position: vec3<f32>, prepared: SceneCardShadow) -> f32 {
+    let visibility = cascaded_card_shadow_visibility(position, prepared);
+    if shadow.fade.x == 0.0 { return visibility; }
+    var last = prepared.single_ndc;
+    if !(shadow.policy.x == 1.0 && shadow.policy.z < 0.5) {
+        last = prepared.coordinates[max(i32(shadow.policy.x) - 1, 0)];
+    }
+    let distance = dot(shadow.view_depth, vec4<f32>(position, 1.0));
+    return faded_shadow_visibility(visibility, shadow_fade_weight(distance, last));
 }

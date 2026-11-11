@@ -75,6 +75,7 @@ pub(crate) struct Instances {
     free: BTreeSet<usize>,
     mesh_count: usize,
     pub(crate) pipelines: Vec<usize>,
+    pub(crate) transmission: Vec<bool>,
     /// Whether velocity pipelines draw, so batches keep previous-frame transforms.
     pub track_previous: bool,
     // Per-material tables; only `extend_resources` grows them. Cached placement bounds depend on them.
@@ -108,6 +109,12 @@ impl Instances {
                 .map(|material| PipelineKey::from_material(material).index())
                 .collect(),
             track_previous: false,
+            transmission: scene
+                .resources()
+                .materials()
+                .iter()
+                .map(|material| material.translucency_micro() != 0)
+                .collect(),
             wind_extents,
             curved_wind,
             impostor_extents: scene
@@ -154,6 +161,11 @@ impl Instances {
                 .map(|material| PipelineKey::from_material(material).index()),
         );
         self.wind_extents.extend(wind);
+        self.transmission.extend(
+            materials
+                .iter()
+                .map(|material| material.translucency_micro() != 0),
+        );
         self.curved_wind.extend(curved);
         self.impostor_extents
             .extend(materials.iter().map(impostor_extent));

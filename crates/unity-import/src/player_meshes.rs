@@ -73,7 +73,7 @@ pub struct PlanMesh {
 /// A decoded mesh waiting for its asset number: the plan entry and the resource bytes.
 pub(crate) struct DecodedMesh {
     pub(crate) plan: PlanMesh,
-    bytes: Vec<u8>,
+    pub(crate) bytes: Vec<u8>,
     /// What the plan leaves out of this mesh, listed once.
     pub(crate) notes: Vec<String>,
 }

@@ -842,6 +842,8 @@ pub struct DisunityRenderTexture {
     pub depth_bits: u32,
     pub mip_count: u32,
     pub srgb: u32,
+    pub dimension: u32,
+    pub volume_depth: u32,
     pub wrap_u: u32,
     pub wrap_v: u32,
     pub wrap_w: u32,
@@ -911,6 +913,37 @@ pub struct DisunityPropertyRead {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DisunityDrawRendererList {
+    pub cull: u64,
+    pub override_material: u64,
+    pub queue_min: i32,
+    pub queue_max: i32,
+    pub layer_mask: u32,
+    pub rendering_layer_mask: u32,
+    pub sorting: u32,
+    pub per_object: u32,
+    pub override_pass: i32,
+    pub tags_len: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DisunityShadowRendererList {
+    pub sphere_x: f32,
+    pub sphere_y: f32,
+    pub sphere_z: f32,
+    pub sphere_radius: f32,
+    pub light_index: i32,
+    pub plane_count: u32,
+    pub objects_filter: u32,
+    pub projection: u32,
+    pub rendering_layer_test: u32,
+    pub padding: u32,
+    pub cull: u64,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
     /// Low two bits: 0 quad graphic, 1 text, 2 triangle. Bit 2 enables scene-depth testing.
@@ -930,7 +963,7 @@ pub struct DisunityUiDraw {
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 8;
+pub const DISUNITY_ABI_VERSION: u32 = 9;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

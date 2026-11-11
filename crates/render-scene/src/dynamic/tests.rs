@@ -16,9 +16,8 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let context =
-            pollster::block_on(GpuContext::request_with_features(wgpu::Features::empty()))
-                .expect("actual GPU required");
+        let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty())
+            .expect("actual GPU required");
         let pipelines = ScenePipelines::new(context.device(), OffscreenTarget::COLOR_FORMAT);
         let gpu = SceneGpu::empty(context.device(), context.submission(), &pipelines).unwrap();
         let viewport = Viewport {
@@ -83,6 +82,7 @@ fn close(actual: [u8; 4], expected: [u8; 4]) {
 
 #[test]
 fn gpu_orthographic_unlit_quads_have_depth_independent_pixel_landmarks() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     let left = DynamicQuad {
         position: [-2.0, 0.0, 0.5],
@@ -109,6 +109,7 @@ fn gpu_orthographic_unlit_quads_have_depth_independent_pixel_landmarks() {
 
 #[test]
 fn gpu_sorted_alpha_uses_layer_then_order_and_stable_ties_without_depth_writes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     let background = DynamicQuad {
         tint: [1.0, 0.0, 0.0, 1.0],
@@ -140,6 +141,7 @@ fn gpu_sorted_alpha_uses_layer_then_order_and_stable_ties_without_depth_writes()
 
 #[test]
 fn gpu_runtime_quad_rotation_scale_and_rejected_update_preserve_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     let quad = DynamicQuad {
         scale: [3.0, 1.0, 0.5],
@@ -172,6 +174,7 @@ fn gpu_runtime_quad_rotation_scale_and_rejected_update_preserve_pixels() {
 
 #[test]
 fn gpu_runtime_texture_uvs_tint_and_alpha_reach_existing_readback() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     let texture = quadrant_texture();
     f.gpu
@@ -198,6 +201,7 @@ fn gpu_runtime_texture_uvs_tint_and_alpha_reach_existing_readback() {
 
 #[test]
 fn gpu_camera_background_uses_existing_target_clear_color() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     let image = f
         .target
@@ -218,6 +222,7 @@ fn gpu_camera_background_uses_existing_target_clear_color() {
 
 #[test]
 fn gpu_invalid_dynamic_inputs_leave_resident_geometry_and_textures_unchanged() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     let quad = DynamicQuad {
         tint: [1.0, 0.0, 0.0, 1.0],
@@ -267,6 +272,7 @@ fn gpu_invalid_dynamic_inputs_leave_resident_geometry_and_textures_unchanged() {
 
 #[test]
 fn gpu_invalid_texture_updates_preserve_resident_texture_and_pixels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     f.gpu
         .set_dynamic_textures(
@@ -354,6 +360,7 @@ fn quadrant_texture() -> SceneTexture {
 
 #[test]
 fn gpu_orthographic_camera_roll_and_clipping_use_the_resolved_view() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     let view = SceneView::orthographic_with_up(
         CameraPose {
@@ -395,6 +402,7 @@ fn gpu_orthographic_camera_roll_and_clipping_use_the_resolved_view() {
 
 #[test]
 fn gpu_replacing_runtime_textures_clears_quads_and_uses_new_texels() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let mut f = Fixture::new();
     f.set(&[DynamicQuad::default()]);
     let texture = SceneTexture::Texels {

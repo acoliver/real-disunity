@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn required_gpu_callback_can_be_pending_after_another_wait_poll_returns() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = required_context();
     let device = context.device();
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -20,7 +21,7 @@ fn required_gpu_callback_can_be_pending_after_another_wait_poll_returns() {
         .map_async(wgpu::MapMode::Read, move |result| {
             entered.send(()).unwrap();
             if release_recv.recv_timeout(Duration::from_secs(5)).is_ok() {
-                send.send(result).unwrap();
+                let _ = send.send(result);
             }
         });
     std::thread::scope(|scope| {

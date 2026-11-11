@@ -6,6 +6,7 @@ use worldrunner_render_post::{FrameConfig, Readback};
 
 #[test]
 fn ambient_injection_uses_one_explicit_marker_independent_of_expression_spacing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for source in [crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL] {
         let respaced = source.replace("* ambient_occlusion", "*\n ambient_occlusion");
         let result = ambient_source(&respaced);
@@ -74,6 +75,7 @@ pub(super) fn settings() -> SceneSsao {
 }
 #[test]
 fn settings_fail_before_allocation() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     for sample_count in [0, 65, u32::MAX] {
         assert!(matches!(
             validate_settings(&SceneSsao {
@@ -106,7 +108,7 @@ fn settings_fail_before_allocation() {
     assert!(validate_settings(&settings()).is_ok());
 }
 pub(super) fn context() -> GpuContext {
-    pollster::block_on(GpuContext::request()).unwrap()
+    GpuContext::shared_for_test().unwrap()
 }
 pub(super) fn upload(context: &GpuContext, size: [u32; 2], data: &[f32]) -> wgpu::Texture {
     let texture = passes::texture(context.device(), size, wgpu::TextureFormat::R32Float);
@@ -171,6 +173,7 @@ pub(super) fn draw(
 }
 #[test]
 fn gpu_odd_extent_pyramid_includes_last_row_and_column() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for size in [[5, 3], [1, 7], [7, 1]] {
         let mut values = vec![9.0; usize::try_from(size[0] * size[1]).unwrap()];
@@ -190,6 +193,7 @@ fn gpu_odd_extent_pyramid_includes_last_row_and_column() {
 }
 #[test]
 fn gpu_bilateral_blur_preserves_depth_edges() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let ssao = SceneMetadata::new(context.device(), [6, 1], settings()).unwrap();
     let projection = glam::Mat4::IDENTITY;
@@ -245,6 +249,7 @@ fn gpu_bilateral_blur_preserves_depth_edges() {
 fn hdr_resize_rebuilds_screen_targets_and_preserves_them_on_error() {
     use crate::compositor::FrameRenderer;
     use worldrunner_render_post::ToneMap;
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut renderer = FrameRenderer::hdr(
         &context,
@@ -266,6 +271,7 @@ fn hdr_resize_rebuilds_screen_targets_and_preserves_them_on_error() {
 
 #[test]
 fn gpu_average_metadata_is_not_conservative_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = passes::texture(context.device(), [3, 1], wgpu::TextureFormat::Rgba16Float);
     let words: [u16; 12] = [
@@ -322,6 +328,7 @@ fn gpu_average_metadata_is_not_conservative_depth() {
 
 #[test]
 fn gpu_bilateral_axes_have_exact_impulse_and_reject_depth_steps() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for (size, axis) in [([5, 1], [1, 0]), ([1, 5], [0, 1])] {
         let depths = upload(&context, size, &[1.0, 1.0, 1.0, 4.0, 4.0]);

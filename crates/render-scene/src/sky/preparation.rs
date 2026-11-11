@@ -413,6 +413,7 @@ pub fn encode_atmosphere(
         return Err(PreparationError::Budget);
     }
     let lookup = super::scattering::Lookup::new(device, settings);
+    // A fresh lookup has no submitted upload, so this always writes the columns.
     lookup.encode(device, encoder, observer, budget)?;
     Ok(PreparedAtmosphere {
         lookup,

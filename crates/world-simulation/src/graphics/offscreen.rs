@@ -1,4 +1,6 @@
 //! Offscreen work: the draws into render textures that scripts ask for during a frame.
+use super::readback::Rect;
+use super::renderer_lists::RendererListDesc;
 use super::{
     ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue, RenderTextureId,
     TargetRef, TextureRef, WorldRenderTexture,
@@ -96,6 +98,70 @@ pub enum OffscreenWork {
         planes: Vec<[f32; 4]>,
         options: u32,
     },
+    /// A read of `width` by `height` texels of mip 0 of `texture`, from the bottom left texel at
+    /// (`x`, `y`), after the work recorded before this record has drawn. The host answers with
+    /// `width * height * 4` floats, bottom row first, as the texture stores them (see
+    /// [`World::request_texture_pixels`]). `request` is the id that call issued.
+    ReadPixels {
+        request: u64,
+        texture: RenderTextureId,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
+    /// A renderer list: what a culling result's renderers (or one light's shadow casters) draw
+    /// under the list's filters. `id` names it for later records of the frame. It is made only
+    /// by [`World::create_renderer_list`].
+    CreateRendererList { id: u64, desc: RendererListDesc },
+    /// Draws a renderer list created earlier in the frame into the bound targets.
+    DrawRendererList { list: u64 },
+    /// The view and projection the draws that follow use, until the next camera setup or view
+    /// change: two column-major matrices, as a camera setup carries them. It names no camera and
+    /// leaves the bound targets as they are.
+    SetViewProjection {
+        view: [f32; 16],
+        projection: [f32; 16],
+    },
+    /// Draws the mesh the renderer identity `mesh` names, with `matrix` (column-major, from the
+    /// mesh's coordinates to the world) and the material's pass, into the bound targets with the
+    /// current view and projection. `submesh` picks one sub-mesh; a `pass` of -1 draws every
+    /// pass. The world keeps no mesh contents (the host reads them by identity), so it checks
+    /// that the identity is nonzero and leaves an identity nothing stored to the host.
+    DrawMesh {
+        mesh: u64,
+        matrix: [f32; 16],
+        material: MaterialId,
+        submesh: u32,
+        pass: i32,
+    },
+}
+
+impl OffscreenWork {
+    /// Whether the record reads or draws into the render texture, directly or through a texture
+    /// property it sets.
+    pub fn names_render_texture(&self, id: RenderTextureId) -> bool {
+        let texture = |texture: &TextureRef| *texture == TextureRef::Render(id);
+        let target = |target: &TargetRef| *target == TargetRef::Render(id);
+        match self {
+            Self::CameraRender { target, .. } => *target == id,
+            Self::Blit { source, target, .. } | Self::CopyTexture { source, target, .. } => {
+                *target == id || texture(source)
+            }
+            Self::Dispatch { bindings, .. } => bindings
+                .properties
+                .textures
+                .iter()
+                .any(|(_, slot)| texture(&slot.texture)),
+            Self::SetRenderTarget { color, depth, .. } => {
+                color.iter().any(target) || depth.as_ref().is_some_and(target)
+            }
+            Self::SetGlobal(PropertyValue::Texture(_, slot)) => texture(&slot.texture),
+            Self::SetupCamera { target: named, .. } => target(named),
+            Self::ReadPixels { texture, .. } => *texture == id,
+            _ => false,
+        }
+    }
 }
 
 impl World {
@@ -104,8 +170,21 @@ impl World {
     /// and a mip level must exist in the render texture it addresses. A dispatch names a live
     /// compute shader, one of its kernels and 1 to 65535 thread groups along each axis. A record
     /// that issues a handle (a culling result) takes a nonzero id no record of the frame took
-    /// before; the frame forgets its handles when its work is taken.
+    /// before; the frame forgets its handles when its work is taken. A read of pixels is
+    /// recorded by [`World::request_texture_pixels`], which issues its request id, and a renderer list
+    /// by [`World::create_renderer_list`], which issues its list id.
     pub fn record_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
+        if matches!(
+            work,
+            OffscreenWork::ReadPixels { .. } | OffscreenWork::CreateRendererList { .. }
+        ) {
+            return Err(GraphicsError::InvalidOffscreen.into());
+        }
+        self.push_offscreen(work)
+    }
+
+    /// Checks a record and appends it to the frame's list.
+    pub(super) fn push_offscreen(&mut self, work: OffscreenWork) -> Result<(), WorldError> {
         self.check_offscreen(&work)?;
         if self.graphics.offscreen.len() >= MAX_OFFSCREEN_WORK {
             return Err(WorldError::CapacityExceeded(crate::LimitKind::Graphics));
@@ -124,6 +203,8 @@ impl World {
     /// took drops it, so a host that never draws offscreen does not accumulate records.
     pub fn take_offscreen(&mut self) -> Vec<OffscreenWork> {
         self.graphics.handles.clear();
+        self.graphics.lists.clear();
+        self.graphics.retired_textures.clear();
         std::mem::take(&mut self.graphics.offscreen)
     }
 
@@ -171,6 +252,27 @@ impl World {
                 groups,
                 bindings,
             } => self.check_dispatch(*shader, *kernel, *groups, bindings),
+            OffscreenWork::ReadPixels {
+                texture,
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => self
+                .check_read_rect(
+                    *texture,
+                    Rect {
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                    },
+                )
+                .map(drop),
+            OffscreenWork::CreateRendererList { .. } | OffscreenWork::DrawRendererList { .. } => {
+                self.check_renderer_list(work)
+            }
             _ => self
                 .check_command(work)
                 .and_then(|()| self.check_context(work)),

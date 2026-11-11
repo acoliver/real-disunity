@@ -317,24 +317,28 @@ fn assert_stable(label: &str, m: &Measurement, minimum_effect: f64) {
 
 #[test]
 fn ssao_under_taa_is_stable_and_unbiased_at_1x() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let m = measure(Feature::Ssao, MsaaSamples::X1);
     assert_stable("ssao 1x", &m, MINIMUM_SSAO_EFFECT);
 }
 
 #[test]
 fn ssao_under_taa_is_stable_and_unbiased_at_4x() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let m = measure(Feature::Ssao, MsaaSamples::X4);
     assert_stable("ssao 4x", &m, MINIMUM_SSAO_EFFECT);
 }
 
 #[test]
 fn ssr_under_taa_is_stable_and_unbiased_at_1x() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let m = measure(Feature::Ssr, MsaaSamples::X1);
     assert_stable("ssr 1x", &m, MINIMUM_SSR_EFFECT);
 }
 
 #[test]
 fn ssr_under_taa_is_stable_and_unbiased_at_4x() {
+    let _session = crate::test_support::SceneTestSession::acquire();
     let m = measure(Feature::Ssr, MsaaSamples::X4);
     assert_stable("ssr 4x", &m, MINIMUM_SSR_EFFECT);
 }

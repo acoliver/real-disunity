@@ -37,8 +37,29 @@ fn varied_root(
     (cache, settings)
 }
 
+/// The reference filter is a different shader program, and a driver may contract or reorder
+/// its normal arithmetic differently: RADV differed by up to 1.2e-7, even where both read level
+/// 0 only. One step of an 8-bit normal channel is about 7.8e-3, so a wrong level still fails.
+const NORMAL_TOLERANCE: f32 = 1e-6;
+
+fn assert_normals_close(current: &[u8], reference: &[u8]) {
+    assert_eq!(current.len(), reference.len());
+    for (index, (current, reference)) in current
+        .chunks_exact(4)
+        .zip(reference.chunks_exact(4))
+        .enumerate()
+    {
+        let current = component(current, 0);
+        let reference = component(reference, 0);
+        assert!(
+            (current - reference).abs() <= NORMAL_TOLERANCE,
+            "normal component {index}: {current} versus {reference}"
+        );
+    }
+}
+
 #[test]
-fn terrain_pages_gpu_single_level_filter_matches_two_level_mix_bit_for_bit() {
+fn terrain_pages_gpu_single_level_filter_matches_two_level_mix() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let device = context.device();
@@ -70,7 +91,11 @@ fn terrain_pages_gpu_single_level_filter_matches_two_level_mix_bit_for_bit() {
         let current = harness::sample_with(device, &authority, &cache, &leaves, &points, mode);
         let reference =
             harness::sample_two_level(device, &authority, &cache, &leaves, &points, mode);
-        assert_eq!(current, reference, "normals {normals}");
+        if normals {
+            assert_normals_close(&current, &reference);
+        } else {
+            assert_eq!(current, reference, "colour bytes");
+        }
     }
     // The fractional footprints really blend distinct levels, so a wrong skip would show.
     let mode = harness::Mode {
@@ -92,13 +117,17 @@ fn terrain_pages_gpu_single_level_filter_matches_two_level_mix_bit_for_bit() {
             .collect::<Vec<_>>(),
         mode,
     );
-    let stride = 16;
-    let fractional = 3 * 3..3 * 6;
+    // Points 9 to 17 have fractional footprints; each holds four f32 components.
+    let fractional = (3 * 3 * 4)..(3 * 6 * 4);
+    let largest = fractional
+        .map(|i| component(&blended, i) - component(&level_zero, i))
+        .fold(0.0_f32, |largest, difference| largest.max(difference.abs()));
     assert!(
-        fractional
-            .clone()
-            .any(|i| blended[i * stride..(i + 1) * stride]
-                != level_zero[i * stride..(i + 1) * stride]),
-        "fractional footprints sample a second level"
+        largest > 1000.0 * NORMAL_TOLERANCE,
+        "fractional footprints sample a second level: largest normal change {largest}"
     );
+}
+
+fn component(bytes: &[u8], index: usize) -> f32 {
+    f32::from_le_bytes(bytes[index * 4..index * 4 + 4].try_into().unwrap())
 }

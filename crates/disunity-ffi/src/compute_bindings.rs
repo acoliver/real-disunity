@@ -100,6 +100,14 @@ impl Flat {
 
     fn of(bindings: &ComputeBindings) -> Result<Self, AbiError> {
         let properties = &bindings.properties;
+        let array = (properties.vector_arrays.iter().map(|(name, _)| name))
+            .chain(properties.matrix_arrays.iter().map(|(name, _)| name))
+            .next();
+        if let Some(name) = array {
+            return Err(AbiError::Message(format!(
+                "the dispatch holds the array property `{name}`, and the binding reader has no array kind"
+            )));
+        }
         let mut flat = Self::default();
         for (name, value) in &properties.floats {
             flat.push(KIND_FLOAT, name, &[*value])?;
@@ -186,3 +194,7 @@ pub unsafe extern "C" fn disunity_compute_bindings_read(
         Ok(())
     })
 }
+
+#[cfg(test)]
+#[path = "compute_bindings_tests.rs"]
+mod tests;

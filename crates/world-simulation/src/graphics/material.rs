@@ -61,6 +61,8 @@ impl GlobalShaderState {
                 vectors: Vec::new(),
                 matrices: Vec::new(),
                 textures: Vec::new(),
+                vector_arrays: Vec::new(),
+                matrix_arrays: Vec::new(),
             },
             generation: 0,
         }

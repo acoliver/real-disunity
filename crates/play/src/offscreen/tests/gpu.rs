@@ -66,6 +66,7 @@ impl ShaderSupply for Synthetic {
             "blit" => blit_passes("_MainTex"),
             "gradient" => gradient_passes(),
             "cubeblit" => super::shapes::cube_blit_passes(),
+            "arrays" => super::global_arrays::arrays_blit_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
             // named after the file.
             "default_white" | "default_black" | "default_bump" => {

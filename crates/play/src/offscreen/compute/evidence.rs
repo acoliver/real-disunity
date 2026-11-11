@@ -1,9 +1,33 @@
-//! What the player pairs render textures with: the `GraphicsFormat` code of each render texture a
-//! dispatch names and what the kernel declares at that binding, for the report.
+//! What a dispatch's trace says of its bindings, for the report: the numeric values it sets, and
+//! what the player pairs render textures with (the `GraphicsFormat` code of each render texture a
+//! dispatch names and what the kernel declares at that binding).
 
 use worldrunner_world_simulation::graphics::{ComputeBindings, GraphicsSnapshot, TextureRef};
 
 use super::Kernel;
+
+/// The numeric values a dispatch sets, as `name=value` in name order within each kind. An array
+/// is given by how many elements it holds.
+pub(super) fn constant_values(bindings: &ComputeBindings) -> Vec<String> {
+    let properties = &bindings.properties;
+    let floats = properties.floats.iter().map(|(n, v)| format!("{n}={v}"));
+    let ints = properties.ints.iter().map(|(n, v)| format!("{n}={v}"));
+    let vectors = properties.vectors.iter().map(|(n, v)| format!("{n}={v:?}"));
+    let matrices = properties
+        .matrices
+        .iter()
+        .map(|(n, _)| format!("{n}=matrix"));
+    let vector_arrays = properties
+        .vector_arrays
+        .iter()
+        .map(|(n, v)| format!("{n}={} vectors", v.len()));
+    let matrix_arrays = properties
+        .matrix_arrays
+        .iter()
+        .map(|(n, v)| format!("{n}={} matrices", v.len()));
+    let single = floats.chain(ints).chain(vectors).chain(matrices);
+    single.chain(vector_arrays).chain(matrix_arrays).collect()
+}
 
 /// The name of the kind of value a texture binding samples.
 fn sample_kind(sample: wgpu::TextureSampleType) -> &'static str {

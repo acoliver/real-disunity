@@ -15,12 +15,21 @@
 //! `DepthMode::Independent`; the default specular convention. At four samples the scene colour
 //! and the receivers are compared sample by sample. The depth is compared as the snapshot's
 //! depth copy reads it, which is the nearest sample of each pixel, so a depth difference that
-//! leaves every pixel's nearest sample alone is not seen. Not covered here: a shadowed feature
-//! (and with it the weighted filter, which only changes shadowed text), `DepthMode::Shared`, a
+//! leaves every pixel's nearest sample alone is not seen.
+//!
+//! One separate test repeats the default body at one sample with `DepthMode::Shared`, on a
+//! renderer built with SSAO so that its scene depth is `Depth32FloatStencil8`. It needs a device
+//! that was asked for `DEPTH32FLOAT_STENCIL8` and prints a skip line when the adapter lacks it; a
+//! skip says nothing about `Shared`. Its printed `depth=Shared` summary line is the evidence of a
+//! run. Not covered here: a shadowed feature (and with it the weighted filter, which only changes
+//! shadowed text), `Shared` for any other body or sample count, that a frame selects `Shared`, a
 //! non-default specular convention, and wind.
 
 use super::*;
-use worldrunner_render_plan::{SceneWaterSeedCoordinates, SceneWaterSeedSampling};
+use worldrunner_render_plan::{
+    SceneEffects, SceneEffectsParts, SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter,
+    SceneSsaoKernel, SceneSsaoReceiver, SceneWaterSeedCoordinates, SceneWaterSeedSampling,
+};
 
 /// What every capture's scene colour is cleared to.
 const CLEARED: wgpu::Color = wgpu::Color {
@@ -40,6 +49,14 @@ struct Case {
     options: u32,
 }
 
+fn default_case() -> Case {
+    Case {
+        name: "default",
+        body: settings(),
+        options: 0,
+    }
+}
+
 fn cases() -> Vec<Case> {
     let mut terms = settings();
     terms.color_micro = [250_000, 500_000, 750_000];
@@ -52,11 +69,7 @@ fn cases() -> Vec<Case> {
         body
     };
     vec![
-        Case {
-            name: "default",
-            body: settings(),
-            options: 0,
-        },
+        default_case(),
         // Lighting normal 1, metallic 2 and direct surface 16: override constants only.
         Case {
             name: "terms",
@@ -113,10 +126,26 @@ fn sample_counts(context: &GpuContext) -> Vec<u32> {
         .collect()
 }
 
-/// A renderer of `samples` samples with the case's body installed, one frame encoded in slot 1
-/// so the body's uniforms are uploaded, and a checker in that slot's snapshot.
+/// What a capture is set up with: the renderer's sample count and the depth mode its feature is
+/// built for.
+#[derive(Clone, Copy)]
+struct Setup {
+    samples: u32,
+    depth: DepthMode,
+}
+
+/// A renderer of `samples` samples without effects, prepared as [`prepare`] says.
 fn prepared(context: &GpuContext, case: &Case, samples: u32) -> crate::compositor::FrameRenderer {
-    let mut renderer = regressions::renderer(context, samples);
+    prepare(context, case, regressions::renderer(context, samples))
+}
+
+/// `renderer` with the case's body installed, one frame encoded in slot 1 so the body's uniforms
+/// are uploaded, and a checker in that slot's snapshot.
+fn prepare(
+    context: &GpuContext,
+    case: &Case,
+    mut renderer: crate::compositor::FrameRenderer,
+) -> crate::compositor::FrameRenderer {
     renderer
         .install_water(context.device(), case.body.clone())
         .unwrap();
@@ -176,17 +205,18 @@ impl Captured {
     }
 }
 
-/// The targets after `recorder` drew slot 1's feature.
+/// The targets after `recorder` drew slot 1's feature, built for `depth`.
 fn capture(
     context: &GpuContext,
     renderer: &crate::compositor::FrameRenderer,
+    depth: DepthMode,
     recorder: Recorder,
 ) -> Captured {
     let mut drawn = None;
     draw_water_with(
         context,
         renderer,
-        (1, wgpu::LoadOp::Clear(CLEARED)),
+        (1, wgpu::LoadOp::Clear(CLEARED), depth),
         |feature, pass| match recorder {
             Recorder::Nothing => {}
             Recorder::Live => feature.draw(
@@ -229,15 +259,30 @@ fn capture(
 fn compare(context: &GpuContext, case: &Case, samples: u32) -> usize {
     let name = format!("{} at {samples} samples", case.name);
     let renderer = prepared(context, case, samples);
+    let setup = Setup {
+        samples,
+        depth: DepthMode::Independent,
+    };
+    compare_prepared(context, case, (&renderer, setup), &name)
+}
+
+/// [`compare`] over a renderer that [`prepare`] has set up as `setup` says.
+fn compare_prepared(
+    context: &GpuContext,
+    case: &Case,
+    (renderer, setup): (&crate::compositor::FrameRenderer, Setup),
+    name: &str,
+) -> usize {
+    let Setup { samples, depth } = setup;
     let settings = &renderer.water.as_ref().unwrap().settings;
     assert_eq!(
         terms::mask(settings) | crate::water::vertex_seeds::key(&settings[0]),
         case.options,
         "{name}: the body does not reach the pipeline key this case is for"
     );
-    let nothing = capture(context, &renderer, Recorder::Nothing);
-    let live = capture(context, &renderer, Recorder::Live);
-    let frozen = capture(context, &renderer, Recorder::Frozen);
+    let nothing = capture(context, renderer, depth, Recorder::Nothing);
+    let live = capture(context, renderer, depth, Recorder::Live);
+    let frozen = capture(context, renderer, depth, Recorder::Frozen);
     assert_eq!(
         live.samples.len(),
         usize::try_from(samples).unwrap(),
@@ -295,4 +340,85 @@ fn the_body_draw_matches_the_frozen_fixed_path_byte_for_byte() {
             );
         }
     }
+}
+
+/// A one-sample renderer built with SSAO, whose scene depth is therefore the combined depth and
+/// stencil format that a frame with SSAO hands to the water pass.
+fn shared_depth_renderer(context: &GpuContext) -> crate::compositor::FrameRenderer {
+    let effects = SceneEffects::new(SceneEffectsParts {
+        ssao: Some(SceneSsao {
+            receiver: SceneSsaoReceiver::Nearest,
+            depth_footprint: SceneSsaoDepthFootprint::default(),
+            kernel: SceneSsaoKernel::Hemisphere,
+            filter: SceneSsaoFilter::DepthAwareBox,
+            radius_millimeters: 2000,
+            intensity_micro: 1_000_000,
+            sample_count: 16,
+            bias_millimeters: 10,
+            horizon_angle_millidegrees: 90_000,
+        }),
+        ..crate::draw::tests::effect_parts()
+    })
+    .unwrap();
+    let renderer = crate::compositor::FrameRenderer::hdr(
+        context,
+        [32, 32],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        1,
+        ToneMap::Reinhard,
+        Some(&effects),
+    )
+    .unwrap();
+    assert!(
+        renderer.ssao.is_some(),
+        "the renderer owns the SSAO metadata that makes its depth the stencil format"
+    );
+    assert_eq!(
+        renderer.targets().depth().texture().format(),
+        wgpu::TextureFormat::Depth32FloatStencil8,
+        "a Shared capture over a plain depth target would repeat the Independent one"
+    );
+    renderer
+}
+
+#[test]
+fn the_shared_depth_body_draw_matches_the_frozen_fixed_path_byte_for_byte() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let stencil = wgpu::Features::DEPTH32FLOAT_STENCIL8;
+    let context = match GpuContext::shared_for_test_with_features(
+        crate::device::REQUIRED_FEATURES | stencil,
+    ) {
+        Ok(context) => context,
+        Err(crate::device::DeviceError::MissingFeatures { adapter, missing })
+            if missing.contains(stencil) =>
+        {
+            println!(
+                "WATER-CAPTURE adapter={adapter:?} depth=Shared skipped: the adapter lacks {missing:?}"
+            );
+            return;
+        }
+        Err(error) => panic!("the shared depth capture could not acquire its device: {error}"),
+    };
+    assert!(
+        context.device().features().contains(stencil),
+        "the device was created without the stencil depth format"
+    );
+    let adapter = context.adapter().get_info().name;
+    let case = default_case();
+    let renderer = prepare(&context, &case, shared_depth_renderer(&context));
+    let setup = Setup {
+        samples: 1,
+        depth: DepthMode::Shared,
+    };
+    let equal = compare_prepared(
+        &context,
+        &case,
+        (&renderer, setup),
+        "default at 1 sample with shared depth",
+    );
+    assert_eq!(equal, 6, "six images are compared at one sample");
+    println!(
+        "WATER-CAPTURE adapter={adapter:?} depth=Shared format=Depth32FloatStencil8 case={} options={} samples=1 images={equal} equal={equal}",
+        case.name, case.options
+    );
 }

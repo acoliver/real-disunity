@@ -474,6 +474,7 @@ PlayablesTests.Run();
 JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();
+CommandBufferMeshBlockTests.Run();
 CommandBufferCameraTests.Run();
 GlobalArrayTests.Run();
 CommandBufferRenderPassTests.Run();

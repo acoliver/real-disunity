@@ -14,7 +14,7 @@ namespace UnityEngine;
 /// </summary>
 internal static unsafe partial class WorldGraphics
 {
-    internal const uint ScopeMaterial = 0, ScopeGlobal = 1, ScopeBlock = 2;
+    internal const uint ScopeMaterial = 0, ScopeGlobal = 1, ScopeBlock = 2, ScopeDraw = 3;
     private const uint TextureNone = 0, TextureAsset = 1, TextureRender = 2;
     private const uint WorkCameraRender = 0, WorkBlit = 1, WorkCopyTexture = 2;
 

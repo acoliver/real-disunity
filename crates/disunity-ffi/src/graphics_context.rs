@@ -122,7 +122,9 @@ pub unsafe extern "C" fn disunity_offscreen_set_view_projection(
 /// Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
 /// column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
 /// pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
-/// projection. An identity nothing stored is refused.
+/// projection. The values written to the draw scope (3) since the last call are the draw's own
+/// property block; the call takes them whether or not the draw is recorded, so they never reach a
+/// later draw. An identity nothing stored is refused.
 ///
 /// # Safety
 /// `matrix` is readable for 16 floats.
@@ -135,12 +137,13 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh(
     submesh: u32,
     pass: i32,
 ) -> DisunityResult {
-    if matrix.is_null() {
-        return DisunityResult::invalid_argument();
-    }
-    let mut values = [0.0_f32; 16];
-    unsafe { std::ptr::copy_nonoverlapping(matrix, values.as_mut_ptr(), 16) };
     mutate(world, |s| {
+        let block = std::mem::take(&mut s.draw_block);
+        if matrix.is_null() {
+            return Err("a mesh draw needs a matrix".into());
+        }
+        let mut values = [0.0_f32; 16];
+        unsafe { std::ptr::copy_nonoverlapping(matrix, values.as_mut_ptr(), 16) };
         if !s.meshes.contains_key(&mesh) {
             return Err("a mesh draw names a mesh identity nothing stored".into());
         }
@@ -150,6 +153,7 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh(
             material: MaterialId::from_bits(material),
             submesh,
             pass,
+            block: (!block.is_empty()).then(|| Box::new(block)),
         })?;
         Ok(())
     })

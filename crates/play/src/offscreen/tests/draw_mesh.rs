@@ -42,6 +42,7 @@ const BLUE: [u8; 4] = [0, 0, 255, 255];
 const MESH: u64 = (1 << 41) + 5;
 const OTHER_MESH: u64 = (1 << 41) + 6;
 
+mod block;
 mod persistent;
 
 /// A vertex stage that places its position by the draw's matrices, a fragment stage that writes
@@ -111,6 +112,7 @@ fn synthetic(file: &str) -> SyntheticShader {
             blend.dst = fixed(10.0);
             layers
         }
+        "sampled" => block::sampled_passes(),
         other => panic!("no synthetic shader {other}"),
     }
 }
@@ -312,6 +314,7 @@ fn draw_mesh(
             material,
             submesh,
             pass,
+            block: None,
         },
     );
 }

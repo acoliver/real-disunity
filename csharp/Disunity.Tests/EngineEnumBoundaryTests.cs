@@ -116,6 +116,9 @@ internal static class EngineEnumBoundaryTests
         Equal(11, (int)(EventModifiers.Shift | EventModifiers.Control | EventModifiers.Command),
             "keyboard modifier mask");
         Equal(4, (int)TouchPhase.Canceled, "canceled touch");
+        Equal(15, (int)(PenStatus.Contact | PenStatus.Barrel | PenStatus.Inverted | PenStatus.Eraser), "pen status mask");
+        Equal(4, (int)PenStatus.Inverted, "inverted pen");
+        Equal(2, (int)SpriteMaskInteraction.VisibleOutsideMask, "outside sprite mask");
         Equal(0, (int)ParticleSystemStopBehavior.StopEmittingAndClear, "clear stopped particles");
         Equal(1, (int)ParticleSystemStopBehavior.StopEmitting, "keep stopped particles");
         Equal(1, (int)FindObjectsInactive.Include, "inactive lookup selector");

@@ -145,6 +145,17 @@ public enum TouchType
     Stylus = 2,
 }
 
+/// <summary>What a pen on a tablet is doing. Player code names it in pointer event fields; the host reports no pen.</summary>
+[Flags]
+public enum PenStatus
+{
+    None = 0,
+    Contact = 1,
+    Barrel = 2,
+    Inverted = 4,
+    Eraser = 8,
+}
+
 public enum IMECompositionMode
 {
     Auto = 0,

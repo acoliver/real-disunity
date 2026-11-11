@@ -240,6 +240,13 @@ public enum SpriteDrawMode
     Tiled = 2,
 }
 
+public enum SpriteMaskInteraction
+{
+    None = 0,
+    VisibleInsideMask = 1,
+    VisibleOutsideMask = 2,
+}
+
 public enum SpriteMeshType
 {
     FullRect = 0,

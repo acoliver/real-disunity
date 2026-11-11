@@ -174,6 +174,7 @@ fn initial_readiness(scene: Option<&RenderScene>, options: &ViewerOptions) -> re
         page_wait: false,
         geometry_wait: false,
         camera: (options.pose, options.camera, options.camera_convention),
+        shadow_policy: None,
         camera_history: super::camera::CameraHistory::default(),
         #[cfg(test)]
         preparation_hook: None,

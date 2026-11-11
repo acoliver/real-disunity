@@ -214,6 +214,23 @@ For a teleport, view reset or scene switch, submit
 variant and is the continuity default. Both forms validate and publish the camera
 in the ordered retained-update queue.
 
+`RetainedUpdate::camera_with_shadow_policy(pose, lens, convention, continuity,
+Some(policy))` adds directional-shadow reception to that same transaction.
+`policy` is `CameraShadowPolicy::Enabled` or `CameraShadowPolicy::Disabled`.
+Disabling suppresses cascade caster passes and receiver sampling of cached shadow
+maps. The maps stay cached, and caster changes made while disabled remain pending
+for refresh when shadows resume.
+`None`, `Camera`, `CameraWithContinuity` and frames without a camera update preserve
+the currently published policy. The policy takes effect only after its generation is
+published on an admitted retained frame or accumulated-recipe sample, and remains
+effective across resident rebuilds. Enabling requires a startup-selected
+shadowed resident. Enabling on a Plain scene returns `UnsupportedScene` and
+rejects the entire camera transaction.
+Disabling on Plain is accepted as a no-resource request and publishes with the
+camera generation without installing shadow resources. This API controls native
+retained receiver shadows. It does not connect world-camera extraction or managed
+`renderShadows` settings.
+
 A cut discards TAA and temporal-upscaler history, restarts projection jitter at
 index zero, and replaces previous camera, jitter and animation time with the new
 frame's values for velocity producers. It also resets shadow depth-fitting

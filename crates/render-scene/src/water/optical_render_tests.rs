@@ -198,7 +198,7 @@ fn assert_transparent_water_passes_snapshot(context: &GpuContext, samples: u32) 
 
 /// Fills the snapshot with a constant-depth checker whose even pixels (including the centre)
 /// are (0.25, 0.125, 0.0625, 1). Returns the colour bytes.
-fn upload_checker_snapshot(
+pub(super) fn upload_checker_snapshot(
     context: &GpuContext,
     renderer: &crate::compositor::FrameRenderer,
 ) -> Vec<u8> {

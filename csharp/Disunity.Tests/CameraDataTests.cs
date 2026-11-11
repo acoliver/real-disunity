@@ -14,6 +14,11 @@ internal static class CameraDataTests
         LayerMask mask = 7;
         data.volumeLayerMask = mask;
         if (data.volumeLayerMask.value != 7 || data.renderPostProcessing) throw new Exception("native camera state");
+        if (data.renderShadows) throw new Exception("renderShadows starts off");
+        data.renderShadows = true;
+        if (!data.renderShadows) throw new Exception("renderShadows on");
+        data.renderShadows = false;
+        if (data.renderShadows) throw new Exception("renderShadows off");
         foreach (var (field, write) in new (string, Action)[] {
             ("renderPostProcessing", () => data.renderPostProcessing = true),
             ("antialiasing", () => data.antialiasing = AntialiasingMode.FastApproximateAntialiasing),

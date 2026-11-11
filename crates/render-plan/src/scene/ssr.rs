@@ -19,7 +19,7 @@ pub enum SceneSsrComposition {
 pub enum SceneSsrTraversal {
     #[default]
     Conservative,
-    /// Major-axis grid stepping with averaged depth levels and two endpoint samples.
+    /// Major-axis grid stepping with nearest-depth bounds and two endpoint samples.
     Grid,
 }
 

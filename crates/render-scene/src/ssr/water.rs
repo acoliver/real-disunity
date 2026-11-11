@@ -24,7 +24,12 @@ impl Inputs {
         views.push(context.resource(self.depth)?.sampled_view());
         Ok(())
     }
-    pub(super) fn resolve_views(&self, views: &mut Vec<wgpu::TextureView>) {
+    pub(super) fn resolve_views(
+        &self,
+        views: &mut Vec<wgpu::TextureView>,
+        forward_depth: wgpu::TextureView,
+    ) {
+        views[3] = forward_depth;
         views.extend(self.receivers.iter().cloned());
         views.push(self.lut.clone());
     }
@@ -38,6 +43,7 @@ pub(super) fn reads(depth: ResourceRef) -> [ResourceRef; 4] {
     ]
 }
 fn sampled(source: &str, samples: u32) -> String {
+    let source = source.replace("SAMPLE_LANES", &samples.to_string());
     if samples == 1 {
         source
             .replace("WATER_TEXTURE", "texture_2d<f32>")
@@ -76,7 +82,6 @@ pub(super) fn trace_source(source: &str, samples: u32) -> String {
 pub(super) fn resolve_source(source: &str, levels: usize, samples: u32) -> String {
     let source = source.replace("let surface = textureLoad(material, p, 0);", "var surface = textureLoad(material, p, 0);")
         .replace("let normal = textureLoad(normals, p, 0);", "var normal = textureLoad(normals, p, 0);\n    let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);\n    let is_water = water_normal.a != 0.0;\n    if is_water { normal = water_receiver_normal(water_normal); let water_surface = textureLoad(water_material, p, SAMPLE_INDEX); surface = vec4<f32>(water_receiver_f0(water_normal, water_surface), water_surface.a); }")
-        .replace("if abs(textureLoad(final_depth", "if !is_water && abs(textureLoad(final_depth")
         .replace("let uv = pixel.xy / camera.size.xy;", "let uv = select(pixel.xy / camera.size.xy, (vec2<f32>(p) + textureLoad(water_material, p, SAMPLE_INDEX).rg) / camera.size.xy, is_water);")
         .replace("let replacement = camera.size.w != 0.0;", "let replacement = camera.size.w != 0.0 || is_water;")
         .replace("if replacement {", "if replacement && !is_water {")
@@ -88,6 +93,7 @@ pub(super) fn resolve_source(source: &str, levels: usize, samples: u32) -> Strin
         environment = published.rgb;
     }
     return vec4<f32>(reflection_delta");
+    let source = reconstruction_source(&source);
     let first = levels + 7;
     sampled(
         &format!(
@@ -103,4 +109,17 @@ pub(super) fn resolve_source(source: &str, levels: usize, samples: u32) -> Strin
         ),
         samples,
     )
+}
+
+fn reconstruction_source(source: &str) -> String {
+    source
+        .replace("var final_depth: texture_2d<f32>;", "var water_depth: WATER_DEPTH;")
+        .replace(
+            "fn reflection_receiver_visible(p: vec2<i32>, depth: f32) -> bool {\n    return abs(textureLoad(final_depth, p, 0).r-depth) <= max(0.001, depth*0.0001);\n}",
+            include_str!("reconstruction_water.wgsl"),
+        )
+        .replace(
+            "// WATER_RECONSTRUCTION_RECEIVER",
+            "let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);\n    if water_normal.a != 0.0 { return reflection_water_receiver(p, sample, water_normal); }",
+        )
 }

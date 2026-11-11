@@ -47,14 +47,7 @@ impl FinalDepth {
             levels,
             samples,
             copy: crate::ssao::passes::pipeline(device, include_str!("final_depth.wgsl")),
-            reduce: crate::ssao::passes::pipeline(
-                device,
-                if grid {
-                    include_str!("depth_average.wgsl")
-                } else {
-                    include_str!("../ssao/reduce.wgsl")
-                },
-            ),
+            reduce: crate::ssao::passes::pipeline(device, include_str!("../ssao/reduce.wgsl")),
         }
     }
     pub fn textures(&self) -> &[wgpu::Texture] {

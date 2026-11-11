@@ -216,3 +216,67 @@ fn a_sun_that_goes_away_leaves_its_direction_with_no_irradiance() {
     );
     assert!(lighting.update(&[]).unwrap().is_none());
 }
+
+#[test]
+fn a_shadowed_viewer_follows_the_cameras_render_shadows_and_sends_each_change_once() {
+    use worldrunner_scene_viewer::CameraShadowPolicy;
+    let lights = presented(&[(sun(1.0), Quat::IDENTITY)]);
+    let (mut lighting, shadows) = SceneLighting::start(&lights, lens()).unwrap();
+    assert!(shadows.is_some());
+    let off = lighting.camera_policy(Some(false));
+    assert_eq!(off, Some(CameraShadowPolicy::Disabled));
+    assert_eq!(
+        lighting.camera_policy(Some(false)),
+        off,
+        "pending until published"
+    );
+    lighting.published(CameraShadowPolicy::Disabled);
+    assert_eq!(lighting.camera_policy(Some(false)), None);
+    assert_eq!(
+        lighting.camera_policy(None),
+        None,
+        "no setting keeps the published policy"
+    );
+    assert_eq!(
+        lighting.camera_policy(Some(true)),
+        Some(CameraShadowPolicy::Enabled)
+    );
+}
+
+#[test]
+fn a_viewer_started_without_shadows_publishes_no_camera_policy() {
+    let point = settings(LightKind::Point, LightShadowMode::Soft, 1.0);
+    let (lighting, shadows) =
+        SceneLighting::start(&presented(&[(point, Quat::IDENTITY)]), lens()).unwrap();
+    assert!(shadows.is_none());
+    assert_eq!(lighting.camera_policy(Some(true)), None);
+    assert_eq!(lighting.camera_policy(Some(false)), None);
+}
+
+#[test]
+fn a_policy_change_republishes_the_last_pose_and_a_move_publishes_the_new_one() {
+    use worldrunner_render_scene::CameraPose;
+    use worldrunner_scene_viewer::CameraShadowPolicy::Disabled;
+    let pose = |x| CameraPose {
+        eye_millimeters: [x, 0, 1000],
+        target_millimeters: [0; 3],
+    };
+    assert_eq!(
+        camera_pose_to_publish(None, Some(pose(1)), Some(Disabled)),
+        Some(pose(1))
+    );
+    assert_eq!(
+        camera_pose_to_publish(Some(pose(2)), Some(pose(1)), None),
+        Some(pose(2))
+    );
+    assert_eq!(
+        camera_pose_to_publish(None, Some(pose(1)), None),
+        None,
+        "nothing changed"
+    );
+    assert_eq!(
+        camera_pose_to_publish(None, None, Some(Disabled)),
+        None,
+        "no pose has been published yet"
+    );
+}

@@ -14,7 +14,9 @@ use worldrunner_render_plan::{
     SceneColorGrading, SceneDirection, SceneEffects, SceneEffectsParts, SceneShadowCascades,
     SceneSky, SceneSun,
 };
+use worldrunner_render_scene::CameraPose;
 use worldrunner_render_scene::shadows::{CascadeRefreshPolicy, DirectionalShadowSettings};
+use worldrunner_scene_viewer::CameraShadowPolicy;
 use worldrunner_world_simulation::presentation::{LightKind, LightShadowMode};
 
 use crate::player_meshes::round_to_i64;
@@ -114,6 +116,10 @@ pub(crate) fn lit_effects(sun: SceneSun, camera: SceneCamera) -> Result<SceneEff
 pub(crate) struct SceneLighting {
     camera: SceneCamera,
     sent: Option<SceneEffects>,
+    /// Whether the viewer started with shadow resources, which it cannot add later.
+    shadowed: bool,
+    /// The camera shadow policy the viewer last accepted.
+    policy: Option<CameraShadowPolicy>,
 }
 
 impl SceneLighting {
@@ -123,9 +129,15 @@ impl SceneLighting {
         lights: &[PresentationLight],
         camera: SceneCamera,
     ) -> Result<(Self, Option<DirectionalShadowSettings>), String> {
-        let mut lighting = Self { camera, sent: None };
+        let shadows = main_light(lights).and_then(shadow_settings);
+        let mut lighting = Self {
+            camera,
+            sent: None,
+            shadowed: shadows.is_some(),
+            policy: None,
+        };
         lighting.update(lights)?;
-        Ok((lighting, main_light(lights).and_then(shadow_settings)))
+        Ok((lighting, shadows))
     }
 
     /// The scene effects the viewer was last given, none while no frame has been lit.
@@ -155,6 +167,40 @@ impl SceneLighting {
         self.sent = Some(effects.clone());
         Ok(Some(effects))
     }
+}
+
+impl SceneLighting {
+    /// The camera shadow policy to publish for the presented camera's renderShadows, or none when
+    /// there is nothing to change: the viewer started without shadows (it cannot add them), the
+    /// frame reports no setting (the published policy stays), or the viewer has this policy
+    /// already. Call [`Self::published`] once the viewer accepts it.
+    pub(crate) fn camera_policy(&self, render_shadows: Option<bool>) -> Option<CameraShadowPolicy> {
+        if !self.shadowed {
+            return None;
+        }
+        let wanted = if render_shadows? {
+            CameraShadowPolicy::Enabled
+        } else {
+            CameraShadowPolicy::Disabled
+        };
+        (self.policy != Some(wanted)).then_some(wanted)
+    }
+
+    /// Records that the viewer accepted `policy`.
+    pub(crate) fn published(&mut self, policy: CameraShadowPolicy) {
+        self.policy = Some(policy);
+    }
+}
+
+/// The pose a frame publishes the camera at: the new pose when the camera moved, otherwise the
+/// last published pose when the shadow policy changes, and none when nothing changed or no pose
+/// has been published yet.
+pub(crate) fn camera_pose_to_publish(
+    moved: Option<CameraPose>,
+    last: Option<CameraPose>,
+    policy: Option<CameraShadowPolicy>,
+) -> Option<CameraPose> {
+    moved.or(policy.and(last))
 }
 
 #[cfg(test)]

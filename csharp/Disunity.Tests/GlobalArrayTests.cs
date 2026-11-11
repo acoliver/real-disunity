@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using Disunity.Hosting;
@@ -37,9 +38,9 @@ internal static unsafe class GlobalArrayTests
             DisunityHost.UnloadWorld();
         }
         NativeRefusalLeavesNoManagedCopy();
-        Console.WriteLine("PASS: a native refusal of a valid static array (the world's list of that kind is full) throws and leaves the stored arrays and the world as they were");
+        Console.WriteLine("PASS: a native refusal of a valid static array (the world's list of that kind is full at 1024 names) throws a capacity error and leaves the stored vectors and matrices and the world as they were");
         ArraysSetBeforeLoadAreSentWhenTheWorldLoads();
-        Console.WriteLine("PASS: arrays set while no world is loaded are sent to the global state at load and again at reload, and materials send none");
+        Console.WriteLine("PASS: arrays set while no world is loaded are sent to the global state at load and again at reload, materials send none, and an unregistered id is refused with and without a world and never stored or sent");
     }
 
     private static readonly System.Globalization.CultureInfo Invariant = CultureInfo.InvariantCulture;
@@ -346,41 +347,186 @@ internal static unsafe class GlobalArrayTests
             Throws<ObjectDisposedException>(call, $"{what} on a released buffer", "CommandBuffer");
     }
 
+    /// <summary>An id no name was registered for; <see cref="RefuseUnregisteredId"/> checks that it stays so.</summary>
+    private const int UnregisteredId = int.MinValue + 29;
+
+    /// <summary>The most names the world's global state holds of one array kind.</summary>
+    private const int MaxNativeNames = 1024;
+
+    /// <summary>What the world says when a list of one kind is full.</summary>
+    private const string CapacityRefusal = "a set of properties holds at most 1024 values of one kind";
+
+    /// <summary>A stored vector array and matrix array, by name, that a refusal must leave as they were.</summary>
+    private sealed record Sentinels(string VectorName, Vector4[] VectorValues, string MatrixName, Matrix4x4[] MatrixValues)
+    {
+        public byte[] VectorBytes => VectorEntry(VectorName, VectorValues);
+
+        public byte[] MatrixBytes => MatrixEntry(MatrixName, MatrixValues);
+    }
+
     private static void StaticArraysRefuseAnUnregisteredId()
     {
-        var unregistered = int.MinValue + 29;
+        var (vectors, matrices) = (Vectors(2, 12f), Matrices(2, 12f));
+        Shader.SetGlobalVectorArray("_GaUnregVec", vectors);
+        Shader.SetGlobalMatrixArray("_GaUnregMat", matrices);
+        var held = new Sentinels("_GaUnregVec", vectors, "_GaUnregMat", matrices);
+        var before = NativeArrays(held);
+        RefuseUnregisteredId("a loaded world");
+        SentinelsAreUnchanged(held, before, "a loaded world");
+    }
+
+    /// <summary>Calls all four static array setters with valid values under an id no name was registered for. Each must throw
+    /// <see cref="ArgumentException"/>, and nothing may be stored under the id, in the managed store or through its getters.</summary>
+    private static void RefuseUnregisteredId(string stage)
+    {
+        Ensure(Shader.PropertyName(UnregisteredId) is null, $"{stage}: the id the refusals use has a registered name");
         var (vectors, matrices) = (Vectors(2, 11f), Matrices(2, 11f));
         var calls = new (string What, Action Call)[]
         {
-            ("vector array", () => Shader.SetGlobalVectorArray(unregistered, vectors)),
-            ("vector list", () => Shader.SetGlobalVectorArray(unregistered, new List<Vector4>(vectors))),
-            ("matrix array", () => Shader.SetGlobalMatrixArray(unregistered, matrices)),
-            ("matrix list", () => Shader.SetGlobalMatrixArray(unregistered, new List<Matrix4x4>(matrices))),
+            ("vector array", () => Shader.SetGlobalVectorArray(UnregisteredId, vectors)),
+            ("vector list", () => Shader.SetGlobalVectorArray(UnregisteredId, new List<Vector4>(vectors))),
+            ("matrix array", () => Shader.SetGlobalMatrixArray(UnregisteredId, matrices)),
+            ("matrix list", () => Shader.SetGlobalMatrixArray(UnregisteredId, new List<Matrix4x4>(matrices))),
         };
         foreach (var (what, call) in calls)
-            Throws<ArgumentException>(call, $"an unregistered id with a {what}", "no shader property has the id");
-        Ensure(Shader.GetGlobalVectorArray(unregistered) == null && Shader.GetGlobalMatrixArray(unregistered) == null, "a refused id stores nothing");
+        {
+            Throws<ArgumentException>(call, $"{stage}: an unregistered id with a {what}", "no shader property has the id");
+            NothingIsStoredUnderTheUnregisteredId($"{stage}, after the {what}");
+        }
     }
 
-    /// <summary>Fills the world's own list of global arrays of one kind to its limit with the native bindings, which leave the
-    /// managed store alone, and returns how many names the list took.</summary>
+    private static void NothingIsStoredUnderTheUnregisteredId(string stage)
+    {
+        Ensure(Shader.GetGlobalVectorArray(UnregisteredId) == null && Shader.GetGlobalMatrixArray(UnregisteredId) == null, $"{stage}: a refused id stores nothing");
+        var (vectorList, matrixList) = (new List<Vector4> { Vector4.one }, new List<Matrix4x4> { Matrix4x4.identity });
+        Shader.GetGlobalVectorArray(UnregisteredId, vectorList);
+        Shader.GetGlobalMatrixArray(UnregisteredId, matrixList);
+        Ensure(vectorList.Count == 0 && matrixList.Count == 0, $"{stage}: the list getters find no array under a refused id");
+        Ensure(!Shader.Globals.VectorArrays.ContainsKey(UnregisteredId) && !Shader.Globals.MatrixArrays.ContainsKey(UnregisteredId), $"{stage}: the global store holds no entry under a refused id");
+    }
+
+    /// <summary>The global vector and matrix arrays of a snapshot: how many names each list holds and the bytes of both lists.</summary>
+    private sealed record ArrayLists(int VectorCount, int MatrixCount, byte[] Bytes);
+
+    private static bool SameLists(ArrayLists expected, ArrayLists actual) =>
+        expected.VectorCount == actual.VectorCount && expected.MatrixCount == actual.MatrixCount && expected.Bytes.SequenceEqual(actual.Bytes);
+
+    /// <summary>The world's global vector and matrix arrays now, read from a snapshot of a frame that has work.</summary>
+    private static ArrayLists NativeArrays(Sentinels held)
+    {
+        Trigger();
+        return GlobalArrayLists(Snapshot(), held.VectorBytes, held.MatrixBytes);
+    }
+
+    private static void SentinelsAreStored(Sentinels held, string when)
+    {
+        Ensure(Shader.GetGlobalVectorArray(held.VectorName) is { } vectors && vectors.SequenceEqual(held.VectorValues), $"{when}: the stored vector sentinel changed");
+        Ensure(Shader.GetGlobalMatrixArray(held.MatrixName) is { } matrices && matrices.SequenceEqual(held.MatrixValues), $"{when}: the stored matrix sentinel changed");
+    }
+
+    /// <summary>The stored sentinels and the world's global arrays, names and values of both kinds, are what they were.</summary>
+    private static void SentinelsAreUnchanged(Sentinels held, ArrayLists before, string when)
+    {
+        SentinelsAreStored(held, when);
+        Ensure(SameLists(before, NativeArrays(held)), $"{when}: the world's global vector or matrix arrays changed");
+    }
+
+    /// <summary>Finds the one place in the snapshot that reads as the global state's vector array list followed by its matrix
+    /// array list, which are the last two lists of its properties. The lists must hold the anchor entries, which the caller set
+    /// as global arrays, so no other bytes can pass for them.</summary>
+    private static ArrayLists GlobalArrayLists(byte[] snapshot, byte[] vectorAnchor, byte[] matrixAnchor)
+    {
+        ArrayLists? found = null;
+        for (var start = 0; start < snapshot.Length; start++)
+        {
+            if (TryReadLists(snapshot, start, vectorAnchor, matrixAnchor) is not { } lists) continue;
+            Ensure(found is null, $"the snapshot reads as global array lists at two places, one of them at byte {start}");
+            found = lists;
+        }
+        return found ?? throw new InvalidOperationException("the snapshot holds no global array lists with the anchor entries");
+    }
+
+    private static ArrayLists? TryReadLists(byte[] bytes, int start, byte[] vectorAnchor, byte[] matrixAnchor)
+    {
+        var at = start;
+        if (!TryReadList(bytes, ref at, 4, vectorAnchor, out var vectors) || !TryReadList(bytes, ref at, 16, matrixAnchor, out var matrices)) return null;
+        return new ArrayLists(vectors, matrices, bytes[start..at]);
+    }
+
+    /// <summary>Reads a list of named arrays at <paramref name="at"/>: an entry count, then each entry's name length, name,
+    /// element count and floats of <paramref name="width"/> to an element, names strictly ascending by bytes. It succeeds
+    /// only for a well-formed list that holds the anchor entry.</summary>
+    private static bool TryReadList(byte[] bytes, ref int at, int width, byte[] anchor, out int entries)
+    {
+        entries = 0;
+        if (!TryReadInt(bytes, ref at, out var count) || count < 1 || count > MaxNativeNames) return false;
+        var (anchored, previousAt, previousLength) = (false, 0, 0);
+        for (var index = 0; index < count; index++)
+        {
+            var begin = at;
+            if (!TryReadEntry(bytes, ref at, width, out var nameAt, out var nameLength)) return false;
+            var name = new ReadOnlySpan<byte>(bytes, nameAt, nameLength);
+            if (index > 0 && new ReadOnlySpan<byte>(bytes, previousAt, previousLength).SequenceCompareTo(name) >= 0) return false;
+            (previousAt, previousLength) = (nameAt, nameLength);
+            anchored |= new ReadOnlySpan<byte>(bytes, begin, at - begin).SequenceEqual(new ReadOnlySpan<byte>(anchor));
+        }
+        entries = count;
+        return anchored;
+    }
+
+    private static bool TryReadEntry(byte[] bytes, ref int at, int width, out int nameAt, out int nameLength)
+    {
+        (nameAt, nameLength) = (0, 0);
+        if (!TryReadInt(bytes, ref at, out var length) || length < 1 || length > 256 || at + length > bytes.Length) return false;
+        (nameAt, nameLength) = (at, length);
+        at += length;
+        if (!TryReadInt(bytes, ref at, out var elements) || elements < 1 || elements > 1023) return false;
+        var payload = elements * width * 4;
+        if (at + payload > bytes.Length) return false;
+        for (var offset = 0; offset < payload; offset += 4)
+            if (!float.IsFinite(BinaryPrimitives.ReadSingleLittleEndian(bytes.AsSpan(at + offset, 4)))) return false;
+        at += payload;
+        return true;
+    }
+
+    private static bool TryReadInt(byte[] bytes, ref int at, out int value)
+    {
+        value = 0;
+        if (at + 4 > bytes.Length) return false;
+        value = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at, 4));
+        at += 4;
+        return true;
+    }
+
+    private static string FillerName(bool matrices, int index) => $"_GaFill{(matrices ? 'M' : 'V')}{index:D4}";
+
+    /// <summary>Writes one new name of finite floats (four for a vector, sixteen for a matrix) to the world's own list of
+    /// global arrays of one kind with the native binding, which leaves the managed store alone. A refusal throws.</summary>
+    private static void WriteFiller(bool matrices, int index)
+    {
+        var bytes = Encoding.UTF8.GetBytes(FillerName(matrices, index));
+        var floats = Enumerable.Range(0, matrices ? 16 : 4).Select(i => (float)(index + i)).ToArray();
+        fixed (byte* name = bytes)
+        fixed (float* data = floats)
+            DisunityHost.ThrowIfError(matrices
+                ? NativeBindings.disunity_shader_global_matrix_array_write(DisunityHost.WorldHandle, name, (uint)bytes.Length, data, 1)
+                : NativeBindings.disunity_shader_global_vector_array_write(DisunityHost.WorldHandle, name, (uint)bytes.Length, data, 1));
+    }
+
+    private static bool IsCapacityRefusal(DisunityException error) =>
+        error.Reason == DisunityErrorReason.InvalidArgument && error.Message.Contains(CapacityRefusal);
+
+    /// <summary>Fills the world's own list of global arrays of one kind with new names until the world refuses one as a full
+    /// list, and returns how many names it took. The world reports a full list as an invalid argument whose text names the
+    /// limit, so any other error, which a loader fault or a bad name would be, is not caught.</summary>
     private static int FillNativeArrays(bool matrices)
     {
-        var floats = new float[16];
-        var taken = 0;
-        while (taken < 4096)
+        for (var index = 0; index <= MaxNativeNames; index++)
         {
-            var bytes = Encoding.UTF8.GetBytes($"_GaFill{(matrices ? 'M' : 'V')}{taken:D4}");
-            DisunityResult result;
-            fixed (byte* name = bytes)
-            fixed (float* data = floats)
-                result = matrices
-                    ? NativeBindings.disunity_shader_global_matrix_array_write(DisunityHost.WorldHandle, name, (uint)bytes.Length, data, 1)
-                    : NativeBindings.disunity_shader_global_vector_array_write(DisunityHost.WorldHandle, name, (uint)bytes.Length, data, 1);
-            if (result.code != 0) return taken;
-            taken++;
+            try { WriteFiller(matrices, index); }
+            catch (DisunityException error) when (IsCapacityRefusal(error)) { return index; }
         }
-        throw new InvalidOperationException("the world's list took 4096 names, so it has no limit to reach");
+        throw new InvalidOperationException($"the world's list took more than {MaxNativeNames} names, so it has no limit to reach");
     }
 
     private static void NativeRefusalLeavesNoManagedCopy()
@@ -388,34 +534,51 @@ internal static unsafe class GlobalArrayTests
         DisunityHost.LoadWorld();
         try
         {
-            var kept = Vectors(2, 21f);
+            var (kept, keptMatrices) = (Vectors(2, 21f), Matrices(2, 21f));
             Shader.SetGlobalVectorArray("_GaKeptVec", kept);
-            Shader.SetGlobalMatrixArray("_GaKeptMat", Matrices(2, 21f));
-            var filledVectors = FillNativeArrays(matrices: false);
-            var filledMatrices = FillNativeArrays(matrices: true);
-            Ensure(filledVectors is >= 1000 and <= 1024 && filledMatrices is >= 1000 and <= 1024, $"the world's lists are full: {filledVectors} vectors, {filledMatrices} matrices");
-
-            var (vectors, matrices) = (Vectors(3, 31f), Matrices(3, 31f));
-            var refused = new (string What, Action Call)[]
-            {
-                ("vector array", () => Shader.SetGlobalVectorArray("_GaOverVec", vectors)),
-                ("vector list by id", () => Shader.SetGlobalVectorArray(Shader.PropertyToID("_GaOverVec"), new List<Vector4>(vectors))),
-                ("matrix array", () => Shader.SetGlobalMatrixArray("_GaOverMat", matrices)),
-                ("matrix list by id", () => Shader.SetGlobalMatrixArray(Shader.PropertyToID("_GaOverMat"), new List<Matrix4x4>(matrices))),
-            };
-            foreach (var (what, call) in refused)
-                Throws<DisunityException>(call, $"a {what} past the world's limit");
+            Shader.SetGlobalMatrixArray("_GaKeptMat", keptMatrices);
+            var held = new Sentinels("_GaKeptVec", kept, "_GaKeptMat", keptMatrices);
+            var existing = NativeArrays(held);
+            var (filledVectors, filledMatrices) = (FillNativeArrays(matrices: false), FillNativeArrays(matrices: true));
+            Ensure(existing.VectorCount + filledVectors == MaxNativeNames && existing.MatrixCount + filledMatrices == MaxNativeNames,
+                $"the world's lists are full: {existing.VectorCount} existing + {filledVectors} new vectors and {existing.MatrixCount} existing + {filledMatrices} new matrices, each of {MaxNativeNames}");
+            var full = NativeArrays(held);
+            Ensure(full.VectorCount == MaxNativeNames && full.MatrixCount == MaxNativeNames, $"the snapshot holds {full.VectorCount} vector and {full.MatrixCount} matrix names, each of {MaxNativeNames}");
+            Ensure(Count(full.Bytes, Encoding.UTF8.GetBytes(FillerName(matrices: false, filledVectors))) == 0 && Count(full.Bytes, Encoding.UTF8.GetBytes(FillerName(matrices: true, filledMatrices))) == 0,
+                "the name the full list refused is not in the world");
+            RefusedArraysPastTheLimitLeaveTheSentinels(held, full);
             Ensure(Shader.GetGlobalVectorArray("_GaOverVec") == null && Shader.GetGlobalMatrixArray("_GaOverMat") == null, "a refused array is not stored");
-            Ensure(Shader.GetGlobalVectorArray("_GaKeptVec")!.SequenceEqual(kept), "an earlier array is as it was");
+            Ensure(Shader.GetGlobalVectorArray("_GaKeptVec")!.SequenceEqual(kept) && Shader.GetGlobalMatrixArray("_GaKeptMat")!.SequenceEqual(keptMatrices), "an earlier vector and matrix array are as they were");
 
             Trigger();
             var snapshot = Snapshot();
             Ensure(Count(snapshot, Encoding.UTF8.GetBytes("_GaOverVec")) == 0 && Count(snapshot, Encoding.UTF8.GetBytes("_GaOverMat")) == 0, "the world holds neither refused name");
-            Ensure(Count(snapshot, VectorEntry("_GaKeptVec", kept)) == 1, "the world still holds the earlier array");
+            Ensure(Count(snapshot, VectorEntry("_GaKeptVec", kept)) == 1 && Count(snapshot, MatrixEntry("_GaKeptMat", keptMatrices)) == 1, "the world still holds the earlier vectors and matrices");
         }
         finally
         {
             DisunityHost.UnloadWorld();
+        }
+    }
+
+    /// <summary>Calls every static array setter with valid values under a new name or id while the world's list of that kind is
+    /// full. Each must throw the capacity error, and after each the stored sentinels and the world's global arrays, matrices
+    /// included, are what they were.</summary>
+    private static void RefusedArraysPastTheLimitLeaveTheSentinels(Sentinels held, ArrayLists full)
+    {
+        var (vectors, matrices) = (Vectors(3, 31f), Matrices(3, 31f));
+        var refused = new (string What, Action Call)[]
+        {
+            ("vector array", () => Shader.SetGlobalVectorArray("_GaOverVec", vectors)),
+            ("vector list by id", () => Shader.SetGlobalVectorArray(Shader.PropertyToID("_GaOverVec"), new List<Vector4>(vectors))),
+            ("matrix array", () => Shader.SetGlobalMatrixArray("_GaOverMat", matrices)),
+            ("matrix list by id", () => Shader.SetGlobalMatrixArray(Shader.PropertyToID("_GaOverMat"), new List<Matrix4x4>(matrices))),
+        };
+        foreach (var (what, call) in refused)
+        {
+            Throws<DisunityException>(call, $"a {what} past the world's limit", "InvalidArgument", CapacityRefusal);
+            Ensure(Shader.GetGlobalVectorArray("_GaOverVec") == null && Shader.GetGlobalMatrixArray("_GaOverMat") == null, $"a refused {what} is not stored");
+            SentinelsAreUnchanged(held, full, $"after a refused {what}");
         }
     }
 
@@ -424,10 +587,17 @@ internal static unsafe class GlobalArrayTests
         var (vectors, matrices) = (Vectors(2, 8f), Matrices(2, 8f));
         Shader.SetGlobalVectorArray("_GaPreVec", vectors);
         Shader.SetGlobalMatrixArray("_GaPreMat", new List<Matrix4x4>(matrices));
+        var held = new Sentinels("_GaPreVec", vectors, "_GaPreMat", matrices);
         var material = new Material(Material.SpriteLit);
         material.SetVectorArray("_GaMaterialVec", Vectors(1, 1f));
-        for (var load = 0; load < 2; load++)
+        ArrayLists? firstLoad = null;
+        for (var load = 0; load < 3; load++)
         {
+            if (load > 0)
+            {
+                RefuseUnregisteredId($"before load {load}, with no world loaded");
+                SentinelsAreStored(held, $"before load {load}, after the refusals with no world loaded");
+            }
             DisunityHost.LoadWorld();
             try
             {
@@ -436,6 +606,12 @@ internal static unsafe class GlobalArrayTests
                 Ensure(Count(snapshot, VectorEntry("_GaPreVec", vectors)) == 1, $"load {load}: the vectors set before the load are in the global state");
                 Ensure(Count(snapshot, MatrixEntry("_GaPreMat", matrices)) == 1, $"load {load}: the matrices set before the load are in the global state");
                 Ensure(Count(snapshot, VectorEntry("_GaMaterialVec", Vectors(1, 1f))) == 0, $"load {load}: a material's array is not sent");
+                var lists = GlobalArrayLists(snapshot, held.VectorBytes, held.MatrixBytes);
+                firstLoad ??= lists;
+                Ensure(SameLists(firstLoad, lists), $"load {load}: the global arrays are those of the first load, so a refused id sent nothing");
+                NothingIsStoredUnderTheUnregisteredId($"load {load}");
+                RefuseUnregisteredId($"load {load}, with a world loaded");
+                SentinelsAreUnchanged(held, lists, $"load {load}, after the refusals with a world loaded");
             }
             finally
             {

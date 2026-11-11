@@ -26,6 +26,7 @@ mod player_textures;
 mod player_ui;
 mod prepare;
 mod retained_driver;
+mod scene_light;
 mod scene_tables;
 mod scene_transform;
 pub mod storage_budget;

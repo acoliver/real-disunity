@@ -102,11 +102,37 @@ objects continue to draw; missing text coverage remains an error. The renderer's
 explicit-texture overlay API still rejects unresolved identities.
 Ordinary 2D scene quads and world-space UI remain outside this retained path.
 
+### Lighting the retained scene
+
+The retained scene is lit by the World's main light, chosen in `scene_light.rs`. These are the
+engine's choices:
+
+- The main light is the first directional light the prepared frame lists, in component order.
+  `RenderSettings.sun` and the ambient settings live only in managed memory and are not read.
+  Without a directional light the scene stays unlit, as before.
+- The scene sun shines back along the light's forward axis. Its irradiance is the light's
+  intensity, at most 10. The scene sun has no colour, so the light's colour is not used.
+- The ambient light is white, 0.3 from above and 0.15 from below. The scene asks for no
+  atmosphere, so the game's clear colour stays the background.
+- Shadows exist only when the first frame's main light casts them, because the viewer chooses
+  its shadow resources when it starts. They use three cascades split 10 m, 40 m and 150 m from
+  the camera, a 2048-texel map, a depth bias of 0.0005 and a normal bias of 2 cm. The light's
+  own bias values are not used, since the engine defines no unit for them. A light that starts
+  casting shadows later lights the scene without them.
+- Each frame sends new scene effects only when its lighting changed. After a frame has been
+  lit, a frame without a directional light keeps the last sun's direction with no irradiance.
+
 ## Tests
 
 The library's synthetic retained-player UI test runs the managed host and captures
 windowless frames. It requires .NET 8 and a GPU adapter and checks image bytes,
 text, clipping and unchanged-frame UI update counts without opening a window.
+
+`scene_light` unit tests pin the main-light choice, the sun direction of a turned light, the
+irradiance limit, the fixed shadow settings and when a frame sends new effects.
+`scene_tables::tests::lit` starts the viewer as `play_player_window` does and checks on a GPU
+adapter that a shadow-casting sun draws into the shadow cascades and that no sun, or a sun
+without shadows, draws none.
 
 `tests/play_window.rs` plays all three games in a 480x270 window and checks the captured pixels. It needs an X display; run it as the lavapipe CI job does:
 

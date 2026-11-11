@@ -2,7 +2,7 @@
 use glam::Vec3;
 use worldrunner_render_plan::{
     SceneFadeBand, SceneFadeCoverage, SceneFadeDirection, SceneFadeQuantization,
-    SceneFadeReference, SceneMaterial, SceneObject,
+    SceneFadeReference, SceneMaterial, SceneObject, SceneTexture, threshold_texels,
 };
 
 use crate::geometry::{fade_band_meters, millimeter_to_meter, model_matrix};
@@ -16,10 +16,21 @@ pub(crate) struct Fade {
     direction: SceneFadeDirection,
     quantization: SceneFadeQuantization,
     coverage: SceneFadeCoverage,
+    /// Whether every texel of the material's threshold grid is above zero, so zero opacity
+    /// keeps no fragment. False for hashed coverage and for a grid outside `textures`.
+    threshold_above_zero: bool,
 }
 
 impl Fade {
-    pub fn new(material: &SceneMaterial) -> Self {
+    /// `textures` is the table the material's threshold handle indexes.
+    pub fn new(material: &SceneMaterial, textures: &[SceneTexture]) -> Self {
+        let threshold_above_zero = match material.fade_coverage() {
+            SceneFadeCoverage::Hashed => false,
+            SceneFadeCoverage::Threshold { texture, .. } => textures
+                .get(texture.raw() as usize)
+                .and_then(threshold_texels)
+                .is_some_and(|(_, texels)| !texels.is_empty() && !texels.contains(&0)),
+        };
         Self {
             band: material
                 .impostor()
@@ -28,6 +39,7 @@ impl Fade {
             direction: material.fade_direction(),
             quantization: material.fade_quantization(),
             coverage: material.fade_coverage(),
+            threshold_above_zero,
         }
     }
 
@@ -65,8 +77,11 @@ impl Fade {
         }
         let hashed = matches!(self.coverage, SceneFadeCoverage::Hashed);
         match self.direction {
-            // Inclusive R8 thresholds can contain zero, so zero opacity survives.
-            SceneFadeDirection::Inclusive => hashed && opacity.lo == 0.0 && opacity.hi == 0.0,
+            // Inclusive coverage keeps opacity at or above the threshold, so zero opacity
+            // survives a grid holding any zero texel.
+            SceneFadeDirection::Inclusive => {
+                (hashed || self.threshold_above_zero) && opacity.lo == 0.0 && opacity.hi == 0.0
+            }
             SceneFadeDirection::Keep => opacity.lo == 0.0 && opacity.hi == 0.0,
             // Complement stores the shared lower boundary, not 1 minus opacity.
             // An R8 threshold of one still owns the equality at this boundary.

@@ -1,3 +1,5 @@
+mod threshold_tests;
+
 use super::tests::{scene, transform};
 use super::*;
 use worldrunner_render_plan::*;
@@ -26,7 +28,7 @@ fn fixture(material: &SceneMaterial, bands: &[Option<SceneFadeBand>]) -> RenderS
 }
 
 #[test]
-fn empty_terminal_fades_leave_camera_and_caster_selection_and_counts() {
+fn empty_terminal_fades_leave_camera_selection_and_casters_keep_them() {
     let base = scene();
     let band = SceneFadeBand::new(2000, 6000).unwrap().with_terminal_fade();
     let source = fixture(&base.resources().materials()[0], &[None, Some(band)]);
@@ -43,11 +45,16 @@ fn empty_terminal_fades_leave_camera_and_caster_selection_and_counts() {
             ..Selection::default()
         };
         selection.rebuild(&instances, &meshes, Mat4::IDENTITY, [0, -7000, 500]);
+        let culled = usize::from(!casters_only);
         assert_eq!(selection.stats.considered, 2);
-        assert_eq!(selection.stats.culled, 1);
-        assert_eq!(selection.stats.drawn_per_lod.iter().sum::<usize>(), 1);
+        assert_eq!(selection.stats.culled, culled);
+        assert_eq!(
+            selection.stats.drawn_per_lod.iter().sum::<usize>(),
+            2 - culled
+        );
         assert_eq!(selection.ranges.len(), 1);
-        assert_eq!(selection.ranges[0].slots, 0..1);
+        let end = u32::try_from(2 - culled).unwrap();
+        assert_eq!(selection.ranges[0].slots, 0..end);
     }
 }
 

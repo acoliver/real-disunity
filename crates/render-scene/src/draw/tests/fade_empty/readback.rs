@@ -1,4 +1,5 @@
 use super::*;
+use crate::draw::lod_material::FixedSink;
 use crate::pipeline::PipelineKey;
 use crate::scene_metadata::{MetadataOutput, SceneMetadata};
 
@@ -181,14 +182,12 @@ pub(super) fn capture(
             pass.set_bind_group(3, group, &[]);
         }
         if let Some(pipelines) = &setup.shadow {
-            gpu.record_selection(&mut pass, pipelines, (shadow, &frame), &selected.ranges)
+            let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
+            gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
         } else {
-            gpu.record_selection(
-                &mut pass,
-                setup.pipelines.object_pipelines(),
-                (None, &frame),
-                &selected.ranges,
-            )
+            let pipelines = setup.pipelines.object_pipelines();
+            let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
+            gpu.record_selection(&mut sink, (None, &frame), &selected.ranges)
         }
     };
     let buffers: Vec<_> = colors

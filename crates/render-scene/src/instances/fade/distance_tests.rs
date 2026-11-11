@@ -48,6 +48,7 @@ fn check_reference(transform: SceneTransform) {
             direction: SceneFadeDirection::Keep,
             quantization: SceneFadeQuantization::Continuous,
             coverage: SceneFadeCoverage::Hashed,
+            threshold_above_zero: false,
         };
         for distance in [
             2.0_f32.next_down(),

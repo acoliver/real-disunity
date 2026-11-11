@@ -127,7 +127,7 @@ impl Instances {
                 .resources()
                 .materials()
                 .iter()
-                .map(fade::Fade::new)
+                .map(|material| fade::Fade::new(material, scene.resources().textures()))
                 .collect(),
             #[cfg(test)]
             fade_cull_disabled: false,
@@ -169,7 +169,12 @@ impl Instances {
         self.curved_wind.extend(curved);
         self.impostor_extents
             .extend(materials.iter().map(impostor_extent));
-        self.fades.extend(materials.iter().map(fade::Fade::new));
+        // Appends refuse threshold coverage, so no appended material needs the texture table.
+        self.fades.extend(
+            materials
+                .iter()
+                .map(|material| fade::Fade::new(material, &[])),
+        );
         self.mesh_count = mesh_count;
     }
 

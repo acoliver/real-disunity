@@ -676,7 +676,8 @@ not advance cascade refresh frames or consume a pending capture request.
 Reenabling validates retained maps against caster edits, settings and the next
 view before reuse; invalid maps refresh through the existing policy. A capture
 requested while disabled runs on the next successfully submitted enabled frame.
-This scene-wide control does not implement managed per-camera `renderShadows`.
+The scene-viewer camera shadow policy drives it; `play` sets that policy from the
+presented camera's `renderShadows` (see `crates/play/README.md`).
 
 `DirectionalShadowSettings::refresh_policy` defaults to
 `CascadeRefreshPolicy::default()`: every cascade renders every submitted frame.

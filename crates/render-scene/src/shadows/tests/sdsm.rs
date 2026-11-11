@@ -1,5 +1,6 @@
 mod gaps;
 mod history;
+mod ssr;
 mod velocity;
 use super::*;
 use crate::shadows::cascades::CascadeViews;

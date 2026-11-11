@@ -56,6 +56,7 @@ fn gpu_scalable_gather_application_ao_uses_receiver_and_consumed_metre_depths() 
         ssr.application_ao.size(),
     );
     super::numerical::prepare_forward(&context, &ssr);
+    upload(&context, &ssr.normals, &[0.0, 0.0, 1.0, 1.0].repeat(9));
     upload(&context, &ssr.material, &[0.5; 36]);
     let mut depths = [3.0; 9];
     depths[0] = 20.0;

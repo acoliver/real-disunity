@@ -8,6 +8,8 @@ SSR consumes the existing opaque color snapshot as linear HDR radiance, before t
 
 Opaque forward shading evaluates the split-sum factor `F0 * A + B`. It publishes the actual environment-specular contribution, including exposure and camera fog transmittance, as `FrameProduct::forward_specular(samples)`. `FrameProduct::reflection_factor(samples)` publishes the split-sum factor times camera transmittance. The latter does not apply exposure again because incident SSR radiance already includes it. Both products use per-sample RGBA16Float storage and are declared additional targets of the existing opaque pass.
 
+The post-water traversal hierarchy stores positive linear view depth. Every coarse cell is the minimum of its valid 2x2 children, including partial edge bins, so it bounds the nearest surface in its footprint. Grid traversal uses this bound to decide whether to refine a cell before skipping it. Both full-resolution and reflection-output grid domains use the same hierarchy. In the half-resolution domain, the same grid walk refines contacted leaves through the full-resolution children crossed by the projected ray, in ray order. Each child uses the perspective depth and thickness test; a leaf without a child intersection does not end the walk. The first intersected child supplies its pixel and depth to opaque ownership, target-normal rejection and confidence. Grid confidence uses the non-grid thickness convention: the positive entry-depth residual fades from full confidence at half the allowed thickness to zero at its outer edge. Literal depth crossings have zero residual. This confidence multiplies RGB and alpha together. Averaged occlusion footprints and filtered radiance are separate products and do not supply traversal bounds.
+
 Water publishes its depth-tested normal and coverage flag, sample offsets within the pixel, scalar F0 and perceptual roughness, and environment-specular contribution. Environment alpha carries camera transmittance. The trace reconstructs a covered water receiver from its published sample offsets and its own forward sample depth. Both perspective and orthographic projections are supported. Offsets use RGBA16Float material channels, with their storage precision; no sample pattern is assumed. Resolve selects metadata independently for each sample. Opaque traversal targets must still match the immutable opaque snapshot.
 
 For confidence `c`, resolve adds the delta
@@ -19,6 +21,72 @@ filtered_premultiplied_radiance * factor - c * published_environment_specular
 The roughness cutoff fade multiplies both terms and therefore also scales effective confidence. Zero confidence leaves the shaded result unchanged. Full confidence replaces the environment lobe without changing diffuse, direct light or emission.
 
 Each MSAA sample has a horizontal lane in the existing SSR radiance targets. Ceil-divided mip reduction and bilinear reconstruction stay inside that lane, including partial edge bins. Sample positions are not assumed or hard-coded. Construction and resize reject a packed width above the device texture limit with `FrameError::SsrSettings`; the maximum frame width is the limit divided by sample count at full resolution, or twice that at half resolution. Reduction is a recursive equal-child filter, not an original-pixel area average at unequal partial footprints. Water-covered target pixels are conservatively rejected, and opaque receiver resolve retains its pixel-level shoreline exclusion.
+## Receiver-compatible reconstruction
+
+Resolve classifies raw trace receivers before mixing their radiance. Opaque
+descriptors unproject the opaque depth at its full-resolution pixel centre,
+independently of the trace-grid centre. Water descriptors use the published
+normal and sample offset with that sample's raw forward depth. Water resolve binds
+the scheduled raw scene depth in place of the reduced final-depth input, without
+an extra sampled texture. Its opaque visibility check rejects a pixel if any
+sample lane has nonzero water-normal alpha, and accepts it otherwise. Water is
+the only depth writer between the opaque and final snapshots, and every passing
+water fragment publishes nonzero normal alpha. The numeric depth comparison is
+removed because raw-depth unprojection and the opaque snapshot compute depth
+through different float32 operations; their rounding differences reject visible
+opaque receivers. Raw depth still reconstructs water receiver positions.
+
+This coverage rule is more conservative than main's minimum-snapshot comparison
+at a multisampled pixel where a water sample lies in front of a far opaque sample
+while a nearer opaque sample sets the minimum depth. Main can accept the opaque
+receiver there; the water resolve rejects it. AO has a separate binding and never
+supplies a receiver normal.
+
+Two receivers must have the same owner, normalized-normal dot product at least
+0.9, and symmetric tangent-plane residual at most
+`max(0.01 metres, 0.001 * min(view_depth_a, view_depth_b))`. The residual is the
+larger absolute projection of their position difference onto either geometric
+plane normal. Each plane uses the nearest same-owner depth neighbour on each
+pixel axis, avoiding a farther silhouette or depth step when a nearer neighbour
+exists. If an axis has no covered neighbour, the published shading normal is the
+remaining local plane estimate. Where depth samples span a plane, shading
+normals govern angular rejection only; normal-map perturbations do not tilt the
+depth-continuity plane. These local estimates approximate surface continuity
+rather than mesh identity.
+Sufficiently close, coplanar objects of the same receiver type can share support.
+
+For nonzero roughness at LOD at most one, resolve integrates raw trace texels
+with a separable tent of radius `clamp(2 * exp2(lod), 2, 4)`. Beyond LOD one the
+tent stays at radius four and blends into the roughness mip kernel with
+`smoothstep(1, 2, lod)`. At and above LOD two only the mip kernel contributes;
+there is no cap on its support. Perfect mirrors use receiver-gated level-zero
+bilinear reconstruction. Compatible alpha-zero misses remain in the denominator
+of every kernel. Premultiplied RGB and alpha always share the same weights.
+
+Receiver classification is restricted to raw reflection level zero. Its bilinear
+kernel visits at most four trace receivers. The low-LOD tent visits at most 81
+candidate texels (a radius-four, nine-by-nine box), regardless of image size or
+mip count. Compatible alpha-zero misses retain their measure in both kernels.
+Levels above zero return the existing prefiltered radiance mip directly, using
+its bilinear kernel and storage rounding. Fractional LOD interpolation and the
+bounded tent transition described above remain unchanged.
+
+The radiance reduction averages premultiplied RGB and confidence without
+receiver ownership. Broad roughness therefore shares the existing mip policy;
+water at roughness 0.1 and half-resolution LOD zero gets the finite compatible
+footprint. Enumerating raw receivers beneath a broad mip is prohibited: four
+level-eight taps can cover 262,144 receiver checks per fragment, causing Metal
+GPU hangs and leaving later SDSM statistics unexecuted. SDSM continues to reject
+malformed zeroed statistics. The full-size SDSM/SSR regression checks both water
+roughness cases, and a full-size rough receiver test compares against direct mip
+sampling. Full native mips retain their logical extents and two-axis sample
+packing. All receiver bindings are also needed by the level-zero kernels;
+resolve requires
+11 sampled textures for full mips, or `levels + 10` for separate levels, plus one
+when application AO is enabled. Unsupported device budgets fail before allocation.
+SixLevels with depth-relative AO requires 17 sampled textures per stage and is
+rejected on a 16-texture device with "reflection resolve exceeds sampled texture limit".
+
 
 `set_reflection_composition(Composition::Additive)` explicitly selects the existing additive algorithm for opaque receivers. Existing callers without installed reflection maps retain that algorithm. Water receivers use environment replacement because their forward shader already contains the environment lobe.
 

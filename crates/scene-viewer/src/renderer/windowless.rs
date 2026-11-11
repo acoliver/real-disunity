@@ -8,6 +8,7 @@ impl Renderer {
         let (instance, context) = windowless_context(host).await?;
         let scene = host.initial_scene();
         let options = &host.options;
+        let shadow_policy = host.readiness.shadow_policy;
         let errors = device_errors(context.device(), context.submission());
         let extents = Extents::new(
             options.size,
@@ -50,7 +51,11 @@ impl Renderer {
             frame_time: std::time::Duration::ZERO,
             live_upload: None,
             live_pending: None,
-            streaming: readiness::Streaming::new(options.shadows, options.frame_profile),
+            streaming: readiness::Streaming::with_shadow_policy(
+                options.shadows,
+                options.frame_profile,
+                shadow_policy,
+            ),
         };
         renderer.check_errors()?;
         #[cfg(not(all(test, target_os = "linux")))]

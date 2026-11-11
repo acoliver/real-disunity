@@ -89,8 +89,9 @@ impl PreparedFeature for SceneFeature<'_> {
 
 /// Prepares the terrain pipelines of the passes the scene feature draws terrain in: the
 /// prepass when the frame has screen-space passes, and the colour pass with the forward
-/// pipelines when those are installed. Preparing is done before the passes open, where a
-/// refusal is still an error.
+/// pipelines when those are installed. The objects' pipelines are prepared for the colour pass
+/// only: the prepass draws them with the fixed pipelines. Preparing is done before the passes
+/// open, where a refusal is still an error.
 fn prepare_terrain(
     gpu: &crate::draw::SceneGpu,
     frame: &crate::frame::FrameUniform,
@@ -98,14 +99,16 @@ fn prepare_terrain(
     screen: Option<&crate::scene_metadata::Geometry>,
 ) -> Result<(), FrameError> {
     let Some(screen) = screen else {
-        return gpu.prepare_terrain(pipelines, frame);
+        gpu.prepare_terrain(pipelines, frame)?;
+        return gpu.prepare_objects(pipelines, frame);
     };
     gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
     let colour = screen
         .forward
         .as_ref()
         .map_or(pipelines, |(forward, _)| forward);
-    gpu.prepare_terrain(colour, frame)
+    gpu.prepare_terrain(colour, frame)?;
+    gpu.prepare_objects(colour, frame)
 }
 
 /// Adds the velocity attachment, which the main pass clears to zero and never resolves.

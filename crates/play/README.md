@@ -44,6 +44,7 @@ It writes the script layouts of the player's game assemblies with `csharp/Disuni
 | --- | --- |
 | `GraphicsSnapshot` | `worldrunner_world_simulation::graphics::GraphicsSnapshot` holds what the frame's records reach: the cameras they name with their pose, the renderers those cameras may draw (every layer a camera's mask admits, not only the screen camera's), the materials and shaders of those renderers and of the blits, the render textures with their samplers, the global state, and the compute shaders and buffers the dispatches name. `DisunityHost::graphics_snapshot()` drains it once per call, and `GpuFlush::snapshot()` does the same inside a flush; a frame with no work gives an empty snapshot. |
 | `OffscreenAdapter::adapt` | Loads each shader (`ShaderLoader`, or any `ShaderSupply`), uploads the meshes and stored textures the frame names through `Assets` (implemented for `DisunityHost`), and maps the snapshot with `adapt`. A mesh keeps its vertex channels under the numbers the host stored them with (0 position, 1 normal, 2 tangent, 3 colour, 4 to 11 texture coordinate sets 0 to 7; blend weights and indices are left out), each as 1 to 4 floats, and its ranges become the sub-meshes by range number; a range that draws and is not triangles refuses the mesh by the name of its topology (`QuadTopology`, `LineTopology`, `LineStripTopology`, `PointTopology`). A stored texture is uploaded with its wrap along u and v and its filter as render-program's `SamplerState`; a render texture brings the same from its `WorldSampler` wherever a property names it. Mirror once is read as mirror; the wrap along w, anisotropy and mip bias are not carried, and a render texture read as the source of a blit or a copy is read with the fixed sampler. A blit of every pass (-1) becomes one record for each pass of the material's shader, in order. A record that names a destroyed texture, camera or material, or something the host cannot supply, is skipped and counted by reason in the `Report`. A dispatch is not a frame record: `Adapted::dispatches` says how many records come before it, and the render textures its properties name are in the frame. |
+| Mesh draws (`OffscreenWork::DrawMesh`) | A command buffer's mesh draw is drawn like one renderer of a renderer list with one sub-mesh, into the render target bound at its place in the frame (`SetRenderTarget`, an optional `ClearRenderTarget`) with the view and projection of the last `SetViewProjection` or camera setup. The host reads the mesh by the record's identity through `Assets`, as it reads a renderer's mesh, and the draw takes the mesh's channels, the material's constants and textures, the shader pass by index and the render state of the pass as a list draw does. The record's matrix is the object's `unity_ObjectToWorld` (and its inverse `unity_WorldToObject`); `unity_MatrixV`, `unity_MatrixVP` and `_WorldSpaceCameraPos` come from the view, and are missing before any view is set. The sub-mesh number is the mesh's range number. A `pass` of -1 draws every pass of the material's shader in order inside one draw, so a later pass blends over an earlier one; any other pass draws that one. A mesh draw is left out and counted in `Report::skipped` (and `skipped_by_kind` as `DrawMesh: <reason>`) as `MeshUnavailable` (the store does not hold the mesh, or it failed to upload), `EmptyMesh` (the mesh has nothing to draw, which also adds the `mesh with nothing to draw` census line when the mesh is read, or the sub-mesh has no indices), `NoSuchSubmesh` (the sub-mesh number is past the mesh's ranges), `NoSuchPass` (the pass is past the shader's passes), `UnboundTarget`, `PartialViewport`, `StaleMaterial` or `ShaderUnavailable`. |
 | `build` | `OffscreenState::build` for the adapted frame. When the state refuses the frame, each render texture and then each record is built alone, the ones refused are left out and counted by the error's name, and the rest are built together. |
 | `ShaderLoader` | Opens the serialized file a `ShaderSource` names under the data directory (a path that leaves it is refused), decodes the shader object, takes the chunks of its Vulkan platform and builds the `ProgramShader`. Sources are cached, failures included. |
 | `builtins`, `camera` | The per-draw values (`unity_ObjectToWorld`, `unity_WorldToObject`) and per-camera values (`unity_MatrixV`, `unity_MatrixVP`, `_WorldSpaceCameraPos`). The module documentation gives the evidence for each name, how it is computed, and the names left missing with the number of the player's variants that hold them. |
@@ -51,6 +52,8 @@ It writes the script layouts of the player's game assemblies with `csharp/Disuni
 `play shader-census <player data directory>` loads every shader of a player through the loader and prints counts. All 171 shader objects of the Old World player (Unity 6000.3.15f1) load as programs, with 663 passes. It also prints how many loaded shaders have no pass with a `LightMode` tag and the passes by `LightMode`: in the Windows build's data 147 of the 171 shaders have none, and 603 of the 664 passes have no `LightMode`; `DepthOnly` (9), `SHADOWCASTER` (10), `UniversalForward` (13) and `DepthNormals` (8) are the largest tagged groups, and no pass is tagged `SRPDefaultUnlit`.
 
 `unity-import player-shader-builtins <player data directory>` is the aggregate measurement the built-in names rest on; see [the importer guide](../../docs/unity-projects.md).
+
+Vector arrays and matrix arrays (`PropertyValue::VectorArray` and `MatrixArray`) are carried by name like the single values. An array the global state holds when the frame starts, one a command sets with `OffscreenWork::SetGlobal` and one a dispatch holds is copied into the constant buffer member of its name in element order, each matrix column by column. A command's array applies to the records after it until another command sets that name. A pass that declares fewer elements than the array holds is not drawn: its record is left out and counted as `record:Constant`, with the cause `record:Constant/ArrayTooLong` and the property, the given and the declared counts in the example. A dispatch in that case is left out as `dispatch:Constants`. `DispatchTrace::constants` lists an array by its element count. The same mapping serves the values of a material and of a property block. `tests/global_arrays.rs` (in `offscreen/tests`) checks this on a real adapter with a blit pass that shows one element in each half of its target and a kernel that copies its array constants into a buffer; the matrices it uses have rows that differ from the columns shown, so a transposed matrix changes the result.
 
 ### Compute and the GPU flush
 
@@ -76,7 +79,7 @@ The program runtime holds all GPU storage the host makes (stored textures and me
 2. For a software adapter such as lavapipe, whose textures live in host memory, a quarter of the `MemAvailable` the host reports, no less than 512 MiB and no more than 2 GiB.
 3. 512 MiB for any other adapter.
 
-The `[gpu] adapter` report line names the budget and which rule chose it. When an allocation would not fit, the host gives back what the snapshot being mapped does not name, least recently named first: stored meshes, stored textures and render textures. A snapshot names a render texture when a record reads or draws into it, or a property of a material, a renderer or the globals holds it. A render texture given back is made again, empty, by the next frame that names it. The host does this before it builds a frame's render textures, when an upload is refused and before the frame that copies the texture for a pixel read begins, so the staging fits. The report counts what was given back as `given back to make room`, and a pixel read the budget still has no room for as `pixel reads refused: no copy of the texture could be made: over the storage budget`.
+The `[gpu] adapter` report line names the budget and which rule chose it. When an allocation would not fit, the host gives back what the snapshot being mapped does not name, least recently named first: stored meshes, stored textures and render textures. A snapshot names a render texture when a record reads or draws into it, or a property of a material, a renderer or the globals holds it. A render texture given back is made again, empty, by the next frame that names it. The host does this before it builds a frame's render textures, when an upload is refused and before the frame that copies the texture for a pixel read begins, so the staging fits. The report counts what was given back as `given back to make room`, and a pixel read the budget still has no room for as `pixel reads refused: no copy of the texture could be made: over the storage budget`. A stored mesh or texture whose upload the budget still refuses is counted as a failure of that snapshot and is asked for again, whole, by the next snapshot that names it, so it is uploaded once room exists even though the engine stores no newer generation of it. One the host cannot upload for its own sake (a mesh with no position channel, a texture whose bytes are shorter than its base level, a format the host does not decode) is counted once and not read again until the engine stores a new generation. In both cases the storage of the generation it replaced is given back, so a failed replacement leaves neither old geometry nor old texels to draw from; `tests/mesh_cache.rs` and `tests/texture_cache.rs` (in `offscreen/tests`) hold these claims.
 
 ### Wiring a frame
 
@@ -99,11 +102,37 @@ objects continue to draw; missing text coverage remains an error. The renderer's
 explicit-texture overlay API still rejects unresolved identities.
 Ordinary 2D scene quads and world-space UI remain outside this retained path.
 
+### Lighting the retained scene
+
+The retained scene is lit by the World's main light, chosen in `scene_light.rs`. These are the
+engine's choices:
+
+- The main light is the first directional light the prepared frame lists, in component order.
+  `RenderSettings.sun` and the ambient settings live only in managed memory and are not read.
+  Without a directional light the scene stays unlit, as before.
+- The scene sun shines back along the light's forward axis. Its irradiance is the light's
+  intensity, at most 10. The scene sun has no colour, so the light's colour is not used.
+- The ambient light is white, 0.3 from above and 0.15 from below. The scene asks for no
+  atmosphere, so the game's clear colour stays the background.
+- Shadows exist only when the first frame's main light casts them, because the viewer chooses
+  its shadow resources when it starts. They use three cascades split 10 m, 40 m and 150 m from
+  the camera, a 2048-texel map, a depth bias of 0.0005 and a normal bias of 2 cm. The light's
+  own bias values are not used, since the engine defines no unit for them. A light that starts
+  casting shadows later lights the scene without them.
+- Each frame sends new scene effects only when its lighting changed. After a frame has been
+  lit, a frame without a directional light keeps the last sun's direction with no irradiance.
+
 ## Tests
 
 The library's synthetic retained-player UI test runs the managed host and captures
 windowless frames. It requires .NET 8 and a GPU adapter and checks image bytes,
 text, clipping and unchanged-frame UI update counts without opening a window.
+
+`scene_light` unit tests pin the main-light choice, the sun direction of a turned light, the
+irradiance limit, the fixed shadow settings and when a frame sends new effects.
+`scene_tables::tests::lit` starts the viewer as `play_player_window` does and checks on a GPU
+adapter that a shadow-casting sun draws into the shadow cascades and that no sun, or a sun
+without shadows, draws none.
 
 `tests/play_window.rs` plays all three games in a 480x270 window and checks the captured pixels. It needs an X display; run it as the lavapipe CI job does:
 
@@ -118,3 +147,5 @@ The offscreen adapter's tests build synthetic worlds and serialized files and ne
 ```sh
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json WGPU_BACKEND=vulkan cargo test -p worldrunner-play --lib offscreen -- --test-threads=1
 ```
+
+`tests/draw_mesh.rs` (in `offscreen/tests`) binds and clears a render texture and draws synthetic meshes with `DrawMesh` through the flush, with a shader that places its vertices by `unity_ObjectToWorld` and `unity_MatrixVP`: a quad over the left half of clip space under an identity view and projection, the same quad moved by the object matrix, an orthographic 0 to 1 projection, sub-mesh 1 of a two-sub-mesh mesh, and a two-pass shader whose second pass blends over the first. Each test predicts the 8-bit texels from the matrices, colours and blend factors. MeshUnavailable, EmptyMesh, NoSuchSubmesh, NoSuchPass and UnboundTarget are checked by name. Reclamation tests also check that a mesh named only by DrawMesh stays resident, that eviction removes its metadata, and that a later draw reloads it.

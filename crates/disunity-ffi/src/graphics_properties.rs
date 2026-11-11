@@ -14,8 +14,8 @@ use crate::{
 use worldrunner_world_simulation::{
     ComponentHandle,
     graphics::{
-        MaterialEdit, MaterialId, PropertyValue, RenderTextureId, ShaderProperties, TextureRef,
-        TextureSlot,
+        MAX_PROPERTY_ARRAY_ELEMENTS, MaterialEdit, MaterialId, PropertyValue, RenderTextureId,
+        ShaderProperties, TextureRef, TextureSlot,
     },
 };
 
@@ -209,6 +209,99 @@ pub unsafe extern "C" fn disunity_shader_matrix_write(
         Ok(PropertyValue::Matrix(
             unsafe { text(name, length) }?,
             matrix,
+        ))
+    })
+}
+
+/// Copies `count` elements of `N` floats out of `values`, or reports why the call is invalid.
+/// Nothing is read unless the pointer is non-null and aligned and the count is 1 to 1023 with a
+/// byte size that fits an allocation.
+///
+/// # Safety
+/// `values` is readable for `count * N` floats when it passes those checks.
+pub(crate) unsafe fn copy_elements<const N: usize>(
+    values: *const f32,
+    count: u32,
+) -> Result<Vec<[f32; N]>, DisunityResult> {
+    let count = usize::try_from(count).map_err(|_| DisunityResult::invalid_argument())?;
+    let bytes = count
+        .checked_mul(N)
+        .and_then(|scalars| scalars.checked_mul(std::mem::size_of::<f32>()))
+        .filter(|bytes| isize::try_from(*bytes).is_ok());
+    let Some(bytes) = bytes else {
+        return Err(DisunityResult::invalid_argument());
+    };
+    if values.is_null()
+        || !values.is_aligned()
+        || count == 0
+        || count > MAX_PROPERTY_ARRAY_ELEMENTS
+        || bytes == 0
+    {
+        return Err(DisunityResult::invalid_argument());
+    }
+    let source = unsafe { std::slice::from_raw_parts(values, bytes / std::mem::size_of::<f32>()) };
+    let mut elements = Vec::new();
+    if elements.try_reserve_exact(count).is_err() {
+        return Err(DisunityResult::error(
+            crate::abi::DisunityErrorReason::Capacity as u64,
+        ));
+    }
+    for chunk in source.chunks_exact(N) {
+        let element =
+            <[f32; N]>::try_from(chunk).map_err(|_| DisunityResult::invalid_argument())?;
+        elements.push(element);
+    }
+    Ok(elements)
+}
+
+/// Sets a global vector array from `count` vectors of 4 floats (x, y, z, w) at `values`, in
+/// element order. The count is 1 to 1023 and every float must be finite. The floats are copied
+/// before the call returns.
+///
+/// # Safety
+/// `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_shader_global_vector_array_write(
+    world: u64,
+    name: *const u8,
+    length: u32,
+    values: *const f32,
+    count: u32,
+) -> DisunityResult {
+    let elements = match unsafe { copy_elements::<4>(values, count) } {
+        Ok(elements) => elements,
+        Err(refused) => return refused,
+    };
+    write(world, SCOPE_GLOBAL, 0, || {
+        Ok(PropertyValue::VectorArray(
+            unsafe { text(name, length) }?,
+            elements,
+        ))
+    })
+}
+
+/// Sets a global matrix array from `count` matrices of 16 floats at `values`, each in
+/// column-major order, in element order. The count is 1 to 1023 and every float must be finite.
+/// The floats are copied before the call returns.
+///
+/// # Safety
+/// `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_shader_global_matrix_array_write(
+    world: u64,
+    name: *const u8,
+    length: u32,
+    values: *const f32,
+    count: u32,
+) -> DisunityResult {
+    let elements = match unsafe { copy_elements::<16>(values, count) } {
+        Ok(elements) => elements,
+        Err(refused) => return refused,
+    };
+    write(world, SCOPE_GLOBAL, 0, || {
+        Ok(PropertyValue::MatrixArray(
+            unsafe { text(name, length) }?,
+            elements,
         ))
     })
 }

@@ -213,17 +213,7 @@ impl Renderer {
         update: &mut crate::SceneUpdate,
         capture: Option<&mut live::Capture>,
     ) -> Result<Option<worldrunner_render_gpu::flight::CompletionTicket>, ViewerError> {
-        self.poll()?;
-        let resident = &mut self.resident;
-        let upload = &mut self.live_upload;
-
-        let Some(ready) = self.execution.acquire(&self.context, || {
-            if let Some(upload) = upload.take() {
-                resident.upload_live(&self.context, upload)?;
-            }
-            update(resident.scene_mut()).map_err(ViewerError::from)
-        })?
-        else {
+        let Some(ready) = self.acquire_render_frame(update)? else {
             return Ok(None);
         };
         let retained_view;
@@ -231,6 +221,7 @@ impl Renderer {
             FrameSource::View(view) => (view, None),
             FrameSource::Retained(host) => {
                 self.publish_retained(host)?;
+                self.apply_retained_shadow_policy(host)?;
                 retained_view = host.view()?.expect("admitted retained extent");
                 (&retained_view, Some(host))
             }
@@ -277,7 +268,36 @@ impl Renderer {
             self.streaming.captures.advance_frame();
         }
         self.check_errors()?;
+
         Ok(Some(ticket))
+    }
+    fn apply_retained_shadow_policy(
+        &mut self,
+        host: &crate::RetainedHost,
+    ) -> Result<(), ViewerError> {
+        let policy = self
+            .streaming
+            .shadow_policy
+            .unwrap_or(match host.options.shadows {
+                Some(_) => crate::CameraShadowPolicy::Enabled,
+                None => crate::CameraShadowPolicy::Disabled,
+            });
+        self.resident.apply_shadow_policy(policy)
+    }
+
+    fn acquire_render_frame(
+        &mut self,
+        update: &mut crate::SceneUpdate,
+    ) -> Result<Option<execution::ReadyFrame>, ViewerError> {
+        self.poll()?;
+        let resident = &mut self.resident;
+        let upload = &mut self.live_upload;
+        self.execution.acquire(&self.context, || {
+            if let Some(upload) = upload.take() {
+                resident.upload_live(&self.context, upload)?;
+            }
+            update(resident.scene_mut()).map_err(ViewerError::from)
+        })
     }
 
     fn encode_frame(
@@ -451,6 +471,27 @@ impl Resident {
             Self::Plain(plain) => &mut plain.gpu,
             Self::Shadowed(shadowed) => shadowed.scene_mut(),
         }
+    }
+
+    fn apply_shadow_policy(
+        &mut self,
+        policy: crate::CameraShadowPolicy,
+    ) -> Result<(), ViewerError> {
+        match (self, policy) {
+            (Self::Shadowed(scene), crate::CameraShadowPolicy::Enabled) => {
+                scene.set_shadows_enabled(true);
+            }
+            (Self::Shadowed(scene), crate::CameraShadowPolicy::Disabled) => {
+                scene.set_shadows_enabled(false);
+            }
+            (Self::Plain(_), crate::CameraShadowPolicy::Enabled) => {
+                return Err(ViewerError::UnsupportedScene(
+                    "directional shadows require a shadowed retained scene",
+                ));
+            }
+            (Self::Plain(_), crate::CameraShadowPolicy::Disabled) => {}
+        }
+        Ok(())
     }
 
     #[cfg(test)]

@@ -29,7 +29,7 @@ mod operations_compute_tests;
 #[cfg(test)]
 mod operations_copy_rules_tests;
 #[cfg(test)]
-mod operations_draw_support;
+mod operations_draw_test_support;
 #[cfg(test)]
 mod operations_draw_tests;
 #[cfg(test)]
@@ -50,6 +50,8 @@ mod raster_capture_tests;
 mod timing;
 #[cfg(test)]
 mod timing_operations_tests;
+#[cfg(test)]
+mod timing_test_support;
 pub use timing::{
     FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,
     TimingSupport,

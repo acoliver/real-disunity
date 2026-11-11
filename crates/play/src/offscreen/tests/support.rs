@@ -163,6 +163,8 @@ pub fn available(snapshot: &GraphicsSnapshot, passes: usize, textures: &[u64]) -
         textures: textures.iter().copied().collect::<BTreeSet<_>>(),
         default_textures: DefaultTexture::ALL.into_iter().collect(),
         bounds: BTreeMap::new(),
+        sub_meshes: BTreeMap::new(),
+        empty_meshes: BTreeSet::new(),
         test_variants: false,
     }
 }

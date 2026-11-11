@@ -94,24 +94,23 @@ internal static class ShaderMaterialTests
     private static void GlobalArrays()
     {
         var floats = new[] { 1f, 2f, 3f };
-        Shader.SetGlobalFloatArray("_GlobalFA", floats);
-        floats[0] = 99f;
-        Ensure(Shader.GetGlobalFloatArray("_GlobalFA")!.SequenceEqual(new[] { 1f, 2f, 3f }), "a stored array is a copy");
-        var read = Shader.GetGlobalFloatArray(Shader.PropertyToID("_GlobalFA"))!;
-        read[1] = -1f;
-        Ensure(Shader.GetGlobalFloatArray("_GlobalFA")![1] == 2f, "a read array is a copy");
+        Throws<NotSupportedException>(() => Shader.SetGlobalFloatArray("_GlobalFA", floats), "a float array by name", "Shader.SetGlobalFloatArray");
+        Throws<NotSupportedException>(() => Shader.SetGlobalFloatArray(Shader.PropertyToID("_GlobalFA2"), new List<float> { 4f, 5f }), "a float list by id", "float arrays are not supported");
+        Throws<NotSupportedException>(() => Shader.SetGlobalFloatArray("_GlobalFA3", new List<float> { 6f }), "a float list by name", "Shader.SetGlobalFloatArray");
+        Throws<NotSupportedException>(() => Shader.SetGlobalFloatArray(Shader.PropertyToID("_GlobalFA4"), new[] { 7f }), "a float array by id", "Shader.SetGlobalFloatArray");
+        Ensure(Shader.GetGlobalFloatArray("_GlobalFA") == null && Shader.GetGlobalFloatArray(Shader.PropertyToID("_GlobalFA4")) == null, "a refused float array stores nothing");
         var list = new List<float> { 9f };
-        Shader.GetGlobalFloatArray("_GlobalFA", list);
-        Ensure(list.SequenceEqual(new[] { 1f, 2f, 3f }), "a list is filled");
         Shader.GetGlobalFloatArray(Shader.PropertyToID("_GlobalNeverSetArray"), list);
         Ensure(list.Count == 0 && Shader.GetGlobalFloatArray("_GlobalNeverSetArray") == null, "a missing array empties the list and reads null");
-        Shader.SetGlobalFloatArray(Shader.PropertyToID("_GlobalFA2"), new List<float> { 4f, 5f });
-        Shader.SetGlobalFloatArray("_GlobalFA3", new List<float> { 6f });
-        Shader.SetGlobalFloatArray(Shader.PropertyToID("_GlobalFA4"), new[] { 7f });
-        Ensure(Shader.GetGlobalFloatArray("_GlobalFA2")!.SequenceEqual(new[] { 4f, 5f }) && Shader.GetGlobalFloatArray("_GlobalFA3")![0] == 6f && Shader.GetGlobalFloatArray("_GlobalFA4")![0] == 7f, "float array overloads");
 
         var vectors = new[] { Vector4.one, Vector4.zero };
         Shader.SetGlobalVectorArray("_GlobalVA", vectors);
+        vectors[0] = new Vector4(9, 9, 9, 9);
+        Ensure(Shader.GetGlobalVectorArray("_GlobalVA")![0] == Vector4.one, "a stored array is a copy");
+        var read = Shader.GetGlobalVectorArray(Shader.PropertyToID("_GlobalVA"))!;
+        read[1] = Vector4.one;
+        Ensure(Shader.GetGlobalVectorArray("_GlobalVA")![1] == Vector4.zero, "a read array is a copy");
+        vectors[0] = Vector4.one;
         Shader.SetGlobalVectorArray(Shader.PropertyToID("_GlobalVA2"), new List<Vector4> { Vector4.one });
         Shader.SetGlobalVectorArray("_GlobalVA3", new List<Vector4> { Vector4.one });
         Shader.SetGlobalVectorArray(Shader.PropertyToID("_GlobalVA4"), vectors);
@@ -129,11 +128,11 @@ internal static class ShaderMaterialTests
         Shader.GetGlobalMatrixArray(Shader.PropertyToID("_GlobalMA"), matrixList);
         Ensure(matrixList.Count == 2 && Shader.GetGlobalMatrixArray("_GlobalMA")![1] == Matrix4x4.zero && Shader.GetGlobalMatrixArray(Shader.PropertyToID("_GlobalMA4"))!.Length == 2, "matrix arrays");
 
-        Throws<ArgumentException>(() => Shader.SetGlobalFloatArray("_GlobalEmpty", new float[0]), "an empty array", "at least one element");
-        Throws<ArgumentException>(() => Shader.SetGlobalFloatArray("_GlobalBig", new float[1024]), "1024 elements", "1023");
-        Shader.SetGlobalFloatArray("_GlobalMax", new float[1023]);
+        Throws<ArgumentException>(() => Shader.SetGlobalVectorArray("_GlobalEmpty", new Vector4[0]), "an empty array", "at least one element");
+        Throws<ArgumentException>(() => Shader.SetGlobalVectorArray("_GlobalBig", new Vector4[1024]), "1024 elements", "1023");
+        Shader.SetGlobalVectorArray("_GlobalMax", new Vector4[1023]);
         Throws<ArgumentNullException>(() => Shader.SetGlobalVectorArray("_GlobalNull", (Vector4[])null!), "a null array");
-        Throws<ArgumentNullException>(() => Shader.SetGlobalFloatArray("_GlobalNull", (List<float>)null!), "a null list");
+        Throws<ArgumentNullException>(() => Shader.SetGlobalMatrixArray("_GlobalNull", (List<Matrix4x4>)null!), "a null list");
         Throws<ArgumentNullException>(() => Shader.GetGlobalFloatArray("_GlobalFA", null!), "a null destination list");
     }
 

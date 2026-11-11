@@ -127,6 +127,7 @@ pub struct ShadowedScene {
     shadow_layout: wgpu::BindGroupLayout,
     map: ShadowMap,
     settings: DirectionalShadowSettings,
+    shadows_enabled: bool,
     refresh: std::rc::Rc<std::cell::RefCell<refresh::RefreshCache>>,
     depth_fitting: Option<sdsm::scene::SceneDepthFitting>,
     effects: SceneEffects,
@@ -275,6 +276,7 @@ impl ShadowedScene {
             shadow_layout,
             map,
             settings,
+            shadows_enabled: true,
             effects: effects.clone(),
         })
     }
@@ -282,6 +284,17 @@ impl ShadowedScene {
     /// Owned counts from the most recently submitted main-camera pass.
     pub fn view_stats(&self) -> crate::draw::ViewStats {
         self.gpu.view_stats()
+    }
+
+    /// Enables directional shadows for subsequent encodes. Defaults to enabled.
+    /// Disabled frames skip caster passes and receiver sampling, retaining cached maps.
+    pub fn set_shadows_enabled(&mut self, enabled: bool) {
+        self.shadows_enabled = enabled;
+    }
+
+    /// Reports whether directional shadows are enabled for this resident scene.
+    pub fn shadows_enabled(&self) -> bool {
+        self.shadows_enabled
     }
 
     /// Owned counts from the most recently submitted shadow cascade zero.
@@ -490,7 +503,7 @@ impl ShadowedScene {
     }
 
     /// Prepares the terrain for every pass of the frame before any opens: the prepass, the
-    /// forward pass, and the casters of the cascades.
+    /// forward pass, and the casters of the cascades, and the objects of the forward pass.
     fn prepare_terrain_passes(
         (gpu, caster): (&SceneGpu, &terrain_caster::TerrainCaster),
         (screen, selected, frame): (
@@ -503,6 +516,7 @@ impl ShadowedScene {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
         }
         gpu.prepare_terrain(selected, frame)?;
+        gpu.prepare_objects(selected, frame)?;
         caster.pipeline().map_err(|error| {
             worldrunner_render_post::FrameError::FeaturePreparation {
                 feature: "terrain shadow caster",
@@ -580,7 +594,7 @@ impl ShadowedScene {
             self.settings,
             frame.shadow_direction,
             color.size(),
-            self.gpu.shadow_caster_generation(),
+            self.shadows_enabled,
         );
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);

@@ -22,6 +22,11 @@ public static partial class Graphics
     public static void Blit(Texture source, RenderTexture dest, Vector2 scale, Vector2 offset, int sourceDepthSlice, int destDepthSlice) =>
         RecordBlit("Blit(Texture, RenderTexture, Vector2, Vector2, int, int)", source, dest, null, -1, scale, offset, Math.Max(sourceDepthSlice, destDepthSlice));
 
+    /// <summary>Draws every pass of the material, which is the explicit pass -1. A compiled game binds to this signature itself,
+    /// so it is declared apart from the form with a pass; both validate and record through <c>RecordBlit</c>.</summary>
+    public static void Blit(Texture source, RenderTexture dest, Material mat) =>
+        RecordBlit("Blit(Texture, RenderTexture, Material)", source, dest, mat, -1, mustHaveMaterial: true);
+
     /// <summary>A null or destroyed material throws, and so does a pass below -1 or, when the shader declares its passes, at or
     /// past the pass count.</summary>
     public static void Blit(Texture source, RenderTexture dest, Material mat, int pass = -1) =>

@@ -81,6 +81,27 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_set_global(ulong world, uint kind, byte* name, uint length, float* floats, int int_value, DisunityTextureSlot* slot);
         /// <summary>
+        ///  Records a global vector array to set when the host reaches the record: `count` vectors of 4
+        ///  floats at `values`, in element order. The count is 1 to 1023 and every float must be finite.
+        ///  The floats are copied before the call returns. The record changes only the host's global
+        ///  state at that point in the work; the world's own global state stays as it is.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_vector_array", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_global_vector_array(ulong world, byte* name, uint length, float* values, uint count);
+        /// <summary>
+        ///  Records a global matrix array to set when the host reaches the record: `count` matrices of
+        ///  16 floats at `values`, each column-major, in element order. The count is 1 to 1023 and every
+        ///  float must be finite. The floats are copied before the call returns.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_global_matrix_array", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_set_global_matrix_array(ulong world, byte* name, uint length, float* values, uint count);
+        /// <summary>
         ///  Records a global shader keyword to turn on (`enabled` 1) or off (0) when the host reaches
         ///  the record.
         ///
@@ -144,6 +165,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_set_view_projection", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_set_view_projection(ulong world, float* view, float* projection);
         /// <summary>
+        ///  Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
+        ///  column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
+        ///  pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
+        ///  projection. An identity nothing stored is refused.
+        ///
+        ///  # Safety
+        ///  `matrix` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_mesh(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety
@@ -194,6 +226,26 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_shader_matrix_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_shader_matrix_write(ulong world, uint scope, ulong target, byte* name, uint length, float* values);
+        /// <summary>
+        ///  Sets a global vector array from `count` vectors of 4 floats (x, y, z, w) at `values`, in
+        ///  element order. The count is 1 to 1023 and every float must be finite. The floats are copied
+        ///  before the call returns.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 4` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_global_vector_array_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_global_vector_array_write(ulong world, byte* name, uint length, float* values, uint count);
+        /// <summary>
+        ///  Sets a global matrix array from `count` matrices of 16 floats at `values`, each in
+        ///  column-major order, in element order. The count is 1 to 1023 and every float must be finite.
+        ///  The floats are copied before the call returns.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes; `values` is readable for `count * 16` floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_shader_global_matrix_array_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_shader_global_matrix_array_write(ulong world, byte* name, uint length, float* values, uint count);
         /// <summary>
         ///  Sets a texture property with its scale and offset.
         ///
@@ -334,5 +386,24 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_presentation_ui_coverage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_presentation_ui_coverage(ulong world, uint index, DisunityCoverage* output, byte* bytes, uint capacity);
+        /// <summary>
+        ///  Writes how many lights the last prepared frame shows. Fails when no frame is prepared.
+        ///
+        ///  # Safety
+        ///  `count` is writable for one count.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_light_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_light_count(ulong world, uint* count);
+        /// <summary>
+        ///  Copies out light `index` of the last prepared frame: its settings (`enabled` is always 1, a
+        ///  frame shows only enabled lights), its object's identity (0 for an object the ABI has not
+        ///  named) and its matrix from the light's coordinates to the frame's view basis, whose third
+        ///  column is the light's forward axis. Nothing is written when the index is past the frame.
+        ///
+        ///  # Safety
+        ///  `output`, `object` and `matrix` are each writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_light", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_light(ulong world, uint index, DisunityLight* output, ulong* @object, DisunityMatrix* matrix);
     }
 }

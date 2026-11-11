@@ -39,7 +39,9 @@ impl Objects {
                     }
                 }
                 RetainedUpdate::Settings(settings) => effects = Some(*settings),
-                RetainedUpdate::Camera { .. } | RetainedUpdate::CameraWithContinuity { .. } => {}
+                RetainedUpdate::Camera { .. }
+                | RetainedUpdate::CameraWithContinuity { .. }
+                | RetainedUpdate::CameraWithShadowPolicy { .. } => {}
                 RetainedUpdate::Ui(_) => unreachable!("UI updates publish through readiness"),
                 RetainedUpdate::Resources { .. }
                 | RetainedUpdate::AppendResources(_)

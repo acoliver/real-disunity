@@ -151,6 +151,7 @@ impl Renderer {
         else {
             return Ok(false);
         };
+        self.apply_retained_shadow_policy(host)?;
         let pages = self.retained_pages_ready(host, &view)?;
         let waits_pages = !pages && host.captures.waiting.iter().any(|r| r.0 == id && r.2);
         let waits_geometry = host.captures.geometry.contains(&id) && !host.captures.geometry_ready;

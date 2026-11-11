@@ -6,12 +6,16 @@ mod authored_tests;
 mod bodies_tests;
 #[path = "budget_tests.rs"]
 mod budget_tests;
+#[path = "capture_tests.rs"]
+mod capture_tests;
 #[path = "contracts.rs"]
 mod contracts;
 #[path = "default_tests.rs"]
 mod default_tests;
 #[path = "diffuse_tests.rs"]
 mod diffuse_tests;
+#[path = "fixed.rs"]
+mod fixed;
 #[path = "lighting_tests.rs"]
 mod lighting_tests;
 #[path = "numerical.rs"]
@@ -22,6 +26,8 @@ mod optical_render_tests;
 mod optics_tests;
 #[path = "pcf5_tests.rs"]
 mod pcf5_tests;
+#[path = "program_tests.rs"]
+mod program_tests;
 #[path = "regressions.rs"]
 mod regressions;
 #[path = "retained_environment_tests.rs"]
@@ -173,7 +179,16 @@ fn encode_fixture(
         a: 1.0,
     });
     pass.color = Some(attachment);
-    pass.depth = Some(crate::compositor::attachment(depth.resource(), depth, true));
+    let mut depth_attachment = crate::compositor::attachment(depth.resource(), depth, true);
+    // The metadata prepass clears shared depth before the opaque pass.
+    if renderer
+        .ssao
+        .as_ref()
+        .is_some_and(|metadata| metadata.depth == *depth.texture())
+    {
+        depth_attachment.load = AttachmentLoad::Load;
+    }
+    pass.depth = Some(depth_attachment);
     let mut encoder = context.submission().begin(context.device()).unwrap();
     renderer
         .encode_frame(
@@ -209,7 +224,8 @@ fn assert_snapshots(context: &GpuContext, renderer: &crate::compositor::FrameRen
     );
 }
 
-fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::FrameRenderer) {
+/// The scene depth target as the snapshot's depth copy reads it, one float for each pixel.
+fn surface_depth(context: &GpuContext, renderer: &crate::compositor::FrameRenderer) -> Vec<u8> {
     let snapshot = &renderer.water.as_ref().unwrap().snapshots[1];
     let group = snapshot.source_group(
         context.device(),
@@ -241,7 +257,11 @@ fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::Fram
     );
     encoder.finish().submit().unwrap();
     wait(context.device());
-    let bytes = read(context, &texture);
+    read(context, &texture)
+}
+
+fn assert_surface_depth(context: &GpuContext, renderer: &crate::compositor::FrameRenderer) {
+    let bytes = surface_depth(context, renderer);
     let offset = (16 * 32 + 16) * 4;
     let depth = f32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
     assert!(
@@ -330,15 +350,44 @@ fn draw_water_only(context: &GpuContext, renderer: &crate::compositor::FrameRend
     draw_water_slot(context, renderer, 1);
 }
 fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRenderer, slot: usize) {
+    draw_water_with(
+        context,
+        renderer,
+        (slot, wgpu::LoadOp::Load, DepthMode::Independent),
+        |feature, pass| {
+            feature.draw(
+                &worldrunner_render_post::DrawContext {
+                    slot: PassSlot::TransparentWater,
+                },
+                pass,
+            );
+        },
+    );
+}
+/// Opens the water pass of `slot` over the scene colour (loaded or cleared as `scene_load`
+/// says), the cleared receivers and a cleared depth, and lets `record` draw the feature built
+/// for `depth` in it. The pass uses the renderer's depth texture, whose format `depth` must match.
+fn draw_water_with(
+    context: &GpuContext,
+    renderer: &crate::compositor::FrameRenderer,
+    (slot, scene_load, depth): (usize, wgpu::LoadOp<wgpu::Color>, DepthMode),
+    record: impl FnOnce(&WaterFeature, &mut wgpu::RenderPass<'_>),
+) {
     let water = renderer.water.as_ref().unwrap();
-    let feature = water.feature(
+    let feature = water.feature_with_depth(
         context.device(),
         &FrameUniform::new(&fixture_view(), None).unwrap(),
         (2.0, slot),
         (None, None),
+        depth,
     );
     let mut encoder = context.submission().begin(context.device()).unwrap();
     {
+        let depth_view = renderer
+            .targets()
+            .depth()
+            .texture()
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let receiver_views: Vec<_> = water.receivers[slot]
             .iter()
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
@@ -348,7 +397,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
             resolve_target: None,
             depth_slice: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Load,
+                load: scene_load,
                 store: wgpu::StoreOp::Store,
             },
         })];
@@ -367,7 +416,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
             label: Some("water refraction probe"),
             color_attachments: &colors,
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: renderer.targets().depth(),
+                view: &depth_view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,
@@ -376,12 +425,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
             }),
             ..wgpu::RenderPassDescriptor::default()
         });
-        feature.draw(
-            &worldrunner_render_post::DrawContext {
-                slot: PassSlot::TransparentWater,
-            },
-            &mut pass,
-        );
+        record(&feature, &mut pass);
     }
     renderer.targets().encode_resolve(&mut encoder);
     encoder.finish().submit().unwrap();

@@ -53,6 +53,7 @@ internal static unsafe class CommandWireReader
             13 => $"CreateList id={input.U64()} {input.RendererList()}",
             14 => $"DrawList list={input.U64()}",
             15 => $"ViewProjection view={input.Floats(16)} projection={input.Floats(16)}",
+            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()}",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
@@ -120,8 +121,17 @@ internal static unsafe class CommandWireReader
                 2 => $"{name}=vector {Floats(4)}",
                 3 => $"{name}=matrix {Floats(16)}",
                 4 => $"{name}=texture {Slot()}",
+                5 => $"{name}=vectors {Elements(4)}",
+                6 => $"{name}=matrices {Elements(16)}",
                 var other => throw new InvalidOperationException($"no property has the tag {other}"),
             };
+        }
+
+        /// <summary>The count of an array and its elements of <paramref name="width"/> floats each.</summary>
+        private string Elements(int width)
+        {
+            var count = (int)U32();
+            return $"[{count}] " + string.Join(" ", Enumerable.Range(0, count).Select(_ => Floats(width)));
         }
 
         private string Slot()

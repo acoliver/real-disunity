@@ -123,6 +123,18 @@ pub enum OffscreenWork {
         view: [f32; 16],
         projection: [f32; 16],
     },
+    /// Draws the mesh the renderer identity `mesh` names, with `matrix` (column-major, from the
+    /// mesh's coordinates to the world) and the material's pass, into the bound targets with the
+    /// current view and projection. `submesh` picks one sub-mesh; a `pass` of -1 draws every
+    /// pass. The world keeps no mesh contents (the host reads them by identity), so it checks
+    /// that the identity is nonzero and leaves an identity nothing stored to the host.
+    DrawMesh {
+        mesh: u64,
+        matrix: [f32; 16],
+        material: MaterialId,
+        submesh: u32,
+        pass: i32,
+    },
 }
 
 impl OffscreenWork {

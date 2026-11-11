@@ -18,9 +18,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use worldrunner_disunity_runtime::MeshObjectView;
 use worldrunner_render_plan::{
-    MaterialHandle, MeshHandle, RenderScene, SceneAlphaMode, SceneAppend, SceneGeometry,
-    SceneMaterial, SceneMaterialParts, SceneMesh, SceneObject, SceneParts, SceneResources,
-    SceneTexture, SceneTint, SceneValidationError, TexelFormat, TextureColorSpace, TextureHandle,
+    MaterialHandle, MeshHandle, RenderScene, SceneAlphaMode, SceneAppend, SceneEffects,
+    SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneObject, SceneParts,
+    SceneResources, SceneTexture, SceneTint, SceneValidationError, TexelFormat, TextureColorSpace,
+    TextureHandle,
 };
 use worldrunner_scene_viewer::{ObjectId, RetainedUpdate, SceneObjectEdit};
 
@@ -163,13 +164,15 @@ impl SceneTables {
     }
 
     /// The smallest scene the viewer accepts: the white texture and material, no meshes and no
-    /// objects.
-    pub fn initial_scene() -> Result<RenderScene, SceneValidationError> {
+    /// objects, lit by `effects` when the first frame has a sun.
+    pub fn initial_scene(
+        effects: Option<SceneEffects>,
+    ) -> Result<RenderScene, SceneValidationError> {
         RenderScene::new(SceneParts {
             resources: SceneResources::new(vec![white_texture()], vec![material_on(WHITE)?])?,
             geometry: SceneGeometry::new(Vec::new(), Vec::new())?,
             terrain: None,
-            effects: None,
+            effects,
         })
     }
 

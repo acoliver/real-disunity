@@ -101,6 +101,85 @@ fn gpu_timestamps_resolve_in_a_later_submission_after_the_sampled_one_completes(
     assert_eq!(frames[0].passes[0].pass_id, PassId::Resolve);
 }
 
+/// A frame recorded outside a transaction has no authority to wait on, so its resolve waits for
+/// that frame's own submission. A take between `finish_frame` and the frame's submission must not
+/// resolve on the strength of earlier work: the timestamps would be read before they are written.
+#[test]
+fn gpu_an_untransacted_frame_resolves_after_its_own_submission_not_earlier_work() {
+    let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timer = PassTimer::new(&device, &queue, TimingMode::Optional).unwrap();
+    if timer.support() == TimingSupport::Unsupported {
+        eprintln!("timestamp capability branch: Unsupported");
+        return;
+    }
+    let wait = || {
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(10)),
+            })
+            .unwrap();
+    };
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    timer.begin_frame(6);
+    let stamp = timer.stamp(PassId::Resolve).unwrap();
+    drop(encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("sampled pass"),
+        timestamp_writes: Some(stamp.compute()),
+    }));
+    timer.finish_frame(&mut encoder);
+    for _ in 0..3 {
+        assert!(timer.take_ready().unwrap().is_empty());
+        wait();
+    }
+    queue.submit([encoder.finish()]);
+    let frames = crate::timing_test_support::take_frames(&device, 1, || timer.take_ready());
+    assert_eq!(frames[0].frame_id, 6);
+    assert!(
+        frames[0].passes[0].duration_ns.is_some(),
+        "the resolve read the timestamps after the frame wrote them"
+    );
+}
+
+/// A resolve the authority refuses for good (here a lost device) is reported, and the slot is
+/// released, so later frames are still timed instead of the ring filling with frames that can
+/// never be resolved.
+#[test]
+fn gpu_a_resolve_refused_for_good_is_reported_and_releases_its_slot() {
+    let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timer = PassTimer::new(&device, &queue, TimingMode::Optional).unwrap();
+    if timer.support() == TimingSupport::Unsupported {
+        eprintln!("timestamp capability branch: Unsupported");
+        return;
+    }
+    let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
+    let mut encoder = authority.begin(&device).unwrap();
+    timer.begin_frame(7);
+    let stamp = timer.stamp(PassId::Resolve).unwrap();
+    drop(encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("sampled pass"),
+        timestamp_writes: Some(stamp.compute()),
+    }));
+    timer.finish_frame(&mut encoder);
+    encoder.finish().submit().unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(10)),
+        })
+        .unwrap();
+    authority.report_device_loss("test".into());
+    assert!(
+        timer.take_ready().is_err(),
+        "a resolve the authority refuses for good is an error, not a retry"
+    );
+    for frame in 8..8 + TIMING_RING_SIZE as u64 {
+        timer.begin_frame(frame);
+        assert!(timer.active.is_some(), "frame {frame} gets a slot");
+        timer.active = None;
+    }
+}
+
 fn device(features: wgpu::Features) -> (wgpu::Device, wgpu::Queue) {
     crate::gpu_tests::gpu_with_optional_features(features)
 }

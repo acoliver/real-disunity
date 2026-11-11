@@ -70,9 +70,12 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
             capture_frames: BTreeSet::from([0, 1]),
             keys: vec![],
         },
+        crate::scene_light::SceneLighting::start(&[], viewer_options_camera())
+            .unwrap()
+            .0,
     )
     .unwrap();
-    let scene = SceneTables::initial_scene().unwrap();
+    let scene = SceneTables::initial_scene(None).unwrap();
     let host = RetainedHost::new(scene, viewer_options(&driver.window)).unwrap();
     let mut run = host.windowless(&mut driver).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -95,6 +98,18 @@ fn retained_player_draws_text_images_and_clipped_children_without_redundant_ui_u
         assert_ui_pixels(image);
     }
     assert_eq!(driver.captures[0].pixels, driver.captures[1].pixels);
+}
+
+fn viewer_options_camera() -> SceneCamera {
+    viewer_options(&PlayerWindow {
+        title: String::new(),
+        size: [1, 1],
+        fixed_dt: None,
+        max_frames: None,
+        capture_frames: BTreeSet::new(),
+        keys: vec![],
+    })
+    .camera
 }
 
 fn assert_ui_pixels(image: &Capture) {

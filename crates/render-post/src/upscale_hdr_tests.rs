@@ -159,14 +159,16 @@ fn gpu_post_chain_scale_timings_are_informational() {
                 .unwrap();
             let timings = chain.take_timings().unwrap();
             assert_eq!(timings.len(), 1);
-            let total_ns: f64 = timings[0]
-                .passes
-                .iter()
-                .map(|p| p.duration_ns.expect("valid timestamp interval"))
-                .sum();
+            let durations =
+                crate::timing_test_support::checked_durations("post scale", &timings[0]);
+            let total =
+                crate::timing_test_support::total(durations.iter().filter_map(|(_, ns)| *ns));
+            let gpu = total.map_or_else(
+                || "unavailable".to_owned(),
+                |ns| format!("{:.3} ms over the timed passes", ns / 1_000_000.0),
+            );
             eprintln!(
-                "post scale={millionths}/1000000 render={render:?} output={output:?} frame={frame} GPU={:.3} ms",
-                total_ns / 1_000_000.0
+                "post scale={millionths}/1000000 render={render:?} output={output:?} frame={frame} GPU={gpu}"
             );
         }
     }

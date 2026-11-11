@@ -287,6 +287,10 @@ CheckImport("disunity_offscreen_set_render_target", u64, targetRef, u32, targetR
 CheckImport("disunity_offscreen_clear_render_target", u64, u32, f32.MakePointerType(), f32, u32);
 CheckImport("disunity_offscreen_set_global", u64, u32, bytes, u32, f32.MakePointerType(), typeof(int), textureSlot);
 CheckImport("disunity_offscreen_set_global_keyword", u64, bytes, u32, u32);
+CheckImport("disunity_offscreen_set_global_vector_array", u64, bytes, u32, f32.MakePointerType(), u32);
+CheckImport("disunity_offscreen_set_global_matrix_array", u64, bytes, u32, f32.MakePointerType(), u32);
+CheckImport("disunity_shader_global_vector_array_write", u64, bytes, u32, f32.MakePointerType(), u32);
+CheckImport("disunity_shader_global_matrix_array_write", u64, bytes, u32, f32.MakePointerType(), u32);
 CheckImport("disunity_offscreen_allocate_temporary", u64, typeof(int), renderTextureRecord);
 CheckImport("disunity_offscreen_release_temporary", u64, typeof(int));
 CheckImport("disunity_offscreen_detail", u64, u32, bytes, u32, u32.MakePointerType());
@@ -468,6 +472,7 @@ JsonUtilityTests.Run();
 CommandBufferTests.Run();
 CommandBufferExecutionTests.Run();
 CommandBufferCameraTests.Run();
+GlobalArrayTests.Run();
 CommandBufferRenderPassTests.Run();
 SubPassDescriptorTests.Run();
 ObjectModelTests.Run();

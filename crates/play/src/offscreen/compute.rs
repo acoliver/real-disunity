@@ -33,7 +33,7 @@ use super::properties::values;
 
 mod evidence;
 
-use evidence::pairings;
+use evidence::{constant_values, pairings};
 
 /// How a dispatch was bound and what came of it, for the report.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -46,7 +46,8 @@ pub struct DispatchTrace {
     pub groups: [u32; 3],
     /// The thread group size the world holds for the kernel.
     pub thread_group: Option<[u32; 3]>,
-    /// The numeric values the dispatch sets, as `name=value`.
+    /// The numeric values the dispatch sets, as `name=value`, and its arrays as `name=2 vectors`
+    /// or `name=2 matrices` by the elements they hold.
     pub constants: Vec<String>,
     /// The members of the kernel's constant buffers that no value was set for.
     pub constants_missing: Vec<String>,
@@ -564,19 +565,6 @@ fn texture_source(texture: &TextureRef) -> &'static str {
         TextureRef::Global(_) => "global",
         TextureRef::None => "none",
     }
-}
-
-/// The numeric values a dispatch sets, as `name=value` in name order within each kind.
-fn constant_values(bindings: &ComputeBindings) -> Vec<String> {
-    let properties = &bindings.properties;
-    let floats = properties.floats.iter().map(|(n, v)| format!("{n}={v}"));
-    let ints = properties.ints.iter().map(|(n, v)| format!("{n}={v}"));
-    let vectors = properties.vectors.iter().map(|(n, v)| format!("{n}={v:?}"));
-    let matrices = properties
-        .matrices
-        .iter()
-        .map(|(n, _)| format!("{n}=matrix"));
-    floats.chain(ints).chain(vectors).chain(matrices).collect()
 }
 
 impl ComputeAdapter {

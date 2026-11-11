@@ -104,6 +104,40 @@ internal sealed partial class PropertyStore
         return Copy(values.ToArray(), member);
     }
 
+    /// <summary>A copy of a vector array to store or record: <see cref="Copy{T}(T[], string)"/> and every component finite. The
+    /// world holds finite values only, and an array is refused rather than changed.</summary>
+    internal static Vector4[] CopyChecked(Vector4[]? values, string member)
+    {
+        var copy = Copy(values, member);
+        for (var index = 0; index < copy.Length; index++)
+            if (!(float.IsFinite(copy[index].x) && float.IsFinite(copy[index].y) && float.IsFinite(copy[index].z) && float.IsFinite(copy[index].w)))
+                throw new ArgumentException($"{member}: element {index} has a component that is not finite", nameof(values));
+        return copy;
+    }
+
+    internal static Vector4[] CopyChecked(List<Vector4>? values, string member)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        return CopyChecked(values.ToArray(), member);
+    }
+
+    internal static Matrix4x4[] CopyChecked(Matrix4x4[]? values, string member)
+    {
+        var copy = Copy(values, member);
+        for (var index = 0; index < copy.Length; index++)
+            for (var row = 0; row < 4; row++)
+                for (var column = 0; column < 4; column++)
+                    if (!float.IsFinite(copy[index][row, column]))
+                        throw new ArgumentException($"{member}: element {index} has a component that is not finite", nameof(values));
+        return copy;
+    }
+
+    internal static Matrix4x4[] CopyChecked(List<Matrix4x4>? values, string member)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        return CopyChecked(values.ToArray(), member);
+    }
+
     internal static T[]? Clone<T>(T[]? values) => (T[]?)values?.Clone();
 
     /// <summary>Replaces the list's contents with the array's; a missing array empties the list.</summary>

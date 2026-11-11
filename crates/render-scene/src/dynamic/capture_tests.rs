@@ -768,6 +768,7 @@ fn an_untextured_batch_and_an_empty_contribution_match_the_fixed_pipeline() {
 
 mod clipping;
 mod legacy;
+pub(crate) mod shadow_fixture;
 mod world;
 
 use legacy::Legacy;

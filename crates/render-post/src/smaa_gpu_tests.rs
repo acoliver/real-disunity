@@ -294,13 +294,14 @@ fn untimed_frame_ms(rig: &Rig, settings: &HdrPostSettings, scene: &str) -> f64 {
     runs[runs.len() / 2]
 }
 
-/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame.
+/// Per-pass medians for one resolve and optional sharpening on a synthetic 1920x1080 frame,
+/// each over the frames that timed the pass, and `None` for a pass no frame timed.
 fn timed_medians(
     rig: &Rig,
     resolve: PostResolve,
     sharpen: Option<crate::CasSettings>,
     scene: &str,
-) -> Vec<(String, f64)> {
+) -> Vec<(String, Option<f64>)> {
     let size = [1920, 1080];
     let settings = HdrPostSettings {
         resolve,
@@ -338,17 +339,23 @@ fn timed_medians(
         })
         .skip(2)
         .collect();
+    for frame in &frames {
+        crate::timing_test_support::checked_durations("smaa probe", frame);
+    }
     (0..frames[0].passes.len())
         .map(|pass| {
-            let mut durations: Vec<_> = frames
+            let durations: Vec<_> = frames
                 .iter()
-                .map(|frame| frame.passes[pass].duration_ns.expect("valid query pair"))
+                .filter_map(|frame| frame.passes[pass].duration_ns)
                 .collect();
-            durations.sort_by(f64::total_cmp);
-            (
-                format!("{:?}", frames[0].passes[pass].pass_id),
-                durations[durations.len() / 2],
-            )
+            let median = crate::timing_test_support::median(durations.iter().copied());
+            let pass_id = frames[0].passes[pass].pass_id;
+            eprintln!(
+                "{pass_id:?}: {} of {} samples timed",
+                durations.len(),
+                frames.len()
+            );
+            (format!("{pass_id:?}"), median)
         })
         .collect()
 }
@@ -392,13 +399,21 @@ fn smaa_and_fxaa_stage_timestamps() {
     ] {
         for (scene_name, scene) in PROBE_SCENES {
             let passes = timed_medians(&rig, resolve, sharpen, scene);
-            let total: f64 = passes.iter().map(|(_, ns)| ns).sum();
+            let timed: Vec<f64> = passes.iter().filter_map(|(_, ns)| *ns).collect();
+            let total = crate::timing_test_support::total(timed.iter().copied()).map_or_else(
+                || "unavailable".to_owned(),
+                |ns| format!("{:.3} ms", ns / 1e6),
+            );
             eprintln!(
-                "{name} [{scene_name}]: total {:.3} ms (median of 5)",
-                total / 1e6
+                "{name} [{scene_name}]: total {total} over {} of {} passes (medians of the timed frames)",
+                timed.len(),
+                passes.len()
             );
             for (pass, ns) in passes {
-                eprintln!("  {pass}: {:.3} ms", ns / 1e6);
+                match ns {
+                    Some(ns) => eprintln!("  {pass}: {:.3} ms", ns / 1e6),
+                    None => eprintln!("  {pass}: unavailable in every frame"),
+                }
             }
         }
     }

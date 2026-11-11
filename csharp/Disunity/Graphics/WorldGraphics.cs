@@ -136,7 +136,8 @@ internal static unsafe partial class WorldGraphics
         return new DisunityTextureSlot { kind = kind, texture = texture, scale_x = Finite(scale.x), scale_y = Finite(scale.y), offset_x = Finite(offset.x), offset_y = Finite(offset.y) };
     }
 
-    /// <summary>Sends every value of <paramref name="store"/> to a material, the globals or a property block.</summary>
+    /// <summary>Sends every value of <paramref name="store"/> to a material, the globals or a property block. Only the globals
+    /// take the vector and matrix arrays.</summary>
     internal static void SendAll(uint scope, Link target, PropertyStore store)
     {
         foreach (var id in store.Floats.Keys) SendProperty(scope, target, store, id, PropertyKind.Float);
@@ -145,6 +146,7 @@ internal static unsafe partial class WorldGraphics
         foreach (var id in store.Matrices.Keys) SendProperty(scope, target, store, id, PropertyKind.Matrix);
         foreach (var id in store.Textures.Keys.Union(store.Offsets.Keys).Union(store.Scales.Keys).ToArray())
             SendProperty(scope, target, store, id, PropertyKind.Texture);
+        if (scope == ScopeGlobal) SendGlobalArrays(store);
     }
 
     /// <summary>The kind and identity a texture is sent as: a <see cref="Texture2D"/> with pixels by the identity the host

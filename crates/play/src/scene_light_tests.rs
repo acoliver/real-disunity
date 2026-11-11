@@ -1,0 +1,218 @@
+use super::*;
+use glam::{Quat, Vec3};
+use worldrunner_render_plan::SceneDirection;
+use worldrunner_render_scene::shadows::CascadeRefreshPolicy;
+use worldrunner_world_simulation::presentation::{
+    Light, LightKind, LightSettings, LightShadowMode, light_views::extract_lights,
+};
+use worldrunner_world_simulation::{
+    ComponentDesc, LocalTransform, ObjectDesc, World, WorldSettings,
+};
+
+fn settings(kind: LightKind, shadows: LightShadowMode, intensity: f32) -> LightSettings {
+    LightSettings {
+        kind,
+        shadows,
+        intensity,
+        ..LightSettings::default()
+    }
+}
+
+/// The lights a world with one light per entry presents, each on an object turned by `rotation`.
+fn presented(lights: &[(LightSettings, Quat)]) -> Vec<PresentationLight> {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    for (settings, rotation) in lights {
+        let desc = ObjectDesc {
+            local_transform: LocalTransform {
+                rotation: *rotation,
+                ..LocalTransform::default()
+            },
+            ..ObjectDesc::default()
+        };
+        let object = world.create_object(desc).unwrap();
+        let light = Light {
+            enabled: true,
+            settings: *settings,
+        };
+        world
+            .add_component(object, ComponentDesc::Light(light))
+            .unwrap();
+    }
+    extract_lights(&world)
+        .unwrap()
+        .into_iter()
+        .map(|view| PresentationLight {
+            object: 0,
+            local_to_world: view.local_to_world,
+            settings: view.settings,
+        })
+        .collect()
+}
+
+fn sun(intensity: f32) -> LightSettings {
+    settings(LightKind::Directional, LightShadowMode::Soft, intensity)
+}
+
+#[test]
+fn the_main_light_is_the_first_directional_light() {
+    let point = settings(LightKind::Point, LightShadowMode::None, 1.0);
+    let lights = presented(&[
+        (point, Quat::IDENTITY),
+        (sun(2.0), Quat::IDENTITY),
+        (sun(3.0), Quat::IDENTITY),
+    ]);
+    assert_eq!(main_light(&lights), Some(&lights[1]));
+    assert!(main_light(&lights[..1]).is_none(), "no directional light");
+    assert!(main_light(&[]).is_none());
+}
+
+#[test]
+fn the_sun_shines_along_the_lights_forward_axis_in_the_scene_basis() {
+    // Turned 50 degrees about the engine's x axis, the light's forward axis (0, 0, 1) becomes
+    // (0, -sin 50, cos 50) in engine coordinates, (0, -cos 50, -sin 50) in the Z-up scene basis.
+    // The sun direction points back toward the light.
+    let lights = presented(&[(sun(1.5), Quat::from_rotation_x(50_f32.to_radians()))]);
+    let sun = scene_sun(&lights[0]).unwrap();
+    assert_eq!(
+        sun.direction,
+        SceneDirection::new([0, 642_788, 766_044]).unwrap()
+    );
+    assert_eq!(sun.irradiance_micro, 1_500_000);
+}
+
+#[test]
+fn a_bright_light_is_held_to_the_scenes_largest_irradiance() {
+    let lights = presented(&[(sun(25.0), Quat::IDENTITY)]);
+    assert_eq!(
+        scene_sun(&lights[0]).unwrap().irradiance_micro,
+        MAXIMUM_SUN_IRRADIANCE_MICRO
+    );
+}
+
+#[test]
+fn a_light_without_a_forward_axis_gives_no_sun() {
+    let mut lights = presented(&[(sun(1.0), Quat::IDENTITY)]);
+    lights[0].local_to_world[8..11].copy_from_slice(&[0.0; 3]);
+    assert!(scene_sun(&lights[0]).is_err());
+}
+
+#[test]
+fn only_a_shadow_casting_light_gives_the_fixed_shadow_settings() {
+    let hard = settings(LightKind::Directional, LightShadowMode::Hard, 1.0);
+    let none = settings(LightKind::Directional, LightShadowMode::None, 1.0);
+    let lights = presented(&[
+        (sun(1.0), Quat::IDENTITY),
+        (hard, Quat::IDENTITY),
+        (none, Quat::IDENTITY),
+    ]);
+    let expected = DirectionalShadowSettings {
+        focus_meters: Vec3::ZERO,
+        half_extent_meters: 50.0,
+        depth_half_extent_meters: 100.0,
+        resolution: 2048,
+        depth_bias: 0.0005,
+        normal_bias_meters: 0.02,
+        refresh_policy: CascadeRefreshPolicy::default(),
+    };
+    assert_eq!(shadow_settings(&lights[0]), Some(expected));
+    assert_eq!(shadow_settings(&lights[1]), Some(expected));
+    assert_eq!(shadow_settings(&lights[2]), None);
+}
+
+#[test]
+fn a_lit_frame_carries_the_sun_ambient_light_and_camera_split_cascades() {
+    let lights = presented(&[(sun(1.5), Quat::IDENTITY)]);
+    let sun = scene_sun(&lights[0]).unwrap();
+    let camera = worldrunner_render_plan::SceneCamera {
+        vertical_fov_millidegrees: 60_000,
+        near_plane_millimeters: 100,
+        far_plane_millimeters: 1_000_000,
+    };
+    let effects = lit_effects(sun, camera).unwrap();
+    assert_eq!(*effects.sun(), sun);
+    assert_eq!(*effects.camera(), camera);
+    assert_eq!(
+        (
+            effects.ambient().sky_irradiance_micro,
+            effects.ambient().ground_irradiance_micro
+        ),
+        (300_000, 150_000)
+    );
+    assert_eq!(
+        effects.shadows().split_distances_millimeters(),
+        Some(&[10_000, 40_000, 150_000][..])
+    );
+    assert!(effects.ssao().is_none() && effects.post().is_empty());
+    assert!(
+        effects.atmosphere().is_none(),
+        "the game's clear colour stays the background"
+    );
+}
+
+fn lens() -> SceneCamera {
+    SceneCamera {
+        vertical_fov_millidegrees: 60_000,
+        near_plane_millimeters: 100,
+        far_plane_millimeters: 1_000_000,
+    }
+}
+
+#[test]
+fn a_frame_without_a_directional_light_stays_unlit() {
+    let point = settings(LightKind::Point, LightShadowMode::Soft, 1.0);
+    let lights = presented(&[(point, Quat::IDENTITY)]);
+    let (mut lighting, shadows) = SceneLighting::start(&lights, lens()).unwrap();
+    assert!(lighting.effects().is_none());
+    assert!(shadows.is_none());
+    assert!(lighting.update(&lights).unwrap().is_none());
+}
+
+#[test]
+fn a_shadow_casting_sun_lights_the_first_frame_and_starts_shadows() {
+    let lights = presented(&[(sun(1.5), Quat::from_rotation_x(0.5))]);
+    let (mut lighting, shadows) = SceneLighting::start(&lights, lens()).unwrap();
+    let expected = lit_effects(scene_sun(&lights[0]).unwrap(), lens()).unwrap();
+    assert_eq!(lighting.effects(), Some(&expected));
+    assert_eq!(shadows, shadow_settings(&lights[0]));
+    assert!(shadows.is_some());
+    assert!(
+        lighting.update(&lights).unwrap().is_none(),
+        "unchanged lighting sends nothing"
+    );
+}
+
+#[test]
+fn a_changed_light_sends_new_effects_once() {
+    let lights = presented(&[(sun(1.0), Quat::IDENTITY)]);
+    let (mut lighting, _) = SceneLighting::start(&lights, lens()).unwrap();
+    let brighter = presented(&[(sun(2.0), Quat::IDENTITY)]);
+    let sent = lighting.update(&brighter).unwrap().unwrap();
+    assert_eq!(sent.sun().irradiance_micro, 2_000_000);
+    assert_eq!(lighting.effects(), Some(&sent));
+    assert!(lighting.update(&brighter).unwrap().is_none());
+}
+
+#[test]
+fn a_sun_that_appears_later_lights_the_frame_without_shadows_at_start() {
+    let (mut lighting, shadows) = SceneLighting::start(&[], lens()).unwrap();
+    assert!(shadows.is_none());
+    let lights = presented(&[(sun(1.0), Quat::IDENTITY)]);
+    let sent = lighting.update(&lights).unwrap().unwrap();
+    assert_eq!(sent.sun().irradiance_micro, 1_000_000);
+}
+
+#[test]
+fn a_sun_that_goes_away_leaves_its_direction_with_no_irradiance() {
+    let lights = presented(&[(sun(1.0), Quat::from_rotation_x(0.5))]);
+    let (mut lighting, _) = SceneLighting::start(&lights, lens()).unwrap();
+    let direction = lighting.effects().unwrap().sun().direction;
+    let dark = lighting.update(&[]).unwrap().unwrap();
+    assert_eq!(
+        *dark.sun(),
+        SceneSun {
+            direction,
+            irradiance_micro: 0
+        }
+    );
+    assert!(lighting.update(&[]).unwrap().is_none());
+}

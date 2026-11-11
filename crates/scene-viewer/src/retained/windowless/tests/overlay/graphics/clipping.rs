@@ -80,6 +80,8 @@ fn image_identity_is_resolved_and_sampled_in_the_overlay_stage() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = overlay_host().windowless(&mut driver).unwrap();
+    // Present generation 0 before the UI update, so its frame reports the scene's initial uploads.
+    capture(&mut run, &events);
     run.host_mut()
         .apply(RetainedUpdate::Ui(std::sync::Arc::new(overlay)))
         .unwrap();

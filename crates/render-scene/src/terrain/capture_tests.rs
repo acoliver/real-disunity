@@ -30,6 +30,7 @@ use crate::renderer::depth::DepthMode;
 
 pub(in crate::terrain) mod caster;
 mod legacy;
+mod pixel_normal;
 pub(in crate::terrain) mod prepass;
 pub(super) mod scenes;
 mod shadow;

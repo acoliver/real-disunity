@@ -14,7 +14,10 @@ fn integration_contexts_share_gpu_handles_without_sharing_submission_state() {
     assert_eq!(first.queue(), second.queue());
     assert_eq!(
         first.device().features(),
-        first.adapter().features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+        // The scene device requests exactly these optional features when timing is off.
+        first.adapter().features()
+            & (wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+                | wgpu::Features::DEPTH32FLOAT_STENCIL8),
     );
     let prepared = first.submission().begin(first.device()).unwrap();
     assert!(!first.submission().is_idle());

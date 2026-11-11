@@ -1,7 +1,9 @@
 use super::*;
 use glam::{Quat, Vec3};
 use worldrunner_render_plan::SceneDirection;
+use worldrunner_render_scene::CameraPose;
 use worldrunner_render_scene::shadows::CascadeRefreshPolicy;
+use worldrunner_scene_viewer::CameraShadowPolicy;
 use worldrunner_world_simulation::presentation::{
     Light, LightKind, LightSettings, LightShadowMode, light_views::extract_lights,
 };
@@ -253,30 +255,107 @@ fn a_viewer_started_without_shadows_publishes_no_camera_policy() {
     assert_eq!(lighting.camera_policy(Some(false)), None);
 }
 
-#[test]
-fn a_policy_change_republishes_the_last_pose_and_a_move_publishes_the_new_one() {
-    use worldrunner_render_scene::CameraPose;
-    use worldrunner_scene_viewer::CameraShadowPolicy::Disabled;
-    let pose = |x| CameraPose {
+fn pose(x: i64) -> CameraPose {
+    CameraPose {
         eye_millimeters: [x, 0, 1000],
         target_millimeters: [0; 3],
-    };
+    }
+}
+
+fn shadowed() -> SceneLighting {
+    SceneLighting::start(&presented(&[(sun(1.0), Quat::IDENTITY)]), lens())
+        .unwrap()
+        .0
+}
+
+/// Publishes one frame and returns what reached the viewer, if anything.
+fn frame(
+    publication: &mut CameraPublication,
+    lighting: &mut SceneLighting,
+    moved: Option<CameraPose>,
+    render_shadows: Option<bool>,
+) -> Option<(CameraPose, Option<CameraShadowPolicy>)> {
+    let mut sent = None;
+    publication
+        .publish(lighting, moved, render_shadows, |pose, policy| {
+            sent = Some((pose, policy));
+            Ok::<(), ()>(())
+        })
+        .unwrap();
+    sent
+}
+
+#[test]
+fn render_shadows_off_reaches_the_viewer_at_its_opening_pose_when_the_game_shows_no_camera() {
+    use CameraShadowPolicy::Disabled;
+    let (mut lighting, mut publication) = (shadowed(), CameraPublication::new(pose(1)));
+    let mut next =
+        |moved, render_shadows| frame(&mut publication, &mut lighting, moved, render_shadows);
+    assert_eq!(next(None, Some(false)), Some((pose(1), Some(Disabled))));
+    assert_eq!(next(None, Some(false)), None, "sent once");
     assert_eq!(
-        camera_pose_to_publish(None, Some(pose(1)), Some(Disabled)),
-        Some(pose(1))
-    );
-    assert_eq!(
-        camera_pose_to_publish(Some(pose(2)), Some(pose(1)), None),
-        Some(pose(2))
-    );
-    assert_eq!(
-        camera_pose_to_publish(None, Some(pose(1)), None),
+        next(None, None),
         None,
-        "nothing changed"
+        "no setting keeps the published policy"
+    );
+}
+
+#[test]
+fn a_camera_sequence_sends_each_pose_and_each_policy_change_once() {
+    use CameraShadowPolicy::{Disabled, Enabled};
+    let (mut lighting, mut publication) = (shadowed(), CameraPublication::new(pose(1)));
+    let mut next =
+        |moved, render_shadows| frame(&mut publication, &mut lighting, moved, render_shadows);
+    assert_eq!(
+        next(None, Some(true)),
+        Some((pose(1), Some(Enabled))),
+        "initial on"
+    );
+    assert_eq!(next(None, Some(true)), None, "not repeated");
+    assert_eq!(
+        next(Some(pose(2)), Some(true)),
+        Some((pose(2), None)),
+        "the game camera appears"
     );
     assert_eq!(
-        camera_pose_to_publish(None, None, Some(Disabled)),
-        None,
-        "no pose has been published yet"
+        next(None, Some(false)),
+        Some((pose(2), Some(Disabled))),
+        "a policy change keeps the moved pose"
+    );
+    assert_eq!(
+        next(Some(pose(3)), Some(true)),
+        Some((pose(3), Some(Enabled)))
+    );
+}
+
+#[test]
+fn a_refused_camera_records_nothing_and_the_next_frame_sends_it_again() {
+    use CameraShadowPolicy::Disabled;
+    let (mut lighting, mut publication) = (shadowed(), CameraPublication::new(pose(1)));
+    let refused = publication.publish(&mut lighting, Some(pose(2)), Some(false), |_, _| {
+        Err("refused")
+    });
+    assert_eq!(refused, Err("refused"));
+    assert_eq!(
+        frame(&mut publication, &mut lighting, None, Some(false)),
+        Some((pose(1), Some(Disabled))),
+        "neither the pose nor the policy was recorded"
+    );
+}
+
+#[test]
+fn a_viewer_started_without_shadows_sends_only_moves() {
+    let point = settings(LightKind::Point, LightShadowMode::Soft, 1.0);
+    let mut lighting = SceneLighting::start(&presented(&[(point, Quat::IDENTITY)]), lens())
+        .unwrap()
+        .0;
+    let mut publication = CameraPublication::new(pose(1));
+    assert_eq!(
+        frame(&mut publication, &mut lighting, None, Some(false)),
+        None
+    );
+    assert_eq!(
+        frame(&mut publication, &mut lighting, Some(pose(2)), Some(true)),
+        Some((pose(2), None))
     );
 }

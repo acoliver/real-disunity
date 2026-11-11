@@ -122,8 +122,10 @@ engine's choices:
 - Each frame sends new scene effects only when its lighting changed. After a frame has been
   lit, a frame without a directional light keeps the last sun's direction with no irradiance.
 - The presented camera's `renderShadows` turns those shadows on and off: each frame publishes
-  the camera with the matching shadow policy when the setting changed, at the last pose when
-  the camera did not move. A camera without camera data keeps the published policy. A viewer
+  the camera with the matching shadow policy when the setting changed, at the last accepted
+  pose when the camera did not move. Until the game's camera is shown that pose is the one the
+  window opens with, so the setting applies even when the game presents no camera. A camera
+  without camera data keeps the published policy. A viewer
   that started without shadows ignores the setting, since it cannot add shadow resources.
 
 ## Tests
@@ -134,7 +136,9 @@ text, clipping and unchanged-frame UI update counts without opening a window.
 
 `scene_light` unit tests pin the main-light choice, the sun direction of a turned light, the
 irradiance limit, the fixed shadow settings, when a frame sends new effects, which shadow
-policy a camera's `renderShadows` publishes and the pose it is published at.
+policy a camera's `renderShadows` publishes and, through sequences of frames, the pose it is
+published at, from the window's opening pose, and that a camera the viewer refuses is sent
+again.
 `scene_tables::tests::lit` starts the viewer as `play_player_window` does and checks on a GPU
 adapter that a shadow-casting sun draws into the shadow cascades, that no sun, or a sun
 without shadows, draws none, and that a camera with `renderShadows` off stops the started

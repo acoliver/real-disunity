@@ -192,15 +192,40 @@ impl SceneLighting {
     }
 }
 
-/// The pose a frame publishes the camera at: the new pose when the camera moved, otherwise the
-/// last published pose when the shadow policy changes, and none when nothing changed or no pose
-/// has been published yet.
-pub(crate) fn camera_pose_to_publish(
-    moved: Option<CameraPose>,
-    last: Option<CameraPose>,
-    policy: Option<CameraShadowPolicy>,
-) -> Option<CameraPose> {
-    moved.or(policy.and(last))
+/// The camera Play has published to the viewer. It starts at the pose the viewer opens with,
+/// so a shadow policy always has a pose to travel with, even when the game never presents a
+/// camera.
+pub(crate) struct CameraPublication {
+    pose: CameraPose,
+}
+
+impl CameraPublication {
+    /// A publication whose last pose is `opening`, the pose the viewer starts at.
+    pub(crate) const fn new(opening: CameraPose) -> Self {
+        Self { pose: opening }
+    }
+
+    /// Sends a frame's camera through `apply`: the moved pose, or the last accepted pose when
+    /// only the shadow policy changes, with the policy when it changes; nothing when neither
+    /// changed. The pose and the policy are recorded only when `apply` succeeds.
+    pub(crate) fn publish<E>(
+        &mut self,
+        lighting: &mut SceneLighting,
+        moved: Option<CameraPose>,
+        render_shadows: Option<bool>,
+        apply: impl FnOnce(CameraPose, Option<CameraShadowPolicy>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let policy = lighting.camera_policy(render_shadows);
+        let Some(pose) = moved.or(policy.map(|_| self.pose)) else {
+            return Ok(());
+        };
+        apply(pose, policy)?;
+        self.pose = pose;
+        if let Some(policy) = policy {
+            lighting.published(policy);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

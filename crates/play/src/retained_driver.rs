@@ -34,7 +34,7 @@ use crate::{
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::PlayerUi,
-    scene_light::{SceneLighting, camera_pose_to_publish},
+    scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::{orbit_limits, scene_camera},
 };
@@ -158,7 +158,8 @@ struct PlayerRetainedDriver {
     lens: SceneCamera,
     camera_set: bool,
     /// The pose the viewer was last given, which a shadow policy change alone publishes again.
-    last_pose: Option<CameraPose>,
+    /// The camera last accepted by the viewer, from the pose it opens with.
+    publication: CameraPublication,
     simulated: Duration,
     size: [u32; 2],
     presented: u64,
@@ -185,7 +186,7 @@ impl PlayerRetainedDriver {
             lighting,
             lens: viewer_options(&window).camera,
             camera_set: false,
-            last_pose: None,
+            publication: CameraPublication::new(viewer_options(&window).pose),
             simulated: Duration::ZERO,
             size: window.size,
             presented: 0,
@@ -313,32 +314,28 @@ impl PlayerRetainedDriver {
         game: Option<CameraState>,
         shows_objects: bool,
     ) -> Result<(), PlayError> {
-        let pose = if !self.camera_set && shows_objects {
+        let moved = if !self.camera_set && shows_objects {
             self.camera_set = true;
             self.first_pose(game)
         } else {
             self.navigation.take_moved()
         };
-        let policy = self
-            .lighting
-            .camera_policy(self.host.presentation_render_shadows()?);
-        let Some(pose) = camera_pose_to_publish(pose, self.last_pose, policy) else {
-            return Ok(());
-        };
-        viewer
-            .apply(RetainedUpdate::camera_with_shadow_policy(
-                pose,
-                self.lens,
-                LEFT_HANDED,
-                CameraContinuity::Continuous,
-                policy,
-            ))
-            .map_err(|error| PlayError::Invalid(format!("the camera is not accepted: {error}")))?;
-        self.last_pose = Some(pose);
-        if let Some(policy) = policy {
-            self.lighting.published(policy);
-        }
-        Ok(())
+        let render_shadows = self.host.presentation_render_shadows()?;
+        let lens = self.lens;
+        self.publication
+            .publish(&mut self.lighting, moved, render_shadows, |pose, policy| {
+                viewer
+                    .apply(RetainedUpdate::camera_with_shadow_policy(
+                        pose,
+                        lens,
+                        LEFT_HANDED,
+                        CameraContinuity::Continuous,
+                        policy,
+                    ))
+                    .map_err(|error| {
+                        PlayError::Invalid(format!("the camera is not accepted: {error}"))
+                    })
+            })
     }
 
     fn first_pose(&mut self, game: Option<CameraState>) -> Option<CameraPose> {

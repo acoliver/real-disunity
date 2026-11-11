@@ -39,9 +39,9 @@ mod retained;
 mod world_edits;
 pub use retained::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
-    AudioUnavailable, CameraContinuity, CancelToken, CaptureJitter, CaptureOutput,
-    CaptureRequestError, ClipHandle, CursorError, CursorGrabMode, KeyCode, LogicalKey,
-    MAX_HOST_TIMERS, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, PickHit,
+    AudioUnavailable, CameraContinuity, CameraShadowPolicy, CancelToken, CaptureJitter,
+    CaptureOutput, CaptureRequestError, ClipHandle, CursorError, CursorGrabMode, KeyCode,
+    LogicalKey, MAX_HOST_TIMERS, MouseButton, NativeKeyCode, ObjectId, PhysicalKey, PickHit,
     RetainedCaptureObservation, RetainedCaptureOutcome, RetainedCaptureProducts,
     RetainedCaptureRecipe, RetainedDriver, RetainedEvent, RetainedEventHost, RetainedHost,
     RetainedInput, RetainedPickHit, RetainedTick, RetainedUpdate, SceneObjectEdit,

@@ -104,6 +104,14 @@ pub enum RetainedUpdate {
         lens: SceneCamera,
         convention: worldrunner_camera::ViewConvention,
     },
+    /// Updates the camera and optionally changes native shadow reception atomically.
+    CameraWithShadowPolicy {
+        pose: CameraPose,
+        lens: SceneCamera,
+        convention: worldrunner_camera::ViewConvention,
+        continuity: CameraContinuity,
+        shadow_policy: Option<CameraShadowPolicy>,
+    },
     /// A camera update that explicitly selects whether temporal history survives.
     CameraWithContinuity {
         continuity: CameraContinuity,
@@ -152,6 +160,13 @@ pub enum SceneObjectEdit {
     Add { id: ObjectId, object: SceneObject },
     Replace { id: ObjectId, object: SceneObject },
     Remove(ObjectId),
+}
+
+/// Native retained directional-shadow reception for the existing resident scene.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CameraShadowPolicy {
+    Enabled,
+    Disabled,
 }
 
 /// Typed OS input, without application action mapping or GPU types.
@@ -313,11 +328,18 @@ impl RetainedHost {
         if let RetainedUpdate::Decal(edit) = &update {
             return self.apply_decal(edit.clone());
         }
-        if let Some((pose, lens, convention, _)) = update.camera_update() {
-            Self::validate_camera(pose, lens, convention)?;
-            self.options.camera_convention = convention;
-            self.options.pose = pose;
-            self.options.camera = lens;
+        if let Some(camera) = update.camera_update() {
+            Self::validate_camera(camera.pose, camera.lens, camera.convention)?;
+            if camera.shadow_policy == Some(CameraShadowPolicy::Enabled)
+                && self.options.shadows.is_none()
+            {
+                return Err(ViewerError::UnsupportedScene(
+                    "directional shadows require a shadowed retained scene",
+                ));
+            }
+            self.options.camera_convention = camera.convention;
+            self.options.pose = camera.pose;
+            self.options.camera = camera.lens;
             self.enqueue(update, false);
             return Ok(());
         }

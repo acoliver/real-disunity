@@ -120,12 +120,39 @@ fn gpu_an_untransacted_frame_resolves_after_its_own_submission_not_earlier_work(
             })
             .unwrap();
     };
+    // The sampled pass clears a target: an empty stamped compute pass yields no usable
+    // timestamps on Metal whenever it is resolved (board 67 post 1840).
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("sampled target"),
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
     timer.begin_frame(6);
     let stamp = timer.stamp(PassId::Resolve).unwrap();
-    drop(encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("sampled pass"),
-        timestamp_writes: Some(stamp.compute()),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        timestamp_writes: Some(stamp.render()),
+        ..wgpu::RenderPassDescriptor::default()
     }));
     timer.finish_frame(&mut encoder);
     for _ in 0..3 {

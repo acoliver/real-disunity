@@ -29,6 +29,8 @@ internal static unsafe class GlobalArrayTests
             Console.WriteLine("PASS: a context holds recorded arrays until Submit and sends the same records as Graphics.ExecuteCommandBuffer");
             CommandBufferRefusesBadArraysBeforeRecording();
             Console.WriteLine("PASS: a bad name, id, array or component throws at the call and records nothing; a released buffer throws first");
+            StaticArraysRefuseAnUnregisteredId();
+            Console.WriteLine("PASS: a static array under an id no name was registered for throws ArgumentException and neither reaches the world nor is stored");
         }
         finally
         {
@@ -342,6 +344,22 @@ internal static unsafe class GlobalArrayTests
         buffer.Release();
         foreach (var (what, _, call) in bad)
             Throws<ObjectDisposedException>(call, $"{what} on a released buffer", "CommandBuffer");
+    }
+
+    private static void StaticArraysRefuseAnUnregisteredId()
+    {
+        var unregistered = int.MinValue + 29;
+        var (vectors, matrices) = (Vectors(2, 11f), Matrices(2, 11f));
+        var calls = new (string What, Action Call)[]
+        {
+            ("vector array", () => Shader.SetGlobalVectorArray(unregistered, vectors)),
+            ("vector list", () => Shader.SetGlobalVectorArray(unregistered, new List<Vector4>(vectors))),
+            ("matrix array", () => Shader.SetGlobalMatrixArray(unregistered, matrices)),
+            ("matrix list", () => Shader.SetGlobalMatrixArray(unregistered, new List<Matrix4x4>(matrices))),
+        };
+        foreach (var (what, call) in calls)
+            Throws<ArgumentException>(call, $"an unregistered id with a {what}", "no shader property has the id");
+        Ensure(Shader.GetGlobalVectorArray(unregistered) == null && Shader.GetGlobalMatrixArray(unregistered) == null, "a refused id stores nothing");
     }
 
     /// <summary>Fills the world's own list of global arrays of one kind to its limit with the native bindings, which leave the

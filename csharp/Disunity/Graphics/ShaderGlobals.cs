@@ -73,26 +73,29 @@ public sealed partial class Shader
     private static NotSupportedException FloatArrayUnsupported([System.Runtime.CompilerServices.CallerMemberName] string member = "") =>
         new($"Shader.{member}: float arrays are not supported yet, because the world and the host have no float array");
 
+    /// <summary>The name of a property id an array is set under. An id no name was registered for cannot be sent to the world now
+    /// or when a world loads, so it throws rather than succeed as managed state alone.</summary>
+    private static string ArrayName(int nameID, string member)
+    {
+        var name = PropertyName(nameID) ?? throw new ArgumentException($"{member}: no shader property has the id {nameID}", nameof(nameID));
+        WorldGraphics.CheckArrayName(name, member);
+        return name;
+    }
+
     /// <summary>Stores a checked copy of a global vector array. A loaded world takes it first, so a refusal leaves the stored array as it was.</summary>
     private static void StoreVectorArray(int nameID, Vector4[] copy)
     {
         var store = Globals;
-        if (PropertyName(nameID) is { } name)
-        {
-            WorldGraphics.CheckArrayName(name, nameof(SetGlobalVectorArray));
-            if (DisunityHost.IsLoaded) WorldGraphics.WriteGlobalVectorArray(name, copy);
-        }
+        var name = ArrayName(nameID, nameof(SetGlobalVectorArray));
+        if (DisunityHost.IsLoaded) WorldGraphics.WriteGlobalVectorArray(name, copy);
         store.VectorArrays[nameID] = copy;
     }
 
     private static void StoreMatrixArray(int nameID, Matrix4x4[] copy)
     {
         var store = Globals;
-        if (PropertyName(nameID) is { } name)
-        {
-            WorldGraphics.CheckArrayName(name, nameof(SetGlobalMatrixArray));
-            if (DisunityHost.IsLoaded) WorldGraphics.WriteGlobalMatrixArray(name, copy);
-        }
+        var name = ArrayName(nameID, nameof(SetGlobalMatrixArray));
+        if (DisunityHost.IsLoaded) WorldGraphics.WriteGlobalMatrixArray(name, copy);
         store.MatrixArrays[nameID] = copy;
     }
 

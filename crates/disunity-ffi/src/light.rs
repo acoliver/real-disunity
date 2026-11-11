@@ -48,7 +48,7 @@ impl Default for DisunityLight {
 }
 
 impl DisunityLight {
-    fn from_native(light: Light) -> Self {
+    pub(crate) fn from_native(light: Light) -> Self {
         let s = light.settings;
         let [r, g, b, a] = s.color;
         Self {

@@ -70,7 +70,7 @@ fn recipe() -> RetainedCaptureRecipe {
             CaptureOutput::Depth,
             CaptureOutput::Normals,
             CaptureOutput::AmbientOcclusion,
-            CaptureOutput::SsrConfidence,
+            CaptureOutput::SsrConfidenceOpaque,
         ],
         4 * 1024 * 1024,
     )

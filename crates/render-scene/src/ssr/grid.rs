@@ -55,11 +55,13 @@ pub(super) fn pipeline(
     settings: &SceneSsr,
     water: bool,
 ) -> wgpu::RenderPipeline {
-    gpu::pipeline(
+    let dual = water && super::pyramid::banked(settings);
+    gpu::pipeline_targets(
         device,
         &trace_source(config.samples, water, settings, config.size),
         1,
         false,
+        if dual { 2 } else { 1 },
     )
 }
 
@@ -69,9 +71,10 @@ pub(super) fn trace_source(
     settings: &SceneSsr,
     size: [u32; 2],
 ) -> String {
+    let banked = water && super::pyramid::banked(settings);
     let source = gpu::configured_trace_source(samples, water, settings.radiance_rounding);
     let source = match settings.hit_facing {
-        worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers if water => {
+        worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers if water && !banked => {
             super::water::hit_facing_source(&source)
         }
         worldrunner_render_plan::SceneSsrHitFacing::ShadingNormal
@@ -82,15 +85,23 @@ pub(super) fn trace_source(
     };
     let source = super::pyramid::trace_source(source, samples, settings);
     if settings.traversal != SceneSsrTraversal::Grid {
-        return source;
+        return if banked {
+            super::water::banked_trace_source(&source)
+        } else {
+            source
+        };
     }
     let (base, count) = domain(settings, size);
     let source = configure_levels(source, count, base > 0);
     if base == 0 {
-        return source;
+        return if banked {
+            super::water::banked_trace_source(&source)
+        } else {
+            source
+        };
     }
     // Refine half-resolution bounds in the same walk before returning a child contact.
-    source
+    let source = source
         .replace("const GRID_REFINEMENT: bool = false;", "const GRID_REFINEMENT: bool = true;")
         .replace("fn grid_child_depth(pixel: vec2<f32>) -> f32 { return grid_depth(0, pixel, vec2<f32>(1.0)); }",
             &format!("fn grid_child_depth(pixel: vec2<f32>) -> f32 {{ return textureLoad(grid_depth_{count}, vec2<i32>(pixel*2.0), 0).r; }}"))
@@ -107,7 +118,12 @@ pub(super) fn trace_source(
         .replace(
             "if !matches_receiver_depth(intersection.depth, metadata_depth, hit_normal.xyz, hit_pixel)",
             &format!("if intersection.depth != textureLoad(grid_depth_{count}, hit_pixel, 0).r || !matches_receiver_depth(intersection.depth, metadata_depth, hit_normal.xyz, hit_pixel)"),
-        )
+        );
+    if banked {
+        super::water::banked_trace_source(&source)
+    } else {
+        source
+    }
 }
 fn configure_levels(mut source: String, count: usize, ownership: bool) -> String {
     let first = source

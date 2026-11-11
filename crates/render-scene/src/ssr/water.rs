@@ -124,6 +124,53 @@ fn reconstruction_source(source: &str) -> String {
         )
 }
 
+pub(super) fn banked_trace_source(source: &str) -> String {
+    let source = source
+        .replace(
+            "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {",
+            "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> ReflectionBanks {",
+        )
+        .replace(
+            "fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>, roughness: f32) -> vec4<f32> {",
+            "fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>, roughness: f32, receiver_is_water: bool) -> ReflectionBanks {",
+        )
+        .replace(
+            "grid_reflection(centre, direction, origin_uv, roughness)",
+            "grid_reflection(centre, direction, origin_uv, roughness, receiver_is_water)",
+        )
+        .replace(
+            "let water_normal = textureLoad(water_normals, p, 0);",
+            "let water_normal = textureLoad(water_normals, p, 0);\n    let receiver_is_water = water_normal.a != 0.0;",
+        )
+        .replace(
+            "let water_normal = textureLoad(water_normals, p, i32(sample));",
+            "let water_normal = textureLoad(water_normals, p, i32(sample));\n    let receiver_is_water = water_normal.a != 0.0;",
+        )
+        .replace(
+            "if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { break; }",
+            "if hit_normal.a == 0.0 { break; }",
+        )
+        .replace(
+            "if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { return vec4<f32>(0.0); }",
+            "if hit_normal.a == 0.0 { return ReflectionBanks(vec4<f32>(0.0), vec4<f32>(0.0)); }",
+        )
+        .replace(
+            "return vec4<f32>(hit * confidence, confidence);",
+            "let candidate = vec4<f32>(hit * confidence, confidence);\n            let strict = select(vec4<f32>(0.0), candidate, dot(hit_normal.xyz, direction) < 0.0);\n            return ReflectionBanks(strict, select(strict, candidate, receiver_is_water));",
+        )
+        .replace(
+            "return vec4<f32>(hit*confidence, confidence);",
+            "let candidate = vec4<f32>(hit*confidence, confidence);\n    let strict = select(vec4<f32>(0.0), candidate, dot(hit_normal.xyz, direction) < 0.0);\n    return ReflectionBanks(strict, select(strict, candidate, receiver_is_water));",
+        )
+        .replace(
+            "return vec4<f32>(0.0);",
+            "return ReflectionBanks(vec4<f32>(0.0), vec4<f32>(0.0));",
+        );
+    format!(
+        "struct ReflectionBanks {{ @location(0) opaque_bank: vec4<f32>, @location(1) water_bank: vec4<f32>, }}\n{source}"
+    )
+}
+
 pub(super) fn hit_facing_source(source: &str) -> String {
     let source = source
         .replace(

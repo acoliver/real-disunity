@@ -19,7 +19,7 @@ fn selected_effects_supply_initial_capture_readiness() {
         })
     })
     .unwrap();
-    host.request_capture_recipe(0, recipe(CaptureOutput::SsrConfidence))
+    host.request_capture_recipe(0, recipe(CaptureOutput::SsrConfidenceOpaque))
         .unwrap();
     host.resolve_initial_content(InitialContext {
         adapter: &identity(),
@@ -27,6 +27,7 @@ fn selected_effects_supply_initial_capture_readiness() {
     })
     .unwrap();
     assert!(host.readiness.capture_features[3]);
+    assert!(!host.readiness.capture_features[4]);
     assert_eq!(host.captures.recipes[&0].frame_samples, 4);
     assert_eq!(host.accepted_generation(), 0);
 }
@@ -299,7 +300,7 @@ fn supplier_validates_selected_scene_and_pending_captures() {
         })
     })
     .unwrap();
-    host.request_capture_recipe(0, recipe(CaptureOutput::SsrConfidence))
+    host.request_capture_recipe(0, recipe(CaptureOutput::SsrConfidenceOpaque))
         .unwrap();
     assert!(matches!(
         host.resolve_initial_content(InitialContext {

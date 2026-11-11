@@ -208,10 +208,18 @@ impl Captures {
     }
 }
 
-pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) -> [bool; 5] {
+pub(super) fn features(effects: Option<&worldrunner_render_plan::SceneEffects>) -> [bool; 6] {
     let ao = effects.is_some_and(|e| e.ssao().is_some());
     let ssr = effects.and_then(|e| e.ssr()).is_some_and(|s| s.enabled);
-    [ao || ssr, ao || ssr, ao || ssr, ssr, ssr]
+    let water_bank = effects.is_some_and(|effects| {
+        !effects.water_bodies().is_empty()
+            && effects.ssr().is_some_and(|ssr| {
+                ssr.enabled
+                    && ssr.hit_facing
+                        == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
+            })
+    });
+    [ao || ssr, ao || ssr, ao || ssr, ssr, water_bank, ssr]
 }
 
 pub(crate) fn ao_format(
@@ -280,7 +288,8 @@ impl RetainedHost {
             CaptureOutput::Depth,
             CaptureOutput::Normals,
             CaptureOutput::AmbientOcclusion,
-            CaptureOutput::SsrConfidence,
+            CaptureOutput::SsrConfidenceOpaque,
+            CaptureOutput::SsrConfidenceWater,
             CaptureOutput::Specular,
         ]
         .into_iter()

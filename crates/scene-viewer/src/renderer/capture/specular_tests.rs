@@ -159,7 +159,7 @@ fn capture(
         CaptureOutput::Normals,
         CaptureOutput::Depth,
         CaptureOutput::AmbientOcclusion,
-        CaptureOutput::SsrConfidence,
+        CaptureOutput::SsrConfidenceOpaque,
     ];
     if specular {
         outputs.push(CaptureOutput::Specular);

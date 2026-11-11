@@ -48,7 +48,7 @@ fn recipe() -> RetainedCaptureRecipe {
             CaptureOutput::Depth,
             CaptureOutput::Normals,
             CaptureOutput::AmbientOcclusion,
-            CaptureOutput::SsrConfidence,
+            CaptureOutput::SsrConfidenceOpaque,
         ],
         16 * 1024 * 1024,
     )
@@ -113,8 +113,8 @@ fn feature_readbacks_equal_existing_targets_at_native_extents() {
                 products.ambient_occlusion.unwrap(),
             ),
             (
-                FeatureTarget::SsrConfidence,
-                products.ssr_confidence.unwrap(),
+                FeatureTarget::SsrConfidenceOpaque,
+                products.ssr_confidence_opaque.unwrap(),
             ),
         ] {
             let (viewport, format, bytes) = direct(&renderer, feature);
@@ -206,7 +206,7 @@ fn ssr_feature_readbacks_preserve_contiguous_sample_lanes() {
                 1,
                 CaptureJitter::None,
                 false,
-                vec![CaptureOutput::SsrConfidence],
+                vec![CaptureOutput::SsrConfidenceOpaque],
                 400_000,
             )
             .unwrap();
@@ -216,10 +216,10 @@ fn ssr_feature_readbacks_preserve_contiguous_sample_lanes() {
         }
         let scheduler = &renderer.presentation.scheduler;
         let texture = scheduler
-            .feature_target(FeatureTarget::SsrConfidence)
+            .feature_target(FeatureTarget::SsrConfidenceOpaque)
             .unwrap();
         let target = scheduler
-            .feature_capture(FeatureTarget::SsrConfidence)
+            .feature_capture(FeatureTarget::SsrConfidenceOpaque)
             .unwrap();
         assert_eq!(target.size, expected);
         let lane_width = expected[0] / samples;
@@ -233,7 +233,7 @@ fn ssr_feature_readbacks_preserve_contiguous_sample_lanes() {
         );
         let device = renderer.context.device();
         let scene = scheduler.targets().texture();
-        let outputs = &[CaptureOutput::SsrConfidence];
+        let outputs = &[CaptureOutput::SsrConfidenceOpaque];
         let mut readback = Products::new(device, scene, scene, outputs, None).unwrap();
         readback.features(device, scheduler, outputs).unwrap();
         let mut encoder = renderer.context.submission().begin(device).unwrap();
@@ -245,7 +245,7 @@ fn ssr_feature_readbacks_preserve_contiguous_sample_lanes() {
             .try_read()
             .unwrap()
             .unwrap()
-            .ssr_confidence
+            .ssr_confidence_opaque
             .unwrap();
         assert_confidence_lanes(&image, samples, lane_width, expected);
     }

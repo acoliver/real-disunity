@@ -84,7 +84,7 @@ fn recipe() -> crate::RetainedCaptureRecipe {
         1,
         crate::CaptureJitter::None,
         false,
-        vec![crate::CaptureOutput::SsrConfidence],
+        vec![crate::CaptureOutput::SsrConfidenceOpaque],
         1024 * 1024,
     )
     .unwrap()

@@ -109,11 +109,13 @@ fn arrays_of(
 }
 
 #[test]
-fn the_version_is_five_and_a_version_four_snapshot_is_refused() {
-    assert_eq!(WIRE_VERSION, 5);
-    let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
-    bytes[4..8].copy_from_slice(&4_u32.to_le_bytes());
-    assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(4)));
+fn the_version_is_six_and_version_four_and_five_snapshots_are_refused() {
+    assert_eq!(WIRE_VERSION, 6);
+    for old in [4_u32, 5] {
+        let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
+        bytes[4..8].copy_from_slice(&old.to_le_bytes());
+        assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(old)));
+    }
 }
 
 #[test]

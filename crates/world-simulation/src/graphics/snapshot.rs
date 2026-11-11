@@ -108,7 +108,8 @@ impl GraphicsSnapshot {
             .iter()
             .filter_map(|work| match work {
                 OffscreenWork::Blit { material, .. } => *material,
-                OffscreenWork::DrawMesh { material, .. } => Some(*material),
+                OffscreenWork::DrawMesh { material, .. }
+                | OffscreenWork::DrawProcedural { material, .. } => Some(*material),
                 _ => None,
             })
             .chain(

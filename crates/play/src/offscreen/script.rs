@@ -143,6 +143,7 @@ pub(super) fn kind(work: &OffscreenWork) -> &'static str {
         OffscreenWork::DrawRendererList { .. } => "DrawRendererList",
         OffscreenWork::SetViewProjection { .. } => "SetViewProjection",
         OffscreenWork::DrawMesh { .. } => "DrawMesh",
+        OffscreenWork::DrawProcedural { .. } => "DrawProcedural",
     }
 }
 
@@ -150,14 +151,16 @@ impl Mapper<'_> {
     /// Runs a command that sets the running state or makes a record from it.
     pub(super) fn command(&mut self, work: &OffscreenWork) -> Result<Vec<Record>, Skip> {
         match work {
-            OffscreenWork::SetRenderTarget {
-                color,
-                depth,
-                mip,
-                face,
-                slice,
-            } => {
-                self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?;
+            OffscreenWork::SetRenderTarget { .. }
+            | OffscreenWork::SetGlobal(_)
+            | OffscreenWork::SetGlobalKeyword { .. }
+            | OffscreenWork::AllocateTemporary { .. }
+            | OffscreenWork::ReleaseTemporary { .. }
+            | OffscreenWork::SetupCamera { .. }
+            | OffscreenWork::Cull { .. }
+            | OffscreenWork::CreateRendererList { .. }
+            | OffscreenWork::SetViewProjection { .. } => {
+                self.set_state(work)?;
                 Ok(Vec::new())
             }
             OffscreenWork::ClearRenderTarget {
@@ -172,11 +175,51 @@ impl Mapper<'_> {
                 *value,
                 (*depth_value, *stencil_value),
             ),
+            OffscreenWork::DrawRendererList { list } => self.draw_list(*list),
+            OffscreenWork::DrawMesh {
+                mesh,
+                matrix,
+                material,
+                submesh,
+                pass,
+            } => self.draw_mesh((*mesh, *submesh), matrix, *material, *pass),
+            OffscreenWork::DrawProcedural {
+                matrix,
+                material,
+                pass,
+                topology,
+                vertex_count,
+                instance_count,
+            } => self.draw_procedural(
+                matrix,
+                (*material, *pass),
+                *topology,
+                (*vertex_count, *instance_count),
+            ),
+            OffscreenWork::CameraRender { .. }
+            | OffscreenWork::Blit { .. }
+            | OffscreenWork::CopyTexture { .. }
+            | OffscreenWork::Dispatch { .. }
+            | OffscreenWork::ReadPixels { .. } => {
+                unreachable!("{} is mapped elsewhere", kind(work))
+            }
+        }
+    }
+
+    /// Runs a command that changes the running state and makes no record.
+    fn set_state(&mut self, work: &OffscreenWork) -> Result<(), Skip> {
+        match work {
+            OffscreenWork::SetRenderTarget {
+                color,
+                depth,
+                mip,
+                face,
+                slice,
+            } => self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?,
             OffscreenWork::SetGlobal(value) => {
                 let globals = &mut self.script.globals;
                 set_value(&mut globals.layer, value, &mut self.textures);
                 globals.dirty = true;
-                Ok(Vec::new())
             }
             OffscreenWork::SetGlobalKeyword { name, enabled } => {
                 let globals = &mut self.script.globals;
@@ -186,17 +229,13 @@ impl Mapper<'_> {
                     globals.keywords.remove(name)
                 };
                 globals.dirty |= changed;
-                Ok(Vec::new())
             }
             OffscreenWork::AllocateTemporary { name_id, desc } => {
                 self.script.temporaries.allocate(*name_id, *desc);
-                Ok(Vec::new())
             }
             OffscreenWork::ReleaseTemporary { name_id } => {
-                if self.script.temporaries.release(*name_id) {
-                    Ok(Vec::new())
-                } else {
-                    Err(Skip::UnknownTemporary)
+                if !self.script.temporaries.release(*name_id) {
+                    return Err(Skip::UnknownTemporary);
                 }
             }
             OffscreenWork::SetupCamera {
@@ -204,43 +243,20 @@ impl Mapper<'_> {
                 view,
                 projection,
                 target,
-            } => {
-                self.setup_camera(*camera, (view, projection), *target);
-                Ok(Vec::new())
-            }
+            } => self.setup_camera(*camera, (view, projection), *target),
             OffscreenWork::Cull {
                 id,
                 culling_mask,
                 planes,
                 ..
-            } => {
-                self.cull(*id, *culling_mask, planes);
-                Ok(Vec::new())
-            }
-            OffscreenWork::CreateRendererList { id, desc } => {
-                self.create_list(*id, desc);
-                Ok(Vec::new())
-            }
-            OffscreenWork::DrawRendererList { list } => self.draw_list(*list),
+            } => self.cull(*id, *culling_mask, planes),
+            OffscreenWork::CreateRendererList { id, desc } => self.create_list(*id, desc),
             OffscreenWork::SetViewProjection { view, projection } => {
                 self.set_view_projection(view, projection);
-                Ok(Vec::new())
             }
-            OffscreenWork::DrawMesh {
-                mesh,
-                matrix,
-                material,
-                submesh,
-                pass,
-            } => self.draw_mesh((*mesh, *submesh), matrix, *material, *pass),
-            OffscreenWork::CameraRender { .. }
-            | OffscreenWork::Blit { .. }
-            | OffscreenWork::CopyTexture { .. }
-            | OffscreenWork::Dispatch { .. }
-            | OffscreenWork::ReadPixels { .. } => {
-                unreachable!("{} is mapped elsewhere", kind(work))
-            }
+            _ => unreachable!("{} makes a record", kind(work)),
         }
+        Ok(())
     }
 
     /// The globals record that carries the changes since the last one, if there are any.

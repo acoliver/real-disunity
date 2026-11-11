@@ -22,6 +22,7 @@ mod mesh_cache;
 mod pixels;
 mod policy;
 mod probe;
+mod procedural;
 mod properties;
 mod reclaim;
 mod refusal;

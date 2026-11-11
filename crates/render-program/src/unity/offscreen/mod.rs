@@ -17,6 +17,7 @@ mod list_steps;
 mod meshes;
 mod plan;
 mod probe;
+mod procedural;
 mod readback;
 mod resample;
 mod steps;

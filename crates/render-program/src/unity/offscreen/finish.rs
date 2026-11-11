@@ -148,6 +148,7 @@ impl Finish<'_> {
             layouts: &layouts,
             signature: draw.signature,
             colors: &colors,
+            topology: draw.topology,
         };
         let key = request.key();
         if let Some(prototype) = self.draws.get(&key) {
@@ -211,6 +212,7 @@ impl Finish<'_> {
             layouts: &layouts,
             signature,
             colors: &colors,
+            topology: wgpu::PrimitiveTopology::TriangleList,
         };
         let modules = self.runtime.program_modules(program)?;
         Ok(with_pipeline_descriptor(

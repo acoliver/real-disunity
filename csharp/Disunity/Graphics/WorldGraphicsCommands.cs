@@ -111,6 +111,17 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_draw_mesh(World, mesh, columns, material, (uint)submesh, pass));
     }
 
+    /// <summary>Records a draw of generated vertices with the matrix column by column, as the world holds it. Topology 0 is a
+    /// triangle list and 1 a line list.</summary>
+    internal static void RecordDrawProcedural(Matrix4x4 matrix, ulong material, int pass, uint topology, (int Vertices, int Instances) counts)
+    {
+        var columns = stackalloc float[16];
+        for (var column = 0; column < 4; column++)
+            for (var row = 0; row < 4; row++)
+                columns[column * 4 + row] = matrix[row, column];
+        Check(NativeBindings.disunity_offscreen_draw_procedural(World, columns, material, pass, topology, counts.Vertices, counts.Instances));
+    }
+
     private static long _lastHandle;
 
     /// <summary>The next id for a culling result or a renderer list. Ids are never reused, so a handle from an earlier frame

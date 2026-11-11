@@ -73,7 +73,7 @@ fn unavailable_execution_modes_are_rejected_without_consuming_request_ids() {
         CaptureOutput::Depth,
         CaptureOutput::Normals,
         CaptureOutput::AmbientOcclusion,
-        CaptureOutput::SsrConfidenceOpaque,
+        CaptureOutput::SsrConfidence,
     ] {
         let recipe =
             RetainedCaptureRecipe::new(1, 1, CaptureJitter::None, false, vec![output], u64::MAX)
@@ -210,15 +210,15 @@ fn feature_availability_uses_requested_generation_and_counts_native_storage() {
         })
     );
     let id = host
-        .request_capture_recipe(1, make(CaptureOutput::SsrConfidenceOpaque))
+        .request_capture_recipe(1, make(CaptureOutput::SsrConfidence))
         .unwrap();
     let reserved = host.captures.reservations[&id];
-    let mut packed = make(CaptureOutput::SsrConfidenceOpaque);
+    let mut packed = make(CaptureOutput::SsrConfidence);
     packed.frame_samples = 4;
     assert_eq!(reserved, packed.storage_bytes(host.size).unwrap());
     assert!(
         reserved
-            > make(CaptureOutput::SsrConfidenceOpaque)
+            > make(CaptureOutput::SsrConfidence)
                 .storage_bytes(host.size)
                 .unwrap()
     );

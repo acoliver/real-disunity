@@ -17,13 +17,13 @@ pub enum FeatureTarget {
     /// Scalable with normalized depth in green. `DepthAwareGather` uses `Rg32Float`
     /// with the consumed view-space metre depth in green, at the kernel's extent.
     AmbientOcclusion,
-    /// Strict-facing trace confidence in alpha of `Rgba16Float`, at trace resolution.
-    /// Capture extent is `(trace_width * frame_sample_count, trace_height)`.
-    /// Output samples occupy horizontal lanes: `packed_x = sample * trace_width + x`.
-    /// Trace dimensions follow the selected resolution and rounding policy.
-    /// Use `feature_capture` for the logical extent and physical lane layout,
-    /// excluding allocation padding.
-    SsrConfidenceOpaque,
+    /// Strict-facing trace confidence from the bank that opaque receivers read,
+    /// in alpha of `Rgba16Float`, at trace resolution. Capture extent is
+    /// `(trace_width * frame_sample_count, trace_height)`. Output samples occupy
+    /// horizontal lanes: `packed_x = sample * trace_width + x`. Trace dimensions
+    /// follow the selected resolution and rounding policy. Use `feature_capture`
+    /// for the logical extent and physical lane layout, excluding allocation padding.
+    SsrConfidence,
     /// Water-facing trace confidence in alpha of `Rgba16Float`, at trace resolution.
     /// Available only when the water-facing bank is enabled.
     SsrConfidenceWater,
@@ -63,7 +63,7 @@ impl FrameRenderer {
             FeatureTarget::Normals => self.ssao.as_ref().map(|s| &s.normals),
             FeatureTarget::AmbientOcclusion => self.ssao.as_ref().map(|s| &s.passes.filtered),
             FeatureTarget::Specular => self.ssr.as_ref().map(crate::ssr::Ssr::material_target),
-            FeatureTarget::SsrConfidenceOpaque => {
+            FeatureTarget::SsrConfidence => {
                 self.ssr.as_ref().map(crate::ssr::Ssr::confidence_target)
             }
             FeatureTarget::SsrConfidenceWater => self
@@ -80,9 +80,7 @@ impl FrameRenderer {
 
     pub fn feature_capture(&self, feature: FeatureTarget) -> Option<FeatureCapture<'_>> {
         match feature {
-            FeatureTarget::SsrConfidenceOpaque => {
-                self.ssr.as_ref().map(|ssr| ssr.confidence_capture(0))
-            }
+            FeatureTarget::SsrConfidence => self.ssr.as_ref().map(|ssr| ssr.confidence_capture(0)),
             FeatureTarget::SsrConfidenceWater => self
                 .ssr
                 .as_ref()

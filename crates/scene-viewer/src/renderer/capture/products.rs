@@ -93,11 +93,11 @@ impl Native {
                 match output {
                     CaptureOutput::Depth => products.depth = Some(image),
                     CaptureOutput::AmbientOcclusion => products.ambient_occlusion = Some(image),
-                    CaptureOutput::SsrConfidenceOpaque => {
-                        products.ssr_confidence_opaque = Some(image)
+                    CaptureOutput::SsrConfidence => {
+                        products.ssr_confidence = Some(image);
                     }
                     CaptureOutput::SsrConfidenceWater => {
-                        products.ssr_confidence_water = Some(image)
+                        products.ssr_confidence_water = Some(image);
                     }
                     _ => unreachable!("native feature"),
                 }
@@ -180,10 +180,7 @@ impl Products {
                 CaptureOutput::AmbientOcclusion,
                 FeatureTarget::AmbientOcclusion,
             ),
-            (
-                CaptureOutput::SsrConfidenceOpaque,
-                FeatureTarget::SsrConfidenceOpaque,
-            ),
+            (CaptureOutput::SsrConfidence, FeatureTarget::SsrConfidence),
             (
                 CaptureOutput::SsrConfidenceWater,
                 FeatureTarget::SsrConfidenceWater,

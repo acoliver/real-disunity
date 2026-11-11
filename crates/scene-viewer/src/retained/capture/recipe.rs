@@ -31,8 +31,8 @@ pub enum CaptureOutput {
     /// channel, not perceptual roughness. Before water; requires SSR.
     Specular,
     AmbientOcclusion,
-    /// Trace alpha from the strict-facing opaque-consumer bank.
-    SsrConfidenceOpaque,
+    /// Trace alpha from the strict bank that opaque receivers read.
+    SsrConfidence,
     /// Trace alpha from the water-consumer bank when water-facing SSR is active.
     SsrConfidenceWater,
 }
@@ -271,7 +271,7 @@ fn output_storage(
         .checked_mul(
             if matches!(
                 output,
-                CaptureOutput::SsrConfidenceOpaque | CaptureOutput::SsrConfidenceWater
+                CaptureOutput::SsrConfidence | CaptureOutput::SsrConfidenceWater
             ) {
                 u64::from(samples)
             } else {
@@ -290,7 +290,7 @@ fn output_storage(
         | CaptureOutput::AmbientDiffuse
         | CaptureOutput::EnvironmentSpecular
         | CaptureOutput::SunSpecular => (8, 24),
-        CaptureOutput::SsrConfidenceOpaque | CaptureOutput::SsrConfidenceWater => (8, 12),
+        CaptureOutput::SsrConfidence | CaptureOutput::SsrConfidenceWater => (8, 12),
         CaptureOutput::AmbientOcclusion if ao_format == wgpu::TextureFormat::Rg32Float => (8, 12),
         CaptureOutput::Depth | CaptureOutput::AmbientOcclusion => (4, 8),
     };
@@ -348,14 +348,15 @@ pub struct RetainedCaptureProducts {
     pub specular: Option<worldrunner_render_scene::offscreen::Rgba16FloatImage>,
     /// Filtered ambient visibility in [0, 1], decoded from the target red channel.
     pub ambient_occlusion: Option<worldrunner_render_scene::offscreen::ScalarImage>,
-    /// Opaque-bank confidence in [0, 1] from trace alpha, at native trace resolution.
-    /// The returned extent is `(trace_width * frame_sample_count, trace_height)`.
+    /// Confidence in [0, 1] from trace alpha in the strict bank that opaque
+    /// receivers read, at native trace resolution. The returned extent is
+    /// `(trace_width * frame_sample_count, trace_height)`.
     /// Samples occupy contiguous horizontal lanes: `packed_x = sample * trace_width + x`,
     /// where `trace_width = returned_width / frame_sample_count` and the sample count
     /// comes from the frame profile. Trace dimensions match the raster extent at
     /// full resolution, or its ceil-divided halves at half resolution. Read pixel
     /// `(x, y)` of a sample at `pixels[y * returned_width + packed_x]`.
-    pub ssr_confidence_opaque: Option<worldrunner_render_scene::offscreen::ScalarImage>,
+    pub ssr_confidence: Option<worldrunner_render_scene::offscreen::ScalarImage>,
     /// Water-bank confidence with the same extent and packed lanes as the opaque bank.
     pub ssr_confidence_water: Option<worldrunner_render_scene::offscreen::ScalarImage>,
 }

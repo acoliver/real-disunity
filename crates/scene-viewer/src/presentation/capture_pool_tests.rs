@@ -281,7 +281,7 @@ fn recipe_set_uses_largest_effective_storage_and_checked_rounding() {
         1,
         CaptureJitter::None,
         false,
-        vec![CaptureOutput::SsrConfidenceOpaque],
+        vec![CaptureOutput::SsrConfidence],
         u64::MAX,
     )
     .unwrap();

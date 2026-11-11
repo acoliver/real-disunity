@@ -288,7 +288,7 @@ impl RetainedHost {
             CaptureOutput::Depth,
             CaptureOutput::Normals,
             CaptureOutput::AmbientOcclusion,
-            CaptureOutput::SsrConfidenceOpaque,
+            CaptureOutput::SsrConfidence,
             CaptureOutput::SsrConfidenceWater,
             CaptureOutput::Specular,
         ]

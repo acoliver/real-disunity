@@ -174,7 +174,7 @@ fn assert_receivers(
     // Its reflected eye ray reaches y=.5 at z=.284, inside the red wall.
     let contact = index(25, 29);
     let ao = shadowed.ambient_occlusion.as_ref().unwrap().pixels[contact];
-    let confidence = shadowed.ssr_confidence_opaque.as_ref().unwrap().pixels[contact];
+    let confidence = shadowed.ssr_confidence.as_ref().unwrap().pixels[contact];
     assert!((ao - 0.9705).abs() < 0.01, "contact AO: {ao}");
     assert!(
         (confidence - 1.0).abs() < 0.005,
@@ -185,8 +185,8 @@ fn assert_receivers(
         "red reflected radiance: {:?}",
         color[contact]
     );
-    assert!(shadowed.ssr_confidence_opaque.as_ref().unwrap().pixels[receiver] < 0.005);
-    assert!(no_caster.ssr_confidence_opaque.as_ref().unwrap().pixels[contact] < 0.005);
+    assert!(shadowed.ssr_confidence.as_ref().unwrap().pixels[receiver] < 0.005);
+    assert!(no_caster.ssr_confidence.as_ref().unwrap().pixels[contact] < 0.005);
     assert!((no_caster.ambient_occlusion.as_ref().unwrap().pixels[contact] - 1.0).abs() < 0.005);
     // Red mesh center (-.4,.5,1.1) projects near (23,6); its lower landmark
     // (-.4,.5,.55) projects near (24,17). Positive-X terrain blue starts on the right.
@@ -236,8 +236,8 @@ fn assert_effects_mirrored(right: &RetainedCaptureProducts, left: &RetainedCaptu
             left.ambient_occlusion.as_ref().unwrap(),
         ),
         (
-            right.ssr_confidence_opaque.as_ref().unwrap(),
-            left.ssr_confidence_opaque.as_ref().unwrap(),
+            right.ssr_confidence.as_ref().unwrap(),
+            left.ssr_confidence.as_ref().unwrap(),
         ),
     ] {
         for (x, y) in [(23, 42), (25, 29), (48, 32), (24, 17)] {

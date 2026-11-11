@@ -50,7 +50,7 @@ fn assert_missed(run: &mut WindowlessRetained<'_>, events: &RefCell<Vec<Retained
         1,
         crate::CaptureJitter::None,
         false,
-        vec![crate::CaptureOutput::SsrConfidenceOpaque],
+        vec![crate::CaptureOutput::SsrConfidence],
         1024 * 1024,
     )
     .unwrap();
@@ -76,7 +76,7 @@ fn assert_missed(run: &mut WindowlessRetained<'_>, events: &RefCell<Vec<Retained
         if let Some(products) = products {
             assert!(
                 products
-                    .ssr_confidence_opaque
+                    .ssr_confidence
                     .unwrap()
                     .pixels
                     .iter()

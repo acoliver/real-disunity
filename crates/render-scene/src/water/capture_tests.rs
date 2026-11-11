@@ -161,9 +161,7 @@ fn prepare(
     case: &Case,
     mut renderer: crate::compositor::FrameRenderer,
 ) -> crate::compositor::FrameRenderer {
-    renderer
-        .install_water(context.device(), case.body.clone())
-        .unwrap();
+    renderer.install_water(context, case.body.clone()).unwrap();
     if case.body.material.flow.is_some() {
         seed_tests::install_field(context, renderer.water.as_mut().unwrap());
     }

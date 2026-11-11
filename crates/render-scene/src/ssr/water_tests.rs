@@ -24,7 +24,7 @@ fn gpu_production_water_trace_and_resolve_share_registered_metadata() {
         );
         renderer
             .install_water(
-                context.device(),
+                &context,
                 worldrunner_render_plan::SceneWaterBody {
                     material: worldrunner_render_plan::SceneWaterSettings::STOCK,
                     surface: worldrunner_render_plan::SceneWaterSurface::Rectangle,
@@ -114,7 +114,8 @@ fn clear_receivers(context: &GpuContext, water: &crate::water::Water) {
     encoder.finish().submit().unwrap();
 }
 pub(super) fn water_fixture(context: &GpuContext, config: FrameConfig) -> crate::water::Water {
-    let mut water = crate::water::Water::new(context.device(), config, vec![]).unwrap();
+    let mut water =
+        crate::water::Water::new(context.device(), context.submission(), config, vec![]).unwrap();
     let lut =
         crate::ssao::passes::texture(context.device(), [1, 1], wgpu::TextureFormat::Rgba16Float);
     upload(context, &lut, &[0.5, 0.0, 0.0, 1.0]);

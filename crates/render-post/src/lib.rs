@@ -50,6 +50,8 @@ mod raster_capture_tests;
 mod timing;
 #[cfg(test)]
 mod timing_operations_tests;
+#[cfg(test)]
+mod timing_test_support;
 pub use timing::{
     FrameTiming, PassId, PassTimer, PassTiming, StageId, TIMING_RING_SIZE, TimingError, TimingMode,
     TimingSupport,

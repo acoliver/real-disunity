@@ -20,9 +20,10 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
-    CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget, PresentationCadence,
-    RenderClock, RetainedCaptureOutcome, RetainedDriver, RetainedEvent, RetainedEventHost,
-    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions, WindowSizeUnit,
+    CameraContinuity, CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget,
+    PresentationCadence, RenderClock, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
+    RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions,
+    WindowSizeUnit,
 };
 
 use crate::{
@@ -33,6 +34,7 @@ use crate::{
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::PlayerUi,
+    scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::{orbit_limits, scene_camera},
 };
@@ -71,11 +73,18 @@ pub fn play_player_window(
 ) -> Result<Vec<Capture>, PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
     host.run_slice(&prepared.request)?;
-    let mut driver = PlayerRetainedDriver::new(host, window)?;
-    let scene =
-        SceneTables::initial_scene().map_err(|error| scene_error("the initial scene", &error))?;
-    let viewer = RetainedHost::new(scene, viewer_options(&driver.window))
+    let mut options = viewer_options(&window);
+    // The first frame's lights decide whether the viewer starts with shadows, which it cannot
+    // add later.
+    host.export_presentation(window.size, FIRST_COVERAGE_TEXTURE)?;
+    let (lighting, shadows) = SceneLighting::start(&host.presentation_lights()?, options.camera)
+        .map_err(PlayError::Invalid)?;
+    options.shadows = shadows;
+    let scene = SceneTables::initial_scene(lighting.effects().cloned())
+        .map_err(|error| scene_error("the initial scene", &error))?;
+    let viewer = RetainedHost::new(scene, options)
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
+    let mut driver = PlayerRetainedDriver::new(host, window, lighting)?;
     viewer
         .run(&mut driver)
         .map_err(|error| PlayError::Invalid(error.to_string()))?;
@@ -145,8 +154,12 @@ struct PlayerRetainedDriver {
     ui: PlayerUi,
     sprites: SpriteTextures,
     navigation: Navigation,
+    lighting: SceneLighting,
     lens: SceneCamera,
     camera_set: bool,
+    /// The pose the viewer was last given, which a shadow policy change alone publishes again.
+    /// The camera last accepted by the viewer, from the pose it opens with.
+    publication: CameraPublication,
     simulated: Duration,
     size: [u32; 2],
     presented: u64,
@@ -157,7 +170,11 @@ struct PlayerRetainedDriver {
 }
 
 impl PlayerRetainedDriver {
-    fn new(host: DisunityHost, window: PlayerWindow) -> Result<Self, PlayError> {
+    fn new(
+        host: DisunityHost,
+        window: PlayerWindow,
+        lighting: SceneLighting,
+    ) -> Result<Self, PlayError> {
         Ok(Self {
             host,
             tables: SceneTables::new().map_err(|error| scene_error("the tables", &error))?,
@@ -166,8 +183,10 @@ impl PlayerRetainedDriver {
             ui: PlayerUi::default(),
             sprites: SpriteTextures::default(),
             navigation: Navigation::default(),
+            lighting,
             lens: viewer_options(&window).camera,
             camera_set: false,
+            publication: CameraPublication::new(viewer_options(&window).pose),
             simulated: Duration::ZERO,
             size: window.size,
             presented: 0,
@@ -236,8 +255,23 @@ impl PlayerRetainedDriver {
                 .apply(update)
                 .map_err(|error| PlayError::Invalid(error.to_string()))?;
         }
+        self.light(viewer)?;
         self.camera(viewer, presentation.camera_state, !objects.is_empty())?;
         self.capture(viewer, tick.frame)
+    }
+
+    /// Sends the viewer new scene effects when the frame's lighting changed.
+    fn light(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
+        if let Some(effects) = self
+            .lighting
+            .update(&self.host.presentation_lights()?)
+            .map_err(PlayError::Invalid)?
+        {
+            viewer
+                .apply(RetainedUpdate::Settings(Box::new(effects)))
+                .map_err(|error| PlayError::Invalid(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn refresh(
@@ -280,22 +314,28 @@ impl PlayerRetainedDriver {
         game: Option<CameraState>,
         shows_objects: bool,
     ) -> Result<(), PlayError> {
-        let pose = if !self.camera_set && shows_objects {
+        let moved = if !self.camera_set && shows_objects {
             self.camera_set = true;
             self.first_pose(game)
         } else {
             self.navigation.take_moved()
         };
-        let Some(pose) = pose else {
-            return Ok(());
-        };
-        viewer
-            .apply(RetainedUpdate::Camera {
-                pose,
-                lens: self.lens,
-                convention: LEFT_HANDED,
+        let render_shadows = self.host.presentation_render_shadows()?;
+        let lens = self.lens;
+        self.publication
+            .publish(&mut self.lighting, moved, render_shadows, |pose, policy| {
+                viewer
+                    .apply(RetainedUpdate::camera_with_shadow_policy(
+                        pose,
+                        lens,
+                        LEFT_HANDED,
+                        CameraContinuity::Continuous,
+                        policy,
+                    ))
+                    .map_err(|error| {
+                        PlayError::Invalid(format!("the camera is not accepted: {error}"))
+                    })
             })
-            .map_err(|error| PlayError::Invalid(format!("the camera is not accepted: {error}")))
     }
 
     fn first_pose(&mut self, game: Option<CameraState>) -> Option<CameraPose> {

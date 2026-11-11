@@ -24,6 +24,11 @@ pub(crate) struct Session {
     pub meshes: crate::meshes::MeshStore,
     /// The mesh renderers the last prepared frame shows.
     pub mesh_objects: Vec<worldrunner_world_simulation::presentation::mesh_objects::MeshObject>,
+    /// The lights the last prepared frame shows.
+    pub lights: Vec<worldrunner_world_simulation::presentation::light_views::LightView>,
+    /// The renderShadows setting of the camera the last prepared frame presents, none when it
+    /// presents no camera or the camera has no camera data.
+    pub render_shadows: Option<bool>,
     pub faces: worldrunner_world_simulation::ui::FaceBook,
     pub clones: BTreeMap<u64, crate::cloning::PendingClone>,
     pub constructions: BTreeMap<u64, crate::construction::PendingConstruction>,
@@ -139,6 +144,8 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             textures: BTreeMap::new(),
             meshes: BTreeMap::new(),
             mesh_objects: Vec::new(),
+            lights: Vec::new(),
+            render_shadows: None,
             faces: Default::default(),
             clones: BTreeMap::new(),
             constructions: BTreeMap::new(),

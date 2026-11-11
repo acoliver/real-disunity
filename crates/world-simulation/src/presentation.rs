@@ -144,6 +144,7 @@ pub mod camera_data;
 pub mod mesh_objects;
 pub use camera::{Camera, CameraClear, CameraFlags, Projection};
 pub mod light;
+pub mod light_views;
 pub mod lighting;
 pub use camera_data::UniversalAdditionalCameraData;
 pub use light::{Light, LightBakeType, LightKind, LightSettings, LightShadowMode};

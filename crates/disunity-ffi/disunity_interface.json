@@ -1,6 +1,6 @@
 {
   "abi_version": 9,
-  "description": "Disunity revision 9: DisunityRenderTexture carries the texture's dimension (2D, 3D, cube, 2D array or cube array) and volume depth (slices, layers or cube-array faces), and render textures in the graphics snapshot carry both. Retains revision 8: Disunity revision 8: DisunityUiDraw kind low bits 0 mean a graphic quad, 1 means text coverage, and 2 means a graphic triangle using the first three DisunityQuad corners and all three top-row-origin triangle UV pairs. Bit 2 enables scene-depth testing using non-reversed raster depth in the corners. Quad graphics and text have zero triangle UV fields. Managed CanvasRenderer meshes and native annotations share this presentation representation. Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, a native CanvasRenderer component with its own record and material calls, and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components with their own record and calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does. Adds, within revision 7, native shaders, materials, shader properties and keywords, render textures, world materials and property blocks on mesh renderers, recorded offscreen work, every mesh channel and sub-mesh topology for the host, and a sampler for each stored texture and render texture and, for the compute work scripts record, compute shaders, compute buffers, kernel bindings, recorded dispatches and a synchronous GPU flush that a host registers a callback for, on one world or as the default of worlds made later. Revision 8 also adds pixel reads of a render texture: a request for a rectangle, the host's write of its texels and the script's take. Revision 8 also adds renderer lists: two calls that turn a culling result into a drawing list or a shadow caster list, and a call that records the draw of a list. Revision 8 also adds a view and projection change that a command buffer records for the draws after it.",
+  "description": "Disunity revision 9: DisunityRenderTexture carries the texture's dimension (2D, 3D, cube, 2D array or cube array) and volume depth (slices, layers or cube-array faces), and render textures in the graphics snapshot carry both. Retains revision 8: Disunity revision 8: DisunityUiDraw kind low bits 0 mean a graphic quad, 1 means text coverage, and 2 means a graphic triangle using the first three DisunityQuad corners and all three top-row-origin triangle UV pairs. Bit 2 enables scene-depth testing using non-reversed raster depth in the corners. Quad graphics and text have zero triangle UV fields. Managed CanvasRenderer meshes and native annotations share this presentation representation. Disunity revision 6: carries perspective lenses, culling masks, viewports, render settings and custom matrices in the Camera record and two matrix calls, a native 3D Light component with its own record, and a native CanvasGroup component with its own record, a native CanvasRenderer component with its own record and material calls, and native MeshRenderer (also SkinnedMeshRenderer) and MeshFilter components with their own record and calls. Retains revision 5: retains revision 4 batch construction, object wake and body position constraints, and moves canvas scale out of the Canvas record into its own calls so a canvas can scale with the screen as a CanvasScaler does. Adds, within revision 7, native shaders, materials, shader properties and keywords, render textures, world materials and property blocks on mesh renderers, recorded offscreen work, every mesh channel and sub-mesh topology for the host, and a sampler for each stored texture and render texture and, for the compute work scripts record, compute shaders, compute buffers, kernel bindings, recorded dispatches and a synchronous GPU flush that a host registers a callback for, on one world or as the default of worlds made later. Revision 8 also adds pixel reads of a render texture: a request for a rectangle, the host's write of its texels and the script's take. Revision 8 also adds renderer lists: two calls that turn a culling result into a drawing list or a shadow caster list, and a call that records the draw of a list. Revision 8 also adds a view and projection change that a command buffer records for the draws after it. Revision 9 also adds the lights of a prepared frame: a count, and a read of each light's settings, object identity and matrix to the frame's view basis. Revision 9 also adds the renderShadows setting of the camera a prepared frame presents.",
   "functions": [
     {
       "name": "disunity_abi_check",
@@ -990,6 +990,21 @@
     {
       "name": "disunity_presentation_coverage",
       "since": "2.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_light",
+      "since": "9.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_light_count",
+      "since": "9.0.0",
+      "rets": "DisunityResult"
+    },
+    {
+      "name": "disunity_presentation_render_shadows",
+      "since": "9.0.0",
       "rets": "DisunityResult"
     },
     {

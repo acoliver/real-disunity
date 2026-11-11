@@ -28,6 +28,8 @@ const SECTIONS: [(&str, Kind); 5] = [
 ];
 const LIST_ARGS: [&str; 4] = ["--list", "--format", "terse", "--include-ignored"];
 const RUN_ARGS: [&str; 2] = ["--include-ignored", "--test-threads=1"];
+/// Keeps cargo running the shard's later test binaries after one fails.
+const NO_FAIL_FAST: &str = "--no-fail-fast";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -469,22 +471,58 @@ pub fn run(root: &Path, spec: &str) -> Result<(), String> {
         mine.units.len(),
         inventory.targets.whole().len()
     );
-    if !mine.names.is_empty() {
+    let calls = shard_calls(&inventory.selection, &inventory.targets, mine);
+    run_all(&calls, |args| {
+        crate::run_command(root, "cargo", &refs(args))
+    })
+}
+
+/// One cargo call of a shard and the name its failure is reported under.
+struct Call {
+    label: String,
+    args: Vec<String>,
+}
+
+/// The cargo calls of one shard: one for its listed tests, then one per harness-free unit. Each
+/// passes `--no-fail-fast`, so a failing test binary does not stop the binaries after it.
+fn shard_calls(selection: &[String], targets: &Targets, shard: &Assignment) -> Vec<Call> {
+    let flags = |mut flags: Vec<String>| {
+        flags.push(NO_FAIL_FAST.to_owned());
+        flags
+    };
+    let mut calls = Vec::new();
+    if !shard.names.is_empty() {
         let mut harness = strings(&["--exact"]);
         harness.extend(strings(&RUN_ARGS));
-        harness.extend(mine.names.iter().cloned());
-        let args = test_args(
-            &inventory.selection,
-            &inventory.targets.libtest_flags(),
-            &harness,
-        );
-        crate::run_command(root, "cargo", &refs(&args))?;
+        harness.extend(shard.names.iter().cloned());
+        calls.push(Call {
+            label: format!("{} listed tests", shard.names.len()),
+            args: test_args(selection, &flags(targets.libtest_flags()), &harness),
+        });
     }
-    for unit in &mine.units {
-        let args = test_args(&inventory.selection, &unit.flags(), &strings(&RUN_ARGS));
-        crate::run_command(root, "cargo", &refs(&args))?;
+    for unit in &shard.units {
+        calls.push(Call {
+            label: format!("{} {}", unit.kind.flag(), unit.name),
+            args: test_args(selection, &flags(unit.flags().into()), &strings(&RUN_ARGS)),
+        });
     }
-    Ok(())
+    calls
+}
+
+/// Runs every call, even after one fails, then fails with one line per failed call.
+fn run_all(
+    calls: &[Call],
+    mut run: impl FnMut(&[String]) -> Result<(), String>,
+) -> Result<(), String> {
+    let errors: Vec<String> = calls
+        .iter()
+        .filter_map(|call| {
+            run(&call.args)
+                .err()
+                .map(|error| format!("{}: {error}", call.label))
+        })
+        .collect();
+    crate::finish("GPU shard", &errors)
 }
 
 #[cfg(test)]

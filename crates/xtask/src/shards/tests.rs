@@ -341,3 +341,56 @@ fn test_arguments_keep_the_selection_and_pass_harness_arguments_last() {
     );
     assert_eq!(selected_packages(&selection), ["a", "b"]);
 }
+
+fn shard_with_names_and_units() -> (Targets, Assignment) {
+    let targets = Targets {
+        has_lib: true,
+        libtest: BTreeSet::from([unit(Kind::Test, "metadata_gpu")]),
+        whole: units(),
+    };
+    let shard = Assignment {
+        units: vec![
+            unit(Kind::Test, "callback_failure"),
+            unit(Kind::Test, "play_window"),
+        ],
+        names: vec!["a::first".into(), "b::second".into()],
+    };
+    (targets, shard)
+}
+
+#[test]
+fn every_cargo_call_of_a_shard_continues_past_a_failing_test_binary() {
+    let (targets, shard) = shard_with_names_and_units();
+    let selection = strings(&["--package", "a", "--all-features"]);
+    let calls = shard_calls(&selection, &targets, &shard);
+    assert_eq!(calls.len(), 3);
+    for call in &calls {
+        let separator = call.args.iter().position(|arg| arg == "--").unwrap();
+        assert!(
+            call.args[..separator].contains(&"--no-fail-fast".to_owned()),
+            "{} omits --no-fail-fast: {:?}",
+            call.label,
+            call.args
+        );
+    }
+}
+
+#[test]
+fn a_failed_call_does_not_stop_the_later_calls_and_every_failure_is_reported() {
+    let (targets, shard) = shard_with_names_and_units();
+    let calls = shard_calls(&strings(&["--package", "a"]), &targets, &shard);
+    let mut started = Vec::new();
+    let result = run_all(&calls, |args| {
+        started.push(args.to_vec());
+        if started.len() == 2 {
+            Ok(())
+        } else {
+            Err("cargo exited with exit status: 101".into())
+        }
+    });
+    assert_eq!(started.len(), 3, "every call of the shard must start");
+    let error = result.unwrap_err();
+    assert!(error.contains("2 listed tests"), "{error}");
+    assert!(error.contains("--test play_window"), "{error}");
+    assert!(!error.contains("--test callback_failure"), "{error}");
+}

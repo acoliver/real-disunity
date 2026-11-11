@@ -121,7 +121,17 @@ pub fn cargo_args(command: &str, selection: &[String], gpu_required: bool) -> Ve
         args.extend(COMPLEXITY.iter().map(|s| (*s).into()));
     }
     if matches!(command, "test" | "doc") && gpu_required {
-        args.extend(["--", "--include-ignored", "--test-threads=1"].map(str::to_owned));
+        // A failing test binary must not stop the binaries after it, or one failure hides the
+        // rest of the run; cargo still exits non-zero and lists every failed binary at the end.
+        args.extend(
+            [
+                "--no-fail-fast",
+                "--",
+                "--include-ignored",
+                "--test-threads=1",
+            ]
+            .map(str::to_owned),
+        );
     }
     args
 }
@@ -315,6 +325,11 @@ mod tests {
             "--test-threads=1".into()
         ]));
         assert!(!args.iter().any(|arg| arg == "--skip"));
+        let separator = args.iter().position(|arg| arg == "--").unwrap();
+        assert!(
+            args[..separator].contains(&"--no-fail-fast".to_owned()),
+            "a failing test binary must not stop the binaries after it: {args:?}"
+        );
         // The count depends on the environment; jobs_from is tested below.
         let jobs = jobs();
         assert!(

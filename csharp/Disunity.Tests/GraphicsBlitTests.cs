@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Disunity.Hosting;
 using UnityEngine;
 using static GraphicsTestSupport;
@@ -19,6 +21,10 @@ internal static class GraphicsBlitTests
             Console.WriteLine("PASS: a material whose shader declares no pass count accepts any pass from -1");
             DestroyedTexturesThrow();
             Console.WriteLine("PASS: Graphics.Blit throws for a destroyed source or destination and takes a null source");
+            ThreeArgumentBlitRecordsTheAllPassBlit();
+            Console.WriteLine("PASS: Graphics.Blit(Texture, RenderTexture, Material) records the same blit as the explicit pass -1, in call order");
+            ThreeArgumentBlitValidatesBeforeItRecords();
+            Console.WriteLine("PASS: Graphics.Blit(Texture, RenderTexture, Material) throws for a null or destroyed material or texture, names itself and records nothing");
         }
         finally
         {
@@ -89,5 +95,75 @@ internal static class GraphicsBlitTests
         var goneSource = new Texture2D(2, 2);
         UnityEngine.Object.DestroyImmediate(goneSource);
         Expect.Throws<ArgumentException>(() => Graphics.Blit(goneSource, new RenderTexture(2, 2, 0)), "a destroyed source");
+    }
+
+    /// <summary>A compiled game binds to the three-argument signature itself, not to the four-argument one with a default
+    /// pass, so the tests resolve it by its exact parameter list as the runtime does.</summary>
+    private static MethodInfo ThreeArgumentBlit()
+    {
+        var method = typeof(Graphics).GetMethod("Blit", BindingFlags.Public | BindingFlags.Static, null,
+            new[] { typeof(Texture), typeof(RenderTexture), typeof(Material) }, null);
+        Expect.That(method is not null, "Graphics.Blit(Texture, RenderTexture, Material) is declared");
+        return method!;
+    }
+
+    private static void BlitWithoutPass(Texture? source, RenderTexture? dest, Material? material)
+    {
+        try { ThreeArgumentBlit().Invoke(null, new object?[] { source, dest, material }); }
+        catch (TargetInvocationException error) { ExceptionDispatchInfo.Capture(error.InnerException!).Throw(); }
+    }
+
+    private static void ThreeArgumentBlitRecordsTheAllPassBlit()
+    {
+        var first = TwoPassMaterial();
+        var second = TwoPassMaterial();
+        var plain = new Texture2D(4, 4);
+        var a = new RenderTexture(8, 8, 0);
+        var b = new RenderTexture(8, 8, 0);
+        var active = RenderTexture.active;
+        CommandWireReader.Take();
+        Graphics.Blit(plain, a, first);
+        Graphics.Blit(plain, a, first, -1);
+        BlitWithoutPass(a, b, second);
+        Graphics.CopyTexture(a, b);
+        Graphics.Blit(null!, b, first);
+        BlitWithoutPass(plain, b, second);
+        var taken = CommandWireReader.Take();
+
+        Expect.That(first.WorldLink.Id != 0 && first.WorldLink.Id != second.WorldLink.Id, "the two materials have distinct world ids");
+        var expected = new[]
+        {
+            $"Blit source=1:{plain.RendererIdentity} target={a.WorldId} material={first.WorldLink.Id} pass=-1",
+            $"Blit source=1:{plain.RendererIdentity} target={a.WorldId} material={first.WorldLink.Id} pass=-1",
+            $"Blit source=2:{a.WorldId} target={b.WorldId} material={second.WorldLink.Id} pass=-1",
+            $"Copy source=2:{a.WorldId}[0,0] target={b.WorldId}[0,0]",
+            $"Blit source=0:0 target={b.WorldId} material={first.WorldLink.Id} pass=-1",
+            $"Blit source=1:{plain.RendererIdentity} target={b.WorldId} material={second.WorldLink.Id} pass=-1",
+        };
+        Expect.Sequence(expected, taken, "the records of three-argument and explicit blits");
+        Ensure(RenderTexture.active == active, "RenderTexture.active is unchanged");
+    }
+
+    private static void ThreeArgumentBlitValidatesBeforeItRecords()
+    {
+        var material = TwoPassMaterial();
+        var destroyedMaterial = TwoPassMaterial();
+        UnityEngine.Object.DestroyImmediate(destroyedMaterial);
+        var source = new Texture2D(2, 2);
+        var goneSource = new Texture2D(2, 2);
+        UnityEngine.Object.DestroyImmediate(goneSource);
+        var dest = new RenderTexture(2, 2, 0);
+        var goneDest = new RenderTexture(2, 2, 0);
+        UnityEngine.Object.DestroyImmediate(goneDest);
+        CommandWireReader.Take();
+
+        Expect.Throws<ArgumentNullException>(() => BlitWithoutPass(source, dest, null), "a null material");
+        Expect.Throws<ArgumentException>(() => BlitWithoutPass(source, dest, destroyedMaterial), "a destroyed material");
+        Expect.Throws<ArgumentException>(() => BlitWithoutPass(source, goneDest, material), "a destroyed destination");
+        Expect.Throws<ArgumentException>(() => BlitWithoutPass(goneSource, dest, material), "a destroyed source");
+        var screen = Expect.Catch<NotSupportedException>(() => BlitWithoutPass(source, null, material), "a null destination draws to the screen");
+        Expect.That(screen.Message.StartsWith("Graphics.Blit(Texture, RenderTexture, Material) is not supported yet", StringComparison.Ordinal),
+            $"the message names the three-argument overload: {screen.Message}");
+        Expect.That(CommandWireReader.Take().Length == 0, "a blit that throws records nothing");
     }
 }

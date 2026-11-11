@@ -169,12 +169,18 @@ impl Instances {
         self.curved_wind.extend(curved);
         self.impostor_extents
             .extend(materials.iter().map(impostor_extent));
-        // Appends refuse threshold coverage, so no appended material needs the texture table.
-        self.fades.extend(
-            materials
-                .iter()
-                .map(|material| fade::Fade::new(material, &[])),
-        );
+        // Appends refuse threshold coverage (`PreparedAppend::new`), so no appended material
+        // needs the texture table. A path that admits it must pass the table here.
+        self.fades.extend(materials.iter().map(|material| {
+            assert!(
+                matches!(
+                    material.fade_coverage(),
+                    worldrunner_render_plan::SceneFadeCoverage::Hashed
+                ),
+                "appended materials have hashed fade coverage"
+            );
+            fade::Fade::new(material, &[])
+        }));
         self.mesh_count = mesh_count;
     }
 

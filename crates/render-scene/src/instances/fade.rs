@@ -22,14 +22,15 @@ pub(crate) struct Fade {
 }
 
 impl Fade {
-    /// `textures` is the table the material's threshold handle indexes.
+    /// `textures` is the validated table the material's threshold handle indexes.
     pub fn new(material: &SceneMaterial, textures: &[SceneTexture]) -> Self {
         let threshold_above_zero = match material.fade_coverage() {
             SceneFadeCoverage::Hashed => false,
-            SceneFadeCoverage::Threshold { texture, .. } => textures
-                .get(texture.raw() as usize)
-                .and_then(threshold_texels)
-                .is_some_and(|(_, texels)| !texels.is_empty() && !texels.contains(&0)),
+            SceneFadeCoverage::Threshold { texture, .. } => {
+                let (_, texels) = threshold_texels(&textures[texture.raw() as usize])
+                    .expect("validated threshold grid");
+                !texels.is_empty() && !texels.contains(&0)
+            }
         };
         Self {
             band: material

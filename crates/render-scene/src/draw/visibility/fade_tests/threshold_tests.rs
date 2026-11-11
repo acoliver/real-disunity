@@ -71,16 +71,11 @@ fn inclusive_threshold_culling_reads_each_grids_actual_minimum() {
 }
 
 #[test]
-fn appended_tables_never_lend_a_threshold_floor() {
-    // A threshold handle the fade cannot resolve keeps the placement.
+#[should_panic(expected = "appended materials have hashed fade coverage")]
+fn appending_a_threshold_material_fails_without_its_texture_table() {
     let source = threshold_scene([255; 4]);
     let mut instances = Instances::new(&source);
-    instances.fades.clear();
     instances.extend_resources(source.resources().materials(), 1);
-    let mut selected = Selection::default();
-    select(&instances, &source, &mut selected);
-    assert_eq!(selected.stats.culled, 0);
-    assert_eq!(selected.ranges.len(), 1);
 }
 
 #[test]

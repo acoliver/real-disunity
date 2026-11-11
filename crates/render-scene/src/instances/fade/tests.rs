@@ -1,8 +1,23 @@
 use super::*;
 use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, SceneAlphaMode, SceneFadeCoverage, SceneImpostor,
-    SceneImpostorLayout, SceneMaterialParts, SceneRotation, SceneTransform, TextureHandle,
+    SceneImpostorLayout, SceneMaterialParts, SceneRotation, SceneTransform, TexelFormat,
+    TextureColorSpace, TextureHandle,
 };
+
+/// A texture table whose threshold handles (0 and 1) hold one 16x16 R8 grid with every byte
+/// value, the thresholds the shader oracle below exercises. Its zero texel keeps zero opacity.
+fn every_threshold() -> Vec<SceneTexture> {
+    let grid = SceneTexture::Texels {
+        format: TexelFormat::R8Unorm,
+        color_space: TextureColorSpace::Linear,
+        width: 16,
+        height: 16,
+        mips: 1,
+        bytes: (0..=255_u8).collect::<Vec<_>>().into(),
+    };
+    vec![grid.clone(), grid]
+}
 
 fn material() -> SceneMaterial {
     SceneMaterial::new(SceneMaterialParts {
@@ -75,7 +90,7 @@ fn shader_empty(material: &SceneMaterial, band: [f32; 2], distance: f32) -> bool
 }
 
 fn assert_policy(mat: &SceneMaterial) -> usize {
-    let policy = Fade::new(mat, &[]);
+    let policy = Fade::new(mat, &every_threshold());
     let mut culled = 0;
     for band in [
         [2.0_f32, 6.0],
@@ -167,18 +182,18 @@ fn transformed_reference_clamp_and_instance_override_follow_uploaded_values() {
     )
     .with_fade(band);
     // Transformed reference is (-1,-2,2.5), unlike the placement pivot.
-    let policy = Fade::new(&mat, &[]);
+    let policy = Fade::new(&mat, &every_threshold());
     assert!(!policy.empty(object, Vec3::new(-1.0, -2.0, 2.5)));
     assert!(policy.empty(object, Vec3::new(-1.0, -2.0, -4.0)));
     let clamped = Fade::new(
         &mat.with_fade_reference(reference.with_eye_vertical_clamp(0).unwrap()),
-        &[],
+        &every_threshold(),
     );
     assert!(!clamped.empty(object, Vec3::new(-1.0, -2.0, -4.0)));
     let impostor = SceneImpostor::new(SceneImpostorLayout::AzimuthElevation, [1, 1], 0, false)
         .unwrap()
         .with_fade(band);
-    let policy = Fade::new(&mat.with_impostor(impostor), &[]);
+    let policy = Fade::new(&mat.with_impostor(impostor), &every_threshold());
     let bare = SceneObject::new(
         transform,
         MeshHandle::from_raw(0),
@@ -203,15 +218,18 @@ fn zero_and_one_threshold_texels_keep_their_equality_owners() {
         texture: TextureHandle::from_raw(1),
         jitter_pixels: [0; 2],
     });
-    assert!(!Fade::new(&mat, &[]).empty_at(Span::point(8.0), [2.0, -6.0]));
+    assert!(!Fade::new(&mat, &every_threshold()).empty_at(Span::point(8.0), [2.0, -6.0]));
     assert!(
-        Fade::new(&mat.with_fade_direction(SceneFadeDirection::Keep), &[])
-            .empty_at(Span::point(8.0), [2.0, -6.0])
+        Fade::new(
+            &mat.with_fade_direction(SceneFadeDirection::Keep),
+            &every_threshold()
+        )
+        .empty_at(Span::point(8.0), [2.0, -6.0])
     );
     assert!(
         !Fade::new(
             &mat.with_fade_direction(SceneFadeDirection::Complement),
-            &[]
+            &every_threshold()
         )
         .empty_at(Span::point(8.0), [2.0, 6.0])
     );

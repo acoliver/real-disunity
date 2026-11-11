@@ -72,12 +72,17 @@ pub enum TimingError {
     Map(#[from] wgpu::BufferAsyncError),
     #[error("timestamp callback disconnected")]
     Callback,
+    #[error("timestamp resolve was not submitted: {0}")]
+    Submit(worldrunner_render_gpu::submission::SubmitError),
 }
 
 struct Slot {
     queries: wgpu::QuerySet,
     resolve: wgpu::Buffer,
     readback: wgpu::Buffer,
+    /// Mapped on the submission of a frame recorded outside a transaction, so its resolve waits
+    /// for that frame's own submission to complete.
+    marker: wgpu::Buffer,
     transaction: Option<worldrunner_render_gpu::submission::Publications>,
     /// Timestamps the sampled frame wrote that are not yet resolved.
     sampled: Option<Sampled>,
@@ -110,6 +115,12 @@ impl Slot {
                 "timestamp readback",
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             ),
+            marker: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("timestamp submission marker"),
+                size: wgpu::MAP_ALIGNMENT,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
             transaction: None,
             sampled: None,
             pending: None,
@@ -130,15 +141,15 @@ struct Sampled {
 enum Gate {
     /// The frame's authority completing this serial, its submitted serial at that moment.
     Serial(worldrunner_render_gpu::submission::SubmissionAuthority, u64),
-    /// For a frame recorded outside a transaction, which has no authority: the queue reporting
-    /// that every submission made before this gate was set has completed.
-    Queue(std::sync::Arc<std::sync::atomic::AtomicBool>),
+    /// For a frame recorded outside a transaction, which has no authority: the slot's marker,
+    /// mapped when the frame's own submission completes.
+    Marker(std::sync::Arc<std::sync::atomic::AtomicBool>),
 }
 impl Gate {
     fn open(&self) -> bool {
         match self {
             Self::Serial(authority, serial) => authority.completed_serial() >= *serial,
-            Self::Queue(done) => done.load(std::sync::atomic::Ordering::Acquire),
+            Self::Marker(done) => done.load(std::sync::atomic::Ordering::Acquire),
         }
     }
 }
@@ -282,7 +293,7 @@ impl PassTimer {
     }
     /// Closes the frame's timestamps. Nothing is recorded into `encoder`: the resolve is a later
     /// submission that [`take_ready`](Self::take_ready) makes once this frame has completed.
-    pub fn finish_frame(&mut self, _encoder: &mut wgpu::CommandEncoder) {
+    pub fn finish_frame(&mut self, encoder: &mut wgpu::CommandEncoder) {
         let Some(index) = self.active.take() else {
             return;
         };
@@ -295,12 +306,24 @@ impl PassTimer {
             return;
         }
         let count = u32::try_from(slot.passes.len()).expect("bounded timestamp count") * 2;
-        slot.sampled = Some(Sampled { count, gate: None });
+        let gate = slot.transaction.is_none().then(|| {
+            let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let signal = done.clone();
+            encoder.map_buffer_on_submit(&slot.marker, wgpu::MapMode::Read, .., move |_| {
+                signal.store(true, std::sync::atomic::Ordering::Release);
+            });
+            Gate::Marker(done)
+        });
+        slot.sampled = Some(Sampled { count, gate });
     }
     /// Resolves, copies and maps each sampled frame whose submission has completed, in a
     /// submission of its own through the frame's authority. A frame that has not completed, or an
     /// authority busy preparing another frame, is tried again at the next call.
-    fn resolve_completed(&mut self) {
+    ///
+    /// # Errors
+    /// Fails when the authority refuses the resolve for any reason other than another frame being
+    /// prepared. That frame's timing is dropped and its slot released.
+    fn resolve_completed(&mut self) -> Result<(), TimingError> {
         use worldrunner_render_gpu::submission::TransactionStatus;
         for slot in &mut self.slots {
             let Some(sampled) = slot.sampled.as_mut() else {
@@ -312,18 +335,16 @@ impl PassTimer {
                 None => None,
             };
             let gate = sampled.gate.get_or_insert_with(|| {
-                if let Some(authority) = &authority {
-                    return Gate::Serial(authority.clone(), authority.submitted_serial());
-                }
-                let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let signal = done.clone();
-                self.queue.on_submitted_work_done(move || {
-                    signal.store(true, std::sync::atomic::Ordering::Release);
-                });
-                Gate::Queue(done)
+                let authority = authority
+                    .as_ref()
+                    .expect("an untransacted frame's gate is set in finish_frame");
+                Gate::Serial(authority.clone(), authority.submitted_serial())
             });
             if !gate.open() {
                 continue;
+            }
+            if matches!(gate, Gate::Marker(_)) {
+                slot.marker.unmap();
             }
             let bytes = u64::from(sampled.count) * 8;
             let mut encoder = self
@@ -343,7 +364,16 @@ impl PassTimer {
                 },
             );
             let submitted = if let Some(authority) = &authority {
-                authority.submit_commands([encoder.finish()]).is_ok()
+                match authority.submit_commands([encoder.finish()]) {
+                    Ok(_) => true,
+                    Err(worldrunner_render_gpu::submission::SubmitError::Busy) => false,
+                    Err(error) => {
+                        slot.sampled = None;
+                        slot.passes.clear();
+                        slot.transaction = None;
+                        return Err(TimingError::Submit(error));
+                    }
+                }
             } else {
                 self.queue.submit([encoder.finish()]);
                 true
@@ -353,12 +383,13 @@ impl PassTimer {
                 slot.pending = Some(receive);
             }
         }
+        Ok(())
     }
     /// Nonblocking. The host drives progress with its normal device polling.
     /// Results preserve encoding order, including when callbacks finish out of order.
     pub fn take_ready(&mut self) -> Result<Vec<FrameTiming>, TimingError> {
         self.discard_cancelled();
-        self.resolve_completed();
+        self.resolve_completed()?;
         let mut ordered: Vec<_> = self
             .slots
             .iter_mut()

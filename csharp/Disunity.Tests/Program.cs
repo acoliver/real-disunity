@@ -230,6 +230,7 @@ CheckImport("disunity_mesh_renderer_slots_read", u64, u64, drawnSlots, u32, u32.
 CheckImport("disunity_presentation_mesh_object", u64, u32, AbiType("DisunityMeshObject").MakePointerType(), AbiType("DisunityMatrix").MakePointerType(), drawnSlots, u32);
 CheckImport("disunity_presentation_light_count", u64, u32.MakePointerType());
 CheckImport("disunity_presentation_light", u64, u32, AbiType("DisunityLight").MakePointerType(), u64.MakePointerType(), AbiType("DisunityMatrix").MakePointerType());
+CheckImport("disunity_presentation_render_shadows", u64, u32.MakePointerType());
 CheckImport("disunity_face_load", u64, bytes, u32, u32, f32, u64.MakePointerType());
 CheckImport("disunity_face_unload", u64, u64);
 CheckImport("disunity_face_set_size", u64, u64, f32);

@@ -35,7 +35,7 @@ use crate::renderer::legacy_objects::{Counted, Recipe, Recorded, compose};
 
 mod gather;
 mod legacy;
-mod prepass;
+pub(in crate::object) mod prepass;
 pub(in crate::object) mod scenes;
 mod shadow;
 mod variants;

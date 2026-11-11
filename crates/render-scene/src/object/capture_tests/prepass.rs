@@ -54,7 +54,7 @@ fn frozen_source(output: MetadataOutput) -> String {
 }
 
 /// An opaque mesh, a relief impostor, a masked double-sided card and a foliage card under wind.
-fn specs() -> Vec<Spec> {
+pub(in crate::object) fn specs() -> Vec<Spec> {
     vec![
         Spec::default(),
         Spec {
@@ -76,7 +76,7 @@ fn specs() -> Vec<Spec> {
 }
 
 /// The prepass pipelines of `output`, the camera group they bind and their colour formats.
-fn pipelines(
+pub(in crate::object) fn pipelines(
     context: &crate::device::GpuContext,
     frame: &FrameUniform,
     output: MetadataOutput,

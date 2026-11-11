@@ -1,12 +1,14 @@
 //! A world material's, a property block's or the globals' values as a property layer.
 //!
-//! Floats, integers, vectors and matrices keep their names. A name that two kinds hold takes the
-//! later kind of floats, integers, vectors, matrices, since a layer holds one value for a name.
-//! A matrix keeps its 16 floats in the order the world stores them, column by column, which is
-//! the order the layer copies into a constant buffer. A texture slot becomes a texture input
-//! under its name. Its scale and offset reach a shader as the vector `<name>_ST` of the fallback
-//! layer ([`fallback_layer`]), where they sit below anything a property block or the material
-//! sets.
+//! Floats, integers, vectors, matrices and the arrays of vectors and of matrices keep their names.
+//! A name that two kinds hold takes the later kind of floats, integers, vectors, matrices, vector
+//! arrays, matrix arrays, since a layer holds one value for a name. A matrix keeps its 16 floats
+//! in the order the world stores them, column by column, which is the order the layer copies into
+//! a constant buffer. An array keeps its elements in order; the pass or kernel that declares fewer
+//! elements than it holds refuses it when its constants are packed. A texture slot becomes a
+//! texture input under its name. Its scale and offset reach a shader as the vector `<name>_ST` of
+//! the fallback layer ([`fallback_layer`]), where they sit below anything a property block or the
+//! material sets.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -109,7 +111,7 @@ impl<'a> Textures<'a> {
 }
 
 /// The values of `properties` by name. A name that two kinds hold takes the later kind of
-/// floats, integers, vectors, matrices.
+/// floats, integers, vectors, matrices, vector arrays, matrix arrays.
 #[must_use]
 pub fn values(properties: &ShaderProperties) -> PropertySet {
     let mut set = PropertySet::new();
@@ -125,6 +127,12 @@ pub fn values(properties: &ShaderProperties) -> PropertySet {
     for (name, value) in &properties.matrices {
         set.set(name, PropertyValue::Matrix(*value));
     }
+    for (name, value) in &properties.vector_arrays {
+        set.set(name, PropertyValue::VectorArray(value.clone()));
+    }
+    for (name, value) in &properties.matrix_arrays {
+        set.set(name, PropertyValue::MatrixArray(value.clone()));
+    }
     set
 }
 
@@ -136,6 +144,16 @@ pub fn set_value(layer: &mut PropertyLayer, value: &WorldValue, textures: &mut T
         WorldValue::Int(name, held) => layer.values.set(name, PropertyValue::Int(*held)),
         WorldValue::Vector(name, held) => layer.values.set(name, PropertyValue::Vector(*held)),
         WorldValue::Matrix(name, held) => layer.values.set(name, PropertyValue::Matrix(*held)),
+        WorldValue::VectorArray(name, held) => {
+            layer
+                .values
+                .set(name, PropertyValue::VectorArray(held.clone()));
+        }
+        WorldValue::MatrixArray(name, held) => {
+            layer
+                .values
+                .set(name, PropertyValue::MatrixArray(held.clone()));
+        }
         WorldValue::Texture(name, slot) => match textures.resolve(&slot.texture) {
             Some((texture, sampler)) => {
                 layer

@@ -47,6 +47,18 @@ impl ObjectPipelines {
     }
 }
 
+impl ObjectPipelines {
+    /// How many material variants have been compiled.
+    #[cfg(test)]
+    pub(crate) fn built(&self) -> usize {
+        self.0
+            .pipelines
+            .iter()
+            .filter(|slot| slot.get().is_some())
+            .count()
+    }
+}
+
 impl Index<usize> for ObjectPipelines {
     type Output = wgpu::RenderPipeline;
 

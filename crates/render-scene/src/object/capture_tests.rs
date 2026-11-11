@@ -38,6 +38,7 @@ mod legacy;
 pub(in crate::object) mod prepass;
 pub(in crate::object) mod scenes;
 mod shadow;
+mod terms;
 mod variants;
 
 pub(in crate::object) use legacy::Legacy;

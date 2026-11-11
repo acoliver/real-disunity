@@ -93,16 +93,23 @@ fn gaussian_bloom_stage_timestamps() {
         .map(|frame| sample(&device, &queue, &chain, frame))
         .skip(5)
         .collect();
+    for frame in &samples {
+        crate::timing_test_support::checked_durations("bloom probe", frame);
+    }
     for pass in 0..samples[0].passes.len() {
-        let mut durations: Vec<_> = samples
+        let durations: Vec<_> = samples
             .iter()
-            .map(|frame| frame.passes[pass].duration_ns.expect("valid query pair"))
+            .filter_map(|frame| frame.passes[pass].duration_ns)
             .collect();
-        durations.sort_by(f64::total_cmp);
-        let median = (durations[9] + durations[10]) * 0.5;
-        eprintln!(
-            "{:?}: median {median:.0} ns (20 samples)",
-            samples[0].passes[pass].pass_id
-        );
+        let pass_id = samples[0].passes[pass].pass_id;
+        if let Some(median) = crate::timing_test_support::median(durations.iter().copied()) {
+            eprintln!(
+                "{pass_id:?}: median {median:.0} ns ({} of {} samples)",
+                durations.len(),
+                samples.len()
+            );
+        } else {
+            eprintln!("{pass_id:?}: unavailable in every sample");
+        }
     }
 }

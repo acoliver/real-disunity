@@ -39,7 +39,8 @@ fn varied_root(
 
 /// The reference filter is a different shader program, and a driver may contract or reorder
 /// its normal arithmetic differently: RADV differed by up to 1.2e-7, even where both read level
-/// 0 only. One step of an 8-bit normal channel is about 7.8e-3, so a wrong level still fails.
+/// 0 only. The fractional-footprint check below requires a level change above 1000 times this
+/// tolerance, so a wrong level still fails.
 const NORMAL_TOLERANCE: f32 = 1e-6;
 
 fn assert_normals_close(current: &[u8], reference: &[u8]) {

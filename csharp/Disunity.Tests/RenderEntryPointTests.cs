@@ -50,6 +50,8 @@ internal static class RenderEntryPointTests
     {
         Expect.That(!default(RendererList).isValid && !RendererList.nullRendererList.isValid, "the null renderer list is not valid");
         Expect.That(default(RendererList) == RendererList.nullRendererList, "null renderer lists are equal");
+        var nullField = typeof(RendererList).GetField(nameof(RendererList.nullRendererList));
+        Expect.That(nullField is { IsStatic: true, IsInitOnly: true }, "the null renderer list is a static read-only field, as the pipelines read it");
         var filtering = new FilteringSettings(RenderQueueRange.opaque, 3, 1, 0);
         var parameters = new RendererListParams(default, default, filtering);
         Expect.Equal(filtering, parameters.filteringSettings, "params keep the filtering settings");

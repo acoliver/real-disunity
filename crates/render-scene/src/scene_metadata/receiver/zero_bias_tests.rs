@@ -170,3 +170,59 @@ fn local_receivers_select_exact_position_and_derivatives_in_uniform_flow() {
     }
     assert_eq!(source.matches("vec4<f32>(select(position + normal * shadow.bias.y, position, shadow.bias.y == 0.0), 1.0)").count(), 5);
 }
+
+#[test]
+fn position_capture_survives_every_object_runtime_variant() {
+    use worldrunner_render_program::module::{
+        StageDeclarations, StageKind, StageModule, StageProgram, StageSource,
+    };
+    for output in [
+        super::super::MetadataOutput::Normal,
+        super::super::MetadataOutput::Merged,
+    ] {
+        for bias in [0.0, -0.0] {
+            let (object, _) = producer_sources(
+                output,
+                ReceiverLayout::Front,
+                bias,
+                ReceiverCapture::Position,
+            );
+            let source = crate::renderer::depth::DepthMode::Independent.vertex_source(&object);
+            assert_eq!(source, object);
+            let vertex = StageProgram::new(
+                StageModule {
+                    source: StageSource::Wgsl(std::sync::Arc::from(source.as_ref())),
+                    entry_point: crate::shader::VERTEX_ENTRY_POINT.to_owned(),
+                    kind: StageKind::Vertex,
+                },
+                StageDeclarations::default(),
+            )
+            .unwrap();
+            let body = function_source(&object, "reflection_metadata");
+            assert!(
+                body.find("scene_capture_receiver(").unwrap()
+                    < body.find("if !scene_geometry_covered(input)").unwrap()
+            );
+            assert!(body.contains("receiver_0_a, receiver_0_b"));
+            for key in crate::pipeline::PipelineKey::ALL {
+                let fragment = vertex
+                    .sibling(key.fragment_entry(), StageKind::Fragment)
+                    .unwrap()
+                    .with_overrides(&key.fragment_constants(1))
+                    .unwrap();
+                assert_eq!(fragment.module().source, vertex.module().source);
+                let entry = function_source(&object, key.fragment_entry());
+                assert!(entry.contains("reflection_metadata("));
+                if key.relief {
+                    let value = if output == super::super::MetadataOutput::Merged {
+                        "surface"
+                    } else {
+                        "metadata"
+                    };
+                    assert!(entry.contains(&format!("{value}.receiver_0_a")));
+                    assert!(entry.contains(&format!("{value}.receiver_0_b")));
+                }
+            }
+        }
+    }
+}

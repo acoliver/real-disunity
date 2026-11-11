@@ -495,7 +495,9 @@ absent. Front/opposing layout, bias, Position/Normal capture and output changes
 specialize the producer and select views of the same backing without allocating
 replacement textures. Terrain's metadata program carries the selected capture
 through palette, page, layered and layered-page composition, with the receiver
-outputs included in its target signature.
+outputs included in its target signature. Object metadata uses the same producer
+source for all 32 runtime variants, including masked and relief entry points;
+relief outputs carry the receiver fields alongside reconstructed depth.
 Reconfiguration or resize replaces the metadata generation through its existing
 allocation accounting. Admission rejects a layout
 that exceeds the reservation, device colour-attachment count and byte limits, or

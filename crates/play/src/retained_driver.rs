@@ -33,6 +33,7 @@ use crate::{
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::PlayerUi,
+    scene_light::SceneLighting,
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
     scene_transform::{orbit_limits, scene_camera},
 };
@@ -71,11 +72,18 @@ pub fn play_player_window(
 ) -> Result<Vec<Capture>, PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
     host.run_slice(&prepared.request)?;
-    let mut driver = PlayerRetainedDriver::new(host, window)?;
-    let scene =
-        SceneTables::initial_scene().map_err(|error| scene_error("the initial scene", &error))?;
-    let viewer = RetainedHost::new(scene, viewer_options(&driver.window))
+    let mut options = viewer_options(&window);
+    // The first frame's lights decide whether the viewer starts with shadows, which it cannot
+    // add later.
+    host.export_presentation(window.size, FIRST_COVERAGE_TEXTURE)?;
+    let (lighting, shadows) = SceneLighting::start(&host.presentation_lights()?, options.camera)
+        .map_err(PlayError::Invalid)?;
+    options.shadows = shadows;
+    let scene = SceneTables::initial_scene(lighting.effects().cloned())
+        .map_err(|error| scene_error("the initial scene", &error))?;
+    let viewer = RetainedHost::new(scene, options)
         .map_err(|error| PlayError::Invalid(format!("the viewer cannot start: {error}")))?;
+    let mut driver = PlayerRetainedDriver::new(host, window, lighting)?;
     viewer
         .run(&mut driver)
         .map_err(|error| PlayError::Invalid(error.to_string()))?;
@@ -145,6 +153,7 @@ struct PlayerRetainedDriver {
     ui: PlayerUi,
     sprites: SpriteTextures,
     navigation: Navigation,
+    lighting: SceneLighting,
     lens: SceneCamera,
     camera_set: bool,
     simulated: Duration,
@@ -157,7 +166,11 @@ struct PlayerRetainedDriver {
 }
 
 impl PlayerRetainedDriver {
-    fn new(host: DisunityHost, window: PlayerWindow) -> Result<Self, PlayError> {
+    fn new(
+        host: DisunityHost,
+        window: PlayerWindow,
+        lighting: SceneLighting,
+    ) -> Result<Self, PlayError> {
         Ok(Self {
             host,
             tables: SceneTables::new().map_err(|error| scene_error("the tables", &error))?,
@@ -166,6 +179,7 @@ impl PlayerRetainedDriver {
             ui: PlayerUi::default(),
             sprites: SpriteTextures::default(),
             navigation: Navigation::default(),
+            lighting,
             lens: viewer_options(&window).camera,
             camera_set: false,
             simulated: Duration::ZERO,
@@ -236,8 +250,23 @@ impl PlayerRetainedDriver {
                 .apply(update)
                 .map_err(|error| PlayError::Invalid(error.to_string()))?;
         }
+        self.light(viewer)?;
         self.camera(viewer, presentation.camera_state, !objects.is_empty())?;
         self.capture(viewer, tick.frame)
+    }
+
+    /// Sends the viewer new scene effects when the frame's lighting changed.
+    fn light(&mut self, viewer: &mut RetainedHost) -> Result<(), PlayError> {
+        if let Some(effects) = self
+            .lighting
+            .update(&self.host.presentation_lights()?)
+            .map_err(PlayError::Invalid)?
+        {
+            viewer
+                .apply(RetainedUpdate::Settings(Box::new(effects)))
+                .map_err(|error| PlayError::Invalid(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn refresh(

@@ -105,8 +105,9 @@ public sealed partial class Camera
 
     /// <summary>With a <see cref="targetTexture"/> records the camera's render into it as offscreen work in the world, which the
     /// host executes with the camera's culling mask, clear flags and pose as they are then; the texture is created if it is
-    /// not. A camera without a target texture is drawn by the frame itself, so the call completes without drawing and logs a
-    /// note. While a render pipeline is being called by the host, the call renders through it instead: the pipeline's Render
+    /// not. Without a target texture the call would draw to the screen, which the host draws from the frame's selected camera
+    /// and offers no explicit request for, so it throws <see cref="NotSupportedException"/>. While a render pipeline is being
+    /// called by the host, the call renders through it instead: the pipeline's Render
     /// runs once with this camera alone and no <c>CameraRender</c> is recorded. Called from inside a pipeline's Render it
     /// throws <see cref="InvalidOperationException"/>, the engine's choice. A destroyed camera throws.</summary>
     public void Render()
@@ -115,14 +116,14 @@ public sealed partial class Camera
         if (DisunityHost.TryRenderThroughPipeline(this)) return;
         if (targetTexture is not { } target)
         {
-            UndrawnCalls.Note("Camera.Render");
-            return;
+            throw new NotSupportedException("Camera.Render without a targetTexture draws to the screen, which is not supported: "
+                + "the host draws the screen from the frame's selected camera; set targetTexture to render into a texture");
         }
         if (!target.IsCreated()) target.Create();
         WorldGraphics.RecordCameraRender(Handle, target.WorldId);
     }
 
-    /// <summary>Completes without drawing, as <see cref="Render"/> does. A null shader throws.</summary>
+    /// <summary>Completes without drawing and logs a note the first time it is called in a world. A null shader throws.</summary>
     public void RenderWithShader(Shader shader, string replacementTag)
     {
         ArgumentNullException.ThrowIfNull(shader);

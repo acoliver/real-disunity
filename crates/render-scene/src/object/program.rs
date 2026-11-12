@@ -207,9 +207,21 @@ pub(crate) struct Description {
     pub frame: BindGroupLayout,
     pub shadow: Option<BindGroupLayout>,
     pub screen: Option<BindGroupLayout>,
-    /// Set for the shadow casters: a depth-only pass into a directional map, drawn with the
-    /// caster entry points and the map's depth test and bias.
-    pub caster: Option<Caster>,
+    /// Which entry points the programs use, and for the casters their depth state.
+    pub entry: Entry,
+}
+
+/// The entry points a context's programs are made from.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Entry {
+    /// The forward pass: the shared vertex entry point and the key's fragment entry point.
+    Forward,
+    /// The shadow casters: a depth-only pass into a directional map, drawn with the caster entry
+    /// points and the map's depth test and bias.
+    Caster(Caster),
+    /// The camera-relative celestial bodies, drawn into the sky's mesh target with the
+    /// celestial entry points.
+    Celestial,
 }
 
 /// The depth state of a directional map's casters.
@@ -219,10 +231,13 @@ pub(crate) struct Caster {
     pub bias: wgpu::DepthBiasState,
 }
 
-/// The vertex and fragment entry points of the casters.
+/// The vertex and fragment entry points of the casters and of the celestial bodies.
 const CASTER_VERTEX: &str = "vs_shadow";
 const CASTER_OPAQUE: &str = "fs_depth_opaque";
 const CASTER_MASKED: &str = "fs_depth_masked";
+const CELESTIAL_VERTEX: &str = "vs_celestial";
+const CELESTIAL_OPAQUE: &str = "fs_celestial_opaque";
+const CELESTIAL_MASKED: &str = "fs_celestial_masked";
 
 /// The key whose caster `key` draws with. A directional map tells apart only whether a key is an
 /// impostor and the two lowest bits of its index (masked and double-sided): relief is flat in the
@@ -309,7 +324,7 @@ impl Context {
     /// # Errors
     /// Fails when the attachments are not ones the runtime draws into.
     pub(crate) fn signature(&self) -> Result<TargetSignature, ProgramError> {
-        if self.0.description.caster.is_some() {
+        if matches!(self.0.description.entry, Entry::Caster(_)) {
             return TargetSignature::depth_only(worldrunner_render_shadow::DEPTH_FORMAT, 1);
         }
         TargetSignature::attachments(
@@ -325,7 +340,7 @@ impl Context {
     /// reuse (equal depth and stencil at one sample) is unchanged.
     pub(crate) fn state(&self, key: PipelineKey) -> RenderState {
         let description = &self.0.description;
-        if let Some(caster) = description.caster {
+        if let Entry::Caster(caster) = description.entry {
             return RenderState {
                 raster: RasterState {
                     cull: caster_key(key).cull_mode(),
@@ -384,10 +399,10 @@ impl Context {
         let vertex = StageProgram::new(
             StageModule {
                 source: StageSource::Wgsl(source),
-                entry_point: if self.0.description.caster.is_some() {
-                    CASTER_VERTEX
-                } else {
-                    VERTEX_ENTRY
+                entry_point: match self.0.description.entry {
+                    Entry::Forward => VERTEX_ENTRY,
+                    Entry::Caster(_) => CASTER_VERTEX,
+                    Entry::Celestial => CELESTIAL_VERTEX,
                 }
                 .to_owned(),
                 kind: StageKind::Vertex,
@@ -409,7 +424,7 @@ impl Context {
         key: PipelineKey,
     ) -> Result<GraphicsProgram, ProgramError> {
         let description = &self.0.description;
-        let key = if description.caster.is_some() {
+        let key = if matches!(description.entry, Entry::Caster(_)) {
             caster_key(key)
         } else {
             key
@@ -423,10 +438,12 @@ impl Context {
         // stage reads the specialization constants, as the frozen reference does.
         let mut constants = description.constants.clone();
         constants.extend(key.fragment_constants(description.samples));
-        let entry = match (description.caster.is_some(), key.masked) {
-            (true, true) => CASTER_MASKED,
-            (true, false) => CASTER_OPAQUE,
-            (false, _) => key.fragment_entry(),
+        let entry = match (description.entry, key.masked) {
+            (Entry::Caster(_), true) => CASTER_MASKED,
+            (Entry::Caster(_), false) => CASTER_OPAQUE,
+            (Entry::Celestial, true) => CELESTIAL_MASKED,
+            (Entry::Celestial, false) => CELESTIAL_OPAQUE,
+            (Entry::Forward, _) => key.fragment_entry(),
         };
         let fragment = vertex
             .sibling(entry, StageKind::Fragment)?

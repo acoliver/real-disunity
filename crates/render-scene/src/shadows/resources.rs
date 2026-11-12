@@ -96,7 +96,7 @@ pub(super) fn object_caster_from(
             frame: pipelines.frame_layout().clone(),
             shadow: None,
             screen: None,
-            caster: Some(crate::object::program::Caster {
+            entry: crate::object::program::Entry::Caster(crate::object::program::Caster {
                 compare: configuration.caster_compare,
                 bias: configuration.caster_bias,
             }),

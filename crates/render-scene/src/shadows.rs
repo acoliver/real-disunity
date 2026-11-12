@@ -535,6 +535,7 @@ impl ShadowedScene {
         }
         gpu.prepare_terrain(selected, frame)?;
         gpu.prepare_objects(selected, frame)?;
+        gpu.prepare_celestial(frame)?;
         // A frame without shadow passes draws no object casters.
         if let Some(objects) = objects {
             gpu.prepare_object_context(objects)?;

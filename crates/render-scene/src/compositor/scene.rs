@@ -89,7 +89,7 @@ impl PreparedFeature for SceneFeature<'_> {
 
 /// Prepares the terrain and object pipelines of the passes the scene feature draws them in: the
 /// prepass when the frame has screen-space passes, and the colour pass with the forward
-/// pipelines when those are installed. Preparing is done before the passes open, where a
+/// pipelines when those are installed. The celestial bodies' pipelines are prepared too. Preparing is done before the passes open, where a
 /// refusal is still an error.
 fn prepare_terrain(
     gpu: &crate::draw::SceneGpu,
@@ -97,6 +97,7 @@ fn prepare_terrain(
     pipelines: &crate::renderer::ScenePipelines,
     screen: Option<&crate::scene_metadata::Geometry>,
 ) -> Result<(), FrameError> {
+    gpu.prepare_celestial(frame)?;
     let Some(screen) = screen else {
         gpu.prepare_terrain(pipelines, frame)?;
         return gpu.prepare_objects(pipelines, frame);

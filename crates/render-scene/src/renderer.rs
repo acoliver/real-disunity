@@ -58,14 +58,19 @@ use depth::DepthMode;
 use std::borrow::Cow;
 
 use wgpu::{
-    BindGroupLayout, ColorTargetState, ColorWrites, Device, Extent3d, FragmentState, FrontFace,
-    MultisampleState, PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor,
-    PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor,
+    BindGroupLayout, ColorTargetState, ColorWrites, Device, Extent3d, FrontFace,
     ShaderModuleDescriptor, ShaderSource, Texture, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsages, VertexBufferLayout, VertexState, VertexStepMode,
+    TextureFormat, TextureUsages, VertexBufferLayout, VertexStepMode,
+};
+#[cfg(test)]
+use wgpu::{
+    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout,
+    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline,
+    RenderPipelineDescriptor, VertexState,
 };
 
-use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
+use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE};
+#[cfg(test)]
 use crate::pipeline::PipelineKey;
 #[cfg(test)]
 use crate::shader;
@@ -284,7 +289,7 @@ impl ScenePipelines {
                 frame: frame_layout.clone(),
                 shadow: shadow_layout.cloned(),
                 screen: screen_layout.cloned(),
-                caster: None,
+                entry: crate::object::program::Entry::Forward,
             },
             family,
         );
@@ -391,6 +396,7 @@ pub(crate) fn build(
     )
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub(super) struct ObjectState {
     key: PipelineKey,
@@ -401,6 +407,7 @@ pub(super) struct ObjectState {
     depth: DepthMode,
 }
 
+#[cfg(test)]
 pub(super) fn build_variant(
     device: &Device,
     layout: &PipelineLayout,
@@ -497,21 +504,15 @@ fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
     })]
 }
 
-pub(crate) fn celestial_pipelines(
-    device: &Device,
-    scene: &ScenePipelines,
-    physical: bool,
-    separate: bool,
-    object_exposure: bool,
-) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
-    celestial_specialization(
-        device,
-        scene,
-        (physical, separate, object_exposure),
-        ([0; 7], FrontFace::Ccw),
-        worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
-        false,
-    )
+/// The override constants of the celestial programs: the sky lighting values for `options` and
+/// `lighting`, and the mirrored raster for a clockwise frame.
+pub(crate) fn celestial_constants(
+    (options, front_face): ([u32; 7], FrontFace),
+    lighting: worldrunner_render_plan::SceneCelestialLighting,
+) -> Vec<(&'static str, f64)> {
+    let mut constants = crate::sky::lighting::constants(options, lighting);
+    specular::raster_constants(&mut constants, front_face);
+    constants
 }
 pub(crate) fn celestial_source(
     composition: (bool, bool, bool),
@@ -536,59 +537,6 @@ pub(crate) fn celestial_source(
     };
     format!("{source}\n{vertex}")
 }
-pub(crate) fn celestial_specialization(
-    device: &Device,
-    scene: &ScenePipelines,
-    composition: (bool, bool, bool),
-    options: ([u32; 7], FrontFace),
-    lighting: worldrunner_render_plan::SceneCelestialLighting,
-    anchored: bool,
-) -> [RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
-    let mut constants = crate::sky::lighting::constants(options.0, lighting);
-    specular::raster_constants(&mut constants, options.1);
-    let source = celestial_source(composition, lighting, anchored);
-    let module = scene_shader(device, "celestial mesh lighting", &source);
-    let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some("celestial meshes"),
-        bind_group_layouts: &[Some(scene.frame_layout()), Some(scene.material_layout())],
-        immediate_size: 0,
-    });
-    let vertices = vertex_attributes();
-    let instances = instance_attributes();
-    let buffers = vertex_buffers(&vertices, &instances);
-    let targets = color_targets(wgpu::TextureFormat::Rgba16Float);
-    PipelineKey::ALL.map(|key| {
-        let mut constants = constants.clone();
-        constants.extend(key.fragment_constants(scene.samples));
-        build_variant(
-            device,
-            &layout,
-            &buffers,
-            FragmentState {
-                module: &module,
-                entry_point: Some(if key.masked {
-                    "fs_celestial_masked"
-                } else {
-                    "fs_celestial_opaque"
-                }),
-                compilation_options: PipelineCompilationOptions {
-                    constants: &constants,
-                    ..Default::default()
-                },
-                targets: &targets,
-            },
-            ObjectState {
-                key,
-                samples: scene.samples,
-                front_face: options.1,
-                depth_write: true,
-                vertex_entry: "vs_celestial",
-                depth: DepthMode::Independent,
-            },
-        )
-    })
-}
-
 #[cfg(test)]
 fn scene_layout(
     device: &Device,

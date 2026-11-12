@@ -57,6 +57,15 @@
 //!   with 0 and nothing else: 0 takes the view vector from `_WorldSpaceCameraPos` to the surface,
 //!   anything else takes the third row of `unity_MatrixV`. The first three components are 0; no
 //!   scanned stage reads them.
+//! * `_ProjectionParams` (3,522) holds +1 and the near-plane distance of the view's projection,
+//!   then two zeros ([`view_layer`]). `LakeShader`'s vertex stage puts
+//!   `(0.5 (x + w), 0.5 (y * _ProjectionParams.x + w))` in its screen position and the fragment
+//!   samples the depth texture there. Play draws positive clip y into the high rows (see
+//!   [`clip_from_gl`](super::camera::clip_from_gl)), so the fragment addresses its own texel only with +1.
+//!   `Mohawk/Transparent/WaterShader` ends its view-space reflection ray at
+//!   `z = -_ProjectionParams.y` when it would pass the near plane, so the second component is
+//!   the near distance. No scanned stage reads the last two. A projection with no finite near
+//!   plane leaves the name missing.
 //! * `_ScreenParams` (2,389) holds the width and height in pixels of the target the view draws
 //!   into, the mip's for a mip target ([`add_screen_size`]). `Mohawk/StandardShader` multiplies the
 //!   0..1 screen position by its first two components and then by 0.25 for a four-pixel tile. The
@@ -69,13 +78,11 @@
 //! leaves it zero. These are left to it, with the count of the player's 10,773 Vulkan variants
 //! that hold each (a variant holds a name once per buffer):
 //!
-//! * `_ProjectionParams` (3,522), `_ZBufferParams` (616), `_Time` (2,688) and
-//!   `unity_WorldTransformParams` (2,011): the names do not say what their four floats hold, and
-//!   the game's own arithmetic does not settle it. `_Time` is only multiplied by authored speeds,
-//!   so no rate follows; `_ZBufferParams` turns two depths into `1 / (z * depth + w)`, subtracts
-//!   them and divides by authored values, which fixes `z / w` for the depth range but not the
-//!   scale; `_ProjectionParams.x` turns the screen y over in the vertex stage, and which way
-//!   depends on the target's orientation, which is not established.
+//! * `_ZBufferParams` (616), `_Time` (2,688) and `unity_WorldTransformParams` (2,011): the names
+//!   do not say what their four floats hold, and the game's own arithmetic does not settle it.
+//!   `_Time` is only multiplied by authored speeds, so no rate follows; `_ZBufferParams` turns two
+//!   depths into `1 / (z * depth + w)`, subtracts them and divides by authored values, which
+//!   fixes `z / w` for the depth range but not the scale.
 //! * `glstate_matrix_projection` (109), `unity_MatrixInvV` (5), `unity_MatrixInvVP` (4),
 //!   `unity_CameraProjection` (4), `unity_CameraInvProjection` (2), `unity_WorldToCamera` (4)
 //!   and `unity_CameraToWorld` (2): the words name the matrix, and each is too rare to be
@@ -110,6 +117,7 @@ pub const CAMERA_POSITION: &str = "_WorldSpaceCameraPos";
 pub const MAIN_LIGHT_POSITION: &str = "_MainLightPosition";
 pub const MAIN_LIGHT_COLOR: &str = "_MainLightColor";
 pub const ORTHO_PARAMS: &str = "unity_OrthoParams";
+pub const PROJECTION_PARAMS: &str = "_ProjectionParams";
 pub const SCREEN_PARAMS: &str = "_ScreenParams";
 
 /// A matrix is singular when its determinant is this small next to 1.
@@ -160,6 +168,12 @@ pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
         ORTHO_PARAMS,
         PropertyValue::Vector([0.0, 0.0, 0.0, orthographic_flag(projection)]),
     );
+    if let Some(near) = near_plane(projection) {
+        layer.values.set(
+            PROJECTION_PARAMS,
+            PropertyValue::Vector([1.0, near, 0.0, 0.0]),
+        );
+    }
     layer
 }
 
@@ -207,6 +221,19 @@ pub fn add_screen_size(layer: &mut PropertyLayer, size: [u32; 2]) {
 /// A side in pixels as a float. Sides above 65535 saturate, and no render texture reaches them.
 fn pixels(side: u32) -> f32 {
     f32::from(u16::try_from(side).unwrap_or(u16::MAX))
+}
+
+/// The near-plane distance of an OpenGL `projection`, from its depth row: `n = b / (a - 1)` for a
+/// perspective projection and `n = (b + 1) / a` for an orthographic one, where `a` and `b` are
+/// its depth scale and offset. `None` when the matrix has no finite near plane.
+fn near_plane(projection: &Mat4) -> Option<f32> {
+    let (scale, offset) = (projection.z_axis.z, projection.w_axis.z);
+    let near = if orthographic_flag(projection) > 0.0 {
+        (offset + 1.0) / scale
+    } else {
+        offset / (scale - 1.0)
+    };
+    near.is_finite().then_some(near)
 }
 
 /// 1 for a projection without a perspective divide, whose clip w does not depend on depth, and 0

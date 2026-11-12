@@ -554,10 +554,15 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
         values.get("_MainLightPosition"),
         Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
     );
-    // The script's projection is the identity, which has no perspective divide.
+    // The script's projection is the identity, which has no perspective divide and puts the
+    // near plane at 1.
     assert_eq!(
         values.get("unity_OrthoParams"),
         Some(&PropertyValue::Vector([0.0, 0.0, 0.0, 1.0]))
+    );
+    assert_eq!(
+        values.get("_ProjectionParams"),
+        Some(&PropertyValue::Vector([1.0, 1.0, 0.0, 0.0]))
     );
     assert_eq!(
         values.get("_ScreenParams"),

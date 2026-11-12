@@ -421,6 +421,7 @@ EngineEnumTests.Run();
 UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
+PlayerLoopTests.Run();
 ResourceTests.Run();
 PrefabResourceTests.Run();
 PlayerShaderTests.Run();

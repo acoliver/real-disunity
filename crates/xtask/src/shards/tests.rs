@@ -146,10 +146,33 @@ fn a_harness_free_name_shared_with_a_libtest_target_is_rejected() {
 fn listing_output_yields_test_names_only() {
     let listing = "alpha::one: test\nalpha::two: test\n\n2 tests, 0 benchmarks\nspeed: benchmark\nalpha::one: test\n\nbeta::three: test\n";
     assert_eq!(
-        parse_names(listing).into_iter().collect::<Vec<_>>(),
+        runnable_names(listing, "").into_iter().collect::<Vec<_>>(),
         ["alpha::one", "alpha::two", "beta::three"]
     );
-    assert!(parse_names("0 tests, 0 benchmarks\n").is_empty());
+    assert!(runnable_names("0 tests, 0 benchmarks\n", "").is_empty());
+}
+
+#[test]
+fn ignored_tests_leave_the_listing_unless_another_binary_runs_the_name() {
+    // Two binaries: `shared` is ignored in the first and runnable in the second.
+    let listing =
+        "alpha::probe: test\nalpha::check: test\nshared: test\n\nshared: test\nbeta::check: test\n";
+    let ignored = "alpha::probe: test\nshared: test\n";
+    assert_eq!(
+        runnable_names(listing, ignored)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["alpha::check", "beta::check", "shared"]
+    );
+    let everywhere = "alpha::probe: test\nshared: test\n\nshared: test\n";
+    assert_eq!(
+        runnable_names(listing, everywhere)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["alpha::check", "beta::check"]
+    );
+    assert!(!LIST_ARGS.contains(&"--include-ignored"));
+    assert_eq!(IGNORED_LIST_ARGS.last(), Some(&"--ignored"));
 }
 
 #[test]
@@ -335,9 +358,61 @@ fn test_arguments_keep_the_selection_and_pass_harness_arguments_last() {
             "--all-features",
             "--lib",
             "--",
-            "--include-ignored",
             "--test-threads=1"
         ]
     );
     assert_eq!(selected_packages(&selection), ["a", "b"]);
+}
+
+fn shard_with_names_and_units() -> (Targets, Assignment) {
+    let targets = Targets {
+        has_lib: true,
+        libtest: BTreeSet::from([unit(Kind::Test, "metadata_gpu")]),
+        whole: units(),
+    };
+    let shard = Assignment {
+        units: vec![
+            unit(Kind::Test, "callback_failure"),
+            unit(Kind::Test, "play_window"),
+        ],
+        names: vec!["a::first".into(), "b::second".into()],
+    };
+    (targets, shard)
+}
+
+#[test]
+fn every_cargo_call_of_a_shard_continues_past_a_failing_test_binary() {
+    let (targets, shard) = shard_with_names_and_units();
+    let selection = strings(&["--package", "a", "--all-features"]);
+    let calls = shard_calls(&selection, &targets, &shard);
+    assert_eq!(calls.len(), 3);
+    for call in &calls {
+        let separator = call.args.iter().position(|arg| arg == "--").unwrap();
+        assert!(
+            call.args[..separator].contains(&"--no-fail-fast".to_owned()),
+            "{} omits --no-fail-fast: {:?}",
+            call.label,
+            call.args
+        );
+    }
+}
+
+#[test]
+fn a_failed_call_does_not_stop_the_later_calls_and_every_failure_is_reported() {
+    let (targets, shard) = shard_with_names_and_units();
+    let calls = shard_calls(&strings(&["--package", "a"]), &targets, &shard);
+    let mut started = Vec::new();
+    let result = run_all(&calls, |args| {
+        started.push(args.to_vec());
+        if started.len() == 2 {
+            Ok(())
+        } else {
+            Err("cargo exited with exit status: 101".into())
+        }
+    });
+    assert_eq!(started.len(), 3, "every call of the shard must start");
+    let error = result.unwrap_err();
+    assert!(error.contains("2 listed tests"), "{error}");
+    assert!(error.contains("--test play_window"), "{error}");
+    assert!(!error.contains("--test callback_failure"), "{error}");
 }

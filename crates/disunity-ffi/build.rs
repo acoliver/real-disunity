@@ -81,7 +81,7 @@ fn generate_native_records() {
             let end = record.find("\n}").expect("flat C record ends") + 2;
             output.push_str("#[repr(C)]");
             output.push_str(&record[..end]);
-            output.push_str("\n\n");
+            output.push('\n');
         }
     }
     output.push_str(&format!(

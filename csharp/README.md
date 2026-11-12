@@ -38,11 +38,11 @@ After an intentional ABI change:
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 9 adds the dimension and volume depth to `DisunityRenderTexture`, so
-   native and managed peers built for revision 8 refuse it. Revision 5 retains revision 4 batch construction, object wake and body position
-   constraints, and moves canvas scale out of the Canvas record into
-   `disunity_canvas_scale_read`, `_write` and `_factor`. Native and managed hosts
-   require revision 5. Rebuild all peers.
+   Revision 10 carries optional BL/BR/TR/TL linear RGBA corner multipliers in
+   `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
+   and all channels must be finite and in 0..=1. Native and managed hosts reject
+   mismatched revisions. Rebuild all peers.
+
 4. Rerun the native build and
    `cargo test --locked --jobs 2 --package worldrunner-disunity-ffi`.
 

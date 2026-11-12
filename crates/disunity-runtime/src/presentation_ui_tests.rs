@@ -19,6 +19,7 @@ fn triangle_copy_out(depth_test: bool) {
         ..Default::default()
     };
     let quad = native::DisunityQuad {
+        overlay: 1,
         p0_x: 10.,
         p1_x: 20.,
         p2_y: 30.,
@@ -74,4 +75,68 @@ fn ui_decode_rejects_unknown_draw_kind() {
     };
     assert!(matches!(decode(meta, native::DisunityQuad::default()),
         Err(HostError::Managed(message)) if message.contains("unknown UI draw kind 3")));
+}
+
+#[test]
+fn corner_metadata_decode_preserves_order_and_common_tint() {
+    let meta = corner_metadata();
+    let quad = native::DisunityQuad {
+        overlay: 1,
+        r: 0.25,
+        a: 0.5,
+        ..Default::default()
+    };
+    let draw = decode(meta, quad).unwrap();
+    assert_eq!(
+        draw.corner_colors,
+        Some([
+            [1., 0., 0., 1.],
+            [0., 1., 0., 0.75],
+            [0., 0., 1., 0.5],
+            [1., 1., 1., 0.25],
+        ])
+    );
+    assert_eq!(draw.color, [0.25, 0., 0., 0.5]);
+    let draw = decode(native::DisunityUiDraw::default(), quad).unwrap();
+    assert_eq!(draw.corner_colors, None);
+}
+
+fn corner_metadata() -> native::DisunityUiDraw {
+    native::DisunityUiDraw {
+        corner_colors_present: 1,
+        corner_0_r: 1.,
+        corner_0_a: 1.,
+        corner_1_g: 1.,
+        corner_1_a: 0.75,
+        corner_2_b: 1.,
+        corner_2_a: 0.5,
+        corner_3_r: 1.,
+        corner_3_g: 1.,
+        corner_3_b: 1.,
+        corner_3_a: 0.25,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn corner_decode_rejects_invalid_channels_presence_and_non_overlay_metadata() {
+    let quad = native::DisunityQuad {
+        overlay: 1,
+        ..Default::default()
+    };
+    for value in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+        let mut meta = corner_metadata();
+        meta.corner_3_a = value;
+        assert!(
+            matches!(decode(meta, quad), Err(HostError::Managed(message))
+            if message == "invalid UI corner_colors")
+        );
+    }
+    let mut meta = corner_metadata();
+    meta.corner_colors_present = 2;
+    assert!(decode(meta, quad).is_err());
+    assert!(
+        matches!(decode(corner_metadata(), native::DisunityQuad::default()),
+        Err(HostError::Managed(message)) if message.contains("non-overlay quad"))
+    );
 }

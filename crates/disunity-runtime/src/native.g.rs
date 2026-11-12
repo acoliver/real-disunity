@@ -6,7 +6,6 @@ pub struct DisunityResult {
     pub code: i32,
     pub detail: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityCamera {
@@ -36,7 +35,6 @@ pub struct DisunityCamera {
     pub target_display: u32,
     pub camera_type: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityCanvasScale {
@@ -47,7 +45,6 @@ pub struct DisunityCanvasScale {
     pub reference_y: f32,
     pub match_height: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityCanvasGroup {
@@ -57,7 +54,6 @@ pub struct DisunityCanvasGroup {
     pub blocks_raycasts: u32,
     pub ignore_parent_groups: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityUiVertex {
@@ -71,7 +67,6 @@ pub struct DisunityUiVertex {
     pub b: f32,
     pub a: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityUiGraphicInfo {
@@ -79,7 +74,6 @@ pub struct DisunityUiGraphicInfo {
     pub vertex_count: u32,
     pub index_count: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityCanvasRenderer {
@@ -104,7 +98,6 @@ pub struct DisunityCanvasRenderer {
     pub material_count: u32,
     pub pop_material_count: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityMeshRenderer {
@@ -124,7 +117,6 @@ pub struct DisunityMeshRenderer {
     pub sorting_order: i32,
     pub material_count: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityDrawnMaterial {
@@ -134,7 +126,6 @@ pub struct DisunityDrawnMaterial {
     pub a: f32,
     pub texture: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunitySortingGroup {
@@ -143,7 +134,6 @@ pub struct DisunitySortingGroup {
     pub sorting_order: i32,
     pub sort_at_root: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityLight {
@@ -172,7 +162,6 @@ pub struct DisunityLight {
     pub lightmap_bake_type: u32,
     pub shadow_resolution: i32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunitySprite {
@@ -199,7 +188,6 @@ pub struct DisunitySprite {
     pub sorting_order: i32,
     pub lighting: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityBounds {
@@ -210,7 +198,6 @@ pub struct DisunityBounds {
     pub max_y: f32,
     pub max_z: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityMatrix {
@@ -231,7 +218,6 @@ pub struct DisunityMatrix {
     pub m14: f32,
     pub m15: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityPresentation {
@@ -263,7 +249,6 @@ pub struct DisunityPresentation {
     pub b: f64,
     pub a: f64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityQuad {
@@ -294,7 +279,6 @@ pub struct DisunityQuad {
     pub b: f32,
     pub a: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityCoverage {
@@ -303,7 +287,6 @@ pub struct DisunityCoverage {
     pub height: u32,
     pub length: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityMeshObject {
@@ -311,7 +294,6 @@ pub struct DisunityMeshObject {
     pub mesh: u64,
     pub slot_count: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DisunityCommand {
@@ -321,7 +303,6 @@ pub struct DisunityCommand {
     pub y: f32,
     pub z: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DisunityObjectState {
@@ -332,7 +313,6 @@ pub struct DisunityObjectState {
     pub rotation_y_radians: f32,
     pub material_slot: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityAdvance {
@@ -343,7 +323,6 @@ pub struct DisunityAdvance {
     pub script: u64,
     pub frame: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityClock {
@@ -351,7 +330,6 @@ pub struct DisunityClock {
     pub time: f64,
     pub frame: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityTime {
@@ -361,14 +339,12 @@ pub struct DisunityTime {
     pub time_scale: f64,
     pub maximum_delta: f64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityBuffer {
     pub handle: u64,
     pub length: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityCloneRow {
@@ -378,7 +354,6 @@ pub struct DisunityCloneRow {
     /// 0: object, 1: managed script, 2: native component.
     pub kind: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityCallback {
@@ -395,7 +370,6 @@ pub struct DisunityCallback {
     pub normal_x: f32,
     pub normal_y: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DisunityInputAxis {
@@ -409,7 +383,6 @@ pub struct DisunityInputAxis {
     /// Bit 0: snap; bit 1: invert.
     pub flags: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityBody2d {
@@ -424,7 +397,6 @@ pub struct DisunityBody2d {
     pub freeze_position: u32,
     pub restitution: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityCollider2d {
@@ -438,7 +410,6 @@ pub struct DisunityCollider2d {
     pub size_y: f32,
     pub radius: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityRayHit {
@@ -449,14 +420,12 @@ pub struct DisunityRayHit {
     pub normal_y: f32,
     pub distance: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityPhysicsMaterial2d {
     pub friction: f32,
     pub bounciness: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityRect {
@@ -471,7 +440,6 @@ pub struct DisunityRect {
     pub position_x: f32,
     pub position_y: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityCanvas {
@@ -487,7 +455,6 @@ pub struct DisunityCanvas {
     pub additional_shader_channels: u32,
     pub reference_pixels_per_unit: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityTransform {
@@ -502,7 +469,6 @@ pub struct DisunityTransform {
     pub sy: f32,
     pub sz: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityTextStyle {
@@ -519,7 +485,6 @@ pub struct DisunityTextStyle {
     pub b: f32,
     pub a: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityTilemap {
@@ -537,7 +502,6 @@ pub struct DisunityTilemap {
     pub anchor_x: f32,
     pub anchor_y: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityTile {
@@ -553,7 +517,6 @@ pub struct DisunityTile {
     pub tx: f32,
     pub ty: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityTileCell {
@@ -561,7 +524,6 @@ pub struct DisunityTileCell {
     pub y: i32,
     pub tile: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityTextureInfo {
@@ -578,7 +540,6 @@ pub struct DisunityTextureInfo {
     pub present: u32,
     pub distance_spread: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunitySampler {
@@ -593,7 +554,6 @@ pub struct DisunitySampler {
     pub changed: u32,
     pub mip_bias: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMeshInfo {
@@ -612,7 +572,6 @@ pub struct DisunityMeshInfo {
     pub submesh_count: u32,
     pub left_out: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityMeshVertex {
@@ -629,7 +588,6 @@ pub struct DisunityMeshVertex {
     pub b: f32,
     pub a: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMeshSubMesh {
@@ -637,7 +595,6 @@ pub struct DisunityMeshSubMesh {
     pub first_index: u32,
     pub index_count: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMeshChannelsInfo {
@@ -657,7 +614,6 @@ pub struct DisunityMeshChannelsInfo {
     pub index_count: u32,
     pub range_count: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMeshChannel {
@@ -665,7 +621,6 @@ pub struct DisunityMeshChannel {
     pub dimension: u32,
     pub offset: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMeshRange {
@@ -674,7 +629,6 @@ pub struct DisunityMeshRange {
     pub base_vertex: u32,
     pub topology: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityFaceInfo {
@@ -698,7 +652,6 @@ pub struct DisunityFaceInfo {
     pub strikethrough_thickness: f32,
     pub tab_width: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityGlyphMetrics {
@@ -708,7 +661,6 @@ pub struct DisunityGlyphMetrics {
     pub bearing_y: f32,
     pub advance: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityGlyphPair {
@@ -716,7 +668,6 @@ pub struct DisunityGlyphPair {
     pub second: u32,
     pub x_advance: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityGlyphRender {
@@ -730,7 +681,6 @@ pub struct DisunityGlyphRender {
     pub atlas_width: u32,
     pub atlas_height: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeShaderDesc {
@@ -739,7 +689,6 @@ pub struct DisunityComputeShaderDesc {
     pub file_length: u32,
     pub kernel_count: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeKernel {
@@ -749,7 +698,6 @@ pub struct DisunityComputeKernel {
     pub size_y: u32,
     pub size_z: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeShaderInfo {
@@ -760,7 +708,6 @@ pub struct DisunityComputeShaderInfo {
     pub text_length: u32,
     pub generation: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeBufferDesc {
@@ -768,7 +715,6 @@ pub struct DisunityComputeBufferDesc {
     pub stride: u32,
     pub kind: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeBufferInfo {
@@ -777,14 +723,12 @@ pub struct DisunityComputeBufferInfo {
     pub kind: u32,
     pub generation: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeGlobalTexture {
     pub name_length: u32,
     pub global_length: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeBinding {
@@ -796,7 +740,6 @@ pub struct DisunityComputeBinding {
     pub texture_kind: u32,
     pub resource: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityComputeBindingsInfo {
@@ -804,7 +747,6 @@ pub struct DisunityComputeBindingsInfo {
     pub float_count: u32,
     pub text_length: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityShaderInfo {
@@ -814,7 +756,6 @@ pub struct DisunityShaderInfo {
     pub has_source: u32,
     pub text_capacity: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityActivePass {
@@ -822,7 +763,6 @@ pub struct DisunityActivePass {
     pub pass: u32,
     pub active: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityMaterialInfo {
@@ -832,7 +772,6 @@ pub struct DisunityMaterialInfo {
     pub disabled_pass_count: u32,
     pub generation: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityRenderTexture {
@@ -852,7 +791,6 @@ pub struct DisunityRenderTexture {
     pub mip_bias: f32,
     pub generation: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityTargetRef {
@@ -860,7 +798,6 @@ pub struct DisunityTargetRef {
     pub name_id: i32,
     pub render: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityOffscreenWork {
@@ -882,7 +819,6 @@ pub struct DisunityOffscreenWork {
     pub groups_z: u32,
     pub bindings: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityTextureSlot {
@@ -893,7 +829,6 @@ pub struct DisunityTextureSlot {
     pub offset_x: f32,
     pub offset_y: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityPropertyRead {
@@ -911,7 +846,6 @@ pub struct DisunityPropertyRead {
     pub offset_x: f32,
     pub offset_y: f32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DisunityDrawRendererList {
@@ -926,7 +860,6 @@ pub struct DisunityDrawRendererList {
     pub override_pass: i32,
     pub tags_len: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DisunityShadowRendererList {
@@ -942,7 +875,6 @@ pub struct DisunityShadowRendererList {
     pub padding: u32,
     pub cull: u64,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DisunityUiDraw {
@@ -960,10 +892,27 @@ pub struct DisunityUiDraw {
     pub triangle_v1: f32,
     pub triangle_u2: f32,
     pub triangle_v2: f32,
+    /// Zero for white corners, one for explicit linear RGBA in BL/BR/TR/TL order.
+    pub corner_colors_present: u32,
+    pub corner_0_r: f32,
+    pub corner_0_g: f32,
+    pub corner_0_b: f32,
+    pub corner_0_a: f32,
+    pub corner_1_r: f32,
+    pub corner_1_g: f32,
+    pub corner_1_b: f32,
+    pub corner_1_a: f32,
+    pub corner_2_r: f32,
+    pub corner_2_g: f32,
+    pub corner_2_b: f32,
+    pub corner_2_a: f32,
+    pub corner_3_r: f32,
+    pub corner_3_g: f32,
+    pub corner_3_b: f32,
+    pub corner_3_a: f32,
 }
-
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 9;
+pub const DISUNITY_ABI_VERSION: u32 = 10;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

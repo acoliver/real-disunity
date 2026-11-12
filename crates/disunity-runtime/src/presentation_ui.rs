@@ -52,10 +52,17 @@ fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<Ui
         1 => UiDrawKind::Text,
         kind => return Err(HostError::Managed(format!("unknown UI draw kind {kind}"))),
     };
+    if quad.overlay != 1 {
+        return Err(HostError::Managed(
+            "UI overlay metadata on a non-overlay quad".into(),
+        ));
+    }
+    let corner_colors = decode_corner_colors(&meta)?;
     let quad = decode_quad(quad);
     Ok(UiDraw {
         kind,
         depth_test: meta.kind & 4 != 0,
+        corner_colors,
         triangle_uv: (meta.kind & !4 == 2).then_some([
             [meta.triangle_u0, meta.triangle_v0],
             [meta.triangle_u1, meta.triangle_v1],
@@ -71,4 +78,42 @@ fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<Ui
             .map_err(|_| HostError::Managed("UI hierarchy order overflow".into()))?,
         clip_rect: [meta.clip_x, meta.clip_y, meta.clip_width, meta.clip_height],
     })
+}
+
+fn decode_corner_colors(meta: &native::DisunityUiDraw) -> Result<Option<[[f32; 4]; 4]>, HostError> {
+    let colors = [
+        [
+            meta.corner_0_r,
+            meta.corner_0_g,
+            meta.corner_0_b,
+            meta.corner_0_a,
+        ],
+        [
+            meta.corner_1_r,
+            meta.corner_1_g,
+            meta.corner_1_b,
+            meta.corner_1_a,
+        ],
+        [
+            meta.corner_2_r,
+            meta.corner_2_g,
+            meta.corner_2_b,
+            meta.corner_2_a,
+        ],
+        [
+            meta.corner_3_r,
+            meta.corner_3_g,
+            meta.corner_3_b,
+            meta.corner_3_a,
+        ],
+    ];
+    if meta.corner_colors_present > 1
+        || colors
+            .into_iter()
+            .flatten()
+            .any(|v| !v.is_finite() || !(0. ..=1.).contains(&v))
+    {
+        return Err(HostError::Managed("invalid UI corner_colors".into()));
+    }
+    Ok((meta.corner_colors_present == 1).then_some(colors))
 }

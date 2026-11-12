@@ -104,6 +104,12 @@ pub enum DynamicError {
         /// Rejected field.
         field: &'static str,
     },
+    /// Corner colours were submitted to a scene setter instead of the retained UI overlay.
+    #[error("dynamic quad {index} corner colours require the retained UI overlay path")]
+    CornerColorsRequireRetainedUi {
+        /// Submission index.
+        index: usize,
+    },
     /// A texture violates the shared scene resource contract.
     #[error("dynamic texture {index} violates the scene resource contract: {source}")]
     TextureDomain {

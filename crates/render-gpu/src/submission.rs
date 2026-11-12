@@ -186,6 +186,7 @@ struct Inner {
     lost: Arc<Mutex<Option<String>>>,
     submitted: AtomicU64,
     completed: AtomicU64,
+    census: crate::census::MemoryCensus,
 }
 
 /// Owns a queue and shares preparation and submission exclusion through clones.
@@ -200,7 +201,13 @@ impl SubmissionAuthority {
             lost: Arc::new(Mutex::new(None)),
             submitted: AtomicU64::new(0),
             completed: AtomicU64::new(0),
+            census: crate::census::MemoryCensus::new(),
         }))
+    }
+    /// The resident-byte tally for resources created on this queue's device. Clones of the
+    /// authority share it.
+    pub fn census(&self) -> &crate::census::MemoryCensus {
+        &self.0.census
     }
     pub fn same_authority(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

@@ -335,7 +335,9 @@ fn timed_medians(
                     timeout: Some(std::time::Duration::from_mins(2)),
                 })
                 .unwrap();
-            chain.take_timings().unwrap().pop().expect("timing result")
+            crate::timing_test_support::take_frames(&rig.device, 1, || chain.take_timings())
+                .pop()
+                .expect("timing result")
         })
         .skip(2)
         .collect();

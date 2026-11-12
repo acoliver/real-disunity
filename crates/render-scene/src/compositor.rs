@@ -639,6 +639,23 @@ impl FrameRenderer {
                 prepared: feature,
             });
         }
+        if let Some(opaque) = passes
+            .iter()
+            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
+        {
+            let opaque_formats = opaque
+                .additional_colors
+                .iter()
+                .map(|attachment| attachment.format)
+                .collect::<Vec<_>>();
+            for feature in &mut combined {
+                for pass in &mut feature.declaration.passes {
+                    if pass.slot == worldrunner_render_post::PassSlot::Opaque {
+                        pass.additional_color_formats.clone_from(&opaque_formats);
+                    }
+                }
+            }
+        }
         passes.sort_by_key(|pass| pass.slot);
         encode_planned(
             &mut self.chain,

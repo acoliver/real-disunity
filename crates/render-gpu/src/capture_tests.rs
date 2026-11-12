@@ -368,3 +368,40 @@ fn suffix_cannot_publish_prefix_keys_and_device_loss_stops_generation() {
         Err(PrepareError::DeviceLost(_))
     ));
 }
+
+#[test]
+fn drain_waits_for_the_completion_record_while_other_threads_poll() {
+    // Another thread's poll can run the completion callback after this thread's wait returns.
+    let (device, authority) = fresh_context();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pollers: Vec<_> = (0..4)
+        .map(|_| {
+            let (device, stop) = (device.clone(), stop.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    let _ = device.poll(wgpu::PollType::Poll);
+                }
+            })
+        })
+        .collect();
+    let mut drained = Ok(());
+    for _ in 0..200 {
+        while !authority.is_idle() {
+            std::thread::yield_now();
+        }
+        let prefix = authority
+            .begin_capture(&device, writes(), frozen(), |_, _, _| Ok::<_, ()>(()))
+            .unwrap();
+        drop(prefix.submit().unwrap());
+        drained = authority.drain_captures(&device);
+        if drained.is_err() {
+            break;
+        }
+    }
+    stop.store(true, Ordering::Release);
+    for poller in pollers {
+        poller.join().unwrap();
+    }
+    drained.unwrap();
+    assert!(authority.is_idle());
+}

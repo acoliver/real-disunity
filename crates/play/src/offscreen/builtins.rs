@@ -61,11 +61,19 @@
 //!   then two zeros ([`view_layer`]). `LakeShader`'s vertex stage puts
 //!   `(0.5 (x + w), 0.5 (y * _ProjectionParams.x + w))` in its screen position and the fragment
 //!   samples the depth texture there. Play draws positive clip y into the high rows (see
-//!   [`clip_from_gl`](super::camera::clip_from_gl)), so the fragment addresses its own texel only with +1.
+//!   [`clip_from_gl`](super::camera::clip_from_gl)), so the fragment addresses its own texel
+//!   only with +1.
 //!   `Mohawk/Transparent/WaterShader` ends its view-space reflection ray at
 //!   `z = -_ProjectionParams.y` when it would pass the near plane, so the second component is
 //!   the near distance. No scanned stage reads the last two. A projection with no finite near
 //!   plane leaves the name missing.
+//! * `unity_WorldTransformParams` (2,011) carries the sign of the object-to-world determinant in
+//!   its fourth component, -1 for a mirrored renderer and 1 otherwise, including a singular one
+//!   ([`draw_layer`]). `Mohawk/StandardShader`'s vertex stage multiplies its bitangent,
+//!   `cross(normal, tangent) * tangent.w`, by `w >= 0 ? 1 : -1`. For a rotation, reflection or
+//!   uniform scale `M`, `cross(M^-T n, M t)` is `sign(det M)` times the rotated `n x t`, so that
+//!   factor restores the bitangent's direction only when it is the determinant's sign. No
+//!   scanned stage reads the first three components, which are 0.
 //! * `_ScreenParams` (2,389) holds the width and height in pixels of the target the view draws
 //!   into, the mip's for a mip target ([`add_screen_size`]). `Mohawk/StandardShader` multiplies the
 //!   0..1 screen position by its first two components and then by 0.25 for a four-pixel tile. The
@@ -78,11 +86,11 @@
 //! leaves it zero. These are left to it, with the count of the player's 10,773 Vulkan variants
 //! that hold each (a variant holds a name once per buffer):
 //!
-//! * `_ZBufferParams` (616), `_Time` (2,688) and `unity_WorldTransformParams` (2,011): the names
-//!   do not say what their four floats hold, and the game's own arithmetic does not settle it.
-//!   `_Time` is only multiplied by authored speeds, so no rate follows; `_ZBufferParams` turns two
-//!   depths into `1 / (z * depth + w)`, subtracts them and divides by authored values, which
-//!   fixes `z / w` for the depth range but not the scale.
+//! * `_ZBufferParams` (616) and `_Time` (2,688): the names do not say what their four floats
+//!   hold, and the game's own arithmetic does not settle it. `_Time` is only multiplied by
+//!   authored speeds, so no rate follows; `_ZBufferParams` turns two depths into
+//!   `1 / (z * depth + w)`, subtracts them and divides by authored values, which fixes `z / w`
+//!   for the depth range but not the scale.
 //! * `glstate_matrix_projection` (109), `unity_MatrixInvV` (5), `unity_MatrixInvVP` (4),
 //!   `unity_CameraProjection` (4), `unity_CameraInvProjection` (2), `unity_WorldToCamera` (4)
 //!   and `unity_CameraToWorld` (2): the words name the matrix, and each is too rare to be
@@ -119,6 +127,7 @@ pub const MAIN_LIGHT_COLOR: &str = "_MainLightColor";
 pub const ORTHO_PARAMS: &str = "unity_OrthoParams";
 pub const PROJECTION_PARAMS: &str = "_ProjectionParams";
 pub const SCREEN_PARAMS: &str = "_ScreenParams";
+pub const WORLD_TRANSFORM_PARAMS: &str = "unity_WorldTransformParams";
 
 /// A matrix is singular when its determinant is this small next to 1.
 const SINGULAR: f32 = 1.0e-12;
@@ -131,6 +140,15 @@ pub fn draw_layer(local_to_world: &[f32; 16]) -> PropertyLayer {
     layer
         .values
         .set(OBJECT_TO_WORLD, PropertyValue::Matrix(*local_to_world));
+    let handedness = if matrix.determinant() < 0.0 {
+        -1.0
+    } else {
+        1.0
+    };
+    layer.values.set(
+        WORLD_TRANSFORM_PARAMS,
+        PropertyValue::Vector([0.0, 0.0, 0.0, handedness]),
+    );
     if matrix.determinant().abs() > SINGULAR {
         layer.values.set(
             WORLD_TO_OBJECT,

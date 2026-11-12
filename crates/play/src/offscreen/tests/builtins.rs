@@ -10,8 +10,8 @@ use worldrunner_world_simulation::presentation::{Camera, LightKind, LightSetting
 
 use super::super::builtins::{
     CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
-    PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, WORLD_TO_OBJECT, add_main_light, add_screen_size,
-    camera_layer, draw_layer,
+    PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS,
+    add_main_light, add_screen_size, camera_layer, draw_layer,
 };
 use super::super::camera::projection;
 use super::super::frame::{Settings, adapt};
@@ -297,4 +297,19 @@ fn a_projection_without_a_near_plane_leaves_the_projection_params_missing() {
             .get(PROJECTION_PARAMS)
             .is_none()
     );
+}
+
+#[test]
+fn a_mirrored_renderer_flips_the_bitangent_sign() {
+    // The game's vertex stage multiplies its bitangent by the sign of the fourth component, which
+    // keeps the tangent frame's handedness only when that sign is the sign of the determinant.
+    let mirrored = Mat4::from_scale(Vec3::new(-1.0, 2.0, 1.0)).to_cols_array();
+    let scaled = Mat4::from_scale(Vec3::new(3.0, 2.0, 1.0)).to_cols_array();
+    for (local_to_world, sign) in [(IDENTITY, 1.0), (scaled, 1.0), (mirrored, -1.0)] {
+        let layer = draw_layer(&local_to_world);
+        assert_close(
+            &vector(&layer, WORLD_TRANSFORM_PARAMS),
+            &[0.0, 0.0, 0.0, sign],
+        );
+    }
 }

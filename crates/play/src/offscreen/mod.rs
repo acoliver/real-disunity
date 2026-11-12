@@ -79,8 +79,8 @@ pub use assets::{
 pub use bounds::Bounds;
 pub use builtins::{
     CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
-    PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT, add_main_light,
-    add_screen_size, camera_layer, draw_layer,
+    PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT,
+    WORLD_TRANSFORM_PARAMS, add_main_light, add_screen_size, camera_layer, draw_layer,
 };
 pub use camera::{clip_from_gl, projection, world_to_camera};
 pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};

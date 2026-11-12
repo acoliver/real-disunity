@@ -88,8 +88,8 @@ pub use post::{
 };
 mod ssr;
 pub use ssr::{
-    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrLodMapping, SceneSsrPassBehind,
-    SceneSsrPyramid, SceneSsrTraversal,
+    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrHitFacing, SceneSsrLodMapping,
+    SceneSsrPassBehind, SceneSsrPyramid, SceneSsrTraversal,
 };
 mod error;
 mod foliage_wind;

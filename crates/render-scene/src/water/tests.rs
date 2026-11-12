@@ -26,6 +26,8 @@ mod optical_render_tests;
 mod optics_tests;
 #[path = "pcf5_tests.rs"]
 mod pcf5_tests;
+#[path = "program_route_tests.rs"]
+mod program_route_tests;
 #[path = "program_tests.rs"]
 mod program_tests;
 #[path = "regressions.rs"]
@@ -124,9 +126,7 @@ fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_every_supported_sa
             None,
         )
         .unwrap();
-        renderer
-            .install_water(context.device(), settings())
-            .unwrap();
+        renderer.install_water(&context, settings()).unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),
@@ -353,7 +353,7 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
     draw_water_with(
         context,
         renderer,
-        (slot, wgpu::LoadOp::Load, DepthMode::Independent),
+        (slot, wgpu::LoadOp::Load, DepthMode::Independent, None),
         |feature, pass| {
             feature.draw(
                 &worldrunner_render_post::DrawContext {
@@ -366,22 +366,30 @@ fn draw_water_slot(context: &GpuContext, renderer: &crate::compositor::FrameRend
 }
 /// Opens the water pass of `slot` over the scene colour (loaded or cleared as `scene_load`
 /// says), the cleared receivers and a cleared depth, and lets `record` draw the feature built
-/// for `depth` in it. The pass uses the renderer's depth texture, whose format `depth` must match.
+/// for `depth` and `shadow` in it. The pass uses the renderer's depth texture, whose format
+/// `depth` must match. With a shadow group the feature draws its shadowed pipelines.
 fn draw_water_with(
     context: &GpuContext,
     renderer: &crate::compositor::FrameRenderer,
-    (slot, scene_load, depth): (usize, wgpu::LoadOp<wgpu::Color>, DepthMode),
+    (slot, scene_load, depth, shadow): (
+        usize,
+        wgpu::LoadOp<wgpu::Color>,
+        DepthMode,
+        Option<&wgpu::BindGroup>,
+    ),
     record: impl FnOnce(&WaterFeature, &mut wgpu::RenderPass<'_>),
 ) {
     let water = renderer.water.as_ref().unwrap();
-    let feature = water.feature_with_depth(
-        context.device(),
-        &FrameUniform::new(&fixture_view(), None).unwrap(),
-        (2.0, slot),
-        (None, None),
-        depth,
-    );
     let mut encoder = context.submission().begin(context.device()).unwrap();
+    let feature = water
+        .feature_with_depth(
+            (context.device(), &*encoder),
+            &FrameUniform::new(&fixture_view(), None).unwrap(),
+            (2.0, slot),
+            (shadow, None),
+            depth,
+        )
+        .unwrap();
     {
         let depth_view = renderer
             .targets()

@@ -76,7 +76,6 @@ fn unsupported_lighting_and_camera_fields_are_typed() {
         (2, "requiresDepthTexture"),
         (3, "requiresColorTexture"),
         (4, "renderType"),
-        (5, "renderShadows"),
         (6, "stopNaN"),
         (7, "dithering"),
     ] {

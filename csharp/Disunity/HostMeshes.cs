@@ -26,16 +26,40 @@ public static partial class DisunityHost
         lock (ChangedMeshes) ChangedMeshes.Add(mesh);
     }
 
-    /// <summary>Stores every mesh that changed since the last call. The scheduler runs it each frame, after LateUpdate.</summary>
+    /// <summary>Takes the mesh out of the changed set. True when it was there: the caller stores it now, and the next
+    /// <see cref="StoreChangedMeshes"/> does not send it again.</summary>
+    internal static bool TakeQueuedMeshStore(Mesh mesh)
+    {
+        lock (ChangedMeshes) return ChangedMeshes.Remove(mesh);
+    }
+
+    /// <summary>Stores every mesh that changed since the last call, except one destroyed since it changed. The scheduler runs
+    /// it each frame, after LateUpdate. A store the host refuses throws; the mesh that failed is not queued again (it no
+    /// longer counts as stored, so the next draw of it stores it again), and the meshes not yet reached stay queued for the
+    /// next call. Edits made while the batch ran stay queued as well.</summary>
     internal static void StoreChangedMeshes()
     {
-        Mesh[] changed;
+        Mesh[] batch;
         lock (ChangedMeshes)
         {
-            changed = [.. ChangedMeshes];
+            batch = [.. ChangedMeshes];
             ChangedMeshes.Clear();
         }
-        foreach (var mesh in changed) mesh.StoreForRenderer();
+        for (var done = 0; done < batch.Length; done++)
+        {
+            if (!batch[done]) continue;
+            try { batch[done].StoreForRenderer(); }
+            catch
+            {
+                QueueUnprocessed(batch, done + 1);
+                throw;
+            }
+        }
+    }
+
+    private static void QueueUnprocessed(Mesh[] batch, int from)
+    {
+        lock (ChangedMeshes) ChangedMeshes.UnionWith(batch.Skip(from));
     }
 
     /// <summary>Forgets the changes of a world that is going; its meshes are not stored anywhere.</summary>

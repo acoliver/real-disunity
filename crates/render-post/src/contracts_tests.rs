@@ -4,6 +4,9 @@ mod regressions;
 #[path = "contracts_view_formats.rs"]
 mod view_formats;
 
+#[path = "contracts_read_only_depth.rs"]
+mod read_only_depth;
+
 #[test]
 fn mrt_rejects_mixed_samples_and_resolve_semantics() {
     let (device, _) = device();
@@ -129,6 +132,7 @@ fn encode_stock_fixture(
         samples: targets.config().samples,
         load: AttachmentLoad::ClearColor(wgpu::Color::GREEN),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     let mut second = first.clone();
     second.slot = crate::PassSlot::Opaque;

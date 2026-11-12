@@ -240,7 +240,11 @@ impl FrameRenderer {
         renderer.share_metadata_depth(context.device());
         renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
-            renderer.install_water_bodies(context.device(), effects.water_bodies().to_vec())?;
+            renderer.install_water_bodies(
+                context.device(),
+                context.submission(),
+                effects.water_bodies().to_vec(),
+            )?;
         }
         Ok(renderer)
     }
@@ -272,17 +276,20 @@ impl FrameRenderer {
     #[cfg(test)]
     pub(crate) fn install_water(
         &mut self,
-        device: &wgpu::Device,
+        context: &crate::device::GpuContext,
         settings: worldrunner_render_plan::SceneWaterBody,
     ) -> Result<(), FrameError> {
-        self.install_water_bodies(device, vec![settings])
+        self.install_water_bodies(context.device(), context.submission(), vec![settings])
     }
 
     /// Installs independent water surfaces in the existing transparent pass.
     /// An empty set leaves the feature disabled. Replacing a resident set requires a rebuild.
+    /// Water draws its bodies on a runtime of its own, made from `authority`; every frame it
+    /// draws into must belong to that authority.
     pub fn install_water_bodies(
         &mut self,
         device: &wgpu::Device,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
         settings: Vec<worldrunner_render_plan::SceneWaterBody>,
     ) -> Result<(), FrameError> {
         if self.water.is_some() {
@@ -291,7 +298,7 @@ impl FrameRenderer {
         if settings.is_empty() {
             return Ok(());
         }
-        let water = crate::water::Water::new(device, self.targets().config(), settings)?;
+        let water = crate::water::Water::new(device, authority, self.targets().config(), settings)?;
         *self.snapshot_ready.borrow_mut() = Default::default();
         self.snapshots = Some(water.snapshots.clone());
         self.chain.register(
@@ -545,15 +552,24 @@ impl FrameRenderer {
             crate::water::surface::validate_inputs(water)?;
         }
         self.publish_snapshots(encoder, crate::water::planning::SnapshotRequest::default());
-        self.water_state.borrow_mut().feature = self.water.as_ref().map(|water| {
-            water.feature_with_depth(
-                device,
-                frame,
-                (self.elapsed_seconds, self.frame_slot),
-                (shadow, self.targets().temporal_mask_texture()),
-                depth,
-            )
-        });
+        let feature = self
+            .water
+            .as_ref()
+            .map(|water| {
+                water.feature_with_depth(
+                    (device, encoder),
+                    frame,
+                    (self.elapsed_seconds, self.frame_slot),
+                    (shadow, self.targets().temporal_mask_texture()),
+                    depth,
+                )
+            })
+            .transpose()
+            .map_err(|error| FrameError::FeaturePreparation {
+                feature: "water",
+                reason: error.to_string(),
+            })?;
+        self.water_state.borrow_mut().feature = feature;
         Ok(())
     }
     /// Camera-aware composition for stock and external features, including
@@ -622,6 +638,23 @@ impl FrameRenderer {
                 declaration: declaration.clone(),
                 prepared: feature,
             });
+        }
+        if let Some(opaque) = passes
+            .iter()
+            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
+        {
+            let opaque_formats = opaque
+                .additional_colors
+                .iter()
+                .map(|attachment| attachment.format)
+                .collect::<Vec<_>>();
+            for feature in &mut combined {
+                for pass in &mut feature.declaration.passes {
+                    if pass.slot == worldrunner_render_post::PassSlot::Opaque {
+                        pass.additional_color_formats.clone_from(&opaque_formats);
+                    }
+                }
+            }
         }
         passes.sort_by_key(|pass| pass.slot);
         encode_planned(

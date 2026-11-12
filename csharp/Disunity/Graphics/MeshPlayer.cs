@@ -5,21 +5,33 @@ using UnityEngine.Rendering;
 namespace UnityEngine;
 
 /// <summary>What the host is given of a mesh: its contents under a renderer identity, stored when a mesh filter takes the
-/// mesh and again, before the next frame is drawn, after the data changes.</summary>
+/// mesh or a command buffer draws it, and again after the data changes: before the next frame is drawn, or sooner when
+/// something asks for the identity. A world that was unloaded took the stored contents with it, so the loaded world is
+/// given them again.</summary>
 public partial class Mesh
 {
     private const uint ChannelNormals = 1, ChannelUv0 = 2, ChannelColors = 4;
 
     private ulong _identity;
 
+    /// <summary>The loaded world that holds this mesh's contents under <see cref="_identity"/>, which is set when both
+    /// native stores of the contents have succeeded and holds nothing for a world that was unloaded.</summary>
+    private WorldGraphics.Link _stored;
+
     /// <summary>The identity the host knows this mesh's contents by, from <see cref="DisunityHost.FirstPlayerMeshIdentity"/>
-    /// up: allocated the first time a mesh filter takes the mesh (which stores its data), and kept for its lifetime.</summary>
+    /// up: allocated the first time it is asked for and kept for the mesh's lifetime. The loaded world holds the mesh's
+    /// current contents under it when this returns: a mesh the world does not hold, or one changed since it was stored, is
+    /// stored first, so a draw that runs now shows the mesh as it is now and the next frame flush has nothing left to send
+    /// for it. A store that fails throws and is not queued again: the mesh no longer counts as stored, so the next call
+    /// stores it again and a frame flush does not.</summary>
     internal ulong RendererIdentity
     {
         get
         {
-            if (_identity != 0) return _identity;
-            _identity = DisunityHost.AllocatePlayerMeshIdentity();
+            if (_identity == 0) _identity = DisunityHost.AllocatePlayerMeshIdentity();
+            // The mesh leaves the changed set before its data is read, so an edit made during the store queues it again.
+            var changed = DisunityHost.TakeQueuedMeshStore(this);
+            if (!changed && _stored.IsCurrent) return _identity;
             StoreForRenderer();
             return _identity;
         }
@@ -33,9 +45,13 @@ public partial class Mesh
 
     /// <summary>Hands the mesh's contents to the host: one vertex per position with the normal, first uv and colour when
     /// the mesh has them, and the triangle indices of every triangle sub-mesh with its base vertex applied. Sub-meshes of
-    /// another topology are counted as left out and not sent. Ignores <see cref="isReadable"/>.</summary>
+    /// another topology are counted as left out and not sent. Ignores <see cref="isReadable"/>. The two native stores are
+    /// not one transaction: a store the host refuses part way can leave the fixed mesh stored and its channels dropped.
+    /// The mesh therefore stops counting as stored before anything is read or sent, and counts again only when both
+    /// stores have succeeded.</summary>
     internal unsafe void StoreForRenderer()
     {
+        _stored = default;
         DisunityHost.EnsureLoaded();
         var data = Snapshot();
         var vertices = Vertices(data, out var channels);
@@ -54,6 +70,7 @@ public partial class Mesh
         fixed (DisunityMeshSubMesh* runPointer = runArray)
             DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_store(DisunityHost.WorldHandle, _identity, &info, vertexPointer, indexPointer, runPointer));
         StoreChannelsForRenderer(data);
+        _stored = new WorldGraphics.Link(DisunityHost.WorldHandle, _identity);
     }
 
     private static DisunityMeshVertex[] Vertices(MeshData data, out uint channels)

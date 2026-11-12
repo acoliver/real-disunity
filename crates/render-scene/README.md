@@ -304,6 +304,30 @@ albedo alpha as blend height, so terrain coverage is unchanged. Foliage and
 clutter drawn as ordinary material geometry use the masked policy above.
 
 
+## Empty distance fades
+
+Per-view selection omits a placement only when every selected material slot,
+including the preceding mesh in a mesh/card handoff, rejects all fragments.
+Instance fade bands override impostor bands. The distance reference uses the
+uploaded instance matrix, local reference and eye-height clamp, independently
+of billboard facing, wind and LOD distance scaling. Selection keys include the
+actual f32 shader eye as well as the integer LOD eye.
+
+The CPU bounds the shader's f32 arithmetic, including intermediate rounding,
+dot-product reassociation, division, square root and byte truncation. Boundaries
+whose rounding could change coverage remain submitted. Only proven zero-coverage
+fades are removed: hashed inclusive/strict fades, strict R8 fades, and hashed
+complementary fades at a shared lower boundary of one. Inclusive R8 zero and
+complementary R8 one remain submitted because threshold equality can survive.
+Partial dithering and geometry-only mesh/card coverage are not culled.
+
+Forward, depth, reflection MRTs, velocity and metadata use the same fade rejection.
+Shadow casters also use it with the camera eye, not the light position; their
+flat relief policy does not disable fading. Caster-volume fitting is unchanged.
+`ViewStats::culled` includes empty fades. Submitted `SceneStatistics` draw and
+instance counts exclude them; resource residency counts do not change. Scenes
+without faded placements retain their existing counts.
+
 ## Projected decal channels and opacity
 
 `SceneDecal::color_modifier` supplies nonnegative linear RGB scales and opacity
@@ -713,7 +737,8 @@ not advance cascade refresh frames or consume a pending capture request.
 Reenabling validates retained maps against caster edits, settings and the next
 view before reuse; invalid maps refresh through the existing policy. A capture
 requested while disabled runs on the next successfully submitted enabled frame.
-This scene-wide control does not implement managed per-camera `renderShadows`.
+The scene-viewer camera shadow policy drives it; `play` sets that policy from the
+presented camera's `renderShadows` (see `crates/play/README.md`).
 
 `DirectionalShadowSettings::refresh_policy` defaults to
 `CascadeRefreshPolicy::default()`: every cascade renders every submitted frame.

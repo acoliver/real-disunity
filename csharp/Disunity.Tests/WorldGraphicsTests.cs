@@ -277,7 +277,7 @@ internal static unsafe class WorldGraphicsTests
         Expect.That(target.IsCreated(), "Render creates the target");
 
         var screen = NewCamera();
-        screen.Render();
+        Expect.Throws<NotSupportedException>(() => screen.Render(), "a camera without a target");
         Expect.That(Take().Length == 0, "a camera without a target records nothing");
     }
 

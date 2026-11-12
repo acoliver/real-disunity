@@ -6,9 +6,7 @@ fn opaque_auxiliary_is_not_a_water_target() {
     let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
-        renderer
-            .install_water(context.device(), settings())
-            .unwrap();
+        renderer.install_water(&context, settings()).unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),
@@ -40,13 +38,14 @@ fn opaque_auxiliary_is_not_a_water_target() {
         ));
         let original = opaque.additional_colors.clone();
         let mut passes = vec![opaque];
+        let encoder = context.submission().begin(context.device()).unwrap();
         let mut views = vec![color, depth, auxiliary];
         renderer
             .water
             .as_ref()
             .unwrap()
             .feature(
-                context.device(),
+                (context.device(), &*encoder),
                 &FrameUniform::new(&fixture_view(), None).unwrap(),
                 (0.0, 0),
                 (None, None),

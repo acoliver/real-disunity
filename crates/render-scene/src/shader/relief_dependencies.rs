@@ -64,7 +64,12 @@ fn relief_depth_graph_and_call_inputs_match_metadata_shadow_reflection_and_veloc
     let expected = graph(super::ENVIRONMENT_WGSL, "scene_relief_depth");
     for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
         for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
-            let (object, _) = receiver::producer_sources(output, layout, 0.012);
+            let (object, _) = receiver::producer_sources(
+                output,
+                layout,
+                0.012,
+                crate::scene_metadata::receiver::ReceiverCapture::Normal,
+            );
             assert_eq!(expected, graph(&object, "scene_relief_depth"));
             depth_call(&object);
         }

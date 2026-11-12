@@ -15,7 +15,7 @@ fn render(
 ) -> crate::compositor::FrameRenderer {
     let disk = body.material.sun_disk.is_some();
     let mut renderer = regressions::renderer(context, samples);
-    renderer.install_water(context.device(), body).unwrap();
+    renderer.install_water(context, body).unwrap();
     install_maps(context, &mut renderer, mip);
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
@@ -615,21 +615,7 @@ fn default_disk_uniform_and_rendered_bytes_match_fixed_radius() {
         let expected = read(&context, renderer.targets().texture());
         let fixed = crate::shader::surface_policy_tests::fixed_disk_source(&water_source(false));
         let water = renderer.water.as_mut().unwrap();
-        let fixed_pipeline = pipeline_with_source(
-            context.device(),
-            samples,
-            &water.layout,
-            false,
-            [0, 0, 0, 0, 32],
-            &fixed,
-        );
-        water.specializations.borrow_mut().insert(
-            (
-                [0, 0, 0, 0, 32],
-                crate::renderer::depth::DepthMode::Independent,
-            ),
-            [fixed_pipeline.clone(), fixed_pipeline],
-        );
+        water.substitute(([0, 0, 0, 0, 32], false), &fixed, [0, 0, 0, 0, 32]);
         draw_water_slot(&context, &renderer, 0);
         // The fixed-radius source folds cos(0.0027) and sin(0.0027) like the
         // default branch of the production source, so the two are mathematically

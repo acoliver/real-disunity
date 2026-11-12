@@ -18,9 +18,23 @@ pub(super) struct Key {
     edits: u64,
     matrix: [u32; 16],
     eye: [i64; 3],
+    fade_eye: [u32; 3],
     casters_only: bool,
     /// Generation of the cascade's slice hull; zero without one.
     slice: u64,
+}
+
+impl Key {
+    fn new(edits: u64, matrix: glam::Mat4, frame: &FrameUniform, casters_only: bool) -> Self {
+        Self {
+            edits,
+            matrix: matrix.to_cols_array().map(f32::to_bits),
+            eye: frame.camera_position_millimeters,
+            fade_eye: frame.camera_position.to_array().map(f32::to_bits),
+            casters_only,
+            slice: 0,
+        }
+    }
 }
 
 /// The selection a view last published and the one it last built.
@@ -60,17 +74,16 @@ impl SceneGpu {
         shadow_matrix: Option<(u32, glam::Mat4)>,
         frame: &FrameUniform,
     ) -> Key {
-        Key {
-            edits: self.instances.edits(),
-            matrix: Self::view_matrix(shadow_matrix, frame)
-                .to_cols_array()
-                .map(f32::to_bits),
-            eye: frame.camera_position_millimeters,
-            casters_only: shadow_matrix.is_some(),
-            slice: self
-                .view_slice(shadow_matrix)
-                .map_or(0, |(_, generation)| generation),
-        }
+        let mut key = Key::new(
+            self.instances.edits(),
+            Self::view_matrix(shadow_matrix, frame),
+            frame,
+            shadow_matrix.is_some(),
+        );
+        key.slice = self
+            .view_slice(shadow_matrix)
+            .map_or(0, |(_, generation)| generation);
+        key
     }
 
     fn view_slice(
@@ -105,7 +118,13 @@ impl SceneGpu {
         let mut selection = view.published.borrow().clone();
         selection.casters_only = key.casters_only;
         selection.slice = self.view_slice(shadow_matrix).map(|(hull, _)| hull);
-        selection.rebuild(&self.instances, &self.mesh_selection, matrix, key.eye);
+        selection.rebuild_with_eye(
+            &self.instances,
+            &self.mesh_selection,
+            matrix,
+            key.eye,
+            frame.camera_position,
+        );
         *built = Some((key, selection.clone()));
         selection
     }
@@ -138,3 +157,6 @@ impl SceneGpu {
         fit
     }
 }
+
+#[cfg(test)]
+mod key_tests;

@@ -209,17 +209,15 @@ impl Meshes {
         pass.set_bind_group(2, &target.group, &[]);
         pass.draw(0..3, 0..1);
     }
-    /// The celestial context of `raster` for a body with `lighting` and anchoring, made on
-    /// first use on the scene's object family.
-    fn context(
-        &self,
-        raster: ([u32; 7], wgpu::FrontFace),
+    /// The selection a body draws with: the frame's specular options and winding, and the
+    /// body's lighting and anchoring.
+    fn selection(
+        (options, front_face): ([u32; 7], wgpu::FrontFace),
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
-    ) -> crate::object::program::Context {
-        let (options, front_face) = raster;
+    ) -> [u32; 12] {
         let values = lighting.contributions_micro();
-        let key = [
+        [
             options[0],
             options[1],
             options[2],
@@ -232,7 +230,18 @@ impl Meshes {
             values[2],
             u32::from(anchored),
             u32::from(front_face == wgpu::FrontFace::Cw),
-        ];
+        ]
+    }
+    /// The celestial context of `raster` for a body with `lighting` and anchoring, made on
+    /// first use on the scene's object family.
+    fn context(
+        &self,
+        raster: ([u32; 7], wgpu::FrontFace),
+        lighting: worldrunner_render_plan::SceneCelestialLighting,
+        anchored: bool,
+    ) -> crate::object::program::Context {
+        let front_face = raster.1;
+        let key = Self::selection(raster, lighting, anchored);
         self.contexts
             .borrow_mut()
             .entry(key)
@@ -310,6 +319,16 @@ impl Meshes {
         }
         let layout = crate::object::program::vertex_layout(false);
         for draw in &self.draws {
+            // A selection that `prepare` did not see would be made here, where a refusal can only
+            // panic: every frame that records the bodies must have been prepared with its raster.
+            debug_assert!(
+                self.contexts.borrow().contains_key(&Self::selection(
+                    raster,
+                    draw.lighting,
+                    draw.anchored
+                )),
+                "the celestial bodies were not prepared for the frame they are recorded in"
+            );
             let context = self.context(raster, draw.lighting, draw.anchored);
             let pipeline = objects
                 .pipeline(&context, draw.key.index(), draw.material_index)

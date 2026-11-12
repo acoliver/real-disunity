@@ -33,6 +33,7 @@ use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::renderer::legacy_objects::{Counted, Recipe, Recorded, compose};
 
+mod casters;
 mod gather;
 mod legacy;
 pub(in crate::object) mod prepass;

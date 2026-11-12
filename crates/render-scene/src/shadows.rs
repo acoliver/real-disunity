@@ -40,6 +40,24 @@ mod resources;
 pub(crate) use resources::SHADOW_UNIFORM_BYTES;
 #[cfg(test)]
 pub(crate) use resources::{depth_source, receiver_sources};
+
+/// The object shadow casters of `pipelines` for `settings` and `sampling`, and the caster policy
+/// they were built with, for the captures that compare them with the frozen casters.
+#[cfg(test)]
+pub(crate) fn object_casters(
+    device: &wgpu::Device,
+    pipelines: &crate::renderer::ScenePipelines,
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
+) -> (
+    [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
+    worldrunner_render_shadow::DirectionalShadowConfig,
+) {
+    (
+        resources::depth_pipelines(device, pipelines, settings, sampling),
+        resources::caster_configuration(settings, sampling),
+    )
+}
 mod schedule;
 mod settings;
 mod terrain_caster;

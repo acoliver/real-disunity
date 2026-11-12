@@ -42,6 +42,7 @@ fn the_live_object_wgsl_equals_the_frozen_snapshot() {
         "normal_sample" => include_str!("../shader/normal_sample.wgsl"),
         "environment" => include_str!("../shader/environment.wgsl"),
         "forward_cards" => include_str!("../shader/forward_cards.wgsl"),
+        "shadow_depth" => include_str!("../shader/shadow_depth.wgsl"),
     };
     let drifted: Vec<_> = pairs
         .iter()

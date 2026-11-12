@@ -88,7 +88,7 @@ pub(super) fn depth_pipelines(
 }
 
 /// The caster policy of `settings` with the slope bias of the scene's shadow sampling.
-fn caster_configuration(
+pub(super) fn caster_configuration(
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
 ) -> worldrunner_render_shadow::DirectionalShadowConfig {

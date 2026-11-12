@@ -82,9 +82,7 @@ fn frame(grazing: bool) -> FrameUniform {
 
 fn render(context: &GpuContext, level: u16, grazing: bool, legacy: bool) -> Vec<u8> {
     let mut renderer = regressions::renderer(context, 1);
-    renderer
-        .install_water(context.device(), mapped_body(level))
-        .unwrap();
+    renderer.install_water(context, mapped_body(level)).unwrap();
     let water = renderer.water.as_mut().unwrap();
     water.surface_inputs[0][0] = Some(normals(context));
     if legacy {

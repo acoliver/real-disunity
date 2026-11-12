@@ -26,6 +26,8 @@ mod optical_render_tests;
 mod optics_tests;
 #[path = "pcf5_tests.rs"]
 mod pcf5_tests;
+#[path = "program_route_tests.rs"]
+mod program_route_tests;
 #[path = "program_tests.rs"]
 mod program_tests;
 #[path = "regressions.rs"]
@@ -124,9 +126,7 @@ fn gpu_snapshots_preserve_opaque_hdr_for_overlapping_slots_at_every_supported_sa
             None,
         )
         .unwrap();
-        renderer
-            .install_water(context.device(), settings())
-            .unwrap();
+        renderer.install_water(&context, settings()).unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),
@@ -380,14 +380,16 @@ fn draw_water_with(
     record: impl FnOnce(&WaterFeature, &mut wgpu::RenderPass<'_>),
 ) {
     let water = renderer.water.as_ref().unwrap();
-    let feature = water.feature_with_depth(
-        context.device(),
-        &FrameUniform::new(&fixture_view(), None).unwrap(),
-        (2.0, slot),
-        (shadow, None),
-        depth,
-    );
     let mut encoder = context.submission().begin(context.device()).unwrap();
+    let feature = water
+        .feature_with_depth(
+            (context.device(), &*encoder),
+            &FrameUniform::new(&fixture_view(), None).unwrap(),
+            (2.0, slot),
+            (shadow, None),
+            depth,
+        )
+        .unwrap();
     {
         let depth_view = renderer
             .targets()

@@ -157,7 +157,8 @@ fn gpu_post_chain_scale_timings_are_informational() {
                     timeout: Some(std::time::Duration::from_secs(30)),
                 })
                 .unwrap();
-            let timings = chain.take_timings().unwrap();
+            let timings =
+                crate::timing_test_support::take_frames(&device, 1, || chain.take_timings());
             assert_eq!(timings.len(), 1);
             let durations =
                 crate::timing_test_support::checked_durations("post scale", &timings[0]);

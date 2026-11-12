@@ -64,6 +64,7 @@ fn options() -> ViewerOptions {
         presentation_budget: PresentationBudget::default().into(),
         capture_pool: worldrunner_scene_viewer::CapturePoolPolicy::default(),
         window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
+        window_mode: worldrunner_scene_viewer::WindowMode::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         frame_profile: FrameProfile::Legacy,
         frames_in_flight: 2,

@@ -206,6 +206,7 @@ wire_struct!(GraphicsSnapshot {
     global,
     work,
     cameras,
+    lights,
     renderers,
     compute_shaders,
     compute_buffers

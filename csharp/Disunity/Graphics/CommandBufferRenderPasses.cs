@@ -28,6 +28,21 @@ public sealed partial class CommandBuffer
         int depthAttachmentIndex, NativeArray<SubPassDescriptor> subPasses, ReadOnlySpan<byte> debugNameUtf8) =>
         BeginPass(attachments.ToArray(), depthAttachmentIndex, subPasses.ToArray());
 
+    /// <summary>The form that also names a shading-rate image attachment. The engine has no shading-rate images, so the only
+    /// index it takes is -1 (none), which makes this the form without it; any other index throws
+    /// <see cref="NotSupportedException"/> naming the parameter and records nothing. The parameter list is the one built
+    /// players call, which is why it is longer than the engine's own methods.</summary>
+    public void BeginRenderPass(int width, int height, int volumeDepth, int samples, NativeArray<AttachmentDescriptor> attachments,
+        int depthAttachmentIndex, int shadingRateImageAttachmentIndex, NativeArray<SubPassDescriptor> subPasses,
+        ReadOnlySpan<byte> debugNameUtf8)
+    {
+        ThrowIfReleased();
+        if (shadingRateImageAttachmentIndex != -1)
+            throw new NotSupportedException(
+                $"CommandBuffer.BeginRenderPass: {nameof(shadingRateImageAttachmentIndex)} {shadingRateImageAttachmentIndex} names a shading-rate image, which the engine does not have; only -1 (none) is supported");
+        BeginPass(attachments.ToArray(), depthAttachmentIndex, subPasses.ToArray());
+    }
+
     public void BeginRenderPass(int width, int height, int volumeDepth, int samples, NativeArray<AttachmentDescriptor> attachments,
         int depthAttachmentIndex, NativeArray<SubPassDescriptor> subPasses) =>
         BeginPass(attachments.ToArray(), depthAttachmentIndex, subPasses.ToArray());

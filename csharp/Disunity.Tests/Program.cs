@@ -418,6 +418,7 @@ PlayerNativePluginTests.Run();
 PlayerNativePluginTests.RunImport();
 RuntimeHookTests.Run();
 EngineEnumTests.Run();
+EngineEnumBoundaryTests.Run();
 UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();

@@ -48,11 +48,13 @@ pub(crate) mod depth;
 pub(crate) mod legacy_objects;
 #[cfg(test)]
 pub(crate) mod legacy_terrain;
+#[cfg(test)]
 mod objects;
 pub(crate) mod overlay;
 mod specular;
 mod terrain_access;
 mod unlit;
+#[cfg(test)]
 pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::{constants as specular_constants, unlit_source};
 
@@ -69,7 +71,9 @@ use wgpu::{
 
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE, instance_attributes, vertex_attributes};
 use crate::pipeline::PipelineKey;
-use crate::shader::{self, ENVIRONMENT_WGSL, TERRAIN_WGSL};
+#[cfg(test)]
+use crate::shader;
+use crate::shader::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 use crate::upload::{frame_bind_group_layout, material_bind_group_layout};
 use crate::view::Viewport;
 
@@ -86,6 +90,9 @@ pub struct ScenePipelines {
     pub(crate) depth: DepthMode,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
+    /// The fixed object pipelines, kept for the tests that compare against them. No pass draws
+    /// with them, so production builds neither them nor the shader module they compile.
+    #[cfg(test)]
     pipelines: ObjectPipelines,
     /// Terrain programs of this context on the program runtime.
     terrain_context: crate::terrain::program::Context,
@@ -254,27 +261,26 @@ impl ScenePipelines {
         let mut constants = specular::constants(options.0).to_vec();
         specular::raster_constants(&mut constants, options.1);
         let (color_format, samples) = target;
-        let module = scene_shader(device, "environment", source);
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
-        let groups = pipeline_groups(
-            &frame_layout,
-            &material_layout,
-            shadow_layout,
-            screen_layout,
-        );
-        let layout = scene_layout(device, "environment", &groups);
-
         let targets = source_targets(source, color_format);
-
-        let pipelines = ObjectPipelines::new(
-            device,
-            &layout,
-            &targets,
-            &module,
-            (samples, &constants, options.1),
-            (source.contains(crate::velocity::MARKER), options.2),
-        );
+        #[cfg(test)]
+        let pipelines = {
+            let groups = pipeline_groups(
+                &frame_layout,
+                &material_layout,
+                shadow_layout,
+                screen_layout,
+            );
+            ObjectPipelines::new(
+                device,
+                &scene_layout(device, "environment", &groups),
+                &targets,
+                &scene_shader(device, "environment", source),
+                (samples, &constants, options.1),
+                (source.contains(crate::velocity::MARKER), options.2),
+            )
+        };
         let terrain_context = crate::terrain::program::Context::new(
             crate::terrain::program::Description {
                 device: device.clone(),
@@ -324,6 +330,7 @@ impl ScenePipelines {
             velocity: source.contains(crate::velocity::MARKER),
             frame_layout,
             material_layout,
+            #[cfg(test)]
             pipelines,
             unlit_colors: targets.iter().flatten().map(|t| t.format).collect(),
         }
@@ -356,9 +363,10 @@ impl ScenePipelines {
         &self.pipelines
     }
 
-    /// Returns the pipeline one material's state requires.
+    /// The fixed pipeline of one material state, for the tests that compare against it.
+    #[cfg(test)]
     #[must_use]
-    pub fn get(&self, key: PipelineKey) -> &RenderPipeline {
+    pub(crate) fn get(&self, key: PipelineKey) -> &RenderPipeline {
         &self.pipelines[key.index()]
     }
 
@@ -393,6 +401,7 @@ pub(crate) fn vertex_buffers<'a>(
     ]
 }
 
+#[cfg(test)]
 /// The third vertex buffer of velocity pipelines: each instance's previous-frame transform, laid
 /// out like the instance buffer so one stride and one set of offsets serve both.
 pub(crate) fn previous_instance_buffer(
@@ -405,6 +414,7 @@ pub(crate) fn previous_instance_buffer(
     }
 }
 
+#[cfg(test)]
 /// Builds the one pipeline a single material state requires.
 ///
 /// Only `cull_mode` and the fragment entry point vary with the key. Everything
@@ -515,6 +525,7 @@ fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModul
     })
 }
 
+#[cfg(test)]
 fn pipeline_groups<'a>(
     frame: &'a BindGroupLayout,
     material: &'a BindGroupLayout,
@@ -632,6 +643,7 @@ pub(crate) fn celestial_specialization(
     })
 }
 
+#[cfg(test)]
 fn scene_layout(
     device: &Device,
     label: &str,

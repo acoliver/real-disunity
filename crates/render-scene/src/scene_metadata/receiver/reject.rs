@@ -26,6 +26,10 @@ fn insert(source: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "reject_quad_tests.rs"]
+mod quad_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{ReceiverLayout, card_reject_source};
 

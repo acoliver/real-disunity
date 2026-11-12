@@ -367,11 +367,21 @@ pub(crate) fn prepass(
 
 pub(crate) fn geometry_declaration(
     declaration: &mut FeatureDeclaration,
-    depth: wgpu::TextureFormat,
+    screen: &crate::scene_metadata::SceneMetadata,
 ) {
     let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
     prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-    prepass.depth_format = Some(depth);
+    prepass.depth_format = Some(screen.depth.format());
+    if screen.geometry.merged.is_some() {
+        prepass
+            .additional_color_formats
+            .push(wgpu::TextureFormat::Rgba16Float);
+    }
+    if let Some(receiver) = &screen.receiver {
+        prepass
+            .additional_color_formats
+            .extend(receiver.layout.formats());
+    }
     declaration.passes.push(prepass);
     declaration
         .passes

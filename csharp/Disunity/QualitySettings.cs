@@ -6,7 +6,7 @@ namespace UnityEngine;
 /// The quality settings, held as static state that resets to the defaults below when a world loads.
 /// The defaults are the engine's choices: one level named "Default", anti-aliasing off, no mipmap
 /// limit, no LOD level limit, two queued frames, vertical sync every frame, LOD bias 1, shadow
-/// distance 150, all shadows, distance shadowmask, gamma color space. The engine does not know the values of each of a
+/// distance 150, all shadows, distance shadowmask, billboards facing the camera position, gamma color space. The engine does not know the values of each of a
 /// project's quality levels yet, so switching levels changes only the current index and leaves
 /// every stored value as it is. <see cref="SetQualityLevel(int)"/> clamps an index past the last
 /// level to the last level. Each level can name a render pipeline asset; a host supplies them with
@@ -29,6 +29,7 @@ public static class QualitySettings
     private static ShadowmaskMode _shadowmask = ShadowmaskMode.DistanceShadowmask;
     private static ColorSpace _colorSpace = ColorSpace.Gamma;
     private static bool _lodCrossFade = true;
+    private static bool _billboardsFaceCamera = true;
 
     /// <summary>The multisample count: 0, 2, 4 or 8.</summary>
     public static int antiAliasing
@@ -83,6 +84,14 @@ public static class QualitySettings
     {
         get { lock (Gate) return _lodCrossFade; }
         set { lock (Gate) _lodCrossFade = value; }
+    }
+
+    /// <summary>Whether billboards turn to face the camera's position rather than lie parallel to its view plane; true by
+    /// default. The engine draws no billboards itself, so it only stores the value for the render pipeline to read.</summary>
+    public static bool billboardsFaceCameraPosition
+    {
+        get { lock (Gate) return _billboardsFaceCamera; }
+        set { lock (Gate) _billboardsFaceCamera = value; }
     }
 
     public static float shadowDistance
@@ -206,7 +215,7 @@ public static class QualitySettings
             (_names, _pipelines) = (["Default"], [null]);
             (_level, _antiAliasing, _mipmapLimit, _maximumLod, _queuedFrames, _vSync) = (0, 0, 0, 0, 2, 1);
             (_lodBias, _shadowDistance, _shadows, _colorSpace) = (1f, 150f, ShadowQuality.All, ColorSpace.Gamma);
-            _lodCrossFade = true;
+            (_lodCrossFade, _billboardsFaceCamera) = (true, true);
             _shadowmask = ShadowmaskMode.DistanceShadowmask;
         }
     }

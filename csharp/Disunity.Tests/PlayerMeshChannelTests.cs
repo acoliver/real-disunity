@@ -6,7 +6,7 @@ using UnityEngine.Rendering;
 /// <summary>A stored mesh also reaches the host with every vertex channel it holds and every sub-mesh, whatever its topology.</summary>
 internal static class PlayerMeshChannelTests
 {
-    private const int Position = 0, Normal = 1, Tangent = 2, Colour = 3, Uv0 = 4, Uv1 = 5, Uv2 = 6;
+    internal const int Position = 0, Normal = 1, Tangent = 2, Colour = 3, Uv0 = 4, Uv1 = 5, Uv2 = 6;
 
     public static void Run()
     {
@@ -21,7 +21,7 @@ internal static class PlayerMeshChannelTests
         finally { DisunityHost.UnloadWorld(); }
     }
 
-    private sealed record Stored(DisunityMeshChannelsInfo Info, DisunityMeshChannel[] Channels, float[] Data, uint[] Indices, DisunityMeshRange[] Ranges)
+    internal sealed record Stored(DisunityMeshChannelsInfo Info, DisunityMeshChannel[] Channels, float[] Data, uint[] Indices, DisunityMeshRange[] Ranges)
     {
         public float[] Values(int number)
         {
@@ -34,7 +34,7 @@ internal static class PlayerMeshChannelTests
         public bool Has(int number) => Channels.Any(c => c.number == number);
     }
 
-    private static unsafe Stored Read(ulong identity)
+    internal static unsafe Stored Read(ulong identity)
     {
         var info = new DisunityMeshChannelsInfo { identity = identity };
         DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_channels_read(DisunityHost.WorldHandle, &info, null, null, null, null));

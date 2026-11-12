@@ -259,6 +259,7 @@ impl ProgramRuntime {
     ///
     /// # Errors
     /// Fails when the budget or the device refuses the texture.
+    #[cfg(feature = "unity")]
     pub(crate) fn create_empty_texture(
         &mut self,
         label: &str,
@@ -366,11 +367,13 @@ impl ProgramRuntime {
     }
 
     /// The wgpu texture behind a handle.
+    #[cfg(feature = "unity")]
     pub(crate) fn gpu_texture(&self, handle: TextureHandle) -> Result<wgpu::Texture, ProgramError> {
         Ok(self.store.texture(handle)?.texture.clone())
     }
 
     /// The wgpu buffer behind a handle.
+    #[cfg(feature = "unity")]
     pub(crate) fn gpu_buffer(&self, handle: BufferHandle) -> Result<wgpu::Buffer, ProgramError> {
         Ok(self.store.buffer(handle)?.buffer.clone())
     }
@@ -432,6 +435,7 @@ impl ProgramRuntime {
 }
 
 /// The shape of a texture [`ProgramRuntime::create_empty_texture`] makes.
+#[cfg(feature = "unity")]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TextureShape {
     pub(crate) size: [u32; 2],
@@ -445,6 +449,7 @@ pub(crate) struct TextureShape {
     pub(crate) view: wgpu::TextureViewDimension,
 }
 
+#[cfg(feature = "unity")]
 impl TextureShape {
     fn volume(self) -> bool {
         self.view == wgpu::TextureViewDimension::D3

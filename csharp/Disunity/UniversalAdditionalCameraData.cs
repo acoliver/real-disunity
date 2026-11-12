@@ -26,7 +26,7 @@ public sealed class UniversalAdditionalCameraData : MonoBehaviour
     public bool requiresDepthTexture { get => Read(2) != 0; set => Write(2, value ? 1u : 0u, nameof(requiresDepthTexture), !value); }
     public bool requiresColorTexture { get => Read(3) != 0; set => Write(3, value ? 1u : 0u, nameof(requiresColorTexture), !value); }
     public CameraRenderType renderType { get => (CameraRenderType)Read(4); set => Write(4, (uint)value, nameof(renderType), value == CameraRenderType.Base); }
-    public bool renderShadows { get => Read(5) != 0; set => Write(5, value ? 1u : 0u, nameof(renderShadows), !value); }
+    public bool renderShadows { get => Read(5) != 0; set => Write(5, value ? 1u : 0u, nameof(renderShadows), true); }
     public bool stopNaN { get => Read(6) != 0; set => Write(6, value ? 1u : 0u, nameof(stopNaN), !value); }
     public bool dithering { get => Read(7) != 0; set => Write(7, value ? 1u : 0u, nameof(dithering), !value); }
     public CameraOverrideOption requiresDepthOption { get => (CameraOverrideOption)Read(8); set => Write(8, (uint)value, nameof(requiresDepthOption), value is CameraOverrideOption.Off or CameraOverrideOption.UsePipelineSettings); }

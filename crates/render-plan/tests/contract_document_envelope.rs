@@ -252,6 +252,24 @@ fn optional_ssr_keeps_v4_identity_and_requires_its_complete_policy() {
     assert_eq!(document.header().schema_version, 4);
     assert_eq!(document.effects().ssr().unwrap().max_steps, 64);
     assert_eq!(
+        document.effects().ssr().unwrap().hit_facing,
+        worldrunner_render_plan::SceneSsrHitFacing::ShadingNormal
+    );
+    let mut authored = contract.clone();
+    authored["effects"]["ssr"]["hit_facing"] = json!("Any");
+    let authored = ContractDocument::from_json_bytes(&contract_bytes(&authored)).unwrap();
+    assert_eq!(
+        authored.effects().ssr().unwrap().hit_facing,
+        worldrunner_render_plan::SceneSsrHitFacing::Any
+    );
+    assert_eq!(
+        ContractDocument::from_json_bytes(&authored.to_json_bytes().unwrap()).unwrap(),
+        authored
+    );
+    let mut unknown = contract.clone();
+    unknown["effects"]["ssr"]["hit_facing"] = json!("Unknown");
+    assert!(ContractDocument::from_json_bytes(&contract_bytes(&unknown)).is_err());
+    assert_eq!(
         ContractDocument::from_json_bytes(&document.to_json_bytes().unwrap()).unwrap(),
         document
     );

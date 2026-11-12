@@ -34,6 +34,11 @@ impl RetainedHost {
         begin: impl FnOnce(&str) -> G,
         start: impl FnOnce(Self, &'a mut dyn RetainedDriver) -> Result<T, ViewerError>,
     ) -> Result<(T, G), ViewerError> {
+        if self.options.window_mode != crate::WindowMode::Windowed {
+            return Err(ViewerError::InvalidOptions(
+                "windowless hosts support only WindowMode::Windowed",
+            ));
+        }
         let activity = begin(self.options.activity_reason.as_ref());
         self.input_state.window = super::input::WindowControlTarget::Windowless;
         Ok((start(self, driver)?, activity))

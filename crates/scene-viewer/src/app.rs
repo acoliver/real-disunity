@@ -45,6 +45,9 @@ pub(super) trait Content {
     fn window_size_unit(&self) -> crate::WindowSizeUnit {
         crate::WindowSizeUnit::default()
     }
+    fn window_mode(&self) -> crate::WindowMode {
+        crate::WindowMode::default()
+    }
     fn interval(&self) -> Duration {
         Duration::from_millis(16)
     }

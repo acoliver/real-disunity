@@ -112,7 +112,7 @@ pub(super) fn sized(context: &GpuContext, size: u32, water: (bool, bool)) -> Fra
 }
 
 fn install(context: &GpuContext, renderer: &mut FrameRenderer, (producer, far): (bool, bool)) {
-    renderer.install_water(context.device(), body(far)).unwrap();
+    renderer.install_water(context, body(far)).unwrap();
     renderer.set_water_reactive_mask(producer);
 }
 
@@ -375,11 +375,17 @@ fn planned(
     let mut passes = vec![opaque];
     let mut views = vec![color, depth];
     let mask = with_mask.then(|| targets.temporal_mask_texture().expect("a mask"));
+    let encoder = context.submission().begin(context.device()).unwrap();
     let declaration = renderer
         .water
         .as_ref()
         .unwrap()
-        .feature(context.device(), &frame(32), (0.0, 0), (None, mask))
+        .feature(
+            (context.device(), &*encoder),
+            &frame(32),
+            (0.0, 0),
+            (None, mask),
+        )
         .schedule(&mut passes, &mut views)
         .unwrap();
     let slots = passes.iter().map(|pass| pass.slot).collect();

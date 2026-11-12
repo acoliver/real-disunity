@@ -100,7 +100,7 @@ fn capture_with_stages(
         format,
     )
     .unwrap();
-    renderer
+    let support = renderer
         .configure_timing(
             context.device(),
             context.queue(),
@@ -136,9 +136,11 @@ fn capture_with_stages(
     renderer.finish_timing(&mut encoder).unwrap();
     encoder.finish().submit().unwrap();
     let image = read_image(context, &renderer, size);
-    let passes = renderer
-        .take_timings()
-        .unwrap()
+    let expected = usize::from(support == worldrunner_render_post::TimingSupport::Supported);
+    let passes =
+        worldrunner_render_scene::test_support::take_timings(context.device(), expected, || {
+            renderer.take_timings()
+        })
         .into_iter()
         .flat_map(|frame| frame.passes.into_iter().map(|pass| pass.pass_id))
         .collect();

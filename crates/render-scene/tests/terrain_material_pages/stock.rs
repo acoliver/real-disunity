@@ -45,7 +45,10 @@ fn terrain_pages_disabled_preserves_exact_pixels_and_stock_pass_ids() {
         let submission = encoder.finish().submit().unwrap();
         let image = target.read_encoded(&context, submission).unwrap();
         assert_eq!(image.pixels, vec![255; 9 * 9 * 4]);
-        let timings = renderer.take_timings().unwrap();
+        let timings =
+            worldrunner_render_scene::test_support::take_timings(context.device(), 1, || {
+                renderer.take_timings()
+            });
         assert_eq!(timings.len(), 1);
         assert_eq!(
             timings[0]

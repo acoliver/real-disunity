@@ -35,6 +35,7 @@ fn supplied_initial_extent_is_not_delivered_again_but_later_resize_is() {
     host.resolve_initial_content(crate::InitialContext {
         adapter: &identity,
         surface_extent: crate::tests::options().size,
+        display: None,
     })
     .unwrap();
     let initial = host.size();

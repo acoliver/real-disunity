@@ -123,3 +123,90 @@ fn reconstruction_source(source: &str) -> String {
             "let water_normal = textureLoad(water_normals, p, SAMPLE_INDEX);\n    if water_normal.a != 0.0 { return reflection_water_receiver(p, sample, water_normal); }",
         )
 }
+
+pub(super) fn banked_trace_source(source: &str) -> String {
+    let source = source
+        .replace(
+            "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {",
+            "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> ReflectionBanks {",
+        )
+        .replace(
+            "fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>, roughness: f32) -> vec4<f32> {",
+            "fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>, roughness: f32, receiver_is_water: bool) -> ReflectionBanks {",
+        )
+        .replace(
+            "grid_reflection(centre, direction, origin_uv, roughness)",
+            "grid_reflection(centre, direction, origin_uv, roughness, receiver_is_water)",
+        )
+        .replace(
+            "let water_normal = textureLoad(water_normals, p, 0);",
+            "let water_normal = textureLoad(water_normals, p, 0);\n    let receiver_is_water = water_normal.a != 0.0;",
+        )
+        .replace(
+            "let water_normal = textureLoad(water_normals, p, i32(sample));",
+            "let water_normal = textureLoad(water_normals, p, i32(sample));\n    let receiver_is_water = water_normal.a != 0.0;",
+        )
+        .replace(
+            "if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { break; }",
+            "if hit_normal.a == 0.0 { break; }",
+        )
+        .replace(
+            "if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { return vec4<f32>(0.0); }",
+            "if hit_normal.a == 0.0 { return ReflectionBanks(vec4<f32>(0.0), vec4<f32>(0.0)); }",
+        )
+        .replace(
+            "return vec4<f32>(hit * confidence, confidence);",
+            "let candidate = vec4<f32>(hit * confidence, confidence);\n            let strict = select(vec4<f32>(0.0), candidate, dot(hit_normal.xyz, direction) < 0.0);\n            return ReflectionBanks(strict, select(strict, candidate, receiver_is_water));",
+        )
+        .replace(
+            "return vec4<f32>(hit*confidence, confidence);",
+            "let candidate = vec4<f32>(hit*confidence, confidence);\n    let strict = select(vec4<f32>(0.0), candidate, dot(hit_normal.xyz, direction) < 0.0);\n    return ReflectionBanks(strict, select(strict, candidate, receiver_is_water));",
+        )
+        .replace(
+            "return vec4<f32>(0.0);",
+            "return ReflectionBanks(vec4<f32>(0.0), vec4<f32>(0.0));",
+        );
+    format!(
+        "struct ReflectionBanks {{ @location(0) opaque_bank: vec4<f32>, @location(1) water_bank: vec4<f32>, }}\n{source}"
+    )
+}
+
+pub(super) fn hit_facing_source(source: &str) -> String {
+    let source = source
+        .replace(
+            "if water_normal.a != 0.0 {",
+            "let receiver_is_water = water_normal.a != 0.0;\n    if receiver_is_water {",
+        )
+        .replace(
+            " || dot(hit_normal.xyz, direction) >= 0.0",
+            " || (!receiver_is_water && dot(hit_normal.xyz, direction) >= 0.0)",
+        );
+    let grid = source.find("fn grid_reflection(").expect("grid reflection");
+    let source = format!(
+        "{}{}",
+        &source[..grid],
+        source[grid..].replace("!receiver_is_water", "!policy.receiver_is_water")
+    );
+    grid_receiver_policy(&source)
+}
+
+fn grid_receiver_policy(source: &str) -> String {
+    source
+        .replace("width: vec2<f32>, allowance: u32,", "width: vec2<f32>, allowance: u32, receiver_is_water: bool,")
+        .replace("grid_reflection(centre, direction, origin_uv, roughness)", "grid_reflection(centre, direction, origin_uv, water_receiver_policy(roughness, receiver_is_water))")
+        .replace("origin_uv: vec2<f32>, roughness: f32) -> vec4<f32>", "origin_uv: vec2<f32>, policy: GridPolicy) -> vec4<f32>")
+        .replace(
+            "let intersection = grid_walk(GridRay(first, last, weighted, reciprocal),\n        GridPolicy(grid_size, depth_limit, camera.traversal.z, u32(camera.settings.x),\n            vec2<f32>(camera.settings.y, camera.traversal.y),\n            reflection_pass_count(roughness, camera.traversal.w, camera.behind)));",
+            "var grid_policy = policy;\n    grid_policy.size = grid_size;\n    grid_policy.end = depth_limit;\n    let intersection = grid_walk(GridRay(first, last, weighted, reciprocal), grid_policy);",
+        ) + r"
+fn water_receiver_policy(roughness: f32, receiver_is_water: bool) -> GridPolicy {
+    var policy: GridPolicy;
+    policy.skip = camera.traversal.z;
+    policy.budget = u32(camera.settings.x);
+    policy.width = vec2<f32>(camera.settings.y, camera.traversal.y);
+    policy.allowance = reflection_pass_count(roughness, camera.traversal.w, camera.behind);
+    policy.receiver_is_water = receiver_is_water;
+    return policy;
+}
+"
+}

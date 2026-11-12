@@ -140,3 +140,76 @@ fn terrain_cpu_footprint_matches_ray_plane_intersections_for_both_projections() 
         }
     }
 }
+
+#[test]
+fn terrain_receiver_displacement_matches_three_dimensional_plane_intersections() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context =
+        crate::device::GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
+    let mut frame = configured_frame(worldrunner_render_lighting::ExposureOwnership::SceneLinear(
+        1.0,
+    ));
+    frame.raster_viewport = [128, 64];
+    let (_, source) = crate::scene_metadata::receiver::producer_sources(
+        crate::scene_metadata::MetadataOutput::Normal,
+        crate::scene_metadata::receiver::ReceiverLayout::Front,
+        0.0,
+        crate::scene_metadata::receiver::ReceiverCapture::Normal,
+    );
+    for projection in [
+        glam::camera::rh::proj::directx::perspective(
+            std::f32::consts::FRAC_PI_2,
+            2.0,
+            0.1,
+            1_000.0,
+        ),
+        glam::camera::rh::proj::directx::orthographic(-160.0, 160.0, -80.0, 80.0, 0.1, 1_000.0),
+    ] {
+        frame.view_projection = projection;
+        for normal in [Vec3::Z, Vec3::new(0.3, -0.5, 1.0)] {
+            for pixel in [Vec2::new(40.5, 26.5), Vec2::new(41.5, 27.5)] {
+                for axis in [Vec2::X, Vec2::Y] {
+                    check_receiver(&context, &source, &frame, (pixel, axis, normal));
+                }
+            }
+        }
+    }
+}
+
+fn check_receiver(
+    context: &crate::device::GpuContext,
+    source: &str,
+    frame: &crate::frame::FrameUniform,
+    (pixel, axis, normal): (Vec2, Vec2, Vec3),
+) {
+    let position = plane_position(frame.view_projection, pixel, normal, 250.0);
+    let clip = frame.view_projection * position.extend(1.0);
+    let fragment = Vec4::new(pixel.x, pixel.y, clip.z / clip.w, clip.w.recip());
+    let first = pixel - axis * (pixel.floor().dot(axis) % 2.0);
+    let expected = plane_position(frame.view_projection, first + axis, normal, 250.0)
+        - plane_position(frame.view_projection, first, normal, 250.0);
+    let entry = format!(
+        "@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;\n\
+         @compute @workgroup_size(1) fn evaluate_math() {{\n\
+         let fragment = vec4<f32>({}, {}, {}, {});\n\
+         let normal = vec3<f32>({}, {}, {});\n\
+         let axis = vec2<f32>({}, {});\n\
+         result[0] = vec4<f32>(scene_receiver_displacement(fragment, axis, normal), 0.0); }}",
+        fragment.x,
+        fragment.y,
+        fragment.z,
+        fragment.w,
+        normal.x,
+        normal.y,
+        normal.z,
+        axis.x,
+        axis.y,
+    );
+    let result = evaluate_source(context, source, &entry, Some(frame), None);
+    for (actual, expected) in result.iter().take(3).zip(expected.to_array()) {
+        assert!(
+            (actual - expected).abs() < 2e-4,
+            "{pixel:?} {axis:?} {normal:?}: {actual} != {expected}"
+        );
+    }
+}

@@ -328,7 +328,7 @@ fn capture(
             ),
             Recorder::Frozen => {
                 let pipelines = fixed::pipelines(context.device(), feature);
-                drawn = Some(fixed::record(feature, &pipelines, pass));
+                drawn = Some(fixed::record(context.device(), feature, &pipelines, pass));
             }
         },
     );

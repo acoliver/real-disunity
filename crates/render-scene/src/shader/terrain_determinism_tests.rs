@@ -103,6 +103,24 @@ fn terrain_footprints_are_derivative_free_in_every_fragment_pass() {
 }
 
 #[test]
+fn terrain_unbiased_receiver_payload_does_not_read_quad_neighbours() {
+    use crate::scene_metadata::{MetadataOutput, receiver::ReceiverLayout};
+    for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
+        for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
+            let (_, terrain) = crate::scene_metadata::receiver::producer_sources(
+                output,
+                layout,
+                0.0,
+                crate::scene_metadata::receiver::ReceiverCapture::Normal,
+            );
+            for variant in crate::terrain::program::source::test_sources(&terrain) {
+                assert!(deterministic_terrain(&variant));
+            }
+        }
+    }
+}
+
+#[test]
 fn guard_rejects_direct_and_nested_world_position_derivatives() {
     for builtin in ["dpdx", "dpdy", "dpdxFine", "dpdyCoarse", "fwidth"] {
         let direct = format!(

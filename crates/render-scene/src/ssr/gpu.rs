@@ -12,12 +12,19 @@ pub(super) fn reduction_pipeline(
     device: &wgpu::Device,
     samples: u32,
     settings: &worldrunner_render_plan::SceneSsr,
+    dual_output: bool,
 ) -> wgpu::RenderPipeline {
-    pipeline(
+    let banks = if dual_output {
+        super::pyramid::bank_count(settings)
+    } else {
+        1
+    };
+    pipeline_targets(
         device,
-        &super::pyramid::reduction_source(samples, settings),
+        &super::pyramid::reduction_source(samples, settings, dual_output),
         1,
         false,
+        usize::try_from(banks).expect("small bank count"),
     )
 }
 pub(super) fn scalar(value: u32) -> f32 {
@@ -30,26 +37,25 @@ pub(super) fn pipeline(
     samples: u32,
     additive: bool,
 ) -> wgpu::RenderPipeline {
+    pipeline_targets(device, shader, samples, additive, 1)
+}
+
+pub(super) fn pipeline_targets(
+    device: &wgpu::Device,
+    shader: &str,
+    samples: u32,
+    additive: bool,
+    target_count: usize,
+) -> wgpu::RenderPipeline {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("SSR"),
         source: wgpu::ShaderSource::Wgsl(
             format!("{}\n{shader}", include_str!("../ssao/fullscreen.wgsl")).into(),
         ),
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("SSR"),
-        layout: None,
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vs_fullscreen"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            buffers: &[],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some("fs_screen"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            targets: &[Some(wgpu::ColorTargetState {
+    let targets = (0..target_count)
+        .map(|_| {
+            Some(wgpu::ColorTargetState {
                 format: wgpu::TextureFormat::Rgba16Float,
                 blend: additive.then_some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
@@ -64,7 +70,23 @@ pub(super) fn pipeline(
                 } else {
                     wgpu::ColorWrites::ALL
                 },
-            })],
+            })
+        })
+        .collect::<Vec<_>>();
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("SSR"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vs_fullscreen"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("fs_screen"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            targets: &targets,
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
@@ -104,7 +126,12 @@ pub(super) fn group(
         entries: &entries,
     })
 }
+#[cfg(test)]
 pub(super) fn resolve_source(levels: usize) -> String {
+    resolve_source_variant(levels, false)
+}
+
+fn resolve_source_variant(levels: usize, banked: bool) -> String {
     let mut source = format!(
         "{}\n{}\n{}\n{}",
         worldrunner_render_lighting::WGSL,
@@ -116,11 +143,16 @@ pub(super) fn resolve_source(levels: usize) -> String {
             include_str!("normal.wgsl")
         )
     );
-    source.push_str(&super::reconstruction::source(levels));
+    source.push_str(&super::reconstruction::source(levels, banked));
+    let reflection_texture = if banked {
+        "texture_2d_array<f32>"
+    } else {
+        "texture_2d<f32>"
+    };
     for index in 0..levels {
         write!(
             source,
-            "\n@group(0) @binding({}) var reflection_{index}: texture_2d<f32>;",
+            "\n@group(0) @binding({}) var reflection_{index}: {reflection_texture};",
             index + 5
         )
         .expect("writing shader source");
@@ -130,6 +162,11 @@ pub(super) fn resolve_source(levels: usize) -> String {
     source.push_str(
         "\nfn reflected(level: u32, uv: vec2<f32>, sample: u32) -> vec4<f32> { switch level {",
     );
+    let array_layer = if banked {
+        ", reflection_bank_index"
+    } else {
+        ""
+    };
     for index in 0..levels {
         write!(source, "case {index}u: {{
             let size = vec2<i32>(textureDimensions(reflection_{index})) / vec2<i32>(SAMPLE_LANES, 1);
@@ -139,8 +176,8 @@ pub(super) fn resolve_source(levels: usize) -> String {
             let b = vec2<i32>(coordinates[1]) + offset;
             let weight = coordinates[2];
             return mix(
-                mix(textureLoad(reflection_{index}, a, 0), textureLoad(reflection_{index}, vec2<i32>(b.x, a.y), 0), weight.x),
-                mix(textureLoad(reflection_{index}, vec2<i32>(a.x, b.y), 0), textureLoad(reflection_{index}, b, 0), weight.x), weight.y);
+                mix(textureLoad(reflection_{index}, a{array_layer}, 0), textureLoad(reflection_{index}, vec2<i32>(b.x, a.y){array_layer}, 0), weight.x),
+                mix(textureLoad(reflection_{index}, vec2<i32>(a.x, b.y){array_layer}, 0), textureLoad(reflection_{index}, b{array_layer}, 0), weight.x), weight.y);
         }}").expect("writing shader source");
     }
     source.push_str("default: { return vec4<f32>(0.0); } } }\n");
@@ -199,8 +236,18 @@ pub(super) fn configured_reduce_source(
     }
 }
 
+#[cfg(test)]
 pub(super) fn sampled_resolve_source(levels: usize, samples: u32, water: bool) -> String {
-    let source = resolve_source(levels)
+    sampled_resolve_source_variant(levels, samples, water, false)
+}
+
+fn sampled_resolve_source_variant(
+    levels: usize,
+    samples: u32,
+    water: bool,
+    banked: bool,
+) -> String {
+    let source = resolve_source_variant(levels, banked)
         .replace("SAMPLE_LANES", &samples.to_string())
         .replace(
             "FORWARD_TEXTURE",
@@ -233,11 +280,23 @@ pub(super) fn radiance_textures(
         .radiance_extents(config.size)
         .into_iter()
         .map(|extent| {
-            crate::ssao::passes::texture(
-                device,
-                [extent[0] * config.samples, extent[1]],
-                wgpu::TextureFormat::Rgba16Float,
-            )
+            device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("reflection radiance level"),
+                size: wgpu::Extent3d {
+                    width: extent[0] * config.samples,
+                    height: extent[1],
+                    depth_or_array_layers: super::pyramid::bank_count(settings),
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            })
         })
         .collect()
 }
@@ -277,6 +336,7 @@ pub(super) fn controls(settings: &worldrunner_render_plan::SceneSsr) -> [f32; 12
     ]
 }
 
+#[cfg(test)]
 pub(super) fn configured_resolve_source(
     levels: usize,
     samples: u32,
@@ -287,7 +347,21 @@ pub(super) fn configured_resolve_source(
         wgpu::TextureFormat,
     ),
 ) -> String {
-    let source = sampled_resolve_source(levels, samples, water);
+    configured_resolve_source_variant(levels, samples, water, ao, ao_input, false)
+}
+
+pub(super) fn configured_resolve_source_variant(
+    levels: usize,
+    samples: u32,
+    water: bool,
+    ao: bool,
+    ao_input: (
+        worldrunner_render_plan::SceneSsaoReceiver,
+        wgpu::TextureFormat,
+    ),
+    banked: bool,
+) -> String {
+    let source = sampled_resolve_source_variant(levels, samples, water, banked);
     if !ao {
         return source;
     }
@@ -344,12 +418,16 @@ pub(super) fn resolve_pipelines(
         wgpu::TextureFormat,
     ),
     shared_extents: Option<&[[u32; 2]]>,
+    banked: bool,
 ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
     let source = |water| {
-        let source = configured_resolve_source(levels, samples, water, ao, ao_input);
+        let source =
+            configured_resolve_source_variant(levels, samples, water, ao, ao_input, banked);
         shared_extents.map_or_else(
             || source.clone(),
-            |extents| super::pyramid::resolve_source(source.clone(), extents, samples),
+            |extents| {
+                super::pyramid::resolve_source_variant(source.clone(), extents, samples, banked)
+            },
         )
     };
     (

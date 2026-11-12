@@ -12,7 +12,7 @@ fn oblique_candidate_ray_classifies_both_depth_orderings() {
             body.absorption_micro = [0; 3];
             body.roughness_micro = 0;
             body.material.normal = Some(worldrunner_render_plan::TextureHandle::from_raw(0));
-            renderer.install_water(context.device(), body).unwrap();
+            renderer.install_water(&context, body).unwrap();
             install_normal(&context, &mut renderer, green);
             let color = AttachmentView::new(
                 ResourceRef::new("scene color"),

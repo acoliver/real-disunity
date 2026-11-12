@@ -24,7 +24,7 @@ fn gpu_application_lod_matches_literal_oracles_and_default_bytes() {
     let pipeline = lod_pipeline(context.device());
     let uniform = context.device().create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 208,
+        size: 224,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -44,10 +44,10 @@ fn gpu_application_lod_matches_literal_oracles_and_default_bytes() {
                     application_lod: mapping,
                     ..settings()
                 };
-                let mut values = [0.0f32; 52];
+                let mut values = [0.0f32; 56];
                 values[34] = cutoff;
                 values[38] = downsample;
-                values[40..].copy_from_slice(&gpu::controls(&policy));
+                values[40..52].copy_from_slice(&gpu::controls(&policy));
                 context.queue().write_buffer(
                     &uniform,
                     0,

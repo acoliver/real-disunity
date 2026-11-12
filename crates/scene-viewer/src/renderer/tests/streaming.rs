@@ -57,7 +57,20 @@ pub(super) fn streaming_present(event_loop: &EventLoop<()>, window: &Arc<Window>
     // The prepared scene and the camera edit behind it are both ready, so both publish in the
     // frame that shows them.
     assert_eq!(host.ready_generation(), 2);
-    assert_eq!(renderer.streaming.retired.len(), 1);
     assert_ne!(host.view().unwrap().unwrap().view_matrix(), before_view);
     assert_eq!(host.preparations_in_flight(), 0);
+    // The replaced resident stays retired only while a submission that may read it is still
+    // running, so whether it is still held here depends on how fast the GPU finished. Once
+    // that work completes, collection releases it.
+    assert!(renderer.streaming.retired.len() <= 1);
+    renderer
+        .context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(Duration::from_secs(10)),
+        })
+        .unwrap();
+    renderer.collect_retained(&mut host).unwrap();
+    assert!(renderer.streaming.retired.is_empty());
 }

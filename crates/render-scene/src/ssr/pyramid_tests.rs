@@ -23,7 +23,7 @@ fn full_chain_counts_and_rejection_precede_allocation() {
     let _session = crate::test_support::SceneTestSession::acquire();
     for samples in crate::msaa_tests::all_counts() {
         assert_eq!(
-            pyramid::reduction_source(samples, &settings()),
+            pyramid::reduction_source(samples, &settings(), false),
             gpu::reduce_source(samples)
         );
     }
@@ -159,7 +159,7 @@ fn reduce_chain(context: &GpuContext, config: FrameConfig, policy: &SceneSsr) ->
     }
     upload(context, &textures[0], &values);
     let uniforms = pyramid::uniforms(context.device(), config, policy);
-    let pipeline = gpu::reduction_pipeline(context.device(), config.samples, policy);
+    let pipeline = gpu::reduction_pipeline(context.device(), config.samples, policy, false);
     let mut result = Vec::new();
     for (index, size) in sizes.iter().enumerate() {
         let mip = if shared {
@@ -276,7 +276,7 @@ fn lod_group(
     downsample: f32,
 ) -> wgpu::BindGroup {
     use wgpu::util::DeviceExt;
-    let mut values = [0.0f32; 52];
+    let mut values = [0.0f32; 56];
     values[34] = 1.0;
     values[38] = downsample;
     values[47] = f32::from(u8::from(mapping));
@@ -355,6 +355,7 @@ fn gpu_full_chain_resolve_lod_matches_independent_oracle() {
                 wgpu::TextureFormat::R32Float,
             ),
             Some(&sizes),
+            false,
         );
     }
 }

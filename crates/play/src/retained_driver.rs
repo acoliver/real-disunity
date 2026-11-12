@@ -20,22 +20,24 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_scene::CameraPose;
 use worldrunner_scene_viewer::{
-    CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget, PresentationCadence,
-    RenderClock, RetainedCaptureOutcome, RetainedDriver, RetainedEvent, RetainedEventHost,
-    RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions, WindowSizeUnit,
+    CameraContinuity, CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget,
+    PresentationCadence, RenderClock, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
+    RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions,
+    WindowSizeUnit,
 };
 
 use crate::{
     PlayError, PreparedPlayer,
+    camera_start::CameraStart,
     driver::{Capture, FIRST_COVERAGE_TEXTURE},
     keys::key_code,
     navigation::Navigation,
     player_meshes::PlayerMeshes,
     player_textures::PlayerTextures,
     player_ui::PlayerUi,
-    scene_light::SceneLighting,
+    scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
-    scene_transform::{orbit_limits, scene_camera},
+    scene_transform::orbit_limits,
 };
 
 const LEFT_HANDED: ViewConvention = ViewConvention {
@@ -155,7 +157,10 @@ struct PlayerRetainedDriver {
     navigation: Navigation,
     lighting: SceneLighting,
     lens: SceneCamera,
-    camera_set: bool,
+    /// Whether the window has started at the game's camera.
+    start: CameraStart,
+    /// The camera last accepted by the viewer, from the pose it opens with.
+    publication: CameraPublication,
     simulated: Duration,
     size: [u32; 2],
     presented: u64,
@@ -181,7 +186,8 @@ impl PlayerRetainedDriver {
             navigation: Navigation::default(),
             lighting,
             lens: viewer_options(&window).camera,
-            camera_set: false,
+            start: CameraStart::default(),
+            publication: CameraPublication::new(viewer_options(&window).pose),
             simulated: Duration::ZERO,
             size: window.size,
             presented: 0,
@@ -309,42 +315,36 @@ impl PlayerRetainedDriver {
         game: Option<CameraState>,
         shows_objects: bool,
     ) -> Result<(), PlayError> {
-        let pose = if !self.camera_set && shows_objects {
-            self.camera_set = true;
-            self.first_pose(game)
-        } else {
-            self.navigation.take_moved()
-        };
-        let Some(pose) = pose else {
-            return Ok(());
-        };
-        viewer
-            .apply(RetainedUpdate::Camera {
-                pose,
-                lens: self.lens,
-                convention: LEFT_HANDED,
-            })
-            .map_err(|error| PlayError::Invalid(format!("the camera is not accepted: {error}")))
-    }
-
-    fn first_pose(&mut self, game: Option<CameraState>) -> Option<CameraPose> {
-        let Some(state) = game else {
-            eprintln!("the game presents no camera; the window keeps its default view");
-            return None;
-        };
-        match scene_camera(&state) {
-            Ok((pose, lens)) => {
+        let step = self.start.next(shows_objects, game.as_ref());
+        if let Some(note) = step.note {
+            eprintln!("{note}");
+        }
+        let moved = match step.start {
+            Some((pose, lens)) => {
                 self.lens = lens;
                 if let Err(error) = self.navigation.start(pose, orbit_limits()) {
                     eprintln!("the camera cannot be orbited: {error}");
                 }
                 Some(pose)
             }
-            Err(error) => {
-                eprintln!("the game's camera is not shown: {error}");
-                None
-            }
-        }
+            None => self.navigation.take_moved(),
+        };
+        let render_shadows = self.host.presentation_render_shadows()?;
+        let lens = self.lens;
+        self.publication
+            .publish(&mut self.lighting, moved, render_shadows, |pose, policy| {
+                viewer
+                    .apply(RetainedUpdate::camera_with_shadow_policy(
+                        pose,
+                        lens,
+                        LEFT_HANDED,
+                        CameraContinuity::Continuous,
+                        policy,
+                    ))
+                    .map_err(|error| {
+                        PlayError::Invalid(format!("the camera is not accepted: {error}"))
+                    })
+            })
     }
 
     fn capture(&mut self, viewer: &mut RetainedHost, frame: u64) -> Result<(), PlayError> {

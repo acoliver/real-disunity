@@ -13,6 +13,7 @@ use wgpu::{BindGroup, RenderPass, TextureFormat};
 
 use super::scenes::{self, Alpha, Sampling, Spec};
 use super::{Legacy, Rig, Target, digest, keys_used, render_with_depth};
+use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{HDR, context};
 use crate::frame::FrameUniform;
 use crate::renderer::ScenePipelines;
@@ -44,6 +45,8 @@ fn frozen_source(output: MetadataOutput) -> String {
         .replace("fn fs_masked(", "fn unused_masked(");
     let camera = include_str!("../../ssao/camera.wgsl");
     let source = format!("{base}\n{camera}\n{}", output.object_fragment());
+    // When the live environment text has drifted from the snapshots, the frozen composition
+    // cannot equal the live one; `the_live_object_wgsl_equals_the_frozen_snapshot` fails then.
     if crate::shader::ENVIRONMENT_WGSL == compose(Recipe::default()) {
         assert!(
             source == sources(output).0,
@@ -145,9 +148,31 @@ fn capture(output: MetadataOutput, mode: DepthMode) -> usize {
     assert!(calls > 0, "{name}: the fixed path drew nothing");
     let planes = formats.len() + 1 + usize::from(depth.has_stencil_aspect());
     assert_eq!(scene.len(), planes, "{name}: every plane is read");
-    for (index, ((scene, fixed), untouched)) in scene.iter().zip(&fixed).zip(&untouched).enumerate()
-    {
-        let plane = plane_name(index, formats.len());
+    compare_planes(
+        (&context, &name, mode),
+        formats.len(),
+        [&scene, &fixed, &untouched],
+    );
+    // The foliage card and the masked double-sided card share a key: wind is material state.
+    let keys = keys_used(&rig.gpu, 0);
+    assert_eq!(
+        keys.len(),
+        3,
+        "{name}: the opaque mesh, the relief impostor and the masked double-sided cards each \
+         draw with their own key, got {keys:?}"
+    );
+    planes
+}
+
+/// Compares each plane the scene's prepass wrote with the fixed pipeline's, and checks that the
+/// objects wrote the planes the mode writes.
+fn compare_planes(
+    (context, name, mode): (&GpuContext, &str, DepthMode),
+    colors: usize,
+    [scene, fixed, untouched]: [&[Vec<u8>]; 3],
+) {
+    for (index, ((scene, fixed), untouched)) in scene.iter().zip(fixed).zip(untouched).enumerate() {
+        let plane = plane_name(index, colors);
         assert!(
             scene == fixed,
             "{name}: {plane} differs from the fixed pipeline's output (if \
@@ -155,7 +180,7 @@ fn capture(output: MetadataOutput, mode: DepthMode) -> usize {
              object/fixtures)"
         );
         // Only the prepass mode marks the stencil; the shared mode tests depth alone.
-        let written = index <= formats.len() || mode == DepthMode::Prepass;
+        let written = index <= colors || mode == DepthMode::Prepass;
         assert!(
             !written || scene != untouched,
             "{name}: the objects left {plane} as it was"
@@ -167,15 +192,6 @@ fn capture(output: MetadataOutput, mode: DepthMode) -> usize {
             digest(scene)
         );
     }
-    // The foliage card and the masked double-sided card share a key: wind is material state.
-    let keys = keys_used(&rig.gpu, 0);
-    assert_eq!(
-        keys.len(),
-        3,
-        "{name}: the opaque mesh, the relief impostor and the masked double-sided cards each \
-         draw with their own key, got {keys:?}"
-    );
-    planes
 }
 
 /// Binds what the prepass binds before it draws objects: the camera at set three and, when the

@@ -32,6 +32,42 @@ fn fixture(text: &str) -> (FontBook, TextRun) {
 }
 
 #[test]
+fn distance_raster_requests_fail_explicitly() {
+    let (fonts, run) = fixture("A");
+    assert_eq!(
+        fonts.layout_with_raster(
+            &run,
+            Vec2::splat(100.),
+            GlyphRaster {
+                mode: RenderMode::Sdf,
+                padding: 2,
+            },
+        ),
+        Err(UiError::UnsupportedRaster)
+    );
+}
+
+#[test]
+fn multibyte_word_wraps_at_adjacent_character_byte_boundaries() {
+    let (fonts, run) = fixture("ééé");
+    let size = Vec2::new(18., 200.);
+    let measured = fonts.measure(&run, size).unwrap();
+    let layout = fonts.layout(&run, size).unwrap();
+    assert_eq!(measured.lines, layout.lines);
+    assert_eq!(
+        measured
+            .lines
+            .iter()
+            .map(|l| (l.source_range.clone(), l.next_byte))
+            .collect::<Vec<_>>(),
+        [(0..2, 2), (2..4, 4), (4..6, 6)]
+    );
+    for line in &measured.lines {
+        assert_eq!(line.source(&run.text).unwrap(), "é");
+    }
+}
+
+#[test]
 fn advance_width_is_not_ink_and_measurement_builds_no_atlas() {
     let (fonts, run) = fixture("A A ");
     let measured = fonts.measure(&run, Vec2::new(100., 100.)).unwrap();

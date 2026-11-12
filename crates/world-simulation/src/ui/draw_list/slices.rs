@@ -2,7 +2,7 @@ use super::{
     UiDrawKind, UiDrawList, UiError, UiImage, UiNineSlice, UiRect, UiSliceCenter, UiSliceMode,
     check_color,
 };
-use glam::{DVec2, Vec2};
+use glam::{UVec2, Vec2};
 
 #[derive(Clone, Copy)]
 struct Region {
@@ -10,6 +10,37 @@ struct Region {
     source: [f32; 2],
     tile_size: Option<f32>,
     center: bool,
+}
+impl Region {
+    fn segments(self) -> impl Iterator<Item = Segment> {
+        let count = if self.source[1] <= self.source[0] {
+            0
+        } else if self.tile_size.is_some() {
+            u32::MAX
+        } else {
+            1
+        };
+        (0..count)
+            .map(move |index| self.segment(index))
+            .take_while(move |s| s.destination[0] < self.destination[1])
+            .filter(|s| s.destination[1] > s.destination[0])
+    }
+    fn segment(self, index: u32) -> Segment {
+        let mut segment = Segment {
+            destination: self.destination,
+            source: self.source,
+            center: self.center,
+        };
+        if let Some(tile) = self.tile_size {
+            let index = UVec2::splat(index).as_vec2().x;
+            let start = self.destination[0] + index * tile;
+            let end = (self.destination[0] + (index + 1.) * tile).min(self.destination[1]);
+            segment.destination = [start, end];
+            segment.source[1] =
+                self.source[0] + (self.source[1] - self.source[0]) * ((end - start) / tile);
+        }
+        segment
+    }
 }
 #[derive(Clone, Copy)]
 struct Segment {
@@ -36,12 +67,13 @@ impl Axis {
         if !scaled.is_finite() || !sum.is_finite() {
             return Err(UiError::InvalidImage);
         }
-        let scaled = if sum > extent {
-            scaled * (extent / sum)
+        let inner = if sum >= extent {
+            let seam = scaled.x * (extent / sum);
+            [seam; 2]
         } else {
-            scaled
+            [scaled.x, (extent - scaled.y).max(scaled.x)]
         };
-        let d = [0., scaled.x, (extent - scaled.y).max(scaled.x), extent];
+        let d = [0., inner[0], inner[1], extent];
         let s = [
             source[0],
             source[0] + borders[0],
@@ -68,46 +100,26 @@ impl Axis {
     fn counts(&self, maximum: usize) -> Result<[usize; 3], UiError> {
         let mut counts = [0; 3];
         for (count, region) in counts.iter_mut().zip(self.regions) {
-            let length = region.destination[1] - region.destination[0];
-            if length <= 0. {
+            if region.destination[1] <= region.destination[0] {
                 continue;
             }
-            let copies = match region.tile_size {
-                Some(tile) => {
-                    if tile <= 0. || !tile.is_finite() {
-                        return Err(UiError::InvalidImage);
-                    }
-                    (f64::from(length) / f64::from(tile)).ceil()
-                }
-                None if region.source[1] <= region.source[0] => continue,
-                None => 1.,
-            };
-            let bound = u32::try_from(maximum).expect("bounded quad budget");
-            if copies > f64::from(bound) {
+            if region
+                .tile_size
+                .is_some_and(|tile| tile <= 0. || !tile.is_finite())
+            {
+                return Err(UiError::InvalidImage);
+            }
+            *count = region.segments().take(maximum + 1).count();
+            if *count > maximum {
                 return Err(UiError::DrawLimit);
             }
-            *count = usize::try_from(DVec2::splat(copies).as_uvec2().x).expect("bounded copies");
         }
         Ok(counts)
     }
     fn segments(&self, counts: [usize; 3]) -> Vec<Segment> {
         let mut result = Vec::with_capacity(counts.into_iter().sum());
         for (region, count) in self.regions.iter().zip(counts) {
-            for index in 0..count {
-                let mut segment = Segment {
-                    destination: region.destination,
-                    source: region.source,
-                    center: region.center,
-                };
-                if let Some(tile) = region.tile_size {
-                    let index = f32::from(u16::try_from(index).expect("bounded tiles"));
-                    let start = region.destination[0] + index * tile;
-                    let end =
-                        (region.destination[0] + (index + 1.) * tile).min(region.destination[1]);
-                    segment.destination = [start, end];
-                    segment.source[1] = region.source[0]
-                        + (region.source[1] - region.source[0]) * ((end - start) / tile);
-                }
+            for mut segment in region.segments().take(count) {
                 if self.flip {
                     segment.destination = [
                         self.extent - segment.destination[1],
@@ -162,13 +174,16 @@ impl UiDrawList<'_> {
         }
         self.check_count(count)?;
         let (xs, ys) = (x.segments(cx), y.segments(cy));
+        let border_xs: Vec<_> = xs.iter().copied().filter(|x| !x.center).collect();
         let mut draws = Vec::with_capacity(count);
         let extent = image.size.as_vec2();
         for y in ys {
-            for x in &xs {
-                if x.center && y.center && style.center == UiSliceCenter::Omit {
-                    continue;
-                }
+            let row = if y.center && style.center == UiSliceCenter::Omit {
+                &border_xs
+            } else {
+                &xs
+            };
+            for x in row {
                 let rect = UiRect {
                     origin: destination.origin + Vec2::new(x.destination[0], y.destination[0]),
                     size: Vec2::new(

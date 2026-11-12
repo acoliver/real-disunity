@@ -4,6 +4,8 @@
 mod edges;
 #[path = "ui_draw_list/images.rs"]
 mod images;
+#[path = "ui_draw_list/slices.rs"]
+mod slices;
 #[path = "ui_draw_list/text.rs"]
 mod text;
 mod ui_font;

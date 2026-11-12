@@ -63,9 +63,12 @@ triangles, rather than as a bilinear field.
 
 `nine_slice` accepts source insets in left/top/right/bottom order, positive X/Y
 border scale, Stretch or Tile, and Draw or Omit for the centre. Oversized opposing
-borders compress proportionally. Tiled edges and centres repeat their source
-patch; the last partial tile crops both geometry and UVs. Flipping mirrors the
-whole expanded frame, including asymmetric borders and partial-tile phase.
+borders compress proportionally and meet at one shared seam, leaving exactly
+zero centre extent. Tiled edges and centres repeat their source patch; the last
+partial tile crops both geometry and UVs. Zero-length tiles emit no draw and
+consume no vertex budget. Omitting the centre expands only border combinations.
+Flipping mirrors the whole expanded frame, including asymmetric borders and
+partial-tile phase.
 Texture sampling should normally use Bilinear/Clamp and source patches need
 filtering gutters. Encoded BC7 sRGB images use the existing
 `SceneTexture::Encoded` DDS contract, not a new texel format.

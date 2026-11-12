@@ -181,6 +181,39 @@ pub enum SceneValidationError {
         /// The zero-based position of the offending cascade.
         position: usize,
     },
+    /// A skinned LOD influence table does not match its vertex table.
+    #[error("skin influence count {observed} differs from vertex count {expected}")]
+    SkinInfluenceCount { expected: usize, observed: usize },
+    /// One source weight row is neither fully weighted nor explicitly zero-weighted.
+    #[error("skin weights for vertex {vertex} sum to {observed}, expected 255 or 0")]
+    SkinWeightSum { vertex: usize, observed: u16 },
+    /// A joint lane addresses outside the LOD skeleton.
+    #[error("vertex {vertex} skin lane {lane} references joint {joint} outside 0..{limit}")]
+    SkinJointOutOfRange {
+        vertex: usize,
+        lane: usize,
+        joint: u8,
+        limit: usize,
+    },
+    /// A skeleton hierarchy references a parent that does not precede its child.
+    #[error("skeleton parent {parent} does not precede child joint {joint}")]
+    SkeletonParentAfterChild { joint: usize, parent: u32 },
+    /// A skin resource table is empty or has inconsistent per-joint arrays.
+    #[error("{part} count {observed} differs from expected count {expected}")]
+    SkinResourceCount {
+        part: &'static str,
+        expected: usize,
+        observed: usize,
+    },
+    /// A skinned object does not name a pose resource.
+    #[error("skinned scene object has no skin pose")]
+    MissingSkinPose,
+    /// An instance pose and its skeleton have different joint counts.
+    #[error("skin pose has {pose_joints} joints but skeleton has {skeleton_joints}")]
+    SkinPoseJointCountMismatch {
+        pose_joints: usize,
+        skeleton_joints: usize,
+    },
     /// The camera far plane does not lie strictly beyond the near plane.
     #[error("{part} far plane must lie strictly beyond the near plane")]
     PlaneOrdering {

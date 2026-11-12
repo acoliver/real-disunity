@@ -5,6 +5,7 @@
 //! data. Level indices, triangle lists, and handle references are validated
 //! by construction.
 
+use super::skinning::{SceneSkinInfluence, SkeletonHandle, SkinPoseHandle};
 use crate::scene::error::SceneValidationError;
 use crate::scene::resource::MaterialHandle;
 
@@ -80,6 +81,8 @@ pub enum BillboardPolicy {
 pub struct SceneMeshLod {
     material_slots: Option<Box<[super::SceneLodMaterialSlot]>>,
     vertex_occlusion_micro: Option<Box<[u32]>>,
+    skin_influences: Option<Box<[SceneSkinInfluence]>>,
+    skeleton: Option<SkeletonHandle>,
     card: Option<super::SceneCard>,
     level_index: u8,
     vertices: Box<[SceneVertex]>,
@@ -105,6 +108,36 @@ impl SceneMeshLod {
 
     pub fn material_slots(&self) -> Option<&[super::SceneLodMaterialSlot]> {
         self.material_slots.as_deref()
+    }
+
+    /// Associates source-format skin influences and their shared skeleton.
+    pub fn with_skin_influences(
+        mut self,
+        skeleton: SkeletonHandle,
+        influences: Vec<SceneSkinInfluence>,
+    ) -> Result<Self, SceneValidationError> {
+        if influences.len() != self.vertices.len() {
+            return Err(SceneValidationError::SkinInfluenceCount {
+                expected: self.vertices.len(),
+                observed: influences.len(),
+            });
+        }
+        validate_weight_sums(&influences)?;
+        self.skin_influences = Some(influences.into_boxed_slice());
+        self.skeleton = Some(skeleton);
+        Ok(self)
+    }
+
+    /// Per-vertex source-format skin influences, when this LOD is skinned.
+    #[must_use]
+    pub fn skin_influences(&self) -> Option<&[SceneSkinInfluence]> {
+        self.skin_influences.as_deref()
+    }
+
+    /// Shared skeleton handle for this LOD, when it is skinned.
+    #[must_use]
+    pub const fn skeleton(&self) -> Option<SkeletonHandle> {
+        self.skeleton
     }
 
     /// Supplies one baked occlusion value per vertex, in millionths.
@@ -156,6 +189,8 @@ impl SceneMeshLod {
         let level = Self {
             material_slots: None,
             vertex_occlusion_micro: None,
+            skin_influences: None,
+            skeleton: None,
             card: None,
             bounds_millimeters: vertex_bounds(&vertices),
             level_index,
@@ -218,8 +253,37 @@ impl SceneMeshLod {
                 });
             }
         }
+        match (&self.skin_influences, self.skeleton) {
+            (Some(influences), Some(_)) if influences.len() == self.vertices.len() => {
+                validate_weight_sums(influences)?;
+            }
+            (Some(influences), _) if influences.len() != self.vertices.len() => {
+                return Err(SceneValidationError::SkinInfluenceCount {
+                    expected: self.vertices.len(),
+                    observed: influences.len(),
+                });
+            }
+            (Some(_), None) | (None, Some(_)) => {
+                return Err(SceneValidationError::UnsupportedInput {
+                    part: "skin influences and skeleton must be supplied together",
+                });
+            }
+            (None, None) | (Some(_), Some(_)) => {}
+        }
         Ok(())
     }
+}
+fn validate_weight_sums(influences: &[SceneSkinInfluence]) -> Result<(), SceneValidationError> {
+    for (vertex, influence) in influences.iter().copied().enumerate() {
+        let sum: u16 = influence.weights.into_iter().map(u16::from).sum();
+        if sum != 0 && sum != 255 {
+            return Err(SceneValidationError::SkinWeightSum {
+                vertex,
+                observed: sum,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn vertex_bounds(vertices: &[SceneVertex]) -> ([i64; 3], [i64; 3]) {
@@ -445,9 +509,23 @@ pub struct SceneObject {
     transform: SceneTransform,
     mesh: MeshHandle,
     material: MaterialHandle,
+    skin_pose: Option<SkinPoseHandle>,
 }
 
 impl SceneObject {
+    /// Associates the per-instance current and previous skinning pose.
+    #[must_use]
+    pub const fn with_skin_pose(mut self, pose: SkinPoseHandle) -> Self {
+        self.skin_pose = Some(pose);
+        self
+    }
+
+    /// Per-instance skinning pose handle, when present.
+    #[must_use]
+    pub const fn skin_pose(&self) -> Option<SkinPoseHandle> {
+        self.skin_pose
+    }
+
     /// Controls caster participation without affecting visibility or receiving.
     #[must_use]
     pub const fn with_casts_shadow(mut self, casts_shadow: bool) -> Self {
@@ -523,6 +601,7 @@ impl SceneObject {
             tint: super::SceneTint::WHITE,
             transform,
             mesh,
+            skin_pose: None,
             material,
         }
     }

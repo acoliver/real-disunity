@@ -522,11 +522,13 @@ impl WaterFeature {
             .as_mut()
             .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?
             .load = AttachmentLoad::Load;
-        water
+        let depth = water
             .depth
             .as_mut()
-            .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?
-            .load = AttachmentLoad::Load;
+            .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+        depth.load = AttachmentLoad::Load;
+        // The surface writes depth even when relief card rejection made the Opaque copy read-only.
+        depth.read_only = false;
         for view in receivers::views(&self.water.receivers[self.slot])? {
             let mut attachment = crate::compositor::attachment(view.resource(), &view, false);
             attachment.load = AttachmentLoad::ClearColor(wgpu::Color::TRANSPARENT);

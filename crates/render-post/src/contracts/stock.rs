@@ -72,13 +72,13 @@ pub(crate) fn compile(
             .depth
             .as_ref()
             .map(|attachment| {
-                let (view, before) = output(registry, &keys, &mut versions, attachment)?;
+                let (view, before) = depth_view(registry, &keys, &mut versions, attachment)?;
                 Ok(DepthAttachment {
                     view,
                     before,
                     load: attachment.load,
                     store: attachment.store,
-                    read_only: false,
+                    read_only: attachment.read_only,
                 })
             })
             .transpose()?;
@@ -136,5 +136,23 @@ fn output(
     Ok((
         checked_view(registry, keys, attachment.resource, version)?,
         before,
+    ))
+}
+/// A read-only depth reads the current version and records no write, so the
+/// pass's sampled reads and later passes see the same version.
+fn depth_view(
+    registry: &ResourceRegistry,
+    keys: &BTreeMap<ResourceRef, super::AllocationKey>,
+    versions: &mut BTreeMap<ResourceRef, u32>,
+    attachment: &AttachmentDeclaration,
+) -> Result<(CheckedView, Option<u32>), ContractError> {
+    // A read-only clear takes the writing path so validation refuses it as a raster error.
+    if !attachment.read_only || attachment.load != AttachmentLoad::Load {
+        return output(registry, keys, versions, attachment);
+    }
+    let version = versions[&attachment.resource];
+    Ok((
+        checked_view(registry, keys, attachment.resource, version)?,
+        Some(version),
     ))
 }

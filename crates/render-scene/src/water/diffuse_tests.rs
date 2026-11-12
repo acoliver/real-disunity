@@ -36,7 +36,7 @@ fn prepared_sun_water_diffuse_matches_independent_cpu() {
         amplitude_micro: 0,
         ..Default::default()
     });
-    renderer.install_water(context.device(), body).unwrap();
+    renderer.install_water(&context, body).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -81,40 +81,38 @@ fn water_diffuse_conventions_have_distinct_reused_pipelines() {
     let context = GpuContext::shared_for_test().unwrap();
     let water = Water::new(
         context.device(),
+        context.submission(),
         FrameConfig::new([32, 32], wgpu::TextureFormat::Rgba16Float, 1),
         vec![settings()],
     )
     .unwrap();
-    let a = water.feature(
-        context.device(),
-        &prepared_frame(false),
-        (0.0, 0),
-        (None, None),
+    let encoder = context.submission().begin(context.device()).unwrap();
+    let gpu = (context.device(), &*encoder);
+    let built = || water.programs.borrow().built();
+    let a = water.feature(gpu, &prepared_frame(false), (0.0, 0), (None, None));
+    let b = water.feature(gpu, &prepared_frame(true), (0.0, 0), (None, None));
+    assert_eq!(
+        built(),
+        2,
+        "the two diffuse conventions draw with distinct programs"
     );
-    let b = water.feature(
-        context.device(),
-        &prepared_frame(true),
-        (0.0, 0),
-        (None, None),
-    );
-    let again = water.feature(
-        context.device(),
-        &prepared_frame(true),
-        (0.0, 0),
-        (None, None),
-    );
-    assert_ne!(a.water.pipeline, b.water.pipeline);
-    assert_ne!(a.water.shadow_pipeline, b.water.shadow_pipeline);
-    assert_eq!(b.water.pipeline, again.water.pipeline);
-    assert_eq!(water.specializations.borrow().len(), 2);
+    let again = water.feature(gpu, &prepared_frame(true), (0.0, 0), (None, None));
+    assert_eq!(built(), 2, "a convention drawn again reuses its program");
     let mut frame = prepared_frame(false);
     frame.specular_convention = SceneSpecularConvention::default();
-    let default = water.feature(context.device(), &frame, (0.0, 0), (None, None));
-    assert_eq!(default.water.pipeline, water.pipeline);
-    assert_eq!(default.water.shadow_pipeline, water.shadow_pipeline);
+    let default = water.feature(gpu, &frame, (0.0, 0), (None, None));
+    assert_eq!(
+        built(),
+        3,
+        "the default convention has a program of its own"
+    );
     frame.specular_convention.surface_disk =
         Some(worldrunner_render_plan::SceneSurfaceDisk::new(2_000_000, 3_000_000).unwrap());
-    let scene_disk = water.feature(context.device(), &frame, (0.0, 0), (None, None));
-    assert_eq!(scene_disk.water.pipeline, water.pipeline);
-    assert_eq!(scene_disk.water.shadow_pipeline, water.shadow_pipeline);
+    let scene_disk = water.feature(gpu, &frame, (0.0, 0), (None, None));
+    assert_eq!(
+        built(),
+        3,
+        "a scene disk shares the default convention's program"
+    );
+    drop((a, b, again, default, scene_disk));
 }

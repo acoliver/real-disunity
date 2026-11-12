@@ -43,7 +43,9 @@ fn overlay_covers_retained_geometry_with_straight_alpha_in_ldr_and_msaa_hdr() {
             corner[1] += offset.y - 16.;
         }
         std::sync::Arc::make_mut(&mut ui.texts[0].texture.as_mut().unwrap().bytes).fill(255);
-        // Alpha 0 is the blend boundary with no rounding: the scene bytes stay exact.
+        // Alpha 0 is the blend boundary with no rounding: the scene bytes stay exact. A scene
+        // pixel already the quad's colour would hide a leaking draw, so require a different one.
+        assert_ne!(pixel(&baseline, x, y), [255, 0, 0, 255]);
         let mut hidden = ui.clone();
         hidden.texts[0].color = [1., 0., 0., 0.];
         apply(&mut run, hidden);

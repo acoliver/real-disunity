@@ -215,6 +215,8 @@ pub(crate) fn native_window_pointer_delivery(window: std::sync::Arc<winit::windo
     let mut consumer = Consumer(events.clone());
     let host = RetainedHost::new(crate::tests::scene(false), crate::tests::options()).unwrap();
     let mut session = Session::new(host, &mut consumer);
+    let size = window.inner_size();
+    let scale_factor = window.scale_factor();
     session.window_ready(window);
     session
         .host
@@ -222,9 +224,25 @@ pub(crate) fn native_window_pointer_delivery(window: std::sync::Arc<winit::windo
         .unwrap();
     session.host.set_cursor_visible(true).unwrap();
     pointer_sequence(&mut session);
-    assert_eq!(events.borrow().len(), 7);
+    // A ready window first reports its display, then the pointer sequence follows in order.
+    let expected = [
+        RetainedInput::DisplayChanged {
+            scale_factor,
+            physical_size: [size.width, size.height],
+        },
+        RetainedInput::CursorEntered,
+        RetainedInput::PointerMoved([12.5, 80.25]),
+        RetainedInput::Button {
+            button: MouseButton::Other(7),
+            pressed: true,
+        },
+        RetainedInput::Wheel(WheelDelta::Lines([1.5, -2.0])),
+        RetainedInput::Wheel(WheelDelta::Pixels([0.5, -8.25])),
+        RetainedInput::RawMotion([3.25, -7.5]),
+        RetainedInput::CursorLeft,
+    ];
     assert_eq!(
-        events.borrow()[1],
-        RetainedEvent::Input(RetainedInput::PointerMoved([12.5, 80.25]))
+        *events.borrow(),
+        expected.map(RetainedEvent::Input).to_vec()
     );
 }

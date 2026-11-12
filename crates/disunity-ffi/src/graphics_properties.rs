@@ -1,7 +1,9 @@
 //! Shader property values and keywords on a material, in the global shader state or in a
 //! renderer's property block. A scope number and a target pick the holder: scope 0 is the
-//! material whose id is `target`, scope 1 the global state (`target` is ignored) and scope 2 the
-//! property block of the mesh renderer component `target`.
+//! material whose id is `target`, scope 1 the global state (`target` is ignored), scope 2 the
+//! property block of the mesh renderer component `target` and scope 3 the block of the next
+//! mesh draw a command buffer records (`target` is ignored; `disunity_offscreen_draw_mesh`
+//! takes it). Keywords have no draw scope.
 use crate::{
     DisunityResult,
     callbacks::mutate,
@@ -22,6 +24,7 @@ use worldrunner_world_simulation::{
 const SCOPE_MATERIAL: u32 = 0;
 const SCOPE_GLOBAL: u32 = 1;
 const SCOPE_BLOCK: u32 = 2;
+const SCOPE_DRAW: u32 = 3;
 
 const TEXTURE_NONE: u32 = 0;
 const TEXTURE_ASSET: u32 = 1;
@@ -82,6 +85,7 @@ enum Scope {
     Material(MaterialId),
     Global,
     Block(ComponentHandle),
+    Draw,
 }
 
 fn scope_of(session: &Session, scope: u32, target: u64) -> Result<Scope, AbiError> {
@@ -89,7 +93,11 @@ fn scope_of(session: &Session, scope: u32, target: u64) -> Result<Scope, AbiErro
         SCOPE_MATERIAL => Ok(Scope::Material(MaterialId::from_bits(target))),
         SCOPE_GLOBAL => Ok(Scope::Global),
         SCOPE_BLOCK => Ok(Scope::Block(renderer(session, target)?.0)),
-        _ => Err("a shader scope is 0 (material), 1 (global) or 2 (property block)".into()),
+        SCOPE_DRAW => Ok(Scope::Draw),
+        _ => Err(
+            "a shader scope is 0 (material), 1 (global), 2 (property block) or 3 (next mesh draw)"
+                .into(),
+        ),
     }
 }
 
@@ -108,6 +116,13 @@ fn apply(session: &mut Session, scope: Scope, value: PropertyValue) -> Result<()
                 .set(value)
                 .map_err(worldrunner_world_simulation::WorldError::from)?;
             set_renderer(session, handle, current)?;
+        }
+        Scope::Draw => {
+            session.native.check_property(&value)?;
+            session
+                .draw_block
+                .set(value)
+                .map_err(worldrunner_world_simulation::WorldError::from)?;
         }
     }
     Ok(())
@@ -328,8 +343,8 @@ pub unsafe extern "C" fn disunity_shader_texture_write(
     })
 }
 
-/// Removes every property value from a material, the global state or a renderer's property
-/// block. Keywords stay.
+/// Removes every property value from a material, the global state, a renderer's property block
+/// or the block staged for the next mesh draw. Keywords stay.
 #[unsafe(no_mangle)]
 pub extern "C" fn disunity_shader_properties_clear(
     world: u64,
@@ -345,6 +360,7 @@ pub extern "C" fn disunity_shader_properties_clear(
                 current.property_block = None;
                 set_renderer(s, handle, current)?;
             }
+            Scope::Draw => s.draw_block = ShaderProperties::default(),
         }
         Ok(())
     })
@@ -375,7 +391,9 @@ pub unsafe extern "C" fn disunity_shader_keyword_write(
                 .native
                 .edit_material(id, MaterialEdit::Keyword { name, enabled })?,
             Scope::Global => s.native.set_global_keyword(&name, enabled)?,
-            Scope::Block(_) => return Err("a property block has no keywords".into()),
+            Scope::Block(_) | Scope::Draw => {
+                return Err("a property block has no keywords".into());
+            }
         }
         Ok(())
     })
@@ -402,7 +420,9 @@ pub unsafe extern "C" fn disunity_shader_keyword_read(
         let on = match scope_of(s, scope, target)? {
             Scope::Material(id) => s.native.material(id)?.keywords.contains(&name),
             Scope::Global => s.native.global_shader_state().keywords.contains(&name),
-            Scope::Block(_) => return Err("a property block has no keywords".into()),
+            Scope::Block(_) | Scope::Draw => {
+                return Err("a property block has no keywords".into());
+            }
         };
         unsafe { *enabled = u32::from(on) };
         Ok(())
@@ -482,6 +502,7 @@ pub unsafe extern "C" fn disunity_shader_property_read(
                 let current = crate::mesh_renderer::renderer_at(s, handle)?;
                 read_values(&current.property_block.unwrap_or_default(), &name)
             }
+            Scope::Draw => read_values(&s.draw_block, &name),
         };
         unsafe { *output = read };
         Ok(())

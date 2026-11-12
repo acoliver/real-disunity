@@ -287,9 +287,9 @@ internal static class CommandBufferExecutionTests
         Same(["SetRenderTarget", "Clear", "ViewProjection", "DrawMesh", "DrawMesh", "DrawMesh"], taken.Select(line => line.Split(' ')[0]).ToArray(),
             "the order the buffer recorded");
         Same([
-            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 -0 -0 -1 1) material={id} submesh=0 pass=0",
-            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1) material={id} submesh=0 pass=-1",
-            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1) material={id} submesh=1 pass=3",
+            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 -0 -0 -1 1) material={id} submesh=0 pass=0 block=[-]",
+            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1) material={id} submesh=0 pass=-1 block=[-]",
+            $"DrawMesh mesh={identity} matrix=(1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1) material={id} submesh=1 pass=3 block=[-]",
         ], taken[3..], "each draw as the world holds it");
         var bad = new CommandBuffer();
         var nan = Matrix4x4.identity;

@@ -28,6 +28,7 @@ use worldrunner_scene_viewer::{
 
 use crate::{
     PlayError, PreparedPlayer,
+    camera_start::CameraStart,
     driver::{Capture, FIRST_COVERAGE_TEXTURE},
     keys::key_code,
     navigation::Navigation,
@@ -36,7 +37,7 @@ use crate::{
     player_ui::PlayerUi,
     scene_light::{CameraPublication, SceneLighting},
     scene_tables::{Changes, FrameContent, FrameUpdate, SceneTables, Skipped},
-    scene_transform::{orbit_limits, scene_camera},
+    scene_transform::orbit_limits,
 };
 
 const LEFT_HANDED: ViewConvention = ViewConvention {
@@ -156,8 +157,8 @@ struct PlayerRetainedDriver {
     navigation: Navigation,
     lighting: SceneLighting,
     lens: SceneCamera,
-    camera_set: bool,
-    /// The pose the viewer was last given, which a shadow policy change alone publishes again.
+    /// Whether the window has started at the game's camera.
+    start: CameraStart,
     /// The camera last accepted by the viewer, from the pose it opens with.
     publication: CameraPublication,
     simulated: Duration,
@@ -185,7 +186,7 @@ impl PlayerRetainedDriver {
             navigation: Navigation::default(),
             lighting,
             lens: viewer_options(&window).camera,
-            camera_set: false,
+            start: CameraStart::default(),
             publication: CameraPublication::new(viewer_options(&window).pose),
             simulated: Duration::ZERO,
             size: window.size,
@@ -314,11 +315,19 @@ impl PlayerRetainedDriver {
         game: Option<CameraState>,
         shows_objects: bool,
     ) -> Result<(), PlayError> {
-        let moved = if !self.camera_set && shows_objects {
-            self.camera_set = true;
-            self.first_pose(game)
-        } else {
-            self.navigation.take_moved()
+        let step = self.start.next(shows_objects, game.as_ref());
+        if let Some(note) = step.note {
+            eprintln!("{note}");
+        }
+        let moved = match step.start {
+            Some((pose, lens)) => {
+                self.lens = lens;
+                if let Err(error) = self.navigation.start(pose, orbit_limits()) {
+                    eprintln!("the camera cannot be orbited: {error}");
+                }
+                Some(pose)
+            }
+            None => self.navigation.take_moved(),
         };
         let render_shadows = self.host.presentation_render_shadows()?;
         let lens = self.lens;
@@ -336,26 +345,6 @@ impl PlayerRetainedDriver {
                         PlayError::Invalid(format!("the camera is not accepted: {error}"))
                     })
             })
-    }
-
-    fn first_pose(&mut self, game: Option<CameraState>) -> Option<CameraPose> {
-        let Some(state) = game else {
-            eprintln!("the game presents no camera; the window keeps its default view");
-            return None;
-        };
-        match scene_camera(&state) {
-            Ok((pose, lens)) => {
-                self.lens = lens;
-                if let Err(error) = self.navigation.start(pose, orbit_limits()) {
-                    eprintln!("the camera cannot be orbited: {error}");
-                }
-                Some(pose)
-            }
-            Err(error) => {
-                eprintln!("the game's camera is not shown: {error}");
-                None
-            }
-        }
     }
 
     fn capture(&mut self, viewer: &mut RetainedHost, frame: u64) -> Result<(), PlayError> {

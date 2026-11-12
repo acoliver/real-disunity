@@ -162,9 +162,7 @@ fn assert_water_metadata(
             }),
         )
         .unwrap();
-    renderer
-        .install_water(context.device(), settings())
-        .unwrap();
+    renderer.install_water(context, settings()).unwrap();
     let encoder = encode_fixture(context, renderer, attachments, frame, 0.5);
     encoder.finish().submit().unwrap();
     let final_depth = renderer.post_water_depth().unwrap();

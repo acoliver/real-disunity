@@ -35,6 +35,14 @@ impl FrameRenderer {
         let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
         prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
         prepass.depth_format = Some(source.depth.format());
+        prepass.additional_color_formats = passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
+            .expect("prepass declaration")
+            .additional_colors
+            .iter()
+            .map(|attachment| attachment.format)
+            .collect();
         let depth_mode = if source.depth.format().has_stencil_aspect() {
             if gpu.has_relief() && source.receiver.is_none() {
                 crate::renderer::depth::DepthMode::Shared

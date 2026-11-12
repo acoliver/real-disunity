@@ -317,6 +317,13 @@ fn stored_textures(snapshot: &GraphicsSnapshot) -> BTreeSet<u64> {
                     note(&slot.texture);
                 }
             }
+            OffscreenWork::DrawMesh {
+                block: Some(block), ..
+            } => {
+                for (_, slot) in &block.textures {
+                    note(&slot.texture);
+                }
+            }
             OffscreenWork::SetGlobal(PropertyValue::Texture(_, slot)) => note(&slot.texture),
             _ => {}
         }

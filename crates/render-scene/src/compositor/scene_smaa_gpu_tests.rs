@@ -96,7 +96,8 @@ fn scene_smaa_ultra_schedules_three_timed_stages() {
         .configure_timing(context.device(), context.queue(), TimingMode::Required)
         .unwrap();
     rig.render(0, true);
-    let timings = rig.renderer.take_timings().unwrap();
+    let timings =
+        crate::test_support::take_timings(context.device(), 1, || rig.renderer.take_timings());
     assert_eq!(timings.len(), 1);
     assert_eq!(timings[0].frame_id, 1);
     let smaa: Vec<_> = timings[0]

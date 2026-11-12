@@ -195,6 +195,9 @@ impl Content for Session<'_> {
     fn window_size_unit(&self) -> crate::WindowSizeUnit {
         self.host.options.window_size_unit
     }
+    fn window_mode(&self) -> crate::WindowMode {
+        self.host.options.window_mode
+    }
     fn size(&self) -> [u32; 2] {
         self.host.options.size
     }

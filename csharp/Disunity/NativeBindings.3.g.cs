@@ -405,5 +405,15 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_presentation_light", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_presentation_light(ulong world, uint index, DisunityLight* output, ulong* @object, DisunityMatrix* matrix);
+        /// <summary>
+        ///  Writes whether the camera the last prepared frame presents renders shadow maps: 1 when its
+        ///  renderShadows is on, 0 when it is off, and 2 when the frame presents no camera or the camera
+        ///  has no camera data. Fails when no frame is prepared.
+        ///
+        ///  # Safety
+        ///  `value` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_render_shadows", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_render_shadows(ulong world, uint* value);
     }
 }

@@ -66,7 +66,7 @@ impl ShadowSchedule {
         }
         crate::compositor::declare_velocity(opaque, &mut self.views, velocity.as_ref())?;
         if let Some(screen) = &scheduler.ssao {
-            crate::ssao::passes::geometry_declaration(&mut self.declaration, screen.depth.format());
+            crate::ssao::passes::geometry_declaration(&mut self.declaration, screen);
             if let Some(receiver) = &screen.receiver {
                 self.declaration
                     .passes
@@ -77,7 +77,44 @@ impl ShadowSchedule {
                     .extend(receiver.resources());
             }
         }
+        self.declaration
+            .passes
+            .iter_mut()
+            .find(|feature| feature.slot == PassSlot::Opaque)
+            .expect("opaque feature")
+            .additional_color_formats = self
+            .passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .expect("opaque pass")
+            .additional_colors
+            .iter()
+            .map(|attachment| attachment.format)
+            .collect();
         Ok(())
+    }
+
+    /// Attaches the Opaque depth read-only and declares the pass's sampled read of it, for
+    /// relief cards that reject fragments behind the reused prepass depth. Only valid after
+    /// [`Self::screen_space`] chose [`crate::renderer::depth::DepthMode::Reuse`], which loads
+    /// the prepass depth and writes neither depth nor stencil.
+    pub fn card_reject_depth(&mut self) {
+        let depth = self
+            .passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_mut())
+            .expect("opaque depth");
+        debug_assert_eq!(depth.load, worldrunner_render_post::AttachmentLoad::Load);
+        depth.read_only = true;
+        let resource = depth.resource;
+        self.declaration
+            .passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .expect("opaque feature")
+            .reads
+            .push(resource);
     }
     pub fn new(
         map: &DepthMap,

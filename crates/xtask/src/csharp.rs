@@ -104,7 +104,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     let data = metadata::read(root, &["--locked", "--all-features"])?;
     check(&data)?;
     eprintln!(
-        "GPU required mode for C# consumers {}: all tests, including ignored tests; missing adapters are errors",
+        "GPU required mode for C# consumers {}: all tests except ignored ones; missing adapters are errors",
         CONSUMERS.join(", ")
     );
     let args = commands::cargo_args("test", &selection(), true);
@@ -152,17 +152,14 @@ mod tests {
     }
 
     #[test]
-    fn consumer_selection_compiles_with_all_features_and_runs_ignored_tests_serially() {
+    fn consumer_selection_compiles_with_all_features_and_runs_tests_serially() {
         let args = commands::cargo_args("test", &selection(), true);
         for consumer in CONSUMERS {
             assert!(args.windows(2).any(|pair| pair == ["--package", consumer]));
         }
         assert!(args.contains(&"--all-features".into()));
         assert!(args.contains(&"--all-targets".into()));
-        assert!(args.ends_with(&[
-            "--".into(),
-            "--include-ignored".into(),
-            "--test-threads=1".into()
-        ]));
+        assert!(args.ends_with(&["--".into(), "--test-threads=1".into()]));
+        assert!(!args.iter().any(|arg| arg == "--include-ignored"));
     }
 }

@@ -152,7 +152,7 @@ fn disabled_policy_survives_resource_resident_rebuild() {
     let events = driver.events.clone();
     let mut run = shadow_host().windowless(&mut driver).unwrap();
     set_policy(&mut run, crate::CameraShadowPolicy::Disabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     let disabled = capture_recipe(&mut run, &events).0;
 
     let scene = run.host().scene().clone();
@@ -162,16 +162,16 @@ fn disabled_policy_survives_resource_resident_rebuild() {
             meshes: scene.geometry().meshes().to_vec(),
         })
         .unwrap();
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     while !run.host().readiness.queue.is_empty() {
-        assert!(run.frame().unwrap());
+        assert!(frame_after_completion(&mut run));
     }
     assert!(!has_shadow_draws(&run));
     let (image, _) = capture_recipe(&mut run, &events);
     assert_eq!(disabled, image);
 
     set_policy(&mut run, crate::CameraShadowPolicy::Enabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     assert!(has_shadow_draws(&run));
     run.shutdown().unwrap();
 }

@@ -20,19 +20,21 @@ pub enum OffscreenWork {
         target: RenderTextureId,
     },
     /// A full-surface draw of `source` into `target` with a material pass; without a material
-    /// the draw copies. A pass of -1 draws every pass.
+    /// the draw copies. A pass of -1 draws every pass. The target is a render texture or a
+    /// temporary one; a source that is the target reads it as it was before the blit.
     Blit {
         source: TextureRef,
-        target: RenderTextureId,
+        target: TargetRef,
         material: Option<MaterialId>,
         pass: i32,
     },
-    /// A copy of one element and mip level of a texture into one of a render texture.
+    /// A copy of one element and mip level of a texture into one of a render texture or a
+    /// temporary one.
     CopyTexture {
         source: TextureRef,
         source_element: u32,
         source_mip: u32,
-        target: RenderTextureId,
+        target: TargetRef,
         target_element: u32,
         target_mip: u32,
     },
@@ -171,7 +173,7 @@ impl OffscreenWork {
         match self {
             Self::CameraRender { target, .. } => *target == id,
             Self::Blit { source, target, .. } | Self::CopyTexture { source, target, .. } => {
-                *target == id || texture(source)
+                *target == TargetRef::Render(id) || texture(source)
             }
             Self::Dispatch { bindings, .. } => bindings
                 .properties
@@ -253,8 +255,8 @@ impl World {
                 material,
                 pass,
             } => {
-                self.check_texture(source)?;
-                self.render_texture(*target)?;
+                self.check_work_texture(source)?;
+                self.check_work_target(target, 0)?;
                 if let Some(material) = material {
                     self.material(*material)?;
                 }
@@ -270,11 +272,14 @@ impl World {
                 target_mip,
                 ..
             } => {
-                self.check_texture(source)?;
-                self.check_mip(*target, *target_mip)?;
+                self.check_work_texture(source)?;
+                self.check_work_target(target, *target_mip)?;
                 match source {
                     TextureRef::Render(id) => self.check_mip(*id, *source_mip),
-                    TextureRef::Asset(_) | TextureRef::None | TextureRef::Global(_) => Ok(()),
+                    TextureRef::Asset(_)
+                    | TextureRef::None
+                    | TextureRef::Global(_)
+                    | TextureRef::Temporary(_) => Ok(()),
                 }
             }
             OffscreenWork::Dispatch {
@@ -307,6 +312,18 @@ impl World {
             _ => self
                 .check_command(work)
                 .and_then(|()| self.check_context(work)),
+        }
+    }
+
+    /// Checks the target of a blit or a copy: a live render texture that has the mip level, or a
+    /// temporary under any name id, which the host resolves when it reaches the record.
+    fn check_work_target(&self, target: &TargetRef, mip: u32) -> Result<(), WorldError> {
+        match target {
+            TargetRef::Render(id) => self.check_mip(*id, mip),
+            TargetRef::Temporary(_) => Ok(()),
+            TargetRef::CameraTarget | TargetRef::None => {
+                Err(GraphicsError::InvalidOffscreen.into())
+            }
         }
     }
 

@@ -9,7 +9,7 @@ use worldrunner_render_program::unity::offscreen::frame::Record;
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties,
-    TextureRef, WorldRenderTexture, WorldSampler,
+    TargetRef, TextureRef, WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
@@ -46,7 +46,7 @@ fn blit(
     world
         .record_offscreen(OffscreenWork::Blit {
             source,
-            target,
+            target: TargetRef::Render(target),
             material,
             pass,
         })
@@ -128,7 +128,7 @@ fn records_keep_the_order_the_script_called_them_in() {
             source: TextureRef::Render(b),
             source_element: 0,
             source_mip: 0,
-            target: a,
+            target: TargetRef::Render(a),
             target_element: 0,
             target_mip: 0,
         })

@@ -9,7 +9,7 @@
 
 use worldrunner_world_simulation::World;
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, RenderTextureId, TextureRef, WorldRenderTexture, WorldSampler,
+    OffscreenWork, RenderTextureId, TargetRef, TextureRef, WorldRenderTexture, WorldSampler,
 };
 
 use super::super::flush::OffscreenHost;
@@ -46,7 +46,7 @@ fn blit(
     world
         .record_offscreen(OffscreenWork::Blit {
             source: TextureRef::Render(source),
-            target,
+            target: TargetRef::Render(target),
             material: Some(material),
             pass,
         })

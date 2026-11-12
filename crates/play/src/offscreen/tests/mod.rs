@@ -31,5 +31,7 @@ mod shaders;
 mod shapes;
 mod storage;
 mod support;
+mod temporary_gpu;
+mod temporary_textures;
 mod texture_cache;
 mod volumes;

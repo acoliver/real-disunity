@@ -14,15 +14,17 @@ use std::sync::Arc;
 
 use glam::Mat4;
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::layers::PropertyLayer;
+use worldrunner_render_program::layers::{PropertyLayer, TextureInput};
 use worldrunner_render_program::unity::offscreen::frame::{
     Attachment, Attachments, Clear, GlobalState, Record, RenderDimension, RenderTextureSpec,
 };
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    OffscreenWork, RendererListDesc, TargetRef, WorldRenderTexture,
+    OffscreenWork, PropertyValue as WorldValue, RendererListDesc, TargetRef, TextureRef,
+    WorldRenderTexture,
 };
 
+use super::assets::sampler_of_world;
 use super::frame::{Mapper, RendererSkip, Skip};
 use super::ids;
 use super::properties::set_value;
@@ -51,7 +53,7 @@ impl Temporaries {
         self.live.remove(&name_id).is_some()
     }
 
-    fn resolve(&self, name_id: i32) -> Option<TextureId> {
+    pub(super) fn resolve(&self, name_id: i32) -> Option<TextureId> {
         self.live.get(&name_id).copied()
     }
 }
@@ -223,8 +225,14 @@ impl Mapper<'_> {
                 slice,
             } => self.set_render_target(color, depth.as_ref(), (*mip, *face, *slice))?,
             OffscreenWork::SetGlobal(value) => {
+                let temporary = self.temporary_global(value)?;
                 let globals = &mut self.script.globals;
-                set_value(&mut globals.layer, value, &mut self.textures);
+                match temporary {
+                    Some((name, input)) => {
+                        globals.layer.textures.insert(name, input);
+                    }
+                    None => set_value(&mut globals.layer, value, &mut self.textures),
+                }
                 globals.dirty = true;
             }
             OffscreenWork::SetGlobalKeyword { name, enabled } => {
@@ -278,8 +286,31 @@ impl Mapper<'_> {
         })))
     }
 
+    /// The name and input of a global texture that names a temporary render texture, read with the
+    /// sampler it was allocated with; `None` for any other value.
+    fn temporary_global(&self, value: &WorldValue) -> Result<Option<(String, TextureInput)>, Skip> {
+        let WorldValue::Texture(name, slot) = value else {
+            return Ok(None);
+        };
+        let TextureRef::Temporary(name_id) = slot.texture else {
+            return Ok(None);
+        };
+        let texture = self
+            .script
+            .temporaries
+            .resolve(name_id)
+            .ok_or(Skip::UnknownTemporary)?;
+        let sampler = self
+            .script
+            .temporaries
+            .described
+            .get(&texture)
+            .map(|desc| sampler_of_world(&desc.sampler));
+        Ok(Some((name.clone(), TextureInput { texture, sampler })))
+    }
+
     /// The texture a target names, or `None` for no target.
-    fn resolve_target(&self, target: &TargetRef) -> Result<Option<TextureId>, Skip> {
+    pub(super) fn resolve_target(&self, target: &TargetRef) -> Result<Option<TextureId>, Skip> {
         match *target {
             TargetRef::None => Ok(None),
             TargetRef::Render(id) => {
@@ -305,7 +336,7 @@ impl Mapper<'_> {
     }
 
     /// How many mips a texture of the frame has, or 0 for one that is not there.
-    fn mips_of(&self, texture: TextureId) -> u32 {
+    pub(super) fn mips_of(&self, texture: TextureId) -> u32 {
         if let Some(desc) = self.script.temporaries.described.get(&texture) {
             return desc.mip_count;
         }

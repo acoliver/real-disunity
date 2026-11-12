@@ -129,7 +129,7 @@ Terrain draws through `render-program` in every forward context: plain, velocity
 - **Programs.** `terrain::program::Context` holds one program per surface source for a `ScenePipelines`: palette (`Plain`), baked `Pages`, `Layered` sources and `LayeredPages`. A surface is a feature set (`TERRAIN_PAGES`, `TERRAIN_LAYERED`); the composition is `terrain::program::source`. The frame's specular convention and winding are override constants of the fragment stage, so a specialization is a cheap program, not a sibling set of compiled pipelines. Derived bindings at set 1 are the ones the shader reads: seven for `Plain`, four for `Pages` and for `LayeredPages` (the same four, because cached pages replace the source composer), fifteen for `Layered`.
 - **Sets the pass owner binds.** The frame group (set 0), the shadow map (set 2) and the screen group (set 3) are lent as `ExternalSet`s over the layouts the scene already uses. The pass binds them once, as it did, and the runtime builds no bind group for them. The terrain's own set 1 is a `PreparedSet` built from the buffers and textures the scene retains, once per terrain and pipeline context, with one per page table for the cached surfaces. A set stays with its context's runtime and material layout.
 - **Receiver payload.** Paired single-sample shadow contexts declare the lossless displacement arrays at set 2 bindings 3 and 4 in the lent shadow group. Terrain loads its fragment's payload in every forward depth mode, including page and layered surfaces. The material's prepared set stays at set 1; the pass binds the payload with its shadow map.
-- **Depth reuse.** A context's `DepthMode` (independent, shared, prepass or reuse, from the forward depth reuse of single-sample frames with a complete prepass) gives the terrain program its depth format and its `RenderState`: the same `DepthMode::state` the object pipelines use, so reuse terrain tests depth `Equal` without writing it and tests and zeroes the stencil mark with reference `STENCIL_REFERENCE`, which the pass sets once. The runtime draws stencil from that state (`render-program` README, "Stencil").
+- **Depth reuse.** A context's `DepthMode` (independent, shared, prepass or reuse, from the forward depth reuse of single-sample frames with a complete prepass) gives the terrain program its depth format and its `RenderState`: the same `DepthMode::state` the object pipelines use, so reuse terrain tests depth `Equal` without writing it and reads the stencil mark with reference `STENCIL_REFERENCE`, which the pass sets once. Every writing depth mode uses `LessEqual`, and reuse leaves the stencil mark intact so the last surface at equal depth wins in API order. The runtime draws stencil from that state (`render-program` README, "Stencil").
 - **Cost.** A frame records one `PreparedPipeline` and a `GeometryDraw` per resident chunk: `2 + 4C` commands for C chunks (`3 + 4C` under a shadow map), the same as the fixed path. A chunk's record of the shared instance buffer is its geometry's instance range rather than a bound slice. Pipelines, sets and chunk geometry are prepared the first time a pass needs them and found in maps afterwards. `encode_scene`, `ShadowedScene` and `encode_resident` prepare the terrain's pipeline for the pass, the prepass and the forward pass alike, after the frame's pages are prepared and before any pass opens, where a refusal is still an error (`SceneGpu::prepare_terrain`); a term replay does the same before it opens its pass. A raw `SceneGpu::draw` prepares what it finds missing as it records. A streamed chunk's geometry is made when the chunk is uploaded and dropped when it retires, before new uploads are admitted, so the geometry never holds a buffer the streaming budget has stopped counting. A prepared set belongs to the runtime and the program layout of the context that built it, so a scene's terrain keeps one per context that has drawn it: independently built pipelines, and the forward pipelines a renderer replacement builds again, each make their own. Sets and pipelines are kept per context and dropped with the context they were made for, so the pipelines a term replay builds for one frame leave nothing in the caches of a long-lived scene, and frames over the same chunks add nothing to `RuntimeStats`. The runtime is shared by a `ScenePipelines` and every sibling specialized from it, so a terrain pipeline compiles once per context for any number of scenes. `src/terrain/cost_tests.rs` holds these claims.
 - **Shadow caster.** `shadows::terrain_caster::TerrainCaster` replaces the fixed caster pipeline: a vertex-only program (`vs_terrain_depth` over the shadow depth source) on `TargetSignature::depth_only(Depth32Float, 1)`, with the caster's state (back faces culled, the configured depth test with writes, and its depth bias, slope included). Each cascade's light frame buffer is the program's set 0, lent as an import and prepared once per buffer, so a scene prepares four sets for each frame slot it draws. `ShadowedScene` prepares them with its other per-frame preparation, and recording is the commands the fixed caster recorded, `2 + 4C` for C chunks, over the same chunk geometry as the forward draw. `SceneGpu::terrain_caster_selection` keeps the cascade's frustum and slice hull test in one place for the draw and the captures. A `vertex_only_program_in` that lends the engine's frame group would remove the four sets; the runtime has no such constructor yet.
 - **No fixed pipelines.** `ScenePipelines` holds no terrain pipeline, bind group layout or bind group: every context's terrain, caster and prepass records through the program runtime, and a context whose screen group the program does not lend fails to build its terrain program rather than drawing another way. `renderer/legacy_terrain/` (a test-only module directory) is a frozen copy of the whole fixed path for the byte-equality captures in `terrain/capture_tests` (plain, pages, layered and layered pages across the twelve forward target sets and the six single-sample ones again with shared depth and with depth reuse, where the depth and stencil planes are compared too; the gather receivers, shadow receivers, specialization, and streaming residency; the metadata prepass in both outputs with independent, shared and winner-marking depth; and the six capture terms in the plain, shadowed, ambient and reflection replays; the shadow caster's depth texels in four cascades over the whole terrain with and without a depth bias, and over streamed chunks with the cascades' volumes and a slice hull). Each capture also asserts that the runtime recorded the terrain once and prepared a pipeline and set for it.
@@ -231,8 +231,14 @@ arithmetic stays beside normal sampling to retain its floating-point evaluation.
 They defer surface/normal samples,
 contact, decals and receiver-shadow preparation until the fragment survives the
 unchanged visibility, geometry and alpha predicates. Relief still exports its
-reconstructed fragment depth. Receiver-producing metadata evaluates mapped normals,
-decals and receiver derivatives before rejecting quad lanes. Masked card casters
+reconstructed fragment depth. With exactly zero normal bias and no transmission,
+receiver-producing metadata captures position derivatives and rejects coverage before
+normal, surface, contact and decal evaluation. Normal-bias and transmission receivers
+evaluate mapped normals, decals and receiver derivatives before rejecting quad lanes.
+Both signed zeros select position capture. Fragment-stage attachment controls compare
+finite, signed-zero and nonfinite normal operands with the normal-dependent expression;
+IEEE arithmetic gives NaN for zero multiplied by NaN, so this check exercises the
+compiled shader's floating-point behavior on each tested backend. Masked card casters
 capture the albedo footprint before geometry/fade rejection, then evaluate the same
 blended alpha and shadow cutoff. Multisampled and unpaired forward paths keep their
 existing evaluation order.
@@ -470,11 +476,66 @@ policies. Both producer and consumer retain invariant position outputs even
 with independent depth textures. One receiver uses `Rgba32Float` and `Rg32Float`
 array textures, 24 bytes per
 pixel. Nonzero normal bias with live transmission adds an independently evaluated
-opposite-normal receiver in a second array layer, for 48 bytes per pixel. The
-producer evaluates `dpdx(P) + dpdx(N) * bias` and its vertical counterpart; it does
-not differentiate a rounded biased position or compress the vectors. The cascade
-projection and degeneracy rule consume these f32 values unchanged. Unpaired,
-multisampled and prepass-free frames evaluate the local derivatives.
+opposite-normal receiver in a second array layer, for 48 bytes per pixel.
+Mesh and card geometry use hardware position displacements `dP`. Terrain uses
+its selected triangle's analytic adjacent-pixel displacement in three dimensions,
+sharing the material footprint's plane solve and bounds. Producer and local terrain
+receivers use the same solve, including ordinary, reflection, velocity, cached,
+layered and paged contexts, multisampling and frames without metadata. Local
+terrain displacements are prepared before shading and divergent shadow selection.
+Hardware position derivatives can span different triangles in a fragment quad.
+The selected-plane definition deliberately changes terrain seam shadow bias and
+can change shadow pixels there. Geometry, depth and material sampling are unchanged.
+On Metal at 257 by 241, an explicit hardware-`dP` reference with the same bias
+arithmetic produced these pixel differences. The seam mask compares the selected
+plane of adjacent quad lanes; silhouettes and normal quantization limit the mask.
+
+| Fixture | Cascades | Changed pixels | On quad seams | Off quad seams | Maximum channel delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Flat terrain | 1 | 0 | 0 | 0 | 0 |
+| Flat terrain | 3 | 0 | 0 | 0 | 0 |
+| Ridge | 1 | 135 | 130 | 5 | 24 |
+| Ridge | 3 | 140 | 138 | 2 | 24 |
+
+The old workload's payload differences are not an image bound. Consumer
+comparisons need identical presets and camera poses. Measurements made alongside
+other windowed GPU workloads are contended and do not establish a speed change.
+
+Nonzero bias evaluates `dP + bias * hardware_dN`, independently for opposing
+normals. It does not differentiate a rounded biased position or compress vectors.
+Normal derivatives can still depend on helper-lane behavior, so biased receivers
+are not guaranteed deterministic across the historical workload. The analytic
+solve retains the relative determinant floor and componentwise displacement cap
+of 10,000 metres. At grazing angles these bounds approximate the plane displacement;
+componentwise clipping need not remain tangent to the plane.
+
+Zero normal bias, including negative zero, defines the displaced receiver as
+exactly `B = P` and its displacements as exactly that geometry's `dP`, without any
+normal term. This applies to Position and Normal producers, transmission, and all
+local consumers, including unpaired, multisampled and prepass-free frames.
+Runtime-uniform bias selects the position and position displacements without
+varying control flow before hardware normal derivatives.
+WGSL does not guarantee preservation of a zero's sign. On a given backend,
+paired Position and Normal producers and local consumers must produce identical
+displacement bits, numerically equal to that geometry's dP regardless of zero sign.
+Local derivative selects choose integer bit representations before bitcasting back
+to f32, so floating-point selection cannot change a zero sign relative to the producer.
+
+A zero bias applies no normal offset. NaNs from multiplying nonfinite normal
+operands by zero, and signed-zero results dependent on the normal, are arithmetic
+defects rather than intended shadow behavior. Constant UVs without an authored
+tangent can produce a nonfinite cotangent frame even in helper lanes. Such a frame
+must not contaminate the zero-bias receiver position or displacements; normal-map
+lighting itself is outside this receiver contract. The cascade projection and
+degeneracy rule consume the resulting f32 displacements unchanged.
+
+Only covered metadata depth winners publish receiver values. Forward consumers use
+that pixel's winner under the same coverage and depth/stencil ownership contract.
+No receiver derivative depends on a texture load from another invocation. Helper
+lanes and fragments that later fail depth can execute loads, but their values do
+not contribute to surviving outputs. A GPU control replaces the uncovered clear
+values with large signed displacements and requires every downstream attachment
+and output byte to remain unchanged.
 
 `ReceiverGradientReservation` bounds this storage in `RendererConfiguration`.
 The default reserves both receivers for dynamic scene admission; `Front` reserves
@@ -483,8 +544,13 @@ viewer selects `None` without shadows, `Front` for zero normal bias and `Opposin
 for biased shadows that can gain transmission materials. Textures are created
 at the reserved maximum layout when live shadow receivers first need them, and
 remain owned by that metadata allocation generation even while receivers are
-absent. Front/opposing layout, bias and output changes specialize the producer
-and select views of the same backing without allocating replacement textures.
+absent. Front/opposing layout, bias, Position/Normal capture and output changes
+specialize the producer and select views of the same backing without allocating
+replacement textures. Terrain's metadata program carries the selected capture
+through palette, page, layered and layered-page composition, with the receiver
+outputs included in its target signature. Object metadata uses the same producer
+source for all 32 runtime variants, including masked and relief entry points;
+relief outputs carry the receiver fields alongside reconstructed depth.
 Reconfiguration or resize replaces the metadata generation through its existing
 allocation accounting. Admission rejects a layout
 that exceeds the reservation, device colour-attachment count and byte limits, or

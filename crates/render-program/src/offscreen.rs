@@ -29,6 +29,7 @@ impl std::fmt::Debug for AdmittedOffscreen {
 }
 
 impl AdmittedOffscreen {
+    #[cfg(feature = "unity")]
     pub(crate) fn new(
         compiled: CompiledOperations,
         registry: ResourceRegistry,

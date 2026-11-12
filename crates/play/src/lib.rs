@@ -13,6 +13,7 @@ mod bc7_tables;
 #[cfg(test)]
 mod bc7_tests;
 mod block_texture;
+mod camera_start;
 mod driver;
 #[cfg(test)]
 mod gpu_flush_tests;
@@ -26,6 +27,7 @@ mod player_textures;
 mod player_ui;
 mod prepare;
 mod retained_driver;
+mod scene_light;
 mod scene_tables;
 mod scene_transform;
 pub mod storage_budget;

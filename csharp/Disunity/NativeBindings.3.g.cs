@@ -386,5 +386,34 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_presentation_ui_coverage", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_presentation_ui_coverage(ulong world, uint index, DisunityCoverage* output, byte* bytes, uint capacity);
+        /// <summary>
+        ///  Writes how many lights the last prepared frame shows. Fails when no frame is prepared.
+        ///
+        ///  # Safety
+        ///  `count` is writable for one count.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_light_count", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_light_count(ulong world, uint* count);
+        /// <summary>
+        ///  Copies out light `index` of the last prepared frame: its settings (`enabled` is always 1, a
+        ///  frame shows only enabled lights), its object's identity (0 for an object the ABI has not
+        ///  named) and its matrix from the light's coordinates to the frame's view basis, whose third
+        ///  column is the light's forward axis. Nothing is written when the index is past the frame.
+        ///
+        ///  # Safety
+        ///  `output`, `object` and `matrix` are each writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_light", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_light(ulong world, uint index, DisunityLight* output, ulong* @object, DisunityMatrix* matrix);
+        /// <summary>
+        ///  Writes whether the camera the last prepared frame presents renders shadow maps: 1 when its
+        ///  renderShadows is on, 0 when it is off, and 2 when the frame presents no camera or the camera
+        ///  has no camera data. Fails when no frame is prepared.
+        ///
+        ///  # Safety
+        ///  `value` is writable for one value.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_presentation_render_shadows", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_presentation_render_shadows(ulong world, uint* value);
     }
 }

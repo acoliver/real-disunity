@@ -1,10 +1,10 @@
 //! Splits the `ci-gpu` test run across parallel runners.
 //!
-//! `ci-gpu` runs `cargo test --all-targets -- --include-ignored --test-threads=1` over the GPU
-//! package selection. A shard reproduces the same set of tests in the same single cargo
-//! invocation shape (feature unification stays identical) and runs one slice of it. The slices
-//! are computed from the listed test names, so the union over all shards is exactly the test set
-//! that the serial run executes. Slices are balanced by the estimated run times in
+//! `ci-gpu` runs `cargo test --all-targets -- --test-threads=1` over the GPU package selection,
+//! which skips tests marked `#[ignore]`. A shard reproduces the same set of tests in the same
+//! single cargo invocation shape (feature unification stays identical) and runs one slice of it.
+//! The slices are computed from the listed test names without the ignored ones, so the union over
+//! all shards is exactly the test set that the serial run executes. Slices are balanced by the estimated run times in
 //! `crates/xtask/gpu-test-weights.toml`.
 
 mod weights;
@@ -26,8 +26,12 @@ const SECTIONS: [(&str, Kind); 5] = [
     ("bench", Kind::Bench),
     ("example", Kind::Example),
 ];
-const LIST_ARGS: [&str; 4] = ["--list", "--format", "terse", "--include-ignored"];
-const RUN_ARGS: [&str; 2] = ["--include-ignored", "--test-threads=1"];
+const LIST_ARGS: [&str; 3] = ["--list", "--format", "terse"];
+const RUN_ARGS: [&str; 1] = ["--test-threads=1"];
+/// Lists only the ignored tests, whose names leave the shards.
+const IGNORED_LIST_ARGS: [&str; 4] = ["--list", "--format", "terse", "--ignored"];
+/// Keeps cargo running the shard's later test binaries after one fails.
+const NO_FAIL_FAST: &str = "--no-fail-fast";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {
@@ -195,14 +199,33 @@ pub fn merge(classified: Vec<(Unit, bool)>) -> Result<Targets, String> {
     Ok(targets)
 }
 
-/// Test names from `--list --format terse` output; ignored tests are listed like any other.
-pub fn parse_names(listing: &str) -> BTreeSet<String> {
-    listing
+/// The names a shard may deal: those listed in `listing` that are not ignored. The listing
+/// joins every test binary, so a name ignored in one binary and runnable in another stays.
+pub fn runnable_names(listing: &str, ignored: &str) -> BTreeSet<String> {
+    let mut remaining = name_counts(listing);
+    for (name, count) in name_counts(ignored) {
+        if let Some(listed) = remaining.get_mut(&name) {
+            *listed = listed.saturating_sub(count);
+        }
+    }
+    remaining
+        .into_iter()
+        .filter(|(_, count)| *count > 0)
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// How many times each test name appears in `--list --format terse` output.
+fn name_counts(listing: &str) -> std::collections::BTreeMap<String, usize> {
+    let mut counts = std::collections::BTreeMap::new();
+    for name in listing
         .lines()
         .filter_map(|line| line.trim_end().strip_suffix(": test"))
         .filter(|name| !name.is_empty())
-        .map(str::to_owned)
-        .collect()
+    {
+        *counts.entry(name.to_owned()).or_insert(0) += 1;
+    }
+    counts
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -382,9 +405,11 @@ fn inventory(root: &Path) -> Result<Inventory, String> {
     let data = metadata::read(root, &["--locked", "--all-features"])?;
     let selection = commands::selection(&data, Profile::Gpu)?;
     let targets = read_targets(&data, &selection)?;
-    let args = test_args(&selection, &targets.libtest_flags(), &strings(&LIST_ARGS));
-    let listing = crate::capture_command(root, "cargo", &refs(&args))?;
-    let names = parse_names(&listing);
+    let list = |listing_args: &[&str]| {
+        let args = test_args(&selection, &targets.libtest_flags(), &strings(listing_args));
+        crate::capture_command(root, "cargo", &refs(&args))
+    };
+    let names = runnable_names(&list(&LIST_ARGS)?, &list(&IGNORED_LIST_ARGS)?);
     if names.is_empty() {
         return Err("listing found no tests; refusing an empty GPU run".into());
     }
@@ -463,28 +488,64 @@ pub fn run(root: &Path, spec: &str) -> Result<(), String> {
     let shards = plan_for(&inventory, count)?;
     let mine = &shards[index - 1];
     eprintln!(
-        "GPU required mode: shard {index}/{count} runs {} of {} tests and {} of {} whole-binary units, including ignored tests; missing adapters are errors",
+        "GPU required mode: shard {index}/{count} runs {} of {} tests and {} of {} whole-binary units, ignored tests left out; missing adapters are errors",
         mine.names.len(),
         inventory.names.len(),
         mine.units.len(),
         inventory.targets.whole().len()
     );
-    if !mine.names.is_empty() {
+    let calls = shard_calls(&inventory.selection, &inventory.targets, mine);
+    run_all(&calls, |args| {
+        crate::run_command(root, "cargo", &refs(args))
+    })
+}
+
+/// One cargo call of a shard and the name its failure is reported under.
+struct Call {
+    label: String,
+    args: Vec<String>,
+}
+
+/// The cargo calls of one shard: one for its listed tests, then one per harness-free unit. Each
+/// passes `--no-fail-fast`, so a failing test binary does not stop the binaries after it.
+fn shard_calls(selection: &[String], targets: &Targets, shard: &Assignment) -> Vec<Call> {
+    let flags = |mut flags: Vec<String>| {
+        flags.push(NO_FAIL_FAST.to_owned());
+        flags
+    };
+    let mut calls = Vec::new();
+    if !shard.names.is_empty() {
         let mut harness = strings(&["--exact"]);
         harness.extend(strings(&RUN_ARGS));
-        harness.extend(mine.names.iter().cloned());
-        let args = test_args(
-            &inventory.selection,
-            &inventory.targets.libtest_flags(),
-            &harness,
-        );
-        crate::run_command(root, "cargo", &refs(&args))?;
+        harness.extend(shard.names.iter().cloned());
+        calls.push(Call {
+            label: format!("{} listed tests", shard.names.len()),
+            args: test_args(selection, &flags(targets.libtest_flags()), &harness),
+        });
     }
-    for unit in &mine.units {
-        let args = test_args(&inventory.selection, &unit.flags(), &strings(&RUN_ARGS));
-        crate::run_command(root, "cargo", &refs(&args))?;
+    for unit in &shard.units {
+        calls.push(Call {
+            label: format!("{} {}", unit.kind.flag(), unit.name),
+            args: test_args(selection, &flags(unit.flags().into()), &strings(&RUN_ARGS)),
+        });
     }
-    Ok(())
+    calls
+}
+
+/// Runs every call, even after one fails, then fails with one line per failed call.
+fn run_all(
+    calls: &[Call],
+    mut run: impl FnMut(&[String]) -> Result<(), String>,
+) -> Result<(), String> {
+    let errors: Vec<String> = calls
+        .iter()
+        .filter_map(|call| {
+            run(&call.args)
+                .err()
+                .map(|error| format!("{}: {error}", call.label))
+        })
+        .collect();
+    crate::finish("GPU shard", &errors)
 }
 
 #[cfg(test)]

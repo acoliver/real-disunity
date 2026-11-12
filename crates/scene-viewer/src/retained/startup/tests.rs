@@ -27,6 +27,7 @@ fn desktop_supplier_receives_physical_extent_instead_of_logical_window_size() {
     host.resolve_initial_content(crate::InitialContext {
         adapter: &identity(),
         surface_extent: [physical.width, physical.height],
+        display: None,
     })
     .unwrap();
     assert_eq!(host.size(), [1280, 960]);
@@ -49,6 +50,7 @@ fn minimized_initial_extent_is_preserved_and_rendering_remains_suspended() {
         host.resolve_initial_content(crate::InitialContext {
             adapter: &identity(),
             surface_extent,
+            display: None,
         })
         .unwrap();
         assert_eq!(host.size(), surface_extent);
@@ -69,4 +71,32 @@ fn minimized_initial_extent_is_preserved_and_rendering_remains_suspended() {
         );
         assert!(host.view().unwrap().is_some());
     }
+}
+
+#[test]
+fn supplier_sees_the_monitor_before_the_first_frame() {
+    let display = crate::DisplayInfo {
+        physical_size: [3840, 2160],
+        scale_factor: 1.5,
+    };
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let record = seen.clone();
+    let mut options = crate::tests::options();
+    options.window_mode = crate::WindowMode::BorderlessFullscreen;
+    let mut host = RetainedHost::with_initial_content(options, move |context| {
+        *record.lock().unwrap() = Some(context.display);
+        Ok(InitialContent {
+            scene: crate::tests::scene(false),
+            settings: None,
+        })
+    })
+    .unwrap();
+    host.resolve_initial_content(crate::InitialContext {
+        adapter: &identity(),
+        surface_extent: display.physical_size,
+        display: Some(display),
+    })
+    .unwrap();
+    assert_eq!(*seen.lock().unwrap(), Some(Some(display)));
+    assert_eq!(host.size(), display.physical_size);
 }

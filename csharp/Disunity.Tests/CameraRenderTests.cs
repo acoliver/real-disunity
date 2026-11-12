@@ -3,7 +3,8 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using static GraphicsTestSupport;
 
-/// <summary>Camera.Render and Camera.RenderWithShader complete without drawing until the native draw surface exists.</summary>
+/// <summary>Camera.Render with a target records offscreen work and without one refuses to draw to the screen;
+/// Camera.RenderWithShader completes without drawing until the native draw surface exists.</summary>
 internal static class CameraRenderTests
 {
     private const string Note = "draws nothing yet: the engine has no draw surface";
@@ -15,8 +16,8 @@ internal static class CameraRenderTests
         {
             RenderLeavesTargetsAlone();
             Console.WriteLine("PASS: Camera.Render returns and leaves targetTexture and RenderTexture.active unchanged");
-            NotesOncePerWorld();
-            Console.WriteLine("PASS: Camera.Render logs its note once per world and again after a reload");
+            ScreenRenderThrows();
+            Console.WriteLine("PASS: Camera.Render without a target throws NotSupportedException every time, records nothing and leaves the camera alone");
             RenderWithShaderValidates();
             Console.WriteLine("PASS: Camera.RenderWithShader validates the shader, returns and notes once");
             DestroyedCameraThrows();
@@ -48,26 +49,29 @@ internal static class CameraRenderTests
         Ensure(camera.enabled, "the camera is still enabled");
     }
 
-    private static void NotesOncePerWorld()
+    /// <summary>The screen is drawn by the frame from the selected camera, so an explicit screen render has nothing to draw
+    /// into: it throws on every call, for an enabled or a disabled camera and again after a reload, and leaves no note.</summary>
+    private static void ScreenRenderThrows()
     {
         DisunityHost.UnloadWorld();
         DisunityHost.LoadWorld();
         var camera = NewCamera();
+        var active = new RenderTexture(8, 8, 0);
+        RenderTexture.active = active;
         using (var log = new LogRecorder())
         {
-            camera.Render();
-            camera.Render();
-            Ensure(Notes(log, "Camera.Render") == 1, $"one note across two calls: {string.Join("|", log.Messages)}");
+            var error = Expect.Catch<NotSupportedException>(() => camera.Render(), "a screen render");
+            Ensure(error.Message.Contains("Camera.Render") && error.Message.Contains("targetTexture"),
+                $"the message names the call and the way to render: {error.Message}");
+            Expect.Throws<NotSupportedException>(() => camera.Render(), "a second screen render");
+            camera.enabled = false;
+            Expect.Throws<NotSupportedException>(() => camera.Render(), "a disabled camera's screen render");
+            Ensure(Notes(log, "Camera.Render") == 0, $"no note: {string.Join("|", log.Messages)}");
         }
+        Ensure(camera.targetTexture == null && RenderTexture.active == active, "the camera and active texture are unchanged");
         DisunityHost.UnloadWorld();
         DisunityHost.LoadWorld();
-        var reloaded = NewCamera();
-        using (var log = new LogRecorder())
-        {
-            reloaded.Render();
-            reloaded.Render();
-            Ensure(Notes(log, "Camera.Render") == 1, $"one note again after a reload: {string.Join("|", log.Messages)}");
-        }
+        Expect.Throws<NotSupportedException>(() => NewCamera().Render(), "a screen render after a reload");
     }
 
     private static void RenderWithShaderValidates()

@@ -61,6 +61,9 @@ pub struct AttachmentDeclaration {
     pub samples: u32,
     pub load: AttachmentLoad,
     pub store: wgpu::StoreOp,
+    /// Attach a depth target without writing it, so the same pass may also sample it.
+    /// Requires `load: Load` and `store: Store`.
+    pub read_only: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +90,7 @@ pub struct FeaturePass {
     pub slot: PassSlot,
     pub reads: Vec<ResourceRef>,
     pub color_format: Option<wgpu::TextureFormat>,
+    pub additional_color_formats: Vec<wgpu::TextureFormat>,
     pub depth_format: Option<wgpu::TextureFormat>,
     pub samples: u32,
 }
@@ -96,6 +100,7 @@ impl FeaturePass {
             slot,
             reads: Vec::new(),
             color_format: None,
+            additional_color_formats: Vec::new(),
             depth_format: None,
             samples: 1,
         }
@@ -207,6 +212,7 @@ pub(crate) fn validate_frame_inputs(
                     samples: view.texture().sample_count(),
                     load: AttachmentLoad::Load,
                     store: wgpu::StoreOp::Store,
+                    read_only: false,
                 },
             )
         })
@@ -360,6 +366,12 @@ fn validate_feature(
         || feature
             .color_format
             .is_some_and(|format| pass.color.as_ref().is_none_or(|a| a.format != format))
+        || feature.additional_color_formats
+            != pass
+                .additional_colors
+                .iter()
+                .map(|attachment| attachment.format)
+                .collect::<Vec<_>>()
         || feature
             .depth_format
             .is_some_and(|format| pass.depth.as_ref().is_none_or(|a| a.format != format))
@@ -367,7 +379,10 @@ fn validate_feature(
         return Err(FrameError::AttachmentContract(pass.slot));
     }
     for resource in &feature.reads {
-        if attachments.iter().any(|a| a.resource == *resource) {
+        let sampled_depth = pass.depth.as_ref().is_some_and(|depth| {
+            depth.resource == *resource && depth.read_only && depth.load == AttachmentLoad::Load
+        });
+        if !sampled_depth && attachments.iter().any(|a| a.resource == *resource) {
             return Err(FrameError::AttachmentHazard(*resource));
         }
         require_producer(produced, *resource)?;

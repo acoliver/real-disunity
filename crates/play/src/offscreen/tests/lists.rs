@@ -533,10 +533,11 @@ fn a_shadow_split_leaves_out_the_casters_wholly_outside_its_planes() {
 }
 
 #[test]
-fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
+fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_bound() {
     let mut world = world();
     let [lit, ..] = shaders(&mut world);
     placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    super::support::sun(&mut world, Quat::IDENTITY);
     scene(
         &mut world,
         Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)),
@@ -547,6 +548,11 @@ fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
     let listed = lists(&adapted);
     let first = listed[0];
     let values = &first.values.values;
+    // The light shines along +Z, so the direction toward it is -Z.
+    assert_eq!(
+        values.get("_MainLightPosition"),
+        Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
+    );
     assert_eq!(
         values.get("unity_MatrixV"),
         Some(&PropertyValue::Matrix([

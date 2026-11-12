@@ -124,7 +124,22 @@ impl Readback {
         columns: u32,
         stride: [u32; 2],
     ) -> Result<(), ReadbackError> {
-        let width = self.validate_lanes(source, lanes, columns, stride)?;
+        self.encode_lanes_layer(encoder, source, lanes, columns, stride, 0)
+    }
+
+    pub fn encode_lanes_layer(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        source: &wgpu::Texture,
+        lanes: u32,
+        columns: u32,
+        stride: [u32; 2],
+        layer: u32,
+    ) -> Result<(), ReadbackError> {
+        if layer >= source.depth_or_array_layers() {
+            return Err(PostError::ReadbackSource.into());
+        }
+        let width = self.validate_lanes(source, lanes, columns, stride, layer)?;
         let current = Some(worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?);
         let retired = self
             .encoded_transaction
@@ -145,7 +160,7 @@ impl Readback {
                     origin: wgpu::Origin3d {
                         x: lane % columns * stride[0],
                         y: lane / columns * stride[1],
-                        z: 0,
+                        z: layer,
                     },
                     ..source.as_image_copy()
                 },
@@ -178,6 +193,7 @@ impl Readback {
         lanes: u32,
         columns: u32,
         stride: [u32; 2],
+        layer: u32,
     ) -> Result<u32, ReadbackError> {
         if lanes == 0
             || columns == 0
@@ -194,7 +210,7 @@ impl Readback {
             || bottom > u64::from(source.height())
             || source.format() != self.format
             || source.dimension() != wgpu::TextureDimension::D2
-            || source.depth_or_array_layers() != 1
+            || layer >= source.depth_or_array_layers()
             || source.sample_count() != 1
             || !source.usage().contains(wgpu::TextureUsages::COPY_SRC)
         {

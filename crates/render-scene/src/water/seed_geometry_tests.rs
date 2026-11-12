@@ -57,7 +57,7 @@ pub(super) fn probe_geometry(context: &GpuContext, body: SceneWaterBody) -> Vec<
 
 fn probe_source(context: &GpuContext, body: SceneWaterBody, source: &str) -> Vec<u8> {
     let mut renderer = regressions::renderer(context, 1);
-    renderer.install_water(context.device(), body).unwrap();
+    renderer.install_water(context, body).unwrap();
     let water = renderer.water.as_mut().unwrap();
     seed_tests::install_field(context, water);
     let mask = terms::mask(&water.settings)
@@ -67,11 +67,7 @@ fn probe_source(context: &GpuContext, body: SceneWaterBody, source: &str) -> Vec
             0
         };
     let options = [0, 0, 0, 0, mask];
-    let pipeline = pipeline_with_source(context.device(), 1, &water.layout, false, options, source);
-    water.specializations.borrow_mut().insert(
-        (options, crate::renderer::depth::DepthMode::Independent),
-        [pipeline.clone(), pipeline],
-    );
+    water.substitute((options, false), source, options);
     seed_tests::render_probe(context, &mut renderer)
 }
 

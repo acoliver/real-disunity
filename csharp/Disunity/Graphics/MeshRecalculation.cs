@@ -85,6 +85,7 @@ public partial class Mesh
         var result = new Vector4[vertexCount];
         for (var vertex = 0; vertex < result.Length; vertex++) result[vertex] = FinishTangent(_normals[vertex], tangentSums[vertex], bitangentSums[vertex]);
         _tangents = result;
+        Changed();
     }
 
     private static (int, int, int) Corners(SubMesh subMesh, int at) =>

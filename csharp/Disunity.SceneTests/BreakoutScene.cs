@@ -21,6 +21,10 @@ internal static class BreakoutScene
             Require(scene.Differences.All(d => !d.Contains("tiles draw unlit")) && tilemaps.Count > 0
                 && tilemaps.All(t => ReferenceEquals(DisunityHost.TilemapMaterial(t), Material.SpriteLit)),
                 "the walls draw lit with Sprite-Lit-Default as authored, not reported");
+            var cameras = scene.Objects.Select(o => o.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>())
+                .OfType<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>().ToList();
+            Require(scene.Differences.All(d => !d.Contains("shadow maps")) && cameras.Count == 1 && cameras[0].renderShadows,
+                "the camera's renderShadows loads as authored, not reported");
             Steps(1);
             Bricks(scene, Find(spawner).Single(), Find(brick));
             var balls = Find(ball);

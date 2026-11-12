@@ -34,6 +34,179 @@ fn gpu_overfull_pass_lists_drop_whole_samples_and_release_timing_admission() {
     device.poll(wgpu::PollType::Poll).unwrap();
 }
 
+/// The sampled frame's own submission carries no resolve. The timestamps are resolved, copied and
+/// mapped by one later submission of the same authority, made only after the sampled submission
+/// completed: Metal resolves incomplete samples when the resolve shares the sampled submission
+/// (issue 9f99236ea41c). The submission serials are what this test observes, so it runs the same
+/// on every adapter with timestamps; the Metal sample rate is checked on Metal itself.
+#[test]
+fn gpu_timestamps_resolve_in_a_later_submission_after_the_sampled_one_completes() {
+    let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timer = PassTimer::new(&device, &queue, TimingMode::Optional).unwrap();
+    if timer.support() == TimingSupport::Unsupported {
+        eprintln!("timestamp capability branch: Unsupported");
+        return;
+    }
+    let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
+    let mut encoder = authority.begin(&device).unwrap();
+    timer.begin_frame(5);
+    let stamp = timer.stamp(PassId::Resolve).unwrap();
+    drop(encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("sampled pass"),
+        timestamp_writes: Some(stamp.compute()),
+    }));
+    timer.finish_frame(&mut encoder);
+    encoder.finish().submit().unwrap();
+    assert_eq!(
+        authority.submitted_serial(),
+        1,
+        "the sampled frame is one submission"
+    );
+    // The authority learns of completion only while the host polls the device, so before any
+    // poll the sampled frame has not completed as far as the timer can tell.
+    assert_eq!(authority.completed_serial(), 0);
+    assert!(timer.take_ready().unwrap().is_empty());
+    assert_eq!(
+        authority.submitted_serial(),
+        1,
+        "nothing is resolved before the sampled submission completes"
+    );
+    let wait = || {
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(10)),
+            })
+            .unwrap();
+    };
+    wait();
+    assert_eq!(
+        authority.completed_serial(),
+        1,
+        "the sampled frame completed"
+    );
+    let mut frames = Vec::new();
+    for _ in 0..4 {
+        frames.extend(timer.take_ready().unwrap());
+        wait();
+    }
+    assert_eq!(
+        authority.submitted_serial(),
+        2,
+        "the resolve is one later submission of the sampled frame's authority"
+    );
+    assert_eq!(frames.len(), 1, "the sampled frame's timing is read back");
+    assert_eq!(frames[0].frame_id, 5);
+    assert_eq!(frames[0].passes.len(), 1);
+    assert_eq!(frames[0].passes[0].pass_id, PassId::Resolve);
+}
+
+/// A frame recorded outside a transaction has no authority to wait on, so its resolve waits for
+/// that frame's own submission. A take between `finish_frame` and the frame's submission must not
+/// resolve on the strength of earlier work: the timestamps would be read before they are written.
+#[test]
+fn gpu_an_untransacted_frame_resolves_after_its_own_submission_not_earlier_work() {
+    let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timer = PassTimer::new(&device, &queue, TimingMode::Optional).unwrap();
+    if timer.support() == TimingSupport::Unsupported {
+        eprintln!("timestamp capability branch: Unsupported");
+        return;
+    }
+    let wait = || {
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(10)),
+            })
+            .unwrap();
+    };
+    // The sampled pass clears a target: an empty stamped compute pass yields no usable
+    // timestamps on Metal whenever it is resolved (board 67 post 1840).
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("sampled target"),
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    timer.begin_frame(6);
+    let stamp = timer.stamp(PassId::Resolve).unwrap();
+    drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("sampled pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        timestamp_writes: Some(stamp.render()),
+        ..wgpu::RenderPassDescriptor::default()
+    }));
+    timer.finish_frame(&mut encoder);
+    for _ in 0..3 {
+        assert!(timer.take_ready().unwrap().is_empty());
+        wait();
+    }
+    queue.submit([encoder.finish()]);
+    let frames = crate::timing_test_support::take_frames(&device, 1, || timer.take_ready());
+    assert_eq!(frames[0].frame_id, 6);
+    assert!(
+        frames[0].passes[0].duration_ns.is_some(),
+        "the resolve read the timestamps after the frame wrote them"
+    );
+}
+
+/// A resolve the authority refuses for good (here a lost device) is reported, and the slot is
+/// released, so later frames are still timed instead of the ring filling with frames that can
+/// never be resolved.
+#[test]
+fn gpu_a_resolve_refused_for_good_is_reported_and_releases_its_slot() {
+    let (device, queue) = device(wgpu::Features::TIMESTAMP_QUERY);
+    let mut timer = PassTimer::new(&device, &queue, TimingMode::Optional).unwrap();
+    if timer.support() == TimingSupport::Unsupported {
+        eprintln!("timestamp capability branch: Unsupported");
+        return;
+    }
+    let authority = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone());
+    let mut encoder = authority.begin(&device).unwrap();
+    timer.begin_frame(7);
+    let stamp = timer.stamp(PassId::Resolve).unwrap();
+    drop(encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+        label: Some("sampled pass"),
+        timestamp_writes: Some(stamp.compute()),
+    }));
+    timer.finish_frame(&mut encoder);
+    encoder.finish().submit().unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(10)),
+        })
+        .unwrap();
+    authority.report_device_loss("test".into());
+    assert!(
+        timer.take_ready().is_err(),
+        "a resolve the authority refuses for good is an error, not a retry"
+    );
+    for frame in 8..8 + TIMING_RING_SIZE as u64 {
+        timer.begin_frame(frame);
+        assert!(timer.active.is_some(), "frame {frame} gets a slot");
+        timer.active = None;
+    }
+}
+
 fn device(features: wgpu::Features) -> (wgpu::Device, wgpu::Queue) {
     crate::gpu_tests::gpu_with_optional_features(features)
 }
@@ -133,7 +306,9 @@ fn gpu_timing_covers_executor_order_and_unread_ring_never_blocks_rendering() {
     );
     let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
     render_frames(&device, &queue, &mut chain, &passes, &views, &output_view);
-    let frames = chain.take_timings().unwrap();
+    let expected = if available { TIMING_RING_SIZE } else { 0 };
+    let frames =
+        crate::timing_test_support::take_frames(&device, expected, || chain.take_timings());
     assert_results(&device, &queue, &chain, &passes, &output_view, frames);
     let bytes = Readback::new(
         &device,
@@ -185,6 +360,7 @@ fn fixture(
             samples: 1,
             load: AttachmentLoad::ClearDepth(1.0),
             store: wgpu::StoreOp::Store,
+            read_only: false,
         });
         passes.push(pass);
     }
@@ -196,6 +372,7 @@ fn fixture(
         samples: 4,
         load: AttachmentLoad::ClearColor(wgpu::Color::BLACK),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     opaque.depth = Some(AttachmentDeclaration {
         resource: depth,
@@ -204,6 +381,7 @@ fn fixture(
         samples: 4,
         load: AttachmentLoad::ClearDepth(1.0),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     passes.push(opaque);
     (passes, views)
@@ -310,7 +488,8 @@ fn assert_results(
                 timeout: Some(std::time::Duration::from_secs(10)),
             })
             .unwrap();
-        assert_eq!(chain.take_timings().unwrap()[0].frame_id, 99);
+        let next = crate::timing_test_support::take_frames(device, 1, || chain.take_timings());
+        assert_eq!(next[0].frame_id, 99);
     } else {
         assert!(frames.is_empty());
     }

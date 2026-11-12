@@ -125,3 +125,45 @@ fn reads_before_a_frame_past_its_lights_or_into_null_are_rejected() {
         0
     );
 }
+
+fn render_shadows(world: u64) -> (i32, u32) {
+    let mut value = u32::MAX;
+    let result = unsafe { disunity_presentation_render_shadows(world, &mut value) };
+    (result.code, value)
+}
+
+/// Adds a presented camera whose camera data asks for shadow maps.
+fn add_shadow_camera(world: u64) {
+    use worldrunner_world_simulation::presentation::{Camera, UniversalAdditionalCameraData};
+    let mut store = crate::lock_store();
+    let session = store.session_mut(world).unwrap();
+    let object = session.native.create_object(ObjectDesc::default()).unwrap();
+    let mut data = UniversalAdditionalCameraData::default();
+    data.set(5, 1).unwrap();
+    session
+        .native
+        .add_component(object, ComponentDesc::Camera(Camera::default()))
+        .unwrap();
+    session
+        .native
+        .add_component(object, ComponentDesc::UniversalAdditionalCameraData(data))
+        .unwrap();
+}
+
+#[test]
+fn a_prepared_frame_reports_its_cameras_render_shadows_as_it_was_prepared() {
+    let (world, _) = world_with_light();
+    assert_ne!(render_shadows(world).0, 0, "no frame is prepared yet");
+    prepare(world);
+    assert_eq!(render_shadows(world), (0, 2), "no presented camera");
+    add_shadow_camera(world);
+    assert_eq!(
+        render_shadows(world),
+        (0, 2),
+        "the prepared frame is unchanged"
+    );
+    prepare(world);
+    assert_eq!(render_shadows(world), (0, 1));
+    let null = unsafe { disunity_presentation_render_shadows(world, std::ptr::null_mut()) };
+    assert_ne!(null.code, 0);
+}

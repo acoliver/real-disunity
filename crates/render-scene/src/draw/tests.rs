@@ -9,6 +9,7 @@
 //! rendered pixels back is what turns "the driver accepted it" into "the
 //! geometry landed where it was aimed".
 
+mod fade_empty;
 use super::{DrawError, SceneGpu};
 use crate::device::GpuContext;
 use crate::frame::FrameUniform;

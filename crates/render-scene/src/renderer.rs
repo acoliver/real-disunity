@@ -88,6 +88,8 @@ pub struct ScenePipelines {
     pub(crate) samples: u32,
     pub(crate) ssao: bool,
     velocity: bool,
+    /// Whether relief cards discard quads behind the Opaque depth, which set 2 binds at (2,5).
+    card_reject: bool,
     pub(crate) depth: DepthMode,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
@@ -235,7 +237,10 @@ impl ScenePipelines {
             device,
             target,
             (source, terrain_source),
-            (shadow_layout, screen_layout),
+            (
+                &specular::ShadowLayouts::shared(shadow_layout),
+                screen_layout,
+            ),
             (
                 ([0; 7], FrontFace::Ccw, DepthMode::Independent),
                 &crate::terrain::program::Family::default(),
@@ -247,7 +252,7 @@ impl ScenePipelines {
         device: &Device,
         target: (TextureFormat, u32),
         sources: (&str, &str),
-        layouts: (Option<&BindGroupLayout>, Option<&BindGroupLayout>),
+        layouts: (&specular::ShadowLayouts, Option<&BindGroupLayout>),
         (options, family): (
             ([u32; 7], FrontFace, DepthMode),
             &crate::terrain::program::Family,
@@ -271,7 +276,7 @@ impl ScenePipelines {
                 depth: options.2,
                 constants: constants.clone(),
                 frame: frame_layout.clone(),
-                shadow: shadow_layout.cloned(),
+                shadow: shadow_layout.terrain.clone(),
                 screen: screen_layout.cloned(),
             },
             family,
@@ -287,7 +292,7 @@ impl ScenePipelines {
                 previous_transforms: source.contains(crate::velocity::MARKER),
                 constants: constants.clone(),
                 frame: frame_layout.clone(),
-                shadow: shadow_layout.cloned(),
+                shadow: shadow_layout.object.clone(),
                 screen: screen_layout.cloned(),
                 entry: crate::object::program::Entry::Forward,
             },
@@ -308,6 +313,7 @@ impl ScenePipelines {
             depth: options.2,
             ssao: screen_layout.is_some(),
             velocity: source.contains(crate::velocity::MARKER),
+            card_reject: source.contains("fn scene_receiver_hidden("),
             frame_layout,
             material_layout,
             unlit_colors: targets.iter().flatten().map(|t| t.format).collect(),
@@ -327,6 +333,11 @@ impl ScenePipelines {
             Some(self.depth.format()),
             self.samples,
         )
+    }
+
+    /// Whether the colour pass must attach its depth read-only and bind it at (2,5).
+    pub(crate) const fn card_reject(&self) -> bool {
+        self.card_reject
     }
 
     /// The shader source the dynamic unlit-alpha material's entry points are read from.

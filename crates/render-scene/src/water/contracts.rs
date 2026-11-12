@@ -17,6 +17,7 @@ fn snapshot_outputs_cannot_be_reopened_for_writing() {
             samples: 1,
             load: worldrunner_render_post::AttachmentLoad::ClearColor(wgpu::Color::BLACK),
             store: wgpu::StoreOp::Store,
+            read_only: false,
         });
         let mut writer = producer.clone();
         writer.slot = worldrunner_render_post::PassSlot::ScreenSpaceAfterTransparent;
@@ -162,9 +163,7 @@ fn assert_water_metadata(
             }),
         )
         .unwrap();
-    renderer
-        .install_water(context.device(), settings())
-        .unwrap();
+    renderer.install_water(context, settings()).unwrap();
     let encoder = encode_fixture(context, renderer, attachments, frame, 0.5);
     encoder.finish().submit().unwrap();
     let final_depth = renderer.post_water_depth().unwrap();

@@ -193,6 +193,18 @@ impl StockRaster {
     pub(crate) fn ids(&self) -> impl Iterator<Item = RasterId> + '_ {
         self.passes.iter().map(|pass| pass.id)
     }
+    /// Each pass's depth (before, attached) versions, for read-only version tests.
+    #[cfg(test)]
+    pub(crate) fn depth_versions(&self) -> Vec<Option<(Option<u32>, u32)>> {
+        self.passes
+            .iter()
+            .map(|pass| {
+                pass.depth
+                    .as_ref()
+                    .map(|depth| (depth.before, depth.view.version()))
+            })
+            .collect()
+    }
 
     pub(crate) fn encode_stock_pass(
         &self,

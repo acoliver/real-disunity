@@ -13,6 +13,7 @@ mod bc7_tables;
 #[cfg(test)]
 mod bc7_tests;
 mod block_texture;
+mod camera_start;
 mod driver;
 #[cfg(test)]
 mod gpu_flush_tests;

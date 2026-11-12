@@ -232,17 +232,7 @@ fn texture_bytes(
         return Err("texture mip or sample count");
     }
     let (bw, bh) = format.block_dimensions();
-    // Backends may emulate stencil with D32/S8 and promote D24/S8 to D32/S8.
-    // Copy payload sizes omit that backing storage. Use the largest supported backing.
-    let block = match format {
-        wgpu::TextureFormat::Stencil8
-        | wgpu::TextureFormat::Depth24PlusStencil8
-        | wgpu::TextureFormat::Depth32FloatStencil8 => 8,
-        wgpu::TextureFormat::Depth24Plus => 4,
-        _ => format
-            .block_copy_size(None)
-            .ok_or("unsupported texture byte size")?,
-    };
+    let block = backing_block_bytes(format).ok_or("unsupported texture byte size")?;
     let mut bytes = 0;
     for mip in 0..mips {
         let blocks = mul(
@@ -252,6 +242,20 @@ fn texture_bytes(
         bytes = add(bytes, mul(blocks, u64::from(block))?)?;
     }
     mul(mul(bytes, u64::from(extent[2]))?, u64::from(samples))
+}
+/// Bytes per texel block of the storage a backend allocates for `format`.
+///
+/// Backends may emulate stencil with D32/S8 and promote D24/S8 to D32/S8. Copy payload sizes
+/// omit that backing storage, so this uses the largest supported backing. `None` for formats
+/// without a single-plane copy size.
+pub(crate) fn backing_block_bytes(format: wgpu::TextureFormat) -> Option<u32> {
+    match format {
+        wgpu::TextureFormat::Stencil8
+        | wgpu::TextureFormat::Depth24PlusStencil8
+        | wgpu::TextureFormat::Depth32FloatStencil8 => Some(8),
+        wgpu::TextureFormat::Depth24Plus => Some(4),
+        _ => format.block_copy_size(None),
+    }
 }
 fn total<'a>(
     sets: impl IntoIterator<Item = &'a AllocationSet>,

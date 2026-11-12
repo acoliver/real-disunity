@@ -137,7 +137,7 @@ fn cards(material: u32, mesh: u32) -> Vec<SceneObject> {
         .collect()
 }
 
-fn fixture() -> RenderScene {
+pub(super) fn fixture() -> RenderScene {
     let base = sloped(false);
     let mut textures = base.resources().textures().to_vec();
     let decal_normal = u32::try_from(textures.len()).unwrap();

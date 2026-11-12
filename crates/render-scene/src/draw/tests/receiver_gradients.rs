@@ -7,6 +7,10 @@ use worldrunner_render_post::ToneMap;
 
 #[path = "card_rejection.rs"]
 mod card_rejection;
+#[path = "receiver_producer_exactness.rs"]
+mod producer_exactness;
+#[path = "receiver_zero_bias.rs"]
+mod zero_bias;
 const OFFSET: [i64; 2] = [973_000, 887_000];
 const TERRAIN_SIDE: u32 = 129;
 #[path = "receiver_gradient_backing.rs"]
@@ -176,17 +180,8 @@ fn frame_at_pose_motion(
     pose: CameraPose,
     motion: bool,
 ) -> Vec<Vec<u8>> {
-    frame_with_view(context, source, reference, bias, motion, |viewport| {
-        SceneView::with_convention(
-            pose,
-            camera(),
-            viewport,
-            worldrunner_camera::ViewConvention {
-                handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,
-            },
-        )
-        .unwrap()
-    })
+    ReceiverFrame::new(context, source, reference, bias)
+        .capture_motion(context, source, reference, pose, motion)
 }
 
 fn frame_with_view(
@@ -197,89 +192,185 @@ fn frame_with_view(
     motion: bool,
     camera: impl Fn(Viewport) -> SceneView,
 ) -> Vec<Vec<u8>> {
-    let device = context.device();
-    let reflection = source.effects().unwrap().ssr().is_some();
-    let size = if !reflection || reference.is_some_and(ReceiverReference::probe) {
-        [1453, 921]
-    } else {
-        [257, 241]
-    };
-    let mut renderer = FrameRenderer::hdr(
-        context,
-        size,
-        COLOR_FORMAT,
-        1,
-        ToneMap::Reinhard,
-        source.effects(),
-    )
-    .unwrap();
-    renderer.receiver_reference = reference;
-    let build: fn(&GpuContext, &RenderScene, _, _, _) -> _ = if reflection {
-        crate::shadows::ShadowedScene::with_taa_velocity
-    } else {
-        crate::shadows::ShadowedScene::with_target
-    };
-    let mut shadowed = build(
-        context,
-        source,
-        crate::shadows::DirectionalShadowSettings {
-            resolution: 256,
-            normal_bias_meters: bias,
-            ..super::shadow_settings()
-        },
-        TextureFormat::Rgba16Float,
-        1,
-    )
-    .unwrap();
-    let pipelines = if reflection {
-        ScenePipelines::with_ssao_taa_velocity(device, TextureFormat::Rgba16Float, 1)
-    } else {
-        ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, 1)
-    }
-    .unwrap();
-    let mut gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
-    if matches!(reference, Some(ReceiverReference::LateCardRejection)) {
-        shadowed.late_card_casters_for_test(device);
-    }
-    let mut products = draw_receiver_frame(
-        context,
-        &mut renderer,
-        (&mut gpu, &pipelines),
-        &mut shadowed,
-        source,
-        camera,
-        motion,
-    );
-    assert_streamed_coverage(source, &mut shadowed);
-    // Production frames on a device with room for the Opaque depth must select the reject, so
-    // equality with WithoutCardReject is not vacuous.
-    let rejects = reference.is_none()
-        && context.adapter().get_info().backend != wgpu::Backend::Gl
-        && device.limits().max_sampled_textures_per_shader_stage >= 16;
-    assert_runtime_receiver(&renderer, &mut shadowed, rejects);
-    products.push(read_payload(context, shadowed.caster_texture_for_test()));
-    let payload = renderer
-        .ssao
-        .as_ref()
-        .unwrap()
-        .receiver
-        .as_ref()
-        .expect("paired shadows require stored displacements");
-    assert_eq!(
-        payload.layout,
-        if bias != 0.0 && gpu.has_transmission() {
-            ReceiverLayout::Opposing
+    ReceiverFrame::new(context, source, reference, bias)
+        .capture_with_view(context, source, reference, camera, motion)
+}
+
+struct ReceiverFrame {
+    renderer: FrameRenderer,
+    shadowed: crate::shadows::ShadowedScene,
+    pipelines: ScenePipelines,
+    gpu: SceneGpu,
+    bias: f32,
+}
+
+impl ReceiverFrame {
+    fn new(
+        context: &GpuContext,
+        source: &RenderScene,
+        reference: Option<ReceiverReference>,
+        bias: f32,
+    ) -> Self {
+        let device = context.device();
+        let reflection = source.effects().unwrap().ssr().is_some();
+        let size = if !reflection || reference.is_some_and(ReceiverReference::probe) {
+            [1453, 921]
         } else {
-            ReceiverLayout::Front
+            [257, 241]
+        };
+        let renderer = FrameRenderer::hdr(
+            context,
+            size,
+            COLOR_FORMAT,
+            1,
+            ToneMap::Reinhard,
+            source.effects(),
+        )
+        .unwrap();
+        let build: fn(&GpuContext, &RenderScene, _, _, _) -> _ = if reflection {
+            crate::shadows::ShadowedScene::with_taa_velocity
+        } else {
+            crate::shadows::ShadowedScene::with_target
+        };
+        let shadowed = build(
+            context,
+            source,
+            crate::shadows::DirectionalShadowSettings {
+                resolution: 256,
+                normal_bias_meters: bias,
+                ..super::shadow_settings()
+            },
+            TextureFormat::Rgba16Float,
+            1,
+        )
+        .unwrap();
+        let pipelines = if reflection {
+            ScenePipelines::with_ssao_taa_velocity(device, TextureFormat::Rgba16Float, 1)
+        } else {
+            ScenePipelines::with_ssao(device, TextureFormat::Rgba16Float, 1)
         }
-    );
-    products.extend(
-        payload
-            .textures
-            .iter()
-            .map(|texture| read_payload(context, texture)),
-    );
-    products
+        .unwrap();
+        let gpu = SceneGpu::upload(device, context.submission(), source, &pipelines).unwrap();
+        let mut shadowed = shadowed;
+        if matches!(reference, Some(ReceiverReference::LateCardRejection)) {
+            shadowed.late_card_casters_for_test(device);
+        }
+        Self {
+            renderer,
+            shadowed,
+            pipelines,
+            gpu,
+            bias,
+        }
+    }
+
+    fn capture(
+        &mut self,
+        context: &GpuContext,
+        source: &RenderScene,
+        reference: Option<ReceiverReference>,
+        pose: CameraPose,
+    ) -> Vec<Vec<u8>> {
+        self.capture_motion(context, source, reference, pose, false)
+    }
+
+    fn capture_motion(
+        &mut self,
+        context: &GpuContext,
+        source: &RenderScene,
+        reference: Option<ReceiverReference>,
+        pose: CameraPose,
+        motion: bool,
+    ) -> Vec<Vec<u8>> {
+        self.capture_with_view(
+            context,
+            source,
+            reference,
+            |viewport| {
+                SceneView::with_convention(
+                    pose,
+                    camera(),
+                    viewport,
+                    worldrunner_camera::ViewConvention {
+                        handedness: worldrunner_camera::ViewHandedness::DirectXLeftHanded,
+                    },
+                )
+                .unwrap()
+            },
+            motion,
+        )
+    }
+
+    fn capture_with_view(
+        &mut self,
+        context: &GpuContext,
+        source: &RenderScene,
+        reference: Option<ReceiverReference>,
+        camera: impl Fn(Viewport) -> SceneView,
+        motion: bool,
+    ) -> Vec<Vec<u8>> {
+        self.renderer.receiver_reference = reference;
+        let mut products = draw_receiver_frame(
+            context,
+            &mut self.renderer,
+            (&mut self.gpu, &self.pipelines),
+            &mut self.shadowed,
+            source,
+            camera,
+            motion,
+        );
+        assert_streamed_coverage(source, &mut self.shadowed);
+        // Production frames on a device with room for the Opaque depth must select the reject, so
+        // equality with WithoutCardReject is not vacuous.
+        let rejects = reference.is_none()
+            && context.adapter().get_info().backend != wgpu::Backend::Gl
+            && context
+                .device()
+                .limits()
+                .max_sampled_textures_per_shader_stage
+                >= 16;
+        assert_runtime_receiver(&self.renderer, &mut self.shadowed, rejects);
+        products.push(read_payload(
+            context,
+            self.shadowed.caster_texture_for_test(),
+        ));
+        let payload = self
+            .renderer
+            .ssao
+            .as_ref()
+            .unwrap()
+            .receiver
+            .as_ref()
+            .expect("paired shadows require stored displacements");
+        assert_eq!(
+            payload.layout,
+            if self.bias != 0.0 && self.gpu.has_transmission() {
+                ReceiverLayout::Opposing
+            } else {
+                ReceiverLayout::Front
+            }
+        );
+        assert_eq!(
+            payload.capture,
+            if matches!(reference, Some(ReceiverReference::MainArithmetic)) {
+                crate::scene_metadata::receiver::ReceiverCapture::MainArithmetic
+            } else if self.bias == 0.0
+                && !self.gpu.has_transmission()
+                && !matches!(reference, Some(ReceiverReference::NormalProducer))
+            {
+                crate::scene_metadata::receiver::ReceiverCapture::Position
+            } else {
+                crate::scene_metadata::receiver::ReceiverCapture::Normal
+            }
+        );
+        products.extend(
+            payload
+                .textures
+                .iter()
+                .map(|texture| read_payload(context, texture)),
+        );
+        products
+    }
 }
 
 fn draw_receiver_frame(
@@ -464,8 +555,18 @@ fn gpu_receiver_payload_fixture_detects_local_derivative_depth_state_changes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = sloped(true);
-    let shared = frame(&context, &source, Some(ReceiverReference::ProbeShared), 0.0);
-    let reuse = frame(&context, &source, Some(ReceiverReference::ProbeReuse), 0.0);
+    let shared = frame(
+        &context,
+        &source,
+        Some(ReceiverReference::HardwareProbeShared),
+        0.0,
+    );
+    let reuse = frame(
+        &context,
+        &source,
+        Some(ReceiverReference::HardwareProbeReuse),
+        0.0,
+    );
     let black = frame(&context, &source, Some(ReceiverReference::BlackShared), 0.0);
     assert!(
         shared[10] != black[10] || shared[11] != black[11],
@@ -489,7 +590,7 @@ fn gpu_receiver_payload_fixture_detects_local_derivative_depth_state_changes() {
     let independent = frame(
         &context,
         &source,
-        Some(ReceiverReference::ProbeIndependent),
+        Some(ReceiverReference::HardwareProbeIndependent),
         0.0,
     );
     let one_time = stored

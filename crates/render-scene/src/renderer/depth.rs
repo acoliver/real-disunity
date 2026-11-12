@@ -170,7 +170,12 @@ mod tests {
         };
         for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
             for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
-                let (object, terrain) = producer_sources(output, layout, 0.012);
+                let (object, terrain) = producer_sources(
+                    output,
+                    layout,
+                    0.012,
+                    crate::scene_metadata::receiver::ReceiverCapture::Normal,
+                );
                 for source in [&object, &terrain] {
                     assert_eq!(
                         DepthMode::Independent.vertex_source(source).as_ref(),

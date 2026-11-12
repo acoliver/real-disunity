@@ -136,9 +136,19 @@ fn replays() -> usize {
                 &frozen_source(term, replay),
             );
             let inputs = (group, screen.as_ref());
+            let before = pipelines.object_runtime_stats().pipelines_built;
             let drawn = read(&mut rig, term, |encoder, capture, gpu| {
                 capture.replay(encoder, gpu, &pipelines, inputs);
             });
+            assert_eq!(
+                pipelines.object_pipelines().built(),
+                0,
+                "{config}: the replay drew objects with the fixed pipelines"
+            );
+            assert!(
+                pipelines.object_runtime_stats().pipelines_built > before,
+                "{config}: the replay built no object pipeline on the program runtime"
+            );
             let mut calls = 0;
             let fixed = read(&mut rig, term, |encoder, capture, gpu| {
                 capture.record(encoder, inputs, |pass| {

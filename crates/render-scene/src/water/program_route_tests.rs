@@ -165,3 +165,31 @@ fn programs_carry_the_override_constants_of_both_stages() {
         );
     }
 }
+
+/// A key whose text reads endpoint coordinates, for a body that has none, is refused as an error
+/// rather than a panic: the endpoint bit and the body's seed are set in different places.
+#[test]
+fn an_endpoint_text_for_a_body_without_coordinates_is_refused() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
+    let vertices = context.device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("water vertices"),
+        size: 64,
+        usage: wgpu::BufferUsages::VERTEX,
+        mapped_at_creation: false,
+    });
+    assert!(matches!(
+        crate::water::program::vertex_inputs((&vertices, None), true),
+        Err(ProgramError::VertexBufferCount {
+            expected: 2,
+            found: 1
+        })
+    ));
+    assert_eq!(
+        crate::water::program::vertex_inputs((&vertices, None), false)
+            .unwrap()
+            .len(),
+        1,
+        "without the endpoint text the body draws from its vertices alone"
+    );
+}

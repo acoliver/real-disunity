@@ -237,3 +237,6 @@ fn forward_rejection_defers_auxiliary_reads_and_lighting() {
     }
     assert_eq!(deferred, 3);
 }
+
+#[path = "receiver_producer_tests.rs"]
+mod receiver_producer;

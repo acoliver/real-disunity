@@ -21,7 +21,9 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
-use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, camera_layer, draw_layer};
+use super::builtins::{
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
+};
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
 use super::pixels::{self, Wanted};
@@ -656,6 +658,7 @@ impl<'a> Mapper<'a> {
         };
         let mut values = camera_layer(view, texels(size[0]) / texels(size[1]));
         add_main_light(&mut values, &self.snapshot.lights);
+        add_screen_size(&mut values, size);
         Camera {
             culling_mask: view.settings.culling_mask,
             clear_color,

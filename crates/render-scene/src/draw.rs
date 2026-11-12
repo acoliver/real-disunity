@@ -380,7 +380,9 @@ impl SceneGpu {
             objects,
             meshes,
             mesh_selection: prepared.selection,
-            instances: Instances::new(scene).tracking_previous(pipelines.writes_velocity()),
+            instances: Instances::new(scene)
+                .tracking_previous(pipelines.writes_velocity())
+                .counted(authority.census().clone()),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
             views: Default::default(),

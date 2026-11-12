@@ -36,8 +36,12 @@ impl SceneGpu {
         Draw {
             pipeline,
             material,
-            instances: batch.buffer.clone().expect("flushed instance buffer"),
-            previous: batch.previous.clone(),
+            instances: batch
+                .buffer
+                .as_deref()
+                .cloned()
+                .expect("flushed instance buffer"),
+            previous: batch.previous.as_deref().cloned(),
             vertices: lod.vertices.clone(),
             transition: lod
                 .transition

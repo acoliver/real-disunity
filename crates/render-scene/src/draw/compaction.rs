@@ -219,11 +219,11 @@ impl SceneGpu {
             .iter()
             .map(|copy| {
                 let batch = self.instances.batches.get(&copy.key)?;
-                let current = batch.buffer.as_ref()?;
+                let current = batch.buffer.as_deref()?;
                 Some(Source {
                     current,
                     previous: if previous {
-                        Some(batch.previous.as_ref()?)
+                        Some(batch.previous.as_deref()?)
                     } else {
                         None
                     },

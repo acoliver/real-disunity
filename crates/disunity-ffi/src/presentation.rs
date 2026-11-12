@@ -170,6 +170,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
     mutate(world, |s| {
         use worldrunner_world_simulation::{
             presentation::{
+                camera_data::presented_render_shadows,
                 extraction::{SpriteTextures, append_ui_from, extract_world},
                 light_views::extract_lights,
                 mesh_objects::extract_mesh_objects,
@@ -188,6 +189,8 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         let mesh_objects =
             extract_mesh_objects(&s.native).map_err(crate::errors::AbiError::from)?;
         let lights = extract_lights(&s.native).map_err(crate::errors::AbiError::from)?;
+        let render_shadows =
+            presented_render_shadows(&s.native).map_err(crate::errors::AbiError::from)?;
         // Graphics go in first, so the engine's own text of the same sorting key draws over them.
         append_graphics(&mut plan, graphics)
             .map_err(|e| crate::errors::AbiError::from(e.to_string()))?;
@@ -200,6 +203,7 @@ pub unsafe extern "C" fn disunity_presentation_prepare(
         s.ui_presentation = Some(ui_presentation);
         s.mesh_objects = mesh_objects;
         s.lights = lights;
+        s.render_shadows = render_shadows;
         unsafe {
             *output = header;
         }

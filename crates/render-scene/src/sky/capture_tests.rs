@@ -39,15 +39,15 @@ use worldrunner_render_plan::*;
 /// The capture is `SIZE` by `SIZE` pixels.
 const SIZE: u32 = 64;
 
-struct Case {
+pub(super) struct Case {
     name: &'static str,
-    sky: SceneAtmosphere,
+    pub(super) sky: SceneAtmosphere,
     convention: SceneSpecularConvention,
     left_handed: bool,
 }
 
 impl Case {
-    fn base() -> Self {
+    pub(super) fn base() -> Self {
         let mut sky = atmosphere(0);
         // Fifteen degrees off the view axis, so the left-handed mirror is not the same image.
         sky.meshes[0].direction = SceneDirection::new([258_819, 965_926, 0]).unwrap();
@@ -212,7 +212,7 @@ fn effects(sky: SceneAtmosphere) -> SceneEffects {
     .unwrap()
 }
 
-fn scene(case: &Case) -> RenderScene {
+pub(super) fn scene(case: &Case) -> RenderScene {
     RenderScene::new(SceneParts {
         resources: SceneResources::new(
             textures_with_normal(),
@@ -236,7 +236,7 @@ fn scene(case: &Case) -> RenderScene {
 }
 
 /// A perspective camera at the origin looking along +Y at the body, Z up.
-fn view(left_handed: bool) -> SceneView {
+pub(super) fn view(left_handed: bool) -> SceneView {
     let handedness = if left_handed {
         worldrunner_camera::ViewHandedness::DirectXLeftHanded
     } else {
@@ -263,7 +263,7 @@ fn view(left_handed: bool) -> SceneView {
 
 /// The frame's resolved colour and depth.
 #[derive(PartialEq)]
-struct Image {
+pub(super) struct Image {
     color: Vec<u8>,
     depth: Vec<u8>,
 }
@@ -285,8 +285,9 @@ fn target(device: &wgpu::Device, format: wgpu::TextureFormat) -> wgpu::Texture {
     })
 }
 
-/// Encodes one frame of `gpu` with its celestial meshes recording as `recorder` says.
-fn render(
+/// Encodes one frame of `gpu` with its celestial meshes, if it has any, recording as `recorder`
+/// says.
+pub(super) fn render(
     context: &GpuContext,
     (gpu, pipelines): (&mut SceneGpu, &ScenePipelines),
     frame: &FrameUniform,
@@ -294,10 +295,9 @@ fn render(
 ) -> Image {
     use worldrunner_render_post::{AttachmentView, ResourceRef};
     let device = context.device();
-    gpu.celestial_meshes()
-        .expect("the scene has celestial meshes")
-        .recorder
-        .set(recorder);
+    if let Some(meshes) = gpu.celestial_meshes() {
+        meshes.recorder.set(recorder);
+    }
     let color = target(device, wgpu::TextureFormat::Rgba16Float);
     let depth = target(device, wgpu::TextureFormat::Depth32Float);
     let rows = [SIZE * 8, SIZE * 4];

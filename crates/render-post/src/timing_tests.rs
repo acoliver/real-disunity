@@ -360,6 +360,7 @@ fn fixture(
             samples: 1,
             load: AttachmentLoad::ClearDepth(1.0),
             store: wgpu::StoreOp::Store,
+            read_only: false,
         });
         passes.push(pass);
     }
@@ -371,6 +372,7 @@ fn fixture(
         samples: 4,
         load: AttachmentLoad::ClearColor(wgpu::Color::BLACK),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     opaque.depth = Some(AttachmentDeclaration {
         resource: depth,
@@ -379,6 +381,7 @@ fn fixture(
         samples: 4,
         load: AttachmentLoad::ClearDepth(1.0),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     passes.push(opaque);
     (passes, views)

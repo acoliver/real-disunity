@@ -9,6 +9,7 @@ use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Re
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
     MaterialId, OffscreenWork, PropertyValue as WorldValue, RendererListDesc, TargetRef,
+    WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::Camera;
 use worldrunner_world_simulation::{
@@ -553,6 +554,15 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
         values.get("_MainLightPosition"),
         Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
     );
+    // The script's projection is the identity, which has no perspective divide.
+    assert_eq!(
+        values.get("unity_OrthoParams"),
+        Some(&PropertyValue::Vector([0.0, 0.0, 0.0, 1.0]))
+    );
+    assert_eq!(
+        values.get("_ScreenParams"),
+        Some(&PropertyValue::Vector([8.0, 8.0, 0.0, 0.0]))
+    );
     assert_eq!(
         values.get("unity_MatrixV"),
         Some(&PropertyValue::Matrix([
@@ -724,4 +734,42 @@ fn a_draw_into_a_camera_with_part_of_its_target_is_skipped_by_reason() {
     );
     assert_eq!(adapted.report.skipped.get(&Skip::PartialViewport), Some(&2));
     assert!(lists(&adapted).is_empty());
+}
+
+#[test]
+fn a_draw_into_a_mip_has_the_size_of_that_mip() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    let mipped = world
+        .create_render_texture(WorldRenderTexture {
+            width: 16,
+            height: 8,
+            format: 8,
+            depth_bits: 0,
+            mip_count: 3,
+            srgb: false,
+            dimension: 2,
+            volume_depth: 1,
+            sampler: WorldSampler::default(),
+            generation: 0,
+        })
+        .unwrap();
+    world
+        .record_offscreen(OffscreenWork::SetRenderTarget {
+            color: vec![TargetRef::Render(mipped)],
+            depth: None,
+            mip: 2,
+            face: -1,
+            slice: -1,
+        })
+        .unwrap();
+    draw(&mut world, drawing(&[FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    assert_eq!(
+        lists(&adapted)[0].values.values.get("_ScreenParams"),
+        Some(&PropertyValue::Vector([4.0, 2.0, 0.0, 0.0])),
+        "level 2 of a 16 by 8 texture is 4 by 2"
+    );
 }

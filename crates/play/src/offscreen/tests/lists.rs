@@ -554,10 +554,15 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
         values.get("_MainLightPosition"),
         Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
     );
-    // The script's projection is the identity, which has no perspective divide.
+    // The script's projection is the identity, which has no perspective divide and puts the
+    // near plane at 1.
     assert_eq!(
         values.get("unity_OrthoParams"),
         Some(&PropertyValue::Vector([0.0, 0.0, 0.0, 1.0]))
+    );
+    assert_eq!(
+        values.get("_ProjectionParams"),
+        Some(&PropertyValue::Vector([1.0, 1.0, 0.0, 0.0]))
     );
     assert_eq!(
         values.get("_ScreenParams"),
@@ -771,5 +776,29 @@ fn a_draw_into_a_mip_has_the_size_of_that_mip() {
         lists(&adapted)[0].values.values.get("_ScreenParams"),
         Some(&PropertyValue::Vector([4.0, 2.0, 0.0, 0.0])),
         "level 2 of a 16 by 8 texture is 4 by 2"
+    );
+}
+
+#[test]
+fn a_draw_into_a_depth_target_alone_has_the_size_of_the_depth_target() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    let depth = render_texture(&mut world, [6, 2]);
+    world
+        .record_offscreen(OffscreenWork::SetRenderTarget {
+            color: Vec::new(),
+            depth: Some(TargetRef::Render(depth)),
+            mip: 0,
+            face: -1,
+            slice: -1,
+        })
+        .unwrap();
+    draw(&mut world, drawing(&[FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    assert_eq!(
+        lists(&adapted)[0].values.values.get("_ScreenParams"),
+        Some(&PropertyValue::Vector([6.0, 2.0, 0.0, 0.0]))
     );
 }

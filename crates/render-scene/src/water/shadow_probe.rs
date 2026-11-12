@@ -1,13 +1,12 @@
 use super::*;
 
 pub(crate) fn install_source(
-    device: &wgpu::Device,
-    frame: &mut crate::compositor::FrameRenderer,
+    frame: &crate::compositor::FrameRenderer,
     convention: worldrunner_render_plan::SceneSpecularConvention,
     raw: bool,
     mut source: String,
 ) {
-    let water = frame.water.as_mut().unwrap();
+    let water = frame.water.as_ref().unwrap();
     let base = convention.shader_options();
     let options = [
         base[0],
@@ -33,9 +32,5 @@ pub(crate) fn install_source(
     if water.settings[0].material.shadow_response.is_some() {
         compiled_options[4] |= shadow_response::SPECIALIZATION;
     }
-    let pipeline = pipeline_with_source(device, 4, &water.layout, true, compiled_options, &source);
-    water.specializations.borrow_mut().insert(
-        (options, crate::renderer::depth::DepthMode::Independent),
-        [pipeline.clone(), pipeline],
-    );
+    water.substitute((options, true), &source, compiled_options);
 }

@@ -3,6 +3,7 @@ mod endpoint;
 mod geometry;
 mod optics;
 pub(crate) mod planning;
+mod program;
 pub(crate) mod reactive;
 pub(crate) mod receivers;
 pub(crate) mod shadow_filter;
@@ -154,13 +155,10 @@ pub(crate) struct Water {
     pub settings: std::sync::Arc<[SceneWaterBody]>,
     bodies: std::sync::Arc<[Body]>,
     pub snapshots: [Snapshots; 3],
-    pipeline: wgpu::RenderPipeline,
-    shadow_pipeline: wgpu::RenderPipeline,
-    seed_pipelines: std::collections::BTreeMap<u32, [wgpu::RenderPipeline; 2]>,
+    /// The runtime and programs the bodies draw with, shared by every feature made from this
+    /// water and by its resized replacements.
+    programs: std::rc::Rc<std::cell::RefCell<program::Programs>>,
     layout: wgpu::BindGroupLayout,
-    specializations: std::rc::Rc<
-        std::cell::RefCell<std::collections::BTreeMap<RasterKey, [wgpu::RenderPipeline; 2]>>,
-    >,
     samples: u32,
     depth: DepthMode,
     reactive: reactive::Reactive,
@@ -177,7 +175,9 @@ impl Water {
         device: &wgpu::Device,
         config: worldrunner_render_post::FrameConfig,
     ) -> Result<Self, FrameError> {
-        let mut replacement = Self::new(device, config, self.settings.to_vec())?;
+        let authority = self.programs.borrow().runtime().authority().clone();
+        let mut replacement = Self::new(device, &authority, config, self.settings.to_vec())?;
+        replacement.programs = self.programs.clone();
         replacement.environment.clone_from(&self.environment);
         replacement.environment_intensity_micro = self.environment_intensity_micro;
         replacement.surface_inputs.clone_from(&self.surface_inputs);
@@ -185,6 +185,7 @@ impl Water {
     }
     pub fn new(
         device: &wgpu::Device,
+        authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
         config: worldrunner_render_post::FrameConfig,
         settings: Vec<SceneWaterBody>,
     ) -> Result<Self, FrameError> {
@@ -208,8 +209,6 @@ impl Water {
             ));
         }
         let layout = input_layout(device);
-        let plain_pipeline = pipeline(device, config.samples, &layout, false, [0; 5]);
-        let shadow_pipeline = pipeline(device, config.samples, &layout, true, [0; 5]);
         let bodies = geometry
             .into_iter()
             .zip(&settings)
@@ -238,46 +237,45 @@ impl Water {
             bodies,
             settings: settings.into(),
             snapshots: std::array::from_fn(|_| Snapshots::new(device, config)),
-            specializations: std::rc::Rc::default(),
+            programs: std::rc::Rc::new(std::cell::RefCell::new(program::Programs::new(
+                device, authority,
+            ))),
             samples: config.samples,
             depth: DepthMode::Independent,
             reactive: reactive::Reactive::default(),
-            pipeline: plain_pipeline,
-            shadow_pipeline,
-            seed_pipelines: std::collections::BTreeMap::new(),
             layout,
         })
     }
     #[cfg(test)]
     pub fn feature(
         &self,
-        device: &wgpu::Device,
+        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
         frame: &FrameUniform,
         timing: (f32, usize),
         inputs: (Option<&wgpu::BindGroup>, Option<&wgpu::Texture>),
     ) -> WaterFeature {
-        self.feature_with_depth(device, frame, timing, inputs, DepthMode::Independent)
+        self.feature_with_depth(gpu, frame, timing, inputs, DepthMode::Independent)
+            .expect("the test frame belongs to water's authority")
     }
 
+    /// The feature of frame slot `timing.1`, its body draws prepared for passes with `depth`
+    /// and retained by `encoder`'s frame.
+    ///
+    /// # Errors
+    /// Fails when a body's program cannot be built or its draw prepared, and with
+    /// `ForeignAuthority` when `encoder` is a frame of another authority than the one water was
+    /// installed with.
     pub fn feature_with_depth(
         &self,
-        device: &wgpu::Device,
+        (device, encoder): (&wgpu::Device, &wgpu::CommandEncoder),
         frame: &FrameUniform,
         timing: (f32, usize),
         inputs: (Option<&wgpu::BindGroup>, Option<&wgpu::Texture>),
         depth: DepthMode,
-    ) -> WaterFeature {
+    ) -> Result<WaterFeature, worldrunner_render_program::error::ProgramError> {
         let (time, slot) = timing;
         let (shadow, mask) = inputs;
         let snapshots = &self.snapshots[slot];
-        let groups = self
-            .bodies
-            .iter()
-            .enumerate()
-            .map(|(index, body)| {
-                self.snapshot_group(device, snapshots, &body.uniforms[slot], index)
-            })
-            .collect();
         let mut water = self.clone();
         water.depth = depth;
         let base = frame.specular_convention.shader_options();
@@ -288,68 +286,88 @@ impl Water {
             base[3],
             terms::mask(&self.settings),
         ];
-        if options != [0; 5] || depth != DepthMode::Independent {
-            let selected = water.specialized_pipelines(device, options);
-            water.pipeline = selected[0].clone();
-            water.shadow_pipeline = selected[1].clone();
-        }
-        for body in self.settings.iter() {
-            let key = vertex_seeds::key(body);
-            if key != 0 && !water.seed_pipelines.contains_key(&key) {
-                let mut seed_options = options;
-                seed_options[4] |= key;
-                water
-                    .seed_pipelines
-                    .insert(key, water.specialized_pipelines(device, seed_options));
-            }
-        }
+        let draws = water.body_draws((options, shadow.is_some()), slot, encoder)?;
         let mask = water.mask_draw(device, mask, options);
-        WaterFeature {
+        // The reactive mask still binds the fixed groups, and so does the frozen reference.
+        let groups = if mask.is_some() || cfg!(test) {
+            self.bodies
+                .iter()
+                .enumerate()
+                .map(|(index, body)| {
+                    self.snapshot_group(device, snapshots, &body.uniforms[slot], index)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Ok(WaterFeature {
             water,
             snapshots: snapshots.clone(),
             frame: *frame,
             time,
             slot,
+            draws,
             groups,
             shadow: shadow.cloned(),
             mask,
-        }
+        })
+    }
+
+    /// Draws bodies of `key` with `source` compiled for `options` in place of the composed text.
+    #[cfg(test)]
+    pub(crate) fn substitute(&self, key: ([u32; 5], bool), source: &str, options: [u32; 5]) {
+        self.programs.borrow_mut().substitute(key, source, options);
+    }
+
+    /// The prepared draw of each body with vertices, `None` for one without, for frame slot
+    /// `slot`. A body draws with the frame's options and its own vertex seed key.
+    fn body_draws(
+        &self,
+        (options, shadows): ([u32; 5], bool),
+        slot: usize,
+        encoder: &wgpu::CommandEncoder,
+    ) -> Result<
+        Vec<Option<worldrunner_render_program::runtime::PreparedProgramDraw>>,
+        worldrunner_render_program::error::ProgramError,
+    > {
+        let mut programs = self.programs.borrow_mut();
+        let snapshots = &self.snapshots[slot];
+        let owner: worldrunner_render_program::runtime::Keepalive =
+            std::sync::Arc::new(self.bodies.clone());
+        self.bodies
+            .iter()
+            .zip(self.settings.iter())
+            .enumerate()
+            .map(|(index, (body, settings))| {
+                if body.vertices == 0 {
+                    return Ok(None);
+                }
+                let mut key = options;
+                key[4] |= vertex_seeds::key(settings);
+                let inputs = program::BodyInputs {
+                    uniform: &body.uniforms[slot],
+                    snapshot_color: &snapshots.color,
+                    snapshot_depth: &snapshots.depth,
+                    environment: &self.environment,
+                    sampler: &self.sampler,
+                    surface: self.surface_inputs[index].each_ref().map(Option::as_ref),
+                    surface_sampler: &self.surface_samplers[index],
+                    vertices: (&body.buffer, body.vertices),
+                    seed: body.seed.as_ref(),
+                };
+                programs
+                    .prepare(
+                        ((key, shadows), self.depth, self.samples),
+                        &inputs,
+                        &owner,
+                        encoder,
+                    )
+                    .map(Some)
+            })
+            .collect()
     }
 }
 impl Water {
-    fn specialized_pipelines(
-        &self,
-        device: &wgpu::Device,
-        options: [u32; 5],
-    ) -> [wgpu::RenderPipeline; 2] {
-        self.specializations
-            .borrow_mut()
-            .entry((options, self.depth))
-            .or_insert_with(|| {
-                [false, true].map(|shadows| {
-                    pipeline_with_source_depth(
-                        device,
-                        self.samples,
-                        &self.layout,
-                        shadows,
-                        options,
-                        &water_source(shadows),
-                        self.depth,
-                    )
-                })
-            })
-            .clone()
-    }
-    fn body_pipeline(&self, index: usize, shadows: bool) -> &wgpu::RenderPipeline {
-        let key = vertex_seeds::key(&self.settings[index]);
-        if key != 0 {
-            &self.seed_pipelines[&key][usize::from(shadows)]
-        } else if shadows {
-            &self.shadow_pipeline
-        } else {
-            &self.pipeline
-        }
-    }
     fn snapshot_group(
         &self,
         device: &wgpu::Device,
@@ -424,105 +442,6 @@ fn texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         count: None,
     }
 }
-fn pipeline(
-    device: &wgpu::Device,
-    samples: u32,
-    layout: &wgpu::BindGroupLayout,
-    shadows: bool,
-    options: [u32; 5],
-) -> wgpu::RenderPipeline {
-    pipeline_with_source(
-        device,
-        samples,
-        layout,
-        shadows,
-        options,
-        &water_source(shadows),
-    )
-}
-fn pipeline_with_source(
-    device: &wgpu::Device,
-    samples: u32,
-    layout: &wgpu::BindGroupLayout,
-    shadows: bool,
-    options: [u32; 5],
-    source: &str,
-) -> wgpu::RenderPipeline {
-    pipeline_with_source_depth(
-        device,
-        samples,
-        layout,
-        shadows,
-        options,
-        source,
-        DepthMode::Independent,
-    )
-}
-fn pipeline_with_source_depth(
-    device: &wgpu::Device,
-    samples: u32,
-    layout: &wgpu::BindGroupLayout,
-    shadows: bool,
-    options: [u32; 5],
-    source: &str,
-    depth: DepthMode,
-) -> wgpu::RenderPipeline {
-    let buffers = geometry::layouts(options[4] & endpoint::SPECIALIZATION != 0);
-    let source = shadow_response::specialize(source, options[4], shadows);
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("planar water"),
-        source: wgpu::ShaderSource::Wgsl(vertex_seeds::specialize(&source, options[4])),
-    });
-    let vertex_constants = terms::vertex_constants(options);
-    let shadow_layout = crate::shadows::water_layout(device);
-    let layouts = if shadows {
-        vec![Some(layout), Some(&shadow_layout)]
-    } else {
-        vec![Some(layout)]
-    };
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("water"),
-        bind_group_layouts: &layouts,
-        immediate_size: 0,
-    });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("water"),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &module,
-            entry_point: Some("vs_water"),
-            compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &vertex_constants,
-                ..Default::default()
-            },
-            buffers: &buffers,
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &module,
-            entry_point: Some("fs_water"),
-            compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &terms::constants(options),
-                ..Default::default()
-            },
-            targets: &std::array::from_fn::<_, 4, _>(|_| {
-                Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba16Float,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })
-            }),
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: Some(depth.state(true)),
-        multisample: wgpu::MultisampleState {
-            count: samples,
-            ..Default::default()
-        },
-        multiview_mask: None,
-        cache: None,
-    })
-}
-
 pub(crate) fn water_source(shadows: bool) -> String {
     let shadow_source = if shadows {
         format!(
@@ -568,6 +487,10 @@ pub(crate) struct WaterFeature {
     frame: FrameUniform,
     time: f32,
     slot: usize,
+    /// Each body's draw, prepared and retained by the frame; `None` for a body without vertices.
+    draws: Vec<Option<worldrunner_render_program::runtime::PreparedProgramDraw>>,
+    /// The fixed groups of the reactive mask, built only when the mask draws, and in tests for
+    /// the frozen reference.
     groups: Vec<wgpu::BindGroup>,
     shadow: Option<wgpu::BindGroup>,
     mask: Option<reactive::MaskDraw>,
@@ -676,18 +599,9 @@ impl PreparedFeature for WaterFeature {
                 if let Some(shadow) = &self.shadow {
                     pass.set_bind_group(1, shadow, &[]);
                 }
-                for (index, (body, group)) in self.water.bodies.iter().zip(&self.groups).enumerate()
-                {
-                    if body.vertices != 0 {
-                        pass.set_pipeline(self.water.body_pipeline(index, self.shadow.is_some()));
-                        pass.set_bind_group(0, group, &[]);
-                        pass.set_vertex_buffer(0, body.buffer.slice(..));
-                        if let Some(seed) = &body.seed {
-                            pass.set_vertex_buffer(1, seed.slice(..));
-                        }
-                        pass.draw(0..body.vertices, 0..1);
-                        count.draw(1);
-                    }
+                for draw in self.draws.iter().flatten() {
+                    draw.record(pass);
+                    count.draw(1);
                 }
                 self.water.draw_count.record(count);
             }

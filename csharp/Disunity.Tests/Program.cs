@@ -396,6 +396,7 @@ EnabledTests.Run();
 PlayerServiceTests.Run();
 PlayerCommandLineTests.Run();
 PlayerScreenTests.Run();
+PlayerDeviceTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();

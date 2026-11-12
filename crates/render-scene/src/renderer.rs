@@ -48,14 +48,10 @@ pub(crate) mod depth;
 pub(crate) mod legacy_objects;
 #[cfg(test)]
 pub(crate) mod legacy_terrain;
-#[cfg(test)]
-mod objects;
 pub(crate) mod overlay;
 mod specular;
 mod terrain_access;
 mod unlit;
-#[cfg(test)]
-pub(crate) use objects::ObjectPipelines;
 pub(crate) use specular::{constants as specular_constants, unlit_source};
 
 use depth::DepthMode;
@@ -90,10 +86,6 @@ pub struct ScenePipelines {
     pub(crate) depth: DepthMode,
     frame_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
-    /// The fixed object pipelines, kept for the tests that compare against them. No pass draws
-    /// with them, so production builds neither them nor the shader module they compile.
-    #[cfg(test)]
-    pipelines: ObjectPipelines,
     /// Terrain programs of this context on the program runtime.
     terrain_context: crate::terrain::program::Context,
     /// Object programs of this context on the program runtime, which draw the forward passes.
@@ -264,23 +256,6 @@ impl ScenePipelines {
         let frame_layout = frame_bind_group_layout(device);
         let material_layout = material_bind_group_layout(device);
         let targets = source_targets(source, color_format);
-        #[cfg(test)]
-        let pipelines = {
-            let groups = pipeline_groups(
-                &frame_layout,
-                &material_layout,
-                shadow_layout,
-                screen_layout,
-            );
-            ObjectPipelines::new(
-                device,
-                &scene_layout(device, "environment", &groups),
-                &targets,
-                &scene_shader(device, "environment", source),
-                (samples, &constants, options.1),
-                (source.contains(crate::velocity::MARKER), options.2),
-            )
-        };
         let terrain_context = crate::terrain::program::Context::new(
             crate::terrain::program::Description {
                 device: device.clone(),
@@ -330,8 +305,6 @@ impl ScenePipelines {
             velocity: source.contains(crate::velocity::MARKER),
             frame_layout,
             material_layout,
-            #[cfg(test)]
-            pipelines,
             unlit_colors: targets.iter().flatten().map(|t| t.format).collect(),
         }
     }
@@ -354,13 +327,6 @@ impl ScenePipelines {
     /// The shader source the dynamic unlit-alpha material's entry points are read from.
     pub(crate) fn unlit_source(&self) -> &str {
         self.specialization.unlit_source()
-    }
-
-    /// The fixed object pipelines, which no pass draws with any more; tests still compare
-    /// against them and count what they compiled.
-    #[cfg(test)]
-    pub(crate) const fn object_pipelines(&self) -> &ObjectPipelines {
-        &self.pipelines
     }
 
     /// Returns the layout frame bind groups must be built against.
@@ -392,19 +358,6 @@ pub(crate) fn vertex_buffers<'a>(
             attributes: instances,
         }),
     ]
-}
-
-#[cfg(test)]
-/// The third vertex buffer of velocity pipelines: each instance's previous-frame transform, laid
-/// out like the instance buffer so one stride and one set of offsets serve both.
-pub(crate) fn previous_instance_buffer(
-    attributes: &[wgpu::VertexAttribute],
-) -> VertexBufferLayout<'_> {
-    VertexBufferLayout {
-        array_stride: INSTANCE_STRIDE,
-        step_mode: VertexStepMode::Instance,
-        attributes,
-    }
 }
 
 #[cfg(test)]

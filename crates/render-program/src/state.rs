@@ -82,6 +82,7 @@ impl RenderState {
 
     /// No culling, no depth, one target written in all channels without blending: the state of
     /// a triangle that covers a target.
+    #[cfg(feature = "unity")]
     #[must_use]
     pub(crate) fn fullscreen() -> Self {
         Self {

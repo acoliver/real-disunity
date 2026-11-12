@@ -46,6 +46,8 @@ pub(super) trait WindowControls: Send + Sync {
     fn set_cursor_visible(&self, visible: bool);
     fn inner_size(&self) -> winit::dpi::PhysicalSize<u32>;
     fn set_text_input_area(&self, area: Option<[f64; 4]>);
+    fn set_window_mode(&self, mode: crate::WindowMode);
+    fn display(&self) -> Option<crate::DisplayInfo>;
 }
 
 impl WindowControls for Window {
@@ -63,6 +65,19 @@ impl WindowControls for Window {
 
     fn inner_size(&self) -> winit::dpi::PhysicalSize<u32> {
         Window::inner_size(self)
+    }
+
+    fn set_window_mode(&self, mode: crate::WindowMode) {
+        let fullscreen = mode.fullscreen();
+        let windowed = fullscreen.is_none();
+        self.set_fullscreen(fullscreen);
+        if windowed {
+            self.set_maximized(mode == crate::WindowMode::Maximized);
+        }
+    }
+
+    fn display(&self) -> Option<crate::DisplayInfo> {
+        crate::window_size::display_info(self)
     }
 
     fn set_text_input_area(&self, area: Option<[f64; 4]>) {
@@ -201,6 +216,20 @@ impl RetainedHost {
         let window = self.input_state.window.cursor()?;
         window.set_cursor_visible(visible);
         Ok(())
+    }
+
+    /// Requests a window placement immediately; the window system can constrain it.
+    /// The resulting surface arrives as `RetainedInput::Resized`, through the same
+    /// reconfiguration and presentation budget as a user resize.
+    pub fn set_window_mode(&mut self, mode: crate::WindowMode) -> Result<(), WindowControlError> {
+        self.input_state.window.native()?.set_window_mode(mode);
+        Ok(())
+    }
+
+    /// The monitor the native window currently occupies, or `None` when the platform
+    /// cannot identify it. Valid from the first `RetainedInput::DisplayChanged`.
+    pub fn display(&self) -> Result<Option<crate::DisplayInfo>, WindowControlError> {
+        Ok(self.input_state.window.native()?.display())
     }
 }
 

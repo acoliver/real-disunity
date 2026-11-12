@@ -66,9 +66,7 @@ fn sample(
             timeout: Some(std::time::Duration::from_secs(30)),
         })
         .unwrap();
-    chain
-        .take_timings()
-        .unwrap()
+    crate::timing_test_support::take_frames(device, 1, || chain.take_timings())
         .pop()
         .expect("required timestamp result")
 }

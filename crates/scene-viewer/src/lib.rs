@@ -33,7 +33,7 @@ pub use capture_pool::CapturePoolPolicy;
 pub use presentation_budget::{PresentationBudget, PresentationBudgetPolicy};
 mod window_size;
 pub use presentation::planning::{PresentationCapture, PresentationPlanning, plan_presentation};
-pub use window_size::WindowSizeUnit;
+pub use window_size::{DisplayInfo, WindowMode, WindowSizeUnit};
 mod renderer;
 mod retained;
 mod world_edits;
@@ -76,6 +76,8 @@ pub struct ViewerOptions {
     pub title: String,
     /// Unit of the initial desktop size request. Resize events remain physical.
     pub window_size_unit: WindowSizeUnit,
+    /// Window placement: windowed (default), maximized or borderless fullscreen.
+    pub window_mode: WindowMode,
     /// Initial window dimensions; each must be in `1..=4096`.
     pub size: [u32; 2],
     /// Initial Z-up scene-space camera pose, restored exactly by R/Home.

@@ -145,6 +145,41 @@ impl Drop for SceneTestSession {
     }
 }
 
+/// Takes timings until `count` frames have arrived, waiting on `device` between takes. A frame's
+/// timestamps are resolved by a submission that a take makes once the frame has completed, so they
+/// arrive over at least two takes. With `count` zero it takes once.
+///
+/// # Panics
+/// Panics when a take fails or the frames have not arrived within ten seconds.
+pub fn take_timings(
+    device: &wgpu::Device,
+    count: usize,
+    mut take: impl FnMut() -> Result<
+        Vec<worldrunner_render_post::FrameTiming>,
+        worldrunner_render_post::TimingError,
+    >,
+) -> Vec<worldrunner_render_post::FrameTiming> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut frames = Vec::new();
+    loop {
+        frames.extend(take().expect("timings"));
+        if frames.len() >= count {
+            return frames;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{} of {count} frame timings arrived",
+            frames.len()
+        );
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(1)),
+            })
+            .expect("wait for the timestamp resolve");
+    }
+}
+
 #[cfg(test)]
 mod teardown_tests;
 

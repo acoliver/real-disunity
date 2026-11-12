@@ -205,6 +205,7 @@ fn frame_plan(
         samples: 1,
         load,
         store: wgpu::StoreOp::Store,
+        read_only: false,
     };
     let mut opaque = PassDeclaration::new(PassSlot::Opaque);
     opaque.color = Some(attachment(

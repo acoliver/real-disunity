@@ -8,10 +8,12 @@ impl App<'_> {
         let size = self.content.size();
         let window = Arc::new(
             event_loop.create_window(
-                Window::default_attributes()
-                    .with_title(self.content.title())
-                    .with_inner_size(self.content.window_size_unit().creation_size(size))
-                    .with_visible(false),
+                self.content.window_mode().attributes(
+                    Window::default_attributes()
+                        .with_title(self.content.title())
+                        .with_inner_size(self.content.window_size_unit().creation_size(size))
+                        .with_visible(false),
+                ),
             )?,
         );
         if let Some(accessibility) = self.content.accessibility() {

@@ -13,6 +13,7 @@ mod codec;
 mod command_parts;
 mod context_parts;
 mod graphics_parts;
+mod light_parts;
 mod readback_parts;
 mod renderer_list_parts;
 mod scene_parts;

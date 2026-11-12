@@ -363,13 +363,6 @@ impl ScenePipelines {
         &self.pipelines
     }
 
-    /// The fixed pipeline of one material state, for the tests that compare against it.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn get(&self, key: PipelineKey) -> &RenderPipeline {
-        &self.pipelines[key.index()]
-    }
-
     /// Returns the layout frame bind groups must be built against.
     #[must_use]
     pub const fn frame_layout(&self) -> &BindGroupLayout {

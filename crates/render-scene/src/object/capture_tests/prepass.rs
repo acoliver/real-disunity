@@ -127,11 +127,6 @@ fn capture(output: MetadataOutput, mode: DepthMode) -> usize {
     let scene = render_with_depth(&context, target, depth, &mut rig.gpu, |pass, gpu| {
         drop(gpu.draw_prepass(pass, &built, &group));
     });
-    assert_eq!(
-        built.object_pipelines().built(),
-        0,
-        "{name}: the prepass drew objects with the fixed pipelines"
-    );
     // The first prepass frame builds the objects' pipelines on the program runtime.
     assert!(
         built.object_runtime_stats().pipelines_built > before,

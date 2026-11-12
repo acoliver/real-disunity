@@ -356,6 +356,13 @@ impl ScenePipelines {
     }
 }
 
+/// Which object programs a selection draws with: two selections share their programs exactly when
+/// they share the context.
+#[cfg(test)]
+fn id(pipelines: &ScenePipelines) -> u64 {
+    pipelines.object_context().id()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,7 +376,6 @@ mod tests {
         let _session = crate::test_support::SceneTestSession::acquire();
         let context = crate::device::GpuContext::shared_for_test().unwrap();
         let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-        let key = crate::pipeline::PipelineKey::ALL[0];
         for roughness in [
             SceneRoughnessRemap::Perceptual045,
             SceneRoughnessRemap::Perceptual04,
@@ -391,11 +397,11 @@ mod tests {
                     };
                     let first = pipelines.for_convention(convention);
                     let again = pipelines.for_convention(convention);
-                    assert_eq!(first.get(key), again.get(key));
+                    assert_eq!(id(&first), id(&again));
                     if convention == SceneSpecularConvention::default() {
-                        assert_eq!(first.get(key), pipelines.get(key));
+                        assert_eq!(id(&first), id(&pipelines));
                     } else {
-                        assert_ne!(first.get(key), pipelines.get(key));
+                        assert_ne!(id(&first), id(&pipelines));
                     }
                 }
             }
@@ -420,14 +426,10 @@ fn disk_radius_is_part_of_existing_pipeline_cache_key() {
         ),
         ..Default::default()
     };
-    let key = crate::pipeline::PipelineKey::ALL[0];
     let default = pipelines.for_convention(convention(2700));
     let wide = pipelines.for_convention(convention(17_453));
-    assert_ne!(default.get(key), wide.get(key));
-    assert_eq!(
-        wide.get(key),
-        pipelines.for_convention(convention(17_453)).get(key)
-    );
+    assert_ne!(id(&default), id(&wide));
+    assert_eq!(id(&wide), id(&pipelines.for_convention(convention(17_453))));
     assert_eq!(pipelines.specialization.cache.borrow().len(), 2);
 }
 
@@ -438,12 +440,11 @@ fn winding_uses_existing_specialization_cache_without_changing_default_pipelines
     let context = crate::device::GpuContext::shared_for_test().unwrap();
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
     let convention = worldrunner_render_plan::SceneSpecularConvention::default();
-    let key = crate::pipeline::PipelineKey::ALL[0];
     let right = pipelines.for_raster(convention, wgpu::FrontFace::Ccw);
     let left = pipelines.for_raster(convention, wgpu::FrontFace::Cw);
     let again = pipelines.for_raster(convention, wgpu::FrontFace::Cw);
-    assert_eq!(right.get(key), pipelines.get(key));
-    assert_eq!(left.get(key), again.get(key));
-    assert_ne!(left.get(key), right.get(key));
+    assert_eq!(id(&right), id(&pipelines));
+    assert_eq!(id(&left), id(&again));
+    assert_ne!(id(&left), id(&right));
     assert_eq!(pipelines.specialization.cache.borrow().len(), 1);
 }

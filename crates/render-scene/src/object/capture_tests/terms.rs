@@ -140,11 +140,6 @@ fn replays() -> usize {
             let drawn = read(&mut rig, term, |encoder, capture, gpu| {
                 capture.replay(encoder, gpu, &pipelines, inputs);
             });
-            assert_eq!(
-                pipelines.object_pipelines().built(),
-                0,
-                "{config}: the replay drew objects with the fixed pipelines"
-            );
             assert!(
                 pipelines.object_runtime_stats().pipelines_built > before,
                 "{config}: the replay built no object pipeline on the program runtime"

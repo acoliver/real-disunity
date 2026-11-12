@@ -204,11 +204,11 @@ fn gpu_receiver_variant_preserves_nearest_keys_and_reuses_gather() {
         1,
     )
     .unwrap();
-    let key = crate::pipeline::PipelineKey::ALL[0];
+    let id = |selected: &crate::renderer::ScenePipelines| selected.object_context().id();
     let nearest = pipelines.for_receiver(SceneSsaoReceiver::Nearest);
-    assert_eq!(nearest.get(key), pipelines.get(key));
+    assert_eq!(id(&nearest), id(&pipelines));
     let gather = pipelines.for_receiver(SceneSsaoReceiver::DepthAwareGather);
     let again = pipelines.for_receiver(SceneSsaoReceiver::DepthAwareGather);
-    assert_eq!(gather.get(key), again.get(key));
-    assert_ne!(gather.get(key), nearest.get(key));
+    assert_eq!(id(&gather), id(&again));
+    assert_ne!(id(&gather), id(&nearest));
 }

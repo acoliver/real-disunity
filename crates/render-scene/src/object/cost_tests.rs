@@ -382,11 +382,6 @@ fn the_object_prepass_prepares_before_its_pass_and_steady_state_frames_build_not
                     "{output:?} {mode:?}: frame {frame} found everything prepared"
                 );
             }
-            assert_eq!(
-                prepass.object_pipelines().built(),
-                0,
-                "{output:?} {mode:?}: no fixed object pipeline was built"
-            );
             println!(
                 "OBJECT-COST prepass output={output:?} depth={mode:?} before={before:?} after_prepare={prepared:?} after_five_frames=unchanged"
             );

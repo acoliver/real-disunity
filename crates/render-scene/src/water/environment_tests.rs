@@ -8,7 +8,7 @@ fn prepared_environment_matches_replaceable_lobe_and_sample_receivers() {
     for samples in crate::msaa_tests::supported_samples(&context) {
         let mut renderer = regressions::renderer(&context, samples);
         let body = reflective_body();
-        renderer.install_water(context.device(), body).unwrap();
+        renderer.install_water(&context, body).unwrap();
         renderer.set_water_environment(&maps).unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),

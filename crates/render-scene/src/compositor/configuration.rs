@@ -666,7 +666,7 @@ fn build(
     renderer.install_reflections(device, settings.frame.size)?;
     renderer.share_metadata_depth(device);
     install_jitter(&mut renderer, settings)?;
-    renderer.install_water_bodies(device, settings.water.clone())?;
+    renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;
     if (settings.ui_depth || renderer.ssr.is_some()) && renderer.snapshots.is_none() {
         renderer.snapshots = Some(std::array::from_fn(|_| {
             crate::water::snapshots::Snapshots::new(device, settings.frame)

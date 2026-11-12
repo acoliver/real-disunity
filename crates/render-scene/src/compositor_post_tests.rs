@@ -97,7 +97,8 @@ fn cancelled_and_failed_preparations_release_frame_renderer_timing() {
             timeout: None,
         })
         .unwrap();
-    let timings = renderer.take_timings().unwrap();
+    let timings =
+        crate::test_support::take_timings(context.device(), 1, || renderer.take_timings());
     assert_eq!(timings.len(), 1);
     assert_eq!(timings[0].frame_id, 4);
     assert!(!timings[0].passes.is_empty());

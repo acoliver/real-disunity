@@ -332,3 +332,88 @@ fn a_save_refuses_threads_the_snapshot_cannot_describe_yet() {
     let error = scripts.save(&[], &[]).unwrap_err();
     assert!(error.to_string().contains("waits"), "{error}");
 }
+
+#[test]
+fn advancing_one_clock_leaves_other_clocks_and_deferred_threads_untouched() {
+    let mut scripts = game(&two_clocks(), &["SpawnGame", "GameTime", "RealTime"]);
+    run(
+        &mut scripts,
+        "SpawnGame(function() Note('game') end)
+         Spawn(function() Sleep(5) Note('real') end)",
+    );
+    let before = scripts.threads();
+    assert!(scripts.advance_clock("real", 10).unwrap().is_empty());
+    assert_eq!(log(&mut scripts), ["real@5"]);
+    assert_eq!(scripts.clock_now("game"), Some(0));
+    assert_eq!(scripts.clock_now("real"), Some(10));
+    let after = scripts.threads();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0], before[0]);
+    scripts.advance(3).unwrap();
+    assert_eq!(log(&mut scripts), ["real@5", "game@0"]);
+    scripts.advance_clock("real", 7).unwrap();
+    assert_eq!(scripts.clock_now("game"), Some(3));
+    assert_eq!(scripts.clock_now("real"), Some(20));
+}
+
+#[test]
+fn one_clock_keeps_wake_and_policy_tie_order() {
+    let code = "Spawn(function() Sleep(5) Sleep(5) Note('first') end)
+                Spawn(function() Sleep(10) Note('second') end)
+                Spawn(function() Sleep(15) Note('last') end)";
+    for (order, expected) in [
+        (
+            Order::ByWakeThenReschedule,
+            ["second@10", "first@10", "last@15"],
+        ),
+        (
+            Order::ByWakeThenClockThenRegistration,
+            ["first@10", "second@10", "last@15"],
+        ),
+    ] {
+        let policy = SchedulerPolicy {
+            order,
+            ..two_clocks()
+        };
+        let mut scripts = game(&policy, &["SpawnGame", "GameTime", "RealTime"]);
+        run(&mut scripts, code);
+        scripts.advance_clock("real", 20).unwrap();
+        assert_eq!(log(&mut scripts), expected, "{order:?}");
+        assert_eq!(scripts.clock_now("game"), Some(0));
+    }
+}
+
+#[test]
+fn one_clock_does_not_resume_overdue_threads_on_another_clock() {
+    let mut scripts = game(&two_clocks(), &["SpawnGame", "GameTime", "RealTime"]);
+    run(
+        &mut scripts,
+        "SpawnGame(function() Sleep(5) Note('game') end)
+         Spawn(function() Sleep(5) Note('real') end)",
+    );
+    scripts.advance(0).unwrap();
+    scripts.set_clock("game", 100).unwrap();
+    let before = scripts.threads()[0].clone();
+    scripts.advance_clock("real", 10).unwrap();
+    assert_eq!(log(&mut scripts), ["real@5"]);
+    assert_eq!(scripts.threads(), [before]);
+    assert_eq!(scripts.clock_now("game"), Some(100));
+    scripts.advance(1).unwrap();
+    assert_eq!(log(&mut scripts), ["real@5", "game@100"]);
+}
+
+#[test]
+fn one_clock_preserves_pause_state_and_rejects_unknown_clocks() {
+    let scripts = game(&two_clocks(), &["SpawnGame", "GameTime", "RealTime"]);
+    scripts.set_clock_paused("game", true).unwrap();
+    scripts.advance_clock("real", 10).unwrap();
+    scripts.advance(5).unwrap();
+    assert_eq!(scripts.clock_now("game"), Some(0));
+    assert_eq!(scripts.clock_now("real"), Some(15));
+    scripts.set_clock_paused("real", true).unwrap();
+    scripts.advance_clock("real", 10).unwrap();
+    assert_eq!(scripts.clock_now("real"), Some(15));
+    assert!(scripts.advance_clock("missing", 1).is_err());
+    assert_eq!(scripts.clock_now("game"), Some(0));
+    assert_eq!(scripts.clock_now("real"), Some(15));
+}

@@ -100,7 +100,10 @@ fn run(timed: bool) -> (Vec<u8>, Vec<crate::FrameTiming>, TimingSupport) {
     });
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let bytes = staging.slice(..).get_mapped_range().unwrap().to_vec();
-    (bytes, chain.take_timings().unwrap(), support)
+    let expected = usize::from(support == TimingSupport::Supported);
+    let frames =
+        crate::timing_test_support::take_frames(&device, expected, || chain.take_timings());
+    (bytes, frames, support)
 }
 
 #[test]

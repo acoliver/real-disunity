@@ -419,9 +419,57 @@ measurement, storage accounting, malformed input and bounded registration.
 
 Glyph output provides baseline origins and outward-rounded raster bounds separately. Local text coordinates start at the rectangle's bottom-left. `VerticalOverflow::Truncate` drops lines whose extent passes the rectangle's height; `VerticalOverflow::Overflow` lays them all out. `TextLayout::content_height` reports the full extent before truncation, including font height, baseline distances and paragraph spacing. Measure at the intended content width and use its rounded-up height in `UiSize::Fixed` or the content's `RectTransform` to size a `UiScrollView`; group content sizing does not measure text implicitly. Pixel-perfect snapping moves the glyph origins before extraction clips glyph geometry and matching UVs to the local rectangle, then intersects screen clip bounds with renderer and enclosing scroll clips. This also bounds rotated text at its local edges; an edge-clipped glyph's new corner can fall between pixels. With `rich_text` set, as by default, text containing `<` is rejected with `UnsupportedRichText`, because markup is not rendered. Rasterizer winding coverage is saturated to 1 before rounding to U8 and packed deterministically into a shelf atlas with a fixed configured row width. Atlas rows start at the top. Font storage, character count, atlas dimensions and atlas pixels are bounded. Render extraction applies character and pixel budgets across the complete frame as well as per text run.
 
-Keep a `FontBook` across frames. `FontBook::layout` returns an immutable `Arc<TextLayout>` from a bounded cache keyed by the complete text run and rectangle size. Width, height, alignment, font, size, spans and paragraph settings therefore invalidate the layout; unrelated world or control mutations do not. Cached entries share glyphs and `GlyphAtlas::alpha`, and extraction and `UiPresentation` share those coverage bytes through `CoverageTexture::bytes`. A cache hit allocates no new glyph layout or atlas. The cache retains at most `UiLimits::max_glyphs` input characters and `max_atlas_pixels` coverage pixels, evicting oldest entries when necessary; even empty entries consume one character slot. Caller-held results remain valid after eviction. `cache_stats().layouts` counts successful misses and `atlas_builds` counts misses with nonempty coverage. Failed requests publish neither a cache entry nor a counter increment. Renderer uploads still belong to the existing compositor: publish UI replacements when the plan changes, rather than submitting an identical replacement each frame. The built-player host already performs this comparison.
+Keep a `FontBook` across frames. `FontBook::layout` returns an immutable `Arc<TextLayout>` from a bounded cache keyed by the complete text run, rectangle size and raster parameters. Width, height, alignment, font, size, spans and paragraph settings therefore invalidate the layout; unrelated world or control mutations do not. Cached entries share glyphs and `GlyphAtlas::alpha`, and extraction and `UiPresentation` share those coverage bytes through `CoverageTexture::bytes`. A cache hit allocates no new glyph layout or atlas. The cache retains at most `UiLimits::max_glyphs` input characters and `max_atlas_pixels` coverage pixels, evicting oldest entries when necessary; even empty entries consume one character slot. Caller-held results remain valid after eviction. `cache_stats().layouts` counts successful misses and `atlas_builds` counts misses with nonempty coverage. Failed requests publish neither a cache entry nor a counter increment. Renderer uploads still belong to the existing compositor: publish UI replacements when the plan changes, rather than submitting an identical replacement each frame. The built-player host already performs this comparison.
 
 `ui_text_flow` tests measure wrapping, paragraph height, alignment, source-range colours, typed glyph errors, scroll and rectangle clips, and shared layout/coverage pointers across 100 unrelated updates. The windowless scene-viewer paragraph test draws two coloured paragraphs, checks exact opaque RGBA regions on each line, and verifies unchanged scene pixels in the line gaps. A real-window reading check remains pending.
+
+## Immediate overlay lists and atlas-free measurement
+
+`ui::draw_list` owns the immediate CPU API, re-exported through `ui` and
+`render_plan::ui::draw_list`. Its `UiRect` uses top-left physical pixels, unlike
+layout-local Y-up text coordinates. `UiDrawList` converts once into the existing
+`UiDraw` BL/BR/TR/TL lower-left geometry. It borrows the existing `FontBook`;
+finished presentations retain only owned/shared resources. See the
+[user API and example](../../docs/immediate-ui.md) for shapes, images, frames,
+clip/modifier stacks, stretching and coverage shadows.
+
+Every quad has a checked distinct hierarchy key, including frame patches and
+all shadow glyphs before the foreground glyphs. The fixed layer/order and
+`draw_range` let callers reserve disjoint contribution ranges. Operations
+validate their complete expansion before committing draws, stack entries or
+character/atlas counters. Six vertices are charged per quad under the shared
+65,536-vertex ceiling. `UiDrawLimits` also bounds root-inclusive stack depth,
+submitted characters and unique referenced atlas pixels, capped by FontBook's
+limits. Combining lists needs a caller-owned aggregate character/atlas budget;
+append and overlay conversion separately enforce vertices. A failed operation
+can warm the font cache but cannot partially publish a list command.
+
+`FontBook::measure(run, size)` and coverage layout share `text_metrics::place`
+and the byte-aware word breaker. Measurement always keeps all lines, allocating
+no atlas and consuming no atlas budget or cache entry. Width is maximum pen
+advance including retained spaces; height uses complete font metrics, baseline
+spacing and explicit paragraph spacing, including blank/trailing lines.
+`TextMeasurement::lines` and `TextLayout::lines` provide original UTF-8
+`source_range` and `next_byte`. Ranges exclude LF/consumed wrap spaces; CR is
+ignored without losing its byte position. Empty lines keep their actual source
+positions. `LineMetrics::source` and `TextRun::substring` use checked UTF-8
+slices; substring also clips/rebases structured spans.
+
+`layout_with_raster` includes `GlyphRaster { mode, padding }` in the cache key.
+Coverage with zero padding is the `layout` entry point and preserves existing
+raster bytes. Coverage padding expands ink bounds without changing metrics.
+FontBook distance rasterization returns `UnsupportedRaster`; the independent
+caller-atlas FaceBook distance API remains available. The immediate list only
+publishes None and Shadow effects. Outline/glow have no public variants here.
+Glyph coverage identities are frame-local and deduplicated by shared atlas
+allocation. Only referenced atlases are retained; repeated submissions still
+charge their input characters. Images and glyphs use separate identity
+namespaces, so equal numeric IDs are valid.
+
+The CPU `ui_draw_list` and `ui_measure` fixtures cover geometry, mirrored partial
+tiles, painter order, clipping, colour inheritance, limits, shared coverage,
+metric/ink differences, UTF-8 ranges and placement. No GPU is needed for these
+fixtures. The list adds no ABI transport fields or revision change.
 
 ## Interactive paragraph links
 

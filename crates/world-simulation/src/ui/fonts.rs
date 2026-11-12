@@ -1,6 +1,6 @@
 use super::positioning::PairPositioning;
 use super::text_cache::{TextCache, TextCacheStats};
-use super::{FontId, TextLayout, TextRun, UiError};
+use super::{FontId, GlyphRaster, RenderMode, TextLayout, TextMeasurement, TextRun, UiError};
 use ab_glyph::FontArc;
 use glam::Vec2;
 use std::collections::BTreeMap;
@@ -115,8 +115,37 @@ impl FontBook {
     pub fn cache_stats(&self) -> TextCacheStats {
         self.cache.lock().expect("text cache lock").stats
     }
+    /// Measures full metric content without constructing or caching a glyph atlas.
+    pub fn measure(&self, run: &TextRun, size: Vec2) -> Result<TextMeasurement, UiError> {
+        let font = self.validate_run(run, size)?;
+        super::text::measure(font, run, size, self.limits)
+    }
     /// Reuses immutable glyphs and coverage until bounded cache eviction.
     pub fn layout(&self, run: &TextRun, size: Vec2) -> Result<Arc<TextLayout>, UiError> {
+        self.layout_with_raster(run, size, GlyphRaster::default())
+    }
+    /// Coverage rasterization with explicit padding. Distance layout is not supported.
+    pub fn layout_with_raster(
+        &self,
+        run: &TextRun,
+        size: Vec2,
+        raster: GlyphRaster,
+    ) -> Result<Arc<TextLayout>, UiError> {
+        let font = self.validate_run(run, size)?;
+        if raster.mode != RenderMode::Coverage {
+            return Err(UiError::UnsupportedRaster);
+        }
+        if raster.padding >= self.limits.max_atlas_side {
+            return Err(UiError::AtlasLimit);
+        }
+        self.cache
+            .lock()
+            .expect("text cache lock")
+            .layout(run, size, raster, self.limits, || {
+                super::text::layout(font, run, size, self.limits, raster)
+            })
+    }
+    fn validate_run(&self, run: &TextRun, size: Vec2) -> Result<&RegisteredFont, UiError> {
         run.validate()?;
         if !size.is_finite() || size.min_element() < 0. {
             return Err(UiError::InvalidRect);
@@ -124,15 +153,8 @@ impl FontBook {
         if run.text.chars().count() > self.limits.max_glyphs {
             return Err(UiError::GlyphLimit);
         }
-        let font = self
-            .fonts
+        self.fonts
             .get(&run.font)
-            .ok_or(UiError::MissingFont(run.font))?;
-        self.cache
-            .lock()
-            .expect("text cache lock")
-            .layout(run, size, self.limits, || {
-                super::text::layout(font, run, size, self.limits)
-            })
+            .ok_or(UiError::MissingFont(run.font))
     }
 }

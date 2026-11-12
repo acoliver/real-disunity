@@ -1,6 +1,6 @@
 use super::{
-    FontId, GlyphAtlas, UiError, UiLimits, atlas::AtlasBuilder, fonts::RegisteredFont,
-    positioning::ScaledPairs, wrap,
+    FontId, GlyphAtlas, GlyphRaster, UiError, UiLimits, atlas::AtlasBuilder, fonts::RegisteredFont,
+    positioning::ScaledPairs, text_metrics, wrap,
 };
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use glam::{UVec2, Vec2};
@@ -14,7 +14,7 @@ pub enum HorizontalAlign {
     Right,
 }
 impl HorizontalAlign {
-    fn factor(self) -> f32 {
+    pub(super) fn factor(self) -> f32 {
         match self {
             Self::Left => 0.,
             Self::Center => 0.5,
@@ -30,7 +30,7 @@ pub enum VerticalAlign {
     Bottom,
 }
 impl VerticalAlign {
-    fn factor(self) -> f32 {
+    pub(super) fn factor(self) -> f32 {
         match self {
             Self::Top => 0.,
             Self::Middle => 0.5,
@@ -111,6 +111,27 @@ impl TextRun {
             rich_text: true,
         }
     }
+    /// Selects a UTF-8 byte substring and clips/rebases its structured spans.
+    pub fn substring(&self, range: Range<usize>) -> Result<Self, UiError> {
+        self.validate()?;
+        let text = self.text.get(range.clone()).ok_or(UiError::InvalidText)?;
+        let mut result = self.clone();
+        result.text = text.into();
+        result.spans = self
+            .spans
+            .iter()
+            .filter_map(|span| {
+                let start = span.range.start.max(range.start);
+                let end = span.range.end.min(range.end);
+                (start < end).then(|| TextSpan {
+                    range: start - range.start..end - range.start,
+                    color: span.color,
+                    link: span.link,
+                })
+            })
+            .collect();
+        Ok(result)
+    }
     pub(crate) fn validate(&self) -> Result<(), UiError> {
         if !(1. ..=512.).contains(&self.font_size)
             || !(0.01..=16.).contains(&self.line_spacing)
@@ -179,6 +200,16 @@ pub struct GlyphLayout {
 pub struct LineMetrics {
     pub width: f32,
     pub baseline: f32,
+    /// Original UTF-8 bytes, excluding LF and consumed wrap spaces. CR is ignored.
+    pub source_range: Range<usize>,
+    /// First byte after the line separator, or the input length.
+    pub next_byte: usize,
+}
+impl LineMetrics {
+    pub fn source<'a>(&self, text: &'a str) -> Result<&'a str, UiError> {
+        text.get(self.source_range.clone())
+            .ok_or(UiError::InvalidText)
+    }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextLayout {
@@ -198,14 +229,26 @@ pub(super) fn scale(font: &FontArc, font_size: f32) -> Result<PxScale, UiError> 
     Ok(PxScale::from(scale))
 }
 
-fn offsets(lines: &[wrap::Line], spacing: f32, paragraph: f32) -> Vec<f32> {
-    let mut offset = 0.;
-    let mut result = Vec::with_capacity(lines.len());
-    for line in lines {
-        result.push(offset);
-        offset += spacing + if line.paragraph_end { paragraph } else { 0. };
-    }
-    result
+pub(super) fn measure(
+    registered: &RegisteredFont,
+    run: &TextRun,
+    size: Vec2,
+    limits: UiLimits,
+) -> Result<text_metrics::TextMeasurement, UiError> {
+    let scaled = registered
+        .font
+        .as_scaled(scale(&registered.font, run.font_size)?);
+    let face = ttf_parser::Face::parse(registered.font.font_data(), 0)
+        .map_err(|_| UiError::InvalidFont)?;
+    let pairs = registered.positioning.scaled(&face, run.font_size);
+    let mut run = run.clone();
+    run.vertical_overflow = VerticalOverflow::Overflow;
+    let placed = text_metrics::place(&scaled, pairs, &run, size, limits)?;
+    Ok(text_metrics::TextMeasurement {
+        width: placed.metrics.iter().map(|l| l.width).fold(0., f32::max),
+        height: placed.content_height,
+        lines: placed.metrics,
+    })
 }
 
 pub(super) fn layout(
@@ -213,65 +256,46 @@ pub(super) fn layout(
     run: &TextRun,
     size: Vec2,
     limits: UiLimits,
+    raster: GlyphRaster,
 ) -> Result<TextLayout, UiError> {
     let font = &registered.font;
-    let px = scale(font, run.font_size)?;
-    let scaled = font.as_scaled(px);
+    let scaled = font.as_scaled(scale(font, run.font_size)?);
     let face = ttf_parser::Face::parse(font.font_data(), 0).map_err(|_| UiError::InvalidFont)?;
     let pairs = registered.positioning.scaled(&face, run.font_size);
-    let wrap_width = (run.horizontal_overflow == HorizontalOverflow::Wrap).then_some(size.x);
-    let mut lines = wrap::lines(&scaled, pairs, &run.text, wrap_width, limits)?;
-    let spacing = run
-        .line_height
-        .unwrap_or((scaled.height() + scaled.line_gap()) * run.line_spacing);
-    let offsets = offsets(&lines, spacing, run.paragraph_spacing);
-    let content_height = offsets.last().map_or(0., |last| last + scaled.height());
-    if run.vertical_overflow == VerticalOverflow::Truncate {
-        lines.truncate(
-            offsets
-                .iter()
-                .take_while(|&&y| y + scaled.height() <= size.y)
-                .count(),
-        );
-    }
-    let height = lines
-        .len()
-        .checked_sub(1)
-        .map_or(0., |i| offsets[i] + scaled.height());
-    let top = size.y - (size.y - height) * run.vertical.factor();
-    if !top.is_finite() || !content_height.is_finite() || !scaled.ascent().is_finite() {
-        return Err(UiError::InvalidFont);
-    }
+    let placed = text_metrics::place(&scaled, pairs, run, size, limits)?;
     let mut atlas = AtlasBuilder::new(limits);
     let mut glyphs = Vec::new();
-    let mut metrics = Vec::new();
-    for (line, offset) in lines.into_iter().zip(offsets) {
-        let baseline = top - scaled.ascent() - offset;
-        metrics.push(LineMetrics {
-            width: line.width,
-            baseline,
-        });
+    let mut builder = LineBuilder {
+        atlas: &mut atlas,
+        glyphs: &mut glyphs,
+        raster,
+    };
+    for (line, metrics) in placed.lines.iter().zip(&placed.metrics) {
         layout_line(
-            &mut atlas,
-            &mut glyphs,
+            &mut builder,
             &scaled,
             pairs,
             run,
-            &line,
-            Vec2::new(size.x, baseline),
+            line,
+            Vec2::new(size.x, metrics.baseline),
         )?;
     }
     Ok(TextLayout {
-        content_height,
-        lines: metrics,
+        content_height: placed.content_height,
+        lines: placed.metrics,
         glyphs,
         atlas: atlas.finish(),
     })
 }
 
+struct LineBuilder<'a> {
+    atlas: &'a mut AtlasBuilder,
+    glyphs: &'a mut Vec<GlyphLayout>,
+    raster: GlyphRaster,
+}
+
 fn layout_line(
-    atlas: &mut AtlasBuilder,
-    glyphs: &mut Vec<GlyphLayout>,
+    builder: &mut LineBuilder<'_>,
     font: &ab_glyph::PxScaleFont<&FontArc>,
     pairs: ScaledPairs<'_>,
     run: &TextRun,
@@ -285,13 +309,19 @@ fn layout_line(
         x += previous.map_or(0., |p: ab_glyph::GlyphId| pairs.x_advance(p.0, id.0));
         let glyph = id.with_scale_and_position(font.scale(), point(x, -extent.y));
         if let Some(outlined) = font.font.outline_glyph(glyph)
-            && let Some(mut glyph) = raster(atlas, &outlined, c, Vec2::new(x, extent.y))?
+            && let Some(mut glyph) = raster(
+                builder.atlas,
+                &outlined,
+                c,
+                Vec2::new(x, extent.y),
+                builder.raster.padding,
+            )?
         {
             if let Some(span) = run.span(byte) {
                 glyph.color = span.color;
                 glyph.link = span.link;
             }
-            glyphs.push(glyph);
+            builder.glyphs.push(glyph);
         }
         x += font.h_advance(id);
         previous = Some(id);
@@ -304,6 +334,7 @@ fn raster(
     glyph: &ab_glyph::OutlinedGlyph,
     character: char,
     origin: Vec2,
+    padding: u32,
 ) -> Result<Option<GlyphLayout>, UiError> {
     let bounds = glyph.px_bounds();
     let min = Vec2::new(bounds.min.x, bounds.min.y);
@@ -311,6 +342,8 @@ fn raster(
     if max.cmple(min).any() {
         return Ok(None);
     }
+    let padding = UVec2::splat(padding).as_vec2();
+    let (min, max) = (min - padding, max + padding);
     let (atlas_min, atlas_size) = atlas.insert(glyph, min, max)?;
     Ok(Some(GlyphLayout {
         character,

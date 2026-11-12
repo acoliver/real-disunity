@@ -1,13 +1,15 @@
-//! Line breaking as Unity's text generator does it. A line that grows past the wrap width breaks
-//! before its last word, consuming the space at the break. A word wider than the line breaks
-//! between characters.
+//! Word wrapping with original UTF-8 byte provenance. Break spaces are consumed;
+//! overlong words break between characters. Pair state resets at every line.
 use super::{UiError, UiLimits, positioning::ScaledPairs};
 use ab_glyph::{FontArc, GlyphId, PxScaleFont, ScaleFont};
+use std::ops::Range;
 
 pub(super) struct Line {
     pub characters: Vec<(usize, char)>,
     pub width: f32,
     pub paragraph_end: bool,
+    pub source_range: Range<usize>,
+    pub next_byte: usize,
 }
 
 type Scaled<'a> = PxScaleFont<&'a FontArc>;
@@ -20,6 +22,7 @@ struct Breaker<'a> {
     current: Vec<(usize, char)>,
     width: f32,
     previous: Option<GlyphId>,
+    start: usize,
 }
 
 impl Breaker<'_> {
@@ -34,14 +37,10 @@ impl Breaker<'_> {
             + self.font.h_advance(id);
         self.previous = Some(id);
         self.current.push((byte, character));
-        while self.overflows() {
+        while self.current.len() > 1 && self.limit.is_some_and(|limit| self.width > limit) {
             self.break_line();
         }
         Ok(())
-    }
-
-    fn overflows(&self) -> bool {
-        self.current.len() > 1 && self.limit.is_some_and(|limit| self.width > limit)
     }
 
     fn break_line(&mut self) {
@@ -50,28 +49,33 @@ impl Breaker<'_> {
             _ => self.current.len() - 1,
         };
         let mut rest = self.current.split_off(split);
-        if rest.first().is_some_and(|&(_, c)| c == ' ') {
-            rest.remove(0);
-        }
-        self.finish(false);
+        let end = rest[0].0;
+        let next = if rest[0].1 == ' ' {
+            let (byte, character) = rest.remove(0);
+            byte + character.len_utf8()
+        } else {
+            end
+        };
+        self.finish(false, end, next);
         (self.width, self.previous) = measure(self.font, self.pairs, &rest);
         self.current = rest;
     }
 
-    fn finish(&mut self, paragraph_end: bool) {
+    fn finish(&mut self, paragraph_end: bool, end: usize, next_byte: usize) {
         let characters = std::mem::take(&mut self.current);
         let (width, _) = measure(self.font, self.pairs, &characters);
         self.lines.push(Line {
             characters,
             width,
             paragraph_end,
+            source_range: self.start..end,
+            next_byte,
         });
+        self.start = next_byte;
         (self.width, self.previous) = (0., None);
     }
 }
 
-/// Width of `characters` with kerning, and the last glyph for kerning what follows. Callers
-/// have already rejected characters the font lacks.
 fn measure(
     font: &Scaled<'_>,
     pairs: ScaledPairs<'_>,
@@ -86,7 +90,6 @@ fn measure(
         })
 }
 
-/// Splits `text` into lines at newlines, and at `wrap_width` when it is set.
 pub(super) fn lines(
     font: &Scaled<'_>,
     pairs: ScaledPairs<'_>,
@@ -102,19 +105,20 @@ pub(super) fn lines(
         current: Vec::new(),
         width: 0.,
         previous: None,
+        start: 0,
     };
     for (count, (byte, character)) in text.char_indices().filter(|&(_, c)| c != '\r').enumerate() {
         if count >= limits.max_glyphs {
             return Err(UiError::GlyphLimit);
         }
         if character == '\n' {
-            breaker.finish(true);
+            breaker.finish(true, byte, byte + 1);
         } else {
             breaker.push(byte, character)?;
         }
     }
     if !text.is_empty() {
-        breaker.finish(false);
+        breaker.finish(false, text.len(), text.len());
     }
     if breaker.lines.iter().any(|line| !line.width.is_finite()) {
         return Err(UiError::InvalidFont);

@@ -8,7 +8,7 @@ use worldrunner_world_simulation::graphics::{
     RenderTextureId, ShaderId, ShaderSource, TextureRef, TextureSlot, WorldComputeShader,
     WorldRenderTexture, WorldSampler, WorldShader,
 };
-use worldrunner_world_simulation::presentation::Camera;
+use worldrunner_world_simulation::presentation::{Camera, Light, LightKind, LightSettings};
 use worldrunner_world_simulation::{
     ComponentDesc, ComponentHandle, LocalTransform, MeshFilter, MeshRenderer, ObjectDesc,
     ObjectHandle, World, WorldSettings,
@@ -133,6 +133,24 @@ pub fn renderer_with(
         .add_component(object, ComponentDesc::MeshRenderer(renderer))
         .unwrap();
     object
+}
+
+/// A directional light turned by `rotation`, white at intensity 1.
+pub fn sun(world: &mut World, rotation: Quat) {
+    let object = object(world, 0, Vec3::ZERO, rotation);
+    let settings = LightSettings {
+        kind: LightKind::Directional,
+        ..LightSettings::default()
+    };
+    world
+        .add_component(
+            object,
+            ComponentDesc::Light(Light {
+                enabled: true,
+                settings,
+            }),
+        )
+        .unwrap();
 }
 
 pub fn snapshot(world: &mut World) -> GraphicsSnapshot {

@@ -746,6 +746,7 @@ pub(crate) fn attachment(
             AttachmentLoad::ClearColor(wgpu::Color::BLACK)
         },
         store: wgpu::StoreOp::Store,
+        read_only: false,
     }
 }
 

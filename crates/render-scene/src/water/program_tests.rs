@@ -90,6 +90,39 @@ fn the_body_program_declares_set_zero_as_the_fixed_groups_do() {
 /// not, so a draw that lends every input never meets the runtime's `UnusedImport` on the
 /// production path. Only a substituted test text may read fewer, and only there does
 /// `Programs::prepare` hold an input back.
+/// Every reachable combination of the four bits that change water's text: endpoint addressing
+/// 256 and vertex seeds 512 (each with flow coordinates 64, which every seeded body has), and the
+/// shadow response 1024 with or without the weighted filter 2048 (which a response always
+/// carries). Plus the term bits 19, which only set override constants.
+fn text_keys() -> Vec<u32> {
+    let mut keys = vec![19];
+    for seeds in [0, 256, 512, 256 | 512] {
+        let flow = if seeds == 0 { 0 } else { 64 };
+        for response in [0, 1024, 1024 | 2048] {
+            keys.push(flow | seeds | response);
+        }
+    }
+    keys
+}
+
+#[test]
+fn the_text_keys_cover_every_reachable_combination_of_the_text_bits() {
+    let keys = text_keys();
+    assert_eq!(keys.len(), 13, "12 text combinations and the term bits");
+    for key in &keys {
+        assert!(
+            key & 2048 == 0 || key & 1024 != 0,
+            "{key}: the filter needs a response"
+        );
+        assert!(
+            key & (256 | 512) == 0 || key & 64 != 0,
+            "{key}: seeds need flow coordinates"
+        );
+    }
+    let distinct: std::collections::BTreeSet<_> = keys.iter().map(|key| key & 0xf00).collect();
+    assert_eq!(distinct.len(), 12, "every text combination appears");
+}
+
 #[test]
 fn every_body_program_of_the_composed_text_reads_every_set_zero_input() {
     use worldrunner_render_program::binding::BindingSource;
@@ -97,9 +130,7 @@ fn every_body_program_of_the_composed_text_reads_every_set_zero_input() {
     let context = crate::device::GpuContext::shared_for_test().unwrap();
     let mut programs = crate::water::program::Programs::new(context.device(), context.submission());
     let declared = crate::water::program::bindings();
-    // Default, terms, vertex seeds, endpoint, endpoint with seeds, shadow response, and the
-    // weighted filter: the keys of the capture cases.
-    for bits in [0, 19, 64 | 512, 64 | 256, 64 | 256 | 512, 1024, 1024 | 2048] {
+    for bits in text_keys() {
         for shadows in [false, true] {
             let program = programs.program(([0, 0, 0, 0, bits], shadows)).unwrap();
             let slots = program.layout().slots();

@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "gpu_tests.rs"]
+mod tests;
+
 use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
@@ -342,6 +346,14 @@ impl DynamicGpu {
             pass.set_vertex_buffer(0, draw.resources.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.resources.instance.slice(..));
             pass.set_vertex_buffer(2, draw.resources.tint.slice(..));
+            pass.set_vertex_buffer(
+                3,
+                draw.resources
+                    .corner_colors
+                    .as_ref()
+                    .expect("overlay quads carry corner colours")
+                    .slice(..),
+            );
             pass.draw_indexed(0..draw.resources.index_count, 0, 0..draw.instance_count);
             count.draw(u64::from(draw.instance_count));
             if draw.depth_test {
@@ -447,6 +459,15 @@ impl QuadDraw {
                 &instances,
             ),
             tint: upload_buffer(device, queue, "dynamic tints", BufferUsages::VERTEX, &tints),
+            corner_colors: bindings.overlay_layout.map(|_| {
+                upload_buffer(
+                    device,
+                    queue,
+                    "overlay corner colours",
+                    BufferUsages::VERTEX,
+                    &pack_corner_colors(quad),
+                )
+            }),
             material: upload_buffer(
                 device,
                 queue,
@@ -550,6 +571,16 @@ fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
         && a.texture == b.texture
         && a.corners == b.corners
         && a.triangle_uv == b.triangle_uv
+        && a.corner_colors == b.corner_colors
         && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
         && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
+}
+
+fn pack_corner_colors(quad: &DynamicQuad) -> Vec<u8> {
+    let count = if quad.triangle_uv.is_some() { 3 } else { 4 };
+    quad.corner_colors.unwrap_or([[1.; 4]; 4])[..count]
+        .iter()
+        .flatten()
+        .flat_map(|v| v.to_le_bytes())
+        .collect()
 }

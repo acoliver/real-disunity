@@ -269,3 +269,76 @@ fn gpu_paired_card_rejection_matches_base_all_attachment_bytes() {
     }
     println!("CARD_REJECTION_BASE_BYTES {total}");
 }
+
+/// Bytes of attachments that differ between two frames, per attachment.
+fn differing_bytes(old: &[Vec<u8>], new: &[Vec<u8>]) -> Vec<usize> {
+    assert_eq!(old.len(), new.len());
+    old.iter()
+        .zip(new)
+        .map(|(a, b)| {
+            assert_eq!(a.len(), b.len());
+            a.iter().zip(b).filter(|(a, b)| a != b).count()
+        })
+        .collect()
+}
+
+/// The relief card reject discards only quads the reused depth's Equal test refuses, so every
+/// attachment matches the same frame drawn without it. The rows stand behind one another and
+/// every card has a coplanar twin, so the poses cover occluded cards and exact depth ties.
+#[test]
+fn gpu_relief_card_reject_matches_reused_depth_all_attachment_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = fixture();
+    for bias in [0.0, 0.012] {
+        for distance in [4_000, 8_000, 16_000, 31_997, 64_000] {
+            let mut pose = receiver_pose();
+            pose.eye_millimeters[1] = OFFSET[1] - distance;
+            let frame =
+                |reference| frame_at_pose_motion(&context, &source, reference, bias, pose, true);
+            let old = frame(Some(ReceiverReference::WithoutCardReject));
+            let new = frame(None);
+            assert!(
+                new[new.len() - 2].iter().any(|byte| *byte != 0),
+                "receiver payload must be populated"
+            );
+            let differences = differing_bytes(&old, &new);
+            assert!(
+                differences.iter().all(|count| *count == 0),
+                "distance={distance} bias={bias} differing bytes per attachment={differences:?}"
+            );
+        }
+    }
+}
+
+/// A reject whose compare always holds discards every relief card quad, so the colour differs
+/// from the frame without the reject. Equality in the test above is then a result of the compare
+/// and of a reject that reaches the frame through the read-only depth at (2,5).
+#[test]
+fn gpu_forced_relief_card_reject_removes_the_cards() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    if context.adapter().get_info().backend == wgpu::Backend::Gl
+        || context
+            .device()
+            .limits()
+            .max_sampled_textures_per_shader_stage
+            < 16
+    {
+        println!("CARD_REJECT_SKIPPED device has no room for the Opaque depth");
+        return;
+    }
+    let source = fixture();
+    let mut pose = receiver_pose();
+    pose.eye_millimeters[1] = OFFSET[1] - 8_000;
+    let frame =
+        |reference| frame_at_pose_motion(&context, &source, Some(reference), 0.0, pose, true);
+    let old = frame(ReceiverReference::WithoutCardReject);
+    let new = frame(ReceiverReference::ForcedCardReject);
+    let differences = differing_bytes(&old, &new);
+    println!("CARD_REJECT_FORCED_DIFF {differences:?}");
+    assert!(
+        differences[0] > 0,
+        "forced reject must remove the cards' colour"
+    );
+}

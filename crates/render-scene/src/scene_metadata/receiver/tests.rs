@@ -107,6 +107,7 @@ fn receiver_producers_and_consumers_validate_without_local_receiver_derivatives(
                     assert!(!source.contains("dpdy(normal) * shadow.bias.y"));
                     assert!(source.contains("scene_receiver_pixel = vec2<i32>"));
                 }
+                validate(&card_reject_source(&sources.0, layout));
             }
         }
     }

@@ -93,6 +93,29 @@ impl ShadowSchedule {
             .collect();
         Ok(())
     }
+
+    /// Attaches the Opaque depth read-only and declares the pass's sampled read of it, for
+    /// relief cards that reject fragments behind the reused prepass depth. Only valid after
+    /// [`Self::screen_space`] chose [`crate::renderer::depth::DepthMode::Reuse`], which loads
+    /// the prepass depth and writes neither depth nor stencil.
+    pub fn card_reject_depth(&mut self) {
+        let depth = self
+            .passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_mut())
+            .expect("opaque depth");
+        debug_assert_eq!(depth.load, worldrunner_render_post::AttachmentLoad::Load);
+        depth.read_only = true;
+        let resource = depth.resource;
+        self.declaration
+            .passes
+            .iter_mut()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .expect("opaque feature")
+            .reads
+            .push(resource);
+    }
     pub fn new(
         map: &DepthMap,
         color: &AttachmentView,

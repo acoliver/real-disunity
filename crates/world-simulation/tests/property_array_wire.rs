@@ -58,7 +58,8 @@ fn global_snapshot(arrays: &[u8]) -> Vec<u8> {
     body.extend_from_slice(&[0; 4 + 20]);
     body.extend_from_slice(arrays);
     body.extend_from_slice(&0_u64.to_le_bytes());
-    body.extend_from_slice(&[0; 20]);
+    // Empty work, cameras, lights, renderers, compute shaders and compute buffers.
+    body.extend_from_slice(&[0; 24]);
     let mut bytes = b"DGSN".to_vec();
     bytes.extend_from_slice(&WIRE_VERSION.to_le_bytes());
     bytes.extend_from_slice(&u32::try_from(body.len()).unwrap().to_le_bytes());
@@ -109,11 +110,11 @@ fn arrays_of(
 }
 
 #[test]
-fn the_version_is_five_and_a_version_four_snapshot_is_refused() {
-    assert_eq!(WIRE_VERSION, 5);
+fn the_version_is_six_and_a_version_five_snapshot_is_refused() {
+    assert_eq!(WIRE_VERSION, 6);
     let mut bytes = encode(&GraphicsSnapshot::default()).unwrap();
-    bytes[4..8].copy_from_slice(&4_u32.to_le_bytes());
-    assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(4)));
+    bytes[4..8].copy_from_slice(&5_u32.to_le_bytes());
+    assert_eq!(decode(&bytes), Err(WireError::UnknownVersion(5)));
 }
 
 #[test]

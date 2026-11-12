@@ -320,7 +320,16 @@ impl ReceiverFrame {
             motion,
         );
         assert_streamed_coverage(source, &mut self.shadowed);
-        assert_runtime_receiver(&self.renderer, &mut self.shadowed);
+        // Production frames on a device with room for the Opaque depth must select the reject, so
+        // equality with WithoutCardReject is not vacuous.
+        let rejects = reference.is_none()
+            && context.adapter().get_info().backend != wgpu::Backend::Gl
+            && context
+                .device()
+                .limits()
+                .max_sampled_textures_per_shader_stage
+                >= 16;
+        assert_runtime_receiver(&self.renderer, &mut self.shadowed, rejects);
         products.push(read_payload(
             context,
             self.shadowed.caster_texture_for_test(),
@@ -419,16 +428,39 @@ fn assert_streamed_coverage(source: &RenderScene, shadowed: &mut crate::shadows:
     }
 }
 
-fn assert_runtime_receiver(renderer: &FrameRenderer, shadowed: &mut crate::shadows::ShadowedScene) {
+fn assert_runtime_receiver(
+    renderer: &FrameRenderer,
+    shadowed: &mut crate::shadows::ShadowedScene,
+    rejects: bool,
+) {
+    use crate::renderer::depth::DepthMode;
     let (_, pipelines) = shadowed.scene_and_pipelines_mut();
-    let selected = renderer.receiver_pipelines(pipelines);
-    let stats = selected.terrain_runtime_stats();
+    if rejects {
+        assert!(
+            renderer
+                .receiver_pipelines(pipelines, DepthMode::Reuse)
+                .card_reject(),
+            "reused depth must select the relief card reject"
+        );
+    }
     assert!(
-        stats.pipelines_built > 0,
+        !renderer
+            .receiver_pipelines(pipelines, DepthMode::Shared)
+            .card_reject(),
+        "shared depth never selects the relief card reject"
+    );
+    // The frame drew with the sibling its depth mode selected; only Reuse may add the reject.
+    let drawn = [DepthMode::Reuse, DepthMode::Shared].map(|depth| {
+        renderer
+            .receiver_pipelines(pipelines, depth)
+            .terrain_runtime_stats()
+    });
+    assert!(
+        drawn.iter().any(|stats| stats.pipelines_built > 0),
         "receiver terrain must draw through the runtime"
     );
     assert!(
-        stats.sets_prepared > 0,
+        drawn.iter().any(|stats| stats.sets_prepared > 0),
         "receiver terrain must prepare its material set"
     );
 }

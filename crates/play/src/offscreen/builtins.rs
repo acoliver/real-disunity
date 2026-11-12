@@ -38,6 +38,19 @@
 //!   range is not known, so depth is not reversed.
 //! * `_WorldSpaceCameraPos` is the translation of the inverse of the view, with 0 in the fourth
 //!   component for a member of three floats to ignore.
+//! * `_MainLightPosition` and `_MainLightColor` (four floats each) come from the main light of the
+//!   snapshot's lights, the first directional one, the same light the retained scene follows
+//!   ([`add_main_light`]). The player's tables show the names in 3,340 and 2,604 variants; their
+//!   words do not say which way the direction points or whether the colour includes intensity, so
+//!   that was read from the game's own shaders. Over every Vulkan variant of the player, the game's
+//!   `Mohawk/StandardShader` (1,488 of 5,760 variants), `Mohawk/StandardShaderTransparent`
+//!   (288 of 384), `Mohawk/Terrain/TerrainShader` (192 of 768) and `Custom/Lava` (192 of 256) hold
+//!   both. In nine of their variants translated with naga, every fragment stage takes
+//!   `clamp(dot(N, position.xyz), 0, 1)` and adds `position.xyz` to the view direction for the half
+//!   vector, so the direction is a unit vector from the surface toward the light; it multiplies
+//!   the diffuse and specular terms by `color.xyz` with no other intensity, so the colour holds the
+//!   light's colour times its intensity. No stage reads either fourth component, which is 0 here.
+//!   The light's colour temperature is not applied: nothing here says how the player converts it.
 //!
 //! # Left missing
 //!
@@ -54,10 +67,9 @@
 //!   evidence that the engine sets it in the way the common ones are set. The projection ones
 //!   would also need a choice between the engine layer's projection and the one adjusted for the
 //!   graphics API, which nothing here measures.
-//! * Lighting and shadows (`_MainLightPosition` 3,340, `_MainLightColor` 2,604, the
-//!   `LightShadows` buffer, `unity_SHAr` and the other spherical harmonics 1,040,
-//!   `unity_SpecCube0_HDR` 1,552, `unity_LightData` 1,472): they depend on lights and probes
-//!   that no offscreen record carries.
+//! * The other lighting and shadow values (the `LightShadows` buffer, `unity_SHAr` and the other
+//!   spherical harmonics 1,040, `unity_SpecCube0_HDR` 1,552, `unity_LightData` 1,472): they
+//!   depend on shadow maps, probes and additional lights that no offscreen record carries.
 //! * Instancing (`unity_ObjectToWorldArray` and `unity_WorldToObjectArray` in 2,062 variants,
 //!   `unity_BaseInstanceID` 2,122, and the DOTS tables): which instance index a draw reads is
 //!   not decided, and each draw here is one sub-mesh.
@@ -72,13 +84,16 @@ use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 
 use super::camera::{clip_from_gl, projection, world_to_camera};
-use worldrunner_world_simulation::graphics::CameraView;
+use crate::scene_light::main_light_index;
+use worldrunner_world_simulation::graphics::{CameraView, WorldLight};
 
 pub const OBJECT_TO_WORLD: &str = "unity_ObjectToWorld";
 pub const WORLD_TO_OBJECT: &str = "unity_WorldToObject";
 pub const VIEW: &str = "unity_MatrixV";
 pub const VIEW_PROJECTION: &str = "unity_MatrixVP";
 pub const CAMERA_POSITION: &str = "_WorldSpaceCameraPos";
+pub const MAIN_LIGHT_POSITION: &str = "_MainLightPosition";
+pub const MAIN_LIGHT_COLOR: &str = "_MainLightColor";
 
 /// A matrix is singular when its determinant is this small next to 1.
 const SINGULAR: f32 = 1.0e-12;
@@ -125,4 +140,35 @@ pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4) -> PropertyLayer {
         PropertyValue::Vector([position.x, position.y, position.z, 0.0]),
     );
     layer
+}
+
+/// A light's forward axis shorter than this points in no direction.
+const SHORTEST_AXIS: f32 = 1.0e-6;
+
+/// Adds the main light of `lights` to a camera's values: `_MainLightPosition` is the unit
+/// direction from a surface toward the light and `_MainLightColor` the light's colour times its
+/// intensity, each with 0 in the fourth component. The main light is the one the retained scene
+/// follows ([`main_light_index`]). With no directional light, or one whose forward axis has no
+/// length, both stay missing.
+pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
+    let Some(index) = main_light_index(lights.iter().map(|light| &light.settings)) else {
+        return;
+    };
+    let light = &lights[index];
+    let forward = Mat4::from_cols_array(&light.world_matrix).z_axis.truncate();
+    let length = forward.length();
+    if !length.is_finite() || length < SHORTEST_AXIS {
+        return;
+    }
+    let toward = -forward / length;
+    let [r, g, b, _] = light.settings.color;
+    let intensity = light.settings.intensity;
+    layer.values.set(
+        MAIN_LIGHT_POSITION,
+        PropertyValue::Vector([toward.x, toward.y, toward.z, 0.0]),
+    );
+    layer.values.set(
+        MAIN_LIGHT_COLOR,
+        PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
+    );
 }

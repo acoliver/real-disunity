@@ -10,8 +10,9 @@ pub(crate) use cards::reference as late_card_source;
 mod backing;
 pub(crate) use backing::ReceiverBacking;
 mod bindings;
+mod reject;
 mod reservation;
-pub(crate) use bindings::{group, shadow_layout};
+pub(crate) use bindings::{SetTwo, ShadowInputs, object_layout, shadow_layout};
 pub use reservation::ReceiverGradientReservation;
 mod shader;
 mod targets;
@@ -114,6 +115,11 @@ pub(crate) fn consumer_source(source: &str, layout: ReceiverLayout, terrain: boo
     shader::consumer(source, layout, terrain)
 }
 
+/// The object consumer source with the relief card early reject; see [`reject`].
+pub(crate) fn card_reject_source(source: &str, layout: ReceiverLayout) -> String {
+    reject::card_reject_source(source, layout)
+}
+
 #[cfg(test)]
 pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
     shader::function(source, name)
@@ -168,6 +174,10 @@ pub(crate) enum ReceiverReference {
     NormalProducer,
     MainArithmetic,
     PoisonUncovered,
+    /// The runtime receivers with reused depth, without the relief card early reject.
+    WithoutCardReject,
+    /// The runtime receivers with reused depth, rejecting every relief card quad.
+    ForcedCardReject,
     StoredShared,
     StoredIndependent,
     HardwareProbeIndependent,
@@ -204,6 +214,8 @@ impl ReceiverReference {
             | Self::NormalProducer
             | Self::MainArithmetic
             | Self::PoisonUncovered
+            | Self::WithoutCardReject
+            | Self::ForcedCardReject
             | Self::ProbeReuse
             | Self::HardwareProbeReuse
             | Self::StoredProbeReuse
@@ -274,16 +286,10 @@ impl crate::compositor::FrameRenderer {
                 _ => capture,
             };
             let output = ReceiverPayload::output_for(screen);
-            admission::validate(
-                &device.limits(),
-                layout,
-                if output == super::MetadataOutput::Merged {
-                    2
-                } else {
-                    1
-                },
-                gpu.terrain_surface(),
-            )?;
+            let colors = admission::metadata_colors(output);
+            admission::validate(&device.limits(), layout, colors, gpu.terrain_surface())?;
+            let card_reject =
+                admission::card_reject(&device.limits(), device.adapter_info().backend, colors);
             let reserved = self
                 .receiver_gradients
                 .layout()
@@ -291,13 +297,21 @@ impl crate::compositor::FrameRenderer {
             screen
                 .receiver_backing
                 .get_or_insert_with(|| ReceiverBacking::new(device, screen.size, reserved));
+            // `card_reject` follows from the device and `output`, so it needs no check of its own.
             if screen.receiver.as_ref().is_none_or(|receiver| {
                 receiver.layout != layout
                     || receiver.bias.to_bits() != bias.to_bits()
                     || receiver.output != output
                     || receiver.capture != capture
             }) {
-                screen.receiver = Some(ReceiverPayload::new(device, screen, layout, bias, capture));
+                screen.receiver = Some(ReceiverPayload::new(
+                    device,
+                    screen,
+                    layout,
+                    bias,
+                    capture,
+                    card_reject,
+                ));
             }
             #[cfg(test)]
             if matches!(
@@ -314,9 +328,13 @@ impl crate::compositor::FrameRenderer {
         }
         Ok(())
     }
+    /// The pipelines this frame's colour pass draws with: the receiver sibling of `pipelines`,
+    /// with relief cards rejecting hidden fragments when the receivers admitted it and the
+    /// pass reuses the prepass depth, the only mode that can attach it read-only.
     pub(crate) fn receiver_pipelines(
         &self,
         pipelines: &crate::renderer::ScenePipelines,
+        depth: crate::renderer::depth::DepthMode,
     ) -> crate::renderer::ScenePipelines {
         #[cfg(test)]
         if matches!(
@@ -343,9 +361,49 @@ impl crate::compositor::FrameRenderer {
                     {
                         return pipelines.for_receiver_reference(reference, receiver.layout);
                     }
-                    pipelines.for_receiver_gradients(receiver.layout)
+                    let reject = admission::selects_card_reject(receiver.card_reject, depth);
+                    #[cfg(test)]
+                    match self.receiver_reference {
+                        Some(ReceiverReference::WithoutCardReject) => {
+                            return pipelines.for_receiver_gradients(receiver.layout, false);
+                        }
+                        Some(ReceiverReference::ForcedCardReject) if reject => {
+                            return pipelines.for_forced_card_reject(receiver.layout);
+                        }
+                        _ => {}
+                    }
+                    pipelines.for_receiver_gradients(receiver.layout, reject)
                 },
             )
+    }
+
+    /// The frame's set-2 groups. Without receivers both are `fallback`. `card_depth` is the
+    /// Opaque depth attachment, given when the selected pipelines reject relief cards.
+    pub(crate) fn shadow_groups(
+        &self,
+        device: &wgpu::Device,
+        (fallback, map): (&wgpu::BindGroup, ShadowInputs<'_>),
+        card_depth: Option<&worldrunner_render_post::AttachmentView>,
+    ) -> SetTwo {
+        let Some(receiver) = self
+            .ssao
+            .as_ref()
+            .and_then(|screen| screen.receiver.as_ref())
+        else {
+            debug_assert!(card_depth.is_none(), "the card reject needs receivers");
+            return SetTwo {
+                object: fallback.clone(),
+                terrain: fallback.clone(),
+            };
+        };
+        let view = card_depth.map(|depth| {
+            depth.texture().create_view(&wgpu::TextureViewDescriptor {
+                label: Some("card reject depth"),
+                aspect: wgpu::TextureAspect::DepthOnly,
+                ..Default::default()
+            })
+        });
+        bindings::set_two(device, receiver, &map, view.as_ref())
     }
 }
 

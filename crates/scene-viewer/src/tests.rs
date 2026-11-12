@@ -199,6 +199,7 @@ pub(crate) fn options() -> ViewerOptions {
         presentation_budget: crate::PresentationBudget::default().into(),
         capture_pool: crate::CapturePoolPolicy::default(),
         window_size_unit: crate::WindowSizeUnit::default(),
+        window_mode: crate::WindowMode::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         frame_profile: crate::FrameProfile::Legacy,
         frames_in_flight: 2,

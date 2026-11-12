@@ -255,6 +255,18 @@ impl SceneGpu {
         Ok(())
     }
 
+    /// Prepares the objects of a term replay drawn with `pipelines` in the frame being drawn,
+    /// before the replay's pass opens.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses the objects' program, set or pipeline for the context.
+    pub(crate) fn prepare_objects_replay(
+        &self,
+        pipelines: &crate::renderer::ScenePipelines,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        self.prepare_objects(pipelines, &self.drawing_uniform())
+    }
+
     /// The pairs of pipeline index and material the batches that hold instances draw: a mesh
     /// level with material slots draws the pair of each slot, and one without draws the pair of
     /// the batch.

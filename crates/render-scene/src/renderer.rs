@@ -348,6 +348,9 @@ impl ScenePipelines {
         self.specialization.unlit_source()
     }
 
+    /// The fixed object pipelines, which no pass draws with any more; tests still compare
+    /// against them and count what they compiled.
+    #[cfg(test)]
     pub(crate) const fn object_pipelines(&self) -> &ObjectPipelines {
         &self.pipelines
     }

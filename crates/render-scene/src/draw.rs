@@ -71,16 +71,15 @@ pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
 
-/// Which pass a colour-pass draw records for, which decides how objects are recorded and whether
-/// the forward-only draws follow them.
+/// Which pass a colour-pass draw records for, which decides whether the forward-only draws follow
+/// the objects and the terrain.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Route {
-    /// The forward pass: objects through the program runtime, then the sky, the celestial
-    /// meshes and the dynamic meshes.
+    /// The forward pass: then the sky, the celestial meshes and the dynamic meshes.
     Forward,
-    /// The metadata prepass: objects through the program runtime and terrain only.
+    /// The metadata prepass: objects and terrain only.
     Prepass,
-    /// The capture terms, whose objects still draw with the fixed pipelines.
+    /// The capture terms: objects and terrain only.
     Capture,
 }
 
@@ -556,12 +555,7 @@ impl SceneGpu {
         let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
-        // The capture terms still draw objects with the fixed pipelines.
-        let selection = if route == Route::Capture {
-            self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None)
-        } else {
-            self.draw_objects_prepared(pass, &frame_group, pipelines.object_context())
-        };
+        let selection = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if route == Route::Forward {

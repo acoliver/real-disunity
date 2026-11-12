@@ -66,7 +66,7 @@ impl ShadowSchedule {
         }
         crate::compositor::declare_velocity(opaque, &mut self.views, velocity.as_ref())?;
         if let Some(screen) = &scheduler.ssao {
-            crate::ssao::passes::geometry_declaration(&mut self.declaration, screen.depth.format());
+            crate::ssao::passes::geometry_declaration(&mut self.declaration, screen);
             if let Some(receiver) = &screen.receiver {
                 self.declaration
                     .passes
@@ -77,6 +77,20 @@ impl ShadowSchedule {
                     .extend(receiver.resources());
             }
         }
+        self.declaration
+            .passes
+            .iter_mut()
+            .find(|feature| feature.slot == PassSlot::Opaque)
+            .expect("opaque feature")
+            .additional_color_formats = self
+            .passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::Opaque)
+            .expect("opaque pass")
+            .additional_colors
+            .iter()
+            .map(|attachment| attachment.format)
+            .collect();
         Ok(())
     }
     pub fn new(

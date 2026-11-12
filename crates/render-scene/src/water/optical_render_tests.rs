@@ -14,7 +14,7 @@ fn renderer(
         None,
     )
     .unwrap();
-    renderer.install_water(context.device(), body).unwrap();
+    renderer.install_water(context, body).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),
@@ -145,11 +145,11 @@ fn disabled_optical_controls_match_the_stock_shader_within_derived_bounds_at_eve
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     for samples in crate::msaa_tests::supported_samples(&context) {
-        let mut renderer = renderer(&context, samples, settings());
+        let renderer = renderer(&context, samples, settings());
         let expected = read(&context, renderer.targets().texture());
         let receivers = receiver_bytes(&context, &renderer, samples);
         assert_default_uniform_bytes();
-        use_stock_shader(&context, &mut renderer, samples);
+        use_stock_shader(&renderer);
         draw_water_only(&context, &renderer);
         assert_images_agree(
             &read(&context, renderer.targets().texture()),
@@ -175,12 +175,12 @@ fn assert_transparent_water_passes_snapshot(context: &GpuContext, samples: u32) 
     body.color_micro = [0; 3];
     body.absorption_micro = [0; 3];
     body.material.refraction_millimeters = Some(0);
-    let mut renderer = renderer(context, samples, body);
+    let renderer = renderer(context, samples, body);
     upload_checker_snapshot(context, &renderer);
     let center = (16 * 32 + 16) * 8;
     for stock in [false, true] {
         if stock {
-            use_stock_shader(context, &mut renderer, samples);
+            use_stock_shader(&renderer);
         }
         draw_water_only(context, &renderer);
         let actual = read(context, renderer.targets().texture());
@@ -220,11 +220,7 @@ pub(super) fn upload_checker_snapshot(
     colors
 }
 
-fn use_stock_shader(
-    context: &GpuContext,
-    renderer: &mut crate::compositor::FrameRenderer,
-    samples: u32,
-) {
+fn use_stock_shader(renderer: &crate::compositor::FrameRenderer) {
     let source = water_source(false)
         .replace(
             include_str!("water.wgsl"),
@@ -234,15 +230,8 @@ fn use_stock_shader(
         .replace(include_str!("shadow_lookup.wgsl"), "")
         .replace(include_str!("shadow_response.wgsl"), "")
         .replace(include_str!("shadow_visibility.wgsl"), "");
-    let water = renderer.water.as_mut().unwrap();
-    water.pipeline = pipeline_with_source(
-        context.device(),
-        samples,
-        &water.layout,
-        false,
-        [0; 5],
-        &source,
-    );
+    let water = renderer.water.as_ref().unwrap();
+    water.substitute(([0; 5], false), &source, [0; 5]);
 }
 
 /// The two shaders are different texts that are equal for default controls, so their float16

@@ -87,6 +87,7 @@ pub struct FeaturePass {
     pub slot: PassSlot,
     pub reads: Vec<ResourceRef>,
     pub color_format: Option<wgpu::TextureFormat>,
+    pub additional_color_formats: Vec<wgpu::TextureFormat>,
     pub depth_format: Option<wgpu::TextureFormat>,
     pub samples: u32,
 }
@@ -96,6 +97,7 @@ impl FeaturePass {
             slot,
             reads: Vec::new(),
             color_format: None,
+            additional_color_formats: Vec::new(),
             depth_format: None,
             samples: 1,
         }
@@ -360,6 +362,12 @@ fn validate_feature(
         || feature
             .color_format
             .is_some_and(|format| pass.color.as_ref().is_none_or(|a| a.format != format))
+        || feature.additional_color_formats
+            != pass
+                .additional_colors
+                .iter()
+                .map(|attachment| attachment.format)
+                .collect::<Vec<_>>()
         || feature
             .depth_format
             .is_some_and(|format| pass.depth.as_ref().is_none_or(|a| a.format != format))

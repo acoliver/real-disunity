@@ -313,7 +313,7 @@ fn reflection_allocations(settings: &RendererConfiguration, set: &mut Allocation
         );
         radiance_allocations(settings.frame, &ssr, set);
         reflection_depth_allocations([w, h], crate::ssr::depth_level_count(&ssr, [w, h]), set);
-        set.buffer("reflection uniform", 192, 1);
+        set.buffer("reflection uniform", 224, 1);
         set.buffer("environment intensity", 16, 1);
         set.buffer("reflection staging", 192, 3);
     }
@@ -331,7 +331,7 @@ fn radiance_allocations(
         let levels = u32::try_from(extents.len()).expect("bounded reflection levels");
         set.texture(
             "reflection radiance",
-            [w, h, 1],
+            [w, h, crate::ssr::pyramid::bank_count(ssr)],
             wgpu::TextureFormat::Rgba16Float,
             [levels, 1],
             1,
@@ -343,7 +343,11 @@ fn radiance_allocations(
         for size in extents {
             set.texture(
                 "reflection radiance",
-                [size[0] * config.samples, size[1], 1],
+                [
+                    size[0] * config.samples,
+                    size[1],
+                    crate::ssr::pyramid::bank_count(ssr),
+                ],
                 wgpu::TextureFormat::Rgba16Float,
                 [1, 1],
                 1,
@@ -666,7 +670,7 @@ fn build(
     renderer.install_reflections(device, settings.frame.size)?;
     renderer.share_metadata_depth(device);
     install_jitter(&mut renderer, settings)?;
-    renderer.install_water_bodies(device, settings.water.clone())?;
+    renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;
     if (settings.ui_depth || renderer.ssr.is_some()) && renderer.snapshots.is_none() {
         renderer.snapshots = Some(std::array::from_fn(|_| {
             crate::water::snapshots::Snapshots::new(device, settings.frame)

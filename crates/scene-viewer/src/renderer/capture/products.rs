@@ -21,6 +21,7 @@ struct Native {
     lanes: u32,
     columns: u32,
     stride: [u32; 2],
+    layer: u32,
     mapping: Option<AsyncReadback>,
     done: bool,
 }
@@ -37,6 +38,7 @@ impl Native {
             lanes: target.lanes,
             columns: target.columns,
             stride: target.stride,
+            layer: target.layer,
             readback: Readback::new(
                 device,
                 FrameConfig::new(target.size, target.texture.format(), 1),
@@ -91,7 +93,12 @@ impl Native {
                 match output {
                     CaptureOutput::Depth => products.depth = Some(image),
                     CaptureOutput::AmbientOcclusion => products.ambient_occlusion = Some(image),
-                    CaptureOutput::SsrConfidence => products.ssr_confidence = Some(image),
+                    CaptureOutput::SsrConfidence => {
+                        products.ssr_confidence = Some(image);
+                    }
+                    CaptureOutput::SsrConfidenceWater => {
+                        products.ssr_confidence_water = Some(image);
+                    }
                     _ => unreachable!("native feature"),
                 }
             }
@@ -174,6 +181,10 @@ impl Products {
                 FeatureTarget::AmbientOcclusion,
             ),
             (CaptureOutput::SsrConfidence, FeatureTarget::SsrConfidence),
+            (
+                CaptureOutput::SsrConfidenceWater,
+                FeatureTarget::SsrConfidenceWater,
+            ),
         ] {
             if outputs.contains(&output) {
                 let texture =
@@ -197,12 +208,13 @@ impl Products {
             display.encode(encoder, output)?;
         }
         for native in &mut self.native {
-            native.readback.encode_lanes(
+            native.readback.encode_lanes_layer(
                 encoder,
                 &native.texture,
                 native.lanes,
                 native.columns,
                 native.stride,
+                native.layer,
             )?;
         }
         Ok(())

@@ -20,6 +20,8 @@ mod gather_origin_tests;
 mod grid_confidence_tests;
 #[path = "grid_tests.rs"]
 mod grid_tests;
+#[path = "hit_facing_tests.rs"]
+mod hit_facing_tests;
 #[path = "msaa.rs"]
 mod msaa;
 #[path = "numerical.rs"]
@@ -40,6 +42,8 @@ mod replacement_tests;
 mod roughness_policy_tests;
 #[path = "trace_extent_tests.rs"]
 mod trace_extent_tests;
+#[path = "water_hit_facing_tests.rs"]
+mod water_hit_facing_tests;
 #[path = "water_tests.rs"]
 pub(crate) mod water_tests;
 use super::*;

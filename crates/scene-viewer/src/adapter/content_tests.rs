@@ -27,6 +27,7 @@ fn selected_effects_supply_initial_capture_readiness() {
     })
     .unwrap();
     assert!(host.readiness.capture_features[3]);
+    assert!(!host.readiness.capture_features[4]);
     assert_eq!(host.captures.recipes[&0].frame_samples, 4);
     assert_eq!(host.accepted_generation(), 0);
 }

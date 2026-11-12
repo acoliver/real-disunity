@@ -17,13 +17,16 @@ pub enum FeatureTarget {
     /// Scalable with normalized depth in green. `DepthAwareGather` uses `Rg32Float`
     /// with the consumed view-space metre depth in green, at the kernel's extent.
     AmbientOcclusion,
-    /// Trace confidence in alpha of `Rgba16Float`, at trace resolution.
-    /// Capture extent is `(trace_width * frame_sample_count, trace_height)`.
-    /// Output samples occupy horizontal lanes: `packed_x = sample * trace_width + x`.
-    /// Trace dimensions follow the selected resolution and rounding policy.
-    /// Use `feature_capture` for the logical extent and physical lane layout,
-    /// excluding allocation padding.
+    /// Strict-facing trace confidence from the bank that opaque receivers read,
+    /// in alpha of `Rgba16Float`, at trace resolution. Capture extent is
+    /// `(trace_width * frame_sample_count, trace_height)`. Output samples occupy
+    /// horizontal lanes: `packed_x = sample * trace_width + x`. Trace dimensions
+    /// follow the selected resolution and rounding policy. Use `feature_capture`
+    /// for the logical extent and physical lane layout, excluding allocation padding.
     SsrConfidence,
+    /// Water-facing trace confidence in alpha of `Rgba16Float`, at trace resolution.
+    /// Available only when the water-facing bank is enabled.
+    SsrConfidenceWater,
 }
 
 /// Logical capture rectangle and sample-lane layout in an existing allocation.
@@ -36,6 +39,8 @@ pub struct FeatureCapture<'a> {
     pub columns: u32,
     /// Distance between neighbouring lane origins in the backing texture.
     pub stride: [u32; 2],
+    /// Array layer to capture.
+    pub layer: u32,
 }
 impl<'a> FeatureCapture<'a> {
     pub fn whole(texture: &'a wgpu::Texture) -> Self {
@@ -46,6 +51,7 @@ impl<'a> FeatureCapture<'a> {
             lanes: 1,
             columns: 1,
             stride: size,
+            layer: 0,
         }
     }
 }
@@ -60,13 +66,31 @@ impl FrameRenderer {
             FeatureTarget::SsrConfidence => {
                 self.ssr.as_ref().map(crate::ssr::Ssr::confidence_target)
             }
+            FeatureTarget::SsrConfidenceWater => self
+                .ssr
+                .as_ref()
+                .filter(|ssr| {
+                    self.water.is_some()
+                        && ssr.settings.hit_facing
+                            == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
+                })
+                .map(crate::ssr::Ssr::confidence_target),
         }
     }
 
     pub fn feature_capture(&self, feature: FeatureTarget) -> Option<FeatureCapture<'_>> {
-        if feature == FeatureTarget::SsrConfidence {
-            return self.ssr.as_ref().map(crate::ssr::Ssr::confidence_capture);
+        match feature {
+            FeatureTarget::SsrConfidence => self.ssr.as_ref().map(|ssr| ssr.confidence_capture(0)),
+            FeatureTarget::SsrConfidenceWater => self
+                .ssr
+                .as_ref()
+                .filter(|ssr| {
+                    self.water.is_some()
+                        && ssr.settings.hit_facing
+                            == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
+                })
+                .map(|ssr| ssr.confidence_capture(1)),
+            _ => self.feature_target(feature).map(FeatureCapture::whole),
         }
-        self.feature_target(feature).map(FeatureCapture::whole)
     }
 }

@@ -1,6 +1,7 @@
 //! Shadow receivers must agree across independent and prepass-owned depth.
 use super::*;
 use crate::compositor::FrameRenderer;
+use crate::scene_metadata::receiver::ReceiverReference;
 use worldrunner_render_post::{Readback, ToneMap};
 
 fn source(terrain: bool, offset: i64) -> RenderScene {
@@ -136,16 +137,19 @@ pub(super) fn reference_receiver() -> String {
     reference
 }
 
-fn reference_pipelines(context: &GpuContext, renderer: &ShadowedScene) -> ScenePipelines {
+fn reference_pipelines(context: &GpuContext) -> ScenePipelines {
     let (object, terrain) = resources::receiver_sources(true, false, false);
     let current = include_str!("../../shader/shadows.wgsl");
     let receiver = reference_receiver();
+    let terrain = crate::scene_metadata::receiver::hardware_receiver_reference(&terrain);
+    assert_eq!(terrain.matches(current).count(), 1);
+    let layout = crate::scene_metadata::receiver::shadow_layout(context.device());
     let mut pipelines = ScenePipelines::with_screen_space(
         context.device(),
         (wgpu::TextureFormat::Rgba16Float, 1),
         &object.replace(current, &receiver),
         &terrain.replace(current, &receiver),
-        Some(&renderer.shadow_layout),
+        Some(&layout),
         Some(&crate::ssao::ambient_layout(context.device())),
     );
     pipelines.ssao = true;
@@ -218,7 +222,12 @@ fn capture(
     )
     .unwrap();
     if reference {
-        renderer.pipelines = reference_pipelines(context, &renderer);
+        renderer.pipelines = reference_pipelines(context);
+        frame.receiver_reference = Some(if independent {
+            ReceiverReference::FrozenIndependent
+        } else {
+            ReceiverReference::FrozenReuse
+        });
     }
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),

@@ -2,7 +2,10 @@ use super::{ShadowedScene, resources};
 
 pub(crate) fn capture_sources(shadowed: bool) -> (&'static str, &'static str) {
     if shadowed {
-        (resources::SHADOWED_WGSL, resources::SHADOWED_TERRAIN_WGSL)
+        (
+            resources::SHADOWED_WGSL,
+            resources::shadowed_terrain_source(),
+        )
     } else {
         (crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL)
     }

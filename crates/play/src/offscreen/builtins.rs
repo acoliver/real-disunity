@@ -223,9 +223,11 @@ fn pixels(side: u32) -> f32 {
     f32::from(u16::try_from(side).unwrap_or(u16::MAX))
 }
 
-/// The near-plane distance of an OpenGL `projection`, from its depth row: `n = b / (a - 1)` for a
-/// perspective projection and `n = (b + 1) / a` for an orthographic one, where `a` and `b` are
-/// its depth scale and offset. `None` when the matrix has no finite near plane.
+/// The near-plane distance of an OpenGL `projection`, from the z row: `n = t / (s - 1)` for a
+/// perspective projection and `n = (t + 1) / s` for an orthographic one, where `s` is the
+/// row's z scale (`z_axis.z`) and `t` its translation (`w_axis.z`). `None` when the matrix has
+/// no finite near plane. A script projection with an oblique near plane rewrites that row, so
+/// for it the value is no longer the camera's near distance.
 fn near_plane(projection: &Mat4) -> Option<f32> {
     let (scale, offset) = (projection.z_axis.z, projection.w_axis.z);
     let near = if orthographic_flag(projection) > 0.0 {

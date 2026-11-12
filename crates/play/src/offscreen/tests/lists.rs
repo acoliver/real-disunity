@@ -778,3 +778,27 @@ fn a_draw_into_a_mip_has_the_size_of_that_mip() {
         "level 2 of a 16 by 8 texture is 4 by 2"
     );
 }
+
+#[test]
+fn a_draw_into_a_depth_target_alone_has_the_size_of_the_depth_target() {
+    let mut world = world();
+    let [lit, ..] = shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    let depth = render_texture(&mut world, [6, 2]);
+    world
+        .record_offscreen(OffscreenWork::SetRenderTarget {
+            color: Vec::new(),
+            depth: Some(TargetRef::Render(depth)),
+            mip: 0,
+            face: -1,
+            slice: -1,
+        })
+        .unwrap();
+    draw(&mut world, drawing(&[FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    assert_eq!(
+        lists(&adapted)[0].values.values.get("_ScreenParams"),
+        Some(&PropertyValue::Vector([6.0, 2.0, 0.0, 0.0]))
+    );
+}

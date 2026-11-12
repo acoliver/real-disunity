@@ -24,6 +24,7 @@ mod streaming;
 mod subresources;
 mod terms;
 mod terrain;
+mod terrain_receiver_images;
 mod timing_probe;
 mod toggle;
 mod validation;
@@ -154,7 +155,10 @@ fn cascades_and_blending_are_supported_with_a_bounded_count() {
 #[test]
 fn shadowed_shader_is_valid_wgsl() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    for source in [resources::SHADOWED_WGSL, resources::SHADOWED_TERRAIN_WGSL] {
+    for source in [
+        resources::SHADOWED_WGSL,
+        resources::shadowed_terrain_source(),
+    ] {
         let module = naga::front::wgsl::parse_str(source).unwrap();
         naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),

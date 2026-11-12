@@ -1,74 +1,58 @@
-//! Horizontal pair advances in font units, parsed by ttf-parser. Class matrices stay in the
-//! registered font bytes; only the distinct, ordered lookup indices require owned storage.
+//! Horizontal pair advances in font units. `PairPos` offsets are resolved at registration;
+//! class matrices stay in font bytes, and queries never walk the lookup list.
+mod registration;
+use super::UiError;
 use std::sync::Arc;
-use ttf_parser::{Face, GlyphId, Tag, gpos, kern, opentype_layout::LayoutTable};
+use ttf_parser::{Face, GlyphId, Tag, gpos, kern, opentype_layout::LookupSubtable};
 
-const KERN: Tag = Tag::from_bytes(b"kern");
+const GPOS: Tag = Tag::from_bytes(b"GPOS");
+
+#[derive(Clone, Copy, Debug)]
+struct PairSubtable {
+    offset: u32,
+    lookup: u16,
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct PairPositioning {
     // Some, including an empty slice, suppresses legacy kern for the entire face.
-    lookups: Option<Arc<[u16]>>,
+    subtables: Option<Arc<[PairSubtable]>>,
 }
 
 impl PairPositioning {
-    pub(super) fn new(face: &Face<'_>) -> Self {
-        let lookups = face.tables().gpos.and_then(|gpos| {
-            gpos.features.into_iter().any(|f| f.tag == KERN).then(|| {
-                script_lookups(gpos, Tag::from_bytes(b"DFLT"))
-                    .or_else(|| script_lookups(gpos, Tag::from_bytes(b"latn")))
-                    .unwrap_or_default()
-            })
-        });
-        Self {
-            lookups: lookups.map(Arc::from),
-        }
+    pub(super) fn new(face: &Face<'_>) -> Result<Self, UiError> {
+        let subtables = match face.raw_face().table(GPOS) {
+            Some(data) => registration::resolve(face, data)?.map(Arc::from),
+            None => None,
+        };
+        Ok(Self { subtables })
     }
 
     pub(super) fn storage_bytes(&self) -> usize {
-        self.lookups.as_deref().map_or(0, std::mem::size_of_val)
+        self.subtables.as_deref().map_or(0, std::mem::size_of_val)
     }
 
     pub(super) fn scaled<'a>(&'a self, face: &Face<'a>, size: f32) -> ScaledPairs<'a> {
         ScaledPairs {
             positioning: self,
-            gpos: face.tables().gpos,
+            gpos: face.raw_face().table(GPOS),
             kern: face.tables().kern,
             pixels_per_unit: size / f32::from(face.units_per_em()),
         }
     }
 }
 
-fn script_lookups(gpos: LayoutTable<'_>, tag: Tag) -> Option<Box<[u16]>> {
-    let language = gpos.scripts.find(tag)?.default_language?;
-    let mut selected = vec![false; usize::from(gpos.lookups.len())];
-    let mut reachable = false;
-    for index in language
-        .required_feature
-        .into_iter()
-        .chain(language.feature_indices)
-    {
-        let Some(feature) = gpos.features.get(index).filter(|f| f.tag == KERN) else {
-            continue;
-        };
-        reachable = true;
-        for lookup in feature.lookup_indices {
-            if let Some(flag) = selected.get_mut(usize::from(lookup)) {
-                *flag = true;
-            }
-        }
+fn parse_pair(data: &[u8]) -> Option<gpos::PairAdjustment<'_>> {
+    match gpos::PositioningSubtable::parse(data, 2)? {
+        gpos::PositioningSubtable::Pair(pair) => Some(pair),
+        _ => unreachable!("type 2 parses only PairPos"),
     }
-    reachable.then(|| {
-        (0..gpos.lookups.len())
-            .filter(|&index| selected[usize::from(index)])
-            .collect()
-    })
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct ScaledPairs<'a> {
     positioning: &'a PairPositioning,
-    gpos: Option<LayoutTable<'a>>,
+    gpos: Option<&'a [u8]>,
     kern: Option<kern::Table<'a>>,
     pixels_per_unit: f32,
 }
@@ -79,24 +63,25 @@ impl ScaledPairs<'_> {
     }
 
     fn units(self, first: GlyphId, second: GlyphId) -> f32 {
-        if let Some(indices) = &self.positioning.lookups {
-            let gpos = self.gpos.expect("GPOS present when lookups were selected");
-            indices
-                .iter()
-                .filter_map(|&i| gpos.lookups.get(i))
-                .filter_map(|lookup| {
-                    // A matching zero advance still stops this lookup's subtable search.
-                    (0..lookup.subtables.len()).find_map(|i| {
-                        match lookup.subtables.get::<gpos::PositioningSubtable<'_>>(i)? {
-                            gpos::PositioningSubtable::Pair(pair) => {
-                                pair_advance(pair, first, second)
-                            }
-                            _ => None,
-                        }
-                    })
-                })
-                .map(f32::from)
-                .sum()
+        if let Some(subtables) = &self.positioning.subtables {
+            let data = self
+                .gpos
+                .expect("GPOS present when subtables were resolved");
+            let mut matched_lookup = None;
+            let mut advance = 0.;
+            for subtable in subtables.iter() {
+                if matched_lookup == Some(subtable.lookup) {
+                    continue;
+                }
+                let pair = parse_pair(&data[subtable.offset as usize..])
+                    .expect("PairPos validated at registration");
+                if let Some(value) = pair_advance(pair, first, second) {
+                    advance += f32::from(value);
+                    // A matching zero advance also stops this lookup's subtable search.
+                    matched_lookup = Some(subtable.lookup);
+                }
+            }
+            advance
         } else {
             self.kern.map_or(0., |kern| {
                 kern.subtables
@@ -120,3 +105,6 @@ fn pair_advance(pair: gpos::PairAdjustment<'_>, first: GlyphId, second: GlyphId)
     };
     Some(first_value.x_advance)
 }
+
+#[cfg(test)]
+mod tests;

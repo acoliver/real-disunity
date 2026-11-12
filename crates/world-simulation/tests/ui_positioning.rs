@@ -338,7 +338,7 @@ fn text_field_caret_uses_the_same_pair_advance_as_its_glyph_layout() {
 #[test]
 fn positioning_storage_is_charged_to_font_and_face_budgets_and_released_on_unload() {
     let bytes = font(Some(default_gpos(&[Lookup::pair(2, false)])), None);
-    let storage = std::mem::size_of::<u16>();
+    let storage = std::mem::size_of::<(u32, u16)>();
     let mut fonts = FontBook::new(UiLimits {
         max_font_bytes: bytes.len(),
         ..UiLimits::default()

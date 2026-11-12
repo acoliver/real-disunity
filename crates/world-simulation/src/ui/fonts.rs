@@ -75,7 +75,7 @@ impl FontBook {
         }
         super::font_data::validate(&bytes)?;
         let face = ttf_parser::Face::parse(&bytes, 0).map_err(|_| UiError::InvalidFont)?;
-        let positioning = PairPositioning::new(&face);
+        let positioning = PairPositioning::new(&face)?;
         let total = total
             .checked_add(positioning.storage_bytes())
             .ok_or(UiError::FontLimit)?;

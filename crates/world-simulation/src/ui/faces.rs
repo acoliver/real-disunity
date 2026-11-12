@@ -134,7 +134,7 @@ impl FaceBook {
         }
         ab_glyph::FontRef::try_from_slice_and_index(&data, index)
             .map_err(|_| UiError::InvalidFont)?;
-        let positioning = PairPositioning::new(&face);
+        let positioning = PairPositioning::new(&face)?;
         let size = data.len().saturating_add(positioning.storage_bytes());
         if size > self.limits.max_face_bytes {
             return Err(UiError::InvalidFont);

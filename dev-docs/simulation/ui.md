@@ -394,10 +394,26 @@ Both value records are parsed, but placement, vertical advances, the second
 record and device/variation adjustments are ignored. This subset provides no
 GSUB, mark/cursive or language-specific shaping, or variable-instance evaluation.
 Pair state resets at explicit and wrapped line breaks, including recomputed wrap
-tails. The service retains lookup indices with each registered font/face; these
-bytes count against the font storage limits. Class matrices remain compact in
-the original font bytes. `ui_positioning` exercises generated GPOS-only and
-both-table fonts, lookup selection, precedence, pair origins and wrap resets.
+tails. Registration resolves supported PairPos offsets and their lookup identities;
+queries read those subtables directly without traversing lookup lists. These owned
+descriptors count against the existing font/face storage limits. Class matrices
+remain compact in the original font bytes.
+
+Both `FontBook::register` and `FaceBook::load` reject malformed GPOS headers or
+feature records with `InvalidGpos`, including unrelated features. Selected type-9
+subtables require extension format 1, an inner type other than 9, and a nonzero
+in-bounds offset; violations return `InvalidGposExtension` before positioning
+parsing. Malformed GPOS never enables legacy fallback. Registration deduplicates
+feature indices before walking lookup arrays and limits reference work to 8,192
+visits, counting language feature references, unique selected feature lookup
+references, selected lookup headers and expanded subtable references. Aliases
+count as separate visits. A second bound permits at most 1,024 potential PairPos
+slots across selected type-2/type-9 lookups, limiting retained descriptors and
+worst-case probes per pair. Both bounds are checked before expanded traversal;
+exceeding either returns `PositioningLimit`. They permit thousands of ordinary
+references while preventing small aliased tables from causing quadratic work.
+`ui_positioning` and `ui_positioning_hostile` exercise selection, precedence,
+measurement, storage accounting, malformed input and bounded registration.
 
 `TextRun::spans` contains ordered, nonempty, disjoint `TextSpan` UTF-8 byte ranges. Each range must end on character boundaries inside `text`. Invalid ranges or colours return `InvalidText`. A span's linear RGBA colour multiplies the run colour and inherited group alpha; unstyled glyphs use white. The source ranges survive wrapping, consumed break spaces and CR/LF. `GlyphLayout::color` and `UiGlyphQuad::color` carry the span tint through extraction, and both presentation paths multiply it by the contribution tint. This structured API accepts no markup. There are no bundled font faces or simulated bold or italic weights. A span can carry `link: Some(UiLinkId(value))`; plain colour spans use `None`. Link identities are caller-chosen and must be unique within one run. Duplicate identities return `InvalidText`. Both cached glyph layouts and extracted glyph quads retain the link identity. Link spans also produce solid underline quads through `UiRenderPlan::graphics`, one per line segment, using the span colour multiplied by the run tint and inherited alpha. Their thickness is one sixteenth of the font size, with a minimum of one logical pixel; their upper edge is one thickness below the baseline. Underlines share glyph pixel snapping and rectangle, renderer and scroll clipping.
 

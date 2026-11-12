@@ -116,13 +116,7 @@ impl SceneMeshLod {
         skeleton: SkeletonHandle,
         influences: Vec<SceneSkinInfluence>,
     ) -> Result<Self, SceneValidationError> {
-        if influences.len() != self.vertices.len() {
-            return Err(SceneValidationError::SkinInfluenceCount {
-                expected: self.vertices.len(),
-                observed: influences.len(),
-            });
-        }
-        validate_weight_sums(&influences)?;
+        validate_influences(&influences, self.vertices.len())?;
         self.skin_influences = Some(influences.into_boxed_slice());
         self.skeleton = Some(skeleton);
         Ok(self)
@@ -254,26 +248,26 @@ impl SceneMeshLod {
             }
         }
         match (&self.skin_influences, self.skeleton) {
-            (Some(influences), Some(_)) if influences.len() == self.vertices.len() => {
-                validate_weight_sums(influences)?;
-            }
-            (Some(influences), _) if influences.len() != self.vertices.len() => {
-                return Err(SceneValidationError::SkinInfluenceCount {
-                    expected: self.vertices.len(),
-                    observed: influences.len(),
-                });
-            }
-            (Some(_), None) | (None, Some(_)) => {
-                return Err(SceneValidationError::UnsupportedInput {
-                    part: "skin influences and skeleton must be supplied together",
-                });
-            }
-            (None, None) | (Some(_), Some(_)) => {}
+            (None, None) => Ok(()),
+            (Some(influences), Some(_)) => validate_influences(influences, self.vertices.len()),
+            _ => Err(SceneValidationError::UnsupportedInput {
+                part: "skin influences and skeleton must be supplied together",
+            }),
         }
-        Ok(())
     }
 }
-fn validate_weight_sums(influences: &[SceneSkinInfluence]) -> Result<(), SceneValidationError> {
+/// One influence row per vertex, each summing to 255 or explicitly 0. Joint ranges need the
+/// skeleton and are checked by [`super::SceneGeometry::validate`].
+fn validate_influences(
+    influences: &[SceneSkinInfluence],
+    vertex_count: usize,
+) -> Result<(), SceneValidationError> {
+    if influences.len() != vertex_count {
+        return Err(SceneValidationError::SkinInfluenceCount {
+            expected: vertex_count,
+            observed: influences.len(),
+        });
+    }
     for (vertex, influence) in influences.iter().copied().enumerate() {
         let sum: u16 = influence.weights.into_iter().map(u16::from).sum();
         if sum != 0 && sum != 255 {

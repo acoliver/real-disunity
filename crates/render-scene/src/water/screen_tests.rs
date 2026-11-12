@@ -66,7 +66,7 @@ fn screen_renderer(
     body.material.normal = Some(TextureHandle::from_raw(0));
     body.material.screen_refraction_micro = Some(amplitude);
     let mut renderer = regressions::renderer(context, samples);
-    renderer.install_water(context.device(), body).unwrap();
+    renderer.install_water(context, body).unwrap();
     install_normal(context, &mut renderer, encoded);
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),

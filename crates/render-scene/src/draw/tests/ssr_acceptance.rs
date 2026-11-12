@@ -1,3 +1,6 @@
+#[path = "ssr_footprint.rs"]
+mod footprint_tests;
+
 #[path = "ssr_coverage.rs"]
 mod coverage_tests;
 

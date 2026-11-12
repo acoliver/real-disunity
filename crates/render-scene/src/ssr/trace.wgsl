@@ -1,7 +1,7 @@
 struct ReflectionCamera {
     projection: mat4x4<f32>, inverse_projection: mat4x4<f32>,
     settings: vec4<f32>, size: vec4<f32>,
-    traversal: vec4<f32>, limits: vec4<f32>, behind: vec4<f32>,
+    traversal: vec4<f32>, limits: vec4<f32>, behind: vec4<f32>, policy: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> camera: ReflectionCamera;
 @group(0) @binding(1) var opaque: texture_2d<f32>;
@@ -17,9 +17,9 @@ fn depth_at(level: u32, uv: vec2<f32>) -> f32 {
     let scale = exp2(min(f32(level*2u), ceil(log2(max(camera.size.x,camera.size.y)))));
     let coordinate = vec2<i32>(uv*camera.size.xy/scale);
     switch level {
-        case 0u: { return textureLoad(depth_0, coordinate, 0).r; }
-        case 1u: { return textureLoad(depth_2, coordinate, 0).r; }
-        case 2u: { return textureLoad(depth_4, coordinate, 0).r; }
+        case 0: { return textureLoad(depth_0, coordinate, 0).r; }
+        case 1: { return textureLoad(depth_2, coordinate, 0).r; }
+        case 2: { return textureLoad(depth_4, coordinate, 0).r; }
         default: { return textureLoad(depth_6, coordinate, 0).r; }
     }
 }
@@ -115,62 +115,113 @@ fn matches_receiver_depth(surface: f32, depth: f32, normal: vec3<f32>, pixel: ve
 
 struct GridIntersection {
     pixel: vec2<f32>, depth: f32, steps: u32, levels: u32,
+    residual: f32,
 }
-fn grid_depth(level: u32, pixel: vec2<f32>, size: vec2<f32>) -> f32 {
+fn grid_depth(level: i32, pixel: vec2<f32>, size: vec2<f32>) -> f32 {
     let coordinate = vec2<i32>(pixel / exp2(f32(level)));
     switch level {
-        case 0u: { return textureLoad(depth_0, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(depth_0))-vec2<i32>(1)), 0).r; }
-        case 1u: { return textureLoad(depth_2, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(depth_2))-vec2<i32>(1)), 0).r; }
-        case 2u: { return textureLoad(depth_4, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(depth_4))-vec2<i32>(1)), 0).r; }
+        case 0: { return textureLoad(depth_0, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(depth_0))-vec2<i32>(1)), 0).r; }
+        case 1: { return textureLoad(depth_2, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(depth_2))-vec2<i32>(1)), 0).r; }
+        case 2: { return textureLoad(depth_4, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(depth_4))-vec2<i32>(1)), 0).r; }
         default: { return textureLoad(depth_6, clamp(coordinate, vec2<i32>(0), vec2<i32>(textureDimensions(depth_6))-vec2<i32>(1)), 0).r; }
     }
 }
-fn grid_walk(first: vec2<f32>, last: vec2<f32>, weighted_depth: vec2<f32>, reciprocal_w: vec2<f32>,
-    end_fraction: f32, size: vec2<f32>, skip: f32, budget: u32, width: vec2<f32>, allowance: u32) -> GridIntersection {
-    var result = GridIntersection(vec2<f32>(0.0), -1.0, 0u, 0u);
-    var finish = last;
-    if dot(last-first, last-first) < 0.0001 { finish += vec2<f32>(0.01); }
-    let vertical = abs(finish.x-first.x) < abs(finish.y-first.y);
-    let origin = select(first, first.yx, vertical);
-    let delta = select(finish-first, (finish-first).yx, vertical);
-    let dimensions = select(size, size.yx, vertical);
+// GRID_DEPTH_END
+fn grid_child_depth(pixel: vec2<f32>) -> f32 { return grid_depth(0, pixel, vec2<f32>(1.0)); }
+const GRID_REFINEMENT: bool = false;
+struct GridRay {
+    first: vec2<f32>, last: vec2<f32>, weighted: vec2<f32>, reciprocal: vec2<f32>,
+}
+struct GridPolicy {
+    size: vec2<f32>, end: f32, skip: f32, budget: u32, width: vec2<f32>, allowance: u32,
+}
+struct GridProjection {
+    initial: vec4<f32>, increment: vec4<f32>, cursor: vec4<f32>,
+    terminal: f32, orientation: f32, vertical: bool, screen_end: vec2<f32>,
+}
+fn grid_projection(ray: GridRay, policy: GridPolicy) -> GridProjection {
+    var finish = ray.last;
+    if dot(finish-ray.first, finish-ray.first) < 0.0001 { finish += vec2<f32>(0.01); }
+    let vertical = abs(finish.x-ray.first.x) < abs(finish.y-ray.first.y);
+    let origin = select(ray.first, ray.first.yx, vertical);
+    let delta = select(finish-ray.first, (finish-ray.first).yx, vertical);
+    let dimensions = select(policy.size, policy.size.yx, vertical);
     let orientation = sign(delta.x);
     let increment = vec4<f32>(1.0, delta.y/delta.x,
-        (weighted_depth.y-weighted_depth.x)/delta.x, (reciprocal_w.y-reciprocal_w.x)/delta.x);
-    let initial = vec4<f32>(origin, weighted_depth.x, reciprocal_w.x);
+        (ray.weighted.y-ray.weighted.x)/delta.x, (ray.reciprocal.y-ray.reciprocal.x)/delta.x);
+    let initial = vec4<f32>(origin, ray.weighted.x, ray.reciprocal.x);
     let edge = select(vec2<f32>(0.0), dimensions, delta > vec2<f32>(0.0));
     let moving = delta != vec2<f32>(0.0);
     let screen_end = select(vec2<f32>(1e30), (edge-origin)/select(vec2<f32>(1.0), delta, moving), moving);
-    let limit = min(end_fraction, min(screen_end.x, screen_end.y));
-    let boundary_offset = select(0.0, 1.0, delta.x > 0.0);
-    let terminal = floor((origin.x + limit*delta.x)*orientation) + boundary_offset;
-    let begin = floor(origin.x + skip*orientation) + boundary_offset;
+    let limit = min(policy.end, min(screen_end.x, screen_end.y));
+    let offset = select(0.0, 1.0, delta.x > 0.0);
+    let scale = select(1.0, 2.0, GRID_REFINEMENT);
+    let terminal = (floor((origin.x + limit*delta.x)*orientation*scale) + offset)/scale;
+    let begin = (floor((origin.x + policy.skip*orientation)*scale) + offset)/scale;
     var cursor = initial + increment*(begin-origin.x);
     cursor.z /= cursor.w;
-    var level = 0u;
-    let highest = min(3u, u32(ceil(log2(max(size.x, size.y)))));
-    var remaining = allowance;
-    for (var iteration = 0u; iteration < budget; iteration++) {
+    if GRID_REFINEMENT { cursor.x = begin; }
+    return GridProjection(initial, increment, cursor, terminal, orientation, vertical, screen_end);
+}
+fn grid_next(cursor: vec4<f32>, level: i32, projection: GridProjection) -> vec4<f32> {
+    let orientation = projection.orientation;
+    let offset = select(0.0, 1.0, orientation > 0.0);
+    let footprint = exp2(f32(level));
+    let boundary = select((floor((cursor.x+0.5*orientation)/footprint)+offset)*footprint,
+        (floor(cursor.x*orientation/footprint)+1.0)*footprint*orientation, GRID_REFINEMENT);
+    var axis = min(boundary*orientation, projection.terminal)*orientation;
+    var minor_boundary = 0.0;
+    var minor_crossed = false;
+    if level < 0 && projection.increment.y != 0.0 {
+        let minor_sign = sign(projection.increment.y*orientation);
+        minor_boundary = (floor(cursor.y*minor_sign*2.0)+1.0)*0.5*minor_sign;
+        let crossing = cursor.x + (minor_boundary-cursor.y)/projection.increment.y;
+        minor_crossed = crossing*orientation <= axis*orientation;
+        axis = min(axis*orientation, crossing*orientation)*orientation;
+    }
+    var next = projection.initial + projection.increment*(axis-projection.initial.x);
+    if GRID_REFINEMENT { next.x = axis; }
+    if minor_crossed { next.y = minor_boundary; }
+    next.z /= next.w;
+    return next;
+}
+fn grid_surface(level: i32, cursor: vec4<f32>, next: vec4<f32>, projection: GridProjection, size: vec2<f32>) -> f32 {
+    if level < 0 {
+        let child = (cursor.xy+next.xy)*0.5;
+        return grid_child_depth(select(child, child.yx, projection.vertical));
+    }
+    let endpoint_a = vec2<f32>(cursor.x+0.001*projection.orientation, cursor.y);
+    let endpoint_b = vec2<f32>(next.x-0.001*projection.orientation, next.y);
+    return min(grid_depth(level, select(endpoint_a, endpoint_a.yx, projection.vertical), size),
+        grid_depth(level, select(endpoint_b, endpoint_b.yx, projection.vertical), size));
+}
+fn grid_walk(ray: GridRay, policy: GridPolicy) -> GridIntersection {
+    var result = GridIntersection(vec2<f32>(0.0), -1.0, 0u, 0u, 0.0);
+    let projection = grid_projection(ray, policy);
+    let orientation = projection.orientation;
+    let terminal = projection.terminal;
+    var cursor = projection.cursor;
+    var level = 0;
+    let leaf = select(0, -1, GRID_REFINEMENT);
+    let size = policy.size;
+    let highest = min(3, i32(ceil(log2(max(size.x, size.y)))));
+    var remaining = policy.allowance;
+    for (var iteration = 0u; iteration < policy.budget; iteration++) {
         if cursor.x*orientation >= terminal { break; }
         result.steps++;
-        result.levels = (result.levels*5u + level+1u) % 1021u;
-        let footprint = exp2(f32(level));
-        let boundary = (floor((cursor.x+0.5*orientation)/footprint)+boundary_offset)*footprint;
-        let next_axis = min(boundary*orientation, terminal)*orientation;
-        var next = initial + increment*(next_axis-origin.x);
-        next.z /= next.w;
+        result.levels = (result.levels*5u + u32(level+1)) % 1021u;
+        var next = grid_next(cursor, level, projection);
         let lower = min(cursor.z, next.z);
         let upper = max(cursor.z, next.z);
-        let endpoint_a = vec2<f32>(cursor.x+0.001*orientation, cursor.y);
-        let endpoint_b = vec2<f32>(next.x-0.001*orientation, next.y);
-        let surface = min(grid_depth(level, select(endpoint_a, endpoint_a.yx, vertical), size),
-            grid_depth(level, select(endpoint_b, endpoint_b.yx, vertical), size));
-        if surface < upper && level == 0u {
-            let thickness = width.x + surface*width.y;
+        let surface = grid_surface(level, cursor, next, projection, size);
+        if surface < upper && level == leaf {
+            let thickness = policy.width.x + surface*policy.width.y;
             if lower-thickness <= surface {
-                let hit = cursor.xy + 0.5*orientation*increment.xy;
-                result.pixel = select(hit, hit.yx, vertical);
+                let hit = select(cursor.xy + 0.5*orientation*projection.increment.xy,
+                    (cursor.xy+next.xy)*0.5, GRID_REFINEMENT);
+                result.pixel = select(hit, hit.yx, projection.vertical);
                 result.depth = surface;
+                result.residual = max(lower-surface, 0.0);
                 return result;
             }
             if remaining == 0u { return result; }
@@ -179,7 +230,7 @@ fn grid_walk(first: vec2<f32>, last: vec2<f32>, weighted_depth: vec2<f32>, recip
             level--;
             next = cursor;
         } else {
-            level = min(level+1u, highest);
+            level = min(level+1, highest);
         }
         cursor = next;
     }
@@ -207,9 +258,10 @@ fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>
         depth_limit = min(1.0, (clip_depth*reciprocal.x-weighted.x)/
             (weighted.y-weighted.x-clip_depth*(reciprocal.y-reciprocal.x)));
     }
-    let intersection = grid_walk(first, last, weighted, reciprocal, depth_limit, grid_size,
-        camera.traversal.z, u32(camera.settings.x), vec2<f32>(camera.settings.y, camera.traversal.y),
-        reflection_pass_count(roughness, camera.traversal.w, camera.behind));
+    let intersection = grid_walk(GridRay(first, last, weighted, reciprocal),
+        GridPolicy(grid_size, depth_limit, camera.traversal.z, u32(camera.settings.x),
+            vec2<f32>(camera.settings.y, camera.traversal.y),
+            reflection_pass_count(roughness, camera.traversal.w, camera.behind)));
     if intersection.depth < 0.0 || any(intersection.pixel < vec2<f32>(0.0)) || any(intersection.pixel >= grid_size) { return vec4<f32>(0.0); }
     let hit_pixel = vec2<i32>(intersection.pixel);
     let hit_normal = textureLoad(normals, hit_pixel, 0);
@@ -218,7 +270,9 @@ fn grid_reflection(origin: vec3<f32>, direction: vec3<f32>, origin_uv: vec2<f32>
     if hit_normal.a == 0.0 || dot(hit_normal.xyz, direction) >= 0.0 { return vec4<f32>(0.0); }
     var hit = textureLoad(opaque, hit_pixel, 0).rgb;
     if camera.limits.y > 0.0 { hit = bounded_radiance(hit, camera.limits.y); }
+    let thickness = reflection_thickness(camera.settings.y, camera.traversal.y, intersection.depth);
+    let thickness_fade = 1.0-smoothstep(thickness*0.5, thickness, intersection.residual);
     let confidence = edge_fade(intersection.pixel/grid_size) * edge_fade(origin_uv)
-        * smoothstep(0.0, 0.2, 1.0-f32(intersection.steps-1u)/camera.settings.x);
+        * smoothstep(0.0, 0.2, 1.0-f32(intersection.steps-1u)/camera.settings.x) * thickness_fade;
     return vec4<f32>(hit*confidence, confidence);
 }

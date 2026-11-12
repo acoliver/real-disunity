@@ -88,8 +88,8 @@ pub use post::{
 };
 mod ssr;
 pub use ssr::{
-    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrLodMapping, SceneSsrPassBehind,
-    SceneSsrPyramid, SceneSsrTraversal,
+    SceneSsr, SceneSsrComposition, SceneSsrGridDomain, SceneSsrHitFacing, SceneSsrLodMapping,
+    SceneSsrPassBehind, SceneSsrPyramid, SceneSsrTraversal,
 };
 mod error;
 mod foliage_wind;
@@ -145,10 +145,10 @@ pub use composition::{
     RouteSceneInput, SceneCompositionFactory, SceneContribution, ScenePlacement,
 };
 pub use effects::{
-    DEFAULT_TAA_CLIP_SCALE_MICRO, EFFECTS_MICRO_SCALE, MAXIMUM_TAA_CLIP_SCALE_MICRO,
-    MINIMUM_TAA_CLIP_SCALE_MICRO, SceneAmbient, SceneAntiAlias, SceneCamera, SceneColor,
-    SceneColorGrading, SceneEffects, SceneEffectsParts, ScenePostStage, SceneShadowCascades,
-    SceneSky, SceneSun,
+    DEFAULT_TAA_CLIP_SCALE_MICRO, EFFECTS_MICRO_SCALE, MAXIMUM_SUN_IRRADIANCE_MICRO,
+    MAXIMUM_TAA_CLIP_SCALE_MICRO, MINIMUM_TAA_CLIP_SCALE_MICRO, SceneAmbient, SceneAntiAlias,
+    SceneCamera, SceneColor, SceneColorGrading, SceneEffects, SceneEffectsParts, ScenePostStage,
+    SceneShadowCascades, SceneSky, SceneSun,
 };
 pub use error::SceneValidationError;
 pub use geometry::{

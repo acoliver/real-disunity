@@ -16,11 +16,11 @@ fn probe(context: &GpuContext, config: FrameConfig, policy: &SceneSsr, source: &
     let pipeline = gpu::pipeline(context.device(), &probe_source(source), 1, false);
     let uniform = context.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("trace extent oracle"),
-        size: 208,
+        size: 224,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let mut values = [0.0f32; 52];
+    let mut values = [0.0f32; 56];
     values[36] = gpu::scalar(config.size[0]);
     values[37] = gpu::scalar(config.size[1]);
     values[38] = 2.0;

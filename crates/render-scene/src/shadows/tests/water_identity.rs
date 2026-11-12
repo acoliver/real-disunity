@@ -204,8 +204,7 @@ pub(super) fn capture_shadow(
     )
     .unwrap();
     crate::water::shadow_probe::install_source(
-        context.device(),
-        &mut frame,
+        &frame,
         source.effects().unwrap().specular_convention(),
         raw,
         shader.map_or_else(|| crate::water::water_source(true), str::to_owned),

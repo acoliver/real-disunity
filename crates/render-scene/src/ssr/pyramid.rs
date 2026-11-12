@@ -18,11 +18,20 @@ pub(super) fn resolve_pipelines(
         settings.depth_relative_ao,
         ao_input,
         shared(settings).then_some(extents.as_slice()),
+        banked(settings),
     )
 }
 
 pub(super) fn shared(settings: &SceneSsr) -> bool {
     settings.radiance_pyramid == SceneSsrPyramid::Full
+}
+
+pub(super) fn banked(settings: &SceneSsr) -> bool {
+    settings.hit_facing == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
+}
+
+pub(crate) fn bank_count(settings: &SceneSsr) -> u32 {
+    if banked(settings) { 2 } else { 1 }
 }
 
 pub(crate) fn lane_grid(samples: u32) -> [u32; 2] {
@@ -59,10 +68,21 @@ pub(super) fn validate(
     limits: &wgpu::Limits,
 ) -> Result<(), FrameError> {
     let levels = settings.radiance_extents(config.size).len();
-    let bindings = if shared(settings) { 11 } else { levels + 10 };
+    let bindings =
+        if shared(settings) { 11 } else { levels + 10 } + usize::from(settings.depth_relative_ao);
     if bindings > usize::try_from(limits.max_sampled_textures_per_shader_stage).unwrap() {
         return Err(FrameError::SsrSettings(
             "reflection resolve exceeds sampled texture limit",
+        ));
+    }
+    if banked(settings) && limits.max_texture_array_layers < 2 {
+        return Err(FrameError::SsrSettings(
+            "water-facing reflections require two texture array layers",
+        ));
+    }
+    if banked(settings) && limits.max_color_attachments < 2 {
+        return Err(FrameError::SsrSettings(
+            "water-facing reflections require two color attachments",
         ));
     }
     if shared(settings)
@@ -91,7 +111,7 @@ pub(super) fn textures(
         size: wgpu::Extent3d {
             width: size[0],
             height: size[1],
-            depth_or_array_layers: 1,
+            depth_or_array_layers: bank_count(settings),
         },
         mip_level_count: u32::try_from(count).expect("bounded reflection levels"),
         sample_count: 1,
@@ -114,6 +134,17 @@ pub(super) fn view(texture: &wgpu::Texture, mip: u32) -> wgpu::TextureView {
     })
 }
 
+pub(super) fn array_view(texture: &wgpu::Texture, mip: Option<u32>) -> wgpu::TextureView {
+    texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        base_mip_level: mip.unwrap_or(0),
+        mip_level_count: mip.map(|_| 1),
+        base_array_layer: 0,
+        array_layer_count: Some(2),
+        ..Default::default()
+    })
+}
+
 pub(super) fn trace_source(source: String, samples: u32, settings: &SceneSsr) -> String {
     if !shared(settings) {
         return source;
@@ -128,18 +159,55 @@ pub(super) fn trace_source(source: String, samples: u32, settings: &SceneSsr) ->
     )
 }
 
-pub(super) fn reduction_source(samples: u32, settings: &SceneSsr) -> String {
+pub(super) fn reduction_source(samples: u32, settings: &SceneSsr, dual_output: bool) -> String {
     let source = super::gpu::configured_reduce_source(samples, settings.radiance_rounding);
-    if !shared(settings) {
-        return source;
+    let source = if shared(settings) {
+        let columns = lane_grid(samples)[0];
+        format!("@group(0) @binding(0) var<uniform> logical_size: vec4<u32>;\n{source}")
+            .replace(&format!("vec2<i32>(textureDimensions(source)) / vec2<i32>({samples}, 1)"), "vec2<i32>(logical_size.xy)")
+            .replace("let sample = i32(pixel.x) / target_width;", &format!("let target_size = vec2<i32>(target_width, TARGET_HEIGHT);\n    let lane = vec2<i32>(pixel.xy) / target_size;\n    let sample = lane.x + lane.y * {columns};"))
+            .replace("TARGET_HEIGHT", if settings.radiance_rounding == SceneDownsampleRounding::Ceil { "(size.y + 1) / 2" } else { "max(size.y / 2, 1)" })
+            .replace("vec2<i32>(i32(pixel.x) - sample * target_width, i32(pixel.y))", "(vec2<i32>(pixel.xy) - lane * target_size)")
+            .replace("vec2<i32>(sample * size.x, 0)", "lane * size")
+    } else {
+        source
+    };
+    if !banked(settings) {
+        source
+    } else if dual_output {
+        banked_reduction_source(&source)
+    } else {
+        banked_single_reduction_source(&source)
     }
-    let columns = lane_grid(samples)[0];
-    format!("@group(0) @binding(0) var<uniform> logical_size: vec4<u32>;\n{source}")
-        .replace(&format!("vec2<i32>(textureDimensions(source)) / vec2<i32>({samples}, 1)"), "vec2<i32>(logical_size.xy)")
-        .replace("let sample = i32(pixel.x) / target_width;", &format!("let target_size = vec2<i32>(target_width, TARGET_HEIGHT);\n    let lane = vec2<i32>(pixel.xy) / target_size;\n    let sample = lane.x + lane.y * {columns};"))
-        .replace("TARGET_HEIGHT", if settings.radiance_rounding == SceneDownsampleRounding::Ceil { "(size.y + 1) / 2" } else { "max(size.y / 2, 1)" })
-        .replace("vec2<i32>(i32(pixel.x) - sample * target_width, i32(pixel.y))", "(vec2<i32>(pixel.xy) - lane * target_size)")
-        .replace("vec2<i32>(sample * size.x, 0)", "lane * size")
+}
+
+fn banked_single_reduction_source(source: &str) -> String {
+    source
+        .replace(
+            "var source: texture_2d<f32>;",
+            "var source: texture_2d_array<f32>;",
+        )
+        .replace(
+            "textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0)",
+            "textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0, 0)",
+        )
+        .replace(
+            "textureLoad(source, p + lane * size, 0)",
+            "textureLoad(source, p + lane * size, 0, 0)",
+        )
+}
+
+fn banked_reduction_source(source: &str) -> String {
+    let source = source
+        .replace("var source: texture_2d<f32>;", "var source: texture_2d_array<f32>;")
+        .replace("@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {", "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> ReductionBanks {")
+        .replace("var sum = vec4<f32>(0.0);", "var opaque_sum = vec4<f32>(0.0);\n    var water_sum = vec4<f32>(0.0);")
+        .replace("sum += textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0);", "opaque_sum += textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0, 0);\n                water_sum += textureLoad(source, p + vec2<i32>(sample * size.x, 0), 1, 0);")
+        .replace("sum += textureLoad(source, p + lane * size, 0);", "opaque_sum += textureLoad(source, p + lane * size, 0, 0);\n                water_sum += textureLoad(source, p + lane * size, 1, 0);")
+        .replace("return sum/count;", "return ReductionBanks(opaque_sum/count, water_sum/count);");
+    format!(
+        "struct ReductionBanks {{ @location(0) opaque_bank: vec4<f32>, @location(1) water_bank: vec4<f32>, }}\n{source}"
+    )
 }
 
 pub(super) fn uniforms(
@@ -167,18 +235,33 @@ pub(super) fn uniforms(
         .collect()
 }
 
-pub(super) fn resolve_source(mut source: String, extents: &[[u32; 2]], samples: u32) -> String {
+#[cfg(test)]
+pub(super) fn resolve_source(source: String, extents: &[[u32; 2]], samples: u32) -> String {
+    resolve_source_variant(source, extents, samples, false)
+}
+
+pub(super) fn resolve_source_variant(
+    mut source: String,
+    extents: &[[u32; 2]],
+    samples: u32,
+    banked: bool,
+) -> String {
     let levels = extents.len();
+    let texture_type = if banked {
+        "texture_2d_array<f32>"
+    } else {
+        "texture_2d<f32>"
+    };
     for index in 1..levels {
         source = source.replace(
             &format!(
-                "@group(0) @binding({}) var reflection_{index}: texture_2d<f32>;",
+                "@group(0) @binding({}) var reflection_{index}: {texture_type};",
                 index + 5
             ),
             "",
         );
     }
-    for binding in levels + 5..levels + 11 {
+    for binding in levels + 5..levels + 12 {
         source = source.replace(
             &format!("@binding({binding})"),
             &format!("@binding({})", binding - levels + 1),
@@ -207,5 +290,24 @@ pub(super) fn resolve_source(mut source: String, extents: &[[u32; 2]], samples: 
         .replace("LOGICAL_SIZES", &sizes)
         .replace("LANE_COLUMNS", &lane_grid(samples)[0].to_string());
     source.replace_range(start..end, &helper);
+    super::reconstruction::shared(&mut source, lane_grid(samples)[0]);
+    if banked {
+        source = source.replace(
+            "textureLoad(reflection_0, a, lod)",
+            "textureLoad(reflection_0, a, reflection_bank_index, lod)",
+        );
+        source = source.replace(
+            "textureLoad(reflection_0, vec2<i32>(b.x, a.y), lod)",
+            "textureLoad(reflection_0, vec2<i32>(b.x, a.y), reflection_bank_index, lod)",
+        );
+        source = source.replace(
+            "textureLoad(reflection_0, vec2<i32>(a.x, b.y), lod)",
+            "textureLoad(reflection_0, vec2<i32>(a.x, b.y), reflection_bank_index, lod)",
+        );
+        source = source.replace(
+            "textureLoad(reflection_0, b, lod)",
+            "textureLoad(reflection_0, b, reflection_bank_index, lod)",
+        );
+    }
     source
 }

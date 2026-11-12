@@ -10,12 +10,18 @@ mod fidelity_tests;
 mod final_depth_tests;
 #[path = "fix_tests.rs"]
 mod fix_tests;
+#[path = "footprint_tests.rs"]
+mod footprint_tests;
 #[path = "forward_ao_tests.rs"]
 mod forward_ao_tests;
 #[path = "gather_origin_tests.rs"]
 mod gather_origin_tests;
+#[path = "grid_confidence_tests.rs"]
+mod grid_confidence_tests;
 #[path = "grid_tests.rs"]
 mod grid_tests;
+#[path = "hit_facing_tests.rs"]
+mod hit_facing_tests;
 #[path = "msaa.rs"]
 mod msaa;
 #[path = "numerical.rs"]
@@ -36,6 +42,8 @@ mod replacement_tests;
 mod roughness_policy_tests;
 #[path = "trace_extent_tests.rs"]
 mod trace_extent_tests;
+#[path = "water_hit_facing_tests.rs"]
+mod water_hit_facing_tests;
 #[path = "water_tests.rs"]
 pub(crate) mod water_tests;
 use super::*;

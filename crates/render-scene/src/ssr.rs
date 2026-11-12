@@ -6,6 +6,7 @@ mod gpu;
 mod grid;
 mod metadata;
 pub(crate) mod pyramid;
+mod reconstruction;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod water;
@@ -91,6 +92,7 @@ pub(crate) struct Ssr {
     uniform: wgpu::Buffer,
     trace: wgpu::RenderPipeline,
     reduce: wgpu::RenderPipeline,
+    reduce_single: Option<wgpu::RenderPipeline>,
     resolve: wgpu::RenderPipeline,
     water_trace: wgpu::RenderPipeline,
     water_resolve: wgpu::RenderPipeline,
@@ -116,7 +118,7 @@ impl Ssr {
         &self.reflections[0]
     }
 
-    pub(crate) fn confidence_capture(&self) -> crate::compositor::FeatureCapture<'_> {
+    pub(crate) fn confidence_capture(&self, layer: u32) -> crate::compositor::FeatureCapture<'_> {
         let [w, h] = self.capture_size;
         crate::compositor::FeatureCapture {
             texture: self.confidence_target(),
@@ -128,6 +130,7 @@ impl Ssr {
                 self.capture_samples
             },
             stride: [w, h],
+            layer,
         }
     }
 
@@ -145,35 +148,46 @@ impl Ssr {
     }
 
     fn resource(&self, index: u32) -> ResourceRef {
+        self.resource_bank(index, 0)
+    }
+    fn resource_bank(&self, index: u32, bank: u32) -> ResourceRef {
         ResourceRef {
             mip: if pyramid::shared(&self.settings) {
                 index
             } else {
                 0
             },
+            layer: bank,
             ..resource(index)
         }
     }
     fn reflection_view(&self, index: usize) -> wgpu::TextureView {
-        pyramid::view(
-            &self.reflections[index],
-            self.resource(u32::try_from(index).unwrap()).mip,
-        )
+        let mip = self.resource(u32::try_from(index).unwrap()).mip;
+        if pyramid::banked(&self.settings) {
+            pyramid::array_view(&self.reflections[index], Some(mip))
+        } else {
+            pyramid::view(&self.reflections[index], mip)
+        }
     }
     fn reflection_views(&self) -> Vec<wgpu::TextureView> {
         if pyramid::shared(&self.settings) {
-            vec![self.reflections[0].create_view(&wgpu::TextureViewDescriptor::default())]
+            vec![if pyramid::banked(&self.settings) {
+                pyramid::array_view(&self.reflections[0], None)
+            } else {
+                self.reflections[0].create_view(&wgpu::TextureViewDescriptor::default())
+            }]
         } else {
             (0..self.reflections.len())
                 .map(|index| self.reflection_view(index))
                 .collect()
         }
     }
-    fn application_views(&self, views: &mut [wgpu::TextureView]) {
+    fn application_views(&self, views: &mut Vec<wgpu::TextureView>) {
         if self.settings.depth_relative_ao {
-            views[1] = self
-                .application_ao
-                .create_view(&wgpu::TextureViewDescriptor::default());
+            views.push(
+                self.application_ao
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+            );
         }
     }
     #[cfg(test)]
@@ -213,12 +227,14 @@ impl Ssr {
         let reflections = gpu::radiance_textures(device, config, &settings);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("SSR camera"),
-            size: 208,
+            size: 224,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let trace = grid::pipeline(device, config, &settings, false);
-        let reduce = gpu::reduction_pipeline(device, config.samples, &settings);
+        let reduce = gpu::reduction_pipeline(device, config.samples, &settings, true);
+        let reduce_single = pyramid::banked(&settings)
+            .then(|| gpu::reduction_pipeline(device, config.samples, &settings, false));
         let (resolve, water_resolve) = pyramid::resolve_pipelines(
             device,
             config,
@@ -248,6 +264,7 @@ impl Ssr {
             uniform,
             trace,
             reduce,
+            reduce_single,
             resolve,
         })
     }
@@ -343,10 +360,15 @@ impl ReflectionFeature<'_> {
             Some(&ssr.uniform),
             &trace_inputs,
         )];
+        let reduce_pipeline = if self.water.is_none() {
+            ssr.reduce_single.as_ref().unwrap_or(&ssr.reduce)
+        } else {
+            &ssr.reduce
+        };
         for index in 0..ssr.reflections.len() - 1 {
             self.groups.push(gpu::group(
                 context.device(),
-                &ssr.reduce,
+                reduce_pipeline,
                 ssr.reduction_extents.get(index),
                 &[ssr.reflection_view(index)],
             ));
@@ -396,6 +418,11 @@ impl ReflectionFeature<'_> {
             passes,
             views,
         )?);
+        let banks = if self.water.is_some() {
+            pyramid::bank_count(&ssr.settings)
+        } else {
+            1
+        };
         for (index, texture) in ssr.reflections.iter().enumerate() {
             let index = u32::try_from(index).expect("bounded reflection levels");
             let slot = if index == 0 {
@@ -403,17 +430,28 @@ impl ReflectionFeature<'_> {
             } else {
                 PassSlot::ReflectionMip(index)
             };
-            let view = AttachmentView::new(ssr.resource(index), texture)?;
             let mut pass = PassDeclaration::new(slot);
-            pass.color = Some(crate::compositor::attachment(view.resource(), &view, false));
+            for bank in 0..banks {
+                let view = AttachmentView::new(ssr.resource_bank(index, bank), texture)?;
+                let attachment = crate::compositor::attachment(view.resource(), &view, false);
+                if bank == 0 {
+                    pass.color = Some(attachment);
+                } else {
+                    pass.additional_colors.push(attachment);
+                }
+                views.push(view);
+            }
             passes.push(pass);
-            views.push(view);
             let mut feature = FeaturePass::new(slot);
             feature.color_format = Some(wgpu::TextureFormat::Rgba16Float);
+            feature.additional_color_formats =
+                vec![wgpu::TextureFormat::Rgba16Float; usize::try_from(banks - 1).unwrap()];
             feature.reads = if index == 0 {
                 self.trace_reads()
             } else {
-                vec![ssr.resource(index - 1)]
+                (0..banks)
+                    .map(|bank| ssr.resource_bank(index - 1, bank))
+                    .collect()
             };
             declaration.passes.push(feature);
         }
@@ -426,7 +464,7 @@ impl ReflectionFeature<'_> {
         feature.samples = self.color.texture().sample_count();
         feature.color_format = Some(wgpu::TextureFormat::Rgba16Float);
         feature.reads = (0..u32::try_from(ssr.reflections.len()).expect("bounded levels"))
-            .map(|index| ssr.resource(index))
+            .flat_map(|index| (0..banks).map(move |bank| ssr.resource_bank(index, bank)))
             .collect();
         feature.reads.extend(forward::resources());
         feature.reads.extend([
@@ -466,7 +504,10 @@ impl PreparedFeature for ReflectionFeature<'_> {
                 .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default())),
         );
         if let Some(water) = &self.water {
-            water.resolve_views(&mut resolve_inputs);
+            water.resolve_views(
+                &mut resolve_inputs,
+                context.resource(water.depth)?.sampled_view(),
+            );
         }
         ssr.application_views(&mut resolve_inputs);
         let resolve_pipeline = if self.water.is_some() {
@@ -513,6 +554,15 @@ impl PreparedFeature for ReflectionFeature<'_> {
             )),
         ]);
         values.extend(gpu::controls(&self.ssr.settings));
+        values.extend([
+            f32::from(u8::from(
+                self.ssr.settings.hit_facing
+                    == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers,
+            )),
+            0.0,
+            0.0,
+            0.0,
+        ]);
         context.upload_buffer(
             &self.ssr.uniform,
             0,
@@ -536,9 +586,14 @@ impl PreparedFeature for ReflectionFeature<'_> {
                 },
                 0,
             ),
-            PassSlot::ReflectionMip(index) => {
-                (&self.ssr.reduce, usize::try_from(index).expect("mip index"))
-            }
+            PassSlot::ReflectionMip(index) => (
+                if self.water.is_none() {
+                    self.ssr.reduce_single.as_ref().unwrap_or(&self.ssr.reduce)
+                } else {
+                    &self.ssr.reduce
+                },
+                usize::try_from(index).expect("mip index"),
+            ),
             PassSlot::ScreenSpaceAfterTransparent => (
                 if self.water.is_some() {
                     &self.ssr.water_resolve

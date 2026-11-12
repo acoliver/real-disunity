@@ -14,6 +14,19 @@ pub enum SceneSsrComposition {
     ReplaceEnvironment,
 }
 
+/// Target-facing rejection applied after depth ownership and coverage checks.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SceneSsrHitFacing {
+    /// Reject contacts whose published shading normal faces along the ray.
+    #[default]
+    ShadingNormal,
+    /// Accept either target orientation, including single-sided back sides.
+    Any,
+    /// Accept either target orientation for water receivers only.
+    /// Opaque receivers still reject hits by the target's shading normal.
+    AnyForWaterReceivers,
+}
+
 /// Depth-grid stepping and reduction used by reflection tracing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SceneSsrTraversal {
@@ -74,6 +87,9 @@ pub struct SceneSsr {
     pub traversal: SceneSsrTraversal,
     #[serde(default)]
     pub grid_domain: SceneSsrGridDomain,
+    /// Target normal-facing policy, independent of receiver ray generation.
+    #[serde(default)]
+    pub hit_facing: SceneSsrHitFacing,
     /// Grid levels starting at the domain's base mip. None retains four levels
     /// (or fewer on small extents); Some must fit the available ceil-divided chain.
     #[serde(default)]
@@ -137,6 +153,7 @@ impl Default for SceneSsr {
             max_steps: 256,
             traversal: SceneSsrTraversal::Conservative,
             grid_domain: SceneSsrGridDomain::FullResolution,
+            hit_facing: SceneSsrHitFacing::ShadingNormal,
             grid_level_count: None,
             thickness_millimeters: 100,
             thickness_slope_micro: 0,
@@ -286,6 +303,37 @@ fn check(part: &'static str, value: u32, min: u32, max: u32) -> Result<(), Scene
 mod tests {
     use super::*;
     #[test]
+    fn hit_facing_defaults_roundtrips_and_rejects_unknown_values() {
+        let mut value = serde_json::to_value(SceneSsr::default()).unwrap();
+        assert_eq!(value["hit_facing"], serde_json::json!("ShadingNormal"));
+        value.as_object_mut().unwrap().remove("hit_facing");
+        let defaults = serde_json::from_value::<SceneSsr>(value.clone()).unwrap();
+        assert_eq!(defaults, SceneSsr::default());
+        for facing in ["ShadingNormal", "Any"] {
+            value["hit_facing"] = serde_json::json!(facing);
+            let policy = serde_json::from_value::<SceneSsr>(value.clone()).unwrap();
+            let encoded = serde_json::to_value(policy).unwrap();
+            assert_eq!(encoded["hit_facing"], serde_json::json!(facing));
+            assert_eq!(serde_json::from_value::<SceneSsr>(encoded).unwrap(), policy);
+        }
+        value["hit_facing"] = serde_json::json!("Unknown");
+        assert!(serde_json::from_value::<SceneSsr>(value).is_err());
+    }
+
+    #[test]
+    fn water_receiver_hit_facing_roundtrips_and_missing_field_defaults() {
+        let mut value = serde_json::to_value(SceneSsr::default()).unwrap();
+        value["hit_facing"] = serde_json::json!("AnyForWaterReceivers");
+        let policy = serde_json::from_value::<SceneSsr>(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(policy).unwrap(), value);
+        value.as_object_mut().unwrap().remove("hit_facing");
+        assert_eq!(
+            serde_json::from_value::<SceneSsr>(value).unwrap(),
+            SceneSsr::default()
+        );
+    }
+
+    #[test]
     fn cutoff_toggle_serializes_only_when_disabled_and_keeps_validation() {
         let policy = SceneSsr::default();
         let bytes = serde_json::to_value(policy).unwrap();
@@ -408,9 +456,11 @@ mod tests {
     fn defaults_and_authored_controls_roundtrip() {
         let defaults: SceneSsr = serde_json::from_str(r#"{"enabled":true,"max_steps":256,"thickness_millimeters":100,"roughness_cutoff_micro":600000,"resolution_scale_micro":1000000}"#).unwrap();
         assert_eq!(defaults, SceneSsr::default());
+        assert_eq!(defaults.hit_facing, SceneSsrHitFacing::ShadingNormal);
         assert!(defaults.validate().is_ok());
         let authored = SceneSsr {
             traversal: SceneSsrTraversal::Grid,
+            hit_facing: SceneSsrHitFacing::Any,
             grid_domain: SceneSsrGridDomain::ReflectionOutput,
             grid_level_count: Some(8),
             depth_relative_ao: true,

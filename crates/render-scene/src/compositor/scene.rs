@@ -184,7 +184,7 @@ pub fn encode_scene(
     }
     let mut declaration = SceneFeature::declaration(pipelines);
     if let Some(screen) = &renderer.ssao {
-        crate::ssao::passes::geometry_declaration(&mut declaration, screen.depth.format());
+        crate::ssao::passes::geometry_declaration(&mut declaration, screen);
     }
     let mut views = vec![
         color.with_resource(color_id)?,

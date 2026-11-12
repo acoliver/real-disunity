@@ -62,7 +62,7 @@ fn multiple_heights_order_independently_of_body_order_at_every_supported_sample_
         ] {
             let mut renderer = regressions::renderer(&context, samples);
             renderer
-                .install_water_bodies(context.device(), bodies)
+                .install_water_bodies(context.device(), context.submission(), bodies)
                 .unwrap();
             let color = AttachmentView::new(
                 ResourceRef::new("scene color"),
@@ -113,7 +113,7 @@ fn empty_bodies_do_not_enable_water_or_snapshots() {
     let context = GpuContext::shared_for_test().unwrap();
     let mut renderer = regressions::renderer(&context, 1);
     renderer
-        .install_water_bodies(context.device(), Vec::new())
+        .install_water_bodies(context.device(), context.submission(), Vec::new())
         .unwrap();
     assert!(renderer.water.is_none());
     let color = AttachmentView::new(

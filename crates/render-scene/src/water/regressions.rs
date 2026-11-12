@@ -259,9 +259,7 @@ fn malformed_water_plans_return_errors_before_preparation_or_uploads() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let mut renderer = renderer(&context, 1);
-    renderer
-        .install_water(context.device(), settings())
-        .unwrap();
+    renderer.install_water(&context, settings()).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),

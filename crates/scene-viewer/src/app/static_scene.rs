@@ -61,6 +61,9 @@ impl Content for StaticScene {
     fn window_size_unit(&self) -> crate::WindowSizeUnit {
         self.options.window_size_unit
     }
+    fn window_mode(&self) -> crate::WindowMode {
+        self.options.window_mode
+    }
     fn size(&self) -> [u32; 2] {
         self.options.size
     }

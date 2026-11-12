@@ -3,7 +3,6 @@
 use super::WGSL;
 
 #[test]
-#[ignore = "requires the primary GPU adapter; run explicitly for lighting parity"]
 fn canonical_lighting_kernels_match_retired_float32_expressions() {
     let values = evaluate(comparison_source());
     assert_parity(&values);

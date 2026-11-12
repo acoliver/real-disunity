@@ -1,7 +1,10 @@
 //! The viewer Play starts from the first frame's lights, drawn on the GPU.
 use super::*;
 use worldrunner_disunity_runtime::PresentationLight;
-use worldrunner_scene_viewer::{RetainedDriver, RetainedHost, RetainedTick};
+use worldrunner_scene_viewer::{
+    CameraContinuity, CameraShadowPolicy, RetainedDriver, RetainedHost, RetainedTick,
+    RetainedUpdate,
+};
 use worldrunner_world_simulation::presentation::{LightKind, LightSettings, LightShadowMode};
 
 use crate::scene_light::SceneLighting;
@@ -33,6 +36,18 @@ fn sun(shadows: LightShadowMode) -> PresentationLight {
 /// A viewer started as `play_player_window` starts one, showing a triangle one metre above
 /// another.
 fn started(lights: &[PresentationLight]) -> RetainedHost {
+    started_with_lighting(lights).0
+}
+
+/// [`started`], with the lighting Play keeps for it and a builder of camera updates at the pose
+/// the viewer starts at.
+fn started_with_lighting(
+    lights: &[PresentationLight],
+) -> (
+    RetainedHost,
+    SceneLighting,
+    impl Fn(Option<CameraShadowPolicy>) -> RetainedUpdate + use<>,
+) {
     let mut options = viewer_options(&PlayerWindow {
         title: "lit tables".into(),
         size: [64, 64],
@@ -43,6 +58,16 @@ fn started(lights: &[PresentationLight]) -> RetainedHost {
     });
     let (lighting, shadows) = SceneLighting::start(lights, options.camera).unwrap();
     options.shadows = shadows;
+    let (pose, lens, convention) = (options.pose, options.camera, options.camera_convention);
+    let camera = move |policy| {
+        RetainedUpdate::camera_with_shadow_policy(
+            pose,
+            lens,
+            convention,
+            CameraContinuity::Continuous,
+            policy,
+        )
+    };
     let scene = SceneTables::initial_scene(lighting.effects().cloned()).unwrap();
     let mut viewer = RetainedHost::new(scene, options).unwrap();
     let mut tables = SceneTables::new().unwrap();
@@ -53,7 +78,7 @@ fn started(lights: &[PresentationLight]) -> RetainedHost {
     for edit in update(&mut tables, &objects, &content(&[100])).into_updates() {
         viewer.apply(edit).unwrap();
     }
-    viewer
+    (viewer, lighting, camera)
 }
 
 /// Whether the first frame of `viewer` drew into any shadow cascade.
@@ -83,4 +108,13 @@ fn a_shadow_casting_sun_starts_a_viewer_that_draws_shadow_casters() {
 fn a_sun_without_shadows_or_no_sun_draws_no_shadow_casters() {
     assert!(!draws_casters(started(&[sun(LightShadowMode::None)])));
     assert!(!draws_casters(started(&[])));
+}
+
+#[test]
+fn a_camera_without_render_shadows_turns_the_started_shadows_off() {
+    let (mut viewer, lighting, camera) = started_with_lighting(&[sun(LightShadowMode::Soft)]);
+    viewer
+        .apply(camera(lighting.camera_policy(Some(false))))
+        .unwrap();
+    assert!(!draws_casters(viewer));
 }

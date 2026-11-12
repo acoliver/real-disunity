@@ -43,8 +43,9 @@ impl Renderer {
         window: Arc<Window>,
         source: SceneSource<'_>,
     ) -> Result<Self, ViewerError> {
+        let monitor = crate::window_size::display_info(&window);
         Self::surface(display, window, |adapter, surface_extent| {
-            super::startup::resolve(source, adapter, surface_extent)
+            super::startup::resolve(source, adapter, surface_extent, monitor)
         })
         .await
     }

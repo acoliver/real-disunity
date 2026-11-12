@@ -227,9 +227,9 @@ effective across resident rebuilds. Enabling requires a startup-selected
 shadowed resident. Enabling on a Plain scene returns `UnsupportedScene` and
 rejects the entire camera transaction.
 Disabling on Plain is accepted as a no-resource request and publishes with the
-camera generation without installing shadow resources. This API controls native
-retained receiver shadows. It does not connect world-camera extraction or managed
-`renderShadows` settings.
+camera generation without installing shadow resources. The viewer reads no world
+camera itself: `play` publishes the presented camera's `renderShadows` through this
+policy (see `crates/play/README.md`).
 
 A cut discards TAA and temporal-upscaler history, restarts projection jitter at
 index zero, and replaces previous camera, jitter and animation time with the new
@@ -329,6 +329,21 @@ Select `WindowSizeUnit::Physical` to request exact physical backing dimensions,
 independent of the display scale. The window system may constrain either request.
 Resize events and retained host sizes always use physical pixels. Windowless hosts
 have no display scale, so both units use the supplied pixel dimensions directly.
+
+`window_mode` selects the desktop placement. `WindowMode::Windowed` (the default)
+opens a decorated window at `size`. `WindowMode::Maximized` maximizes it, and
+`WindowMode::BorderlessFullscreen` covers the monitor the window opens on at
+desktop resolution. `size` remains the restore size in every mode. The platform
+reports the resulting surface through ordinary resize events, so reconfiguration
+and the presentation budget follow the actual physical size. Retained drivers
+change the mode at run time with `set_window_mode` on `RetainedHost` or
+`RetainedEventHost`, for example from an Alt+Enter binding, and read the current
+monitor's physical size and scale with `display`. The same `DisplayInfo` reaches
+the initial content supplier as `InitialContext::display`, before the first frame,
+so an application can choose its render scale from output pixels. Both return
+`WindowControlError::NoWindow` before native startup. Windowless hosts reject any
+mode other than `Windowed` at startup and return `WindowControlError::Unsupported`
+from both calls.
 
 ## Presentation allocation budget
 
@@ -432,8 +447,9 @@ names. `Ok(None)` or no callback preserves the supplied options.
 
 Use `RetainedHost::with_initial_content(options, supplier)` when content depends on
 that adapter or the physical surface size. The one-shot supplier receives
-`InitialContext { adapter: &AdapterIdentity, surface_extent: [u32; 2] }` and returns
-`InitialContent { scene, settings: Option<FrameSettings> }`. Desktop startup uses
+`InitialContext { adapter: &AdapterIdentity, surface_extent: [u32; 2], display:
+Option<DisplayInfo> }` and returns `InitialContent { scene, settings:
+Option<FrameSettings> }`. `display` is `None` for windowless startup. Desktop startup uses
 the window's physical inner size at surface creation, regardless of the logical
 window size or render scale. Windowless startup uses the configured `options.size`.
 A zero dimension is preserved for a minimized desktop surface; rendering stays

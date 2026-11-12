@@ -39,7 +39,7 @@ impl UniversalAdditionalCameraData {
         let supported = match property {
             8 | 9 => value == 0 || value == 2,
             10 => true,
-            11 => value <= 1,
+            5 | 11 => value <= 1,
             _ => value == 0,
         };
         if !supported {
@@ -55,3 +55,30 @@ impl UniversalAdditionalCameraData {
         Ok(())
     }
 }
+
+/// The renderShadows setting of the camera a frame presents: none when the frame presents no
+/// camera or its camera has no camera data.
+///
+/// # Errors
+/// Fails when the world cannot resolve the presented camera's object.
+pub fn presented_render_shadows(world: &crate::World) -> Result<Option<bool>, WorldError> {
+    let Some((object, _)) =
+        super::extraction::selected_camera(world, world.published_components())?
+    else {
+        return Ok(None);
+    };
+    Ok(world
+        .published_components()
+        .find_map(|component| match &component.desc {
+            crate::ComponentDesc::UniversalAdditionalCameraData(data)
+                if component.object == object =>
+            {
+                data.get(RENDER_SHADOWS)
+            }
+            _ => None,
+        })
+        .map(|value| value != 0))
+}
+
+/// The index of renderShadows among the camera data's settings.
+const RENDER_SHADOWS: u32 = 5;

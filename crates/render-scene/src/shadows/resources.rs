@@ -31,7 +31,7 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     crate::shader::environment_wgsl!("../shader/")
 );
 
-pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
+const SHADOWED_TERRAIN_WGSL: &str = concat!(
     worldrunner_render_shadow::shadow_wgsl!(),
     worldrunner_render_lighting::lighting_wgsl!(),
     worldrunner_render_post::post_wgsl!(),
@@ -42,6 +42,13 @@ pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/terrain.wgsl")
 );
+
+pub(super) fn shadowed_terrain_source() -> &'static str {
+    static SOURCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SOURCE.get_or_init(|| {
+        crate::scene_metadata::receiver::terrain_local_source(SHADOWED_TERRAIN_WGSL)
+    })
+}
 
 pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     worldrunner_render_shadow::receiver_layout(
@@ -382,7 +389,7 @@ pub(super) fn receiver_pipelines(
 pub(crate) fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> (String, String) {
     if reflection {
         return crate::ssr::forward::velocity_sources(
-            (SHADOWED_WGSL, SHADOWED_TERRAIN_WGSL),
+            (SHADOWED_WGSL, shadowed_terrain_source()),
             velocity,
             false,
         );
@@ -393,9 +400,9 @@ pub(crate) fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> 
         SHADOWED_WGSL.to_owned()
     };
     let terrain = if velocity {
-        crate::velocity::terrain_source(SHADOWED_TERRAIN_WGSL)
+        crate::velocity::terrain_source(shadowed_terrain_source())
     } else {
-        SHADOWED_TERRAIN_WGSL.to_owned()
+        shadowed_terrain_source().to_owned()
     };
     if ssao {
         (

@@ -227,9 +227,9 @@ effective across resident rebuilds. Enabling requires a startup-selected
 shadowed resident. Enabling on a Plain scene returns `UnsupportedScene` and
 rejects the entire camera transaction.
 Disabling on Plain is accepted as a no-resource request and publishes with the
-camera generation without installing shadow resources. This API controls native
-retained receiver shadows. It does not connect world-camera extraction or managed
-`renderShadows` settings.
+camera generation without installing shadow resources. The viewer reads no world
+camera itself: `play` publishes the presented camera's `renderShadows` through this
+policy (see `crates/play/README.md`).
 
 A cut discards TAA and temporal-upscaler history, restarts projection jitter at
 index zero, and replaces previous camera, jitter and animation time with the new

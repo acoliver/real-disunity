@@ -1,6 +1,7 @@
 //! Scene-local instance identity and deterministic sparse placement storage.
 
 pub(crate) mod batch;
+pub(crate) mod fade;
 pub(crate) mod slot_bounds;
 #[cfg(test)]
 mod tests;
@@ -81,6 +82,9 @@ pub(crate) struct Instances {
     pub wind_extents: Vec<glam::Vec3>,
     pub curved_wind: Vec<Option<glam::Vec3>>,
     pub impostor_extents: Vec<[f32; 3]>,
+    pub fades: Vec<fade::Fade>,
+    #[cfg(test)]
+    pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
 }
 
@@ -119,6 +123,14 @@ impl Instances {
                 .iter()
                 .map(impostor_extent)
                 .collect(),
+            fades: scene
+                .resources()
+                .materials()
+                .iter()
+                .map(|material| fade::Fade::new(material, scene.resources().textures()))
+                .collect(),
+            #[cfg(test)]
+            fade_cull_disabled: false,
             batches: BTreeMap::new(),
         };
         for object in scene.geometry().objects() {
@@ -157,6 +169,18 @@ impl Instances {
         self.curved_wind.extend(curved);
         self.impostor_extents
             .extend(materials.iter().map(impostor_extent));
+        // Appends refuse threshold coverage (`PreparedAppend::new`), so no appended material
+        // needs the texture table. A path that admits it must pass the table here.
+        self.fades.extend(materials.iter().map(|material| {
+            assert!(
+                matches!(
+                    material.fade_coverage(),
+                    worldrunner_render_plan::SceneFadeCoverage::Hashed
+                ),
+                "appended materials have hashed fade coverage"
+            );
+            fade::Fade::new(material, &[])
+        }));
         self.mesh_count = mesh_count;
     }
 

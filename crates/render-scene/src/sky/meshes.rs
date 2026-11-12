@@ -109,6 +109,19 @@ pub(crate) struct Meshes {
     samples: u32,
     layout: wgpu::BindGroupLayout,
     target: std::cell::RefCell<Option<super::mesh_target::Target>>,
+    /// How `draw_geometry` records, for the captures that compare the live draw with the
+    /// frozen fixed path and with no draw at all.
+    #[cfg(test)]
+    pub(crate) recorder: std::cell::Cell<Recorder>,
+}
+/// How a test has `draw_geometry` record the bodies.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Recorder {
+    #[default]
+    Live,
+    Frozen,
+    Nothing,
 }
 impl Meshes {
     pub fn new(
@@ -131,6 +144,8 @@ impl Meshes {
             separate,
             object_exposure,
             specializations: std::cell::RefCell::default(),
+            #[cfg(test)]
+            recorder: std::cell::Cell::default(),
             samples: pipelines.samples,
             layout,
             target: std::cell::RefCell::new(None),
@@ -251,6 +266,11 @@ impl Meshes {
             state.specular_convention.shader_options(),
             state.front_face(),
         );
+        #[cfg(test)]
+        if self.recorder.get() != Recorder::Live {
+            self.record_for_test(pass, frame, options);
+            return;
+        }
         for draw in &self.draws {
             let pipelines = self.selected_pipelines(options, draw.lighting, draw.anchored);
             pass.set_pipeline(&pipelines[draw.key.index()]);
@@ -261,6 +281,37 @@ impl Meshes {
             pass.set_index_buffer(draw.indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..draw.count, 0, 0..1);
         }
+    }
+}
+#[cfg(test)]
+impl Meshes {
+    /// Records nothing, or the bodies through the frozen fixed path with the selection the
+    /// live draw would make for `raster`.
+    fn record_for_test(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        frame: &wgpu::BindGroup,
+        raster: ([u32; 7], wgpu::FrontFace),
+    ) {
+        use crate::renderer::legacy_objects::celestial::{Selection, pipelines, record};
+        if self.recorder.get() == Recorder::Nothing {
+            return;
+        }
+        let composition = (self.physical, self.separate, self.object_exposure);
+        record(pass, frame, &self.draws, |lighting, anchored| {
+            let selection = Selection {
+                composition,
+                raster,
+                lighting,
+                anchored,
+            };
+            pipelines(&self.device, &self.scene, selection)
+        });
+    }
+
+    /// The bodies `draw_geometry` records.
+    pub(crate) fn draw_count(&self) -> usize {
+        self.draws.len()
     }
 }
 #[cfg(test)]

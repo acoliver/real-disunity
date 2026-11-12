@@ -74,6 +74,11 @@ impl super::SceneGpu {
             meshes.plan(device, size, passes, views, declaration);
         }
     }
+    /// The scene's celestial meshes, for the captures that switch how they record.
+    #[cfg(test)]
+    pub(crate) fn celestial_meshes(&self) -> Option<&crate::sky::meshes::Meshes> {
+        self.celestial.as_ref()
+    }
     pub(crate) fn draw_celestial(&self, pass: &mut wgpu::RenderPass<'_>) {
         if let Some(meshes) = &self.celestial {
             meshes.draw_geometry(pass, &self.drawing_frame_group(), &self.drawing_uniform());

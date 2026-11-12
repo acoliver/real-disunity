@@ -489,6 +489,8 @@ pub fn allocations(
 mod regression_tests;
 
 #[cfg(test)]
+mod capture_tests;
+#[cfg(test)]
 mod visibility_tests;
 
 #[cfg(test)]

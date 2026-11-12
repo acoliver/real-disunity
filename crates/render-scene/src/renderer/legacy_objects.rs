@@ -23,6 +23,7 @@
 //! captures mean and is its own proposal.
 
 mod casters;
+pub(crate) mod celestial;
 mod commands;
 mod depth;
 mod layouts;

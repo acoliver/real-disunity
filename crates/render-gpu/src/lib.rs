@@ -4,6 +4,7 @@ pub mod attachment;
 mod capture_configuration_tests;
 #[cfg(test)]
 mod capture_tests;
+pub mod census;
 pub mod configuration;
 #[cfg(test)]
 mod configuration_tests;

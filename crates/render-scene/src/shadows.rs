@@ -565,7 +565,7 @@ impl ShadowedScene {
         scheduler.prepare_scene_inputs(context.device(), &self.gpu);
         let depth_mode = scheduler.forward_depth(&self.gpu, depth);
         let selected = scheduler
-            .receiver_pipelines(&self.pipelines)
+            .receiver_pipelines(&self.pipelines, depth_mode)
             .for_depth(depth_mode);
         self.gpu.prepare_dynamic(encoder, &selected)?;
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
@@ -598,25 +598,26 @@ impl ShadowedScene {
         );
         let map = replacement.as_mut().unwrap_or(&mut self.map);
         map.select_frame_slot(self.frame_slot);
-        let shadow_group = scheduler
-            .ssao
-            .as_ref()
-            .and_then(|screen| screen.receiver.as_ref())
-            .map_or_else(
-                || map.group.clone(),
-                |receiver| {
-                    crate::scene_metadata::receiver::group(
-                        context.device(),
-                        receiver,
-                        &map.uniform,
-                        map.depth.receiver_view(),
-                        &map.sampler,
-                    )
+        let card_depth = selected.card_reject().then_some(depth);
+        let shadow_groups = scheduler.shadow_groups(
+            context.device(),
+            (
+                &map.group,
+                crate::scene_metadata::receiver::ShadowInputs {
+                    uniform: &map.uniform,
+                    depth: map.depth.receiver_view(),
+                    sampler: &map.sampler,
                 },
-            );
+            ),
+            card_depth,
+        );
         let mut schedule =
             schedule::ShadowSchedule::new(&map.depth, color, depth, &selected, refresh)?;
         schedule.screen_space(scheduler, selected.writes_velocity(), depth_mode)?;
+        if card_depth.is_some() {
+            debug_assert_eq!(depth_mode, crate::renderer::depth::DepthMode::Reuse);
+            schedule.card_reject_depth();
+        }
         schedule.celestial(&self.gpu, context.device(), color.size());
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),
@@ -626,7 +627,7 @@ impl ShadowedScene {
             depth_pipelines: &self.depth_pipelines,
             terrain_caster: &self.terrain_caster,
             depth_frames: &self.depth_frames,
-            shadow_group: &shadow_group,
+            shadow_groups: &shadow_groups,
             cascades,
             refresh,
             frame,
@@ -693,7 +694,8 @@ struct ShadowFeature<'a> {
     depth_pipelines: &'a [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     terrain_caster: &'a terrain_caster::TerrainCaster,
     depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
-    shadow_group: &'a wgpu::BindGroup,
+    /// Set 2 for the object draws and for the terrain draws.
+    shadow_groups: &'a crate::scene_metadata::receiver::SetTwo,
     cascades: cascades::CascadeViews,
     /// Cascades whose depth pass runs this frame.
     refresh: [bool; 4],
@@ -785,11 +787,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                     &[],
                 );
             }
-            pass.set_bind_group(2, self.shadow_group, &[]);
+            pass.set_bind_group(2, &self.shadow_groups.object, &[]);
             self.publications.record_color(
                 self.gpu,
                 self.gpu
-                    .draw_shadowed(pass, self.pipelines, self.shadow_group),
+                    .draw_shadowed(pass, self.pipelines, &self.shadow_groups.terrain),
             );
         }
     }

@@ -361,7 +361,9 @@ fn check_timing(fixture: &Fixture, ids: &[RasterId]) {
         .device()
         .poll(wgpu::PollType::wait_indefinitely())
         .unwrap();
-    let timings = fixture.renderer.take_timings().unwrap();
+    let timings = crate::test_support::take_timings(fixture.context.device(), 1, || {
+        fixture.renderer.take_timings()
+    });
     let [timing] = timings.as_slice() else {
         panic!("one timing record, got {}", timings.len());
     };

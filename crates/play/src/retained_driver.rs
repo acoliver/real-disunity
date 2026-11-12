@@ -23,7 +23,7 @@ use worldrunner_scene_viewer::{
     CameraContinuity, CapturePoolPolicy, FrameProfile, PresentMode, PresentationBudget,
     PresentationCadence, RenderClock, RetainedCaptureOutcome, RetainedDriver, RetainedEvent,
     RetainedEventHost, RetainedHost, RetainedInput, RetainedTick, RetainedUpdate, ViewerOptions,
-    WindowSizeUnit,
+    WindowMode, WindowSizeUnit,
 };
 
 use crate::{
@@ -104,6 +104,7 @@ pub(crate) fn viewer_options(window: &PlayerWindow) -> ViewerOptions {
         presentation_budget: PresentationBudget::default().into(),
         capture_pool: CapturePoolPolicy::default(),
         window_size_unit: WindowSizeUnit::default(),
+        window_mode: WindowMode::default(),
         camera_convention: LEFT_HANDED,
         ssr: None,
         title: window.title.clone(),

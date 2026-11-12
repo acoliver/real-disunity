@@ -139,7 +139,9 @@ pub(super) fn timed_frame(
             timeout: Some(std::time::Duration::from_secs(30)),
         })
         .unwrap();
-    let mut timings = renderer.scheduler.take_timings().unwrap();
+    let mut timings = crate::test_support::take_timings(context.device(), 1, || {
+        renderer.scheduler.take_timings()
+    });
     let timing = timings.pop().expect("required frame timestamp result");
     assert_eq!(timing.frame_id, frame);
     timing

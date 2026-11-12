@@ -76,7 +76,7 @@ fn assert_membership(source: &RenderScene, case: Case, casters_only: bool) {
     });
     for disabled in [true, false] {
         instances.fade_cull_disabled = disabled;
-        let expected = usize::from(disabled || casters_only || case.selected);
+        let expected = usize::from(disabled || case.selected);
         let mut selected = Selection {
             casters_only,
             ..Selection::default()
@@ -153,10 +153,8 @@ fn compare_cases(
         let (culled, after) = readback::capture(context, &source, kind, Cull::Enabled);
         assert_eq!(before.calls, 1);
         assert_eq!(before.instances, 1);
-        // Shadow casters are never fade culled.
-        let drawn = u64::from(case.selected || matches!(kind, readback::Kind::Shadow));
-        assert_eq!(after.calls, drawn, "{case:?}");
-        assert_eq!(after.instances, drawn, "{case:?}");
+        assert_eq!(after.calls, u64::from(case.selected), "{case:?}");
+        assert_eq!(after.instances, u64::from(case.selected), "{case:?}");
         assert_eq!(
             culled, unculled,
             "{kind:?}, impostor={impostor}, direction={direction:?}, {case:?}"
@@ -172,13 +170,8 @@ fn compare_cases(
         total_after.calls += after.calls;
         total_after.instances += after.instances;
     }
-    if matches!(kind, readback::Kind::Shadow) {
-        assert_eq!(total_after.calls, total_before.calls);
-        assert_eq!(total_after.instances, total_before.instances);
-    } else {
-        assert!(total_after.calls < total_before.calls);
-        assert!(total_after.instances < total_before.instances);
-    }
+    assert!(total_after.calls < total_before.calls);
+    assert!(total_after.instances < total_before.instances);
 }
 
 #[test]
@@ -200,7 +193,7 @@ fn gpu_fade_empty_cull_preserves_colour_depth_mrts_velocity_and_metadata() {
 }
 
 #[test]
-fn gpu_fade_empty_cull_keeps_every_shadow_caster() {
+fn gpu_fade_empty_cull_preserves_shadow_depth() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for impostor in [false, true] {

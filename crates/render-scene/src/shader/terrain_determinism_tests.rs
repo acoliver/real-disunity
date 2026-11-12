@@ -113,7 +113,7 @@ fn terrain_unbiased_receiver_payload_does_not_read_quad_neighbours() {
                 0.0,
                 crate::scene_metadata::receiver::ReceiverCapture::Normal,
             );
-            for variant in crate::renderer::terrain_test_sources(&terrain) {
+            for variant in crate::terrain::program::source::test_sources(&terrain) {
                 assert!(deterministic_terrain(&variant));
             }
         }

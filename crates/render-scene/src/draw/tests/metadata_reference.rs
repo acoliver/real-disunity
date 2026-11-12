@@ -307,7 +307,7 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
         ),
         (
             shadowed_terrain,
-            (67_036, 0x4682_13de_1c13_ba09_47c2_724a_058b_0780),
+            (69_077, 0x0182_2e98_c9cb_a155_3d10_803e_d7f9_3b46),
         ),
     ] {
         assert_eq!(source_fingerprint(source), expected);

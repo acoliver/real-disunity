@@ -102,8 +102,16 @@ fn position_capture_survives_every_terrain_runtime_surface() {
                 assert!(body.contains("receiver_0_a, receiver_0_b"));
                 assert_eq!(source_formats(&source), ReceiverLayout::Front.formats());
                 let capture = function_source(&source, "scene_capture_receiver");
-                assert!(capture.contains("let dx_0 = dpdx(position);"));
-                assert!(capture.contains("let dy_0 = dpdy(position);"));
+                assert_eq!(capture, function_source(&terrain, "scene_capture_receiver"));
+                assert!(capture.contains("scene_prepare_terrain_receiver(input);"));
+                assert!(capture.contains("let dx_0 = scene_receiver_dx;"));
+                assert!(capture.contains("let dy_0 = scene_receiver_dy;"));
+                assert!(!capture.contains("dpdx(normal)"));
+                assert!(!capture.contains("dpdy(normal)"));
+                assert_eq!(
+                    function_source(&source, "scene_receiver_displacement"),
+                    function_source(&terrain, "scene_receiver_displacement")
+                );
                 let module = naga::front::wgsl::parse_str(&source).unwrap();
                 naga::valid::Validator::new(
                     naga::valid::ValidationFlags::all(),

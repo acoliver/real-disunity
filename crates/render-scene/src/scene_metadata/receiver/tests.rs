@@ -131,7 +131,7 @@ fn terrain_local_and_producer_share_selected_plane_displacements_at_seams() {
                     "terrain must not cross triangle planes"
                 );
                 assert!(!receiver.contains("dpdy(position)"));
-                for source in crate::renderer::terrain_test_sources(&local) {
+                for source in crate::terrain::program::source::test_sources(&local) {
                     validate(&source);
                     assert_eq!(
                         function_source(&source, "scene_receiver_displacement"),

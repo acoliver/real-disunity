@@ -207,6 +207,29 @@ pub(crate) struct Description {
     pub frame: BindGroupLayout,
     pub shadow: Option<BindGroupLayout>,
     pub screen: Option<BindGroupLayout>,
+    /// Set for the shadow casters: a depth-only pass into a directional map, drawn with the
+    /// caster entry points and the map's depth test and bias.
+    pub caster: Option<Caster>,
+}
+
+/// The depth state of a directional map's casters.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Caster {
+    pub compare: wgpu::CompareFunction,
+    pub bias: wgpu::DepthBiasState,
+}
+
+/// The vertex and fragment entry points of the casters.
+const CASTER_VERTEX: &str = "vs_shadow";
+const CASTER_OPAQUE: &str = "fs_depth_opaque";
+const CASTER_MASKED: &str = "fs_depth_masked";
+
+/// The key whose caster `key` draws with. A directional map tells apart only whether a key is an
+/// impostor and the two lowest bits of its index (masked and double-sided): relief is flat in the
+/// map, and one sample has no coverage choice. Every key casts as the first key of its family, as
+/// the fixed casters shared eight pipelines among the keys.
+fn caster_key(key: PipelineKey) -> PipelineKey {
+    PipelineKey::ALL[usize::from(key.sampling.is_impostor()) * 16 + key.index() % 4]
 }
 
 static CONTEXTS: AtomicU64 = AtomicU64::new(0);
@@ -286,6 +309,9 @@ impl Context {
     /// # Errors
     /// Fails when the attachments are not ones the runtime draws into.
     pub(crate) fn signature(&self) -> Result<TargetSignature, ProgramError> {
+        if self.0.description.caster.is_some() {
+            return TargetSignature::depth_only(worldrunner_render_shadow::DEPTH_FORMAT, 1);
+        }
         TargetSignature::attachments(
             &self.0.description.colors,
             Some(self.0.description.depth.format()),
@@ -299,6 +325,22 @@ impl Context {
     /// reuse (equal depth and stencil at one sample) is unchanged.
     pub(crate) fn state(&self, key: PipelineKey) -> RenderState {
         let description = &self.0.description;
+        if let Some(caster) = description.caster {
+            return RenderState {
+                raster: RasterState {
+                    cull: caster_key(key).cull_mode(),
+                    front_face: FrontFace::Ccw,
+                    alpha_to_coverage: false,
+                },
+                depth: Some(worldrunner_render_program::state::DepthState {
+                    test: caster.compare,
+                    write: true,
+                    bias: caster.bias,
+                }),
+                colors: Vec::new(),
+                stencil: None,
+            };
+        }
         description.depth.render_state(
             description.colors.len(),
             RasterState {
@@ -342,7 +384,12 @@ impl Context {
         let vertex = StageProgram::new(
             StageModule {
                 source: StageSource::Wgsl(source),
-                entry_point: VERTEX_ENTRY.to_owned(),
+                entry_point: if self.0.description.caster.is_some() {
+                    CASTER_VERTEX
+                } else {
+                    VERTEX_ENTRY
+                }
+                .to_owned(),
                 kind: StageKind::Vertex,
             },
             declarations(),
@@ -361,18 +408,28 @@ impl Context {
         runtime: &ProgramRuntime,
         key: PipelineKey,
     ) -> Result<GraphicsProgram, ProgramError> {
+        let description = &self.0.description;
+        let key = if description.caster.is_some() {
+            caster_key(key)
+        } else {
+            key
+        };
         let features = key.features();
         if let Some(program) = self.0.programs.borrow().get(&features) {
             return Ok(program.clone());
         }
-        let description = &self.0.description;
         let vertex = self.vertex()?;
         // One parse serves the vertex stage and every fragment entry point. Only the fragment
         // stage reads the specialization constants, as the frozen reference does.
         let mut constants = description.constants.clone();
         constants.extend(key.fragment_constants(description.samples));
+        let entry = match (description.caster.is_some(), key.masked) {
+            (true, true) => CASTER_MASKED,
+            (true, false) => CASTER_OPAQUE,
+            (false, _) => key.fragment_entry(),
+        };
         let fragment = vertex
-            .sibling(key.fragment_entry(), StageKind::Fragment)?
+            .sibling(entry, StageKind::Fragment)?
             .with_declarations(declarations())
             .with_overrides(&constants)?;
         let program = runtime.graphics_program_in(&vertex, &fragment, &self.external())?;

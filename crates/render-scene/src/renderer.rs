@@ -303,6 +303,7 @@ impl ScenePipelines {
                 frame: frame_layout.clone(),
                 shadow: shadow_layout.cloned(),
                 screen: screen_layout.cloned(),
+                caster: None,
             },
             family,
         );

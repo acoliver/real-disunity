@@ -45,16 +45,15 @@ pub(crate) use resources::{depth_source, receiver_sources};
 /// they were built with, for the captures that compare them with the frozen casters.
 #[cfg(test)]
 pub(crate) fn object_casters(
-    device: &wgpu::Device,
     pipelines: &crate::renderer::ScenePipelines,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
 ) -> (
-    [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
+    crate::object::program::Context,
     worldrunner_render_shadow::DirectionalShadowConfig,
 ) {
     (
-        resources::depth_pipelines(device, pipelines, settings, sampling),
+        resources::object_caster(pipelines, settings, sampling),
         resources::caster_configuration(settings, sampling),
     )
 }
@@ -136,7 +135,8 @@ pub enum ShadowError {
 pub struct ShadowedScene {
     gpu: SceneGpu,
     pipelines: ScenePipelines,
-    depth_pipelines: [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
+    /// The object casters on the program runtime the receivers' objects draw with.
+    object_caster: crate::object::program::Context,
     terrain_caster: terrain_caster::TerrainCaster,
     caster_slope_bits: u32,
     depth_frames: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
@@ -260,8 +260,7 @@ impl ShadowedScene {
             (format, samples, velocity),
             &shadow_layout,
         )?;
-        let depth_pipelines =
-            resources::depth_pipelines(context.device(), &pipelines, settings, sampling);
+        let object_caster = resources::object_caster(&pipelines, settings, sampling);
         let terrain_caster = resources::terrain_caster(context, &pipelines, settings, sampling);
         let gpu = SceneGpu::upload_prepared_reusing(
             context.device(),
@@ -283,7 +282,7 @@ impl ShadowedScene {
             scheduler: crate::compositor::FrameRenderer::new(context.device()),
             gpu,
             pipelines,
-            depth_pipelines,
+            object_caster,
             terrain_caster,
             caster_slope_bits: resources::slope_bias(sampling).to_bits(),
             depth_slots,
@@ -508,12 +507,7 @@ impl ShadowedScene {
         let sampling = self.effects.shadows().sampling();
         let bits = resources::slope_bias(sampling).to_bits();
         if bits != self.caster_slope_bits {
-            self.depth_pipelines = resources::depth_pipelines(
-                context.device(),
-                &self.pipelines,
-                self.settings,
-                sampling,
-            );
+            self.object_caster = resources::object_caster(&self.pipelines, self.settings, sampling);
             self.terrain_caster =
                 resources::terrain_caster(context, &self.pipelines, self.settings, sampling);
             self.caster_slope_bits = bits;
@@ -521,10 +515,14 @@ impl ShadowedScene {
     }
 
     /// Prepares the terrain for every pass of the frame before any opens: the prepass, the
-    /// forward pass, and the casters of the cascades, and the objects of the prepass and the
-    /// forward pass.
+    /// forward pass, and the casters of the cascades, and the objects of the prepass, the forward
+    /// pass and, when the frame has shadow passes, the cascades.
     fn prepare_terrain_passes(
-        (gpu, caster): (&SceneGpu, &terrain_caster::TerrainCaster),
+        (gpu, caster, objects): (
+            &SceneGpu,
+            &terrain_caster::TerrainCaster,
+            Option<&crate::object::program::Context>,
+        ),
         (screen, selected, frame): (
             Option<&crate::scene_metadata::Geometry>,
             &ScenePipelines,
@@ -537,6 +535,10 @@ impl ShadowedScene {
         }
         gpu.prepare_terrain(selected, frame)?;
         gpu.prepare_objects(selected, frame)?;
+        // A frame without shadow passes draws no object casters.
+        if let Some(objects) = objects {
+            gpu.prepare_object_context(objects)?;
+        }
         caster.pipeline().map_err(|error| {
             worldrunner_render_post::FrameError::FeaturePreparation {
                 feature: "terrain shadow caster",
@@ -575,6 +577,7 @@ impl ShadowedScene {
         let mut replacement = self.replacement_map(context)?;
         let mut next_refresh = self.refresh_for_frame(replacement.is_some());
         let ((scheduler, fitting), (color, depth)) = (input, attachments);
+        let object_casters = self.shadows_enabled.then_some(&self.object_caster);
         let scheduler = scheduler.unwrap_or(&mut self.scheduler);
         Self::validate_scheduler(scheduler, &self.pipelines, &self.effects)?;
         scheduler.prepare_receiver_gradients(
@@ -593,7 +596,7 @@ impl ShadowedScene {
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
         let screen = scheduler.geometry_for_depth(depth_mode);
         Self::prepare_terrain_passes(
-            (&self.gpu, &self.terrain_caster),
+            (&self.gpu, &self.terrain_caster, object_casters),
             (screen.as_ref(), &selected, &frame),
         )?;
         let mut cascades = Self::prepare_cascades(
@@ -643,7 +646,7 @@ impl ShadowedScene {
             screen,
             gpu: &mut self.gpu,
             pipelines: &selected,
-            depth_pipelines: &self.depth_pipelines,
+            object_caster: &self.object_caster,
             terrain_caster: &self.terrain_caster,
             depth_frames: &self.depth_frames,
             shadow_group: &shadow_group,
@@ -710,7 +713,7 @@ struct ShadowFeature<'a> {
     screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
-    depth_pipelines: &'a [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
+    object_caster: &'a crate::object::program::Context,
     terrain_caster: &'a terrain_caster::TerrainCaster,
     depth_frames: &'a [(wgpu::Buffer, wgpu::BindGroup)],
     shadow_group: &'a wgpu::BindGroup,
@@ -780,11 +783,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
             }
             let matrix = self.cascades.matrices[index as usize];
             let group = &self.depth_frames[index as usize].1;
-            self.publications.record(self.gpu.draw_objects(
+            self.publications.record(self.gpu.draw_casters_prepared(
                 pass,
                 group,
-                self.depth_pipelines,
-                Some((index, matrix)),
+                self.object_caster,
+                (index, matrix),
             ));
             let caster = self
                 .terrain_caster

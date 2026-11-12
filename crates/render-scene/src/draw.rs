@@ -16,8 +16,8 @@ use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, MATERIAL_GROUP, material_sampler, placeholder_with_view, upload_buffer,
-    upload_palette_array, upload_texture, upload_type_grid,
+    FRAME_GROUP, material_sampler, placeholder_with_view, upload_buffer, upload_palette_array,
+    upload_texture, upload_type_grid,
 };
 
 mod append;

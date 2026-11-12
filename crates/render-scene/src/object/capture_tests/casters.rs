@@ -1,7 +1,7 @@
 //! The object shadow casters: depth-only passes over the light frames of four cascades, drawn
-//! through `SceneGpu::draw_objects` with the scene's caster pipelines and through the frozen
-//! fixed casters over the ranges each cascade selects, with the depth texels read back and
-//! compared byte for byte.
+//! through `SceneGpu::draw_casters_prepared` with the scene's caster programs and through the
+//! frozen fixed casters over the ranges each cascade selects, with the depth texels read back
+//! and compared byte for byte.
 //!
 //! The scene is the prepass captures' frame: an opaque mesh, a relief impostor, a masked
 //! double-sided card and a foliage card under wind. The light looks at the cards' faces. One
@@ -57,7 +57,7 @@ struct Maps {
 
 fn capture(
     rig: &mut Rig<'_>,
-    (live, frozen): (&[wgpu::RenderPipeline], &[wgpu::RenderPipeline]),
+    (live, frozen): (&crate::object::program::Context, &[wgpu::RenderPipeline]),
     (cascade, group): ((u32, Mat4), &wgpu::BindGroup),
 ) -> Maps {
     let context = rig.context;
@@ -68,7 +68,7 @@ fn capture(
     let depth = TextureFormat::Depth32Float;
     rig.prime();
     let drawn = render_with_depth(context, target, depth, &mut rig.gpu, |pass, gpu| {
-        drop(gpu.draw_objects(pass, group, live, Some(cascade)));
+        drop(gpu.draw_casters_prepared(pass, group, live, cascade));
     });
     rig.prime();
     let mut calls = 0;
@@ -113,8 +113,10 @@ fn object_casters_match_the_fixed_casters_byte_for_byte_in_every_cascade() {
         false,
     );
     let sampling = worldrunner_render_plan::SceneShadowSampling::default();
-    let (live, configuration) =
-        crate::shadows::object_casters(device, &pipelines, settings(), sampling);
+    let (live, configuration) = crate::shadows::object_casters(&pipelines, settings(), sampling);
+    let start = pipelines.object_runtime_stats();
+    rig.gpu.prepare_object_context(&live).unwrap();
+    let before = pipelines.object_runtime_stats();
     let frozen = caster_pipelines(device, &pipelines, configuration);
     let adapter = context.adapter().get_info().name;
     let mut compared = 0;
@@ -161,5 +163,14 @@ fn object_casters_match_the_fixed_casters_byte_for_byte_in_every_cascade() {
         compared += 1;
     }
     assert_eq!(compared, 4);
+    assert!(
+        before.pipelines_built > start.pipelines_built,
+        "preparing the casters built their pipelines on the program runtime"
+    );
+    assert_eq!(
+        pipelines.object_runtime_stats(),
+        before,
+        "the cascades found every caster prepared"
+    );
     println!("OBJECT-CAPTURE-SUMMARY set=casters compared={compared} skipped=0");
 }

@@ -63,8 +63,12 @@ public sealed partial class CommandBuffer : IDisposable
         _commands.Add(send);
     }
 
-    public void BeginSample(string name) => Fail(nameof(BeginSample));
-    public void EndSample(string name) => Fail(nameof(EndSample));
+    /// <summary>Records nothing: the engine has no profiler capture, so a sample marks no span. A render graph pass and
+    /// third-party passes open and close samples around their work every frame.</summary>
+    public void BeginSample(string name) => ThrowIfReleased();
+
+    /// <summary>Records nothing, as <see cref="BeginSample(string)"/>; an end without a begin is not checked.</summary>
+    public void EndSample(string name) => ThrowIfReleased();
 
     public void DrawMeshInstancedIndirect(Mesh mesh, int submeshIndex, Material material, int shaderPass, ComputeBuffer bufferWithArgs,
         int argsOffset, MaterialPropertyBlock properties) => Fail(nameof(DrawMeshInstancedIndirect));

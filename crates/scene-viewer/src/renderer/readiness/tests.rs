@@ -146,6 +146,7 @@ fn baked_effects() -> Vec<SceneEffects> {
             max_steps: 8,
             traversal: SceneSsrTraversal::Grid,
             grid_domain: SceneSsrGridDomain::FullResolution,
+            hit_facing: SceneSsrHitFacing::ShadingNormal,
             grid_level_count: None,
             max_distance_millimeters: 42_000,
             thickness_slope_micro: 20_000,

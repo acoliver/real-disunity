@@ -2,14 +2,11 @@ use super::*;
 
 fn default_output(context: &GpuContext, legacy: bool) -> Vec<Vec<u8>> {
     let mut renderer = regressions::renderer(context, 1);
-    renderer
-        .install_water(context.device(), settings())
-        .unwrap();
+    renderer.install_water(context, settings()).unwrap();
     if legacy {
         let source = water_source(false).replace(" || SCENE_DIRECT_DIFFUSE != 0u)", ")");
-        let water = renderer.water.as_mut().unwrap();
-        water.pipeline =
-            pipeline_with_source(context.device(), 1, &water.layout, false, [0; 5], &source);
+        let water = renderer.water.as_ref().unwrap();
+        water.substitute(([0; 5], false), &source, [0; 5]);
     }
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),

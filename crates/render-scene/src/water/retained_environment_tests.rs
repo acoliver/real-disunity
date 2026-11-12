@@ -52,9 +52,7 @@ fn uploaded_constant_environment_matches_independent_water_split_sum() {
     let context = GpuContext::shared_for_test().unwrap();
     let maps = uploaded_maps(&context, 1_000_000);
     let mut renderer = regressions::renderer(&context, 1);
-    renderer
-        .install_water(context.device(), settings())
-        .unwrap();
+    renderer.install_water(&context, settings()).unwrap();
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),

@@ -92,21 +92,27 @@ fn move_caster_while_disabled(run: &mut WindowlessRetained<'_>) {
         .unwrap();
 }
 
+fn frame_after_completion(run: &mut WindowlessRetained<'_>) -> bool {
+    // This test asserts submission, not nonblocking admission of an occupied frame slot.
+    run.renderer.drain().unwrap();
+    run.frame().unwrap()
+}
+
 #[test]
 fn retained_camera_policy_changes_receiver_and_skips_shadow_casters() {
     let mut driver = Driver::default();
     let events = driver.events.clone();
     let mut run = shadow_host().windowless(&mut driver).unwrap();
 
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     assert!(has_shadow_draws(&run));
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     assert!(!has_shadow_draws(&run));
     let enabled_frame = run.host().statistics().unwrap().frame;
     let enabled = capture(&mut run, &events).1;
 
     set_policy(&mut run, crate::CameraShadowPolicy::Disabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     let disabled_stats = run.host().statistics().unwrap().scene;
     let disabled_frame = run.host().statistics().unwrap().frame;
     assert!(!has_shadow_draws(&run));
@@ -122,18 +128,18 @@ fn retained_camera_policy_changes_receiver_and_skips_shadow_casters() {
     assert_ne!(enabled, disabled);
 
     set_policy(&mut run, crate::CameraShadowPolicy::Enabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     assert!(has_shadow_draws(&run));
     let restored = capture(&mut run, &events).1;
     assert_eq!(enabled, restored);
 
     set_policy(&mut run, crate::CameraShadowPolicy::Disabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     move_caster_while_disabled(&mut run);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     assert!(!has_shadow_draws(&run));
     set_policy(&mut run, crate::CameraShadowPolicy::Enabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     assert!(has_shadow_draws(&run));
     let moved = capture(&mut run, &events).1;
     assert_ne!(restored, moved);
@@ -146,7 +152,7 @@ fn disabled_policy_survives_resource_resident_rebuild() {
     let events = driver.events.clone();
     let mut run = shadow_host().windowless(&mut driver).unwrap();
     set_policy(&mut run, crate::CameraShadowPolicy::Disabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     let disabled = capture_recipe(&mut run, &events).0;
 
     let scene = run.host().scene().clone();
@@ -156,16 +162,16 @@ fn disabled_policy_survives_resource_resident_rebuild() {
             meshes: scene.geometry().meshes().to_vec(),
         })
         .unwrap();
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     while !run.host().readiness.queue.is_empty() {
-        assert!(run.frame().unwrap());
+        assert!(frame_after_completion(&mut run));
     }
     assert!(!has_shadow_draws(&run));
     let (image, _) = capture_recipe(&mut run, &events);
     assert_eq!(disabled, image);
 
     set_policy(&mut run, crate::CameraShadowPolicy::Enabled);
-    assert!(run.frame().unwrap());
+    assert!(frame_after_completion(&mut run));
     assert!(has_shadow_draws(&run));
     run.shutdown().unwrap();
 }

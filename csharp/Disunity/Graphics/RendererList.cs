@@ -17,7 +17,7 @@ public struct RendererList : IEquatable<RendererList>
     /// the list records nothing.</summary>
     internal bool UiOverlay;
 
-    public static RendererList nullRendererList => default;
+    public static readonly RendererList nullRendererList = default;
 
     public readonly bool isValid => Id != 0 || UiOverlay;
 

@@ -41,11 +41,13 @@ impl std::fmt::Debug for ProgramArena {
 impl ProgramArena {
     /// The lease frames hold to keep the arena alive. Resources registered with an executor in
     /// this arena's name are imported with it.
+    #[cfg(feature = "unity")]
     pub(crate) fn lease(&self) -> FrameLease {
         self.owner.lease()
     }
 
     /// Whether `runtime` opened this arena.
+    #[cfg(feature = "unity")]
     pub(crate) fn belongs_to(&self, runtime: &ProgramRuntime) -> bool {
         self.ledger.same(&runtime.ledger)
     }

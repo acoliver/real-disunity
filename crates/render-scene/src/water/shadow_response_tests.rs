@@ -186,7 +186,7 @@ fn response_render_source(
     source: &str,
 ) -> Vec<Vec<u8>> {
     let mut renderer = regressions::renderer(context, 1);
-    renderer.install_water(context.device(), body).unwrap();
+    renderer.install_water(context, body).unwrap();
     let water = renderer.water.as_mut().unwrap();
     let base = frame.specular_convention.shader_options();
     let options = [
@@ -196,11 +196,7 @@ fn response_render_source(
         base[3],
         terms::mask(&water.settings),
     ];
-    let pipeline = pipeline_with_source(context.device(), 1, &water.layout, false, options, source);
-    water.specializations.borrow_mut().insert(
-        (options, crate::renderer::depth::DepthMode::Independent),
-        [pipeline.clone(), pipeline],
-    );
+    water.substitute((options, false), source, options);
     let color = AttachmentView::new(
         ResourceRef::new("scene color"),
         renderer.targets().scene().texture(),

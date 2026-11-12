@@ -26,7 +26,7 @@ internal static class PlayerMeshStoreTests
 
     private static GameObject NewObject() => new("mesh object");
 
-    private static unsafe (DisunityMeshInfo Info, DisunityMeshVertex[] Vertices, uint[] Indices, DisunityMeshSubMesh[] Runs) Read(ulong identity)
+    internal static unsafe (DisunityMeshInfo Info, DisunityMeshVertex[] Vertices, uint[] Indices, DisunityMeshSubMesh[] Runs) Read(ulong identity)
     {
         var info = new DisunityMeshInfo();
         DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_read(DisunityHost.WorldHandle, identity, &info, null, null, null));
@@ -51,7 +51,7 @@ internal static class PlayerMeshStoreTests
         triangles = [0, 2, 1, 0, 3, 2],
     };
 
-    private static unsafe ulong ReadDrawn(MeshFilter filter)
+    internal static unsafe ulong ReadDrawn(MeshFilter filter)
     {
         ulong identity;
         DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_filter_drawn_read(DisunityHost.WorldHandle, filter.Handle, &identity));

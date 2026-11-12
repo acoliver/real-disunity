@@ -17,6 +17,7 @@ fn snapshot_outputs_cannot_be_reopened_for_writing() {
             samples: 1,
             load: worldrunner_render_post::AttachmentLoad::ClearColor(wgpu::Color::BLACK),
             store: wgpu::StoreOp::Store,
+            read_only: false,
         });
         let mut writer = producer.clone();
         writer.slot = worldrunner_render_post::PassSlot::ScreenSpaceAfterTransparent;

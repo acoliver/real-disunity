@@ -69,6 +69,7 @@ fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
             samples: 1,
             load: AttachmentLoad::ClearColor(wgpu::Color::BLACK),
             store: wgpu::StoreOp::Store,
+            read_only: false,
         });
         let mut encoder = begin(&device, &queue);
         assert_eq!(
@@ -129,6 +130,7 @@ fn checked_nonzero_subresources_are_valid_in_generic_executor() {
         samples: 1,
         load: AttachmentLoad::ClearColor(wgpu::Color::GREEN),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     let mut encoder = begin(&device, &queue);
     chain

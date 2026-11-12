@@ -3,6 +3,21 @@ use crate::test_support::SceneTestSession;
 use worldrunner_render_gpu::{submission::SubmissionAuthority, test_support::TestGpu};
 
 impl GpuContext {
+    /// Negotiates the production device request against this context's adapter.
+    pub fn requested_features_for_test(&self, required: wgpu::Features) -> wgpu::Features {
+        worldrunner_render_gpu::device::negotiate(
+            self.adapter.features(),
+            &self.adapter.limits(),
+            &requirements(
+                &self.adapter,
+                required,
+                worldrunner_render_post::TimingMode::Disabled,
+            ),
+        )
+        .expect("test adapter satisfies the scene device request")
+        .enabled_features
+    }
+
     /// Builds a fresh scene authority on the shared BC-capable test device.
     /// A [`SceneTestSession`] must outlive the context and all its fixtures.
     pub fn shared_for_test() -> Result<Self, DeviceError> {

@@ -533,6 +533,11 @@ impl WaterFeature {
             water.additional_colors.push(attachment);
             views.push(view);
         }
+        let additional_color_formats = water
+            .additional_colors
+            .iter()
+            .map(|attachment| attachment.format)
+            .collect();
         passes.push(water);
         let mask_pass = self.schedule_mask(passes, views)?;
         let mut feature = FeatureDeclaration::new(PassSlot::TransparentWater)
@@ -540,6 +545,7 @@ impl WaterFeature {
             .remove(0);
         feature.samples = self.snapshots.samples;
         feature.color_format = Some(wgpu::TextureFormat::Rgba16Float);
+        feature.additional_color_formats = additional_color_formats;
         feature.depth_format = Some(self.water.depth.format());
         feature.reads = vec![
             ResourceRef::new("opaque snapshot color"),

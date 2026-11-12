@@ -24,9 +24,11 @@ fn selected_effects_supply_initial_capture_readiness() {
     host.resolve_initial_content(InitialContext {
         adapter: &identity(),
         surface_extent: [64, 32],
+        display: None,
     })
     .unwrap();
     assert!(host.readiness.capture_features[3]);
+    assert!(!host.readiness.capture_features[4]);
     assert_eq!(host.captures.recipes[&0].frame_samples, 4);
     assert_eq!(host.accepted_generation(), 0);
 }
@@ -44,6 +46,7 @@ fn supplied_object_and_decal_ids_start_at_authored_indices() {
     host.resolve_initial_content(InitialContext {
         adapter: &identity(),
         surface_extent: [64, 32],
+        display: None,
     })
     .unwrap();
     let expected = content_scene();
@@ -92,6 +95,7 @@ fn concrete_startup_without_callback_preserves_scene_options_and_pool() {
     host.resolve_initial_content(InitialContext {
         adapter: &identity(),
         surface_extent: [64, 32],
+        display: None,
     })
     .unwrap();
     assert_eq!(host.initial_scene(), &scene);
@@ -128,6 +132,7 @@ fn deferred_capture_admission_preserves_generation_and_capacity_checks() {
     host.resolve_initial_content(InitialContext {
         adapter: &identity(),
         surface_extent: [64, 32],
+        display: None,
     })
     .unwrap();
     assert_eq!(host.captures.waiting.len(), 1);
@@ -150,7 +155,8 @@ fn selected_invalid_options_and_page_dependencies_fail_startup() {
     assert!(matches!(
         host.resolve_initial_content(InitialContext {
             adapter: &identity(),
-            surface_extent: [64, 32]
+            surface_extent: [64, 32],
+            display: None,
         }),
         Err(ViewerError::InvalidOptions(_))
     ));
@@ -166,7 +172,8 @@ fn selected_invalid_options_and_page_dependencies_fail_startup() {
     assert!(matches!(
         host.resolve_initial_content(InitialContext {
             adapter: &identity(),
-            surface_extent: [64, 32]
+            surface_extent: [64, 32],
+            display: None,
         }),
         Err(ViewerError::Capture(
             crate::CaptureRequestError::PagingDisabled { generation: 0 }
@@ -223,6 +230,7 @@ fn supplier_is_deferred_once_and_uses_selected_settings() {
     host.resolve_initial_content(InitialContext {
         adapter: &identity(),
         surface_extent: [64, 32],
+        display: None,
     })
     .unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -265,12 +273,13 @@ fn supplier_failure_is_typed_and_not_repeated() {
         RetainedHost::with_initial_content(crate::tests::options(), |_| Err("rejected".into()))
             .unwrap();
     assert!(
-        matches!(host.resolve_initial_content(InitialContext { adapter: &identity(), surface_extent: [64, 32] }), Err(ViewerError::InitialContent(message)) if message == "rejected")
+        matches!(host.resolve_initial_content(InitialContext { adapter: &identity(), surface_extent: [64, 32], display: None }), Err(ViewerError::InitialContent(message)) if message == "rejected")
     );
     assert!(matches!(
         host.resolve_initial_content(InitialContext {
             adapter: &identity(),
-            surface_extent: [64, 32]
+            surface_extent: [64, 32],
+            display: None,
         }),
         Err(ViewerError::InitialSceneUnavailable)
     ));
@@ -288,7 +297,8 @@ fn supplier_validates_selected_scene_and_pending_captures() {
     assert!(matches!(
         host.resolve_initial_content(InitialContext {
             adapter: &identity(),
-            surface_extent: [64, 32]
+            surface_extent: [64, 32],
+            display: None,
         }),
         Err(ViewerError::UnsupportedScene("water requires HDR"))
     ));
@@ -304,7 +314,8 @@ fn supplier_validates_selected_scene_and_pending_captures() {
     assert!(matches!(
         host.resolve_initial_content(InitialContext {
             adapter: &identity(),
-            surface_extent: [64, 32]
+            surface_extent: [64, 32],
+            display: None,
         }),
         Err(ViewerError::Capture(
             crate::CaptureRequestError::FeatureUnavailable { .. }

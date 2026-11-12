@@ -36,9 +36,12 @@ public sealed class MeshFilter : NativeComponent
         set
         {
             var id = CanvasRenderer.IdOf(value, nameof(value));
+            _ = ReadId();
+            // Asking for the identity stores a dirty or unpublished mesh and can be refused, so it comes before the first write.
+            var drawn = value?.RendererIdentity ?? 0;
             DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_filter_write(DisunityHost.WorldHandle, Handle, id));
             _mesh = value;
-            DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_filter_drawn_write(DisunityHost.WorldHandle, Handle, value?.RendererIdentity ?? 0));
+            DisunityHost.ThrowIfError(NativeBindings.disunity_mesh_filter_drawn_write(DisunityHost.WorldHandle, Handle, drawn));
         }
     }
 

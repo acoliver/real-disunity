@@ -7,7 +7,39 @@
 //! name. `FrameTiming::passes` is in stamping order; `timing_tests` asserts that order for a
 //! chain whose passes it controls.
 
-use crate::{FrameTiming, PassId};
+use crate::{FrameTiming, PassId, TimingError};
+
+/// Takes timings until `count` frames have arrived, waiting on the device between takes. A
+/// frame's timestamps are resolved by a submission that a take makes once the frame has
+/// completed, so they arrive over at least two takes. With `count` zero it takes once.
+///
+/// # Panics
+/// Panics when a take fails or the frames have not arrived within ten seconds.
+pub(crate) fn take_frames(
+    device: &wgpu::Device,
+    count: usize,
+    mut take: impl FnMut() -> Result<Vec<FrameTiming>, TimingError>,
+) -> Vec<FrameTiming> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut frames = Vec::new();
+    loop {
+        frames.extend(take().unwrap());
+        if frames.len() >= count {
+            return frames;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{} of {count} frame timings arrived",
+            frames.len()
+        );
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(1)),
+            })
+            .unwrap();
+    }
+}
 
 /// The durations of `frame`'s passes in the order they were stamped, after printing how many
 /// passes have one and which do not.

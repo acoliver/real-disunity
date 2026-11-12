@@ -68,6 +68,31 @@ pub unsafe extern "C" fn disunity_presentation_light(
     })
 }
 
+/// Writes whether the camera the last prepared frame presents renders shadow maps: 1 when its
+/// renderShadows is on, 0 when it is off, and 2 when the frame presents no camera or the camera
+/// has no camera data. Fails when no frame is prepared.
+///
+/// # Safety
+/// `value` is writable for one value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_presentation_render_shadows(
+    world: u64,
+    value: *mut u32,
+) -> DisunityResult {
+    if value.is_null() {
+        return DisunityResult::invalid_argument();
+    }
+    mutate(world, |s| {
+        if s.presentation.is_none() {
+            return Err("presentation is not prepared".into());
+        }
+        unsafe {
+            *value = s.render_shadows.map_or(2, u32::from);
+        }
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 #[path = "presentation_lights_tests.rs"]
 mod tests;

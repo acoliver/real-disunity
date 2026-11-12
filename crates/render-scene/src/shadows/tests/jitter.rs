@@ -44,3 +44,20 @@ fn shadow_caster_frames_carry_exactly_zero_material_mip_bias() {
         light_frame(&unbiased, Mat4::IDENTITY).to_bytes()
     );
 }
+
+#[test]
+fn shadow_caster_frames_keep_the_main_camera_eye_for_fade() {
+    // Caster selection culls fade-empty placements with the main camera eye, so the caster
+    // shader must fade them with that same eye (scene_fade_distance reads camera_position).
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let camera = FrameUniform::unlit(&view());
+    let caster = light_frame(&camera, Mat4::from_scale(Vec3::splat(0.5)));
+    assert_eq!(
+        caster.camera_position.to_array().map(f32::to_bits),
+        camera.camera_position.to_array().map(f32::to_bits)
+    );
+    assert_eq!(
+        caster.camera_position_millimeters,
+        camera.camera_position_millimeters
+    );
+}

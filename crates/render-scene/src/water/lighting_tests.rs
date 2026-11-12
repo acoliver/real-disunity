@@ -41,7 +41,7 @@ fn water_fog_composes_only_the_camera_segment_at_every_supported_sample_count() 
         let mut renderer = regressions::renderer(&context, samples);
         let mut body = settings();
         body.absorption_micro = [10_000_000; 3];
-        renderer.install_water(context.device(), body).unwrap();
+        renderer.install_water(&context, body).unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),
@@ -117,7 +117,7 @@ fn sh9_diffuse_reaches_water_scattering_at_every_supported_sample_count() {
         let mut body = settings();
         body.color_micro = [500_000; 3];
         body.absorption_micro = [10_000_000; 3];
-        renderer.install_water(context.device(), body).unwrap();
+        renderer.install_water(&context, body).unwrap();
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             renderer.targets().scene().texture(),

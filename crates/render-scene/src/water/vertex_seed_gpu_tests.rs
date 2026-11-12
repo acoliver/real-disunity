@@ -114,7 +114,7 @@ fn probe_at_origin(
         indices: Box::new([0, 1, 2]),
     };
     let mut renderer = regressions::renderer(context, 1);
-    renderer.install_water(context.device(), body).unwrap();
+    renderer.install_water(context, body).unwrap();
     let water = renderer.water.as_mut().unwrap();
     seed_tests::install_lattice(context, water, &lattice());
     let options = [
@@ -124,18 +124,7 @@ fn probe_at_origin(
         0,
         terms::mask(&water.settings) | super::super::vertex_seeds::key(&water.settings[0]),
     ];
-    let pipeline = pipeline_with_source(
-        context.device(),
-        1,
-        &water.layout,
-        false,
-        options,
-        &source(perspective),
-    );
-    water.specializations.borrow_mut().insert(
-        (options, crate::renderer::depth::DepthMode::Independent),
-        [pipeline.clone(), pipeline],
-    );
+    water.substitute((options, false), &source(perspective), options);
     let bytes = seed_tests::render_probe(context, &mut renderer);
     std::array::from_fn(|channel| {
         let start = (16 * 32 + 16) * 8 + channel * 2;

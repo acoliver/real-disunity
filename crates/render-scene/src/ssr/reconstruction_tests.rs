@@ -1,6 +1,6 @@
 use super::super::{gpu, pyramid};
 use worldrunner_render_plan::{
-    SceneDownsampleRounding, SceneSsaoReceiver, SceneSsr, SceneSsrPyramid,
+    SceneDownsampleRounding, SceneSsaoReceiver, SceneSsr, SceneSsrHitFacing, SceneSsrPyramid,
 };
 
 fn validate(source: &str) {
@@ -142,6 +142,56 @@ fn resolve_texture_budget_includes_normals_and_ao_independently() {
             limits.max_sampled_textures_per_shader_stage -= 1;
             assert!(pyramid::validate(config, &settings, &limits).is_err());
         }
+    }
+}
+
+#[test]
+fn water_bank_arrays_preserve_sampled_texture_budgets() {
+    use worldrunner_render_post::FrameConfig;
+
+    let config = FrameConfig::new([17, 13], wgpu::TextureFormat::Rgba16Float, 1);
+    for (radiance_pyramid, required) in [
+        (SceneSsrPyramid::Full, 12),
+        (SceneSsrPyramid::SixLevels, 17),
+    ] {
+        let settings = SceneSsr {
+            radiance_pyramid,
+            depth_relative_ao: true,
+            hit_facing: SceneSsrHitFacing::AnyForWaterReceivers,
+            ..Default::default()
+        };
+        let levels = settings.radiance_extents(config.size).len();
+        let source = gpu::configured_resolve_source_variant(
+            levels,
+            config.samples,
+            true,
+            true,
+            (SceneSsaoReceiver::Nearest, wgpu::TextureFormat::R32Float),
+            true,
+        );
+        let source = if pyramid::shared(&settings) {
+            pyramid::resolve_source_variant(
+                source,
+                &settings.radiance_extents(config.size),
+                config.samples,
+                true,
+            )
+        } else {
+            source
+        };
+        assert_eq!(
+            source.matches("@binding(").count(),
+            usize::try_from(required + 1).unwrap(),
+        );
+        let mut limits = wgpu::Limits {
+            max_sampled_textures_per_shader_stage: required,
+            max_texture_array_layers: 2,
+            max_color_attachments: 2,
+            ..Default::default()
+        };
+        assert!(pyramid::validate(config, &settings, &limits).is_ok());
+        limits.max_sampled_textures_per_shader_stage -= 1;
+        assert!(pyramid::validate(config, &settings, &limits).is_err());
     }
 }
 

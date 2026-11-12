@@ -116,6 +116,7 @@ fn options() -> ViewerOptions {
         presentation_budget: worldrunner_scene_viewer::PresentationBudget::default().into(),
         capture_pool: worldrunner_scene_viewer::CapturePoolPolicy::default(),
         window_size_unit: worldrunner_scene_viewer::WindowSizeUnit::default(),
+        window_mode: worldrunner_scene_viewer::WindowMode::default(),
         camera_convention: worldrunner_camera::ViewConvention::RIGHT_HANDED,
         title: "Retained native scene".into(),
         size: [800, 600],

@@ -31,6 +31,8 @@ internal static class CommandBufferExecutionTests
             Console.WriteLine("PASS: ClearRenderTarget records which parts clear, the color, the depth and the stencil");
             GlobalsAreRecordedInOrder();
             Console.WriteLine("PASS: SetGlobal values, textures and keywords are recorded by name and id and not folded into the global state");
+            PlainTexturesAreReadThroughAnIdentifier();
+            Console.WriteLine("PASS: a Texture2D named by a RenderTargetIdentifier is read as a global, a blit source and a copy source, and refused as a target");
             TemporariesCarryTheirDescriptions();
             Console.WriteLine("PASS: GetTemporaryRT and ReleaseTemporaryRT record the description the arguments give");
             TemporariesCarryTheirShape();
@@ -173,7 +175,8 @@ internal static class CommandBufferExecutionTests
         var buffer = new CommandBuffer();
         foreach (var type in new[] { BuiltinRenderTextureType.Depth, BuiltinRenderTextureType.MotionVectors, BuiltinRenderTextureType.GBuffer0, BuiltinRenderTextureType.CurrentActive })
             Throws<NotSupportedException>(() => buffer.SetRenderTarget(type), $"target {type}", $"BuiltinRenderTextureType.{type}", "CommandBuffer.SetRenderTarget");
-        Throws<NotSupportedException>(() => buffer.SetRenderTarget(new Texture2D(2, 2)), "a plain texture", "BindableTexture");
+        Throws<NotSupportedException>(() => buffer.SetRenderTarget(new Texture2D(2, 2)), "a plain texture", "Texture2D", "render target");
+        Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", new Cubemap(2, TextureFormat.RGBA32, false)), "a cubemap", "Cubemap");
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(Target().colorBuffer), "a render buffer", "BufferPtr");
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget, BuiltinRenderTextureType.Depth), "a depth target", "Depth");
         Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", BuiltinRenderTextureType.GBuffer1), "a global texture", "GBuffer1");
@@ -297,6 +300,34 @@ internal static class CommandBufferExecutionTests
         bad.DrawMesh(mesh, nan, material);
         Throws<DisunityException>(() => Graphics.ExecuteCommandBuffer(bad), "a matrix that is not finite");
         Expect.Equal(0, Taken().Length, "a refused draw records nothing");
+    }
+
+    /// <summary>A render graph clears its global bindings by setting plain textures through identifiers, which reach the world as
+    /// the texture assets they are.</summary>
+    private static void PlainTexturesAreReadThroughAnIdentifier()
+    {
+        var (plain, target) = (new Texture2D(4, 4), Target());
+        var buffer = new CommandBuffer();
+        buffer.SetGlobalTexture("_Plain", new RenderTargetIdentifier(plain));
+        buffer.Blit(new RenderTargetIdentifier(plain), target);
+        buffer.CopyTexture(new RenderTargetIdentifier(plain), 0, 0, target, 0, 0);
+        Graphics.ExecuteCommandBuffer(buffer);
+        var (identity, idt) = (plain.RendererIdentity, target.WorldId);
+        Same([
+            $"SetGlobal _Plain=texture asset:{identity} scale=(1 1) offset=(0 0)",
+            $"Blit source=1:{identity} target={idt} material=0 pass=-1",
+            $"Copy source=1:{identity}[0,0] target={idt}[0,0]",
+        ], Taken(), "a plain texture read through an identifier");
+        Throws<NotSupportedException>(() => buffer.Blit(target, new RenderTargetIdentifier(plain)), "a blit into a plain texture", "render texture");
+        var gone = new Texture2D(2, 2);
+        var goneId = new RenderTargetIdentifier(gone);
+        UnityEngine.Object.DestroyImmediate(gone);
+        Throws<ArgumentException>(() => buffer.SetGlobalTexture("_Plain", goneId), "a texture destroyed before recording", "destroyed");
+        var later = new CommandBuffer();
+        later.SetGlobalTexture("_Plain", new RenderTargetIdentifier(plain));
+        UnityEngine.Object.DestroyImmediate(plain);
+        Throws<InvalidOperationException>(() => Graphics.ExecuteCommandBuffer(later), "a plain texture destroyed after recording");
+        Taken();
     }
 
     private static void GlobalsAreRecordedInOrder()

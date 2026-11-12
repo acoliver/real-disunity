@@ -70,8 +70,8 @@ public sealed partial class CommandBuffer
     private void BindTargets(string member, RenderTargetIdentifier[] colors, RenderTargetIdentifier? depth, int? mip, CubemapFace? face, int? slice)
     {
         var member2 = $"CommandBuffer.{member}";
-        var targets = colors.Select(color => CommandTarget.Of(color, member2)).ToArray();
-        var depthTarget = depth is { } d ? CommandTarget.Of(d, member2) : (CommandTarget?)null;
+        var targets = colors.Select(color => CommandTarget.Of(color, member2).AsTarget(member2)).ToArray();
+        var depthTarget = depth is { } d ? CommandTarget.Of(d, member2).AsTarget(member2) : (CommandTarget?)null;
         var first = targets.Length > 0 ? targets[0] : depthTarget ?? default;
         var (useMip, useFace, useSlice) = (mip ?? first.Mip, face is { } f ? (int)f : first.Face, slice ?? first.Slice);
         if (useMip < 0) throw new ArgumentOutOfRangeException(nameof(mip), useMip, $"{member2}: the mip level is negative");

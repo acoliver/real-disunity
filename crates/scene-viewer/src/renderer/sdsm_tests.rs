@@ -58,7 +58,10 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
             (Some(frame_id), capture),
         );
         finish_timed_output(&context, &presentation);
-        let samples = presentation.scheduler.take_timings().unwrap();
+        let samples =
+            worldrunner_render_scene::test_support::take_timings(context.device(), 1, || {
+                presentation.scheduler.take_timings()
+            });
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].frame_id, frame_id);
         for name in [

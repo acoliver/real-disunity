@@ -71,9 +71,12 @@ fn relief_depth_graph_and_call_inputs_match_metadata_shadow_reflection_and_veloc
         for reflection in [false, true] {
             for velocity in [false, true] {
                 let (object, _) = crate::shadows::receiver_sources(true, reflection, velocity);
+                let reject = receiver::card_reject_source(&object, layout);
                 let object = receiver::consumer_source(&object, layout, false);
-                assert_eq!(expected, graph(&object, "scene_relief_depth"));
-                depth_call(&object);
+                for object in [object, reject] {
+                    assert_eq!(expected, graph(&object, "scene_relief_depth"));
+                    depth_call(&object);
+                }
             }
         }
     }

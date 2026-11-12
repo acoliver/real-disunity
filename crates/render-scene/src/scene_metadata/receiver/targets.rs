@@ -8,6 +8,9 @@ pub(crate) struct ReceiverPayload {
     pub(crate) output: super::super::MetadataOutput,
     pub(crate) textures: [wgpu::Texture; 2],
     pub(crate) pipelines: crate::renderer::ScenePipelines,
+    /// Admitted for this device and output; the frame applies it only when it reuses the
+    /// prepass depth read-only.
+    pub(crate) card_reject: bool,
 }
 impl ReceiverPayload {
     pub(super) fn output_for(
@@ -24,6 +27,7 @@ impl ReceiverPayload {
         metadata: &super::super::SceneMetadata,
         layout: ReceiverLayout,
         bias: f32,
+        card_reject: bool,
     ) -> Self {
         let output = Self::output_for(metadata);
         let sources = super::producer_sources(output, layout, bias);
@@ -41,6 +45,7 @@ impl ReceiverPayload {
             output,
             textures,
             pipelines,
+            card_reject,
         }
     }
     pub(crate) fn resource(index: u32, side: u32) -> ResourceRef {

@@ -373,19 +373,13 @@ impl Selection {
                 let distance_squared =
                     distance_squared(object.transform().position_millimeters, eye_millimeters);
                 let lod = mesh.lod(distance_squared, object.lod_distance_scale_millionths());
-                if self.camera_view() && mesh.fade_empty(instances, object, lod, fade_eye) {
+                if mesh.fade_empty(instances, object, lod, fade_eye) {
                     self.stats.culled += 1;
                     continue;
                 }
                 self.push(key, lod, slot);
             }
         }
-    }
-
-    /// Fade culling applies to camera views only. Shadow passes have not been checked against
-    /// the selection's fade eye, so casters keep every placement.
-    const fn camera_view(&self) -> bool {
-        !self.casters_only && self.slice.is_none()
     }
 
     fn admits(&self, frustum: &Frustum, matrix: Mat4, placement: Bounds) -> bool {

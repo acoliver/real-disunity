@@ -53,6 +53,7 @@ fn attachment(load: AttachmentLoad, store: wgpu::StoreOp) -> AttachmentDeclarati
         samples: 1,
         load,
         store,
+        read_only: false,
     }
 }
 

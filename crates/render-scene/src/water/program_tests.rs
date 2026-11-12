@@ -85,3 +85,37 @@ fn the_body_program_declares_set_zero_as_the_fixed_groups_do() {
         );
     }
 }
+
+/// Water's own text reads every set-0 binding in every key the captures reach, shadowed and
+/// not, so a draw that lends every input never meets the runtime's `UnusedImport` on the
+/// production path. Only a substituted test text may read fewer, and only there does
+/// `Programs::prepare` hold an input back.
+#[test]
+fn every_body_program_of_the_composed_text_reads_every_set_zero_input() {
+    use worldrunner_render_program::binding::BindingSource;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
+    let mut programs = crate::water::program::Programs::new(context.device(), context.submission());
+    let declared = crate::water::program::bindings();
+    // Default, terms, vertex seeds, endpoint, endpoint with seeds, shadow response, and the
+    // weighted filter: the keys of the capture cases.
+    for bits in [0, 19, 64 | 512, 64 | 256, 64 | 256 | 512, 1024, 1024 | 2048] {
+        for shadows in [false, true] {
+            let program = programs.program(([0, 0, 0, 0, bits], shadows)).unwrap();
+            let slots = program.layout().slots();
+            for binding in declared.iter().filter(|binding| binding.at.set == 0) {
+                let BindingSource::Engine(semantic) = &binding.source else {
+                    continue;
+                };
+                assert!(
+                    slots
+                        .iter()
+                        .any(|slot| slot.source == BindingSource::Engine(semantic.clone())),
+                    "options {bits} shadows {shadows}: the composed text does not read set 0 \
+                     binding {} ({semantic:?})",
+                    binding.at.binding
+                );
+            }
+        }
+    }
+}

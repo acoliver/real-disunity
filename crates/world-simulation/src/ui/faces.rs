@@ -4,7 +4,7 @@
 //! font's tables where it has them; where it has not, the fallbacks below are the engine's choice.
 //! Lengths are in pixels at the face's current point size, with the baseline at 0 and up positive.
 
-use super::UiError;
+use super::{UiError, positioning::PairPositioning};
 use ttf_parser::{Face, GlyphId, name_id};
 
 /// Identity of a loaded face within one [`FaceBook`]. Ids are never reused by the same book.
@@ -35,6 +35,7 @@ pub(super) struct LoadedFace {
     pub(super) data: Vec<u8>,
     pub(super) index: u32,
     pub(super) point_size: f32,
+    positioning: PairPositioning,
 }
 
 /// Face-wide measurements at the current point size.
@@ -133,6 +134,15 @@ impl FaceBook {
         }
         ab_glyph::FontRef::try_from_slice_and_index(&data, index)
             .map_err(|_| UiError::InvalidFont)?;
+        let positioning = PairPositioning::new(&face);
+        let size = data.len().saturating_add(positioning.storage_bytes());
+        if size > self.limits.max_face_bytes {
+            return Err(UiError::InvalidFont);
+        }
+        let total = total.saturating_add(positioning.storage_bytes());
+        if total > self.limits.max_total_bytes {
+            return Err(UiError::FontLimit);
+        }
         let id = FaceId(self.next);
         self.next = self.next.checked_add(1).ok_or(UiError::FontLimit)?;
         self.faces.insert(
@@ -141,6 +151,7 @@ impl FaceBook {
                 data,
                 index,
                 point_size,
+                positioning,
             },
         );
         self.bytes = total;
@@ -149,7 +160,7 @@ impl FaceBook {
 
     pub fn unload(&mut self, id: FaceId) -> Result<(), UiError> {
         let face = self.faces.remove(&id).ok_or(UiError::MissingFace)?;
-        self.bytes -= face.data.len();
+        self.bytes -= face.data.len() + face.positioning.storage_bytes();
         Ok(())
     }
 
@@ -197,16 +208,13 @@ impl FaceBook {
         ))
     }
 
-    /// Kerning for every ordered pair of the distinct `glyphs` (in glyph order) whose advance the font's `kern` table changes.
-    /// The `GPOS` pair tables are not read, which is the engine's choice, so a font that kerns only
-    /// through them has no adjustments.
+    /// Nonzero horizontal advances for ordered pairs of distinct requested glyph IDs, in glyph
+    /// order. Uses default-script GPOS kern `PairPos` 1/2 (including extensions), or legacy kern
+    /// only when the GPOS table has no kern feature. Only the first value's `XAdvance` is applied.
     pub fn pair_adjustments(&self, id: FaceId, glyphs: &[u32]) -> Result<Vec<GlyphPair>, UiError> {
         let stored = self.get(id)?;
         let face = stored.parse();
-        let k = stored.units_to_pixels(&face);
-        let Some(kern) = face.tables().kern else {
-            return Ok(Vec::new());
-        };
+        let positioning = stored.positioning.scaled(&face, stored.point_size);
         let mut ids: Vec<GlyphId> = glyphs
             .iter()
             .filter_map(|&g| u16::try_from(g).ok().map(GlyphId))
@@ -216,18 +224,12 @@ impl FaceBook {
         let mut pairs = Vec::new();
         for &first in &ids {
             for &second in &ids {
-                let units: i32 = kern
-                    .subtables
-                    .into_iter()
-                    .filter(|t| t.horizontal && !t.variable && !t.has_state_machine)
-                    .filter_map(|t| t.glyphs_kerning(first, second))
-                    .map(i32::from)
-                    .sum();
-                if units != 0 {
+                let x_advance = positioning.x_advance(first.0, second.0);
+                if x_advance != 0. {
                     pairs.push(GlyphPair {
                         first: u32::from(first.0),
                         second: u32::from(second.0),
-                        x_advance: f32::from(i16::try_from(units).unwrap_or(0)) * k,
+                        x_advance,
                     });
                 }
             }

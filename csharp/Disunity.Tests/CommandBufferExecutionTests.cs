@@ -148,6 +148,7 @@ internal static class CommandBufferExecutionTests
         buffer.SetRenderTarget(new RenderTargetIdentifier("_Named"));
         buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
         buffer.SetRenderTarget(BuiltinRenderTextureType.None);
+        buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget, BuiltinRenderTextureType.Depth);
         Graphics.ExecuteCommandBuffer(buffer);
         var id = texture.WorldId;
         Same([
@@ -156,7 +157,8 @@ internal static class CommandBufferExecutionTests
             $"SetRenderTarget colors=[Temp:{named}] depth=- mip=0 face=-1 slice=0",
             "SetRenderTarget colors=[Camera] depth=- mip=0 face=-1 slice=0",
             "SetRenderTarget colors=[None] depth=- mip=0 face=-1 slice=-1",
-        ], Taken(), "each kind of target");
+            "SetRenderTarget colors=[Camera] depth=Camera mip=0 face=-1 slice=0",
+        ], Taken(), "each kind of target, and the camera's depth as a depth target");
         var uncreated = new RenderTexture(8, 8, 0);
         var late = new CommandBuffer();
         late.SetRenderTarget(uncreated);
@@ -178,7 +180,7 @@ internal static class CommandBufferExecutionTests
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(new Texture2D(2, 2)), "a plain texture", "Texture2D", "render target");
         Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", new Cubemap(2, TextureFormat.RGBA32, false)), "a cubemap", "Cubemap");
         Throws<NotSupportedException>(() => buffer.SetRenderTarget(Target().colorBuffer), "a render buffer", "BufferPtr");
-        Throws<NotSupportedException>(() => buffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget, BuiltinRenderTextureType.Depth), "a depth target", "Depth");
+        Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", BuiltinRenderTextureType.Depth), "the camera depth as a texture", "Depth");
         Throws<NotSupportedException>(() => buffer.SetGlobalTexture("_T", BuiltinRenderTextureType.GBuffer1), "a global texture", "GBuffer1");
         Expect.Equal(0, buffer.commandCount, "a refused record leaves the buffer as it was");
     }

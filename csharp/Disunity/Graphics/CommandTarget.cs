@@ -53,6 +53,12 @@ internal readonly record struct CommandTarget(uint Kind, int NameId, Texture? Te
         ? throw new NotSupportedException($"{member}: a {Texture!.GetType().Name} as a render target is not supported; only a render texture is drawn into")
         : this;
 
+    /// <summary>A depth target: <see cref="BuiltinRenderTextureType.Depth"/> is the depth buffer of the camera being rendered, so it
+    /// names the camera target, whose depth buffer the host binds; any other identifier is resolved as <see cref="Of"/> does.</summary>
+    internal static CommandTarget OfDepth(in RenderTargetIdentifier id, string member) => id.m_Type == BuiltinRenderTextureType.Depth
+        ? new(KindCamera, 0, null, id.m_MipLevel, (int)id.m_CubeFace, id.m_DepthSlice)
+        : Of(id, member);
+
     /// <summary>The target of a camera: its target texture, or the camera target when it draws to the screen.</summary>
     internal static CommandTarget OfCamera(RenderTexture? texture) =>
         texture is null ? new(KindCamera, 0, null, 0, -1, -1) : new(KindRender, 0, texture, 0, -1, -1);

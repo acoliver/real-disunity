@@ -79,7 +79,7 @@ fn appending_a_threshold_material_fails_without_its_texture_table() {
 }
 
 #[test]
-fn fade_culling_leaves_caster_and_slice_selections_unchanged() {
+fn caster_and_slice_selections_cull_fade_empty_placements_like_the_camera() {
     let base = scene();
     let source = fixture(&base.resources().materials()[0], &[Some(terminal_band())]);
     let mut camera = Selection::default();
@@ -107,8 +107,7 @@ fn fade_culling_leaves_caster_and_slice_selections_unchanged() {
         let mut kept = view;
         select(&instances, &source, &mut kept);
         assert_eq!(kept.ranges.len(), 1, "the view must admit the placement");
-        assert_eq!(culled.stats.culled, kept.stats.culled);
-        assert_eq!(culled.stats.drawn_per_lod, kept.stats.drawn_per_lod);
-        assert_eq!(culled.ranges.len(), kept.ranges.len());
+        assert_eq!(culled.stats.culled, kept.stats.culled + 1);
+        assert!(culled.ranges.is_empty());
     }
 }

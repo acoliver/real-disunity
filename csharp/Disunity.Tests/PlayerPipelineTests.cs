@@ -54,7 +54,8 @@ internal static class PlayerPipelineTests
         APlanWithoutGraphicsChangesNothing();
         QualityLevelAssets();
         AlwaysIncludedShadersAreFoundByName();
-        Console.WriteLine("PASS: player pipeline assets are set before the first scene, a failing asset is logged and left null, quality levels hold their own assets");
+        ResourceShadersAreFoundByName();
+        Console.WriteLine("PASS: player pipeline assets are set before the first scene, a failing asset is logged and left null, quality levels hold their own assets, always included and resource shaders are found by name");
     }
 
     private static string AssemblyName => typeof(PlayerPipelineTests).Assembly.GetName().Name!;
@@ -75,10 +76,29 @@ internal static class PlayerPipelineTests
         });
     }
 
+    private const string InResources = "PlayerPipelineTests/InResources";
+
+    private static void ResourceShadersAreFoundByName()
+    {
+        Expect.That(Shader.Find(InResources) == null, "no shader of that name before the plan is applied");
+        var entries = new JsonArray(ResourceEntry("fx/occlusion", 6), ResourceEntry("fx/undecoded", 7));
+        With(null, [], log =>
+        {
+            var found = Shader.Find(InResources);
+            Expect.That(found != null && found.name == InResources, "Shader.Find returns a shader of the player's Resources folders that nothing loaded, in a plan without a graphics section");
+            Expect.Equal(3000, found!.renderQueue, "with its planned render queue");
+            Expect.That(ReferenceEquals(found, Resources.Load<Shader>("fx/occlusion")), "loading it returns the same shader");
+            Expect.That(log.Count == 1 && log[0].StartsWith("the resource shader fx/undecoded could not be built:") && log[0].Contains("did not decode"), $"a shader that did not plan is logged by its path: {string.Join(" | ", log)}");
+        }, entries: entries);
+    }
+
+    private static JsonObject ResourceEntry(string path, int asset) => new() { ["path"] = path, ["class"] = "Shader", ["asset"] = asset };
+
     /// <summary>Writes a plan whose assets are a High pipeline (0), the global settings (1), a Low pipeline (2) and an
     /// asset of a class that does not exist (3), an asset whose constructor throws (4) and a shader that only the always
-    /// included list names (5), with <paramref name="graphics"/> as its graphics section.</summary>
-    private static string WritePlan(string directory, JsonNode? graphics)
+    /// included list names (5), a shader (6) and a shader that did not plan (7) for container entries, with <paramref name="graphics"/>
+    /// as its graphics section and <paramref name="entries"/>, or none, as its container entries.</summary>
+    private static string WritePlan(string directory, JsonNode? graphics, JsonArray? entries)
     {
         var assets = new JsonArray();
         var classes = new[] { ("High", "PlayerPipelineTests/HighAsset", """{"level":"3","compute":null}"""), ("Global", "PlayerPipelineTests/GlobalAsset", "{}"),
@@ -90,7 +110,9 @@ internal static class PlayerPipelineTests
             assets.Add(new JsonObject { ["type"] = "Script", ["class"] = classes[i].Item2, ["assembly"] = AssemblyName, ["name"] = classes[i].Item1, ["fields"] = $"{i}.json" });
         }
         assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = AlwaysIncluded, ["render_queue"] = 2450, ["pass_count"] = 2, ["pass_names"] = new JsonArray("", ""), ["subshader_count"] = 1 });
-        var plan = new JsonObject { ["entries"] = new JsonArray(), ["assets"] = assets, ["differences"] = new JsonArray() };
+        assets.Add(new JsonObject { ["type"] = "Shader", ["name"] = InResources, ["render_queue"] = 3000, ["pass_count"] = 1, ["pass_names"] = new JsonArray(""), ["subshader_count"] = 1 });
+        assets.Add(new JsonObject { ["type"] = "UnplannedShader", ["error"] = "the shader did not decode" });
+        var plan = new JsonObject { ["entries"] = entries ?? new JsonArray(), ["assets"] = assets, ["differences"] = new JsonArray() };
         if (graphics is not null) plan["graphics"] = graphics;
         var path = Path.Combine(directory, "resources.json");
         File.WriteAllText(path, plan.ToJsonString());
@@ -104,12 +126,12 @@ internal static class PlayerPipelineTests
     };
 
     /// <summary>Loads a world and the plan, runs <paramref name="run"/> with the lines the start logged, and unloads both.</summary>
-    private static void With(JsonNode? graphics, string[] levels, Action<List<string>> run, bool createWithAssets = true)
+    private static void With(JsonNode? graphics, string[] levels, Action<List<string>> run, bool createWithAssets = true, JsonArray? entries = null)
     {
         var directory = Directory.CreateTempSubdirectory("disunity-pipeline-");
         try
         {
-            DisunityHost.LoadResources(WritePlan(directory.FullName, graphics), _ => typeof(PlayerPipelineTests).Assembly);
+            DisunityHost.LoadResources(WritePlan(directory.FullName, graphics, entries), _ => typeof(PlayerPipelineTests).Assembly);
             DisunityHost.LoadWorld();
             try
             {

@@ -1,6 +1,6 @@
 //! CPU scene data for linear-blend skinning.
 
-use super::SceneValidationError;
+use super::{BillboardPolicy, SceneValidationError};
 
 /// Dense index of one reusable skeleton resource in [`super::SceneGeometry`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -95,6 +95,24 @@ impl SceneSkinInfluence {
             });
         }
         Ok(())
+    }
+}
+
+/// Refuses a camera-facing billboard on a skinned LOD.
+///
+/// Skinning deforms the authored vertices before the model transform, while a camera-facing
+/// billboard replaces the authored rotation, so the two cannot be combined. Crossed quads keep
+/// the authored rotation and stay admissible.
+pub(super) fn refuse_facing_billboard(
+    billboard: Option<BillboardPolicy>,
+) -> Result<(), SceneValidationError> {
+    match billboard {
+        Some(BillboardPolicy::YawLocked | BillboardPolicy::Spherical) => {
+            Err(SceneValidationError::UnsupportedInput {
+                part: "skinned LOD with a camera-facing billboard",
+            })
+        }
+        None | Some(BillboardPolicy::CrossQuads) => Ok(()),
     }
 }
 

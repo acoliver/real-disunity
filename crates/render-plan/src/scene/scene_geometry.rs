@@ -177,8 +177,8 @@ fn require_skin_handle(
 mod tests {
     use super::*;
     use crate::scene::{
-        MaterialHandle, MeshHandle, SceneAffineMatrix, SceneMeshLod, SceneRotation,
-        SceneSkinInfluence, SceneTransform, SkinPoseHandle,
+        BillboardPolicy, MaterialHandle, MeshHandle, SceneAffineMatrix, SceneMeshLod,
+        SceneRotation, SceneSkinInfluence, SceneTransform, SkinPoseHandle,
     };
 
     fn vertex() -> super::super::SceneVertex {
@@ -234,6 +234,35 @@ mod tests {
 
     fn influence(joints: [u8; 4], weights: [u8; 4]) -> SceneSkinInfluence {
         SceneSkinInfluence { joints, weights }
+    }
+
+    #[test]
+    fn camera_facing_billboards_cannot_be_skinned() {
+        for policy in [BillboardPolicy::YawLocked, BillboardPolicy::Spherical] {
+            let lod = SceneMeshLod::new(0, vec![vertex()], vec![0, 0, 0], Some(policy))
+                .expect("synthetic billboard triangle validates");
+            assert!(matches!(
+                lod.with_skin_influences(
+                    SkeletonHandle::from_raw(0),
+                    vec![influence([0; 4], [255, 0, 0, 0])]
+                ),
+                Err(SceneValidationError::UnsupportedInput { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn crossed_quads_and_plain_lods_can_be_skinned() {
+        for policy in [None, Some(BillboardPolicy::CrossQuads)] {
+            let lod = SceneMeshLod::new(0, vec![vertex()], vec![0, 0, 0], policy)
+                .expect("synthetic triangle validates")
+                .with_skin_influences(
+                    SkeletonHandle::from_raw(0),
+                    vec![influence([0; 4], [255, 0, 0, 0])],
+                )
+                .expect("fixed-rotation LOD accepts influences");
+            assert!(lod.validate().is_ok());
+        }
     }
 
     #[test]

@@ -71,10 +71,33 @@ impl GameScripts {
     /// failed; the others keep running. A thread that interrupts the advance ends it there:
     /// the clocks stay at the time of that thread and the rest stay due.
     pub fn advance(&self, ms: u64) -> Result<Vec<ThreadFailure>, ScriptError> {
+        self.advance_clocks(ms, None)
+    }
+
+    /// Advances only the named clock and runs only its due threads. Other clocks and their
+    /// deferred threads stay untouched, even when overdue. Pause state is preserved; a paused
+    /// clock does not advance. Wakeups keep the policy's ordering: wake time, then reschedule
+    /// order or creation order for ties, just as in [`Self::advance`]. Interrupts end the step
+    /// at the interrupting thread's time. An unknown clock or clock overflow is an error.
+    pub fn advance_clock(&self, name: &str, ms: u64) -> Result<Vec<ThreadFailure>, ScriptError> {
+        let index = self
+            .scheduler()
+            .lock()
+            .expect("scheduler")
+            .clock_index(name)
+            .ok_or_else(|| refused(&format!("no clock named {name}")))?;
+        self.advance_clocks(ms, Some(index))
+    }
+
+    fn advance_clocks(
+        &self,
+        ms: u64,
+        only: Option<usize>,
+    ) -> Result<Vec<ThreadFailure>, ScriptError> {
         let start = {
             let mut scheduler = self.scheduler().lock().expect("scheduler");
             scheduler
-                .begin_advance(ms)
+                .begin_advance(ms, only)
                 .ok_or_else(|| refused("the scheduler clock overflowed"))?
         };
         let mut failures = Vec::new();

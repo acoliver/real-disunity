@@ -51,8 +51,9 @@ internal static class PlayerRun
         Log($"command line: {string.Join(' ', commandLine)}");
         DisunityHost.ConfigurePlayer(Environment(data, request));
         ApplyQuality(request);
-        // The player runs without a window; it reports the renderer's guaranteed limits, not a device of zeros.
-        DisunityHost.SetGraphicsDevice(GraphicsDeviceInfo.Windowless);
+        // The player runs without a window; it reports the renderer's guaranteed limits and the formats it draws into,
+        // not a device of zeros.
+        DisunityHost.SetGraphicsDevice(PlayerDevice.Of(request));
         DisunityHost.LoadResources(request.GetProperty("resources").GetString()!, Load);
         DisunityHost.ApplyRenderPipelineAssets(Log);
         DisunityHost.ApplyInputAxes(Log);

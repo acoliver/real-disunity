@@ -3,6 +3,10 @@
 
 use super::error::OffscreenError;
 
+/// The `GraphicsFormat` codes offscreen work draws into and samples: every code of the
+/// [`color_format`] table. A player reports these as the render formats its device supports.
+pub const RENDER_FORMATS: [u32; 6] = [4, 5, 8, 45, 48, 52];
+
 /// The wgpu format of an engine `GraphicsFormat` code.
 pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenError> {
     Ok(match code {
@@ -60,6 +64,14 @@ pub(crate) fn depth_format(bits: u8) -> Result<Option<wgpu::TextureFormat>, Offs
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_render_formats_are_exactly_the_color_table() {
+        let mapped: Vec<u32> = (0..256)
+            .filter(|&code| color_format(code).is_ok())
+            .collect();
+        assert_eq!(mapped, RENDER_FORMATS);
+    }
 
     #[test]
     fn the_formats_with_a_test_map_to_their_wgpu_formats() {

@@ -116,6 +116,7 @@ impl SceneMeshLod {
         skeleton: SkeletonHandle,
         influences: Vec<SceneSkinInfluence>,
     ) -> Result<Self, SceneValidationError> {
+        super::skinning::refuse_facing_billboard(self.billboard)?;
         validate_influences(&influences, self.vertices.len())?;
         self.skin_influences = Some(influences.into_boxed_slice());
         self.skeleton = Some(skeleton);
@@ -249,7 +250,10 @@ impl SceneMeshLod {
         }
         match (&self.skin_influences, self.skeleton) {
             (None, None) => Ok(()),
-            (Some(influences), Some(_)) => validate_influences(influences, self.vertices.len()),
+            (Some(influences), Some(_)) => {
+                super::skinning::refuse_facing_billboard(self.billboard)?;
+                validate_influences(influences, self.vertices.len())
+            }
             _ => Err(SceneValidationError::UnsupportedInput {
                 part: "skin influences and skeleton must be supplied together",
             }),

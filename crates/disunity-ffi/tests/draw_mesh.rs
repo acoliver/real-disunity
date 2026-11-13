@@ -1,13 +1,15 @@
 //! A command buffer's mesh draw through the ABI: the call forwards the stored mesh's identity,
 //! matrix, material, sub-mesh and pass as one record, and a take hands it back with kind 16 and
-//! the bytes that carry it. An identity nothing stored, a missing or non-finite matrix, a dead
+//! the bytes that carry it. Property values written to the draw scope (3) before the call travel
+//! with that draw only. An identity nothing stored, a missing or non-finite matrix, a dead
 //! material and a pass below -1 are refused and record nothing.
+use worldrunner_disunity_ffi::graphics_properties::*;
 use worldrunner_disunity_ffi::{
     abi::*, graphics::*, graphics_commands::*, graphics_context::*, graphics_offscreen::*,
     meshes::*,
 };
 use worldrunner_world_simulation::graphics::{
-    MaterialId, OffscreenWork, snapshot_wire::decode_work,
+    MaterialId, OffscreenWork, PropertyValue, ShaderProperties, snapshot_wire::decode_work,
 };
 
 fn new_world() -> u64 {
@@ -124,6 +126,7 @@ fn every_field_reaches_the_frame_as_one_record_of_kind_sixteen() {
             material: MaterialId::from_bits(material),
             submesh: 4,
             pass: -1,
+            block: None,
         }
     );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
@@ -153,5 +156,97 @@ fn a_draw_the_world_or_the_store_refuses_records_nothing() {
         }
     }
     assert!(take(world).is_empty());
+    unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
+}
+
+const SCOPE_DRAW: u32 = 3;
+
+fn stage_float(world: u64, name: &str, value: f32) -> i32 {
+    let length = u32::try_from(name.len()).unwrap();
+    unsafe { disunity_shader_float_write(world, SCOPE_DRAW, 0, name.as_ptr(), length, value) }.code
+}
+
+fn draw(world: u64, material: u64, pass: i32) -> i32 {
+    let matrix = [0.0_f32; 16];
+    unsafe {
+        disunity_offscreen_draw_mesh(world, FIRST_PLAYER_MESH, matrix.as_ptr(), material, 0, pass)
+    }
+    .code
+}
+
+fn block_of(record: &OffscreenWork) -> Option<ShaderProperties> {
+    match record {
+        OffscreenWork::DrawMesh { block, .. } => block.as_deref().cloned(),
+        other => panic!("expected a mesh draw, got {other:?}"),
+    }
+}
+
+fn floats(values: &[(&str, f32)]) -> ShaderProperties {
+    let mut block = ShaderProperties::default();
+    for (name, value) in values {
+        block
+            .set(PropertyValue::Float((*name).into(), *value))
+            .unwrap();
+    }
+    block
+}
+
+#[test]
+fn values_staged_in_the_draw_scope_travel_with_the_next_draw_only() {
+    let world = new_world();
+    let material = material(world);
+    store_mesh(world, FIRST_PLAYER_MESH);
+    assert_eq!(stage_float(world, "_Fade", 0.5), 0);
+    assert_eq!(stage_float(world, "_Gain", 2.0), 0);
+    assert_eq!(stage_float(world, "_Fade", 0.75), 0);
+    assert_eq!(draw(world, material, 0), 0);
+    assert_eq!(draw(world, material, 0), 0);
+    let taken = take(world);
+    assert_eq!(taken.len(), 2);
+    assert_eq!(
+        block_of(&taken[0].1),
+        Some(floats(&[("_Fade", 0.75), ("_Gain", 2.0)]))
+    );
+    assert_eq!(
+        block_of(&taken[1].1),
+        None,
+        "the second draw staged nothing"
+    );
+    unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
+}
+
+#[test]
+fn a_cleared_or_refused_draw_leaves_nothing_staged() {
+    let world = new_world();
+    let material = material(world);
+    store_mesh(world, FIRST_PLAYER_MESH);
+    assert_eq!(stage_float(world, "_Fade", 0.5), 0);
+    assert_eq!(
+        disunity_shader_properties_clear(world, SCOPE_DRAW, 0).code,
+        0
+    );
+    assert_eq!(draw(world, material, 0), 0);
+    assert_eq!(stage_float(world, "_Fade", 0.5), 0);
+    assert_ne!(draw(world, material, -2), 0, "a pass below -1 is refused");
+    assert_eq!(draw(world, material, 0), 0);
+    assert_eq!(stage_float(world, "_Gain", 0.5), 0);
+    let missing = unsafe {
+        disunity_offscreen_draw_mesh(world, FIRST_PLAYER_MESH, std::ptr::null(), material, 0, 0)
+    };
+    assert_ne!(missing.code, 0, "a draw without a matrix is refused");
+    assert_eq!(draw(world, material, 0), 0);
+    let taken = take(world);
+    assert_eq!(taken.len(), 3);
+    assert_eq!(block_of(&taken[0].1), None, "the cleared block is empty");
+    assert_eq!(
+        block_of(&taken[1].1),
+        None,
+        "a refused draw consumes what was staged"
+    );
+    assert_eq!(
+        block_of(&taken[2].1),
+        None,
+        "a draw refused for its matrix consumes it too"
+    );
     unsafe { assert_eq!(disunity_world_destroy(world).code, 0) };
 }

@@ -189,6 +189,7 @@ fn reject_stock_suffix(
         samples: 1,
         load: AttachmentLoad::ClearColor(wgpu::Color::RED),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     let error = chain
         .encode_geometry(

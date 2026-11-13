@@ -16,7 +16,7 @@ internal static class CommandBufferTests
         Compute();
         GlobalBuffersBindWhenTheBufferRuns();
         Console.WriteLine("PASS: CommandBuffer name, Clear, Release, the members that cannot record yet and ComputeBuffer Release");
-        Console.WriteLine("PASS: CommandBuffer.DrawMesh refuses a null or destroyed mesh or material, a sub-mesh outside the mesh, a pass below -1 and a property block with values");
+        Console.WriteLine("PASS: CommandBuffer.DrawMesh refuses a null or destroyed mesh or material, a sub-mesh outside the mesh, and a pass below -1, and records a property block with values");
     }
 
     private static void Naming()
@@ -59,8 +59,15 @@ internal static class CommandBufferTests
         Ensure(buffer.commandCount == 0, "members that cannot record add nothing to the buffer");
         buffer.ClearRandomWriteTargets();
         Ensure(buffer.commandCount == 0, "clearing random-write targets records nothing, since none can be bound");
+        buffer.SetInstanceMultiplier(1);
+        Ensure(buffer.commandCount == 0, "an instance multiplier of 1 records nothing");
+        foreach (var multiplier in new uint[] { 0, 2, uint.MaxValue })
+            Throws<NotSupportedException>(() => buffer.SetInstanceMultiplier(multiplier), $"instance multiplier {multiplier}",
+                $"SetInstanceMultiplier({multiplier})", "only 1 is supported");
+        Ensure(buffer.commandCount == 0, "a refused instance multiplier records nothing");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.ClearRandomWriteTargets(), "a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.SetInstanceMultiplier(1), "an instance multiplier on a released buffer", "CommandBuffer");
         ExecutionFlagsAreSetOnAnEmptyBuffer();
         ShadingRatesRecordNothing();
         FencesHavePassedAndRecordNothing();
@@ -116,10 +123,11 @@ internal static class CommandBufferTests
         Throws<ArgumentException>(() => buffer.DrawMesh(mesh, matrix, material, -1, 0), "a negative sub-mesh", "sub-mesh -1");
         Throws<ArgumentException>(() => buffer.DrawMesh(new Mesh(), matrix, material, 1, 0), "the second sub-mesh of a new mesh", "sub-mesh 1");
         Throws<ArgumentException>(() => buffer.DrawMesh(mesh, matrix, material, 0, -2), "a pass below -1", "pass -2");
+        Ensure(buffer.commandCount == 5, "refused draws add nothing to the buffer");
         var block = new MaterialPropertyBlock();
         block.SetFloat("_Fade", 0.5f);
-        Throws<NotSupportedException>(() => buffer.DrawMesh(mesh, matrix, material, 0, 0, block), "a property block with a value", "CommandBuffer.DrawMesh(properties)");
-        Ensure(buffer.commandCount == 5, "refused draws add nothing to the buffer");
+        buffer.DrawMesh(mesh, matrix, material, 0, 0, block);
+        Ensure(buffer.commandCount == 6, "a property block with a value is recorded with its draw");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.DrawMesh(mesh, matrix, material), "a released buffer", "CommandBuffer");
     }

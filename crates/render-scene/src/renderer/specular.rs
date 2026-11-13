@@ -1,4 +1,5 @@
 use super::ScenePipelines;
+use crate::scene_metadata::receiver::ReceiverLayout;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 pub(crate) fn unlit_source(source: &str) -> std::borrow::Cow<'_, str> {
@@ -45,13 +46,29 @@ pub(super) struct Parts<'a> {
     pub options: ([u32; 7], wgpu::FrontFace),
 }
 
+/// Set 2 of the object and of the terrain pipelines. They differ only when the object source
+/// rejects relief cards against the Opaque depth at (2,5).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ShadowLayouts {
+    pub object: Option<wgpu::BindGroupLayout>,
+    pub terrain: Option<wgpu::BindGroupLayout>,
+}
+impl ShadowLayouts {
+    pub(crate) fn shared(layout: Option<&wgpu::BindGroupLayout>) -> Self {
+        Self {
+            object: layout.cloned(),
+            terrain: layout.cloned(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Specialization {
     device: wgpu::Device,
     source: Rc<str>,
     unlit: Rc<str>,
     terrain: Rc<str>,
-    shadow: Option<wgpu::BindGroupLayout>,
+    shadow: ShadowLayouts,
     screen: Option<wgpu::BindGroupLayout>,
     options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
     cache: Rc<RefCell<BTreeMap<RasterKey, ScenePipelines>>>,
@@ -59,17 +76,14 @@ pub(super) struct Specialization {
     /// The program runtime every sibling of these pipelines shares, so a terrain pipeline
     /// compiles once per context however many scenes and specializations draw with it.
     family: crate::terrain::program::Family,
-    receivers:
-        Rc<RefCell<BTreeMap<crate::scene_metadata::receiver::ReceiverLayout, ScenePipelines>>>,
+    /// Receiver siblings, keyed by layout and by whether relief cards reject hidden fragments.
+    receivers: Rc<RefCell<BTreeMap<(ReceiverLayout, bool), ScenePipelines>>>,
 }
 impl Specialization {
     pub fn new(
         device: &wgpu::Device,
         (source, terrain): (&str, &str),
-        (shadow, screen): (
-            Option<&wgpu::BindGroupLayout>,
-            Option<&wgpu::BindGroupLayout>,
-        ),
+        (shadow, screen): (&ShadowLayouts, Option<&wgpu::BindGroupLayout>),
         options: ([u32; 7], wgpu::FrontFace, super::DepthMode),
         family: &crate::terrain::program::Family,
     ) -> Self {
@@ -78,7 +92,7 @@ impl Specialization {
             source: source.into(),
             unlit: super::unlit_source(source).as_ref().into(),
             terrain: terrain.into(),
-            shadow: shadow.cloned(),
+            shadow: shadow.clone(),
             screen: screen.cloned(),
             options,
             cache: Rc::default(),
@@ -100,7 +114,7 @@ impl Specialization {
         Parts {
             object_source: &self.source,
             terrain_source: &self.terrain,
-            shadow: self.shadow.as_ref(),
+            shadow: self.shadow.terrain.as_ref(),
             screen: self.screen.as_ref(),
             options: (self.options.0, self.options.1),
         }
@@ -108,31 +122,63 @@ impl Specialization {
 }
 
 impl ScenePipelines {
+    /// The receiver sibling for `receiver`. With `card_reject` its relief cards discard whole
+    /// quads behind the Opaque depth, which set 2 then binds at (2,5).
     pub(crate) fn for_receiver_gradients(
         &self,
-        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+        receiver: ReceiverLayout,
+        card_reject: bool,
     ) -> Self {
+        use crate::scene_metadata::receiver as metadata;
         let spec = &self.specialization;
         spec.receivers
             .borrow_mut()
-            .entry(receiver)
+            .entry((receiver, card_reject))
             .or_insert_with(|| {
-                let source =
-                    crate::scene_metadata::receiver::consumer_source(&spec.source, receiver, false);
-                let terrain =
-                    crate::scene_metadata::receiver::consumer_source(&spec.terrain, receiver, true);
-                let layout = crate::scene_metadata::receiver::shadow_layout(&spec.device);
-                let mut selected = Self::with_constants(
-                    &spec.device,
-                    (self.color_format, self.samples),
-                    (&source, &terrain),
-                    (Some(&layout), spec.screen.as_ref()),
-                    (spec.options, &spec.family),
-                );
-                selected.ssao = self.ssao;
-                selected
+                let source = if card_reject {
+                    metadata::card_reject_source(&spec.source, receiver)
+                } else {
+                    metadata::consumer_source(&spec.source, receiver, false)
+                };
+                self.receiver_sibling(receiver, &source, card_reject)
             })
             .clone()
+    }
+
+    /// Pipelines drawing objects with `source`. Terrain draws the plain consumer.
+    fn receiver_sibling(&self, receiver: ReceiverLayout, source: &str, card_reject: bool) -> Self {
+        use crate::scene_metadata::receiver as metadata;
+        let spec = &self.specialization;
+        let terrain = metadata::consumer_source(&spec.terrain, receiver, true);
+        let layout = metadata::shadow_layout(&spec.device);
+        let layouts = ShadowLayouts {
+            object: Some(if card_reject {
+                metadata::object_layout(&spec.device)
+            } else {
+                layout.clone()
+            }),
+            terrain: Some(layout),
+        };
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (source, &terrain),
+            (&layouts, spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        selected
+    }
+
+    /// The card-reject sibling with a compare that holds for every fragment, so every relief
+    /// card quad is discarded. It shows the reject reaches the frame through the (2,5) binding.
+    #[cfg(test)]
+    pub(crate) fn for_forced_card_reject(&self, receiver: ReceiverLayout) -> Self {
+        let spec = &self.specialization;
+        let source = crate::scene_metadata::receiver::card_reject_source(&spec.source, receiver);
+        let forced = source.replace("f32(clamp(value, 0.0, 1.0) > stored)", "f32(stored >= 0.0)");
+        assert_ne!(forced, source, "the reject compare is present");
+        self.receiver_sibling(receiver, &forced, true)
     }
 
     #[cfg(test)]
@@ -143,8 +189,20 @@ impl ScenePipelines {
     ) -> Self {
         let spec = &self.specialization;
         let sources = [&spec.source, &spec.terrain].map(|source| {
+            use crate::scene_metadata::receiver::ReceiverReference;
+            let source = if matches!(
+                reference,
+                ReceiverReference::HardwareProbeShared
+                    | ReceiverReference::HardwareProbeReuse
+                    | ReceiverReference::HardwareProbeIndependent
+            ) {
+                crate::scene_metadata::receiver::hardware_receiver_reference(source)
+            } else {
+                source.to_string()
+            };
+            let source = source.as_str();
             assert!(!source.contains("scene_receiver_load("));
-            assert!(source.contains("dpdx(position) + dpdx(normal) * shadow.bias.y"));
+            assert!(source.contains("dpdx(normal) * shadow.bias.y"));
             if reference.probe() {
                 let source = crate::scene_metadata::receiver::probe_source(source);
                 if matches!(
@@ -167,6 +225,11 @@ impl ScenePipelines {
                 } else {
                     source
                 }
+            } else if matches!(
+                reference,
+                crate::scene_metadata::receiver::ReceiverReference::MainArithmetic
+            ) {
+                crate::scene_metadata::receiver::main_receiver_positions(source)
             } else {
                 source.to_string()
             }
@@ -176,14 +239,22 @@ impl ScenePipelines {
             &spec.device,
             (self.color_format, self.samples),
             (&sources[0], &sources[1]),
-            (Some(&layout), spec.screen.as_ref()),
+            (&ShadowLayouts::shared(Some(&layout)), spec.screen.as_ref()),
             (spec.options, &spec.family),
         );
         selected.ssao = self.ssao;
         if reference.local() {
             selected
         } else {
-            let selected = selected.for_receiver_gradients(receiver);
+            // References are the plain consumer the production frame must match.
+            let selected = selected.for_receiver_gradients(receiver, false);
+            if let crate::scene_metadata::receiver::ReceiverReference::UncoveredProbe {
+                family,
+                ..
+            } = reference
+            {
+                return selected.with_uncovered_probe(receiver, family);
+            }
             if matches!(
                 reference,
                 crate::scene_metadata::receiver::ReceiverReference::LateCardRejection
@@ -196,6 +267,28 @@ impl ScenePipelines {
     }
 
     #[cfg(test)]
+    fn with_uncovered_probe(
+        &self,
+        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+        family: crate::scene_metadata::receiver::poison::ConsumerFamily,
+    ) -> Self {
+        let spec = &self.specialization;
+        let source =
+            crate::scene_metadata::receiver::poison::source(&spec.source, receiver, family, false);
+        let terrain =
+            crate::scene_metadata::receiver::poison::source(&spec.terrain, receiver, family, true);
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (&source, &terrain),
+            (&spec.shadow, spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        selected
+    }
+
+    #[cfg(test)]
     fn with_late_card_rejection(&self) -> Self {
         let spec = &self.specialization;
         let source = crate::scene_metadata::receiver::late_card_source(&spec.source);
@@ -203,7 +296,7 @@ impl ScenePipelines {
             &spec.device,
             (self.color_format, self.samples),
             (&source, &spec.terrain),
-            (spec.shadow.as_ref(), spec.screen.as_ref()),
+            (&spec.shadow, spec.screen.as_ref()),
             (spec.options, &spec.family),
         );
         selected.ssao = self.ssao;
@@ -225,7 +318,7 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&spec.source, &spec.terrain),
-                    (spec.shadow.as_ref(), spec.screen.as_ref()),
+                    (&spec.shadow, spec.screen.as_ref()),
                     (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
@@ -263,7 +356,7 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&source, &terrain),
-                    (spec.shadow.as_ref(), Some(&layout)),
+                    (&spec.shadow, Some(&layout)),
                     (spec.options, &spec.family),
                 );
                 selected.ssao = self.ssao;
@@ -316,7 +409,7 @@ impl ScenePipelines {
                     &spec.device,
                     (self.color_format, self.samples),
                     (&spec.source, &spec.terrain),
-                    (spec.shadow.as_ref(), spec.screen.as_ref()),
+                    (&spec.shadow, spec.screen.as_ref()),
                     (options, &spec.family),
                 );
                 selected.ssao = self.ssao;
@@ -337,7 +430,7 @@ impl ScenePipelines {
         let groups = super::pipeline_groups(
             &self.frame_layout,
             &self.material_layout,
-            spec.shadow.as_ref(),
+            spec.shadow.object.as_ref(),
             spec.screen.as_ref(),
         );
         let layout = super::scene_layout(&spec.device, "environment", &groups);

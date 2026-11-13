@@ -9,6 +9,9 @@
 //! draws layers of its own. Each renderer here is still tested against the offscreen cameras'
 //! culling masks, here for the ones the frame has and again, camera by camera, when the frame is
 //! built.
+//!
+//! A frame with a camera also copies every enabled light on an active object, in component order,
+//! so the host can give the camera's shaders the light it draws with.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,13 +20,21 @@ use super::{
     RenderTextureId, ShaderId, ShaderProperties, WorldComputeBuffer, WorldComputeShader,
     WorldMaterial, WorldRenderTexture, WorldShader,
 };
-use crate::presentation::Camera;
+use crate::presentation::{Camera, LightSettings};
 use crate::{ComponentDesc, ComponentHandle, RendererKind, World, WorldError};
 
 /// A camera a record names: its settings and its object's pose in the world, column-major.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CameraView {
     pub settings: Camera,
+    pub world_matrix: [f32; 16],
+}
+
+/// A light that may light what a camera of the frame draws: its settings and its object's pose in
+/// the world, column-major. The third column is the light's forward axis.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WorldLight {
+    pub settings: LightSettings,
     pub world_matrix: [f32; 16],
 }
 
@@ -53,6 +64,9 @@ pub struct GraphicsSnapshot {
     pub work: Vec<OffscreenWork>,
     /// The live cameras that camera renders, camera setups and culls name.
     pub cameras: BTreeMap<ComponentHandle, CameraView>,
+    /// The enabled lights on active objects, in component order, when the frame has a camera;
+    /// none otherwise.
+    pub lights: Vec<WorldLight>,
     pub renderers: Vec<RendererView>,
     /// The live compute shaders that the frame's dispatches name.
     pub compute_shaders: BTreeMap<ComputeShaderId, WorldComputeShader>,
@@ -86,6 +100,9 @@ impl GraphicsSnapshot {
             .chain(retired)
             .collect();
         snapshot.cameras = camera_views(world, &snapshot.work);
+        if !snapshot.cameras.is_empty() {
+            snapshot.lights = light_views(world)?;
+        }
         let mask = snapshot
             .cameras
             .values()
@@ -185,6 +202,24 @@ fn camera_views(world: &World, work: &[OffscreenWork]) -> BTreeMap<ComponentHand
         );
     }
     views
+}
+
+/// The enabled lights on active objects, in component order, with their poses in the world.
+fn light_views(world: &World) -> Result<Vec<WorldLight>, WorldError> {
+    let mut lights = Vec::new();
+    for component in world.published_components() {
+        let ComponentDesc::Light(light) = &component.desc else {
+            continue;
+        };
+        if !light.enabled || !world.active_in_hierarchy(component.object)? {
+            continue;
+        }
+        lights.push(WorldLight {
+            settings: light.settings,
+            world_matrix: world.world_matrix(component.object)?.to_cols_array(),
+        });
+    }
+    Ok(lights)
 }
 
 /// The enabled mesh renderers on active objects whose layer `mask` admits.

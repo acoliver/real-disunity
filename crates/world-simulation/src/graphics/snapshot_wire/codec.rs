@@ -164,6 +164,16 @@ impl<T: Wire> Wire for Option<T> {
     }
 }
 
+impl<T: Wire> Wire for Box<T> {
+    fn write(&self, out: &mut Writer) -> Result<(), WireError> {
+        self.as_ref().write(out)
+    }
+
+    fn read(input: &mut Reader<'_>) -> Result<Self, WireError> {
+        T::read(input).map(Box::new)
+    }
+}
+
 impl<A: Wire, B: Wire> Wire for (A, B) {
     fn write(&self, out: &mut Writer) -> Result<(), WireError> {
         self.0.write(out)?;

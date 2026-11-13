@@ -117,6 +117,9 @@ pub struct InitialContext<'a> {
     /// Physical pixels at surface creation, or the configured windowless extent.
     /// A zero dimension preserves the desktop surface's suspended state.
     pub surface_extent: [u32; 2],
+    /// The monitor the window opened on, for choosing render scale from output pixels.
+    /// `None` for windowless hosts and when the platform cannot identify the monitor.
+    pub display: Option<crate::DisplayInfo>,
 }
 
 /// Initial scene and optional options chosen on the selected rendering adapter.

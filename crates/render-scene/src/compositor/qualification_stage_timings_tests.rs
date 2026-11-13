@@ -102,7 +102,8 @@ fn measure(harness: &mut Harness<'_>, (warm, measured): (usize, usize)) -> Measu
         device
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("wait for the frame");
-        let timings = harness.renderer.take_timings().unwrap();
+        let timings =
+            crate::test_support::take_timings(device, 1, || harness.renderer.take_timings());
         if index >= warm {
             assert_eq!(timings.len(), 1, "frame {index}: one timing record");
             result.stages.extend(timings.iter().map(frame_samples));

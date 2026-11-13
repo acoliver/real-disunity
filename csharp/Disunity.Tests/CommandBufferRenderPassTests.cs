@@ -16,6 +16,8 @@ internal static class CommandBufferRenderPassTests
             Console.WriteLine("PASS: a render pass clears its Clear attachments, binds each sub-pass's color outputs with the depth and records nothing at its end");
             MisusedPassesAreRefused();
             Console.WriteLine("PASS: render passes refuse nesting, a missing pass, a sub-pass past the last and attachments the pass does not have");
+            TheShadingRateFormWithNoImageIsTheFormWithout();
+            Console.WriteLine("PASS: BeginRenderPass with shading-rate image index -1 records what the form without it records, and another index is refused by name");
         }
         finally
         {
@@ -90,6 +92,43 @@ internal static class CommandBufferRenderPassTests
         var bound = new CommandBuffer();
         bound.SetRenderTarget(b);
         Expect.That(Run(bound).SequenceEqual(Run(plain)), "a pass that loads one color attachment and has no depth binds it once and clears nothing");
+    }
+
+    private static void TheShadingRateFormWithNoImageIsTheFormWithout()
+    {
+        var (a, b, depth) = (Target(), Target(), Target(24));
+        using var attachments = new NativeArray<AttachmentDescriptor>(
+            [Attachment(a, RenderBufferLoadAction.Clear), Attachment(b, RenderBufferLoadAction.Load), Attachment(depth, RenderBufferLoadAction.Clear)],
+            Allocator.Temp);
+        using var subPasses = new NativeArray<SubPassDescriptor>([Outputs(0), Outputs(1, 0)], Allocator.Temp);
+        var without = new CommandBuffer();
+        without.BeginRenderPass(8, 8, 1, 1, attachments, 2, subPasses, "pass"u8);
+        without.NextSubPass();
+        without.EndRenderPass();
+        var with = new CommandBuffer();
+        with.BeginRenderPass(8, 8, 1, 1, attachments, 2, -1, subPasses, "pass"u8);
+        with.NextSubPass();
+        with.EndRenderPass();
+        var want = Run(without);
+        var got = Run(with);
+        Expect.That(want.Length == 6 && want.SequenceEqual(got),
+            $"index -1 records\n  {string.Join("\n  ", got)}\nwhere the form without it records\n  {string.Join("\n  ", want)}");
+
+        var refused = new CommandBuffer();
+        foreach (var index in new[] { 0, 1, 3 })
+        {
+            var error = Expect.Catch<NotSupportedException>(
+                () => refused.BeginRenderPass(8, 8, 1, 1, attachments, 2, index, subPasses, "pass"u8), $"shading-rate image index {index}");
+            Expect.That(error.Message.Contains("shadingRateImageAttachmentIndex") && error.Message.Contains($" {index} "),
+                $"the refusal names the parameter and its value: {error.Message}");
+        }
+        Expect.Equal(0, refused.commandCount, "a refused pass records nothing");
+        Expect.Throws<InvalidOperationException>(refused.EndRenderPass, "a refused pass leaves no pass open");
+
+        var released = new CommandBuffer();
+        released.Release();
+        Expect.Throws<ObjectDisposedException>(
+            () => released.BeginRenderPass(8, 8, 1, 1, attachments, 2, 0, subPasses, "pass"u8), "a released buffer, before the index");
     }
 
     private static void MisusedPassesAreRefused()

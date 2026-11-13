@@ -143,6 +143,7 @@ fn encode_geometry(
         samples: 1,
         load: AttachmentLoad::Load,
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     let view = chain.targets().scene().clone();
     let views = [AttachmentView::new(resource, view.texture()).unwrap()];
@@ -207,6 +208,7 @@ fn assert_view_contracts(
         samples: 1,
         load: AttachmentLoad::ClearColor(wgpu::Color::BLACK),
         store: wgpu::StoreOp::Store,
+        read_only: false,
     });
     assert_eq!(
         chain.encode_geometry(

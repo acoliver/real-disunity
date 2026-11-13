@@ -59,6 +59,7 @@ pub(crate) mod semantic {
     pub(crate) const SCREEN: &str = "scene.screen";
     pub(crate) const RECEIVER_A: &str = "scene.shadow.receiver.xyzw";
     pub(crate) const RECEIVER_B: &str = "scene.shadow.receiver.yz";
+    pub(crate) const RECEIVER_DEPTH: &str = "scene.shadow.receiver.depth";
     pub(crate) const AMBIENT: &str = "scene.ao";
     pub(crate) const AMBIENT_RECEIVER: &str = "scene.ao.receiver";
     pub(crate) const ENVIRONMENT_SPECULAR: &str = "scene.environment.specular";
@@ -357,6 +358,24 @@ pub(crate) fn shadow_bindings(receiver: bool) -> ResourceLayout {
                 ),
             ));
         }
+    }
+    ResourceLayout::new(bindings)
+}
+
+/// Set 2 of an object context: the receiver set when the source loads displacements, plus the
+/// Opaque pass's read-only depth (2,5) when its relief cards reject fragments behind it.
+pub(crate) fn object_shadow_bindings(source: &str) -> ResourceLayout {
+    let mut bindings = shadow_bindings(source.contains("fn scene_receiver_load(")).bindings;
+    if source.contains("fn scene_receiver_hidden(") {
+        bindings.push(declare(
+            (2, 5),
+            semantic::RECEIVER_DEPTH,
+            ShaderStages::FRAGMENT,
+            texture(
+                wgpu::TextureViewDimension::D2,
+                wgpu::TextureSampleType::Depth,
+            ),
+        ));
     }
     ResourceLayout::new(bindings)
 }

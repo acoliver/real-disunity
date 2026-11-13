@@ -41,6 +41,9 @@ pub(crate) struct Session {
     /// The encoded command records of the last offscreen take; a record's detail token is an
     /// index into this list, plus one.
     pub work_details: Vec<Vec<u8>>,
+    /// The property values written to the draw scope since the last mesh draw call, which that
+    /// call takes as its draw's own block.
+    pub draw_block: worldrunner_world_simulation::graphics::ShaderProperties,
     /// The encoded graphics snapshot a size query took and no copy has handed out yet.
     pub graphics_snapshot: Option<Vec<u8>>,
     /// The host's GPU flush callback and whether it is running.
@@ -154,6 +157,7 @@ pub(crate) fn create_world(store: &mut Store) -> Result<u64, AllocationError> {
             pending_commands: Vec::new(),
             dispatch_bindings: Vec::new(),
             work_details: Vec::new(),
+            draw_block: Default::default(),
             graphics_snapshot: None,
             gpu_flush: store.default_gpu_flush,
             flushing: false,

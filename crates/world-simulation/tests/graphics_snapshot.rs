@@ -1,15 +1,20 @@
 //! What the graphics snapshot copies out of a world.
 
 use glam::{Quat, Vec3};
+use worldrunner_world_simulation::graphics::snapshot_wire::{decode, encode};
 use worldrunner_world_simulation::graphics::{
     ComputeKernel, OffscreenWork, ShaderSource, TextureRef, WorldComputeShader,
 };
-use worldrunner_world_simulation::presentation::{Camera, mesh_objects::extract_mesh_objects};
+use worldrunner_world_simulation::presentation::{
+    Camera, Light, LightBakeType, LightKind, LightSettings, LightShadowMode,
+    mesh_objects::extract_mesh_objects,
+};
+use worldrunner_world_simulation::{ComponentDesc, ObjectHandle, World};
 use worldrunner_world_simulation::{MeshRenderer, RendererSwitches};
 
 mod graphics_world;
 use graphics_world::{
-    camera, material, render_texture, renderer, renderer_with, shader, snapshot, world,
+    camera, material, object, render_texture, renderer, renderer_with, shader, snapshot, world,
 };
 
 const MESH: u64 = (1 << 41) + 9;
@@ -276,4 +281,113 @@ fn a_frame_without_dispatches_copies_no_compute_resources() {
     let snapshot = snapshot(&mut world);
     assert_eq!(snapshot.work.len(), 1);
     assert!(snapshot.compute_shaders.is_empty() && snapshot.compute_buffers.is_empty());
+}
+
+/// A light whose every setting differs from a new light's.
+fn settings(kind: LightKind) -> LightSettings {
+    LightSettings {
+        kind,
+        color: [0.25, 0.5, 0.75, 0.5],
+        intensity: 2.5,
+        range: 7.0,
+        spot_angle: 40.0,
+        inner_spot_angle: 12.0,
+        shadows: LightShadowMode::Soft,
+        shadow_strength: 0.75,
+        shadow_bias: 0.125,
+        shadow_normal_bias: 0.25,
+        shadow_near_plane: 0.5,
+        culling_mask: 0b1010,
+        rendering_layer_mask: 3,
+        bounce_intensity: 0.5,
+        color_temperature: 5000.0,
+        use_color_temperature: true,
+        cookie_size: 2.0,
+        cookie_texture: (1 << 40) + 3,
+        bake_type: LightBakeType::Mixed,
+        shadow_resolution: 2,
+    }
+}
+
+fn light(world: &mut World, enabled: bool, settings: LightSettings, at: Vec3) -> ObjectHandle {
+    let object = object(world, 0, at, Quat::from_rotation_x(0.5));
+    world
+        .add_component(object, ComponentDesc::Light(Light { enabled, settings }))
+        .unwrap();
+    object
+}
+
+/// A world with a camera render recorded, so the snapshot has a camera to light.
+fn rendering_world() -> World {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
+    world
+        .record_offscreen(OffscreenWork::CameraRender { camera, target })
+        .unwrap();
+    world
+}
+
+#[test]
+fn a_camera_render_copies_the_enabled_lights_of_active_objects_in_component_order() {
+    let mut world = rendering_world();
+    let directional = settings(LightKind::Directional);
+    let point = settings(LightKind::Point);
+    light(&mut world, true, directional, Vec3::new(1.0, 2.0, 3.0));
+    light(&mut world, false, settings(LightKind::Spot), Vec3::ZERO);
+    let hidden = light(&mut world, true, settings(LightKind::Spot), Vec3::ZERO);
+    world.set_active(hidden, false).unwrap();
+    light(&mut world, true, point, Vec3::new(-4.0, 0.0, 0.0));
+    let lights = snapshot(&mut world).lights;
+    assert_eq!(
+        lights.len(),
+        2,
+        "the disabled light and the inactive one are left out"
+    );
+    assert_eq!(lights[0].settings, directional);
+    assert_eq!(lights[1].settings, point);
+    // Column-major: the translation is the last column, in the world's own coordinates.
+    assert_eq!(lights[0].world_matrix[12..15], [1.0, 2.0, 3.0]);
+    let forward = Quat::from_rotation_x(0.5) * Vec3::Z;
+    for (column, expected) in lights[0].world_matrix[8..11].iter().zip(forward.to_array()) {
+        assert!(
+            (column - expected).abs() < 1e-6,
+            "the third column is the forward axis"
+        );
+    }
+}
+
+#[test]
+fn a_frame_without_camera_work_copies_no_lights() {
+    let mut world = world();
+    light(
+        &mut world,
+        true,
+        settings(LightKind::Directional),
+        Vec3::ZERO,
+    );
+    let source = render_texture(&mut world, [4, 4]);
+    let target = render_texture(&mut world, [4, 4]);
+    world
+        .record_offscreen(OffscreenWork::Blit {
+            source: TextureRef::Render(source),
+            target,
+            material: None,
+            pass: -1,
+        })
+        .unwrap();
+    let taken = snapshot(&mut world);
+    assert_eq!(taken.work.len(), 1);
+    assert!(taken.lights.is_empty());
+}
+
+#[test]
+fn lights_round_trip_through_the_byte_encoding_exactly() {
+    let mut world = rendering_world();
+    for kind in [LightKind::Directional, LightKind::Tube, LightKind::Spot] {
+        light(&mut world, true, settings(kind), Vec3::new(0.5, -0.0, 9.0));
+    }
+    let taken = snapshot(&mut world);
+    assert_eq!(taken.lights.len(), 3);
+    assert_eq!(decode(&encode(&taken).unwrap()).unwrap(), taken);
 }

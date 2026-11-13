@@ -438,6 +438,9 @@ internal static class ShaderMaterialTests
         Throws<ArgumentNullException>(() => material.EnableKeyword((string)null!), "a null keyword");
         material.shaderKeywords = null!;
         Ensure(material.shaderKeywords.Length == 0 && !material.IsKeywordEnabled("_Z"), "setting null keywords clears them");
+        material.enabledKeywords = [new LocalKeyword(shader, "_Z")];
+        material.enabledKeywords = null!;
+        Ensure(material.enabledKeywords.Length == 0 && !material.IsKeywordEnabled("_Z"), "setting null enabledKeywords clears them");
         Throws<ArgumentNullException>(() => new LocalKeyword(shader, null!), "a LocalKeyword without a name");
         Throws<ArgumentNullException>(() => new LocalKeyword(null!, "_A"), "a LocalKeyword without a shader");
     }

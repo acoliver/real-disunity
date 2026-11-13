@@ -4,6 +4,7 @@ use crate::{InitialContent, InitialContext, RetainedHost, RetainedInput};
 struct TestSurface {
     extent: [u32; 2],
     platform: [u32; 2],
+    reconfigurations: usize,
 }
 
 impl Surface for TestSurface {
@@ -15,6 +16,7 @@ impl Surface for TestSurface {
     }
     fn resize(&mut self, size: [u32; 2]) -> Result<(), ViewerError> {
         self.extent = size;
+        self.reconfigurations += 1;
         Ok(())
     }
 }
@@ -67,6 +69,7 @@ fn supplied_content(extent: [u32; 2]) -> TestContent {
     host.resolve_initial_content(InitialContext {
         adapter: &adapter,
         surface_extent: extent,
+        display: None,
     })
     .unwrap();
     TestContent {
@@ -86,6 +89,7 @@ fn startup_handoff_uses_renderer_extent_until_a_real_resize() {
         let mut surface = TestSurface {
             extent: creation,
             platform: later,
+            reconfigurations: 0,
         };
         let mut content = supplied_content(creation);
         notify(&mut content, &surface);
@@ -111,12 +115,36 @@ fn resume_adopts_the_new_platform_extent_in_both_owners() {
     let mut surface = TestSurface {
         extent: [0, 480],
         platform: [800, 600],
+        reconfigurations: 0,
     };
     let mut content = supplied_content(surface.extent());
     resume(&mut content, &mut surface).unwrap();
     assert_eq!(surface.extent(), surface.platform);
     assert_eq!(content.host.size(), surface.extent());
     assert_eq!(content.inputs, resize_inputs(surface.extent()));
+}
+
+#[test]
+fn a_window_mode_change_reconfigures_the_surface_once_at_the_reported_size() {
+    let windowed = [1280, 720];
+    let mut surface = TestSurface {
+        extent: windowed,
+        platform: windowed,
+        reconfigurations: 0,
+    };
+    let mut content = supplied_content(windowed);
+    notify(&mut content, &surface);
+    for (mode_size, count) in [([3840, 2160], 1), (windowed, 2)] {
+        resize(&mut content, &mut surface, mode_size).unwrap();
+        assert_eq!(surface.reconfigurations, count);
+        assert_eq!(content.notifications.last(), Some(&mode_size));
+        assert_eq!(content.host.size(), mode_size);
+    }
+    assert_eq!(content.notifications.len(), 3);
+    assert_eq!(
+        content.inputs,
+        [resize_inputs([3840, 2160]), resize_inputs(windowed)].concat()
+    );
 }
 
 fn resize_inputs(physical_size: [u32; 2]) -> Vec<RetainedInput> {

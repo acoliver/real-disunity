@@ -49,3 +49,76 @@ uses caller storage and preallocated voice/completion queues. `take_finished`
 releases a slot. `stop` removes an active voice without producing an ending.
 Handles from another mixer cannot control this one. Output rate can only change
 when all voice/completion slots are empty.
+
+### Option buses and ducking
+
+`configure_bus(name, BusConfig { gain, muted, tier })` creates or updates a named
+bus. Gain is finite in 0..=16; mute advances voices normally. Names contain
+1..=128 UTF-8 bytes, are case-sensitive, and remain resident for the mixer lifetime.
+There are at most `MAX_AUDIO_BUSES` (64) buses. `play_on_bus(clip, gain, name)`
+routes a voice to exactly one existing bus; an unknown name returns
+`AudioError::UnknownBus` carrying that name. Updates affect existing voices.
+`play(clip, gain)` remains unrouted and bypasses bus gain and ducking. Its sample
+arithmetic and voice order are unchanged, even when buses and rules exist.
+Routed voices multiply their interpolated, voice-scaled samples by bus gain and
+ducking gain before the creation-order sum. Master gain/mute and clipping follow.
+
+`replace_ducking_rules(Vec<DuckingRule>)` validates and replaces the entire set
+atomically. Failed validation leaves the running set and envelopes unchanged.
+A successful replacement resets envelopes; an empty set disables ducking. There
+are at most `MAX_DUCKING_RULES` (64) rules. Each has nonempty named source and
+target sets, each bounded to 64 entries. Repeated names are deduplicated.
+Unknown names are errors. No bus is implicitly created by a play or rule.
+
+A rule affects each target using only its sources with a strictly higher numeric
+`BusConfig::tier`. Equal or lower tiers cannot duck it. Larger numbers have higher
+priority; the engine assigns no special meaning to negative tiers. Exclude a bus
+from ducking by leaving it out of source and target sets. Multiple applicable
+rules choose the smallest current gain, without multiplying reductions.
+Each target has its own envelope so different target tiers work in one rule.
+
+`DuckingRule::gain` is the fully ducked linear gain factor in 0..=1, where 0.25
+means one quarter of the amplitude. Convert a positive reduction of `d` decibels
+with `10^(-d / 20)`. `attack`, `hold` and `release` are `Duration`s, each at most
+`MAX_DUCKING_TIME` (3600 seconds). Each converts to `ceil(seconds * output_rate)`
+frames using integer nanosecond arithmetic. Zero attack or release is immediate.
+
+The detector and interpolation controls are independent:
+
+- `DuckingDetector::Activity` demands full ducking while any eligible source
+  voice exists, including a silent, zero-gain or muted voice.
+- `DuckingDetector::Peak` demands the maximum absolute channel sample among
+  eligible source voices, after voice gain, bus gain and bus mute, clamped to
+  0..=1. It reads before ducking, master gain and clipping, so rules cannot feed
+  back into their own detector. This is per-sample peak detection, not RMS or a
+  summed-bus loudness measurement.
+- `EnvelopeMode::LinearGain` interpolates reduction linearly in amplitude:
+  `gain(depth) = 1 + (rule_gain - 1) * depth`.
+- `EnvelopeMode::LinearDb` interpolates in decibels:
+  `gain(depth) = rule_gain^depth`. This mode requires `rule_gain > 0`.
+  The supported string names are `linear-gain` and `linear-db`; parsing any other
+  name returns `UnsupportedEnvelope` carrying the rejected name.
+
+Envelope depth starts at zero. Demand above the current depth ramps up over the
+attack duration. A decrease in demand below the current depth freezes that depth
+for exactly the hold duration, then ramps down to the demand over release.
+A further demand decrease restarts hold; an increase cancels hold. Changed ramp
+goals start from the current depth and use attack when moving up, release when
+moving down. Each ramp's first mixed frame advances
+one step and its Nth frame reaches the exact endpoint. A natural ending ceases
+to trigger on the frame after the source's final sample; explicit stop ceases
+on the next mixed frame. Rule replacement, `clear_voices` and an accepted output
+rate change reset envelopes.
+
+Rendering evaluates detectors and envelopes on every output frame, including
+silence. Dividing the same ordered frames into different caller blocks does not
+change results. It allocates no memory, resolves no names, reads no wall clock
+and uses no device. Floating-point math is deterministic for the same inputs on
+the same target; cross-platform bit identity of `powf` is not promised.
+
+For option groups that also have distinct priority presets, create one bus per
+(group, preset) pair and apply a group's option gain/mute to each of its buses.
+Put all buses using a preset in that preset rule's source set, and enumerate the
+intended target buses. Convert the game's priority ordering explicitly to higher
+numeric engine tiers. The caller owns authored strength-unit conversion and the
+choice of activity or peak detection; interpolation mode is a separate choice.

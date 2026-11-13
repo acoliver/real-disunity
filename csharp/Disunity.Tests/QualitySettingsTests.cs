@@ -30,6 +30,7 @@ internal static class QualitySettingsTests
         Expect.Equal(1f, QualitySettings.lodBias, "lodBias");
         Expect.Equal(150f, QualitySettings.shadowDistance, "shadowDistance");
         Expect.That(QualitySettings.enableLODCrossFade, "enableLODCrossFade is on by default");
+        Expect.That(QualitySettings.billboardsFaceCameraPosition, "billboardsFaceCameraPosition is on by default");
         Expect.Equal(ShadowQuality.All, QualitySettings.shadows, "shadows");
         Expect.Equal(ShadowmaskMode.DistanceShadowmask, QualitySettings.shadowmaskMode, "shadowmaskMode");
         Expect.Equal(ColorSpace.Gamma, QualitySettings.activeColorSpace, "activeColorSpace");
@@ -48,6 +49,7 @@ internal static class QualitySettingsTests
         QualitySettings.shadowDistance = 40f;
         QualitySettings.shadows = ShadowQuality.HardOnly;
         QualitySettings.enableLODCrossFade = false;
+        QualitySettings.billboardsFaceCameraPosition = false;
         QualitySettings.shadowmaskMode = ShadowmaskMode.Shadowmask;
         Expect.Equal(4, QualitySettings.antiAliasing, "antiAliasing");
         Expect.Equal(2, QualitySettings.globalTextureMipmapLimit, "globalTextureMipmapLimit");
@@ -58,6 +60,9 @@ internal static class QualitySettingsTests
         Expect.Equal(40f, QualitySettings.shadowDistance, "shadowDistance");
         Expect.Equal(ShadowQuality.HardOnly, QualitySettings.shadows, "shadows");
         Expect.That(!QualitySettings.enableLODCrossFade, "enableLODCrossFade");
+        Expect.That(!QualitySettings.billboardsFaceCameraPosition, "billboardsFaceCameraPosition");
+        QualitySettings.billboardsFaceCameraPosition = true;
+        Expect.That(QualitySettings.billboardsFaceCameraPosition, "billboardsFaceCameraPosition set back");
         Expect.Equal(ShadowmaskMode.Shadowmask, QualitySettings.shadowmaskMode, "shadowmaskMode");
     }
 
@@ -133,6 +138,7 @@ internal static class QualitySettingsTests
         QualitySettings.vSyncCount = 4;
         QualitySettings.shadowDistance = 5f;
         QualitySettings.enableLODCrossFade = false;
+        QualitySettings.billboardsFaceCameraPosition = false;
         QualitySettings.shadowmaskMode = ShadowmaskMode.Shadowmask;
         DisunityHost.SetColorSpace(ColorSpace.Linear);
         DisunityHost.SetQualityLevels(["Low", "High"], 1);
@@ -143,6 +149,7 @@ internal static class QualitySettingsTests
             Expect.Equal(1, QualitySettings.vSyncCount, "vSyncCount reset");
             Expect.Equal(150f, QualitySettings.shadowDistance, "shadowDistance reset");
             Expect.That(QualitySettings.enableLODCrossFade, "enableLODCrossFade reset");
+            Expect.That(QualitySettings.billboardsFaceCameraPosition, "billboardsFaceCameraPosition reset");
             Expect.Equal(ShadowmaskMode.DistanceShadowmask, QualitySettings.shadowmaskMode, "shadowmaskMode reset");
             Expect.Equal(ColorSpace.Gamma, QualitySettings.activeColorSpace, "color space reset");
             Expect.Sequence(new[] { "Default" }, QualitySettings.names, "levels reset");

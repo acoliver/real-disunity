@@ -14,6 +14,9 @@
 //! fractions, negative sleeps that wait forever, zero sleeps and new threads that run within
 //! the advance, run order by clock and registration, several clocks that can be paused and set,
 //! and waits with timeouts that a wake or a timeout resumes with values.
+//! [`GameScripts::advance_clock`] advances just one named clock with the same policy ordering,
+//! leaving every other clock and its queued or deferred threads unchanged. This lets a host
+//! continue real-time UI work while game time stands still without changing clock pause state.
 //!
 //! A thread restored from an original engine's save continues in the scheduler once the host
 //! adopts it with the wait it was suspended in (see [`Adoption`]). Threads carry the game's

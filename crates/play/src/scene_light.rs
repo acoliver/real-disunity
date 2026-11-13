@@ -17,7 +17,7 @@ use worldrunner_render_plan::{
 use worldrunner_render_scene::CameraPose;
 use worldrunner_render_scene::shadows::{CascadeRefreshPolicy, DirectionalShadowSettings};
 use worldrunner_scene_viewer::CameraShadowPolicy;
-use worldrunner_world_simulation::presentation::{LightKind, LightShadowMode};
+use worldrunner_world_simulation::presentation::{LightKind, LightSettings, LightShadowMode};
 
 use crate::player_meshes::round_to_i64;
 
@@ -28,9 +28,17 @@ const SHORTEST_AXIS: f64 = 1e-6;
 
 /// The light the scene sun follows: the first directional light the frame shows.
 pub(crate) fn main_light(lights: &[PresentationLight]) -> Option<&PresentationLight> {
-    lights
-        .iter()
-        .find(|light| light.settings.kind == LightKind::Directional)
+    main_light_index(lights.iter().map(|light| &light.settings)).map(|index| &lights[index])
+}
+
+/// Where the main light is among lights with `settings`, in their order: the first directional
+/// one. The retained scene and the offscreen frame both choose with this rule.
+pub(crate) fn main_light_index<'a>(
+    settings: impl IntoIterator<Item = &'a LightSettings>,
+) -> Option<usize> {
+    settings
+        .into_iter()
+        .position(|settings| settings.kind == LightKind::Directional)
 }
 
 /// The scene sun `light` gives, or why it gives none: a light whose forward axis has no length

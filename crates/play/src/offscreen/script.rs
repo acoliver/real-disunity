@@ -232,7 +232,13 @@ impl Mapper<'_> {
                 material,
                 submesh,
                 pass,
-            } => self.draw_mesh((*mesh, *submesh), matrix, *material, *pass),
+                block,
+            } => self.draw_mesh(
+                (*mesh, *submesh),
+                matrix,
+                (*material, *pass),
+                block.as_deref(),
+            ),
             OffscreenWork::CameraRender { .. }
             | OffscreenWork::Blit { .. }
             | OffscreenWork::CopyTexture { .. }
@@ -284,12 +290,25 @@ impl Mapper<'_> {
 
     /// How many mips a texture of the frame has, or 0 for one that is not there.
     fn mips_of(&self, texture: TextureId) -> u32 {
-        if let Some(desc) = self.script.temporaries.described.get(&texture) {
-            return desc.mip_count;
-        }
-        ids::render_texture_of(texture)
-            .and_then(|id| self.snapshot.render_textures.get(&id))
-            .map_or(0, |held| held.mip_count)
+        self.described(texture).map_or(0, |held| held.mip_count)
+    }
+
+    /// What a texture of the frame is: a temporary the commands allocated or a render texture of
+    /// the snapshot.
+    fn described(&self, texture: TextureId) -> Option<&WorldRenderTexture> {
+        self.script.temporaries.described.get(&texture).or_else(|| {
+            ids::render_texture_of(texture).and_then(|id| self.snapshot.render_textures.get(&id))
+        })
+    }
+
+    /// The size in pixels of the bound target: of the color attachment's mip, or of the depth
+    /// attachment's when there is no color. `None` when no target is bound.
+    pub(super) fn target_size(&self) -> Option<[u32; 2]> {
+        let target = self.script.target?;
+        let attachment = target.color.or(target.depth)?;
+        let held = self.described(attachment.texture)?;
+        let level = |side: u32| side.checked_shr(attachment.mip).unwrap_or(0).max(1);
+        Some([level(held.width), level(held.height)])
     }
 
     /// Binds the targets the draws after this go to. The first color target is the one drawn

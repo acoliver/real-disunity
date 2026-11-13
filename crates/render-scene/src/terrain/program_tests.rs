@@ -185,8 +185,14 @@ fn receiver_terrain_programs_load_payload_in_every_surface_and_depth_policy() {
         Some(&screen),
     );
     for receiver in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
-        for depth in [DepthMode::Independent, DepthMode::Shared, DepthMode::Reuse] {
-            let selected = built.for_receiver_gradients(receiver).for_depth(depth);
+        let reject = [false, true];
+        for (depth, card_reject) in [DepthMode::Independent, DepthMode::Shared, DepthMode::Reuse]
+            .into_iter()
+            .flat_map(|depth| reject.map(|card_reject| (depth, card_reject)))
+        {
+            let selected = built
+                .for_receiver_gradients(receiver, card_reject)
+                .for_depth(depth);
             let terrain = selected.terrain_context();
             for surface in SURFACES {
                 terrain

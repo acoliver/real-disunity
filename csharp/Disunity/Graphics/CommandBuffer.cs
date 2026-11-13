@@ -74,6 +74,18 @@ public sealed partial class CommandBuffer : IDisposable
     /// <summary>Records nothing: the engine binds no random-write targets, so there are none to clear. The render graph calls
     /// it after every pass.</summary>
     public void ClearRandomWriteTargets() => ThrowIfReleased();
+
+    /// <summary>A multiplier of 1 records nothing: every draw already runs the instances it names, which is what a multiplier
+    /// of 1 means. A larger multiplier repeats each draw's instances for the views of single-pass stereo rendering, which the
+    /// engine does not do, so it throws <see cref="NotSupportedException"/> naming the value and records nothing. A released
+    /// buffer throws <see cref="ObjectDisposedException"/> first.</summary>
+    public void SetInstanceMultiplier(uint multiplier)
+    {
+        ThrowIfReleased();
+        if (multiplier != 1)
+            throw new NotSupportedException($"CommandBuffer.SetInstanceMultiplier({multiplier}): only 1 is supported; the engine does not render several views per draw");
+    }
+
     /// <summary>Records the view and projection that the draws after it use, until a camera setup or another change. It
     /// names no camera and leaves the bound targets as they are.</summary>
     public void SetViewProjectionMatrices(Matrix4x4 view, Matrix4x4 proj) =>

@@ -1,7 +1,7 @@
 //! Line breaking as Unity's text generator does it. A line that grows past the wrap width breaks
 //! before its last word, consuming the space at the break. A word wider than the line breaks
 //! between characters.
-use super::{UiError, UiLimits};
+use super::{UiError, UiLimits, positioning::ScaledPairs};
 use ab_glyph::{FontArc, GlyphId, PxScaleFont, ScaleFont};
 
 pub(super) struct Line {
@@ -14,6 +14,7 @@ type Scaled<'a> = PxScaleFont<&'a FontArc>;
 
 struct Breaker<'a> {
     font: &'a Scaled<'a>,
+    pairs: ScaledPairs<'a>,
     limit: Option<f32>,
     lines: Vec<Line>,
     current: Vec<(usize, char)>,
@@ -27,7 +28,10 @@ impl Breaker<'_> {
         if id == GlyphId(0) {
             return Err(UiError::MissingGlyph(character));
         }
-        self.width += self.previous.map_or(0., |p| self.font.kern(p, id)) + self.font.h_advance(id);
+        self.width += self
+            .previous
+            .map_or(0., |p| self.pairs.x_advance(p.0, id.0))
+            + self.font.h_advance(id);
         self.previous = Some(id);
         self.current.push((byte, character));
         while self.overflows() {
@@ -50,13 +54,13 @@ impl Breaker<'_> {
             rest.remove(0);
         }
         self.finish(false);
-        (self.width, self.previous) = measure(self.font, &rest);
+        (self.width, self.previous) = measure(self.font, self.pairs, &rest);
         self.current = rest;
     }
 
     fn finish(&mut self, paragraph_end: bool) {
         let characters = std::mem::take(&mut self.current);
-        let (width, _) = measure(self.font, &characters);
+        let (width, _) = measure(self.font, self.pairs, &characters);
         self.lines.push(Line {
             characters,
             width,
@@ -68,12 +72,16 @@ impl Breaker<'_> {
 
 /// Width of `characters` with kerning, and the last glyph for kerning what follows. Callers
 /// have already rejected characters the font lacks.
-fn measure(font: &Scaled<'_>, characters: &[(usize, char)]) -> (f32, Option<GlyphId>) {
+fn measure(
+    font: &Scaled<'_>,
+    pairs: ScaledPairs<'_>,
+    characters: &[(usize, char)],
+) -> (f32, Option<GlyphId>) {
     characters
         .iter()
         .fold((0., None), |(width, previous), &(_, c)| {
             let id = font.glyph_id(c);
-            let kern = previous.map_or(0., |p| font.kern(p, id));
+            let kern = previous.map_or(0., |p: GlyphId| pairs.x_advance(p.0, id.0));
             (width + kern + font.h_advance(id), Some(id))
         })
 }
@@ -81,12 +89,14 @@ fn measure(font: &Scaled<'_>, characters: &[(usize, char)]) -> (f32, Option<Glyp
 /// Splits `text` into lines at newlines, and at `wrap_width` when it is set.
 pub(super) fn lines(
     font: &Scaled<'_>,
+    pairs: ScaledPairs<'_>,
     text: &str,
     wrap_width: Option<f32>,
     limits: UiLimits,
 ) -> Result<Vec<Line>, UiError> {
     let mut breaker = Breaker {
         font,
+        pairs,
         limit: wrap_width,
         lines: Vec::new(),
         current: Vec::new(),

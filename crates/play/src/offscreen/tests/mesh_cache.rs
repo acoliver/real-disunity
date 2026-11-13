@@ -140,6 +140,7 @@ impl Scene {
                     material: self.material,
                     submesh: 0,
                     pass: 0,
+                    block: None,
                 })
                 .unwrap();
         }

@@ -14,6 +14,8 @@ mod reject;
 mod reservation;
 pub(crate) use bindings::{SetTwo, ShadowInputs, object_layout, shadow_layout};
 pub use reservation::ReceiverGradientReservation;
+#[cfg(test)]
+pub(crate) mod poison;
 mod shader;
 mod targets;
 #[cfg(test)]
@@ -174,6 +176,13 @@ pub(crate) enum ReceiverReference {
     NormalProducer,
     MainArithmetic,
     PoisonUncovered,
+    PoisonShared,
+    PoisonIndependent,
+    UncoveredProbe {
+        depth: crate::renderer::depth::DepthMode,
+        family: poison::ConsumerFamily,
+        poison: bool,
+    },
     /// The runtime receivers with reused depth, without the relief card early reject.
     WithoutCardReject,
     /// The runtime receivers with reused depth, rejecting every relief card quad.
@@ -199,12 +208,15 @@ pub(crate) enum ReceiverReference {
 impl ReceiverReference {
     pub(crate) const fn depth(self) -> crate::renderer::depth::DepthMode {
         match self {
+            Self::UncoveredProbe { depth, .. } => depth,
             Self::StoredIndependent
             | Self::FrozenIndependent
             | Self::ProbeIndependent
             | Self::HardwareProbeIndependent
-            | Self::StoredProbeIndependent => crate::renderer::depth::DepthMode::Independent,
+            | Self::StoredProbeIndependent
+            | Self::PoisonIndependent => crate::renderer::depth::DepthMode::Independent,
             Self::StoredShared
+            | Self::PoisonShared
             | Self::ProbeShared
             | Self::HardwareProbeShared
             | Self::StoredProbeShared
@@ -316,14 +328,19 @@ impl crate::compositor::FrameRenderer {
             #[cfg(test)]
             if matches!(
                 self.receiver_reference,
-                Some(ReceiverReference::PoisonUncovered)
+                Some(
+                    ReceiverReference::PoisonUncovered
+                        | ReceiverReference::PoisonShared
+                        | ReceiverReference::PoisonIndependent
+                        | ReceiverReference::UncoveredProbe { poison: true, .. }
+                )
             ) {
-                screen.receiver.as_mut().unwrap().clear = wgpu::Color {
-                    r: 12345.0,
-                    g: -6789.0,
-                    b: 4321.0,
-                    a: -9876.0,
-                };
+                screen.receiver.as_mut().unwrap().clear = [1.0, 2.0].map(|scale| wgpu::Color {
+                    r: 12344.0 * scale,
+                    g: -6788.0 * scale,
+                    b: 4320.0 * scale,
+                    a: -9872.0 * scale,
+                });
             }
         }
         Ok(())
@@ -357,6 +374,7 @@ impl crate::compositor::FrameRenderer {
                                 reference,
                                 ReceiverReference::LateCardRejection
                                     | ReceiverReference::MainArithmetic
+                                    | ReceiverReference::UncoveredProbe { .. }
                             ))
                     {
                         return pipelines.for_receiver_reference(reference, receiver.layout);

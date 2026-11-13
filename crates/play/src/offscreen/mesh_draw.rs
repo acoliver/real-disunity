@@ -3,7 +3,8 @@
 //! A `DrawMesh` record draws one sub-mesh of a stored mesh with a matrix and a material's passes
 //! into the targets bound at its place in the frame, with the view the script set up last. The
 //! host draws it as a renderer list does one renderer: the record makes a renderer of the mesh
-//! that carries the record's matrix as its per-object values and no material slots, and one
+//! that carries the record's matrix as its per-object values and the record's property block as
+//! its block (between the per-object values and the material), no material slots, and one
 //! [`DrawList`] whose items draw the sub-mesh as the record's material, one item for each pass.
 //! The mesh, its channels, the material's constants and textures and the render state of the pass
 //! are then the ones a list draw gives them.
@@ -13,26 +14,28 @@ use std::sync::Arc;
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{DrawList, ListDraw, Record, Renderer};
 use worldrunner_render_program::unity::shader::PassSelector;
-use worldrunner_world_simulation::graphics::MaterialId as WorldMaterialId;
+use worldrunner_world_simulation::graphics::{MaterialId as WorldMaterialId, ShaderProperties};
 
 use super::builtins::draw_layer;
 use super::frame::{Mapper, Skip};
 use super::ids;
 use super::lists::IMAGE_FRONT_FACE;
+use super::properties::layer;
 
 /// The layer of a mesh draw's renderer. No layer has this number, so no camera of the frame
 /// culls the renderer in.
 const NO_CAMERA_LAYER: u32 = 32;
 
 impl Mapper<'_> {
-    /// The record of mesh `mesh`, its sub-mesh `submesh` drawn with `matrix` and `material`; `pass`
-    /// picks the one pass drawn, or every pass in order when it is -1.
+    /// The record of mesh `mesh`, its sub-mesh `submesh` drawn with `matrix`, `material` and the
+    /// record's own property `block`; `pass` picks the one pass drawn, or every pass in order when
+    /// it is -1.
     pub(super) fn draw_mesh(
         &mut self,
         (mesh, submesh): (u64, u32),
         matrix: &[f32; 16],
-        material: WorldMaterialId,
-        pass: i32,
+        (material, pass): (WorldMaterialId, i32),
+        block: Option<&ShaderProperties>,
     ) -> Result<Vec<Record>, Skip> {
         let target = self.script.target.ok_or(Skip::UnboundTarget)?;
         self.check_sub_mesh(mesh, submesh)?;
@@ -51,7 +54,9 @@ impl Mapper<'_> {
                 mesh: ids::mesh(mesh),
                 materials: Vec::new(),
                 layer: NO_CAMERA_LAYER,
-                block: PropertyLayer::default(),
+                block: block.map_or_else(PropertyLayer::default, |block| {
+                    layer(block, &mut self.textures)
+                }),
                 per_draw: draw_layer(matrix),
             },
         );

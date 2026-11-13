@@ -186,7 +186,10 @@ impl Stamp {
 /// must be submitted in preparation order, just like resident feature uploads.
 pub struct PassTimer {
     device: wgpu::Device,
-    queue: wgpu::Queue,
+    /// Submits the resolves of frames recorded outside a transaction, which have no authority of
+    /// their own. It is the timer's alone, so its exclusion never holds back another authority's
+    /// frames, and every submission the timer makes still goes through an authority.
+    untransacted: worldrunner_render_gpu::submission::SubmissionAuthority,
     support: TimingSupport,
     slots: Vec<Slot>,
     active: Option<usize>,
@@ -211,7 +214,9 @@ impl PassTimer {
         };
         Ok(Self {
             device: device.clone(),
-            queue: queue.clone(),
+            untransacted: worldrunner_render_gpu::submission::SubmissionAuthority::new(
+                queue.clone(),
+            ),
             support,
             slots: if support == TimingSupport::Supported {
                 (0..TIMING_RING_SIZE).map(|_| Slot::new(device)).collect()
@@ -363,20 +368,16 @@ impl PassTimer {
                     let _ = send.send(result);
                 },
             );
-            let submitted = if let Some(authority) = &authority {
-                match authority.submit_commands([encoder.finish()]) {
-                    Ok(_) => true,
-                    Err(worldrunner_render_gpu::submission::SubmitError::Busy) => false,
-                    Err(error) => {
-                        slot.sampled = None;
-                        slot.passes.clear();
-                        slot.transaction = None;
-                        return Err(TimingError::Submit(error));
-                    }
+            let owner = authority.as_ref().unwrap_or(&self.untransacted);
+            let submitted = match owner.submit_commands([encoder.finish()]) {
+                Ok(_) => true,
+                Err(worldrunner_render_gpu::submission::SubmitError::Busy) => false,
+                Err(error) => {
+                    slot.sampled = None;
+                    slot.passes.clear();
+                    slot.transaction = None;
+                    return Err(TimingError::Submit(error));
                 }
-            } else {
-                self.queue.submit([encoder.finish()]);
-                true
             };
             if submitted {
                 slot.sampled = None;

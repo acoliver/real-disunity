@@ -56,8 +56,15 @@ impl World {
                 matrix,
                 material,
                 pass,
+                block,
                 ..
-            } => self.check_draw_mesh(*mesh, matrix, *material, *pass),
+            } => {
+                self.check_draw_mesh(*mesh, matrix, *material, *pass)?;
+                block
+                    .iter()
+                    .flat_map(|block| &block.textures)
+                    .try_for_each(|(_, slot)| self.check_texture(&slot.texture))
+            }
             _ => Ok(()),
         }
     }

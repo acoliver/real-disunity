@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Reflection;
+using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using Disunity.Hosting;
@@ -36,6 +38,80 @@ internal static class PlayerAssemblyTests
         ResolvesHostLibrariesOnlyForNamesNeitherListedNorShipped();
         ResolvesHostLibrariesForFrameworkFacadeForwards();
         Console.WriteLine("PASS: player module facades, assembly resolution and missing engine API report");
+        ClearsTheThirtyTwoBitRequirementOnlyOnIlOnlyImages();
+        LoadsAListedIlOnlyImageFlaggedThirtyTwoBitRequired();
+        Console.WriteLine("PASS: a listed IL-only image flagged 32-bit-required loads from a copy without the flag, and the file stays as shipped");
+    }
+
+    /// <summary>A synthetic IL-only image with its CLI header flags changed by <paramref name="set"/> and <paramref name="clear"/>.</summary>
+    private static byte[] Flagged(string name, CorFlags set, CorFlags clear)
+    {
+        var image = new SyntheticAssembly(name).Build();
+        int offset;
+        CorFlags flags;
+        using (var reader = new PEReader(new MemoryStream(image, writable: false)))
+        {
+            var cor = reader.PEHeaders.CorHeader!;
+            Require(cor.Flags.HasFlag(CorFlags.ILOnly), "a synthetic image is IL-only");
+            offset = reader.PEHeaders.CorHeaderStartOffset + 16;
+            flags = (cor.Flags | set) & ~clear;
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(offset, sizeof(uint)), (uint)flags);
+        return image;
+    }
+
+    private static CorFlags FlagsOf(byte[] image)
+    {
+        using var reader = new PEReader(new MemoryStream(image, writable: false));
+        return reader.PEHeaders.CorHeader!.Flags;
+    }
+
+    private static void ClearsTheThirtyTwoBitRequirementOnlyOnIlOnlyImages()
+    {
+        var directory = Directory.CreateTempSubdirectory("player-images");
+        try
+        {
+            string Write(string name, byte[] image)
+            {
+                var path = Path.Combine(directory.FullName, name + ".dll");
+                File.WriteAllBytes(path, image);
+                return path;
+            }
+            var plain = Write("Plain", Flagged("Plain", 0, 0));
+            Require(PlayerImages.WithoutThirtyTwoBitRequirement(plain) is null, "an image without the flag loads from its file");
+            var required = Flagged("Required", CorFlags.Requires32Bit, 0);
+            var copy = PlayerImages.WithoutThirtyTwoBitRequirement(Write("Required", required));
+            Require(copy is not null && FlagsOf(copy) == CorFlags.ILOnly,
+                $"an IL-only image flagged 32-bit-required gets a copy flagged IL-only, got {(copy is null ? "none" : FlagsOf(copy))}");
+            var differing = Enumerable.Range(0, required.Length).Count(i => required[i] != copy![i]);
+            Require(copy!.Length == required.Length && differing == 1, $"only the flag byte changes, {differing} bytes differ");
+            var mixed = Write("Mixed", Flagged("Mixed", CorFlags.Requires32Bit, CorFlags.ILOnly));
+            Require(PlayerImages.WithoutThirtyTwoBitRequirement(mixed) is null, "an image that is not IL-only keeps its flag");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private static void LoadsAListedIlOnlyImageFlaggedThirtyTwoBitRequired()
+    {
+        WithManagedDirectory(directory =>
+        {
+            var shipped = Flagged("Flagged.Compiler", CorFlags.Requires32Bit, 0);
+            var path = Path.Combine(directory, "Flagged.Compiler.dll");
+            File.WriteAllBytes(path, shipped);
+            var context = new AssemblyLoadContext("player", isCollectible: true);
+            var player = new PlayerAssemblies(directory, Engine, new[] { "Flagged.Compiler" });
+            player.Attach(context);
+            var reports = new List<string>();
+            var loaded = player.LoadListed(reports.Add);
+            Require(loaded == 1 && reports.Count == 0, $"the flagged image loads, got {loaded}: {string.Join(" | ", reports)}");
+            var assembly = context.Assemblies.Single(a => a.GetName().Name == "Flagged.Compiler");
+            Require(assembly.Location.Length == 0, $"the assembly loads from the copy, not the file: {assembly.Location}");
+            Require(File.ReadAllBytes(path).SequenceEqual(shipped), "the shipped file is left as it was");
+            return context;
+        });
     }
 
     private static void Require(bool condition, string message)

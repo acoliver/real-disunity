@@ -7,7 +7,7 @@ pub(crate) struct ReceiverPayload {
     pub(crate) bias: f32,
     pub(crate) capture: ReceiverCapture,
     #[cfg(test)]
-    pub(crate) clear: wgpu::Color,
+    pub(crate) clear: [wgpu::Color; 2],
     pub(crate) output: super::super::MetadataOutput,
     pub(crate) textures: [wgpu::Texture; 2],
     pub(crate) pipelines: crate::renderer::ScenePipelines,
@@ -48,7 +48,7 @@ impl ReceiverPayload {
             bias,
             capture,
             #[cfg(test)]
-            clear: wgpu::Color::TRANSPARENT,
+            clear: [wgpu::Color::TRANSPARENT; 2],
             output,
             textures,
             pipelines,
@@ -83,7 +83,7 @@ impl ReceiverPayload {
                 #[cfg(not(test))]
                 let clear = wgpu::Color::TRANSPARENT;
                 #[cfg(test)]
-                let clear = self.clear;
+                let clear = self.clear[side as usize];
                 attachment.load = worldrunner_render_post::AttachmentLoad::ClearColor(clear);
                 pass.additional_colors.push(attachment);
                 views.push(view);

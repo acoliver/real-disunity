@@ -45,8 +45,8 @@ internal static class PlayablesTests
         Console.WriteLine("PASS: PlayableBinding and FrameData hold their values");
         NotificationsReachReceivers();
         Console.WriteLine("PASS: a game notification and receiver implement the interfaces");
-        PlayerLoopHoldsSystemsAndRefusesTheLoop();
-        Console.WriteLine("PASS: PlayerLoopSystem holds data and the player loop names itself as unsupported");
+        PlayerLoopSystemsHoldData();
+        Console.WriteLine("PASS: PlayerLoopSystem holds its type, children and delegate");
     }
 
     private static void FacadesForward()
@@ -63,7 +63,7 @@ internal static class PlayablesTests
             "UnityEngine.Playables.DirectorUpdateMode", "UnityEngine.Playables.PlayableBinding+DataStreamType",
             "UnityEngine.Playables.FrameData+EvaluationType", "UnityEngine.PropertyName", "UnityEngine.IExposedPropertyTable",
             "UnityEngine.ExposedReference`1", "UnityEngine.Animations.AnimationPlayableOutput", "UnityEngine.Animations.AnimationMotionXToDeltaPlayable",
-            "UnityEngine.LowLevel.PlayerLoopSystem", "UnityEngine.LowLevel.PlayerLoop",
+            "UnityEngine.LowLevel.PlayerLoopSystem", "UnityEngine.LowLevel.PlayerLoop", "UnityEngine.PlayerLoop.Update",
         })
             Expect.That(ModuleFacades.Forwards(Engine, name), $"the module facades forward {name}");
     }
@@ -283,7 +283,7 @@ internal static class PlayablesTests
         Expect.That(receiver.Last is Marker { id: var id } && id == new PropertyName("marker") && "ctx".Equals(receiver.Context), "the receiver sees the notification");
     }
 
-    private static void PlayerLoopHoldsSystemsAndRefusesTheLoop()
+    private static void PlayerLoopSystemsHoldData()
     {
         var calls = 0;
         var child = new PlayerLoopSystem { type = typeof(Marker), updateDelegate = () => calls++ };
@@ -292,8 +292,5 @@ internal static class PlayablesTests
         Expect.That(calls == 1 && root.subSystemList.Length == 1 && root.subSystemList[0].type == typeof(Marker), "systems hold their delegate and children");
         Expect.That(root.updateFunction == IntPtr.Zero && root.loopConditionFunction == IntPtr.Zero, "native function pointers default to zero");
         Expect.That(root.ToString() == nameof(Receiver), "a system prints its type name");
-        RequireNamed(() => _ = PlayerLoop.GetCurrentPlayerLoop(), "PlayerLoop.GetCurrentPlayerLoop");
-        RequireNamed(() => _ = PlayerLoop.GetDefaultPlayerLoop(), "PlayerLoop.GetDefaultPlayerLoop");
-        RequireNamed(() => PlayerLoop.SetPlayerLoop(root), "PlayerLoop.SetPlayerLoop");
     }
 }

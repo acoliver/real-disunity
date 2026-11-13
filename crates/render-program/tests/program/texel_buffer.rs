@@ -8,6 +8,18 @@ use worldrunner_render_program::module::{
 };
 
 #[test]
+fn cpu_unused_buffer_capabilities_enter_the_fragment_stage_path() {
+    for name in ["unused-sampled-buffer", "unused-image-buffer", "no-buffer"] {
+        let stage = stage(name, StageKind::Fragment);
+        assert!(stage.reflected().is_empty());
+        assert_eq!(
+            stage.module().source,
+            StageSource::SpirV(fixture(name).into())
+        );
+    }
+}
+
+#[test]
 fn cpu_expanded_fetches_keep_all_four_components() {
     for base in ["float", "uint", "int"] {
         for suffix in ["", "2"] {

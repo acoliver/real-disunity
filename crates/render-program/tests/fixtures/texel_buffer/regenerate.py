@@ -73,6 +73,11 @@ patch_format("unknown", "float", 0)
 compile_fixture("multiple", "multiple.hlsl")
 compile_fixture("float-vk10", "typed.hlsl", target="vulkan1.0")
 compile_fixture("float-vk12", "typed.hlsl", target="vulkan1.2")
+# DXC removes unused global Buffer/RWBuffer types but retains their capabilities.
+compile_fixture("unused-sampled-buffer", "unused_buffer.hlsl", "ps_6_0")
+compile_fixture("unused-image-buffer", "unused_buffer.hlsl", "ps_6_0",
+                defines=["-DSTORAGE_BUFFER=1"])
+compile_fixture("no-buffer", "unused_buffer.hlsl", "ps_6_0", defines=["-DNO_BUFFER=1"])
 for base in ("float", "uint", "int"):
     for components in (1, 2):
         element = base if components == 1 else f"{base}2"

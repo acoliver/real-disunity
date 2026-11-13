@@ -72,20 +72,72 @@ fn a_shared_image_types_refusal_names_the_resource_that_was_used() {
 }
 
 #[test]
-fn no_buffer_image_borrows_identical_words_even_with_a_stale_capability() {
-    let mut module = Module::new();
-    module.header = Some(rspirv::dr::ModuleHeader::new(1));
-    module.capabilities.push(instruction(
-        Op::Capability,
-        None,
-        None,
-        vec![Operand::Capability(Capability::SampledBuffer)],
-    ));
-    let words = module.assemble();
+fn unused_capability_scan_leaves_malformed_streams_for_naga() {
+    for tail in [vec![0], vec![3 << 16]] {
+        let mut words = words("unused-sampled-buffer");
+        words.extend(tail);
+        let lowered = lower(&words).unwrap();
+        assert!(matches!(lowered, Cow::Borrowed(_)));
+        assert!(std::ptr::eq(lowered.as_ptr(), words.as_ptr()));
+    }
+}
+
+#[test]
+fn no_buffer_image_or_capability_borrows_identical_words() {
+    let words = words("no-buffer");
     let lowered = lower(&words).unwrap();
     assert!(matches!(lowered, Cow::Borrowed(_)));
     assert!(std::ptr::eq(lowered.as_ptr(), words.as_ptr()));
     assert_eq!(&*lowered, words);
+}
+
+fn check_unused_capabilities(words: &[u32], removed: usize) {
+    assert!(!has_buffer_image(words));
+    let original = rspirv::dr::load_words(words).unwrap();
+    let lowered = lower(words).unwrap();
+    assert!(matches!(lowered, Cow::Owned(_)));
+    let module = rspirv::dr::load_words(&*lowered).unwrap();
+    assert_eq!(
+        module.all_inst_iter().count() + removed,
+        original.all_inst_iter().count()
+    );
+    let mut expected = words[..5].to_vec();
+    for i in original.all_inst_iter() {
+        if i.class.opcode != Op::Capability
+            || !matches!(
+                i.operands.as_slice(),
+                [Operand::Capability(
+                    Capability::SampledBuffer | Capability::ImageBuffer
+                )]
+            )
+        {
+            expected.extend(i.assemble());
+        }
+    }
+    assert_eq!(&*lowered, expected);
+    assert_eq!(lowered.len() + 2 * removed, words.len());
+    let bytes: Vec<_> = lowered.iter().flat_map(|word| word.to_le_bytes()).collect();
+    let module =
+        naga::front::spv::parse_u8_slice(&bytes, &naga::front::spv::Options::default()).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
+    assert!(matches!(lower(&lowered).unwrap(), Cow::Borrowed(_)));
+}
+
+#[test]
+fn unused_buffer_capabilities_are_the_only_removed_instructions() {
+    check_unused_capabilities(&words("unused-sampled-buffer"), 1);
+    // DXC emits both capabilities for an unused RWBuffer global.
+    check_unused_capabilities(&words("unused-image-buffer"), 2);
+    let mut image_only = rspirv::dr::load_words(words("unused-image-buffer")).unwrap();
+    image_only
+        .capabilities
+        .retain(|i| i.operands != [Operand::Capability(Capability::SampledBuffer)]);
+    check_unused_capabilities(&image_only.assemble(), 1);
 }
 
 #[test]

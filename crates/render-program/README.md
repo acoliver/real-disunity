@@ -46,7 +46,11 @@ arrayed images, image function parameters, `OpCopyObject`, other non-fetch uses,
 and fetch operands beyond an absent or empty image-operands mask. Formats needing
 conversion, including Unknown, 8/16-bit, normalized, packed and 64-bit formats,
 are refused rather than approximated. The pass changes neither source hashes nor
-stage hashes, and modules without a Buffer image keep their original words.
+stage hashes. Modules without a Buffer image borrow their original words unless
+they declare unused `SampledBuffer` or `ImageBuffer` capabilities, which naga
+rejects. In that case, only those capability instructions are removed from an
+owned copy; every other word stays unchanged. Modules with Buffer images still
+undergo the operation and format checks above before any capability is removed.
 
 The pass uses `rspirv` (MIT/Apache-2.0) for operand-aware parsing and emission.
 The owned HLSL and committed DXC fixtures in `tests/fixtures/texel_buffer/` need

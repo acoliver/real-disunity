@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "dynamic_tests.rs"]
+mod tests;
+
 use super::{Device, DrawError, RenderScene, SceneGpu, ScenePipelines};
 
 fn dynamic_refused(error: &crate::dynamic::DynamicError) -> worldrunner_render_post::FrameError {
@@ -34,7 +38,7 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         quads: &[crate::dynamic::DynamicQuad],
     ) -> Result<(), crate::dynamic::DynamicError> {
-        reject_annotation_depth(quads)?;
+        validate_scene_quads(quads)?;
         self.dynamic.set_quads(
             device,
             authority.queue(),
@@ -65,7 +69,7 @@ impl SceneGpu {
         textures: &[worldrunner_render_plan::SceneTexture],
         quads: &[crate::dynamic::DynamicQuad],
     ) -> Result<(), crate::dynamic::DynamicError> {
-        reject_annotation_depth(quads)?;
+        validate_scene_quads(quads)?;
         let mut staged = crate::dynamic::DynamicGpu::default();
         staged.set_textures(device, authority.queue(), textures)?;
         staged.set_quads(
@@ -140,7 +144,7 @@ impl SceneGpu {
     }
 }
 
-fn reject_annotation_depth(
+fn validate_scene_quads(
     quads: &[crate::dynamic::DynamicQuad],
 ) -> Result<(), crate::dynamic::DynamicError> {
     if let Some(index) = quads.iter().position(|quad| quad.depth_test) {
@@ -148,6 +152,9 @@ fn reject_annotation_depth(
             index,
             field: "annotation depth requires retained UI",
         });
+    }
+    if let Some(index) = quads.iter().position(|quad| quad.corner_colors.is_some()) {
+        return Err(crate::dynamic::DynamicError::CornerColorsRequireRetainedUi { index });
     }
     Ok(())
 }

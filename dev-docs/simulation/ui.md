@@ -480,6 +480,13 @@ canvas viewport and any explicit `CanvasRenderer::clip_rect`. The latter is
 measured in root-canvas coordinates and also applies to text on that object.
 Bounds round inward to whole-pixel scissors, which intersect the current render
 extent. This bounds rotated graphics even when CPU quad clipping keeps them whole.
+`UiDraw::corner_colors` optionally supplies BL/BR/TR/TL linear straight-alpha
+multipliers. None supplies white. The sampled texture is multiplied by common
+`color` and the interpolated corner colour, using the existing 0-2 triangle diagonal,
+not bilinear interpolation. Triangles use their first three colours. UV flips do
+not move destination colours. Every corner channel must be finite and in 0..=1;
+overlay conversion and ABI copy-out/decode reject invalid values. Dynamic scene
+quads reject this overlay-only metadata. Scene vertex layouts remain unchanged.
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes
 its generated underline graphics through `append_graphics` before glyph quads;

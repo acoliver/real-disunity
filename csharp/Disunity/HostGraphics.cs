@@ -69,7 +69,8 @@ public sealed record GraphicsDeviceInfo
     /// The device a windowless player host reports: still the null device, with no capabilities, because nothing
     /// draws, but with the texture limits the engine's renderer guarantees on every GPU adapter it accepts (8192 for
     /// 2D textures and cubemaps, 2048 for 3D textures, 256 array layers, 16x anisotropy). Render pipelines size their
-    /// atlases and allocators from these limits when they are created, so zero limits would make those sizes invalid.
+    /// atlases and allocators from these limits when they are created, so zero limits would make those sizes invalid. It
+    /// supports no format; a player host adds the formats its renderer draws into.
     /// </summary>
     public static GraphicsDeviceInfo Windowless { get; } = new()
     {

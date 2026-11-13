@@ -14,7 +14,7 @@ pub fn assemble(glyphs: &[Vec<u8>], ascent: i16, descent: i16) -> Vec<u8> {
     assemble_with(glyphs, ascent, descent, Vec::new())
 }
 
-/// Like [`assemble`], with `extra` tables added after the required ones, in tag order.
+/// Like [`assemble`], with `extra` tables added or replacing required tables, in tag order.
 pub fn assemble_with(
     glyphs: &[Vec<u8>],
     ascent: i16,
@@ -59,6 +59,7 @@ pub fn assemble_with(
         (*b"loca", loca),
         (*b"maxp", maxp),
     ];
+    tables.retain(|(tag, _)| !extra.iter().any(|(replacement, _)| replacement == tag));
     tables.extend(extra);
     tables.sort_by_key(|(tag, _)| *tag);
     let mut out = vec![0; 12 + tables.len() * 16];
@@ -106,26 +107,40 @@ pub fn glyph(contours: i16) -> Vec<u8> {
 }
 
 fn cmap() -> Vec<u8> {
+    cmap_with(&(32_u16..=126).map(|c| (c, 1)).collect::<Vec<_>>())
+}
+
+/// A format 4 cmap for sorted BMP code point/glyph mappings.
+pub fn cmap_with(mapping: &[(u16, u16)]) -> Vec<u8> {
     let mut cmap = Vec::new();
     for n in [0_u16, 1, 3, 1] {
         cmap.extend(n.to_be_bytes());
     }
     cmap.extend(12_u32.to_be_bytes());
-    let count = 96_u16;
-    for n in [4_u16, 16 + count * 8, 0, count * 2, 128, 6, count * 2 - 128] {
+    let count = u16::try_from(mapping.len() + 1).unwrap();
+    let power = 1_u16 << count.ilog2();
+    for n in [
+        4_u16,
+        16 + count * 8,
+        0,
+        count * 2,
+        power * 2,
+        u16::try_from(count.ilog2()).unwrap(),
+        count * 2 - power * 2,
+    ] {
         cmap.extend(n.to_be_bytes());
     }
-    for c in 32_u16..=126 {
+    for &(c, _) in mapping {
         cmap.extend(c.to_be_bytes());
     }
     cmap.extend(u16::MAX.to_be_bytes());
     cmap.extend(0_u16.to_be_bytes());
-    for c in 32_u16..=126 {
+    for &(c, _) in mapping {
         cmap.extend(c.to_be_bytes());
     }
     cmap.extend(u16::MAX.to_be_bytes());
-    for c in 32_u16..=126 {
-        cmap.extend(1_u16.wrapping_sub(c).to_be_bytes());
+    for &(c, glyph) in mapping {
+        cmap.extend(glyph.wrapping_sub(c).to_be_bytes());
     }
     cmap.extend(1_u16.to_be_bytes());
     cmap.extend(vec![0; usize::from(count) * 2]);

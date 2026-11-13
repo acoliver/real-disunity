@@ -163,11 +163,8 @@ public partial class Material : Object
     public LocalKeyword[] enabledKeywords
     {
         get => _keywords.Select(keyword => new LocalKeyword(shader, keyword)).ToArray();
-        set
-        {
-            ArgumentNullException.ThrowIfNull(value);
-            ReplaceKeywords(value.Select(keyword => keyword.name).ToArray());
-        }
+        // Null clears the keywords, as for shaderKeywords: URP's final blit pass resets its material that way each frame.
+        set => ReplaceKeywords((value ?? []).Select(keyword => keyword.name).ToArray());
     }
 
     public void EnableKeyword(string keyword) => SetKeyword(keyword, true);

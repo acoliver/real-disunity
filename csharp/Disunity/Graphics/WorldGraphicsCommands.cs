@@ -101,6 +101,21 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_set_view_projection(World, matrices, matrices + 16));
     }
 
+    /// <summary>Writes <paramref name="block"/> to the world's draw scope, which the next mesh draw takes as its own property
+    /// block. A value the world refuses (a property name longer than it accepts) throws and leaves the scope empty, so no part
+    /// of the block reaches a later draw.</summary>
+    internal static void StageDrawBlock(PropertyStore block)
+    {
+        var next = new Link(World, 0);
+        ClearProperties(ScopeDraw, next);
+        try { SendAll(ScopeDraw, next, block); }
+        catch
+        {
+            ClearProperties(ScopeDraw, next);
+            throw;
+        }
+    }
+
     /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it.</summary>
     internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, int submesh, int pass)
     {

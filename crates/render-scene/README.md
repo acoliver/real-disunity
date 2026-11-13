@@ -882,6 +882,14 @@ retained settings publication, including removal and consumer changes.
 
 ## Native-resolution RCAS
 
+`RendererConfiguration::opaque_admission_report` lists opaque material families and
+candidate-layout bytes, attachment limits, and material-record counts for a prepared
+scene. Callers invoke it explicitly; it is independent of `SceneOpaquePath` and creates
+no renderer resources. The report uses typed material-family classification, enforces
+the 16-bit material-ID capacity of 65,536 records, and refuses sample counts other than
+one with a typed error. Selecting `Forward` remains the default, and every experiment
+tuple is refused until implemented. No rendering behavior changes in this step.
+
 `RendererConfiguration::post.native_rcas` selects an optional native RCAS pass.
 `FrameProfile::HdrNativeRcas` exposes the same setting to hosts. It runs only
 at equal render and output extents, after the resolve and CAS, and does not

@@ -94,6 +94,7 @@ fn dynamic_quad(draw: &UiDraw, texture: Option<usize>) -> DynamicQuad {
         corners: Some(draw.corners),
         uv_rect: draw.uv_rect,
         tint: draw.color,
+        corner_colors: draw.corner_colors,
         texture,
         sorting_layer: draw.sorting_layer,
         sorting_order: draw.sorting_order,

@@ -36,13 +36,13 @@ After an intentional ABI change:
 3. Update `crates/disunity-ffi/disunity_interface.json` for new exports and
    record the current ABI revision. Removing or changing an export requires a new
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
-   `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
+   `native.g.rs` (and its numbered parts) and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 9 adds the dimension and volume depth to `DisunityRenderTexture`, so
-   native and managed peers built for revision 8 refuse it. Revision 5 retains revision 4 batch construction, object wake and body position
-   constraints, and moves canvas scale out of the Canvas record into
-   `disunity_canvas_scale_read`, `_write` and `_factor`. Native and managed hosts
-   require revision 5. Rebuild all peers.
+   Revision 10 carries optional BL/BR/TR/TL linear RGBA corner multipliers in
+   `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
+   and all channels must be finite and in 0..=1. Native and managed hosts reject
+   mismatched revisions. Rebuild all peers.
+
 4. Rerun the native build and
    `cargo test --locked --jobs 2 --package worldrunner-disunity-ffi`.
 
@@ -123,8 +123,10 @@ invalid UTF-8, unsupported outcomes and revision mismatches are rejected explici
 A managed exception is returned as a failed callback and faults the native advance
 after its teardown callbacks. There is no alternate execution policy.
 
-The FFI build also generates `crates/disunity-runtime/src/native.g.rs` from the
-same C-layout definitions and rejects checked-in drift. Maintain that file with
+The FFI build also generates `crates/disunity-runtime/src/native.g.rs` and numbered parts such as
+`native.2.g.rs` from the same C-layout definitions and rejects checked-in drift.
+Whole records are packed into files below 750 lines and re-exported by the first
+part. Maintain all generated parts with
 the explicit copy workflow above. Owned diagnostic buffer handles survive world
 unload until freed; bounded copy-out reports the required UTF-8 byte count without
 partial writes. Managed error translation frees its diagnostic buffer in finally.
@@ -313,7 +315,7 @@ at a character boundary before native ownership, so oversized messages cannot
 prevent failure teardown. The Rust host retains the full managed diagnostic.
 
 Regeneration covers these checked outputs: NativeErrors.g.cs,
-crates/disunity-runtime/src/native.g.rs, NativeLayouts.g.cs, every NativeBindings
+crates/disunity-runtime/src/native.g.rs and its numbered parts, NativeLayouts.g.cs, every NativeBindings
 part and NativeRecords.g.cs.
 Build first, inspect the generated output named by the drift failure, copy that
 artifact explicitly, and rebuild until every drift check passes. Builds do not

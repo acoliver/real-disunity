@@ -26,6 +26,12 @@ pub enum UiError {
     MissingLayout,
     #[error("invalid font bytes")]
     InvalidFont,
+    #[error("invalid GPOS table")]
+    InvalidGpos,
+    #[error("invalid GPOS extension lookup")]
+    InvalidGposExtension,
+    #[error("GPOS positioning work or subtable limit exceeded")]
+    PositioningLimit,
     #[error("font is not registered: {0:?}")]
     MissingFont(FontId),
     #[error("font face is not loaded")]

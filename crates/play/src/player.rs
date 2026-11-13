@@ -207,7 +207,9 @@ fn write_request(
 /// platform in `identity`, and puts `arguments` after it in `Environment.GetCommandLineArgs()`.
 /// `screen` is the window size, listed as `screen` when there is a window. `plugins` are listed as
 /// `plugins` when there are any. `callback_cache` is where the managed side keeps the player's
-/// assemblies rewritten so the delegates they give native code stay callable.
+/// assemblies rewritten so the delegates they give native code stay callable. `render_formats` are
+/// the `GraphicsFormat` codes the offscreen renderer draws into and samples, which the player's
+/// device reports as supported.
 fn request_body(
     data: &Path,
     paths: [&Path; 3],
@@ -230,6 +232,7 @@ fn request_body(
         "arguments": arguments,
         "first_texture": FIRST_TEXTURE,
         "callback_cache": callback_cache,
+        "render_formats": worldrunner_render_program::unity::offscreen::RENDER_FORMATS,
     });
     if let Some(screen) = screen {
         body["screen"] = serde_json::json!(screen);
@@ -421,6 +424,14 @@ mod tests {
         assert_eq!(
             body(&[])["callback_cache"],
             serde_json::json!("/out/callback-cache")
+        );
+    }
+
+    #[test]
+    fn the_request_lists_the_formats_the_offscreen_renderer_draws_into() {
+        assert_eq!(
+            body(&[])["render_formats"],
+            serde_json::json!(worldrunner_render_program::unity::offscreen::RENDER_FORMATS)
         );
     }
 

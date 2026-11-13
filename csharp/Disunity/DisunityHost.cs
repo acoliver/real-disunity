@@ -86,7 +86,10 @@ public static partial class DisunityHost
     public static void Step(float deltaTime)
     {
         UpdateRenderPipeline();
+        // The player loop's phases before the scripts run here, and its last phase after them, before the frame is drawn.
+        foreach (var phase in LoopBeforeScripts) global::UnityEngine.LowLevel.PlayerLoop.Run(phase);
         Advance(deltaTime);
+        global::UnityEngine.LowLevel.PlayerLoop.Run(typeof(global::UnityEngine.PlayerLoop.PostLateUpdate));
         RenderFrame();
         ReportAudioListenerDiagnostic();
     }
@@ -230,6 +233,7 @@ public static partial class DisunityHost
                 _listenerDiagnostic = null;
                 UndrawnCalls.Reset();
                 RenderSettings.Reset();
+                global::UnityEngine.LowLevel.PlayerLoop.Reset();
                 RemoveMainThreadContext();
                 Resources?.Clear();
                 ThrowIfError(NativeBindings.disunity_world_destroy(world));

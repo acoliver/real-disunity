@@ -53,7 +53,7 @@ internal static unsafe class CommandWireReader
             13 => $"CreateList id={input.U64()} {input.RendererList()}",
             14 => $"DrawList list={input.U64()}",
             15 => $"ViewProjection view={input.Floats(16)} projection={input.Floats(16)}",
-            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()}",
+            16 => $"DrawMesh mesh={input.U64()} matrix={input.Floats(16)} material={input.U64()} submesh={input.U32()} pass={input.I32()} block=[{input.Optional(input.Block)}]",
             var other => throw new InvalidOperationException($"no command has the tag {other}"),
         };
         if (input.Remaining != 0) throw new InvalidOperationException($"{input.Remaining} bytes follow the record '{text}'");
@@ -125,6 +125,21 @@ internal static unsafe class CommandWireReader
                 6 => $"{name}=matrices {Elements(16)}",
                 var other => throw new InvalidOperationException($"no property has the tag {other}"),
             };
+        }
+
+        /// <summary>A property block as the world writes one: floats, ints, vectors, matrices, textures, then vector and matrix
+        /// arrays, each list sorted by name. Values print as <c>name=kind value</c>, joined by ", ".</summary>
+        public string Block()
+        {
+            var parts = new List<string>();
+            parts.AddRange(List(() => $"{Text()}=float {Floats(1)}"));
+            parts.AddRange(List(() => $"{Text()}=int {I32()}"));
+            parts.AddRange(List(() => $"{Text()}=vector {Floats(4)}"));
+            parts.AddRange(List(() => $"{Text()}=matrix {Floats(16)}"));
+            parts.AddRange(List(() => $"{Text()}=texture {Slot()}"));
+            parts.AddRange(List(() => $"{Text()}=vectors {Elements(4)}"));
+            parts.AddRange(List(() => $"{Text()}=matrices {Elements(16)}"));
+            return string.Join(", ", parts);
         }
 
         /// <summary>The count of an array and its elements of <paramref name="width"/> floats each.</summary>

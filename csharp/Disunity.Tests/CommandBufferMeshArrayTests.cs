@@ -115,9 +115,9 @@ internal static unsafe class CommandBufferMeshArrayTests
         public string[] Expected() =>
         [
             VectorsBeforeA, MatricesBeforeA,
-            $"DrawMesh mesh={IdA} matrix={ColumnsOfDrawMatrixA} material={MaterialA.WorldLink.Id} submesh=0 pass=-1",
+            $"DrawMesh mesh={IdA} matrix={ColumnsOfDrawMatrixA} material={MaterialA.WorldLink.Id} submesh=0 pass=-1 block=[-]",
             VectorsBeforeB, MatricesBeforeB,
-            $"DrawMesh mesh={IdB} matrix={ColumnsOfDrawMatrixB} material={MaterialB.WorldLink.Id} submesh=0 pass=-1",
+            $"DrawMesh mesh={IdB} matrix={ColumnsOfDrawMatrixB} material={MaterialB.WorldLink.Id} submesh=0 pass=-1 block=[-]",
         ];
 
         public void Dispose()

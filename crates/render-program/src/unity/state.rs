@@ -197,6 +197,28 @@ const FACTORS: [wgpu::BlendFactor; 11] = [
     wgpu::BlendFactor::OneMinusSrcAlpha,
 ];
 
+/// The names a stencil refusal gives its pass, fail and depth-fail operations and its
+/// comparison, for one face.
+type StencilNames = [&'static str; 4];
+const STENCIL_BOTH: StencilNames = [
+    "stencil pass operation",
+    "stencil fail operation",
+    "stencil depth-fail operation",
+    "stencil comparison",
+];
+const STENCIL_FRONT: StencilNames = [
+    "front stencil pass operation",
+    "front stencil fail operation",
+    "front stencil depth-fail operation",
+    "front stencil comparison",
+];
+const STENCIL_BACK: StencilNames = [
+    "back stencil pass operation",
+    "back stencil fail operation",
+    "back stencil depth-fail operation",
+    "back stencil comparison",
+];
+
 /// Unity's `BlendOp` in order.
 const OPERATIONS: [wgpu::BlendOperation; 5] = [
     wgpu::BlendOperation::Add,
@@ -224,27 +246,30 @@ impl Resolver<'_> {
         self.require("depth offset", &depth.offset_units, 0.0)?;
         self.require("alpha to coverage", &depth.alpha_to_mask, 0.0)?;
         self.require("conservative rasterisation", &depth.conservative, 0.0)?;
-        for ops in [
-            &state.stencil.both,
-            &state.stencil.front,
-            &state.stencil.back,
+        for (ops, names) in [
+            (&state.stencil.both, STENCIL_BOTH),
+            (&state.stencil.front, STENCIL_FRONT),
+            (&state.stencil.back, STENCIL_BACK),
         ] {
-            self.stencil_off(ops)?;
+            self.stencil_off(ops, names)?;
         }
         Ok(())
     }
 
-    /// Stencil ops that keep the buffer and always pass: the same as no stencil.
-    fn stencil_off(&mut self, ops: &StencilOps) -> Result<(), StateError> {
-        for operation in [&ops.pass, &ops.fail, &ops.z_fail] {
-            self.require("stencil", operation, 0.0)?;
+    /// Stencil ops that keep the buffer and always pass: the same as no stencil. A refusal names
+    /// the face and the slot, since one value means an operation in one slot (2 is `Replace`)
+    /// and a comparison in another (2 is `Less`).
+    fn stencil_off(&mut self, ops: &StencilOps, names: StencilNames) -> Result<(), StateError> {
+        let [pass, fail, z_fail, compare_name] = names;
+        for (operation, name) in [(&ops.pass, pass), (&ops.fail, fail), (&ops.z_fail, z_fail)] {
+            self.require(name, operation, 0.0)?;
         }
         let compare = self.value(&ops.compare)?;
         if same(compare, 0.0) || same(compare, 8.0) {
             Ok(())
         } else {
             Err(StateError::Unsupported {
-                field: "stencil",
+                field: compare_name,
                 value: compare,
             })
         }

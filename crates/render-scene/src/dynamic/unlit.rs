@@ -55,6 +55,8 @@ pub(super) struct QuadResources {
     pub(super) vertices: Buffer,
     pub(super) instance: Buffer,
     pub(super) tint: Buffer,
+    /// Allocated only for the retained overlay; scene draws never bind this stream.
+    pub(super) corner_colors: Option<Buffer>,
     pub(super) material: Buffer,
     pub(super) albedo: Texture,
     pub(super) albedo_view: TextureView,

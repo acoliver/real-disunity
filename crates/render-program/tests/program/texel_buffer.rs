@@ -8,6 +8,35 @@ use worldrunner_render_program::module::{
 };
 
 #[test]
+fn cpu_compute_fixture_layouts_are_visible_only_to_compute() {
+    for name in [
+        "float",
+        "float2",
+        "float4",
+        "float-expanded",
+        "float2-expanded",
+    ] {
+        let stage = stage(name, StageKind::Compute);
+        let declared = stage.with_declarations(declarations(&stage));
+        let layout = ProgramLayout::build(&[&declared]).unwrap();
+        for slot in layout.slots() {
+            assert_eq!(
+                slot.visibility,
+                wgpu::ShaderStages::COMPUTE,
+                "{name}: {slot:?}"
+            );
+        }
+        assert!(matches!(
+            layout.slot(0, 1).unwrap().ty,
+            wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                ..
+            }
+        ));
+    }
+}
+
+#[test]
 fn cpu_unused_buffer_capabilities_enter_the_fragment_stage_path() {
     for name in ["unused-sampled-buffer", "unused-image-buffer", "no-buffer"] {
         let stage = stage(name, StageKind::Fragment);
@@ -211,23 +240,7 @@ fn typed_buffer_stages_reflect_read_only_storage_with_exact_element_stride() {
             ),
             "{name}: {input:?}"
         );
-        let bindings = stage
-            .reflected()
-            .iter()
-            .map(|resource| ResourceBinding {
-                at: BindingAddress {
-                    set: resource.set,
-                    binding: resource.binding,
-                },
-                source: BindingSource::Unnamed,
-                visibility: wgpu::ShaderStages::all(),
-                kind: ResourceKind::of_binding_type(&resource.ty, resource.min_size).unwrap(),
-            })
-            .collect();
-        let declared = stage.with_declarations(StageDeclarations {
-            resources: ResourceLayout::new(bindings),
-            constants: vec![],
-        });
+        let declared = stage.with_declarations(declarations(&stage));
         let layout = ProgramLayout::build(&[&declared]).unwrap();
         let slot = layout.slot(0, 0).unwrap();
         assert_eq!(slot.min_size, stride);
@@ -242,6 +255,11 @@ fn typed_buffer_stages_reflect_read_only_storage_with_exact_element_stride() {
 }
 
 fn declarations(stage: &StageProgram) -> StageDeclarations {
+    let visibility = match stage.module().kind {
+        StageKind::Vertex => wgpu::ShaderStages::VERTEX,
+        StageKind::Fragment => wgpu::ShaderStages::FRAGMENT,
+        StageKind::Compute => wgpu::ShaderStages::COMPUTE,
+    };
     let bindings = stage
         .reflected()
         .iter()
@@ -251,7 +269,7 @@ fn declarations(stage: &StageProgram) -> StageDeclarations {
                 binding: resource.binding,
             },
             source: BindingSource::Unnamed,
-            visibility: wgpu::ShaderStages::all(),
+            visibility,
             kind: ResourceKind::of_binding_type(&resource.ty, resource.min_size).unwrap(),
         })
         .collect();

@@ -199,3 +199,21 @@ fn hardware_terrain_displacement_is_an_explicit_sensitivity_reference() {
         function_source(&hardware, "scene_receiver_displacement")
     );
 }
+
+#[test]
+fn uncovered_receiver_controls_validate_for_each_live_consumer_family() {
+    let sources = crate::shadows::receiver_sources(true, true, true);
+    for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
+        for family in poison::ConsumerFamily::ALL {
+            for (source, terrain) in [(&sources.0, false), (&sources.1, true)] {
+                let consumer = consumer_source(source, layout, terrain);
+                let control = poison::source(&consumer, layout, family, terrain);
+                validate(&control);
+                assert_eq!(
+                    control != consumer,
+                    terrain == matches!(family, poison::ConsumerFamily::Terrain),
+                );
+            }
+        }
+    }
+}

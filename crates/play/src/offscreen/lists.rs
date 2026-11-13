@@ -25,7 +25,7 @@ use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{RendererListDesc, RendererView};
 
 use super::bounds::{enclosing_sphere, outside_planes, touches_sphere};
-use super::builtins::{add_main_light, view_layer};
+use super::builtins::{add_main_light, add_screen_size, view_layer};
 use super::frame::{Mapper, PASS_TAG, RendererSkip, Skip, fills_target};
 
 /// The `LightMode` value of the passes that draw a shadow caster into a shadow map. The names of
@@ -164,6 +164,9 @@ impl<'a> Mapper<'a> {
             Some(setup) => {
                 let mut values = view_layer(&setup.view, &setup.projection);
                 add_main_light(&mut values, &self.snapshot.lights);
+                if let Some(size) = self.target_size() {
+                    add_screen_size(&mut values, size);
+                }
                 Ok((values, setup.view.inverse().w_axis.truncate()))
             }
             None => Ok((PropertyLayer::default(), Vec3::ZERO)),

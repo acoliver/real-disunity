@@ -258,6 +258,28 @@ fn a_state_that_does_not_describe_each_attachment_is_refused_by_name() {
 }
 
 #[test]
+fn a_written_target_needs_a_fragment_output_and_an_extra_output_is_dropped() {
+    let gpu = Gpu::new();
+    let mut runtime = gpu.runtime();
+    let area = [-1.0, -1.0, 1.0, 1.0];
+    let three = TargetSignature::attachments(&[RGBA8; 3], None, 1).unwrap();
+    // fs_one writes location 0 only, so a second written attachment would get undefined values.
+    let written = state(vec![
+        Some(plain(ColorWrites::ALL)),
+        Some(plain(ColorWrites::RED)),
+        Some(plain(ColorWrites::empty())),
+    ]);
+    assert_eq!(
+        prepare(&gpu, &mut runtime, "fs_one", &written, (area, three)).unwrap_err(),
+        ProgramError::TargetWithoutFragmentOutput { location: 1 }
+    );
+    // fs_two writes locations 0 and 1; one attachment takes location 0 and wgpu drops the other.
+    let one = TargetSignature::attachments(&[RGBA8], None, 1).unwrap();
+    let single = state(vec![Some(plain(ColorWrites::ALL))]);
+    prepare(&gpu, &mut runtime, "fs_two", &single, (area, one)).unwrap();
+}
+
+#[test]
 fn a_signature_describes_one_to_four_attachments_of_a_power_of_two_samples() {
     let colors = |count| vec![RGBA8; count];
     assert_eq!(

@@ -74,7 +74,7 @@ fn external_device_target_and_live_contribution_reach_landmark_pixels() {
         tint: [1.0, 0.0, 0.0, 1.0],
         ..DynamicQuad::default()
     };
-    apply_contribution(&mut scene, &context, &pipelines, contribution);
+    apply_contribution(&mut scene, &context, &pipelines, &contribution);
     scene.set_frame(context.queue(), FrameUniform::unlit(&view));
     let mut target = OffscreenTarget::new(context.device(), view.viewport()).unwrap();
     let image = target.render(&context, &scene, &pipelines).unwrap();
@@ -89,14 +89,14 @@ fn apply_contribution(
     scene: &mut SceneGpu,
     context: &GpuContext,
     pipelines: &ScenePipelines,
-    contribution: DynamicQuad,
+    contribution: &DynamicQuad,
 ) {
     scene
         .set_dynamic_quads(
             context.device(),
             context.submission(),
             pipelines,
-            &[contribution],
+            std::slice::from_ref(contribution),
         )
         .unwrap();
 }

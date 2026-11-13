@@ -17,7 +17,8 @@ namespace Disunity.Hosting;
 /// host libraries, for types the framework's own facades forward to them. Each game assembly it loads
 /// also gets the player's native plugin resolution (<see cref="PlayerNativePlugins"/>). With a
 /// callback cache, a game assembly that makes delegates for static methods marked <c>MonoPInvokeCallback</c> loads
-/// from a rewritten copy in the cache that keeps those delegates alive, as a player's own runtime does.
+/// from a rewritten copy in the cache that keeps those delegates alive, as a player's own runtime does. An IL-only game
+/// image flagged 32-bit-required loads from a copy without that flag, which a player's runtime ignores.
 /// </summary>
 public sealed class PlayerAssemblies
 {
@@ -97,9 +98,17 @@ public sealed class PlayerAssemblies
         if (!_game.Contains(simple)) return ResolveHostLibrary(context, name);
         if (!File.Exists(path))
             throw new FileNotFoundException($"the player lists {simple} but its Managed directory has no {simple}.dll", path);
-        var assembly = context.LoadFromAssemblyPath(_callbacks?.Resolve(simple, path) ?? path);
+        var assembly = Load(context, _callbacks?.Resolve(simple, path) ?? path);
         _native?.Register(assembly);
         return assembly;
+    }
+
+    /// <summary>Loads a game image from its file, or from a copy without the 32-bit requirement (see <see cref="PlayerImages"/>).</summary>
+    private static Assembly Load(AssemblyLoadContext context, string path)
+    {
+        if (PlayerImages.WithoutThirtyTwoBitRequirement(path) is not { } image) return context.LoadFromAssemblyPath(path);
+        using var stream = new MemoryStream(image, writable: false);
+        return context.LoadFromStream(stream);
     }
 
     /// <summary>

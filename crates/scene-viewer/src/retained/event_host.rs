@@ -24,4 +24,14 @@ impl RetainedEventHost<'_> {
     pub fn set_cursor_visible(&mut self, visible: bool) -> Result<(), CursorError> {
         self.host.set_cursor_visible(visible)
     }
+
+    /// Same request and errors as `RetainedHost::set_window_mode`, for key bindings
+    /// such as Alt+Enter that act at event time.
+    pub fn set_window_mode(&mut self, mode: crate::WindowMode) -> Result<(), WindowControlError> {
+        self.host.set_window_mode(mode)
+    }
+
+    pub fn display(&self) -> Result<Option<crate::DisplayInfo>, WindowControlError> {
+        self.host.display()
+    }
 }

@@ -15,6 +15,8 @@ const OFFSET: [i64; 2] = [973_000, 887_000];
 const TERRAIN_SIDE: u32 = 129;
 #[path = "receiver_gradient_backing.rs"]
 mod backing;
+#[path = "receiver_payload_coverage.rs"]
+mod coverage;
 #[path = "receiver_gradient_control.rs"]
 mod streamed;
 

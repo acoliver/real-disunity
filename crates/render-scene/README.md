@@ -471,12 +471,16 @@ coverage rejection. Each cascade transforms those displacements and applies the
 projection quotient rule before solving the shadow-UV depth gradient. Differencing
 rounded atlas coordinates would magnify cancellation at large world offsets.
 Paired single-sample frames publish those receiver displacements once in the
-metadata prepass. Forward lighting loads them at the raster pixel in both depth
-policies. Both producer and consumer retain invariant position outputs even
-with independent depth textures. One receiver uses `Rgba32Float` and `Rg32Float`
-array textures, 24 bytes per
-pixel. Nonzero normal bias with live transmission adds an independently evaluated
-opposite-normal receiver in a second array layer, for 48 bytes per pixel.
+metadata prepass. Forward lighting loads them at the raster pixel in reuse, shared
+and independent depth modes. Both producer and consumer retain invariant position
+outputs even with independent depth textures. Unwritten texels are not receiver
+data: their clear value must not affect any published frame product. Stock reuse
+draws consume the prepass winner's depth and stencil ownership. Background, water
+and dynamic unlit quads do not evaluate stored receiver functions, including when
+they replace the paired surface's final colour or depth. One receiver uses
+`Rgba32Float` and `Rg32Float` array textures, 24 bytes per pixel. Nonzero normal bias
+with live transmission adds an independently evaluated opposite-normal receiver
+in a second array layer, for 48 bytes per pixel.
 Mesh and card geometry use hardware position displacements `dP`. Terrain uses
 its selected triangle's analytic adjacent-pixel displacement in three dimensions,
 sharing the material footprint's plane solve and bounds. Producer and local terrain
@@ -535,7 +539,12 @@ No receiver derivative depends on a texture load from another invocation. Helper
 lanes and fragments that later fail depth can execute loads, but their values do
 not contribute to surviving outputs. A GPU control replaces the uncovered clear
 values with large signed displacements and requires every downstream attachment
-and output byte to remain unchanged.
+and output byte to remain unchanged in all three depth modes and both layouts.
+The fixtures cover ordinary opaque, masked and transmitting surfaces, relief
+cards, runtime terrain, water and a visible unpaired quad. Test-only positive
+controls route a verified uncovered texel through each live ordinary front/back,
+card front/back and terrain consumer into both reflection MRTs, requiring exact
+layer-specific sentinels to prove the comparisons detect a bad load.
 
 `ReceiverGradientReservation` bounds this storage in `RendererConfiguration`.
 The default reserves both receivers for dynamic scene admission; `Front` reserves

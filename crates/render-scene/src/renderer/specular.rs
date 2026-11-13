@@ -189,8 +189,20 @@ impl ScenePipelines {
     ) -> Self {
         let spec = &self.specialization;
         let sources = [&spec.source, &spec.terrain].map(|source| {
+            use crate::scene_metadata::receiver::ReceiverReference;
+            let source = if matches!(
+                reference,
+                ReceiverReference::HardwareProbeShared
+                    | ReceiverReference::HardwareProbeReuse
+                    | ReceiverReference::HardwareProbeIndependent
+            ) {
+                crate::scene_metadata::receiver::hardware_receiver_reference(source)
+            } else {
+                source.to_string()
+            };
+            let source = source.as_str();
             assert!(!source.contains("scene_receiver_load("));
-            assert!(source.contains("dpdx(position) + dpdx(normal) * shadow.bias.y"));
+            assert!(source.contains("dpdx(normal) * shadow.bias.y"));
             if reference.probe() {
                 let source = crate::scene_metadata::receiver::probe_source(source);
                 if matches!(
@@ -213,6 +225,11 @@ impl ScenePipelines {
                 } else {
                     source
                 }
+            } else if matches!(
+                reference,
+                crate::scene_metadata::receiver::ReceiverReference::MainArithmetic
+            ) {
+                crate::scene_metadata::receiver::main_receiver_positions(source)
             } else {
                 source.to_string()
             }
@@ -231,6 +248,13 @@ impl ScenePipelines {
         } else {
             // References are the plain consumer the production frame must match.
             let selected = selected.for_receiver_gradients(receiver, false);
+            if let crate::scene_metadata::receiver::ReceiverReference::UncoveredProbe {
+                family,
+                ..
+            } = reference
+            {
+                return selected.with_uncovered_probe(receiver, family);
+            }
             if matches!(
                 reference,
                 crate::scene_metadata::receiver::ReceiverReference::LateCardRejection
@@ -240,6 +264,28 @@ impl ScenePipelines {
                 selected
             }
         }
+    }
+
+    #[cfg(test)]
+    fn with_uncovered_probe(
+        &self,
+        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+        family: crate::scene_metadata::receiver::poison::ConsumerFamily,
+    ) -> Self {
+        let spec = &self.specialization;
+        let source =
+            crate::scene_metadata::receiver::poison::source(&spec.source, receiver, family, false);
+        let terrain =
+            crate::scene_metadata::receiver::poison::source(&spec.terrain, receiver, family, true);
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (&source, &terrain),
+            (&spec.shadow, spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        selected
     }
 
     #[cfg(test)]

@@ -21,7 +21,9 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::CameraClear;
 
 use super::bounds::Bounds;
-use super::builtins::{OBJECT_TO_WORLD, VIEW_PROJECTION, camera_layer, draw_layer};
+use super::builtins::{
+    OBJECT_TO_WORLD, VIEW_PROJECTION, add_main_light, add_screen_size, camera_layer, draw_layer,
+};
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
 use super::pixels::{self, Wanted};
@@ -654,12 +656,15 @@ impl<'a> Mapper<'a> {
             CameraClear::DepthOnly => (None, true),
             CameraClear::Nothing => (None, false),
         };
+        let mut values = camera_layer(view, texels(size[0]) / texels(size[1]));
+        add_main_light(&mut values, &self.snapshot.lights);
+        add_screen_size(&mut values, size);
         Camera {
             culling_mask: view.settings.culling_mask,
             clear_color,
             clear_depth,
             pass: self.settings.pass_selector(),
-            values: camera_layer(view, texels(size[0]) / texels(size[1])),
+            values,
             // Unity winds front faces clockwise as seen with up up. The image is the other way up
             // (see `camera::clip_from_gl`), which reverses a winding.
             front_face: wgpu::FrontFace::Ccw,

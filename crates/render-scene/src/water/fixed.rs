@@ -202,6 +202,7 @@ pub(super) fn pipelines(
 /// of its vertices. `pipelines` are those of [`pipelines`] for the same feature. Returns the
 /// number of bodies drawn.
 pub(super) fn record(
+    device: &wgpu::Device,
     feature: &WaterFeature,
     pipelines: &[Option<wgpu::RenderPipeline>],
     pass: &mut wgpu::RenderPass<'_>,
@@ -209,8 +210,24 @@ pub(super) fn record(
     if let Some(shadow) = &feature.shadow {
         pass.set_bind_group(1, shadow, &[]);
     }
+    // The groups the fixed path bound: one per body over the frame slot's snapshots, built here
+    // so that the feature under test builds them only for the reactive mask.
+    let groups: Vec<_> = feature
+        .water
+        .bodies
+        .iter()
+        .enumerate()
+        .map(|(index, body)| {
+            feature.water.snapshot_group(
+                device,
+                &feature.snapshots,
+                &body.uniforms[feature.slot],
+                index,
+            )
+        })
+        .collect();
     let mut drawn = 0;
-    let bodies = feature.water.bodies.iter().zip(&feature.groups);
+    let bodies = feature.water.bodies.iter().zip(&groups);
     for ((body, group), pipeline) in bodies.zip(pipelines) {
         let Some(pipeline) = pipeline else {
             continue;

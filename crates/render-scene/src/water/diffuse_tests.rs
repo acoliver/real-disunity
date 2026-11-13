@@ -86,6 +86,8 @@ fn water_diffuse_conventions_have_distinct_reused_pipelines() {
         vec![settings()],
     )
     .unwrap();
+    // The fixture clears its shadow map in a submission of its own, before the frame opens.
+    let shadow = crate::dynamic::capture_tests::shadow_fixture::groups(&context);
     let encoder = context.submission().begin(context.device()).unwrap();
     let gpu = (context.device(), &*encoder);
     let built = || water.programs.borrow().built();
@@ -114,5 +116,25 @@ fn water_diffuse_conventions_have_distinct_reused_pipelines() {
         3,
         "a scene disk shares the default convention's program"
     );
+    let shadowed = Some(&shadow[0]);
+    let a_shadowed = water.feature(gpu, &prepared_frame(false), (0.0, 0), (shadowed, None));
+    assert_eq!(
+        built(),
+        4,
+        "a shadowed convention draws with a program of its own"
+    );
+    let a_again = water.feature(gpu, &prepared_frame(false), (0.0, 0), (shadowed, None));
+    assert_eq!(
+        built(),
+        4,
+        "a shadowed convention drawn again reuses its program"
+    );
+    let b_shadowed = water.feature(gpu, &prepared_frame(true), (0.0, 0), (shadowed, None));
+    assert_eq!(
+        built(),
+        5,
+        "the two diffuse conventions draw with distinct shadowed programs"
+    );
     drop((a, b, again, default, scene_disk));
+    drop((a_shadowed, a_again, b_shadowed));
 }

@@ -76,7 +76,13 @@ fn unread_post_ids_survive_resize_and_reconfiguration() {
         )
         .unwrap();
     submit(&device, &queue, &chain, 3);
-    let frames = chain.take_timings().unwrap();
+    let expected = if support == TimingSupport::Unsupported {
+        0
+    } else {
+        3
+    };
+    let frames =
+        crate::timing_test_support::take_frames(&device, expected, || chain.take_timings());
     if support == TimingSupport::Unsupported {
         assert!(frames.is_empty());
         return;

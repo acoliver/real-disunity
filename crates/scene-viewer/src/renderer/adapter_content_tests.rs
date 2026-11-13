@@ -54,6 +54,7 @@ fn concrete_startup_reuses_object_and_decal_storage() {
         },
         &adapter,
         size,
+        None,
     )
     .unwrap();
     assert_storage(&scene, &resolved.scene);
@@ -74,9 +75,13 @@ fn retained_and_supplier_startup_borrow_stored_scene() {
             RetainedHost::new(storage_scene(), crate::tests::options())
         }
         .unwrap();
-        let resolved =
-            super::startup::resolve(super::SceneSource::Retained(&mut host), &adapter, [64, 32])
-                .unwrap();
+        let resolved = super::startup::resolve(
+            super::SceneSource::Retained(&mut host),
+            &adapter,
+            [64, 32],
+            None,
+        )
+        .unwrap();
         let objects = resolved.scene.geometry().objects().as_ptr();
         let decals = resolved.scene.decals().as_ptr();
         drop(resolved);

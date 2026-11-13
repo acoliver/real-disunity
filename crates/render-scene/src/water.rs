@@ -288,8 +288,8 @@ impl Water {
         ];
         let draws = water.body_draws((options, shadow.is_some()), slot, encoder)?;
         let mask = water.mask_draw(device, mask, options);
-        // The reactive mask still binds the fixed groups, and so does the frozen reference.
-        let groups = if mask.is_some() || cfg!(test) {
+        // The reactive mask still binds the fixed groups.
+        let groups = if mask.is_some() {
             self.bodies
                 .iter()
                 .enumerate()
@@ -489,8 +489,7 @@ pub(crate) struct WaterFeature {
     slot: usize,
     /// Each body's draw, prepared and retained by the frame; `None` for a body without vertices.
     draws: Vec<Option<worldrunner_render_program::runtime::PreparedProgramDraw>>,
-    /// The fixed groups of the reactive mask, built only when the mask draws, and in tests for
-    /// the frozen reference.
+    /// The fixed groups of the reactive mask, built only when the mask draws.
     groups: Vec<wgpu::BindGroup>,
     shadow: Option<wgpu::BindGroup>,
     mask: Option<reactive::MaskDraw>,
@@ -522,11 +521,13 @@ impl WaterFeature {
             .as_mut()
             .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?
             .load = AttachmentLoad::Load;
-        water
+        let depth = water
             .depth
             .as_mut()
-            .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?
-            .load = AttachmentLoad::Load;
+            .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+        depth.load = AttachmentLoad::Load;
+        // The surface writes depth even when relief card rejection made the Opaque copy read-only.
+        depth.read_only = false;
         for view in receivers::views(&self.water.receivers[self.slot])? {
             let mut attachment = crate::compositor::attachment(view.resource(), &view, false);
             attachment.load = AttachmentLoad::ClearColor(wgpu::Color::TRANSPARENT);
@@ -622,25 +623,31 @@ fn number(value: i64) -> f32 {
 fn input_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("water inputs"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            texture_entry(1),
-            texture_entry(2),
-        ]
-        .into_iter()
-        .chain(receivers::environment_entries())
-        .chain(surface::entries())
-        .collect::<Vec<_>>(),
+        entries: &input_entries(),
     })
+}
+
+/// Set 0 of the fixed groups the reactive mask binds. `program::bindings` declares the same set
+/// for the body draw; `program_tests` holds the two together.
+fn input_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
+    [
+        wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        texture_entry(1),
+        texture_entry(2),
+    ]
+    .into_iter()
+    .chain(receivers::environment_entries())
+    .chain(surface::entries())
+    .collect()
 }
 
 fn uniform_data(frame: &FrameUniform, time: f32, s: &SceneWaterBody) -> Vec<f32> {

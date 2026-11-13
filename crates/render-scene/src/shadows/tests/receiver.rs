@@ -98,7 +98,7 @@ fn gpu_receiver_gradient_reports_main_deltas_on_existing_shadow_fixtures() {
                 context.device(),
                 (OffscreenTarget::COLOR_FORMAT, 1),
                 &resources::SHADOWED_WGSL.replace(current, &reference),
-                &resources::SHADOWED_TERRAIN_WGSL.replace(current, &reference),
+                &replace_terrain_shadow_receiver(current, &reference),
                 Some(&renderer.shadow_layout),
                 None,
             );
@@ -157,6 +157,14 @@ fn receiver_scene() -> RenderScene {
     fixture::caster_scene(vec![fixture::object([0, 0, 0], 1, 1)], dome, None, false)
 }
 
+fn replace_terrain_shadow_receiver(original: &str, replacement: &str) -> String {
+    let hardware = crate::scene_metadata::receiver::hardware_receiver_reference(
+        resources::shadowed_terrain_source(),
+    );
+    assert_eq!(hardware.matches(original).count(), 1);
+    hardware.replace(original, replacement)
+}
+
 const SCALAR_RECEIVER: &str = r"
 fn raw_sunlight_visibility(position: vec3<f32>, normal: vec3<f32>) -> f32 {
     let clip = shadow.clip_from_world[0] * vec4<f32>(position + normal * shadow.bias.y, 1.0);
@@ -173,7 +181,7 @@ fn scalar_pipelines(context: &GpuContext, renderer: &ShadowedScene) -> ScenePipe
     let (_, suffix) = rest.split_once("fn direct_sunlight_visibility").unwrap();
     let receiver = format!("{prefix}{SCALAR_RECEIVER}fn direct_sunlight_visibility{suffix}");
     let source = resources::SHADOWED_WGSL.replace(original, &receiver);
-    let terrain = resources::SHADOWED_TERRAIN_WGSL.replace(original, &receiver);
+    let terrain = replace_terrain_shadow_receiver(original, &receiver);
     ScenePipelines::with_screen_space(
         context.device(),
         (OffscreenTarget::COLOR_FORMAT, 1),

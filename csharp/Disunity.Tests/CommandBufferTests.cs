@@ -57,12 +57,19 @@ internal static class CommandBufferTests
         Ensure(buffer.commandCount == 0, "members that cannot record add nothing to the buffer");
         buffer.ClearRandomWriteTargets();
         Ensure(buffer.commandCount == 0, "clearing random-write targets records nothing, since none can be bound");
+        buffer.SetInstanceMultiplier(1);
+        Ensure(buffer.commandCount == 0, "an instance multiplier of 1 records nothing");
+        foreach (var multiplier in new uint[] { 0, 2, uint.MaxValue })
+            Throws<NotSupportedException>(() => buffer.SetInstanceMultiplier(multiplier), $"instance multiplier {multiplier}",
+                $"SetInstanceMultiplier({multiplier})", "only 1 is supported");
+        Ensure(buffer.commandCount == 0, "a refused instance multiplier records nothing");
         buffer.BeginSample("s");
         buffer.EndSample("s");
         buffer.EndSample("never begun");
         Ensure(buffer.commandCount == 0, "profiler samples record nothing, since the engine captures no profile");
         buffer.Release();
         Throws<ObjectDisposedException>(() => buffer.ClearRandomWriteTargets(), "a released buffer", "CommandBuffer");
+        Throws<ObjectDisposedException>(() => buffer.SetInstanceMultiplier(1), "an instance multiplier on a released buffer", "CommandBuffer");
         Throws<ObjectDisposedException>(() => buffer.EndSample("s"), "EndSample after Release", "CommandBuffer");
         ExecutionFlagsAreSetOnAnEmptyBuffer();
         ShadingRatesRecordNothing();

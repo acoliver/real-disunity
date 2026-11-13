@@ -110,7 +110,10 @@ fn shadowed_ssao_requires_exact_profile_settings_before_preparation() {
 #[test]
 fn shadowed_sources_have_exactly_one_ambient_injection_marker() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    for source in [resources::SHADOWED_WGSL, resources::SHADOWED_TERRAIN_WGSL] {
+    for source in [
+        resources::SHADOWED_WGSL,
+        resources::shadowed_terrain_source(),
+    ] {
         let result = crate::ssao::ambient_source(source);
         assert_eq!(result.matches("* screen_ao(world_position)").count(), 1);
         assert!(!result.contains("/* SCREEN_AMBIENT_FACTOR */"));

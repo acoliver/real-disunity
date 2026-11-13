@@ -41,7 +41,7 @@ use crate::geometry::{instance_attributes, previous_instance_attributes, vertex_
 use crate::pipeline::{MATERIAL_UNIFORM_BYTES, MaskCoverage, PipelineKey};
 use crate::renderer::depth::DepthMode;
 use crate::terrain::program::{
-    Family, Screen, declare, filtering, float, frame_bindings, read_only, shadow_bindings,
+    Family, Screen, declare, filtering, float, frame_bindings, object_shadow_bindings, read_only,
 };
 
 /// The engine semantics the material's bindings are filled from.
@@ -320,7 +320,7 @@ impl Context {
             sets.push(ExternalSet {
                 set: 2,
                 layout: shadow.clone(),
-                bindings: shadow_bindings(description.source.contains("fn scene_receiver_load(")),
+                bindings: object_shadow_bindings(&description.source),
             });
         }
         if let (Some(layout), Some(screen)) = (&description.screen, self.0.screen) {

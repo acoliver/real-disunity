@@ -8,15 +8,18 @@ namespace Disunity.Hosting;
 /// The render pipeline assets a player starts with, from the <c>graphics</c> section of the resource plan:
 /// <c>{"render_pipeline": asset or null, "global_settings": asset or null, "quality_pipelines": [asset or null per
 /// quality level]}</c>. They are script assets like any other, built with their fields. An asset that cannot be
-/// built is logged by name with its cause and left null, so the player starts without it.
+/// built is logged by name with its cause and left null, so the player starts without it. The shaders the build always
+/// includes and the shaders of the player's Resources folders are declared by name at the same time.
 /// </summary>
 internal sealed partial class ResourceDatabase
 {
-    /// <summary>Builds the planned pipeline assets and gives them to <see cref="GraphicsSettings"/>,
-    /// <see cref="QualitySettings"/> and the global settings registry. Building does not create a renderer.</summary>
+    /// <summary>Declares the shaders of the player's Resources folders, then builds the planned pipeline assets and gives
+    /// them to <see cref="GraphicsSettings"/>, <see cref="QualitySettings"/> and the global settings registry. Building does
+    /// not create a renderer.</summary>
     public void ApplyGraphics(Action<string> log)
     {
         RequireMainThread();
+        DeclareResourceShaders(log);
         if (_graphics is not { } graphics) return;
         var pipeline = BuildGraphicsAsset<RenderPipelineAsset>(Planned(graphics, "render_pipeline"), "render pipeline asset", log);
         var global = BuildGraphicsAsset<RenderPipelineGlobalSettings>(Planned(graphics, "global_settings"), "render pipeline global settings asset", log);
@@ -35,6 +38,23 @@ internal sealed partial class ResourceDatabase
     {
         if (!graphics.TryGetProperty("always_included_shaders", out var shaders)) return;
         foreach (var index in shaders.EnumerateArray()) BuildGraphicsAsset<Shader>(index.GetInt32(), "always included shader", log);
+    }
+
+    /// <summary>Builds the shaders of the container entries, which declares each by name, so <see cref="Shader.Find"/> returns
+    /// one before anything loads it. A shader that cannot be built is logged by its path and left out.</summary>
+    private void DeclareResourceShaders(Action<string> log)
+    {
+        foreach (var entry in _entries.Where(entry => entry is { Class: "Shader", Asset: not null }))
+        {
+            try
+            {
+                Build(entry, typeof(Shader));
+            }
+            catch (Exception error)
+            {
+                log($"the resource shader {entry.Path} could not be built: {error.GetType().Name}: {error.Message}; Shader.Find does not return it");
+            }
+        }
     }
 
     private static int? Planned(System.Text.Json.JsonElement graphics, string name) =>

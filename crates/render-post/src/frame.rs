@@ -61,6 +61,9 @@ pub struct AttachmentDeclaration {
     pub samples: u32,
     pub load: AttachmentLoad,
     pub store: wgpu::StoreOp,
+    /// Attach a depth target without writing it, so the same pass may also sample it.
+    /// Requires `load: Load` and `store: Store`.
+    pub read_only: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -209,6 +212,7 @@ pub(crate) fn validate_frame_inputs(
                     samples: view.texture().sample_count(),
                     load: AttachmentLoad::Load,
                     store: wgpu::StoreOp::Store,
+                    read_only: false,
                 },
             )
         })
@@ -375,7 +379,10 @@ fn validate_feature(
         return Err(FrameError::AttachmentContract(pass.slot));
     }
     for resource in &feature.reads {
-        if attachments.iter().any(|a| a.resource == *resource) {
+        let sampled_depth = pass.depth.as_ref().is_some_and(|depth| {
+            depth.resource == *resource && depth.read_only && depth.load == AttachmentLoad::Load
+        });
+        if !sampled_depth && attachments.iter().any(|a| a.resource == *resource) {
             return Err(FrameError::AttachmentHazard(*resource));
         }
         require_producer(produced, *resource)?;

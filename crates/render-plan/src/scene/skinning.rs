@@ -184,6 +184,12 @@ impl SceneSkeleton {
 }
 
 /// Current and previous skinning palettes for one scene instance.
+///
+/// Each entry is the final mesh-local skinning transform of one joint: the posed joint
+/// transform with the skeleton's inverse bind already applied. A deformed vertex is the
+/// weighted sum of these transforms applied to its bind position, so the identity
+/// [`Self::rest_pose`] draws the bind mesh. The renderer reads palettes directly and never
+/// composes the hierarchy or the inverse binds; producers such as an animation evaluator do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SceneSkinPose {
     current: Box<[SceneAffineMatrix]>,

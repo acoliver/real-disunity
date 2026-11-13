@@ -57,14 +57,20 @@ let failures = scripts.advance(tick_ms)?;
 
 | Function | Behaviour |
 | --- | --- |
-| `spawn(f, ...)` | Creates a thread that calls `f(...)`, first running at the next `advance`. Returns the thread. |
+| `spawn(f, ...)` | Creates a thread that calls `f(...)`, first running at the next ordinary advance or selected-clock step for its clock. Returns the thread. |
 | `sleep(ms)` | Suspends the calling thread for `ms` milliseconds, rounded up. `math.huge` sleeps until woken. Negative or non-numeric times are errors. |
 | `wakeup(thread)` | Makes a sleeping thread due now. Returns whether it was waiting. |
 | `kill(thread)` | Removes a thread, including the running one. Returns whether it existed. |
 | `current()` | The running scheduler thread, or nil outside one. |
 | `now()` | The scheduler clock in milliseconds. |
 
-`advance(ms)` moves the clock and runs every thread due by then, in order of wake time and then of scheduling. A thread sees the clock at its wake time, so one that sleeps again within the advanced span runs again within it. `sleep(0)` and any other plain `coroutine.yield` wait for the next `advance`, so a loop of zero sleeps cannot spin within one. Each resume has the full instruction budget. An error ends only the thread that raised it and is returned in `advance`'s failure list; the other threads keep running. `sleep` outside a scheduler thread is an error.
+`advance(ms)` moves every unpaused clock and runs every thread due by then, in order of wake time and then of scheduling. A thread sees its clock at its wake time, so one that sleeps again within the advanced span runs again within it. `sleep(0)` and any other plain `coroutine.yield` wait for the next ordinary advance or selected-clock step for that thread's clock, so a loop of zero sleeps cannot spin within one. Each resume has the full instruction budget. An error ends only the thread that raised it and is returned in the advance's failure list; the other threads keep running. `sleep` outside a scheduler thread is an error.
+
+`advance_clock(name, ms)` steps only the named clock. It preserves pause state, dispatches only the selected clock's due work and releases only that clock's deferred work. Other clocks stay stationary and their threads do not run, even when overdue. A selected paused clock neither moves nor runs threads. Unknown names and overflow of the selected unpaused clock are errors; an unselected clock at `u64::MAX` does not prevent the step. For a policy with clocks `["game", "real"]`, the host can run real-time work without advancing game time:
+
+```rust
+let failures = scripts.advance_clock("real", tick_ms)?;
+```
 
 `register_scheduler_with(&names, &policy)` selects the semantics of a game's original engine with a `SchedulerPolicy`. The default policy is the behavior above. A policy sets:
 
@@ -75,7 +81,7 @@ let failures = scripts.advance(tick_ms)?;
 | `zero_sleep` | `NextAdvance` | `SameAdvance`: due now, may run again in the same advance; `max_zero_sleeps` ends a thread that loops |
 | `new_thread` | `NextAdvance` | `SameAdvance`: a thread created in an advance runs in it when due |
 | `order` | `ByWakeThenReschedule` | `ByWakeThenClockThenRegistration`: ties run by clock in the order `clocks` lists them, then by creation |
-| `clocks` | `["game"]` | Named clocks, each with its own time. The first is the default. `spawn_on` and `read_clock` bind natives for a clock; the host uses `set_clock`, `clock_now` and `set_clock_paused`. A paused clock does not move and its threads do not run |
+| `clocks` | `["game"]` | Named clocks, each with its own time. The first is the default. `spawn_on` and `read_clock` bind natives for a clock; the host uses `set_clock`, `clock_now` and `set_clock_paused`. `advance` steps all unpaused clocks; `advance_clock(name, ms)` steps only the named clock. A paused clock does not move and its threads do not run |
 | `waits`, `wake` | none | Waits with an optional timeout (`WaitWakeup`, `WaitMsg`). A timeout resumes the thread with the kind's `timeout_value`; `wake(thread, ...)` or `GameScripts::wake_thread` resumes it with the given values. A kind's `on_resume` native runs just before either, so the game can unlink the thread from its own message tables |
 | `wake_kinds` | none | Natives `wake(thread, ...)` that each name one wait of `waits` and resume only a thread in that wait that has not been woken yet, with the values given. A thread in another wait, asleep, already woken, ended or not a scheduler thread is left alone and the native returns false. A game binds `Wakeup` to `WaitWakeup` and the message wake to `WaitMsg`; the plain `wake` still wakes any wait |
 
@@ -92,7 +98,7 @@ A policy can also bind natives that let a game's Lua use the state the scheduler
 | `set_clock` | `set_clock(ms)` for a named clock | Sets the clock to `ms`; nil and negative times are 0. Threads already waiting keep their wake times, so moving the clock back makes them wait longer and moving it ahead makes them due at once. Inside an advance a clock set back is moved forward again as the advance continues, unless the advance is interrupted |
 | `interrupt` | `interrupt()` | Ends the advance in progress once the running thread yields. The clocks stay at the time of that thread and the threads still due stay due for the next `advance`. Called outside an advance it does nothing |
 
-`GameScripts::threads()` lists every live scheduler thread in the order the threads were created, for a host's tools and tests. Each `ThreadInfo` has the Lua `thread`, its `clock` name, `flags`, `source`, `wait`, `due` and creation `order`. `wait` is `Deferred` (created or sleeping for zero, runs at the next `advance`), `Ready` (due now: not run yet, or a wake made it due), `Sleep`, or `Wait(native)` for the wait kind named by its native. `due` is the wake time in milliseconds on the thread's own clock, and `None` for a thread that waits without a timeout. Finished, failed and killed threads are not listed.
+`GameScripts::threads()` lists every live scheduler thread in the order the threads were created, for a host's tools and tests. Each `ThreadInfo` has the Lua `thread`, its `clock` name, `flags`, `source`, `wait`, `due` and creation `order`. `wait` is `Deferred` (created or sleeping for zero, released at the next ordinary advance or selected-clock step for its clock), `Ready` (due now: not run yet, or a wake made it due), `Sleep`, or `Wait(native)` for the wait kind named by its native. `due` is the wake time in milliseconds on the thread's own clock, and `None` for a thread that waits without a timeout. Finished, failed and killed threads are not listed.
 
 Flags set from Lua are what `GameScripts::persisted(mask)` and `SaveOptions::persisted` select, so a game marks the threads it wants saved after it creates them. These natives are policy settings, so `register_scheduler_with` registers them together with the rest of the scheduler, before the first `add_source`, as natives always are. The game grants them to its sources by name like any other native; no separate hook is needed.
 

@@ -1,10 +1,13 @@
-use super::ReceiverLayout;
+use super::{ReceiverCapture, ReceiverLayout};
 use worldrunner_render_post::{AttachmentView, FrameError, PassDeclaration, ResourceRef};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ReceiverPayload {
     pub(crate) layout: ReceiverLayout,
     pub(crate) bias: f32,
+    pub(crate) capture: ReceiverCapture,
+    #[cfg(test)]
+    pub(crate) clear: [wgpu::Color; 2],
     pub(crate) output: super::super::MetadataOutput,
     pub(crate) textures: [wgpu::Texture; 2],
     pub(crate) pipelines: crate::renderer::ScenePipelines,
@@ -27,10 +30,11 @@ impl ReceiverPayload {
         metadata: &super::super::SceneMetadata,
         layout: ReceiverLayout,
         bias: f32,
+        capture: ReceiverCapture,
         card_reject: bool,
     ) -> Self {
         let output = Self::output_for(metadata);
-        let sources = super::producer_sources(output, layout, bias);
+        let sources = super::producer_sources(output, layout, bias, capture);
         let pipelines =
             super::super::geometry::pipelines_from_sources(device, &metadata.uniform, &sources).0;
         let textures = metadata
@@ -42,6 +46,9 @@ impl ReceiverPayload {
         Self {
             layout,
             bias,
+            capture,
+            #[cfg(test)]
+            clear: [wgpu::Color::TRANSPARENT; 2],
             output,
             textures,
             pipelines,
@@ -73,8 +80,11 @@ impl ReceiverPayload {
                 let resource = Self::resource(u32::try_from(index).expect("two textures"), side);
                 let view = AttachmentView::new(resource, texture)?;
                 let mut attachment = crate::compositor::attachment(resource, &view, false);
-                attachment.load =
-                    worldrunner_render_post::AttachmentLoad::ClearColor(wgpu::Color::TRANSPARENT);
+                #[cfg(not(test))]
+                let clear = wgpu::Color::TRANSPARENT;
+                #[cfg(test)]
+                let clear = self.clear[side as usize];
+                attachment.load = worldrunner_render_post::AttachmentLoad::ClearColor(clear);
                 pass.additional_colors.push(attachment);
                 views.push(view);
             }

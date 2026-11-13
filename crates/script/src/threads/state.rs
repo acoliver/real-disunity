@@ -648,36 +648,52 @@ impl Scheduler {
         in_kind && self.wake(thread, Some(values))
     }
 
-    /// Moves threads waiting for the next advance onto their clocks, due now. Returns the time
-    /// of each clock, which the advance measures from.
-    pub(crate) fn begin_advance(&mut self, ms: u64) -> Option<Vec<u64>> {
+    /// Releases deferred threads on the selected clocks. Each selected clock has a start
+    /// time; unselected clocks have none and their threads stay filed as they were.
+    pub(crate) fn begin_advance(
+        &mut self,
+        ms: u64,
+        only: Option<usize>,
+    ) -> Option<Vec<Option<u64>>> {
         self.interrupted = false;
         for waiting in std::mem::take(&mut self.deferred) {
-            let now = self.clocks[waiting.clock].now;
-            self.schedule(waiting, now);
-        }
-        for clock in &self.clocks {
-            if !clock.paused {
-                clock.now.checked_add(ms)?;
+            if only.is_some_and(|index| index != waiting.clock) {
+                self.deferred.push(waiting);
+            } else {
+                let now = self.clocks[waiting.clock].now;
+                self.schedule(waiting, now);
             }
         }
-        Some(self.clocks.iter().map(|clock| clock.now).collect())
+        self.clocks
+            .iter()
+            .enumerate()
+            .map(|(index, clock)| {
+                if only.is_some_and(|selected| selected != index) {
+                    return Some(None);
+                }
+                if !clock.paused {
+                    clock.now.checked_add(ms)?;
+                }
+                Some(Some(clock.now))
+            })
+            .collect()
     }
 
     /// The next thread due within `ms` of `start`, and its time as milliseconds into the
     /// advance. The clocks that run move to it.
     pub(crate) fn next_due(
         &mut self,
-        start: &[u64],
+        start: &[Option<u64>],
         ms: u64,
         elapsed: u64,
     ) -> Option<(Waiting, u64)> {
         let mut best: Option<(u64, usize)> = None;
         for (index, clock) in self.clocks.iter().enumerate() {
+            let Some(from) = start[index] else { continue };
             let Some((&(wake, _), _)) = clock.queue.first_key_value() else {
                 continue;
             };
-            let at = wake.saturating_sub(start[index]).max(elapsed);
+            let at = wake.saturating_sub(from).max(elapsed);
             if clock.paused || at > ms || best.is_some_and(|(other, _)| other <= at) {
                 continue;
             }
@@ -690,10 +706,12 @@ impl Scheduler {
         Some((waiting, at))
     }
 
-    /// Moves every clock that is not paused to `elapsed` ms after `start`.
-    pub(crate) fn set_elapsed(&mut self, start: &[u64], elapsed: u64) {
+    /// Moves every selected clock that is not paused to `elapsed` ms after `start`.
+    pub(crate) fn set_elapsed(&mut self, start: &[Option<u64>], elapsed: u64) {
         for (clock, &from) in self.clocks.iter_mut().zip(start) {
-            if !clock.paused {
+            if let Some(from) = from
+                && !clock.paused
+            {
                 clock.now = clock.now.max(from.saturating_add(elapsed));
             }
         }

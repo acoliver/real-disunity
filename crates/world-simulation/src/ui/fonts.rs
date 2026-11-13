@@ -124,6 +124,13 @@ impl FontBook {
     pub fn layout(&self, run: &TextRun, size: Vec2) -> Result<Arc<TextLayout>, UiError> {
         self.layout_with_raster(run, size, GlyphRaster::default())
     }
+    /// Longest UTF-8 byte prefix whose unwrapped metric width fits `width`.
+    /// Uses one advance/pair pass without cloning prefixes, rasterizing or caching an atlas.
+    /// Explicit newlines reset pair state; CR is ignored, as in measurement.
+    pub fn fit_prefix(&self, run: &TextRun, width: f32) -> Result<usize, UiError> {
+        let font = self.validate_run(run, Vec2::new(width, 0.))?;
+        super::text_metrics::fit_prefix(font, run, width)
+    }
     /// Coverage rasterization with explicit padding. Distance layout is not supported.
     pub fn layout_with_raster(
         &self,

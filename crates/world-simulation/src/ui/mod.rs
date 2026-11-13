@@ -74,6 +74,7 @@ pub use text::{
     GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun, TextSpan,
     UiLinkId, VerticalAlign, VerticalOverflow,
 };
+pub use wrap::{LineBreakCandidates, advance_text, line_break_info};
 
 pub use crate::{FontId, UiError};
 

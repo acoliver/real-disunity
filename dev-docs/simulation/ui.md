@@ -455,6 +455,22 @@ ignored without losing its byte position. Empty lines keep their actual source
 positions. `LineMetrics::source` and `TextRun::substring` use checked UTF-8
 slices; substring also clips/rebases structured spans.
 
+`FontBook::fit_prefix(run, width)` returns the longest zero-based UTF-8 byte prefix
+whose unwrapped metric width fits a finite, nonnegative width. It scans advances
+and the same pair adjustments once, without cloning/re-measuring prefixes or
+building an atlas. LF resets pair state and CR is ignored. Font, shaping, glyph
+and input-budget validation covers the whole run, including the discarded suffix.
+
+`LineBreakCandidates` stores checked inclusive Unicode ranges supplied by the
+caller; ASCII space is always a candidate. `next` returns the next boundary
+strictly after the supplied UTF-8 byte offset, at the break character, excluding
+boundaries forbidden by the caller's start/end character sets. Remaining text
+always yields a terminal boundary at its byte length; starting at that terminal
+offset yields None. `line_break_info` classifies the first/last character against
+those same caller-owned sets. `advance_text` moves checked byte offsets by signed
+character counts, clamping at either end. These boundary services accept arbitrary
+UTF-8 independently of the font shaping subset and perform no font substitution.
+
 `layout_with_raster` includes `GlyphRaster { mode, padding }` in the cache key.
 Coverage with zero padding is the `layout` entry point and preserves existing
 raster bytes. Coverage padding expands ink bounds without changing metrics.

@@ -4,6 +4,50 @@ use super::{HorizontalOverflow, LineMetrics, TextRun, UiError, UiLimits, Vertica
 use ab_glyph::{FontArc, PxScaleFont, ScaleFont};
 use glam::Vec2;
 
+/// Computes all prefix advances once, including pairs and explicit paragraph boundaries.
+pub(super) fn fit_prefix(
+    registered: &super::fonts::RegisteredFont,
+    run: &TextRun,
+    width: f32,
+) -> Result<usize, UiError> {
+    use ab_glyph::{Font, GlyphId};
+    let scaled = registered
+        .font
+        .as_scaled(super::text::scale(&registered.font, run.font_size)?);
+    let face = ttf_parser::Face::parse(registered.font.font_data(), 0)
+        .map_err(|_| UiError::InvalidFont)?;
+    let pairs = registered.positioning.scaled(&face, run.font_size);
+    let mut previous: Option<GlyphId> = None;
+    let (mut current, mut completed) = (0_f32, 0_f32);
+    let mut end = 0;
+    for (byte, character) in run.text.char_indices() {
+        match character {
+            '\r' => (),
+            '\n' => {
+                completed = completed.max(current);
+                current = 0.;
+                previous = None;
+            }
+            _ => {
+                let id = scaled.glyph_id(character);
+                if id == GlyphId(0) {
+                    return Err(UiError::MissingGlyph(character));
+                }
+                current += previous.map_or(0., |p| pairs.x_advance(p.0, id.0));
+                current += scaled.h_advance(id);
+                previous = Some(id);
+            }
+        }
+        if !current.is_finite() {
+            return Err(UiError::InvalidFont);
+        }
+        if completed.max(current) <= width {
+            end = byte + character.len_utf8();
+        }
+    }
+    Ok(end)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextMeasurement {
     /// Maximum line advance, including unconsumed spaces, without ink or effects.

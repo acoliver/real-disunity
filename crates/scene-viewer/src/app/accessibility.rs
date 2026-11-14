@@ -13,9 +13,7 @@ impl App<'_> {
                 self.proxy.as_ref().expect("running event loop").clone(),
             );
         }
-        if !self.content.window_on_top() {
-            window.set_visible(true);
-        }
+        window.set_visible(true);
         self.renderer = Some(pollster::block_on(Renderer::from_source(
             event_loop.owned_display_handle(),
             window,

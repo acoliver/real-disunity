@@ -4,14 +4,9 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
-For measurement runs, such as presented-frame timing comparisons, call
-`host.with_window_on_top(true)` after either `RetainedHost` constructor to create
-the desktop window at `winit::window::WindowLevel::AlwaysOnTop`, above ordinary
-windows. Startup does not request window focus or, on macOS, activation over
-another app. Other elevated windows can still cover it, so measurement harnesses
-must check overlap. Normal play leaves this option off. It is disabled by default,
-adds no field to `ViewerOptions`, and is ignored by windowless execution.
-Occlusion, suspension, zero-area handling and frame scheduling are unchanged.
+For measurement runs, call `host.with_window_on_top(true)` after either
+`RetainedHost` constructor to keep the desktop window above ordinary windows
+with `winit::window::WindowLevel::AlwaysOnTop`. This option is off by default.
 
 ## Short sounds
 

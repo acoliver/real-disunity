@@ -99,7 +99,16 @@ impl Readback {
             .prepare(device, |encoder, _| self.encode(encoder, source))
             .map_err(worldrunner_render_gpu::submission::PrepareError::into_error)?;
         let submission = prepared.submit()?;
-        self.read_encoded(device, Some(submission))
+        let serial = authority.submitted_serial();
+        let bytes = self.read_encoded(device, Some(submission))?;
+        // The map can complete before another thread's poll records the submission, which
+        // would leave the authority busy for the caller's next frame.
+        authority.await_completion_record(
+            device,
+            serial,
+            std::time::Instant::now() + Duration::from_secs(30),
+        )?;
+        Ok(bytes)
     }
 
     /// Encodes at the caller's capture point. Submit this encoder before `read_encoded`.

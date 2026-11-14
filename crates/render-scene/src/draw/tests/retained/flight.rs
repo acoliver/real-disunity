@@ -136,7 +136,7 @@ fn encode_frame(
     let expected = batch.bytes.clone();
     let mut instances = BufferReadback::new(context.device(), expected.len() as u64, 4096).unwrap();
     instances
-        .encode(&mut encoder, batch.buffer.as_ref().unwrap())
+        .encode(&mut encoder, batch.buffer.as_deref().unwrap())
         .unwrap();
     let mut uniform = BufferReadback::new(context.device(), gpu.frame_buffer.size(), 4096).unwrap();
     uniform.encode(&mut encoder, &gpu.frame_buffer).unwrap();

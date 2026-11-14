@@ -27,3 +27,5 @@ mod rig;
 mod state;
 mod storage_images;
 mod surface;
+
+mod texel_buffer;

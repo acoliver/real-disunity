@@ -113,6 +113,7 @@ pub(crate) fn module_cause(error: &ModuleError) -> String {
     match error {
         ModuleError::Parse(_) => "naga cannot parse".to_owned(),
         ModuleError::Validate(_) => "naga rejects".to_owned(),
+        ModuleError::TexelBuffer { what, .. } => format!("texel buffer: {what}"),
         ModuleError::Panicked(_) => "naga panicked".to_owned(),
         ModuleError::EntryPointMissing { .. } => "entry point missing".to_owned(),
         ModuleError::UnsupportedResource { what, .. } => format!("unsupported resource: {what}"),

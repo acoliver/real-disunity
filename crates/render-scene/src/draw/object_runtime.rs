@@ -351,30 +351,6 @@ impl SceneGpu {
         Ok(())
     }
 
-    /// Refuses the fixed object routes (shadow casters, the metadata prepass and the capture
-    /// terms) while a placement draws a skinned mesh. Their pipelines have the static vertex
-    /// layout only; the skinned layout reaches them when they draw through the object
-    /// programs.
-    ///
-    /// # Errors
-    /// Fails when a batch holding instances has a skin stream.
-    pub(crate) fn admit_fixed_objects(
-        &self,
-        route: &'static str,
-    ) -> Result<(), worldrunner_render_post::FrameError> {
-        let skinned = self
-            .instances
-            .batches
-            .values()
-            .any(|batch| batch.skin.is_some() && batch.has_instances());
-        if skinned {
-            return Err(worldrunner_render_post::FrameError::UnsupportedEffect(
-                route,
-            ));
-        }
-        Ok(())
-    }
-
     /// Prepares the objects of a term replay drawn with `pipelines` in the frame being drawn,
     /// before the replay's pass opens.
     ///

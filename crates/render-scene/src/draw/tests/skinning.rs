@@ -114,7 +114,7 @@ fn ribbon_scene(shift: i64, pose: Option<SkinPoseHandle>) -> RenderScene {
     .expect("the fixture scene validates")
 }
 
-fn posed(shift: i64) -> RenderScene {
+pub(crate) fn posed(shift: i64) -> RenderScene {
     ribbon_scene(shift, Some(SkinPoseHandle::from_raw(0)))
 }
 
@@ -242,25 +242,18 @@ fn a_pass_that_writes_object_motion_refuses_skinned_geometry_until_it_has_a_prev
     );
 }
 
-#[test]
-fn fixed_object_routes_refuse_a_scene_with_skinned_placements() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-    let skinned = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        &posed(0),
-        &pipelines,
+/// The ribbon of [`posed`] without influences, as one rigid mesh.
+pub(crate) fn rigid() -> RenderScene {
+    let source = ribbon();
+    let lod = &source.lods()[0];
+    let mesh = SceneMesh::new(vec![
+        SceneMeshLod::new(0, lod.vertices().to_vec(), lod.indices().to_vec(), None).unwrap(),
+    ])
+    .unwrap();
+    build(
+        white_texture(),
+        &material(SceneAlphaMode::Opaque, false),
+        mesh,
+        1,
     )
-    .expect("the scene uploads");
-    assert!(skinned.admit_fixed_objects("a fixed route").is_err());
-    let rigid = SceneGpu::upload(
-        context.device(),
-        context.submission(),
-        &ribbon_scene(0, None),
-        &pipelines,
-    )
-    .expect("the scene uploads");
-    assert!(rigid.admit_fixed_objects("a fixed route").is_ok());
 }

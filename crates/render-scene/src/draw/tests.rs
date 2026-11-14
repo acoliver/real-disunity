@@ -69,7 +69,7 @@ mod relief_mip_bias;
 mod resident_sampling;
 mod retained;
 mod selection_reuse;
-mod skinning;
+pub(crate) mod skinning;
 mod skinning_compaction;
 mod source_environment;
 mod ssao;

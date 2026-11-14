@@ -115,9 +115,8 @@ where
     }
 
     fn draw(&mut self, draw: Draw) {
-        // The fixed routes have no skinned layout. The passes that can return an error are
-        // refused before they open (`SceneGpu::admit_fixed_objects`); the capture-term replay
-        // has no error channel and stops here.
+        // Every scene pass draws objects through the object programs; only tests record
+        // through these fixed pipelines, which have no skinned layout.
         assert!(
             !draw.geometry.is_skinned(),
             "a fixed object route reached skinned geometry"

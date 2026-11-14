@@ -39,6 +39,8 @@ mod refresh;
 mod resources;
 pub(crate) use resources::SHADOW_UNIFORM_BYTES;
 #[cfg(test)]
+pub(crate) use resources::depth_source as caster_source;
+#[cfg(test)]
 pub(crate) use resources::{depth_source, receiver_sources};
 
 /// The object shadow casters of `pipelines` for `settings` and `sampling`, for the captures that
@@ -523,7 +525,6 @@ impl ShadowedScene {
             &FrameUniform,
         ),
     ) -> Result<(), ShadowError> {
-        gpu.admit_fixed_objects("shadow casters of skinned objects")?;
         if let Some(screen) = screen {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
             gpu.prepare_objects(screen.prepass_pipelines(), frame)?;

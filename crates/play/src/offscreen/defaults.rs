@@ -40,10 +40,12 @@ const INT_PROPERTY: i32 = 5;
 pub enum DefaultTexture {
     White,
     Black,
+    /// Unity's default 2D texture, RGBA (0.5, 0.5, 0.5, 1).
+    Grey,
 }
 
 impl DefaultTexture {
-    pub const ALL: [Self; 2] = [Self::White, Self::Black];
+    pub const ALL: [Self; 3] = [Self::White, Self::Black, Self::Grey];
 
     /// The default a shader names, or `None` for a name this host does not supply.
     #[must_use]
@@ -51,6 +53,7 @@ impl DefaultTexture {
         match name {
             "white" => Some(Self::White),
             "black" => Some(Self::Black),
+            "gray" => Some(Self::Grey),
             _ => None,
         }
     }
@@ -61,6 +64,7 @@ impl DefaultTexture {
         match self {
             Self::White => "white",
             Self::Black => "black",
+            Self::Grey => "gray",
         }
     }
 
@@ -70,6 +74,7 @@ impl DefaultTexture {
         let texel = match self {
             Self::White => [255; 4],
             Self::Black => [0, 0, 0, 255],
+            Self::Grey => [128, 128, 128, 255],
         };
         SourceTexture {
             id: ids::default_texture(self.index()),
@@ -84,6 +89,7 @@ impl DefaultTexture {
         match self {
             Self::White => 0,
             Self::Black => 1,
+            Self::Grey => 2,
         }
     }
 
@@ -133,6 +139,9 @@ fn whole_number(value: f32) -> Option<i32> {
 pub struct ShaderFill {
     /// Every 2D texture property, whether or not the host supplies its default texture.
     pub textures: Vec<String>,
+    /// Every texture property of any dimension. A texture the shader reads but does not declare
+    /// reads Unity's white texture when nothing sets it.
+    pub declared_textures: Vec<String>,
     /// The default value of each colour, vector, float, range and integer property, in the
     /// order the shader declares them.
     pub values: Vec<(String, PropertyValue)>,
@@ -146,6 +155,7 @@ pub fn declared_fill(shader: &Shader) -> ShaderFill {
         let default = property.default_value;
         let value = match property.kind {
             TEXTURE_PROPERTY => {
+                fill.declared_textures.push(property.name.clone());
                 if property.texture_dimension == TEXTURE_2D {
                     fill.textures.push(property.name.clone());
                 }

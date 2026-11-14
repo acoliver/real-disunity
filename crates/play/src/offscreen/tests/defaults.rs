@@ -41,8 +41,8 @@ fn white_is_every_channel_at_one_and_black_has_no_colour_with_full_alpha() {
 #[test]
 fn the_default_textures_have_names_of_their_own_that_no_stored_texture_takes() {
     let ids: Vec<TextureId> = DefaultTexture::ALL.iter().map(|d| d.texture().id).collect();
-    assert_eq!(ids.len(), 2);
-    assert_ne!(ids[0], ids[1]);
+    assert_eq!(ids.len(), 3);
+    assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2]);
     assert_eq!(ids[0], DefaultTexture::White.id());
     for id in ids {
         assert_eq!(
@@ -54,9 +54,10 @@ fn the_default_textures_have_names_of_their_own_that_no_stored_texture_takes() {
 }
 
 #[test]
-fn only_white_and_black_are_known_by_name() {
+fn only_white_black_and_gray_are_known_by_name() {
     assert_eq!(DefaultTexture::named("white"), Some(DefaultTexture::White));
     assert_eq!(DefaultTexture::named("black"), Some(DefaultTexture::Black));
+    assert_eq!(DefaultTexture::named("gray"), Some(DefaultTexture::Grey));
     for name in ["", "grey", "linearGrey", "bump", "red", "White"] {
         assert_eq!(DefaultTexture::named(name), None, "{name}");
     }

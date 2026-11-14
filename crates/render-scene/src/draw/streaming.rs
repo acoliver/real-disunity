@@ -11,7 +11,9 @@ mod residents;
 pub(in crate::draw) mod schedule_tests;
 use super::{GpuLod, SceneGpu};
 use crate::terrain::prepared::ChunkGeometry;
-use crate::terrain::streaming::{TerrainChunk, TerrainSelection, select_with_retired};
+use crate::terrain::streaming::{
+    TerrainChunk, TerrainHeightBounds, TerrainSelection, select_with_retired,
+};
 #[cfg(test)]
 pub(crate) use meshes::await_builds;
 use meshes::{Built, MeshBuilds};
@@ -25,6 +27,7 @@ type Residents = Vec<(TerrainChunk, GpuLod)>;
 #[derive(Debug)]
 pub(super) struct Streaming {
     scene: RenderScene,
+    height_bounds: TerrainHeightBounds,
     plane_chunks: std::collections::BTreeMap<TerrainChunk, u32>,
     identity: Rc<()>,
     pub(super) committed: Rc<RefCell<Residents>>,
@@ -60,6 +63,7 @@ impl Streaming {
         );
         Self {
             plane_chunks: crate::terrain::planes::chunk_indices(terrain),
+            height_bounds: TerrainHeightBounds::new(terrain),
             scene,
             identity: Rc::new(()),
             committed: Rc::new(RefCell::new(vec![(chunk, root)])),
@@ -191,6 +195,7 @@ impl Streaming {
         let choose = |builds: &MeshBuilds| {
             select_with_retired(
                 terrain,
+                &self.height_bounds,
                 current,
                 frame.selection_view_projection(),
                 viewport,
@@ -309,6 +314,7 @@ impl Streaming {
             chunk.children().is_none()
                 || crate::terrain::streaming::error(
                     terrain,
+                    &self.height_bounds,
                     *chunk,
                     request.matrix,
                     request.viewport,
@@ -359,7 +365,7 @@ impl Streaming {
             pass,
             pipeline,
             (terrain, Some(frame.camera_position)),
-            culling::keep(scene, frame.view_projection),
+            culling::keep(scene, &self.height_bounds, frame.view_projection),
         )
     }
 

@@ -57,12 +57,20 @@ constrained budgets, independent of resident storage and upload-completion histo
 Selected leaves are returned in derived-key order. Relative to history-based tie
 admission, only exact-error ties can change which geometry becomes resident.
 
+Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
+and streaming policy. Terminal ranges scan all inclusive source samples; parents
+union their children's ranges. Camera selection projects each node's own surface
+height range. CPU selector callers construct and reuse the cache with the same
+terrain source and policy they pass to `select` and `error`.
+
 Camera terrain submissions use the shared mesh frustum plane test against each
-resident leaf's full terrain-wide height range and skirt bottom. Culling only
-filters recorded draws: selection, residency, mesh builds and uploads still cover
-the whole grid. Each camera pass uses its own raster matrix, including projection
-jitter. Shadow cascades retain their own light-frustum and slice-hull selection;
-they never use the camera's culled subset. Nonstreaming terrain stays unculled.
+resident leaf's cached height range and the terrain-wide skirt bottom, padded
+outward for floating-point rounding. Culling only filters recorded draws:
+selection, residency, mesh builds and uploads still cover the whole grid. Each
+camera pass uses its own raster matrix, including projection jitter. Shadow
+cascades use terrain-wide height ranges for their footprint and geometry bounds,
+with their own light-frustum and slice-hull selection; they never use the camera's
+culled subset. Nonstreaming terrain stays unculled.
 
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies

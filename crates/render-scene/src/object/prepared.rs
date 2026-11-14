@@ -3,7 +3,7 @@
 //! A material's resources are lent to the runtime once, when the scene is uploaded: one
 //! [`ImportTable`] per material holds the 576-byte material block, the surface maps, the sampler,
 //! the contact heights and the impostor and wind textures, as the material's bind group
-//! (`SceneGpu::materials`, which the celestial meshes still draw with) binds them. A
+//! (`SceneGpu::materials`, which only the tests that record draws themselves bind) binds them. A
 //! [`PreparedSet`] is made from a table the first time a runtime needs it, and every pipeline of
 //! that runtime whose set-1 layout equals the set's shares it.
 //!

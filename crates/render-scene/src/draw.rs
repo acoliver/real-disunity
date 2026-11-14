@@ -372,7 +372,7 @@ impl SceneGpu {
             resource_counters: statistics::ResourceCounters::new(&prepared),
             decal_counts: std::rc::Rc::default(),
             decals,
-            celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
+            celestial: celestial::upload(device, scene, pipelines, &meshes),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
             casters: caster_edits::CasterEdits::default(),
             post: resources::post_settings(scene)?,

@@ -79,9 +79,6 @@ pub(crate) struct MeshDraw {
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
     pub count: u32,
-    /// The material's group, which no path binds now that bodies draw through the program runtime.
-    #[expect(dead_code, reason = "no path binds it")]
-    pub material: wgpu::BindGroup,
     /// The scene material the body draws with, whose prepared set the program path binds.
     pub material_index: usize,
     pub instance: wgpu::Buffer,

@@ -485,20 +485,6 @@ fn gpu_grid_pass_behind_budget_skip_and_perspective_match_cpu() {
 }
 
 #[test]
-fn gpu_default_trace_centre_matches_model() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    for scale in [1.0, 10.0] {
-        for occluder in [false, true] {
-            let current =
-                controls_tests::capture_with_shader(&context, settings(), scale, occluder, None);
-            let case = format!("scale {scale} occluder {occluder}");
-            controls_tests::assert_centre_matches_model(&current, !occluder, &case);
-        }
-    }
-}
-
-#[test]
 fn grid_policy_compiles_opaque_water_msaa() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();

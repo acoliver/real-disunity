@@ -27,7 +27,7 @@ use super::builtins::{
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
 use super::pixels::{self, Wanted};
-use super::properties::{Textures, fallback_layer, layer, layer_with_defaults};
+use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
 use super::script::{Script, kind};
 
 pub use super::report::{Reclaimed, Report};
@@ -764,8 +764,20 @@ impl<'a> Mapper<'a> {
                 .filter(|(_, texture)| self.available.default_textures.contains(texture))
                 .map(|(name, texture)| (name.clone(), texture.id()))
                 .collect();
-            let properties =
-                layer_with_defaults(&material.properties, &mut self.textures, &defaults);
+            let undeclared = self
+                .available
+                .default_textures
+                .contains(&DefaultTexture::White)
+                .then(|| Undeclared {
+                    white: DefaultTexture::White.id(),
+                    declared: &info.fill.declared_textures,
+                });
+            let properties = layer_with_defaults(
+                &material.properties,
+                &mut self.textures,
+                &defaults,
+                undeclared,
+            );
             let fallback = fallback_layer(&material.properties, &info.fill, &mut self.textures);
             self.frame.materials.insert(
                 named,

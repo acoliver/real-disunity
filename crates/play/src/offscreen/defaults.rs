@@ -133,6 +133,9 @@ fn whole_number(value: f32) -> Option<i32> {
 pub struct ShaderFill {
     /// Every 2D texture property, whether or not the host supplies its default texture.
     pub textures: Vec<String>,
+    /// Every texture property of any dimension. A texture the shader reads but does not declare
+    /// reads Unity's white texture when nothing sets it.
+    pub declared_textures: Vec<String>,
     /// The default value of each colour, vector, float, range and integer property, in the
     /// order the shader declares them.
     pub values: Vec<(String, PropertyValue)>,
@@ -146,6 +149,7 @@ pub fn declared_fill(shader: &Shader) -> ShaderFill {
         let default = property.default_value;
         let value = match property.kind {
             TEXTURE_PROPERTY => {
+                fill.declared_textures.push(property.name.clone());
                 if property.texture_dimension == TEXTURE_2D {
                     fill.textures.push(property.name.clone());
                 }

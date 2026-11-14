@@ -26,6 +26,7 @@ mod properties;
 mod reclaim;
 mod refusal;
 mod script;
+mod script_targets;
 mod shaders;
 mod shapes;
 mod storage;

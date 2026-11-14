@@ -2,8 +2,8 @@
 use super::readback::Rect;
 use super::renderer_lists::RendererListDesc;
 use super::{
-    ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue, RenderTextureId,
-    ShaderProperties, TargetRef, TextureRef, WorldRenderTexture,
+    CameraBuffers, ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue,
+    RenderTextureId, ShaderProperties, TargetRef, TextureRef, WorldRenderTexture,
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
@@ -81,11 +81,17 @@ pub enum OffscreenWork {
     /// Draws after this record use the camera's view and projection (column-major, as the world
     /// holds them) and go to `target`, as the script's setup of the camera properties asked. The
     /// camera supplies the viewport and clear settings when the host executes the record.
+    ///
+    /// `buffers` are the camera's target buffers as the script set them when it made the call,
+    /// which the target is [`TargetRef::CameraTarget`] for: the camera's own target then is these
+    /// color textures and this depth texture, and the record does not depend on what the camera's
+    /// buffers are when the host executes it.
     SetupCamera {
         camera: ComponentHandle,
         view: [f32; 16],
         projection: [f32; 16],
         target: TargetRef,
+        buffers: Option<CameraBuffers>,
     },
     /// A culling of the world's renderers for a camera. `id` names the result for later records of
     /// the frame (see [`World::record_offscreen`]); the host culls with the camera's `culling_mask`
@@ -166,7 +172,11 @@ impl OffscreenWork {
                 color.iter().any(target) || depth.as_ref().is_some_and(target)
             }
             Self::SetGlobal(PropertyValue::Texture(_, slot)) => texture(&slot.texture),
-            Self::SetupCamera { target: named, .. } => target(named),
+            Self::SetupCamera {
+                target: named,
+                buffers,
+                ..
+            } => target(named) || buffers.is_some_and(|buffers| buffers.names(id)),
             Self::ReadPixels { texture, .. } => *texture == id,
             _ => false,
         }

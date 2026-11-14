@@ -88,7 +88,7 @@ fn clears(adapted: &Adapted) -> Vec<(Attachments, Clear)> {
         .records
         .iter()
         .filter_map(|record| match record {
-            Record::Clear { target, clear } => Some((*target, *clear)),
+            Record::Clear { target, clear } => Some((target.clone(), *clear)),
             _ => None,
         })
         .collect()
@@ -102,15 +102,12 @@ fn a_clear_sets_the_color_depth_and_stencil_it_names_on_the_bound_targets() {
     record(&mut world, clear(true, true, true));
     record(&mut world, clear(false, true, false));
     let adapted = run(&mut world);
-    let bound = Attachments {
-        color: Some(whole(a)),
-        depth: Some(whole(a)),
-    };
+    let bound = Attachments::single(Some(whole(a)), Some(whole(a)));
     assert_eq!(
         clears(&adapted),
         [
             (
-                bound,
+                bound.clone(),
                 Clear {
                     color: Some([0.25, 0.5, 0.75, 1.0]),
                     depth: Some(0.5),
@@ -171,10 +168,7 @@ fn a_target_of_one_color_texture_and_another_depth_texture_binds_both() {
     let adapted = run(&mut world);
     assert_eq!(
         clears(&adapted)[0].0,
-        Attachments {
-            color: Some(whole(color)),
-            depth: Some(whole(depth)),
-        }
+        Attachments::single(Some(whole(color)), Some(whole(depth)))
     );
     assert_eq!(adapted.frame.render_textures.len(), 2);
 }
@@ -188,10 +182,7 @@ fn a_target_with_a_depth_texture_alone_has_no_color() {
     let adapted = run(&mut world);
     assert_eq!(
         clears(&adapted)[0].0,
-        Attachments {
-            color: None,
-            depth: Some(whole(depth)),
-        }
+        Attachments::single(None, Some(whole(depth)))
     );
 }
 
@@ -223,13 +214,7 @@ fn a_target_names_the_mip_it_draws_into_and_a_missing_mip_is_skipped() {
     // The second target is refused, so the second clear goes to the mip bound before it.
     assert_eq!(clears(&adapted).len(), 2);
     for (target, _) in clears(&adapted) {
-        assert_eq!(
-            target,
-            Attachments {
-                color: level_two,
-                depth: level_two,
-            }
-        );
+        assert_eq!(target, Attachments::single(level_two, level_two));
     }
     assert_eq!(adapted.report.skipped.get(&Skip::NoSuchMip), Some(&1));
 }
@@ -327,13 +312,7 @@ fn a_temporary_render_texture_is_made_for_the_target_that_names_it() {
         texture: id,
         mip: 0,
     });
-    assert_eq!(
-        clears(&adapted)[0].0,
-        Attachments {
-            color: whole,
-            depth: whole,
-        }
-    );
+    assert_eq!(clears(&adapted)[0].0, Attachments::single(whole, whole));
     assert_eq!(
         adapted.frame.render_textures,
         [RenderTextureSpec {
@@ -371,7 +350,7 @@ fn a_name_allocated_again_is_another_texture_and_a_released_one_cannot_be_target
     let adapted = run(&mut world);
     let drawn: Vec<_> = clears(&adapted)
         .iter()
-        .map(|(target, _)| target.color.unwrap().texture)
+        .map(|(target, _)| target.colors[0].texture)
         .collect();
     assert_eq!(drawn, [ids::temporary(7, 0), ids::temporary(7, 1)]);
     let sizes: BTreeMap<_, _> = adapted
@@ -556,6 +535,7 @@ fn a_camera_setup_binds_its_texture_and_the_camera_target_names_it_after() {
             view: Mat4::IDENTITY.to_cols_array(),
             projection: Mat4::IDENTITY.to_cols_array(),
             target: TargetRef::Render(a),
+            buffers: None,
         },
     );
     record(&mut world, clear(true, false, false));
@@ -566,7 +546,7 @@ fn a_camera_setup_binds_its_texture_and_the_camera_target_names_it_after() {
     let adapted = run(&mut world);
     let drawn: Vec<_> = clears(&adapted)
         .iter()
-        .map(|(target, _)| target.color.unwrap().texture)
+        .map(|(target, _)| target.colors[0].texture)
         .collect();
     assert_eq!(
         drawn,
@@ -589,6 +569,7 @@ fn the_camera_target_of_a_camera_that_has_no_texture_is_skipped() {
             view: Mat4::IDENTITY.to_cols_array(),
             projection: Mat4::IDENTITY.to_cols_array(),
             target: TargetRef::CameraTarget,
+            buffers: None,
         },
     );
     record(&mut world, target(&[TargetRef::CameraTarget], None));

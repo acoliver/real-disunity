@@ -694,5 +694,5 @@ internal static class NativeLayouts
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 10;
+    internal const uint Version = 11;
 }

@@ -39,12 +39,14 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             view,
             projection,
             target,
+            buffers,
         } => {
             WORK_SETUP_CAMERA.write(out)?;
             camera.write(out)?;
             view.write(out)?;
             projection.write(out)?;
-            target.write(out)
+            target.write(out)?;
+            buffers.write(out)
         }
         OffscreenWork::SetViewProjection { view, projection } => {
             WORK_SET_VIEW_PROJECTION.write(out)?;
@@ -96,6 +98,7 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             view: Wire::read(input)?,
             projection: Wire::read(input)?,
             target: Wire::read(input)?,
+            buffers: Wire::read(input)?,
         }),
         WORK_SET_VIEW_PROJECTION => Ok(OffscreenWork::SetViewProjection {
             view: Wire::read(input)?,

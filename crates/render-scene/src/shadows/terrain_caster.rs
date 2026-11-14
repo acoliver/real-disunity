@@ -2,13 +2,13 @@
 //!
 //! A shadow map has a depth attachment and no colour attachment, and terrain needs no fragment
 //! stage to write depth, so the caster is a vertex-only program (`vs_terrain_depth` of the shadow
-//! depth source) drawn into a depth-only signature. Its state is the fixed caster's: back faces
-//! culled, the configuration's depth test with writes, and its depth bias.
+//! depth source) drawn into a depth-only signature. Its state is back faces culled, the
+//! configuration's depth test with writes, and its depth bias.
 //!
 //! The cascade's light frame is set 0, lent by the pass: one pipeline serves every cascade, and
-//! the pass binds the cascade's frame group after the pipeline. Recording is then the commands
-//! the fixed caster recorded: the pipeline and the frame group once, then per chunk two vertex
-//! buffers, the index buffer and the draw.
+//! the pass binds the cascade's frame group after the pipeline. Recording is then the
+//! pipeline and the frame group once, then per chunk two vertex buffers, the index buffer and
+//! the draw.
 
 use std::cell::RefCell;
 use std::rc::Rc;

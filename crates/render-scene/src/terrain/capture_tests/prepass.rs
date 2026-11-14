@@ -96,28 +96,28 @@ macro_rules! prepass_tests {
 }
 
 prepass_tests! {
-    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_metadata_prepass:
+    plain_terrain_draws_in_the_metadata_prepass:
         Source::Plain, DepthMode::Independent;
-    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_metadata_prepass:
+    page_terrain_draws_in_the_metadata_prepass:
         Source::Pages, DepthMode::Independent;
-    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_metadata_prepass:
+    layered_terrain_draws_in_the_metadata_prepass:
         Source::Layered, DepthMode::Independent;
-    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_metadata_prepass:
+    layered_page_terrain_draws_in_the_metadata_prepass:
         Source::LayeredPages, DepthMode::Independent;
-    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_with_shared_depth:
+    plain_terrain_draws_in_the_prepass_with_shared_depth:
         Source::Plain, DepthMode::Shared;
-    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_with_shared_depth:
+    page_terrain_draws_in_the_prepass_with_shared_depth:
         Source::Pages, DepthMode::Shared;
-    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_with_shared_depth:
+    layered_terrain_draws_in_the_prepass_with_shared_depth:
         Source::Layered, DepthMode::Shared;
-    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_with_shared_depth:
+    layered_page_terrain_draws_in_the_prepass_with_shared_depth:
         Source::LayeredPages, DepthMode::Shared;
-    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_that_marks_depth_winners:
+    plain_terrain_draws_in_the_prepass_that_marks_depth_winners:
         Source::Plain, DepthMode::Prepass;
-    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_that_marks_depth_winners:
+    page_terrain_draws_in_the_prepass_that_marks_depth_winners:
         Source::Pages, DepthMode::Prepass;
-    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_that_marks_depth_winners:
+    layered_terrain_draws_in_the_prepass_that_marks_depth_winners:
         Source::Layered, DepthMode::Prepass;
-    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_the_prepass_that_marks_depth_winners:
+    layered_page_terrain_draws_in_the_prepass_that_marks_depth_winners:
         Source::LayeredPages, DepthMode::Prepass;
 }

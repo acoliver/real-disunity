@@ -32,8 +32,10 @@ pub(super) fn read_unfilterable(
     let filterable = Type::Float { filterable: true };
     let unfilterable = Type::Float { filterable: false };
     let actual = format.sample_type(Some(wgpu::TextureAspect::All), Some(features));
-    let cannot_filter =
-        declared == unfilterable || (declared == filterable && actual == Some(unfilterable));
+    // A depth format reports the `Depth` sample type; through a colour slot it is read as a
+    // non-filterable float, like a 32-bit float the device cannot filter.
+    let cannot_filter = declared == unfilterable
+        || (declared == filterable && actual.is_some_and(|actual| actual != filterable));
     if cannot_filter {
         (unfilterable, Some(nearest(state)))
     } else {
@@ -139,6 +141,22 @@ mod tests {
                     Some(bilinear(Wrap::Mirror))
                 ),
                 (FILTERABLE, Some(bilinear(Wrap::Mirror))),
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_depth_texture_in_a_colour_slot_is_read_unfiltered_at_the_nearest_texel() {
+        for format in [F::Depth16Unorm, F::Depth24Plus, F::Depth32Float] {
+            assert_eq!(
+                read_unfilterable(
+                    FILTERABLE,
+                    format,
+                    Features::FLOAT32_FILTERABLE,
+                    Some(bilinear(Wrap::Clamp))
+                ),
+                (UNFILTERABLE, Some(point(Wrap::Clamp))),
                 "{format:?}"
             );
         }

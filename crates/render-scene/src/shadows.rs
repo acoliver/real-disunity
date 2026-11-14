@@ -41,21 +41,15 @@ pub(crate) use resources::SHADOW_UNIFORM_BYTES;
 #[cfg(test)]
 pub(crate) use resources::{depth_source, receiver_sources};
 
-/// The object shadow casters of `pipelines` for `settings` and `sampling`, and the caster policy
-/// they were built with, for the captures that compare them with the frozen casters.
+/// The object shadow casters of `pipelines` for `settings` and `sampling`, for the captures that
+/// draw casters outside a shadowed scene.
 #[cfg(test)]
 pub(crate) fn object_casters(
     pipelines: &crate::renderer::ScenePipelines,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-) -> (
-    crate::object::program::Context,
-    worldrunner_render_shadow::DirectionalShadowConfig,
-) {
-    (
-        resources::object_caster(pipelines, settings, sampling),
-        resources::caster_configuration(settings, sampling),
-    )
+) -> crate::object::program::Context {
+    resources::object_caster(pipelines, settings, sampling)
 }
 mod schedule;
 mod settings;

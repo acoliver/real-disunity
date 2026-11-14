@@ -587,36 +587,6 @@ fn composition_coverage_shared_lighting_in_mesh_terrain_and_water_sources() {
     }
 }
 
-#[test]
-fn default_specular_lighting_preserves_retired_float_bytes() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = GpuContext::shared_for_test().unwrap();
-    let stock = concat!(
-        worldrunner_render_lighting::lighting_wgsl!(),
-        worldrunner_render_post::post_wgsl!(),
-        include_str!("../draw/tests/fixtures/previous_scene_lighting.wgsl"),
-        include_str!("camera_rays.wgsl"),
-        include_str!("unshadowed.wgsl")
-    );
-    let frame = configured_frame(ExposureOwnership::SceneLinear(1.0));
-    for (roughness, metalness) in [(0.0, 0.0), (0.045, 0.75), (0.5, 0.0), (1.0, 1.0)] {
-        let entry = format!(
-            r"
-@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
-@compute @workgroup_size(1) fn evaluate_math() {{
-    result[0] = vec4(surface_lighting(vec3(0.0),vec3(0.0,0.0,1.0),vec3(0.3,0.5,0.7),{roughness},{metalness},0.4),1.0);
-}}"
-        );
-        let previous = evaluate_source(&context, stock, &entry, Some(&frame), None);
-        let current = evaluate_source(&context, ENVIRONMENT_WGSL, &entry, Some(&frame), None);
-        assert_eq!(
-            previous.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            current.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-            "roughness={roughness}, metalness={metalness}"
-        );
-    }
-}
-
 fn math_pipeline(
     device: &wgpu::Device,
     source: &str,

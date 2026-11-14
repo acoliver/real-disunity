@@ -50,8 +50,8 @@ pub(super) struct Draw {
 }
 
 /// Where the draws of a selection go. The walk over a selection says which buffers a draw reads
-/// and in what order, and a sink decides how they reach the pass: the fixed path sets each
-/// buffer as it is named, and the runtime path draws a geometry over them.
+/// and in what order, and a sink decides how they reach the pass: the test-only `FixedSink` sets
+/// each buffer as it is named, and the runtime sink draws a geometry over them.
 pub(super) trait DrawSink {
     /// The instance buffer of the draws that follow, and the previous-instance buffer when the
     /// batch has one.
@@ -63,8 +63,10 @@ pub(super) trait DrawSink {
     fn draw(&mut self, draw: Draw);
 }
 
-/// Records the fixed pipelines' draws: a render pipeline for each key and a bind group for each
-/// material. No pass draws with fixed pipelines any more; tests compare against them.
+/// Records draws with render pipelines the caller built, one for each pipeline index, and a bind
+/// group for each material. Only tests use it: the shadow-depth walks in `fade_empty` and
+/// `curved_wind` and the foliage tests draw with pipelines they build themselves. No scene pass
+/// draws this way.
 #[cfg(test)]
 pub(super) struct FixedSink<'a, P: ?Sized, I: ?Sized> {
     pass: &'a mut P,
@@ -129,8 +131,9 @@ pub(super) struct ObjectView {
 }
 
 impl SceneGpu {
-    /// Records the view's objects with fixed render pipelines, one for each pipeline index. No
-    /// pass draws with them any more; tests compare against them.
+    /// Records the view's objects with render pipelines the caller built, one for each pipeline
+    /// index. Only tests draw this way; the scene's passes use
+    /// [`draw_objects_prepared`](Self::draw_objects_prepared).
     #[cfg(test)]
     pub(crate) fn draw_objects(
         &self,

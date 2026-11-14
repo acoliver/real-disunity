@@ -84,8 +84,8 @@ impl DepthMode {
 impl DepthMode {
     /// The program runtime's state of a draw that writes depth and every one of `colors`
     /// attachments without blending, under this mode's depth and stencil test: the translation
-    /// of [`state`](Self::state) that terrain and objects share, so that neither can disagree
-    /// with the fixed pipelines' depth reuse.
+    /// of [`state`](Self::state) that terrain and objects share, so that they cannot disagree
+    /// on depth reuse.
     pub(crate) fn render_state(
         self,
         colors: usize,

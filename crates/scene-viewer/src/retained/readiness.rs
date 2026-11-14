@@ -184,13 +184,17 @@ impl RetainedHost {
         objects: &BTreeMap<ObjectId, SceneObject>,
         effects: Option<SceneEffects>,
     ) -> Result<RenderScene, ViewerError> {
+        // A resource replacement keeps the scene's skeletons and poses, which objects still name.
+        let current = self.scene().geometry();
+        let geometry = SceneGeometry::new_with_skinning_resources(
+            meshes,
+            objects.values().copied().collect(),
+            current.skeletons().to_vec(),
+            current.skin_poses().to_vec(),
+        )
+        .map_err(|error| ViewerError::Driver(error.to_string()))?;
         self.scene()
-            .with_resources(
-                resources,
-                SceneGeometry::new(meshes, objects.values().copied().collect())
-                    .map_err(|error| ViewerError::Driver(error.to_string()))?,
-                effects,
-            )
+            .with_resources(resources, geometry, effects)
             .map_err(|error| ViewerError::Driver(error.to_string()))
     }
 

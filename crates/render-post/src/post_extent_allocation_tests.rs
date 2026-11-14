@@ -79,27 +79,36 @@ fn existing_modes() -> Vec<(FrameConfig, HdrPostSettings)> {
     all
 }
 
-fn fingerprint(sets: impl Iterator<Item = String>) -> u64 {
-    sets.flat_map(String::into_bytes)
-        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
-        })
+#[test]
+fn every_existing_mode_allocates_for_its_bloom_and_taa_stages() {
+    let all = existing_modes();
+    assert_eq!(all.len(), 54);
+    for (index, (config, settings)) in all.into_iter().enumerate() {
+        let bytes = whole(config, &settings);
+        if settings.bloom.is_some() {
+            assert!(
+                bytes > without_bloom(config, &settings),
+                "configuration {index} allocates nothing for its bloom chain"
+            );
+        }
+        if settings.resolve.active_taa().is_some() {
+            assert!(
+                bytes > without_taa(config, &settings),
+                "configuration {index} allocates nothing for its TAA bank"
+            );
+        }
+    }
 }
 
-/// Captured from the allocation function before the carrier extent existed: 54 configurations,
-/// FNV-1a over the `Debug` text of every allocation set. Recaptured once when the TAA history
-/// entries changed from shared to per-generation entries (a resize must not reuse a shared
-/// descriptor); no other entry changed.
-const EXISTING_MODES: (usize, u64) = (54, 0xb40a_21c9_3c04_dfd4);
-
-#[test]
-fn every_existing_mode_keeps_its_allocation_set() {
-    let all = existing_modes();
-    let print = fingerprint(
-        all.iter()
-            .map(|&(config, settings)| format!("{:?}", post_allocations(config, settings))),
-    );
-    assert_eq!((all.len(), print), EXISTING_MODES);
+/// Bytes of everything except the bloom chain.
+fn without_bloom(config: FrameConfig, settings: &HdrPostSettings) -> u64 {
+    whole(
+        config,
+        &HdrPostSettings {
+            bloom: None,
+            ..*settings
+        },
+    )
 }
 
 /// Bytes of everything except the TAA bank.

@@ -87,6 +87,11 @@ fn blitted_up(rig: &mut Rig) -> Vec<u8> {
     images.into_iter().next().unwrap()
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped to 0..=1 and rounded, so it scales into 0..=255"
+)]
 fn byte(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
@@ -101,7 +106,9 @@ fn nearest(x: u32) -> [u8; 4] {
 /// The texel of column `x` when the texture is read linearly with the edge clamped: the pixel
 /// center sits at `(x + 0.5) / 8` of the width, the texel centers at 1/4 and 3/4.
 fn linear(x: u32) -> [u8; 4] {
-    let weight = (((x as f32 + 0.5) / SIDE as f32 - 0.25) / 0.5).clamp(0.0, 1.0);
+    let column = f32::from(u8::try_from(x).unwrap());
+    let side = f32::from(u8::try_from(SIDE).unwrap());
+    let weight = (((column + 0.5) / side - 0.25) / 0.5).clamp(0.0, 1.0);
     std::array::from_fn(|channel| byte(DRAWN[channel] * (1.0 - weight) + CLEARED[channel] * weight))
 }
 

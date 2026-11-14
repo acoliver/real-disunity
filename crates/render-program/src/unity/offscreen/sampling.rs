@@ -91,20 +91,20 @@ mod tests {
     const FILTERABLE: Type = Type::Float { filterable: true };
     const UNFILTERABLE: Type = Type::Float { filterable: false };
 
-    fn bilinear(wrap: Wrap) -> Option<SamplerState> {
-        Some(SamplerState {
+    fn bilinear(wrap: Wrap) -> SamplerState {
+        SamplerState {
             wrap_u: wrap,
             wrap_v: wrap,
             filter: Filter::Bilinear,
-        })
+        }
     }
 
-    fn point(wrap: Wrap) -> Option<SamplerState> {
-        Some(SamplerState {
+    fn point(wrap: Wrap) -> SamplerState {
+        SamplerState {
             wrap_u: wrap,
             wrap_v: wrap,
             filter: Filter::Point,
-        })
+        }
     }
 
     #[test]
@@ -115,14 +115,14 @@ mod tests {
                     FILTERABLE,
                     format,
                     Features::empty(),
-                    bilinear(Wrap::Repeat)
+                    Some(bilinear(Wrap::Repeat))
                 ),
-                (UNFILTERABLE, point(Wrap::Repeat)),
+                (UNFILTERABLE, Some(point(Wrap::Repeat))),
                 "{format:?}"
             );
             assert_eq!(
                 read_unfilterable(FILTERABLE, format, Features::empty(), None),
-                (UNFILTERABLE, point(Wrap::Clamp)),
+                (UNFILTERABLE, Some(point(Wrap::Clamp))),
                 "{format:?} without a state"
             );
         }
@@ -136,9 +136,9 @@ mod tests {
                     FILTERABLE,
                     format,
                     Features::FLOAT32_FILTERABLE,
-                    bilinear(Wrap::Mirror)
+                    Some(bilinear(Wrap::Mirror))
                 ),
-                (FILTERABLE, bilinear(Wrap::Mirror)),
+                (FILTERABLE, Some(bilinear(Wrap::Mirror))),
                 "{format:?}"
             );
         }
@@ -148,8 +148,13 @@ mod tests {
     fn a_filterable_format_keeps_its_filtering_read() {
         for format in [F::Rgba8Unorm, F::R16Float, F::Rgba16Float] {
             assert_eq!(
-                read_unfilterable(FILTERABLE, format, Features::empty(), bilinear(Wrap::Clamp)),
-                (FILTERABLE, bilinear(Wrap::Clamp)),
+                read_unfilterable(
+                    FILTERABLE,
+                    format,
+                    Features::empty(),
+                    Some(bilinear(Wrap::Clamp))
+                ),
+                (FILTERABLE, Some(bilinear(Wrap::Clamp))),
                 "{format:?}"
             );
         }
@@ -163,20 +168,20 @@ mod tests {
                 UNFILTERABLE,
                 F::Rgba8Unorm,
                 Features::empty(),
-                bilinear(Wrap::Repeat)
+                Some(bilinear(Wrap::Repeat))
             ),
-            (UNFILTERABLE, point(Wrap::Repeat))
+            (UNFILTERABLE, Some(point(Wrap::Repeat)))
         );
     }
 
     #[test]
     fn a_sampler_shared_with_a_texture_that_cannot_be_filtered_is_non_filtering() {
         let unfiltered = Sampled {
-            state: point(Wrap::Clamp),
+            state: Some(point(Wrap::Clamp)),
             unfiltered: true,
         };
         let filtered = Sampled {
-            state: bilinear(Wrap::Repeat),
+            state: Some(bilinear(Wrap::Repeat)),
             unfiltered: false,
         };
         for (first, second) in [(unfiltered, filtered), (filtered, unfiltered)] {
@@ -192,35 +197,38 @@ mod tests {
     fn a_sampler_no_texture_is_paired_with_follows_the_draws_textures() {
         let filtering = wgpu::SamplerBindingType::Filtering;
         assert_eq!(sampler_state(filtering, None, false), None);
-        assert_eq!(sampler_state(filtering, None, true), point(Wrap::Clamp));
+        assert_eq!(
+            sampler_state(filtering, None, true),
+            Some(point(Wrap::Clamp))
+        );
     }
 
     #[test]
     fn a_non_filtering_slot_reads_the_nearest_texel_of_its_state() {
         let non_filtering = wgpu::SamplerBindingType::NonFiltering;
         let paired = Sampled {
-            state: bilinear(Wrap::Mirror),
+            state: Some(bilinear(Wrap::Mirror)),
             unfiltered: false,
         };
         assert_eq!(
             sampler_state(non_filtering, Some(&paired), false),
-            point(Wrap::Mirror)
+            Some(point(Wrap::Mirror))
         );
         assert_eq!(
             sampler_state(non_filtering, None, false),
-            point(Wrap::Clamp)
+            Some(point(Wrap::Clamp))
         );
     }
 
     #[test]
     fn a_filtered_pair_keeps_its_own_state_whatever_other_textures_read() {
         let paired = Sampled {
-            state: bilinear(Wrap::Repeat),
+            state: Some(bilinear(Wrap::Repeat)),
             unfiltered: false,
         };
         assert_eq!(
             sampler_state(wgpu::SamplerBindingType::Filtering, Some(&paired), true),
-            bilinear(Wrap::Repeat)
+            Some(bilinear(Wrap::Repeat))
         );
     }
 }

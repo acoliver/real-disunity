@@ -25,7 +25,7 @@ use worldrunner_render_post::{PassDeclaration, PassSlot};
 /// 12. the reflection depth pyramid, by level
 /// 13. the reflection trace, then reflection mips by level
 /// 14. the screen-space pass after transparency
-const fn forward_position(slot: PassSlot) -> (u8, u32) {
+pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
     match slot {
         PassSlot::ShadowCasters(layer) => (0, layer),
         PassSlot::DepthNormalPrepass => (1, 0),
@@ -149,6 +149,21 @@ mod tests {
                 sorted,
                 "rotated by {rotation}, reversed"
             );
+        }
+    }
+
+    /// Callers that place a pass relative to a role compare positions, not the enum.
+    #[test]
+    fn positions_compare_the_way_the_enum_did() {
+        let roles = every_role();
+        for a in &roles {
+            for b in &roles {
+                assert_eq!(
+                    forward_position(*a).cmp(&forward_position(*b)),
+                    a.cmp(b),
+                    "{a:?} against {b:?}"
+                );
+            }
         }
     }
 

@@ -11,7 +11,7 @@ mod configuration;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
-mod forward_order;
+pub(crate) mod forward_order;
 mod offscreen;
 mod output;
 mod overlay;

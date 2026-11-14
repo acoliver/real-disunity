@@ -232,6 +232,13 @@ These integer scene types carry no GPU dependency. `render-scene` translates the
 into the existing three-pass post resolve without automatic projection jitter.
 There is no serialized SMAA field. CMAA2 is not exposed by `SceneAntiAlias`.
 
+`SceneEffects::with_opaque_path` defaults to `SceneOpaquePath::Forward`.
+Every `SceneOpaquePath::Experiment` tuple returns
+`SceneValidationError::UnsupportedOpaquePath` until its rendering path is implemented.
+The CPU admission census is a separate explicit query on
+`RendererConfiguration::opaque_admission_report`; selecting the path does not run it.
+This contract changes no rendering behavior.
+
 ## Shared specular environment
 
 `SceneEffects::with_environment` selects an optional `SceneEnvironment` by texture

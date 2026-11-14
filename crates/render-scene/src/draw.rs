@@ -29,6 +29,7 @@ mod celestial;
 mod compaction;
 mod contact;
 pub(crate) mod decals;
+mod deferred;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
@@ -269,6 +270,8 @@ pub struct SceneGpu {
     /// The committed frame group and the frame slot whose uniform it binds.
     committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
     materials: Vec<BindGroup>,
+    /// The lighting records the material uniforms index, for deferred lighting.
+    lighting_records: crate::gbuffer::lighting::SceneRecords,
     /// What the program runtime draws objects with: the resources each material lends, and the
     /// sets and pipelines prepared from them.
     objects: crate::object::prepared::PreparedObjects,
@@ -345,14 +348,15 @@ impl SceneGpu {
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
-        let (materials, material_uniforms, material_imports) = resources::scene_materials(
-            device,
-            queue,
-            scene,
-            pipelines,
-            (&views, &placeholder_view),
-            &contact_heights,
-        );
+        let (materials, material_uniforms, material_imports, lighting_records) =
+            resources::scene_materials(
+                device,
+                queue,
+                scene,
+                pipelines,
+                (&views, &placeholder_view),
+                &contact_heights,
+            );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
         let objects =
             crate::object::prepared::PreparedObjects::new(authority.clone(), material_imports);
@@ -385,6 +389,7 @@ impl SceneGpu {
             frame_group: frame_slots[0].1.clone(),
             frame_slots,
             materials,
+            lighting_records: crate::gbuffer::lighting::SceneRecords::new(lighting_records),
             objects,
             meshes,
             mesh_selection: prepared.selection,

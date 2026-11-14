@@ -3,8 +3,9 @@
 //! The renderer owns four single-sample targets at the scene extent and clears them in
 //! the [`PassSlot::OpaqueGbuffer`] slot, which runs before Opaque, every frame. Producers
 //! draw into that slot through the ordinary feature boundary; the shared encoding lives in
-//! [`GBUFFER_WGSL`]. In observation nothing reads the targets except captures, so the
-//! visible frame and every other pass are unchanged.
+//! [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote into diagnostic targets
+//! after Opaque, with the lighting records of [`records`]. In observation nothing reads the
+//! targets except captures, so the visible frame and every other pass are unchanged.
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError,
@@ -63,13 +64,22 @@ pub const GBUFFER_FORMATS: [wgpu::TextureFormat; 4] = [
     GbufferTarget::G3.format(),
 ];
 
-/// The renderer's four targets, reallocated with the scene extent.
+/// The renderer's four targets and the lighting pass's targets, reallocated with the scene
+/// extent.
 pub(crate) struct Gbuffer {
     textures: [wgpu::Texture; 4],
+    lighting: lighting::LightingTargets,
 }
 
 impl Gbuffer {
-    pub(crate) fn new(device: &wgpu::Device, size: [u32; 2]) -> Self {
+    /// The targets at `size`, with lighting targets in the scene colour `format` and, with
+    /// `reflections`, the two reflection products.
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+        reflections: bool,
+    ) -> Self {
         Self {
             textures: GbufferTarget::ALL.map(|target| {
                 worldrunner_render_post::color_texture(
@@ -79,7 +89,18 @@ impl Gbuffer {
                     target.format(),
                 )
             }),
+            lighting: lighting::LightingTargets::new(device, size, format, reflections),
         }
+    }
+
+    /// The same targets at another extent.
+    pub(crate) fn resized(&self, device: &wgpu::Device, size: [u32; 2]) -> Self {
+        Self::new(
+            device,
+            size,
+            self.lighting.format(),
+            self.lighting.reflections(),
+        )
     }
 
     pub(crate) fn size(&self) -> [u32; 2] {
@@ -88,6 +109,19 @@ impl Gbuffer {
 
     pub(crate) fn texture(&self, target: GbufferTarget) -> &wgpu::Texture {
         &self.textures[target as usize]
+    }
+
+    /// One of the lighting pass's targets; the reflection products only with reflections.
+    pub(crate) fn lighting_texture(
+        &self,
+        target: lighting::LightingTarget,
+    ) -> Option<&wgpu::Texture> {
+        self.lighting.texture(target)
+    }
+
+    /// The lighting pass's colour format and whether it writes the reflection products.
+    pub(crate) fn lighting_outputs(&self) -> (wgpu::TextureFormat, bool) {
+        (self.lighting.format(), self.lighting.reflections())
     }
 
     /// Adds the slot's pass, which clears all four targets to zero, and their views. A
@@ -122,6 +156,7 @@ impl Gbuffer {
             views.push(view);
         }
         passes.push(pass);
+        self.lighting.schedule(passes, views)?;
         attach_producer_depth(passes, features)
     }
 }
@@ -163,18 +198,32 @@ pub(crate) fn attach_producer_depth<'a>(
     Ok(())
 }
 
-/// Declares the four targets for the allocation budget.
-pub(crate) fn allocations(size: [u32; 2], set: &mut AllocationSet) {
+/// Declares the four targets and the lighting targets for the allocation budget.
+pub(crate) fn allocations(
+    frame: worldrunner_render_post::FrameConfig,
+    reflections: bool,
+    set: &mut AllocationSet,
+) {
+    let size = [frame.size[0], frame.size[1], 1];
     for target in GbufferTarget::ALL {
-        set.texture(
-            target.resource_name(),
-            [size[0], size[1], 1],
-            target.format(),
-            [1, 1],
-            1,
-        );
+        set.texture(target.resource_name(), size, target.format(), [1, 1], 1);
+    }
+    let outputs: &[lighting::LightingTarget] = if reflections {
+        &[
+            lighting::LightingTarget::Colour,
+            lighting::LightingTarget::Environment,
+            lighting::LightingTarget::Factor,
+        ]
+    } else {
+        &[lighting::LightingTarget::Colour]
+    };
+    for target in outputs {
+        set.texture(target.resource_name(), size, frame.format, [1, 1], 1);
     }
 }
+
+pub mod lighting;
+pub mod records;
 
 #[cfg(test)]
 pub(crate) mod reference;

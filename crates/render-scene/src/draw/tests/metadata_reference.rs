@@ -295,7 +295,7 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (93_482, 0x22e8_31dc_934f_cb24_2e4f_660c_23cb_6188),
+            (95_438, 0x426c_8723_c9fb_4291_8336_e4d6_8445_36aa),
         ),
         (
             crate::shader::TERRAIN_WGSL,
@@ -303,7 +303,7 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
         ),
         (
             shadowed,
-            (109_995, 0x26dc_ac93_c3f2_6e4e_da1d_fd5f_efc7_a06f),
+            (111_951, 0x9b08_f164_48af_3cdc_4757_d755_f47d_e47d),
         ),
         (
             shadowed_terrain,
@@ -318,11 +318,11 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
     for (source, expected) in [
         (
             crate::shader::ENVIRONMENT_WGSL,
-            (93_717, 0xb135_4496_3393_36fb_606f_47d2_2966_2510),
+            (95_673, 0x657e_914c_ac3e_92bc_dba7_bdb7_d2d8_884e),
         ),
         (
             shadowed,
-            (110_230, 0x7b0b_5106_dc16_7218_0207_b984_9ac2_0499),
+            (112_186, 0xd5f8_512a_0133_9c51_a75b_e42f_0cab_d58b),
         ),
     ] {
         assert_eq!(
@@ -334,28 +334,28 @@ fn forward_assemblies_match_invariant_baseline_fingerprints() {
 
 const CELESTIAL_SOURCES: [[(usize, u128); 4]; 4] = [
     [
-        (95_070, 0x79d1_c93f_0185_4adc_0b5e_27f6_b394_08e9),
-        (95_044, 0xc9c0_7167_b659_8ef4_d514_7d77_f78b_ffe3),
-        (95_305, 0x2f8a_85c1_eaf9_2293_8e51_4a76_d7d7_a263),
-        (95_279, 0x7013_328b_8375_8863_2a86_00fb_b361_5ec1),
+        (97_026, 0x8c4a_a11b_7d34_5246_7eb2_0f26_6ae1_0327),
+        (97_000, 0x9e5a_c83a_b593_81b5_b833_18a5_bbd0_f035),
+        (97_261, 0xdea6_c833_5481_be8a_9409_2b48_9d79_163d),
+        (97_235, 0xca28_0a93_740f_0dfe_a3cd_b6c0_e988_6c37),
     ],
     [
-        (94_958, 0x8a66_275b_9492_7436_aa52_7773_20ab_7ab5),
-        (94_932, 0xbb15_b43b_2d87_779d_d08d_afde_c093_8caf),
-        (95_193, 0x5c9a_6492_f218_715d_7576_0657_1e57_47a5),
-        (95_167, 0xa199_1340_5fe2_259a_ca38_2659_ea87_fc7f),
+        (96_914, 0x2cb5_d59d_fb4d_2c8a_ed43_f81e_eeb4_826f),
+        (96_888, 0x4948_d556_01fe_fe49_02fb_1c61_7358_89dd),
+        (97_149, 0x49f6_13f1_a9ac_8d6a_e371_c9f6_674e_74fb),
+        (97_123, 0xe82a_6c1c_cb26_13d8_67a3_edfb_1b31_61f9),
     ],
     [
-        (95_096, 0x1f85_097d_edbf_4db1_65ae_129a_77d2_6159),
-        (95_070, 0x0f27_948f_15cc_ed38_619a_bfd8_6207_1773),
-        (95_331, 0xf867_2a82_2d54_8721_79c6_18fa_d402_17cf),
-        (95_305, 0x6394_ef8a_92cb_41f8_319c_e53d_0c11_79fd),
+        (97_052, 0x8dda_352c_1a9c_3a9b_516d_667f_807f_82d7),
+        (97_026, 0x6451_83d0_c001_30be_0667_f33f_451c_ab05),
+        (97_287, 0x5285_618f_a403_e148_ae1e_a0ba_fdc6_bc31),
+        (97_261, 0xf955_a3d2_14fc_c1c1_937d_fe88_ef80_0eeb),
     ],
     [
-        (95_038, 0xfd74_b3fe_26f3_7ad6_51cc_c728_0edb_7199),
-        (95_012, 0xf3ed_c0e4_d269_050d_88ac_7c6f_c218_fe33),
-        (95_273, 0x8834_c8b8_009f_24e4_fce0_d0ce_051b_27bd),
-        (95_247, 0xa767_4fb2_903a_029b_19f7_2fb3_0ff5_09b7),
+        (96_994, 0xff06_306e_ba81_e4fa_a1c9_9f10_9080_7bf3),
+        (96_968, 0x8521_f9ef_cb13_b813_b23f_9469_8402_2731),
+        (97_229, 0xfe20_5027_ed01_5d33_c64b_5781_d95f_a3d3),
+        (97_203, 0x814f_b432_b683_d3ca_c59e_6ef4_0811_e051),
     ],
 ];
 
@@ -403,6 +403,6 @@ fn forward_fingerprint_detects_even_unused_source_byte_mutations() {
 fn directional_shadow_assembly_pins_card_geometry_first_rejection() {
     assert_eq!(
         source_fingerprint(&crate::shadows::depth_source()),
-        (94_178, 0x12f9_cf56_36b9_c852_b503_2ba6_7ddd_5d26),
+        (96_134, 0x92aa_86f4_dcf8_efc8_91f1_f51c_d274_de38),
     );
 }

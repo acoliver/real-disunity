@@ -131,9 +131,11 @@ fn synthetic_heightfield_admission_reports_layout_bytes_and_limits() {
         report.layouts[0].attachment_limit,
         limits.max_color_attachments
     );
-    assert_eq!(report.layouts[0].record_count, 1);
-    assert_eq!(report.layouts[0].record_limit, 65_536);
-    assert_eq!(report.layouts[1].record_limit, 65_536);
+    // The one material is the neutral standard model, record 0, which the count excludes.
+    assert_eq!(report.layouts[0].record_count, 0);
+    assert_eq!(report.layouts[1].record_count, 0);
+    assert_eq!(report.layouts[0].record_limit, 65_535);
+    assert_eq!(report.layouts[1].record_limit, 255);
     assert!(report.layouts[0].admitted);
 }
 
@@ -173,10 +175,18 @@ fn unsupported_samples_and_record_overflow_are_typed() {
         Err(OpaqueAdmissionError::UnsupportedSampleCount { observed: 4 })
     ));
     assert_eq!(
-        validate_record_count(65_537, MaterialIdFormat::Rgba16Uint),
+        validate_record_count(65_536, RecordIndex::Wide),
         Err(OpaqueAdmissionError::RecordOverflow {
-            records: 65_537,
-            limit: 65_536,
+            records: 65_536,
+            limit: 65_535,
+        })
+    );
+    assert_eq!(validate_record_count(255, RecordIndex::Compact), Ok(()));
+    assert_eq!(
+        validate_record_count(256, RecordIndex::Compact),
+        Err(OpaqueAdmissionError::RecordOverflow {
+            records: 256,
+            limit: 255,
         })
     );
 }

@@ -13,6 +13,7 @@ pub(crate) struct Surface {
     pub emission: f32,
     pub ao: f32,
     pub flags: u32,
+    pub lighting_record: u8,
 }
 
 /// Stored codes of one pixel, as the four targets hold them.
@@ -20,7 +21,7 @@ pub(crate) struct Surface {
 pub(crate) struct Codes {
     /// Ten-bit G0 red, green, blue and two-bit alpha.
     pub g0: [u16; 4],
-    /// G1 sRGB bytes.
+    /// G1 sRGB colour bytes and the lighting-record byte.
     pub g1: [u8; 4],
     /// G2 bytes.
     pub g2: [u8; 4],
@@ -132,7 +133,12 @@ pub(crate) fn encode(surface: &Surface, view_from_scene: Mat3) -> Codes {
     let colour = surface.base_colour.to_array().map(srgb_encode);
     Codes {
         g0: [unorm(g0.x, 1023.0), unorm(g0.y, 1023.0), 0, 0],
-        g1: [byte(colour[0]), byte(colour[1]), byte(colour[2]), 0],
+        g1: [
+            byte(colour[0]),
+            byte(colour[1]),
+            byte(colour[2]),
+            surface.lighting_record,
+        ],
         g2: [
             byte(surface.roughness),
             byte(surface.metal),
@@ -160,6 +166,7 @@ pub(crate) fn decode(codes: &Codes, scene_from_view: Mat3) -> Surface {
         emission: emission * emission,
         ao: unit(codes.g2[3]),
         flags: u32::from(codes.g3) & 3,
+        lighting_record: codes.g1[3],
     }
 }
 

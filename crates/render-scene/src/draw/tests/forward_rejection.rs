@@ -250,6 +250,46 @@ fn forward_cards_match_frozen_per_sample_colour_depth_reflection_and_velocity() 
     );
 }
 
+/// The forward mesh shading reads its lighting record through the functions the deferred
+/// lighting pass shares; its output is unchanged from the frozen body that read the material
+/// inline, in every sample and attachment, with and without shadows.
+#[test]
+fn forward_meshes_match_frozen_scattering_transmission_and_emission() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let mut lit = 0;
+    for (name, scene, pose) in fixtures::mesh_scenes() {
+        for count in [1, 4] {
+            for shadows in [0, 1, 4] {
+                let old = capture(
+                    &context,
+                    (&scene, pose),
+                    (count, shadows, true),
+                    (false, None),
+                );
+                let new = capture(
+                    &context,
+                    (&scene, pose),
+                    (count, shadows, false),
+                    (false, None),
+                );
+                for (index, (expected, got)) in old.iter().zip(&new).enumerate() {
+                    assert!(
+                        expected == got,
+                        "{name}: samples={count}, shadows={shadows}, attachment={index}, mismatching bytes={}",
+                        expected.iter().zip(got).filter(|(a, b)| a != b).count()
+                    );
+                }
+                lit += new[0]
+                    .chunks_exact(8)
+                    .filter(|sample| sample[..6].iter().any(|byte| *byte != 0))
+                    .count();
+            }
+        }
+    }
+    assert!(lit > 0, "the mesh fixtures must shade samples");
+}
+
 #[test]
 fn frozen_a2c_fixture_retains_below_cutoff_and_raw_zero_alpha_samples() {
     let _session = crate::test_support::SceneTestSession::acquire();

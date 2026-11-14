@@ -57,6 +57,13 @@ constrained budgets, independent of resident storage and upload-completion histo
 Selected leaves are returned in derived-key order. Relative to history-based tie
 admission, only exact-error ties can change which geometry becomes resident.
 
+Camera terrain submissions use the shared mesh frustum plane test against each
+resident leaf's full terrain-wide height range and skirt bottom. Culling only
+filters recorded draws: selection, residency, mesh builds and uploads still cover
+the whole grid. Each camera pass uses its own raster matrix, including projection
+jitter. Shadow cascades retain their own light-frustum and slice-hull selection;
+they never use the camera's culled subset. Nonstreaming terrain stays unculled.
+
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies
 to world-to-UV mapping; its inverse brings each layer normal into the common
@@ -990,12 +997,13 @@ triangle in a 10 m tile differs from fragment sampling by 0.002811 at its centro
 AO receiver reconstruction is shared by mesh and terrain lighting. The optional depth-aware gather packs source metre depth beside final AO without adding a sampled texture binding. See [receiver contracts](../../dev-docs/rendering/ambient-occlusion.md#full-resolution-receivers).
 
 `SceneStatistics::terrain_geometry` publishes main-camera geometry replacement
-observations on the owning composition submission. Absence means no terrain draw;
+observations on the owning composition submission. Absence means no streaming terrain or nonstreaming terrain draw;
 `Static` identifies a nonstreaming mesh. `Streaming` carries the selector's desired
 leaves, including its split and hysteretic merge decisions, alongside admitted
-coverage, unresolved replacements, residency and completion. Budget-blocked merges
+coverage before view culling, unresolved replacements, residency and completion. Budget-blocked merges
 remain unresolved until admitted, even when resident fine leaves already exceed
 the selected detail. Fine leaves retained by hysteresis are selected and complete. Its bounded drawn-leaf
-fingerprint includes every sorted sample window. See the
+fingerprint includes only submitted sample windows after view culling. Streaming
+observations remain present with zero drawn leaves when the camera misses terrain. See the
 [host statistics contract](../scene-viewer/README.md#retained-frame-statistics)
 for counting units and identity encoding. Raw and cancelled draws do not publish.

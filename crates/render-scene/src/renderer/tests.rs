@@ -44,31 +44,21 @@ fn every_pipeline_variant_compiles_against_the_declared_layout() {
         "the declared bind group layouts, vertex attributes and entry points \
          must match the shader: {error:?}"
     );
-    for key in PipelineKey::ALL {
-        let _pipeline = pipelines.get(key);
-    }
-}
-
-#[test]
-fn each_state_selects_a_pipeline_of_its_own() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-
-    // Four distinct states must not collapse onto fewer pipelines. If indexing
-    // folded two together, the surviving one would be wrong for the state it
-    // absorbed -- a masked material drawn opaque keeps the texels it should
-    // have discarded, so every cutout leaf becomes a visible rectangle.
-    for (position, key) in PipelineKey::ALL.iter().enumerate() {
-        assert_eq!(key.index(), position, "{key:?} indexes its own slot");
-        for other in PipelineKey::ALL.iter().skip(position + 1) {
-            assert_ne!(
-                pipelines.get(*key),
-                pipelines.get(*other),
-                "{key:?} and {other:?} must not share a pipeline"
-            );
-        }
-    }
+    // Each key's object program registers against the declared layouts. Whether the 32 keys stay
+    // distinct is `object::program_tests::the_features_of_a_key_name_its_axes_and_are_distinct`.
+    let objects = pipelines.object_context();
+    let ((), error) = validation_error(device, || {
+        objects
+            .family()
+            .with_objects((device, context.submission()), |runtime| {
+                for key in PipelineKey::ALL {
+                    objects
+                        .program(runtime, key)
+                        .unwrap_or_else(|error| panic!("{key:?}: {error}"));
+                }
+            });
+    });
+    assert!(error.is_none(), "the object programs: {error:?}");
 }
 
 #[test]

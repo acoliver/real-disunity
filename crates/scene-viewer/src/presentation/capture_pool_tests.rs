@@ -365,6 +365,14 @@ fn derived_capture_pool_keeps_initial_effect_format_on_configuration() {
         u64::MAX,
     )
     .unwrap();
+    let storage = |ssao| {
+        let mut recipe = recipe.clone();
+        recipe.frame_samples = 1;
+        recipe.ao_format = crate::retained::ao_format_from_settings(ssao);
+        recipe.storage_bytes([33, 2]).unwrap()
+    };
+    let initial = storage(None);
+    assert_ne!(initial, storage(Some(gather())));
     let pool = CapturePoolPolicy::Derived {
         recipes: vec![recipe],
         max_extent: [33, 2],
@@ -399,14 +407,14 @@ fn derived_capture_pool_keeps_initial_effect_format_on_configuration() {
         },
     )
     .unwrap();
-    assert_eq!(presentation.capture_pool_bytes(), 1552);
+    assert_eq!(presentation.capture_pool_bytes(), initial);
     let mut settings = presentation.scheduler.configuration().clone();
     settings.ssao = Some(gather());
     presentation
         .scheduler
         .reconfigure(&context, settings)
         .unwrap();
-    assert_eq!(presentation.capture_pool_bytes(), 1552);
+    assert_eq!(presentation.capture_pool_bytes(), initial);
 }
 
 fn gather() -> worldrunner_render_plan::SceneSsao {

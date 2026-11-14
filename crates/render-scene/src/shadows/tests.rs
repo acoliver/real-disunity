@@ -6,6 +6,7 @@ mod culling;
 mod depth_reuse;
 mod fade;
 mod fixture;
+mod forward_split;
 mod geometry;
 mod hdr;
 mod independent;

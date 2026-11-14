@@ -539,12 +539,15 @@ the draw table, and pending leaves. Ancestor fallback pages do not count as exac
 residency. Unpaged terrain reports zero page counts. The counts remain tied to
 the submitted frame even while subsequent page uploads settle.
 
-`scene.terrain_geometry` is absent without a main terrain draw and before the
-first owning submission. `Static` identifies one nonstreaming resident mesh.
-`Streaming` reports the streaming selector's desired leaves, leaves drawn at
-that detail or finer, coarser drawn resident ancestors, resident draw leaves and
-unresolved desired leaves. The selector owns both split-error and hysteretic
-merge decisions, independently of replacement admission budgets. All leaves cover
+`scene.terrain_geometry` is absent before the first owning submission and when
+there is neither streaming terrain nor a nonstreaming terrain draw. `Static`
+identifies one nonstreaming resident mesh. `Streaming` reports desired leaves,
+resident coverage at that detail or finer (`drawn_at_detail`), coarser resident
+ancestors (`drawn_coarse`), total residents and unresolved desired leaves.
+Those coverage counters precede view culling; `drawn.count` counts submissions
+and can be zero while selected and resident leaves remain nonzero. The selector
+owns both split-error and hysteretic merge decisions, independently of replacement
+admission budgets. All leaves cover
 the grid, including offscreen coarse coverage. Finest-stride leaves satisfy the
 policy even if their projected error exceeds the threshold.
 
@@ -555,13 +558,14 @@ retired-allocation or upload limits. Fine leaves retained inside the hysteresis
 band are selected and complete; fine coverage awaiting a selected merge is
 incomplete. Submitted uploads ordered before draws are resident for that frame;
 this does not assert GPU completion. Retired allocations are excluded.
-`drawn_coarse` counts actual ancestor draws, not their covered descendants.
+`drawn_coarse` counts resident ancestors before culling, not covered descendants.
 `complete` requires every selected leaf at its selected detail and no unresolved
 work. Budget-limited coverage remains incomplete even when it stops changing.
 
-`drawn` contains the count and a stable FNV-1a-128 fingerprint of all sorted drawn
-sample windows, encoded as little-endian u32 minimum x/y, maximum x/y and stride.
-These are the engine's rectangular quadtree identities. The fixed-size fingerprint
+`drawn` contains the count and a stable FNV-1a-128 fingerprint of sorted submitted
+sample windows after view-frustum culling, encoded as little-endian u32 minimum
+x/y, maximum x/y and stride. These are the engine's rectangular quadtree
+identities. The fixed-size fingerprint
 avoids truncating large selections and keeps snapshots bounded. Equal fingerprints
 and counts support frame-selection comparison, with the usual noncryptographic
 hash collision limitation; they do not identify terrain content or a camera.

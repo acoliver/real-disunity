@@ -268,7 +268,6 @@ pub struct SceneGpu {
     frame_slots: Vec<(Buffer, BindGroup)>,
     /// The committed frame group and the frame slot whose uniform it binds.
     committed_frame_group: std::rc::Rc<RefCell<(BindGroup, usize)>>,
-    materials: Vec<BindGroup>,
     /// What the program runtime draws objects with: the resources each material lends, and the
     /// sets and pipelines prepared from them.
     objects: crate::object::prepared::PreparedObjects,
@@ -345,13 +344,15 @@ impl SceneGpu {
         let (textures, views) = upload_textures(device, authority, &prepared.textures)?;
         let (placeholder, placeholder_view) = placeholder_with_view(device, queue);
         let sampler = material_sampler(device);
-        let (materials, material_uniforms, material_imports) = resources::scene_materials(
+        let (material_uniforms, material_imports) = resources::upload_materials(
             device,
             queue,
             scene,
-            pipelines,
-            (&views, &placeholder_view),
-            &contact_heights,
+            &resources::MaterialBindings {
+                views: &views,
+                placeholder: &placeholder_view,
+                heights: &contact_heights,
+            },
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
         let objects =
@@ -384,7 +385,6 @@ impl SceneGpu {
             frame_buffer: frame_slots[0].0.clone(),
             frame_group: frame_slots[0].1.clone(),
             frame_slots,
-            materials,
             objects,
             meshes,
             mesh_selection: prepared.selection,

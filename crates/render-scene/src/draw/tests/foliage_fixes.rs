@@ -195,7 +195,7 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
     // Even a 2x2 triangle source needs 80 bytes. Exercise admitted contact bindings
     // independently; full terrain uploads are covered on the unrestricted device.
     let reduced_scene = reduced_contact_scene(true, 2);
-    let reduced = upload_contact_materials(&device, &authority, &reduced_scene, &layouts).unwrap();
+    let reduced = upload_contact_materials(&device, &authority, &reduced_scene).unwrap();
     assert_eq!(reduced.size(), 48);
     let rejected = SceneGpu::upload(
         &device,
@@ -211,8 +211,7 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
         })
     ));
     let inactive_scene = reduced_contact_scene(false, 1);
-    let inactive =
-        upload_contact_materials(&device, &authority, &inactive_scene, &layouts).unwrap();
+    let inactive = upload_contact_materials(&device, &authority, &inactive_scene).unwrap();
     assert_eq!(inactive.size(), 48);
     assert!(pollster::block_on(scope.pop()).is_none());
 }
@@ -221,7 +220,6 @@ fn upload_contact_materials(
     device: &wgpu::Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
     scene: &RenderScene,
-    layouts: &ScenePipelines,
 ) -> Result<wgpu::Buffer, DrawError> {
     let prepared = super::super::PreparedScene::new(scene)?;
     let heights =
@@ -229,15 +227,17 @@ fn upload_contact_materials(
     let (_textures, views) =
         super::super::resources::upload_textures(device, authority, &prepared.textures)?;
     let (_placeholder, view) = crate::upload::placeholder_with_view(device, authority.queue());
-    let (groups, _uniforms, _imports) = super::super::resources::scene_materials(
+    let (_uniforms, imports) = super::super::resources::upload_materials(
         device,
         authority.queue(),
         scene,
-        layouts,
-        (&views, &view),
-        &heights,
+        &super::super::resources::MaterialBindings {
+            views: &views,
+            placeholder: &view,
+            heights: &heights,
+        },
     );
-    assert_eq!(groups.len(), scene.resources().materials().len());
+    assert_eq!(imports.len(), scene.resources().materials().len());
     Ok(heights)
 }
 

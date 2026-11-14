@@ -64,34 +64,30 @@ pub(super) fn upload_textures(
     Ok((textures, views))
 }
 
-/// What every material bind group shares, as opposed to its own maps.
+/// What every material's imports share, as opposed to its own maps.
 #[derive(Clone, Copy)]
 pub(super) struct MaterialBindings<'a> {
-    pub(super) layout: &'a BindGroupLayout,
     pub(super) views: &'a [TextureView],
     pub(super) placeholder: &'a TextureView,
     pub(super) heights: &'a Buffer,
 }
 
-/// What one material bind group reads besides the material and its own uniform.
+/// What one material's imports read besides the material and its own uniform.
 pub(super) struct GroupInputs<'a> {
-    pub(super) layout: &'a BindGroupLayout,
     pub(super) placeholder: &'a TextureView,
     pub(super) heights: &'a Buffer,
     /// The view of one scene texture. Views are reference counted, so a lookup is cheap.
     pub(super) view: &'a dyn Fn(TextureHandle) -> TextureView,
 }
 
-/// Binds one material's maps, its uniform and the shared contact heights, filling absent maps
-/// with the placeholder. The same resources are lent to the program runtime as the table its
-/// prepared set is made from.
-pub(super) fn material_group(
-    device: &Device,
+/// Lends one material's maps, its uniform and the shared contact heights to the program runtime
+/// as the table its prepared set is made from, filling absent maps with the placeholder.
+pub(super) fn material_imports(
     inputs: &GroupInputs<'_>,
     material: &worldrunner_render_plan::SceneMaterial,
     uniform: &Buffer,
     sampler: &Sampler,
-) -> (BindGroup, ImportTable) {
+) -> ImportTable {
     let optional = |handle: Option<TextureHandle>| {
         handle.map_or_else(
             || inputs.placeholder.clone(),
@@ -119,41 +115,30 @@ pub(super) fn material_group(
     ];
     let maps = [&bound[0], &bound[1], &bound[2], &bound[3], &bound[4]];
     let extra = [&extra[0], &extra[1], &extra[2]];
-    let group = crate::upload::extended_material_group(
-        device,
-        inputs.layout,
-        uniform,
-        crate::upload::MaterialTextureBindings { maps, extra },
-        sampler,
-        inputs.heights,
-    );
-    let imports = crate::object::prepared::imports(
+    crate::object::prepared::imports(
         &crate::object::prepared::MaterialViews { maps, extra },
         uniform,
         sampler,
         inputs.heights,
-    );
-    (group, imports)
+    )
 }
 
-/// Builds one bind group per material, filling absent maps with the placeholder, with the
-/// uniform buffer and the program runtime's imports of each.
+/// Uploads the uniform buffer of each material and makes the program runtime's imports of it,
+/// filling absent maps with the placeholder.
 pub(super) fn upload_materials(
     device: &Device,
     queue: &Queue,
     scene: &RenderScene,
     bindings: &MaterialBindings<'_>,
-) -> (Vec<BindGroup>, Vec<Buffer>, Vec<ImportTable>) {
+) -> (Vec<Buffer>, Vec<ImportTable>) {
     let views = bindings.views;
     let lookup = |handle: TextureHandle| views[table_index(handle)].clone();
     let inputs = GroupInputs {
-        layout: bindings.layout,
         placeholder: bindings.placeholder,
         heights: bindings.heights,
         view: &lookup,
     };
     let mut samplers = crate::sampling::MaterialSamplers::default();
-    let mut groups = Vec::new();
     let mut uniforms = Vec::new();
     let mut tables = Vec::new();
     for material in scene.resources().materials() {
@@ -165,12 +150,10 @@ pub(super) fn upload_materials(
             &super::fade::uniform(scene, material),
         );
         let sampler = samplers.get(device, material);
-        let (group, table) = material_group(device, &inputs, material, &uniform, sampler);
-        groups.push(group);
-        tables.push(table);
+        tables.push(material_imports(&inputs, material, &uniform, sampler));
         uniforms.push(uniform);
     }
-    (groups, uniforms, tables)
+    (uniforms, tables)
 }
 
 /// Uploads already packed mesh levels without processing source geometry.
@@ -450,27 +433,6 @@ fn terrain_instances(
         BufferUsages::VERTEX,
         &bytes,
     ))
-}
-
-pub(super) fn scene_materials(
-    device: &Device,
-    queue: &Queue,
-    scene: &RenderScene,
-    pipelines: &crate::renderer::ScenePipelines,
-    textures: (&[TextureView], &TextureView),
-    heights: &Buffer,
-) -> (Vec<BindGroup>, Vec<Buffer>, Vec<ImportTable>) {
-    upload_materials(
-        device,
-        queue,
-        scene,
-        &MaterialBindings {
-            layout: pipelines.material_layout(),
-            views: textures.0,
-            placeholder: textures.1,
-            heights,
-        },
-    )
 }
 
 impl super::SceneGpu {

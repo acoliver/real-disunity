@@ -1,7 +1,7 @@
 //! Appending and replacing textures, materials and meshes of a resident scene.
 //!
 //! The CPU half ([`PreparedAppend`] and the replacement types) needs no device. It prepares only
-//! the new bytes. The GPU half uploads only those bytes, builds bind groups only for the new or
+//! the new bytes. The GPU half uploads only those bytes, builds the imports only for the new or
 //! affected materials and extends the per-resource tables, so its cost follows the size of the
 //! edit. Anything that depends on state shared by the whole scene (impostor atlases, fade
 //! thresholds and references, terrain contact, specular cubes, effects that hold texture or
@@ -15,7 +15,9 @@ use worldrunner_render_plan::{
     SceneTexture, TextureHandle,
 };
 
-use super::resources::{GroupInputs, material_group, table_index, upload_meshes, upload_textures};
+use super::resources::{
+    GroupInputs, material_imports, table_index, upload_meshes, upload_textures,
+};
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
 use crate::renderer::ScenePipelines;
@@ -424,7 +426,7 @@ impl SceneGpu {
     pub fn resource_base(&self) -> ResourceBase {
         ResourceBase {
             textures: self.retained.textures.len(),
-            materials: self.materials.len(),
+            materials: self.retained.material_uniforms.len(),
             meshes: self.meshes.len(),
         }
     }
@@ -465,7 +467,7 @@ impl SceneGpu {
         let queue = authority.queue();
         let (textures, new_views) = upload_textures(device, authority, &prepared.textures)?;
         let old_count = self.retained.textures.len();
-        let (groups, uniforms, tables) = {
+        let (uniforms, tables) = {
             let resident = &self.retained.textures;
             let lookup = |handle: TextureHandle| -> TextureView {
                 let index = table_index(handle);
@@ -479,12 +481,11 @@ impl SceneGpu {
                 .placeholder
                 .create_view(&TextureViewDescriptor::default());
             let inputs = GroupInputs {
-                layout: pipelines.material_layout(),
                 placeholder: &placeholder,
                 heights: &self.retained.contact_heights,
                 view: &lookup,
             };
-            new_material_groups(device, queue, &inputs, &prepared.materials)
+            new_material_uploads(device, queue, &inputs, &prepared.materials)
         };
         let meshes = upload_meshes(device, queue, &prepared.meshes);
         self.decals.append(source)?;
@@ -495,7 +496,6 @@ impl SceneGpu {
             .extend(prepared.materials.iter().map(|m| m.impostor().is_some()));
         self.retained.textures.extend(textures);
         self.retained.material_uniforms.extend(uniforms);
-        self.materials.extend(groups);
         self.objects.extend(tables);
         self.objects.warm(pipelines.object_context());
         self.meshes.extend(meshes);
@@ -530,7 +530,7 @@ impl SceneGpu {
             &replacement.texture.as_prepared(),
         )?;
         let fresh = texture.create_view(&TextureViewDescriptor::default());
-        let groups = {
+        let tables = {
             let resident = &self.retained.textures;
             let lookup = |handle: TextureHandle| -> TextureView {
                 let at = table_index(handle);
@@ -545,7 +545,6 @@ impl SceneGpu {
                 .placeholder
                 .create_view(&TextureViewDescriptor::default());
             let inputs = GroupInputs {
-                layout: pipelines.material_layout(),
                 placeholder: &placeholder,
                 heights: &self.retained.contact_heights,
                 view: &lookup,
@@ -557,17 +556,13 @@ impl SceneGpu {
                 .map(|(at, material)| {
                     let sampler = samplers.get(device, material);
                     let uniform = &self.retained.material_uniforms[*at];
-                    (
-                        *at,
-                        material_group(device, &inputs, material, uniform, sampler),
-                    )
+                    (*at, material_imports(&inputs, material, uniform, sampler))
                 })
                 .collect::<Vec<_>>()
         };
         self.resource_counters.replace_texture(index, bytes);
         self.retained.textures[index] = texture;
-        for (at, (group, table)) in groups {
-            self.materials[at] = group;
+        for (at, table) in tables {
             self.objects.replace(at, table);
         }
         self.objects.warm(pipelines.object_context());
@@ -606,19 +601,17 @@ impl SceneGpu {
     }
 }
 
-/// One bind group and uniform buffer for each new material.
-fn new_material_groups(
+/// One uniform buffer and one table of imports for each new material.
+fn new_material_uploads(
     device: &Device,
     queue: &wgpu::Queue,
     inputs: &GroupInputs<'_>,
     materials: &[worldrunner_render_plan::SceneMaterial],
 ) -> (
-    Vec<wgpu::BindGroup>,
     Vec<wgpu::Buffer>,
     Vec<worldrunner_render_program::runtime::ImportTable>,
 ) {
     let mut samplers = crate::sampling::MaterialSamplers::default();
-    let mut groups = Vec::with_capacity(materials.len());
     let mut uniforms = Vec::with_capacity(materials.len());
     let mut tables = Vec::with_capacity(materials.len());
     for material in materials {
@@ -630,10 +623,8 @@ fn new_material_groups(
             &crate::pipeline::MaterialUniform::from_material(material).to_bytes(),
         );
         let sampler = samplers.get(device, material);
-        let (group, table) = material_group(device, inputs, material, &uniform, sampler);
-        groups.push(group);
-        tables.push(table);
+        tables.push(material_imports(inputs, material, &uniform, sampler));
         uniforms.push(uniform);
     }
-    (groups, uniforms, tables)
+    (uniforms, tables)
 }

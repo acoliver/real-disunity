@@ -2,8 +2,7 @@
 //!
 //! A material's resources are lent to the runtime once, when the scene is uploaded: one
 //! [`ImportTable`] per material holds the 576-byte material block, the surface maps, the sampler,
-//! the contact heights and the impostor and wind textures, as the material's bind group
-//! (`SceneGpu::materials`, which only the tests that record draws themselves bind) binds them. A
+//! the contact heights and the impostor and wind textures. A
 //! [`PreparedSet`] is made from a table the first time a runtime needs it, and every pipeline of
 //! that runtime whose set-1 layout equals the set's shares it.
 //!
@@ -44,7 +43,21 @@ pub(crate) struct MaterialViews<'a> {
     pub extra: [&'a TextureView; 3],
 }
 
-/// What the runtime is lent for one material, from the resources its group binds.
+/// The semantics the views of [`MaterialViews`] are lent under, in the order of its `maps` and
+/// then its `extra`.
+const MAP_SEMANTICS: [&str; 8] = [
+    semantic::ALBEDO,
+    semantic::NORMAL,
+    semantic::ROUGH_METAL,
+    semantic::AMBIENT_OCCLUSION,
+    semantic::SELF_ILLUMINATION,
+    semantic::IMPOSTOR_DEPTH,
+    semantic::IMPOSTOR_BORDERS,
+    semantic::WIND_FIELD,
+];
+
+/// What the runtime is lent for one material: its views, its uniform block, its sampler and the
+/// contact heights.
 pub(crate) fn imports(
     views: &MaterialViews<'_>,
     uniform: &Buffer,
@@ -58,18 +71,9 @@ pub(crate) fn imports(
             named(semantic::CONTACT_HEIGHTS),
             heights.clone(),
         ));
-    for (name, view) in [
-        semantic::ALBEDO,
-        semantic::NORMAL,
-        semantic::ROUGH_METAL,
-        semantic::AMBIENT_OCCLUSION,
-        semantic::SELF_ILLUMINATION,
-        semantic::IMPOSTOR_DEPTH,
-        semantic::IMPOSTOR_BORDERS,
-        semantic::WIND_FIELD,
-    ]
-    .into_iter()
-    .zip(views.maps.into_iter().chain(views.extra))
+    for (name, view) in MAP_SEMANTICS
+        .into_iter()
+        .zip(views.maps.into_iter().chain(views.extra))
     {
         table.insert(Import::texture(
             named(name),
@@ -109,6 +113,47 @@ impl PreparedObjects {
             sets: RefCell::default(),
             pipelines: RefCell::default(),
         }
+    }
+
+    /// One bind group for each material, made from what the material lends. The scene's passes
+    /// bind the prepared sets instead; only the tests that record draws themselves bind these.
+    #[cfg(test)]
+    pub(crate) fn material_groups(&self, device: &wgpu::Device) -> Vec<wgpu::BindGroup> {
+        use worldrunner_render_program::runtime::{ImportedResource, ImportedTexture};
+
+        let layout = crate::upload::material_bind_group_layout(device);
+        self.tables
+            .iter()
+            .map(|table| {
+                let lent = |name: &str| {
+                    table
+                        .get(&named(name))
+                        .unwrap_or_else(|| panic!("a material lends {name}"))
+                };
+                let buffer = |name: &str| match lent(name) {
+                    ImportedResource::Buffer(buffer) => buffer,
+                    other => panic!("{name} is lent as {other:?}, not a buffer"),
+                };
+                let ImportedResource::Sampler(sampler) = lent(semantic::SAMPLER) else {
+                    panic!("the sampler is lent as a sampler");
+                };
+                let views = MAP_SEMANTICS.map(|name| match lent(name) {
+                    ImportedResource::Texture(ImportedTexture { view, .. }) => view,
+                    _ => panic!("{name} is lent as a texture view"),
+                });
+                crate::upload::extended_material_group(
+                    device,
+                    &layout,
+                    buffer(semantic::MATERIAL),
+                    crate::upload::MaterialTextureBindings {
+                        maps: [views[0], views[1], views[2], views[3], views[4]],
+                        extra: [views[5], views[6], views[7]],
+                    },
+                    sampler,
+                    buffer(semantic::CONTACT_HEIGHTS),
+                )
+            })
+            .collect()
     }
 
     /// Adds the materials an append made resident.

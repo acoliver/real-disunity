@@ -233,7 +233,7 @@ struct KeySink {
 
 #[cfg(test)]
 impl DrawSink for KeySink {
-    fn instances(&mut self, _: &Buffer, _: Option<&Buffer>) {}
+    fn instances(&mut self, _: &Buffer, _: Option<&Buffer>, _: Option<&Buffer>) {}
 
     fn vertices(&mut self, _: &Buffer) {}
 

@@ -282,7 +282,11 @@ impl Meshes {
         for draw in &self.draws {
             let context = self.context(raster, draw.lighting, draw.anchored);
             objects
-                .pipeline(&context, draw.key.index(), draw.material_index)
+                .pipeline(
+                    &context,
+                    (draw.key.index(), draw.material_index),
+                    crate::object::layout::GeometryLayout::Static,
+                )
                 .map_err(
                     |error| worldrunner_render_post::FrameError::FeaturePreparation {
                         feature: "celestial meshes",
@@ -326,7 +330,11 @@ impl Meshes {
             );
             let context = self.context(raster, draw.lighting, draw.anchored);
             let pipeline = objects
-                .pipeline(&context, draw.key.index(), draw.material_index)
+                .pipeline(
+                    &context,
+                    (draw.key.index(), draw.material_index),
+                    crate::object::layout::GeometryLayout::Static,
+                )
                 .expect("the celestial pass prepares its bodies before it opens");
             pipeline.bind(pass);
             pass.set_bind_group(0, frame, &[]);
@@ -423,7 +431,11 @@ mod tests {
                         family
                             .with_objects((context.device(), authority), |runtime| {
                                 for key in crate::pipeline::PipelineKey::ALL {
-                                    celestial.program(runtime, key)?;
+                                    celestial.program(
+                                        runtime,
+                                        key,
+                                        crate::object::layout::GeometryLayout::Static,
+                                    )?;
                                 }
                                 Ok::<_, worldrunner_render_program::error::ProgramError>(())
                             })

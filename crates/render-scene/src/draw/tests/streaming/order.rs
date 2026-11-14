@@ -1,6 +1,7 @@
 use super::*;
 use crate::draw::streaming::schedule_tests;
-use crate::terrain::streaming::TerrainChunk;
+use crate::draw::visibility::{Bounds, Frustum};
+use crate::terrain::streaming::{TerrainChunk, chunk_bounds};
 
 const SIZE: u32 = 128;
 
@@ -102,6 +103,18 @@ fn terrain_pixels_are_identical_after_different_completion_schedules() {
     };
     assert!(stats.complete);
     assert_eq!(stats.resident_leaves, 40);
-    assert_eq!(immediate.statistics().passes.terrain.calls, 40);
+    let frustum = Frustum::new(frame().view_projection);
+    let visible = keys(&immediate)
+        .iter()
+        .filter(|&&chunk| {
+            let [min, max] = chunk_bounds(source.terrain().unwrap(), chunk);
+            frustum.intersects(Bounds { min, max }.outward_rounded())
+        })
+        .count();
+    assert!(visible > 0 && visible < 40);
+    assert_eq!(
+        immediate.statistics().passes.terrain.calls,
+        u64::try_from(visible).unwrap()
+    );
     wait(&context);
 }

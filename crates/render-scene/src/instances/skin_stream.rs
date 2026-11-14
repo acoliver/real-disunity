@@ -14,7 +14,7 @@ use crate::skinning::SKIN_INSTANCE_BYTES as STRIDE;
 pub(crate) struct SkinStream {
     pub bytes: Vec<u8>,
     pub uploaded: Rc<RefCell<Vec<u8>>>,
-    pub buffer: Option<wgpu::Buffer>,
+    pub buffer: Option<worldrunner_render_gpu::census::Tracked<wgpu::Buffer>>,
 }
 
 impl SkinStream {
@@ -47,7 +47,7 @@ impl SkinStream {
         context: &mut worldrunner_render_post::PrepareContext<'_>,
         ranges: &[std::ops::Range<u32>],
     ) -> (Rc<RefCell<Vec<u8>>>, Vec<u8>) {
-        let buffer = self.buffer.as_ref().expect("allocated skin buffer");
+        let buffer = self.buffer.as_deref().expect("allocated skin buffer");
         for range in ranges {
             context.upload_buffer(
                 buffer,
@@ -61,7 +61,7 @@ impl SkinStream {
     /// Whether the buffer can hold every slot.
     pub fn fits(&self) -> bool {
         self.buffer
-            .as_ref()
+            .as_deref()
             .is_some_and(|buffer| buffer.size() >= self.bytes.len() as u64)
     }
 }

@@ -1,4 +1,5 @@
 pub(crate) mod casters;
+mod culling;
 mod meshes;
 mod observations;
 mod replacement;
@@ -343,16 +344,21 @@ impl Streaming {
         });
     }
 
-    /// Records the resident chunks through a prepared pipeline, one prepared geometry each,
-    /// from the chunk nearest `eye` to the farthest. The chunk's record of the shared instance
-    /// buffer is its geometry's instance range.
+    /// Records resident chunks intersecting this view, nearest to farthest. The raster matrix
+    /// includes any projection jitter, so a skirt shifted onto the screen remains submitted.
     pub(super) fn draw_prepared<P: worldrunner_render_program::runtime::PassCommands>(
         &self,
         pass: &mut P,
         pipeline: &worldrunner_render_program::runtime::PreparedPipeline,
-        (terrain, eye): (&super::GpuTerrain, glam::Vec3),
+        (terrain, frame): (&super::GpuTerrain, &crate::frame::FrameUniform),
     ) -> super::DrawCount {
-        self.record_prepared(pass, pipeline, (terrain, Some(eye)), |_| true)
+        let scene = self.scene.terrain().expect("terrain");
+        self.record_prepared(
+            pass,
+            pipeline,
+            (terrain, Some(frame.camera_position)),
+            culling::keep(scene, frame.view_projection),
+        )
     }
 
     /// Records the resident chunks whose world bounds `keep` accepts, in resident order.

@@ -3,6 +3,8 @@ use std::ops::Range;
 
 use worldrunner_render_plan::{SceneObject, SceneTransform};
 
+use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
+
 use super::skin_stream::SkinStream;
 use super::slot_bounds::SlotBounds;
 use crate::geometry::{INSTANCE_BYTES as STRIDE, pack_object};
@@ -16,14 +18,14 @@ pub(crate) struct InstanceBatch {
     uploaded: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
     buffer_valid: std::rc::Rc<std::cell::Cell<bool>>,
     encoded: Option<worldrunner_render_gpu::submission::Publications>,
-    pub buffer: Option<wgpu::Buffer>,
+    pub buffer: Option<Tracked<wgpu::Buffer>>,
     /// Slots added since the last published frame; their previous transform is their current one.
     fresh: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
     /// Slots whose previous transform differed from their current one in the last published
     /// frame. They are copied once more so an untouched slot converges to previous == current.
     stale: std::rc::Rc<std::cell::RefCell<BTreeSet<usize>>>,
     /// The previous-frame transform of every slot, same layout as `buffer`; velocity draws only.
-    pub previous: Option<wgpu::Buffer>,
+    pub previous: Option<Tracked<wgpu::Buffer>>,
     /// The per-slot skin descriptors, present when the batch's mesh has a skinned level.
     pub skin: Option<SkinStream>,
     /// View-independent world bounds per slot, filled during selection.
@@ -261,6 +263,7 @@ fn ranges(positions: impl Iterator<Item = usize>) -> Vec<Range<u32>> {
 pub(crate) fn flush_prepared(
     batch: &mut InstanceBatch,
     context: &mut worldrunner_render_post::PrepareContext<'_>,
+    census: &MemoryCensus,
     track_previous: bool,
 ) -> Vec<Range<u32>> {
     batch.prune_published();
@@ -269,7 +272,7 @@ pub(crate) fn flush_prepared(
     if batch.bytes.is_empty() {
         return ranges;
     }
-    grow(batch, context, track_previous);
+    grow(batch, context, census, track_previous);
     let full = !batch.buffer_valid.get();
     if full {
         ranges =
@@ -287,12 +290,12 @@ pub(crate) fn flush_prepared(
     batch.content += 1;
     // Previous transforms are staged first: the encoder runs copies in staging order and the
     // previous buffer is a separate resource, so it can never observe this frame's bytes.
-    if let Some(buffer) = batch.previous.as_ref().filter(|_| track_previous) {
+    if let Some(buffer) = batch.previous.as_deref().filter(|_| track_previous) {
         for (start, bytes) in &previous.uploads {
             context.upload_buffer(buffer, *start, bytes);
         }
     }
-    let buffer = batch.buffer.as_ref().expect("allocated instance buffer");
+    let buffer = batch.buffer.as_deref().expect("allocated instance buffer");
     for range in &ranges {
         let bytes = byte_range(range);
         context.upload_buffer(buffer, bytes.start as u64, &batch.bytes[bytes]);
@@ -379,11 +382,14 @@ fn ranges_of(positions: impl Iterator<Item = usize>) -> Vec<Range<usize>> {
 fn grow(
     batch: &mut InstanceBatch,
     context: &mut worldrunner_render_post::PrepareContext<'_>,
+    census: &MemoryCensus,
     track_previous: bool,
 ) {
     let device = context.device().clone();
     let size = batch.bytes.len() as u64;
-    let fits = |buffer: &Option<wgpu::Buffer>| buffer.as_ref().is_some_and(|b| b.size() >= size);
+    let fits = |buffer: &Option<Tracked<wgpu::Buffer>>| {
+        buffer.as_deref().is_some_and(|b| b.size() >= size)
+    };
     let current_fits = fits(&batch.buffer);
     let previous_fits = !track_previous || fits(&batch.previous);
     let skin_fits = batch.skin.as_ref().is_none_or(SkinStream::fits);
@@ -398,18 +404,22 @@ fn grow(
         "instance buffer exceeds device limit"
     );
     let create = |label, capacity| {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: capacity,
-            usage: wgpu::BufferUsages::VERTEX
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        })
+        census.create_buffer(
+            &device,
+            ResourceClass::Instance,
+            &wgpu::BufferDescriptor {
+                label: Some(label),
+                size: capacity,
+                usage: wgpu::BufferUsages::VERTEX
+                    | wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            },
+        )
     };
     if !current_fits {
         let buffer = create("retained instances", capacity);
-        if let Some(old) = &batch.buffer {
+        if let Some(old) = batch.buffer.as_deref() {
             context.copy_buffer(old, &buffer, old.size());
         }
         batch.buffer = Some(buffer);

@@ -52,10 +52,10 @@ fn disabled_curvature_preserves_material_entry_depth_bytes() {
         let mut frame = frame_from(pose());
         frame.animation_time_milliseconds = 0;
         gpu.set_frame(context.queue(), frame);
-        let depth = read_depth(
+        let depth = read_program_depth(
             &context,
             &gpu,
-            layouts.object_pipelines(),
+            layouts.object_context(),
             (Some(COLOR_FORMAT), None),
         );
         assert!(
@@ -115,10 +115,10 @@ fn phase_sources_and_local_hinge_translation_reach_production_geometry() {
         });
         frame.animation_time_milliseconds = 100;
         gpu.set_frame(context.queue(), frame);
-        let depth = read_depth(
+        let depth = read_program_depth(
             &context,
             &gpu,
-            layouts.object_pipelines(),
+            layouts.object_context(),
             (Some(COLOR_FORMAT), None),
         );
         assert!(depth.chunks_exact(4).any(|v| v != 1.0_f32.to_le_bytes()));
@@ -323,27 +323,26 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
         });
         frame.animation_time_milliseconds = time;
         gpu.set_frame(context.queue(), frame);
-        let main = read_depth(
+        let main = read_program_depth(
             &context,
             &gpu,
-            forward.object_pipelines(),
+            forward.object_context(),
             (Some(COLOR_FORMAT), None),
         );
         assert!(main.chunks_exact(4).any(|v| v != 1.0_f32.to_le_bytes()));
-        for (pipelines, state) in [
+        for (objects, state) in [
             (
-                metadata.object_pipelines()
-                    as &dyn std::ops::Index<usize, Output = wgpu::RenderPipeline>,
+                metadata.object_context(),
                 (Some(TextureFormat::Rgba16Float), Some(&group)),
             ),
             (
-                reflection.object_pipelines(),
+                reflection.object_context(),
                 (Some(TextureFormat::Rgba16Float), Some(&reflection_group)),
             ),
-            (&shadow, (None, None)),
         ] {
-            assert_eq!(main, read_depth(&context, &gpu, pipelines, state));
+            assert_eq!(main, read_program_depth(&context, &gpu, objects, state));
         }
+        assert_eq!(main, read_depth(&context, &gpu, &shadow, (None, None)));
         if time == 250 {
             if let Some(previous) = &previous {
                 assert_eq!(&main, previous);
@@ -355,11 +354,40 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
     }
 }
 
+/// The depth the scene's objects write through the render pipelines `pipelines`, which the test
+/// built itself, drawn with `draw_objects`.
 pub(super) fn read_depth(
     context: &GpuContext,
     gpu: &SceneGpu,
     pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
     state: (Option<TextureFormat>, Option<&wgpu::BindGroup>),
+) -> Vec<u8> {
+    read_depth_by(context, state, |pass| {
+        drop(gpu.draw_objects(pass, &gpu.frame_group, pipelines, None));
+    })
+}
+
+/// The depth the scene's objects write through the object programs of `objects`, prepared
+/// before the pass opens as the scene's passes prepare them.
+pub(super) fn read_program_depth(
+    context: &GpuContext,
+    gpu: &SceneGpu,
+    objects: &crate::object::program::Context,
+    state: (Option<TextureFormat>, Option<&wgpu::BindGroup>),
+) -> Vec<u8> {
+    gpu.prepare_object_context(objects)
+        .expect("the object programs prepare");
+    read_depth_by(context, state, |pass| {
+        drop(gpu.draw_objects_prepared(pass, &gpu.frame_group, objects));
+    })
+}
+
+/// The depth plane after `draw` recorded into a pass over a cleared depth and, when `state`
+/// names a format, a colour target, with `state`'s group bound at set 3.
+fn read_depth_by(
+    context: &GpuContext,
+    state: (Option<TextureFormat>, Option<&wgpu::BindGroup>),
+    draw: impl FnOnce(&mut wgpu::RenderPass<'_>),
 ) -> Vec<u8> {
     let device = context.device();
     let depth = super::foliage::coverage_depth(device);
@@ -372,7 +400,7 @@ pub(super) fn read_depth(
         usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
+    let mut encoder = context.submission().begin(device).unwrap();
     {
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: None,
@@ -392,10 +420,10 @@ pub(super) fn read_depth(
         if let Some(group) = state.1 {
             pass.set_bind_group(3, group, &[]);
         }
-        gpu.draw_objects(&mut pass, &gpu.frame_group, pipelines, None);
+        draw(&mut pass);
     }
     super::foliage::copy_depth(&mut encoder, &depth, &buffer);
-    context.queue().submit([encoder.finish()]);
+    encoder.finish().submit().unwrap();
     map_pixels(device, &buffer)
 }
 

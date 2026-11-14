@@ -195,6 +195,11 @@ impl FrameRenderer {
             .with_effects(context.device(), post)?;
         let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
         let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
+        let metadata = depth_reuse::prepass_metadata(
+            ssao_requested,
+            ssr_requested.as_ref(),
+            effects.is_some_and(|effects| effects.depth_fitting().is_some()),
+        );
         let mut renderer = Self {
             overlay: overlay::OverlayStage::default(),
             output_format,
@@ -219,10 +224,9 @@ impl FrameRenderer {
             post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
             exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
             temporal: std::rc::Rc::default(),
-            ssao: effects
-                .and_then(|effects| effects.ssao())
+            ssao: metadata
                 .map(|settings| {
-                    crate::scene_metadata::SceneMetadata::new(context.device(), size, *settings)
+                    crate::scene_metadata::SceneMetadata::new(context.device(), size, settings)
                 })
                 .transpose()?,
             chain: PostChain::with_scene_depth(
@@ -230,14 +234,10 @@ impl FrameRenderer {
                 config,
                 Resources::default(),
                 FrameOutput::Hdr(factory),
-                depth_reuse::allocation(
-                    context.device(),
-                    config,
-                    ssao_requested.is_some() || ssr_requested.is_some_and(|ssr| ssr.enabled),
-                ),
+                depth_reuse::allocation(context.device().features(), config, metadata.is_some()),
             )?,
         };
-        renderer.install_reflections(context.device(), size)?;
+        renderer.install_reflections(context.device())?;
         renderer.share_metadata_depth(context.device());
         renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
@@ -250,23 +250,15 @@ impl FrameRenderer {
         Ok(renderer)
     }
 
-    fn install_reflections(
-        &mut self,
-        device: &wgpu::Device,
-        size: [u32; 2],
-    ) -> Result<(), FrameError> {
+    fn install_reflections(&mut self, device: &wgpu::Device) -> Result<(), FrameError> {
         if let Some(settings) = self.ssr_requested.filter(|settings| settings.enabled) {
             crate::ssr::validate_extent(self.targets().config(), &settings, &device.limits())?;
-            if self.ssao.is_none() {
-                self.ssao = Some(crate::scene_metadata::SceneMetadata::new(
-                    device,
-                    size,
-                    crate::ssr::neutral_ao(),
-                )?);
-            }
             let config = self.targets().config();
             let velocity = self.taa_resident();
-            let screen = self.ssao.as_mut().expect("reflection prepass");
+            let screen = self
+                .ssao
+                .as_mut()
+                .expect("enabled reflections own prepass metadata");
             self.ssr = Some(crate::ssr::Ssr::with_velocity(
                 device, config, settings, screen, velocity,
             )?);

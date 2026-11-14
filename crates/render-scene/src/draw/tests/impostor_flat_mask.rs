@@ -171,10 +171,10 @@ fn upload(context: &GpuContext, layouts: &ScenePipelines, source: &RenderScene) 
 
 fn coverage(context: &GpuContext, layouts: &ScenePipelines, source: &RenderScene) -> Vec<u8> {
     let gpu = upload(context, layouts, source);
-    super::curved_wind::read_depth(
+    super::curved_wind::read_program_depth(
         context,
         &gpu,
-        layouts.object_pipelines(),
+        layouts.object_context(),
         (Some(COLOR_FORMAT), None),
     )
 }

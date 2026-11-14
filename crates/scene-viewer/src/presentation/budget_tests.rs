@@ -267,3 +267,68 @@ fn fixed_budget(options: &crate::ViewerOptions) -> u64 {
     };
     budget.0
 }
+
+/// Shadow depth fitting draws the depth and normal prepass, so an HDR frame that fits shadows
+/// owns and budgets that prepass even without SSAO or SSR. Legacy output has no screen-space
+/// metadata and leaves the configuration without fitting.
+#[test]
+fn hdr_depth_fitting_reserves_the_prepass_it_draws() {
+    use worldrunner_render_plan::{
+        SceneDepthAdoption, SceneDepthFitting, SceneDepthMinimumSpan, SceneDepthSplits,
+    };
+    let plain = crate::tests::scene(false).effects().unwrap().clone();
+    assert!(plain.ssao().is_none() && plain.ssr().is_none());
+    let fitted = plain
+        .clone()
+        .with_depth_fitting(SceneDepthFitting {
+            near_step_mm: 100,
+            far_step_mm: 1000,
+            minimum_span_mm: 1000,
+            minimum_span_policy: SceneDepthMinimumSpan::ExtendNear,
+            active_maximum_mm: None,
+            splits: SceneDepthSplits::Practical {
+                lambda_micro: 500_000,
+            },
+            adoption: SceneDepthAdoption::FrameIndexed {
+                latency_frames: 2,
+                contraction_frames: 0,
+            },
+        })
+        .unwrap();
+    let hdr = crate::FrameProfile::Hdr {
+        samples: 1,
+        tone_map: crate::ToneMap::Reinhard,
+    };
+    let (without, without_bytes) = fitting_inventory(hdr, &plain);
+    let (with, with_bytes) = fitting_inventory(hdr, &fitted);
+    assert_eq!(without, None);
+    assert_eq!(with, fitted.depth_fitting().copied());
+    // At least the prepass normals (Rgba16Float) and their float depth.
+    assert!(with_bytes >= without_bytes + 65 * 49 * (8 + 4));
+    assert_eq!(
+        fitting_inventory(crate::FrameProfile::Legacy, &fitted).0,
+        None
+    );
+}
+
+fn fitting_inventory(
+    profile: crate::FrameProfile,
+    effects: &worldrunner_render_plan::SceneEffects,
+) -> (Option<worldrunner_render_plan::SceneDepthFitting>, u64) {
+    let (settings, _) = setup::configuration(
+        wgpu::Features::empty(),
+        COLOR,
+        Viewport {
+            width: 65,
+            height: 49,
+        },
+        profile,
+        Some(effects),
+    )
+    .unwrap();
+    let bytes = settings
+        .allocations()
+        .validate(&wgpu::Limits::default())
+        .unwrap();
+    (settings.depth_fitting, bytes)
+}

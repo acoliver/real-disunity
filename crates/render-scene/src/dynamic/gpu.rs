@@ -534,14 +534,24 @@ fn overlay_material(
 /// Clips the next draws to `clip`, a lower-left pixel rectangle, or to the whole target without
 /// one. Returns whether anything of the target is left to draw into.
 fn set_scissor(pass: &mut RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]) -> bool {
+    let Some([x, y, width, height]) = scissor_rect(clip, size) else {
+        return false;
+    };
+    pass.set_scissor_rect(x, y, width, height);
+    true
+}
+
+/// The scissor rectangle of `clip`, a lower-left pixel rectangle, over a target of `size`: x,
+/// y from the top, width and height. The clip is cut to the target, and a clip with nothing of the
+/// target left in it, or no area, has no rectangle. Without a clip the rectangle is the target.
+pub(super) fn scissor_rect(clip: Option<[u32; 4]>, size: [u32; 2]) -> Option<[u32; 4]> {
     let [x, y, width, height] = clip.unwrap_or([0, 0, size[0], size[1]]);
     let width = width.min(size[0].saturating_sub(x));
     let height = height.min(size[1].saturating_sub(y));
     if width == 0 || height == 0 {
-        return false;
+        return None;
     }
-    pass.set_scissor_rect(x, size[1] - y - height, width, height);
-    true
+    Some([x, size[1] - y - height, width, height])
 }
 
 fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
@@ -552,4 +562,51 @@ fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
         && a.triangle_uv == b.triangle_uv
         && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
         && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scissor_rect;
+
+    const SIZE: [u32; 2] = [32, 16];
+
+    #[test]
+    fn no_clip_scissors_to_the_whole_target() {
+        assert_eq!(scissor_rect(None, SIZE), Some([0, 0, 32, 16]));
+        assert_eq!(
+            scissor_rect(Some([0, 0, 32, 16]), SIZE),
+            Some([0, 0, 32, 16])
+        );
+    }
+
+    #[test]
+    fn a_lower_left_clip_becomes_a_rectangle_measured_from_the_top() {
+        // A rectangle on the bottom edge sits at the target's last rows.
+        assert_eq!(
+            scissor_rect(Some([2, 0, 10, 4]), SIZE),
+            Some([2, 12, 10, 4])
+        );
+        assert_eq!(scissor_rect(Some([6, 3, 8, 5]), SIZE), Some([6, 8, 8, 5]));
+    }
+
+    #[test]
+    fn a_clip_past_the_target_is_cut_to_it() {
+        assert_eq!(
+            scissor_rect(Some([8, 4, 100, 100]), SIZE),
+            Some([8, 0, 24, 12])
+        );
+    }
+
+    #[test]
+    fn a_clip_with_nothing_of_the_target_in_it_has_no_rectangle() {
+        for clip in [
+            [40, 0, 8, 8],
+            [32, 4, 4, 4],
+            [0, 16, 4, 4],
+            [4, 4, 0, 4],
+            [4, 4, 4, 0],
+        ] {
+            assert_eq!(scissor_rect(Some(clip), SIZE), None, "{clip:?}");
+        }
+    }
 }

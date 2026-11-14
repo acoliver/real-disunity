@@ -195,7 +195,7 @@ fn cancelled_growth_with_empty_sparse_receipt_reinitializes_the_buffer() {
     assert_eq!(
         super::scheduler::buffer_bytes(
             &context,
-            batch.buffer.as_ref().unwrap(),
+            batch.buffer.as_deref().unwrap(),
             expected.len() as u64
         ),
         expected

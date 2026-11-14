@@ -245,7 +245,7 @@ fn apply_transform(
             for batch in gpu.instances.batches.values() {
                 context
                     .queue()
-                    .write_buffer(batch.buffer.as_ref().unwrap(), 0, &model);
+                    .write_buffer(batch.buffer.as_deref().unwrap(), 0, &model);
             }
         }
         Transform::ClipSpace | Transform::OneUlpSeparated => {
@@ -261,7 +261,7 @@ fn apply_transform(
                     ));
                     context
                         .queue()
-                        .write_buffer(batch.buffer.as_ref().unwrap(), 0, &model);
+                        .write_buffer(batch.buffer.as_deref().unwrap(), 0, &model);
                 }
             }
             frame.view_projection = glam::Mat4::IDENTITY;

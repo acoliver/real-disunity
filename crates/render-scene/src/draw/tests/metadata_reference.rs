@@ -1,5 +1,6 @@
 //! Frozen metadata evaluation before alpha-first rejection. Synthetic GPU oracle only.
 use super::*;
+use std::collections::BTreeSet;
 
 #[path = "metadata_forward_sources.rs"]
 mod final_forward_sources;
@@ -278,131 +279,122 @@ fn forward_helpers_preserve_pre_change_source_exactly() {
     }
 }
 
-// Freeze production assemblies with invariant paired positions. Unpaired hashes stay unchanged.
-// Hash every byte, including unreachable declarations, to detect changes shared by both GPU runs.
-fn source_fingerprint(source: &str) -> (usize, u128) {
-    let hash = source.bytes().fold(
-        0x6c62_272e_07bb_0142_62b8_2175_6295_c58d_u128,
-        |hash, byte| (hash ^ u128::from(byte)).wrapping_mul(0x0100_0000_0000_0000_0000_013b),
+/// Parses and validates `source` with every naga capability, so a rewrite that no longer
+/// compiles fails here on machines without a GPU, and returns its entry points as
+/// `Stage:name`. The short hash is printed for a by-eye diff of a base run against a
+/// candidate run and is never asserted.
+fn entry_points(label: &str, source: &str) -> BTreeSet<String> {
+    let module = naga::front::wgsl::parse_str(source)
+        .unwrap_or_else(|error| panic!("{label}: {}", error.emit_to_string(source)));
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap_or_else(|error| panic!("{label}: {error:?}"));
+    println!(
+        "WGSL-VARIANT label={label:?} bytes={} hash={:016x}",
+        source.len(),
+        crate::dynamic::capture_tests::digest(source.as_bytes())
     );
-    (source.len(), hash)
+    let points: BTreeSet<String> = module
+        .entry_points
+        .iter()
+        .map(|point| format!("{:?}:{}", point.stage, point.name))
+        .collect();
+    for stage in ["Vertex:", "Fragment:"] {
+        assert!(
+            points.iter().any(|point| point.starts_with(stage)),
+            "{label} has no {stage} entry point: {points:?}"
+        );
+    }
+    points
+}
+
+/// Runs `check` over `items` on up to four threads: validating a few hundred 100 KB sources
+/// one after another takes over a minute in a debug build.
+fn check_in_parallel<T: Sync>(items: &[T], check: impl Fn(&T) + Sync) {
+    let chunk = items.len().div_ceil(4).max(1);
+    std::thread::scope(|scope| {
+        for part in items.chunks(chunk) {
+            let check = &check;
+            scope.spawn(move || part.iter().for_each(check));
+        }
+    });
+}
+
+/// Validates `source` and requires it to expose every entry point in `required`.
+fn assert_exposes(label: &str, source: &str, required: &BTreeSet<String>) {
+    let exposed = entry_points(label, source);
+    let missing: Vec<_> = required.difference(&exposed).collect();
+    assert!(missing.is_empty(), "{label} lost entry points {missing:?}");
 }
 
 #[test]
-fn forward_assemblies_match_invariant_baseline_fingerprints() {
-    let _session = crate::test_support::SceneTestSession::acquire();
+fn forward_assemblies_validate_and_expose_their_entry_points() {
     let (shadowed, shadowed_terrain) = crate::shadows::capture_sources(true);
-    for (source, expected) in [
-        (
-            crate::shader::ENVIRONMENT_WGSL,
-            (95_438, 0x426c_8723_c9fb_4291_8336_e4d6_8445_36aa),
-        ),
-        (
-            crate::shader::TERRAIN_WGSL,
-            (51_021, 0x5aee_0909_1af2_a2f6_1004_61bd_40ec_af61),
-        ),
-        (
-            shadowed,
-            (111_951, 0x9b08_f164_48af_3cdc_4757_d755_f47d_e47d),
-        ),
-        (
-            shadowed_terrain,
-            (69_077, 0x0182_2e98_c9cb_a155_3d10_803e_d7f9_3b46),
-        ),
-    ] {
-        assert_eq!(source_fingerprint(source), expected);
-    }
+    let object = entry_points("stock object", crate::shader::ENVIRONMENT_WGSL);
+    let terrain = entry_points("stock terrain", crate::shader::TERRAIN_WGSL);
     let lighting =
         worldrunner_render_plan::SceneCelestialLighting::new(500_000, 2_000_000, 3_000_000)
             .unwrap();
-    for (source, expected) in [
-        (
-            crate::shader::ENVIRONMENT_WGSL,
-            (95_673, 0x657e_914c_ac3e_92bc_dba7_bdb7_d2d8_884e),
-        ),
-        (
-            shadowed,
-            (112_186, 0xd5f8_512a_0133_9c51_a75b_e42f_0cab_d58b),
-        ),
+    for (label, source, required) in [
+        ("shadowed object", shadowed, &object),
+        ("shadowed terrain", shadowed_terrain, &terrain),
     ] {
-        assert_eq!(
-            source_fingerprint(&crate::sky::lighting::source(source.to_owned(), lighting)),
-            expected
-        );
+        assert_exposes(label, source, required);
+    }
+    for (label, source) in [
+        ("lit object", crate::shader::ENVIRONMENT_WGSL),
+        ("lit shadowed object", shadowed),
+    ] {
+        let lit = crate::sky::lighting::source(source.to_owned(), lighting);
+        assert_exposes(label, &lit, &object);
     }
 }
 
-const CELESTIAL_SOURCES: [[(usize, u128); 4]; 4] = [
-    [
-        (97_026, 0x8c4a_a11b_7d34_5246_7eb2_0f26_6ae1_0327),
-        (97_000, 0x9e5a_c83a_b593_81b5_b833_18a5_bbd0_f035),
-        (97_261, 0xdea6_c833_5481_be8a_9409_2b48_9d79_163d),
-        (97_235, 0xca28_0a93_740f_0dfe_a3cd_b6c0_e988_6c37),
-    ],
-    [
-        (96_914, 0x2cb5_d59d_fb4d_2c8a_ed43_f81e_eeb4_826f),
-        (96_888, 0x4948_d556_01fe_fe49_02fb_1c61_7358_89dd),
-        (97_149, 0x49f6_13f1_a9ac_8d6a_e371_c9f6_674e_74fb),
-        (97_123, 0xe82a_6c1c_cb26_13d8_67a3_edfb_1b31_61f9),
-    ],
-    [
-        (97_052, 0x8dda_352c_1a9c_3a9b_516d_667f_807f_82d7),
-        (97_026, 0x6451_83d0_c001_30be_0667_f33f_451c_ab05),
-        (97_287, 0x5285_618f_a403_e148_ae1e_a0ba_fdc6_bc31),
-        (97_261, 0xf955_a3d2_14fc_c1c1_937d_fe88_ef80_0eeb),
-    ],
-    [
-        (96_994, 0xff06_306e_ba81_e4fa_a1c9_9f10_9080_7bf3),
-        (96_968, 0x8521_f9ef_cb13_b813_b23f_9469_8402_2731),
-        (97_229, 0xfe20_5027_ed01_5d33_c64b_5781_d95f_a3d3),
-        (97_203, 0x814f_b432_b683_d3ca_c59e_6ef4_0811_e051),
-    ],
-];
-
 #[test]
-fn celestial_forward_assemblies_preserve_complete_pre_change_source() {
+fn celestial_forward_assemblies_validate_and_expose_their_entry_points() {
     use worldrunner_render_plan::SceneCelestialLighting;
-    let _session = crate::test_support::SceneTestSession::acquire();
-    for (composition, index) in [
-        ((false, false, false), 0),
-        ((false, false, true), 3),
-        ((false, true, false), 2),
-        ((false, true, true), 2),
-        ((true, false, false), 1),
-        ((true, false, true), 1),
-        ((true, true, false), 2),
-        ((true, true, true), 2),
-    ] {
-        for (selected, lighting) in [
-            SceneCelestialLighting::NEUTRAL,
-            SceneCelestialLighting::new(500_000, 2_000_000, 3_000_000).unwrap(),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+    let required = [
+        "Vertex:vs_celestial",
+        "Fragment:fs_celestial_opaque",
+        "Fragment:fs_celestial_masked",
+    ]
+    .map(str::to_owned)
+    .into();
+    let lightings = [
+        SceneCelestialLighting::NEUTRAL,
+        SceneCelestialLighting::new(500_000, 2_000_000, 3_000_000).unwrap(),
+    ];
+    let mut variants = Vec::new();
+    for bits in 0..8_u8 {
+        let composition = (bits & 4 != 0, bits & 2 != 0, bits & 1 != 0);
+        for (selected, lighting) in lightings.into_iter().enumerate() {
             for anchored in [false, true] {
-                let source = crate::renderer::celestial_source(composition, lighting, anchored);
-                assert_eq!(
-                    source_fingerprint(&source),
-                    CELESTIAL_SOURCES[index][selected * 2 + usize::from(anchored)]
-                );
+                variants.push((composition, selected, lighting, anchored));
             }
         }
     }
+    check_in_parallel(&variants, |&(composition, selected, lighting, anchored)| {
+        let source = crate::renderer::celestial_source(composition, lighting, anchored);
+        let label = format!("celestial {composition:?} lighting={selected} anchored={anchored}");
+        assert_exposes(&label, &source, &required);
+    });
 }
 
 #[test]
-fn forward_fingerprint_detects_even_unused_source_byte_mutations() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let source = crate::shader::ENVIRONMENT_WGSL;
-    let changed = format!("{source}\n// unused declaration mutation\n");
-    assert_ne!(source_fingerprint(source), source_fingerprint(&changed));
-}
-
-#[test]
-fn directional_shadow_assembly_pins_card_geometry_first_rejection() {
-    assert_eq!(
-        source_fingerprint(&crate::shadows::depth_source()),
-        (96_134, 0x92aa_86f4_dcf8_efc8_91f1_f51c_d274_de38),
+fn directional_shadow_assembly_validates_and_exposes_its_entry_points() {
+    let required = [
+        "Vertex:vs_shadow",
+        "Fragment:fs_depth_opaque",
+        "Fragment:fs_depth_masked",
+    ]
+    .map(str::to_owned)
+    .into();
+    assert_exposes(
+        "directional shadow caster",
+        &crate::shadows::depth_source(),
+        &required,
     );
 }

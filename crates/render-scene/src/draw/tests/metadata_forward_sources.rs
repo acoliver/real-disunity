@@ -2,6 +2,10 @@
 
 use std::collections::BTreeSet;
 
+/// Forward assemblies the final cases cover: 22 stock and SSR assemblies, 14 of which also get a
+/// `DepthAwareGather` receiver. A rewrite that stops matching `fn screen_ao(` drops cases here.
+const FINAL_FORWARD_CASES: usize = 36;
+
 fn forward_source_cases() -> Vec<(String, (String, String))> {
     let stock = (crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL);
     let mut cases = Vec::new();
@@ -80,7 +84,7 @@ fn final_forward_assemblies_validate_and_expose_their_entry_points() {
     let expected: [&BTreeSet<String>; 6] =
         [&object, &terrain, &terrain, &terrain, &terrain, &terrain];
     let cases = final_forward_sources();
-    assert!(!cases.is_empty());
+    assert_eq!(cases.len(), FINAL_FORWARD_CASES);
     super::check_in_parallel(&cases, |(label, sources)| {
         for (index, (source, required)) in sources.iter().zip(expected).enumerate() {
             super::assert_exposes(&format!("{label} source={index}"), source, required);
@@ -94,6 +98,7 @@ fn unlit_quad_assemblies_validate_and_expose_their_entry_points() {
         .map(str::to_owned)
         .into();
     let cases = final_forward_sources();
+    assert_eq!(cases.len(), FINAL_FORWARD_CASES);
     super::check_in_parallel(&cases, |(label, sources)| {
         let source = crate::renderer::unlit_source(&sources[0]);
         super::assert_exposes(&format!("{label} unpaired quad source"), &source, &required);

@@ -433,14 +433,15 @@ impl Services<'_> {
             facts.textures.push((name.to_owned(), input.texture));
         }
         let (imported, own) = self.import(input.texture)?;
-        let (version, mips) = self.tracker.sampled_levels(input.texture, imported)?;
+        let versions = self.tracker.sampled_levels(input.texture, imported)?;
+        let mips = u32::try_from(versions.len()).unwrap_or(u32::MAX);
         if mips < imported.mips {
             self.counts.partial_mips += 1;
             self.note_partial_read(spec, entry, (name, mips, imported.mips));
         }
         let view = self
             .tracker
-            .whole_view(imported, mips, view_dimension, version)?;
+            .whole_view(imported, mips, view_dimension, versions[0])?;
         let features = self.runtime.device().features();
         let (sample_type, state) = read_unfilterable(
             sample_type,
@@ -448,8 +449,25 @@ impl Services<'_> {
             features,
             input.sampler.or(own),
         );
-        plan.texture_uses
-            .push(ResourceUse::read(view.clone(), UseKind::Sampled));
+        // One read per run of levels written at the same point; a single run is the view itself.
+        let mut start = 0;
+        while start < versions.len() {
+            let end = versions[start..]
+                .iter()
+                .position(|&version| version != versions[start])
+                .map_or(versions.len(), |offset| start + offset);
+            let used = if start == 0 && end == versions.len() {
+                view.clone()
+            } else {
+                let levels = u32::try_from(start).unwrap_or(u32::MAX)
+                    ..u32::try_from(end).unwrap_or(u32::MAX);
+                self.tracker
+                    .levels_view(imported, levels, view_dimension, versions[start])?
+            };
+            plan.texture_uses
+                .push(ResourceUse::read(used, UseKind::Sampled));
+            start = end;
+        }
         plan.textures.push((
             slot.set,
             TextureBinding {

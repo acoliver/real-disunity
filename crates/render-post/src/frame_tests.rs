@@ -335,3 +335,21 @@ fn a_feature_naming_an_entry_the_frame_does_not_author_is_refused() {
         Err(FrameError::MissingPass(absent))
     );
 }
+
+#[test]
+fn a_read_of_an_earlier_frames_contents_validates_only_through_a_retained_view() {
+    let (device, _queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let carried = ResourceRef::new("carried");
+    let texture =
+        crate::targets::color_texture(&device, "carried", [4, 4], wgpu::TextureFormat::Rgba8Unorm);
+    let plain = AttachmentView::new(carried, &texture).unwrap();
+    let retained = plain.clone().with_retained_contents();
+    let passes = [writing(PassSlot::Opaque, 0, "out")];
+    let read = [reading(PassEntry::new(PassSlot::Opaque), "carried")];
+    let validate =
+        |views: &[AttachmentView]| crate::frame::validate_frame_inputs(&passes, &read, &[], views);
+    assert_eq!(validate(std::slice::from_ref(&retained)), Ok(()));
+    let refused = Err(FrameError::MissingProducer(carried));
+    assert_eq!(validate(std::slice::from_ref(&plain)), refused);
+    assert_eq!(validate(&[]), refused);
+}

@@ -280,6 +280,14 @@ pub struct OffscreenFrame {
     pub later_reads: Vec<ReadRange>,
     /// The camera renders to examine in detail; none by default.
     pub probe: CameraProbe,
+    /// The texture a texture slot reads when no layer sets it and the shader does not declare it:
+    /// Unity binds its grey default 2D texture (RGBA 0.5 0.5 0.5 1) there. The host uploads it as
+    /// it does any source texture. A draw that reads it is counted by property in
+    /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
+    /// Only a slot that samples a 2D float texture reads it. A property the shader declares, and
+    /// a depth, cube or array slot, are missing as before. With `None`, which is the default,
+    /// every slot no layer sets is missing.
+    pub undeclared_texture: Option<TextureId>,
 }
 
 impl Default for OffscreenFrame {
@@ -296,6 +304,7 @@ impl Default for OffscreenFrame {
             records: Vec::new(),
             later_reads: Vec::new(),
             probe: CameraProbe::default(),
+            undeclared_texture: None,
         }
     }
 }

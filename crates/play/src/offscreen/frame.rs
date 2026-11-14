@@ -27,7 +27,7 @@ use super::builtins::{
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
 use super::pixels::{self, Wanted};
-use super::properties::{Textures, fallback_layer, layer, layer_with_defaults};
+use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
 use super::script::{Script, kind};
 
 pub use super::report::{Reclaimed, Report};
@@ -378,7 +378,15 @@ impl<'a> Mapper<'a> {
         settings: &'a Settings,
     ) -> Self {
         let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
-        let mut frame = OffscreenFrame::default();
+        let mut frame = OffscreenFrame {
+            // Unity binds its grey default to a texture nothing sets and the shader does not
+            // declare, command-buffer records included.
+            undeclared_texture: available
+                .default_textures
+                .contains(&DefaultTexture::Grey)
+                .then(|| DefaultTexture::Grey.id()),
+            ..OffscreenFrame::default()
+        };
         if let Some(global) = &snapshot.global {
             frame.globals = layer(&global.properties, &mut textures);
             frame.global_keywords.clone_from(&global.keywords);
@@ -773,8 +781,20 @@ impl<'a> Mapper<'a> {
                 .filter(|(_, texture)| self.available.default_textures.contains(texture))
                 .map(|(name, texture)| (name.clone(), texture.id()))
                 .collect();
-            let properties =
-                layer_with_defaults(&material.properties, &mut self.textures, &defaults);
+            let undeclared = self
+                .available
+                .default_textures
+                .contains(&DefaultTexture::Grey)
+                .then(|| Undeclared {
+                    texture: DefaultTexture::Grey.id(),
+                    declared: &info.fill.declared_textures,
+                });
+            let properties = layer_with_defaults(
+                &material.properties,
+                &mut self.textures,
+                &defaults,
+                undeclared,
+            );
             let fallback = fallback_layer(&material.properties, &info.fill, &mut self.textures);
             self.frame.materials.insert(
                 named,

@@ -126,6 +126,9 @@ pub struct GpuWorkReport {
     pub missing_channels: BTreeMap<String, usize>,
     /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
     pub defaulted_channels: BTreeMap<String, usize>,
+    /// The draws that read the grey default for a texture no layer set and the shader does not
+    /// declare, which are recorded.
+    pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// What the adapter mapped, by description (see `Report::census`).
@@ -204,6 +207,9 @@ impl GpuWorkReport {
         }
         for (name, count) in &report.defaulted_channels {
             *self.defaulted_channels.entry(name.clone()).or_default() += count;
+        }
+        for (name, count) in &report.undeclared_defaults {
+            *self.undeclared_defaults.entry(name.clone()).or_default() += count;
         }
         for (name, count) in report.lists.named() {
             *self.lists.entry(name).or_default() += count;
@@ -292,6 +298,7 @@ impl GpuWorkReport {
             ("draws without a texture", &self.missing_textures),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
+            ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),
             ("renderer lists", &self.lists),
             ("records built, by kind", &self.built_by_kind),
             ("records skipped, by kind", &self.skipped_by_kind),

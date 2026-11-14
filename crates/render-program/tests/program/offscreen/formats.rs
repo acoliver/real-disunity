@@ -11,6 +11,7 @@ use super::camera::fixture;
 use super::rig::{BLIT_QUAD, BLUE, RED, Rig, blit_quad, image, layer, pixel, source};
 
 const R16_SFLOAT: u32 = 45;
+const R32_SFLOAT: u32 = 49;
 const R32G32B32A32_SFLOAT: u32 = 52;
 const TARGET: TextureId = TextureId(10);
 const BLIT_SHADER: ShaderId = ShaderId(2);
@@ -133,6 +134,40 @@ fn a_camera_draws_into_an_r32g32b32a32_float_render_texture() {
     }
 }
 
+#[test]
+fn a_camera_draws_into_an_r32_float_render_texture() {
+    let mut rig = Rig::new();
+    let mut frame = fixture(&mut rig, LEFT_ONLY);
+    frame.render_textures[0].graphics_format = R32_SFLOAT;
+    frame.materials.get_mut(&MaterialId(1)).unwrap().properties = layer(&[("_Tint", DRAWN)]);
+    let image = rig.run(&frame, &[(TARGET, 0, 0)]).unwrap().remove(0);
+    assert_eq!(image.len(), 8 * 8 * 4, "one float for each texel");
+    let texels = floats(&image);
+    for y in 0..8 {
+        // Each row holds the drawn red in columns 0 to 3 and the cleared red in 4 to 7.
+        assert_eq!(texels[y * 8..y * 8 + 4], [DRAWN[0]; 4], "drawn ({y})");
+        assert_eq!(
+            texels[y * 8 + 4..y * 8 + 8],
+            [CLEARED[0]; 4],
+            "cleared ({y})"
+        );
+    }
+}
+
+#[test]
+fn a_blit_writes_the_red_channel_of_its_result_into_an_r32_float_render_texture() {
+    let mut rig = Rig::new();
+    blit_setup(&mut rig, [4, 4]);
+    let frame = blit_frame(0.375, R32_SFLOAT, [4, 4]);
+    let image = rig.run(&frame, &[(BLIT_TARGET, 0, 0)]).unwrap().remove(0);
+    let texels = floats(&image);
+    for y in 0..4 {
+        // The source is red on the left and blue on the right: the tint's 0.375 times 1 and 0.
+        assert_eq!(texels[y * 4..y * 4 + 2], [0.375, 0.375], "left ({y})");
+        assert_eq!(texels[y * 4 + 2..y * 4 + 4], [0.0, 0.0], "right ({y})");
+    }
+}
+
 /// A 2x2 float render texture whose left column a camera draws and whose right column it clears,
 /// and a blit of it through the blit pass's filtering sampler into an 8x8 RGBA8 texture.
 fn float_texture_blitted_up(rig: &mut Rig, format: u32) -> Vec<u8> {
@@ -176,6 +211,24 @@ fn a_float_render_texture_the_device_cannot_filter_is_sampled_at_the_nearest_tex
             assert_eq!(
                 pixel(&image, 8, (x + 4, y)),
                 [255, 255, 0, 255],
+                "right ({x}, {y})"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_one_channel_float_render_texture_the_device_cannot_filter_is_sampled_at_the_nearest_texel() {
+    let mut rig = Rig::new();
+    let image = float_texture_blitted_up(&mut rig, R32_SFLOAT);
+    // The texture holds red only, which samples as (red, 0, 0, 1): the drawn column's 0.2 (51)
+    // and the cleared column's 1.0, with nothing blended between them.
+    for y in 0..8 {
+        for x in 0..4 {
+            assert_eq!(pixel(&image, 8, (x, y)), [51, 0, 0, 255], "left ({x}, {y})");
+            assert_eq!(
+                pixel(&image, 8, (x + 4, y)),
+                [255, 0, 0, 255],
                 "right ({x}, {y})"
             );
         }

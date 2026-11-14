@@ -79,26 +79,24 @@ pub(crate) struct MeshDraw {
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
     pub count: u32,
-    pub material: wgpu::BindGroup,
+    /// The scene material the body draws with, whose prepared set the program path binds.
+    pub material_index: usize,
     pub instance: wgpu::Buffer,
     pub key: crate::pipeline::PipelineKey,
 }
-type PipelineCache = std::cell::RefCell<
-    std::collections::BTreeMap<
-        [u32; 12],
-        [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
-    >,
->;
+/// The celestial programs of each selection: specular options, winding, body lighting and
+/// anchoring. Each context makes the programs of the keys its bodies draw on first use.
+type ContextCache =
+    std::cell::RefCell<std::collections::BTreeMap<[u32; 12], crate::object::program::Context>>;
 
 #[derive(Debug)]
 pub(crate) struct Meshes {
-    pipelines: [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()],
     device: wgpu::Device,
     scene: crate::renderer::ScenePipelines,
     physical: bool,
     separate: bool,
     object_exposure: bool,
-    specializations: PipelineCache,
+    contexts: ContextCache,
     draws: Vec<MeshDraw>,
     composites: std::cell::RefCell<
         std::collections::BTreeMap<
@@ -109,6 +107,18 @@ pub(crate) struct Meshes {
     samples: u32,
     layout: wgpu::BindGroupLayout,
     target: std::cell::RefCell<Option<super::mesh_target::Target>>,
+    /// How `draw_geometry` records, for the captures that compare the live draw with no draw at
+    /// all.
+    #[cfg(test)]
+    pub(crate) recorder: std::cell::Cell<Recorder>,
+}
+/// How a test has `draw_geometry` record the bodies.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Recorder {
+    #[default]
+    Live,
+    Nothing,
 }
 impl Meshes {
     pub fn new(
@@ -130,17 +140,12 @@ impl Meshes {
             physical,
             separate,
             object_exposure,
-            specializations: std::cell::RefCell::default(),
+            contexts: std::cell::RefCell::default(),
+            #[cfg(test)]
+            recorder: std::cell::Cell::default(),
             samples: pipelines.samples,
             layout,
             target: std::cell::RefCell::new(None),
-            pipelines: crate::renderer::celestial_pipelines(
-                device,
-                pipelines,
-                physical,
-                separate,
-                object_exposure,
-            ),
             draws,
         }
     }
@@ -197,22 +202,15 @@ impl Meshes {
         pass.set_bind_group(2, &target.group, &[]);
         pass.draw(0..3, 0..1);
     }
-    fn selected_pipelines(
-        &self,
-        raster: ([u32; 7], wgpu::FrontFace),
+    /// The selection a body draws with: the frame's specular options and winding, and the
+    /// body's lighting and anchoring.
+    fn selection(
+        (options, front_face): ([u32; 7], wgpu::FrontFace),
         lighting: worldrunner_render_plan::SceneCelestialLighting,
         anchored: bool,
-    ) -> [wgpu::RenderPipeline; crate::pipeline::PipelineKey::ALL.len()] {
-        let (options, front_face) = raster;
-        if front_face == wgpu::FrontFace::Ccw
-            && options == [0; 7]
-            && lighting == worldrunner_render_plan::SceneCelestialLighting::NEUTRAL
-            && !anchored
-        {
-            return self.pipelines.clone();
-        }
+    ) -> [u32; 12] {
         let values = lighting.contributions_micro();
-        let key = [
+        [
             options[0],
             options[1],
             options[2],
@@ -225,42 +223,134 @@ impl Meshes {
             values[2],
             u32::from(anchored),
             u32::from(front_face == wgpu::FrontFace::Cw),
-        ];
-        self.specializations
+        ]
+    }
+    /// The celestial context of `raster` for a body with `lighting` and anchoring, made on
+    /// first use on the scene's object family.
+    fn context(
+        &self,
+        raster: ([u32; 7], wgpu::FrontFace),
+        lighting: worldrunner_render_plan::SceneCelestialLighting,
+        anchored: bool,
+    ) -> crate::object::program::Context {
+        let front_face = raster.1;
+        let key = Self::selection(raster, lighting, anchored);
+        self.contexts
             .borrow_mut()
             .entry(key)
             .or_insert_with(|| {
-                crate::renderer::celestial_specialization(
-                    &self.device,
-                    &self.scene,
-                    (self.physical, self.separate, self.object_exposure),
-                    raster,
-                    lighting,
-                    anchored,
+                let composition = (self.physical, self.separate, self.object_exposure);
+                crate::object::program::Context::new(
+                    crate::object::program::Description {
+                        device: self.device.clone(),
+                        source: crate::renderer::celestial_source(composition, lighting, anchored)
+                            .into(),
+                        colors: vec![wgpu::TextureFormat::Rgba16Float],
+                        samples: self.samples,
+                        front_face,
+                        depth: crate::renderer::depth::DepthMode::Independent,
+                        previous_transforms: false,
+                        constants: crate::renderer::celestial_constants(raster, lighting),
+                        frame: self.scene.frame_layout().clone(),
+                        shadow: None,
+                        screen: None,
+                        entry: crate::object::program::Entry::Celestial,
+                    },
+                    self.scene.object_context().family(),
                 )
             })
             .clone()
     }
+    /// The specular options and winding the bodies of a frame `state` draw with.
+    fn raster(state: &crate::frame::FrameUniform) -> ([u32; 7], wgpu::FrontFace) {
+        (
+            state.specular_convention.shader_options(),
+            state.front_face(),
+        )
+    }
+    /// Prepares the pipeline of every body for the frame `state` before the pass that draws
+    /// them opens, where a refusal is still an error rather than a lost body.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses a body's program, material set or pipeline.
+    pub(crate) fn prepare(
+        &self,
+        state: &crate::frame::FrameUniform,
+        objects: &crate::object::prepared::PreparedObjects,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        let raster = Self::raster(state);
+        for draw in &self.draws {
+            let context = self.context(raster, draw.lighting, draw.anchored);
+            objects
+                .pipeline(&context, draw.key.index(), draw.material_index)
+                .map_err(
+                    |error| worldrunner_render_post::FrameError::FeaturePreparation {
+                        feature: "celestial meshes",
+                        reason: error.to_string(),
+                    },
+                )?;
+        }
+        Ok(())
+    }
+    /// Records the bodies through the program runtime: each binds the prepared pipeline of its
+    /// key and material, the frame group at set 0, and draws its one instance.
     pub fn draw_geometry(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         frame: &wgpu::BindGroup,
         state: &crate::frame::FrameUniform,
+        objects: &crate::object::prepared::PreparedObjects,
     ) {
-        let options = (
-            state.specular_convention.shader_options(),
-            state.front_face(),
-        );
-        for draw in &self.draws {
-            let pipelines = self.selected_pipelines(options, draw.lighting, draw.anchored);
-            pass.set_pipeline(&pipelines[draw.key.index()]);
-            pass.set_bind_group(0, frame, &[]);
-            pass.set_bind_group(1, &draw.material, &[]);
-            pass.set_vertex_buffer(0, draw.vertices.slice(..));
-            pass.set_vertex_buffer(1, draw.instance.slice(..));
-            pass.set_index_buffer(draw.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..draw.count, 0, 0..1);
+        use worldrunner_render_program::runtime::{
+            GeometryDraw, ImportedGeometry, ImportedIndices,
+        };
+        let raster = Self::raster(state);
+        #[cfg(test)]
+        if self.recorder.get() == Recorder::Nothing {
+            return;
         }
+        let layout = crate::object::program::vertex_layout(false);
+        for draw in &self.draws {
+            // A selection that `prepare` did not see would be made here, where a refusal can only
+            // panic: every frame that records the bodies must have been prepared with its raster.
+            debug_assert!(
+                self.contexts.borrow().contains_key(&Self::selection(
+                    raster,
+                    draw.lighting,
+                    draw.anchored
+                )),
+                "the celestial bodies were not prepared for the frame they are recorded in"
+            );
+            let context = self.context(raster, draw.lighting, draw.anchored);
+            let pipeline = objects
+                .pipeline(&context, draw.key.index(), draw.material_index)
+                .expect("the celestial pass prepares its bodies before it opens");
+            pipeline.bind(pass);
+            pass.set_bind_group(0, frame, &[]);
+            let geometry = GeometryDraw::new(
+                &layout,
+                &[draw.vertices.clone(), draw.instance.clone()],
+                &ImportedGeometry::Indexed(ImportedIndices {
+                    buffer: draw.indices.clone(),
+                    format: wgpu::IndexFormat::Uint32,
+                    first: 0,
+                    count: draw.count,
+                    base_vertex: 0,
+                }),
+                0..1,
+            )
+            .expect("a body's buffers hold its one level and its pose");
+            pipeline
+                .draw(pass, &geometry)
+                .expect("the geometry was made for the objects' vertex layout");
+        }
+    }
+}
+#[cfg(test)]
+impl Meshes {
+    /// The bodies `draw_geometry` records.
+    pub(crate) fn draw_count(&self) -> usize {
+        self.draws.len()
     }
 }
 #[cfg(test)]
@@ -301,7 +391,7 @@ mod tests {
         assert!(rotated.validate().is_err());
     }
     #[test]
-    fn mesh_pipelines_share_the_resident_material_layout() {
+    fn celestial_programs_validate_against_the_resident_material_layout() {
         let _session = crate::test_support::SceneTestSession::acquire();
         let context = crate::device::GpuContext::shared_for_test().unwrap();
         let scope = context
@@ -311,16 +401,15 @@ mod tests {
             context.device(),
             wgpu::TextureFormat::Rgba16Float,
         );
+        let family = scene.object_context().family();
+        let authority = context.submission();
         for physical in [false, true] {
             let meshes = Meshes::new(context.device(), &scene, Vec::new(), physical, false, false);
             assert_eq!(meshes.physical, physical);
             for roughness in 0..3 {
                 for visibility in 0..2 {
                     for occlusion in 0..2 {
-                        let _ = crate::renderer::celestial_specialization(
-                            context.device(),
-                            &scene,
-                            (meshes.physical, false, false),
+                        let celestial = meshes.context(
                             (
                                 [roughness, visibility, occlusion, 0, 0, 0, 0],
                                 wgpu::FrontFace::Ccw,
@@ -328,6 +417,14 @@ mod tests {
                             worldrunner_render_plan::SceneCelestialLighting::NEUTRAL,
                             false,
                         );
+                        family
+                            .with_objects((context.device(), authority), |runtime| {
+                                for key in crate::pipeline::PipelineKey::ALL {
+                                    celestial.program(runtime, key)?;
+                                }
+                                Ok::<_, worldrunner_render_program::error::ProgramError>(())
+                            })
+                            .expect("every key's celestial program builds");
                     }
                 }
             }

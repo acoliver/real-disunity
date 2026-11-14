@@ -33,10 +33,13 @@ use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::renderer::legacy_objects::{Counted, Recipe, Recorded, compose};
 
+mod casters;
 mod gather;
 mod legacy;
+pub(in crate::object) mod prepass;
 pub(in crate::object) mod scenes;
 mod shadow;
+mod terms;
 mod variants;
 
 pub(in crate::object) use legacy::Legacy;
@@ -171,6 +174,19 @@ pub(in crate::object) fn render(
     gpu: &mut SceneGpu,
     draw: impl FnOnce(&mut RenderPass<'_>, &SceneGpu),
 ) -> Vec<Vec<u8>> {
+    render_with_depth(context, target, TextureFormat::Depth32Float, gpu, draw)
+}
+
+/// [`render`] over a depth plane of `format`. With a stencil aspect the stencil is cleared to
+/// zero and, at one sample, its bytes follow the depth plane's.
+pub(in crate::object) fn render_with_depth(
+    context: &GpuContext,
+    target: Target<'_>,
+    format: TextureFormat,
+    gpu: &mut SceneGpu,
+    draw: impl FnOnce(&mut RenderPass<'_>, &SceneGpu),
+) -> Vec<Vec<u8>> {
+    let stencil = format.has_stencil_aspect();
     let device = context.device();
     let attachments = Attachments::new(device, target.formats, target.samples);
     let single = target.samples == 1;
@@ -184,7 +200,7 @@ pub(in crate::object) fn render(
         mip_level_count: 1,
         sample_count: target.samples,
         dimension: wgpu::TextureDimension::D2,
-        format: TextureFormat::Depth32Float,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT
             | if single {
                 wgpu::TextureUsages::COPY_SRC
@@ -236,7 +252,14 @@ pub(in crate::object) fn render(
                         wgpu::StoreOp::Discard
                     },
                 }),
-                stencil_ops: None,
+                stencil_ops: stencil.then_some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0),
+                    store: if single {
+                        wgpu::StoreOp::Store
+                    } else {
+                        wgpu::StoreOp::Discard
+                    },
+                }),
             }),
             ..wgpu::RenderPassDescriptor::default()
         });
@@ -245,6 +268,14 @@ pub(in crate::object) fn render(
     let mut staging = copy_results(device, &mut encoder, attachments.results());
     if single {
         staging.push(copy_depth(device, &mut encoder, &depth));
+        if stencil {
+            staging.push(copy_plane(
+                device,
+                &mut encoder,
+                &depth,
+                (wgpu::TextureAspect::StencilOnly, 1),
+            ));
+        }
     }
     let index = encoder.finish().submit().unwrap();
     read_results(device, index, staging)
@@ -256,7 +287,22 @@ fn copy_depth(
     encoder: &mut wgpu::CommandEncoder,
     texture: &wgpu::Texture,
 ) -> (wgpu::Buffer, usize, usize) {
-    let row = SIZE * 4;
+    copy_plane(
+        device,
+        encoder,
+        texture,
+        (wgpu::TextureAspect::DepthOnly, 4),
+    )
+}
+
+/// Copies one aspect of a depth texture, `texel` bytes per texel, into a mappable buffer.
+fn copy_plane(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    texture: &wgpu::Texture,
+    (aspect, texel): (wgpu::TextureAspect, u32),
+) -> (wgpu::Buffer, usize, usize) {
+    let row = SIZE * texel;
     let padded = row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("object capture depth readback"),
@@ -269,7 +315,7 @@ fn copy_depth(
             texture,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::DepthOnly,
+            aspect,
         },
         wgpu::TexelCopyBufferInfo {
             buffer: &buffer,

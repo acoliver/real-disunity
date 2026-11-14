@@ -334,3 +334,57 @@ fn a_second_scene_shares_the_pipelines_the_first_compiled() {
         "it prepares the sets of its own materials"
     );
 }
+
+/// The metadata prepass prepares its object pipelines before its pass opens, as the scene
+/// feature and the shadowed frame do, so the pass finds them built; steady-state prepass frames
+/// build nothing on the program runtime.
+#[test]
+fn the_object_prepass_prepares_before_its_pass_and_steady_state_frames_build_nothing() {
+    use super::capture_tests::{prepass, render_with_depth};
+    use crate::renderer::depth::DepthMode;
+    use crate::scene_metadata::MetadataOutput;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let frame = scenes::frame(scenes::pose());
+    for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
+        for mode in [DepthMode::Independent, DepthMode::Shared] {
+            let (built, group, formats) = prepass::pipelines(&context, &frame, output);
+            let prepass = built.for_depth(mode);
+            let mut rig = Rig::moving(&context, &prepass, &scenes::scene(&prepass::specs()), false);
+            let before = prepass.object_runtime_stats();
+            rig.gpu.prepare_objects(&prepass, &rig.frame).unwrap();
+            let prepared = prepass.object_runtime_stats();
+            assert!(
+                prepared.pipelines_built > before.pipelines_built,
+                "{output:?} {mode:?}: preparing builds the prepass object pipelines: {prepared:?}"
+            );
+            let target = Target {
+                formats: &formats,
+                samples: 1,
+            };
+            for frame in 0..5 {
+                if frame > 0 {
+                    rig.gpu.prepare_objects(&prepass, &rig.frame).unwrap();
+                }
+                rig.prime();
+                render_with_depth(
+                    &context,
+                    target,
+                    mode.format(),
+                    &mut rig.gpu,
+                    |pass, gpu| {
+                        drop(gpu.draw_prepass(pass, &prepass, &group));
+                    },
+                );
+                assert_eq!(
+                    prepass.object_runtime_stats(),
+                    prepared,
+                    "{output:?} {mode:?}: frame {frame} found everything prepared"
+                );
+            }
+            println!(
+                "OBJECT-COST prepass output={output:?} depth={mode:?} before={before:?} after_prepare={prepared:?} after_five_frames=unchanged"
+            );
+        }
+    }
+}

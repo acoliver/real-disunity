@@ -332,3 +332,6 @@ mod streaming_tests;
 
 #[cfg(test)]
 mod height_bounds_tests;
+
+#[cfg(test)]
+mod small_leaves_tests;

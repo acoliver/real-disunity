@@ -21,8 +21,13 @@ impl TerrainChunk {
             stride,
         }
     }
-    pub fn children(self) -> Option<Vec<Self>> {
-        if self.stride == 1 {
+    fn span(self) -> u32 {
+        (self.maximum[0] - self.minimum[0]).max(self.maximum[1] - self.minimum[1])
+    }
+    /// Splits the window without reducing the longest axis below the minimum.
+    /// Partial windows and rectangular grids can have shorter other axes.
+    pub fn children(self, minimum_leaf_texels: u32) -> Option<Vec<Self>> {
+        if self.stride == 1 && self.span() / 2 < minimum_leaf_texels {
             return None;
         }
         let middle = std::array::from_fn::<_, 2, _>(|axis| {
@@ -47,7 +52,7 @@ impl TerrainChunk {
                     xs.iter().map(move |&(west, east)| Self {
                         minimum: [west, south],
                         maximum: [east, north],
-                        stride: self.stride / 2,
+                        stride: (self.stride / 2).max(1),
                     })
                 })
                 .collect(),
@@ -246,13 +251,13 @@ fn refine(
     candidates.sort_by(|(error_a, a), (error_b, b)| {
         error_b
             .total_cmp(error_a)
-            // Larger strides precede smaller strides, ordering levels from the root.
-            .then_with(|| b.stride.cmp(&a.stride))
+            // Window span still orders levels after the sampling stride reaches one.
+            .then_with(|| b.span().cmp(&a.span()))
             .then_with(|| a.cmp(b))
     });
     let refinements = Nested::new(desired);
     for (_, node) in candidates {
-        let Some(children) = node.children() else {
+        let Some(children) = node.children(policy.minimum_leaf_texels()) else {
             continue;
         };
         if !refinements.inside(node) {
@@ -295,7 +300,7 @@ fn merge(
                 plan.held.push(node);
             }
         }
-    } else if let Some(children) = node.children() {
+    } else if let Some(children) = node.children(policy.minimum_leaf_texels()) {
         for child in children {
             merge(terrain, child, desired, plan);
         }
@@ -321,7 +326,7 @@ pub(crate) fn caster_leaves(
     while let Some(node) = pending.pop() {
         let split = camera.inside(node)
             && footprint(terrain, node, matrix, [size, size], elevation(terrain)) > threshold;
-        match node.children() {
+        match node.children(policy.minimum_leaf_texels()) {
             Some(children) if split => pending.extend(children),
             _ => leaves.push(node),
         }
@@ -349,7 +354,7 @@ fn desired(
         } else {
             footprint > threshold / 1000.0
         };
-        if subdivide && let Some(children) = node.children() {
+        if subdivide && let Some(children) = node.children(policy.minimum_leaf_texels()) {
             pending.extend(children);
         } else {
             selected.push(node);
@@ -412,9 +417,17 @@ pub(super) fn footprint(
     if outside(&clips) {
         return 0.0;
     }
+    let cap = terrain
+        .streaming_policy()
+        .expect("streaming policy")
+        .chunk_intervals();
+    // Below the mesh cap, the nominal footprint keeps shrinking even though
+    // source sampling stays at stride one. Integer stride division would reach zero.
+    let fraction = f32::from(u16::try_from(node.span().min(cap)).expect("bounded cell cap"))
+        / f32::from(u16::try_from(cap).expect("bounded cell cap"));
     let cell = crate::geometry::millimeter_to_meter(
         i64::from(node.stride) * i64::from(terrain.sample_spacing_millimeters()),
-    );
+    ) * fraction;
     let mut result = 0.0_f64;
     for (point, clip) in points.into_iter().zip(clips) {
         if clip.w <= 0.0 {

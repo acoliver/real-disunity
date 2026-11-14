@@ -311,7 +311,9 @@ impl Streaming {
                 .split_error_millipixels(),
         ) / 1000.0;
         Ok(self.committed.borrow().iter().all(|(chunk, _)| {
-            chunk.children().is_none()
+            chunk
+                .children(terrain.streaming_policy().unwrap().minimum_leaf_texels())
+                .is_none()
                 || crate::terrain::streaming::error(
                     terrain,
                     &self.height_bounds,

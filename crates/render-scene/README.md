@@ -51,11 +51,30 @@ ordered residents. Equal-depth boundary overlap therefore has stable ownership
 when the resident leaf set is identical, independently of upload retirement timing.
 Ordering does not change chunk geometry, streaming budgets or draw counts for
 an identical leaf set. Selection ranks candidates by descending projected error,
-then quadtree level from the root (descending stride), then the chunk's derived
-coordinate key. Exact-error ties therefore have explicit admission priority under
+then quadtree level from the root (descending longest-axis texel span), then the
+chunk's derived coordinate key. Exact-error ties therefore have explicit admission priority under
 constrained budgets, independent of resident storage and upload-completion history.
 Selected leaves are returned in derived-key order. Relative to history-based tie
 admission, only exact-error ties can change which geometry becomes resident.
+
+`TerrainStreamingPolicy::chunk_intervals` caps cells per mesh axis. Its
+`minimum_leaf_texels` independently limits quadtree refinement and defaults to
+that cap. `with_minimum_leaf_texels` accepts a positive power of two no larger
+than the cap. On square power-of-two grids, a leaf of N texels has
+`min(chunk_intervals, N)` cells per side. Below the cap, sampling stride stays
+one while the selector's nominal cell-axis step is `N / chunk_intervals` in
+floating point. This keeps the LOD metric continuous instead of quantizing it
+to a source texel. It approximates projected footprint, not height residuals or
+the actual finest mesh spacing. Eye-plane intersections still request finest
+detail through infinite error; ordinary in-front minimum leaves have finite
+error. A split is refused if halving a stride-one window's longest axis would
+cross the minimum; rectangular or partial windows can have shorter other axes.
+Camera selection, bounds, readiness, triangle-plane descriptors and shadow
+selection share that split rule. Chunk keys keep inclusive coordinates and a
+positive sampling stride, so differently sized stride-one leaves remain distinct.
+Atomic replacement and upload/resident budgets count chunks regardless of size.
+Double-sided skirts on every mesh edge reach the terrain-wide minimum minus one
+metre and cover cracks at unequal strides without neighbour-dependent stitching.
 
 Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
 and streaming policy. Terminal ranges scan all inclusive source samples; parents

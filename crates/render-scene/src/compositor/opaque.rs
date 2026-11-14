@@ -26,9 +26,9 @@ pub struct OpaqueLayoutAdmission {
     /// Candidate storage representation.
     pub storage: SceneOpaqueStorage,
     /// Attachment formats in declaration order.
-    pub formats: [&'static str; 4],
-    /// Nominal bytes in one pixel sample.
-    pub bytes_per_sample: u32,
+    pub formats: [wgpu::TextureFormat; 4],
+    /// wgpu's colour attachment byte cost for one pixel sample.
+    pub color_attachment_byte_cost: u32,
     /// Device's `max_color_attachment_bytes_per_sample` limit.
     pub byte_limit: u32,
     /// Number of color attachments required.
@@ -84,8 +84,12 @@ fn admission_report(
     validate_record_count(record_count, compact_id)?;
     let wide = layout(
         SceneOpaqueStorage::Wide,
-        ["Rgba16Float", "Rgba16Float", "Rgba16Float", wide_id.name()],
-        32,
+        [
+            wgpu::TextureFormat::Rgba16Float,
+            wgpu::TextureFormat::Rgba16Float,
+            wgpu::TextureFormat::Rgba16Float,
+            wide_id.texture_format(),
+        ],
         wide_id,
         limits,
         record_count,
@@ -93,12 +97,11 @@ fn admission_report(
     let compact = layout(
         SceneOpaqueStorage::Compact,
         [
-            "Rgb10a2Unorm",
-            "Rgba8UnormSrgb",
-            "Rgba8Unorm",
-            compact_id.name(),
+            wgpu::TextureFormat::Rgb10a2Unorm,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            wgpu::TextureFormat::Rgba8Unorm,
+            compact_id.texture_format(),
         ],
-        14,
         compact_id,
         limits,
         record_count,
@@ -137,10 +140,10 @@ enum MaterialIdFormat {
 }
 
 impl MaterialIdFormat {
-    const fn name(self) -> &'static str {
+    const fn texture_format(self) -> wgpu::TextureFormat {
         match self {
-            Self::Rgba16Uint => "Rgba16Uint",
-            Self::R16Uint => "R16Uint",
+            Self::Rgba16Uint => wgpu::TextureFormat::Rgba16Uint,
+            Self::R16Uint => wgpu::TextureFormat::R16Uint,
         }
     }
 
@@ -168,24 +171,28 @@ fn validate_record_count(
 
 fn layout(
     storage: SceneOpaqueStorage,
-    formats: [&'static str; 4],
-    bytes_per_sample: u32,
+    formats: [wgpu::TextureFormat; 4],
     id_format: MaterialIdFormat,
     limits: &wgpu::Limits,
     record_count: u32,
 ) -> OpaqueLayoutAdmission {
+    let color_attachment_byte_cost = formats.iter().fold(0u32, |total, format| {
+        let cost = format.target_pixel_byte_cost().unwrap();
+        let alignment = format.target_component_alignment().unwrap();
+        total.next_multiple_of(alignment) + cost
+    });
     let byte_limit = limits.max_color_attachment_bytes_per_sample;
     let attachment_limit = limits.max_color_attachments;
     OpaqueLayoutAdmission {
         storage,
         formats,
-        bytes_per_sample,
+        color_attachment_byte_cost,
         byte_limit,
         attachment_count: 4,
         attachment_limit,
         record_count,
         record_limit: id_format.capacity(),
-        admitted: bytes_per_sample <= byte_limit && 4 <= attachment_limit,
+        admitted: color_attachment_byte_cost <= byte_limit && 4 <= attachment_limit,
     }
 }
 

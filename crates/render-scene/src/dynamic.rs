@@ -52,6 +52,9 @@ pub struct DynamicQuad {
     pub uv_rect: [f32; 4],
     /// Linear straight-alpha multiplier. RGB permits nonnegative HDR light; alpha is 0..=1.
     pub tint: [f32; 4],
+    /// Overlay-only linear straight-alpha corner multipliers in BL/BR/TR/TL order.
+    /// None is white. Triangles use the first three colours; all channels are 0..=1.
+    pub corner_colors: Option<[[f32; 4]; 4]>,
     /// Index into the dynamic texture table; None uses opaque white.
     pub texture: Option<usize>,
     /// Ascending painter layer.
@@ -77,6 +80,7 @@ impl Default for DynamicQuad {
             rect: [-0.5, -0.5, 0.5, 0.5],
             uv_rect: [0.0, 0.0, 1.0, 1.0],
             tint: [1.0; 4],
+            corner_colors: None,
             texture: None,
             sorting_layer: 0,
             sorting_order: 0,
@@ -99,6 +103,12 @@ pub enum DynamicError {
         index: usize,
         /// Rejected field.
         field: &'static str,
+    },
+    /// Corner colours were submitted to a scene setter instead of the retained UI overlay.
+    #[error("dynamic quad {index} corner colours require the retained UI overlay path")]
+    CornerColorsRequireRetainedUi {
+        /// Submission index.
+        index: usize,
     },
     /// A texture violates the shared scene resource contract.
     #[error("dynamic texture {index} violates the scene resource contract: {source}")]
@@ -135,3 +145,6 @@ pub(crate) mod capture_tests;
 mod lifetime_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod validation_tests;

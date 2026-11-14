@@ -151,6 +151,7 @@ fn draw(corners: [[f32; 3]; 4], colour: [f32; 4]) -> UiDraw {
         sorting_order: 0,
         hierarchy_order: 0,
         clip_rect: [0; 4],
+        corner_colors: None,
         triangle_uv: Some([[0.; 2]; 3]),
     }
 }

@@ -37,6 +37,11 @@ mod depth_fitting;
 mod depth_footprint;
 pub use depth_footprint::{SceneDownsampleRounding, SceneSsaoDepthFootprint};
 mod effects;
+mod opaque;
+pub use opaque::{
+    SceneOpaqueExperiment, SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage,
+    SceneOpaqueVisibility,
+};
 mod environment;
 pub use environment::{SceneEnvironment, SceneEnvironmentConsumers};
 mod smaa;

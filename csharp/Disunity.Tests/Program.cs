@@ -397,6 +397,7 @@ EnabledTests.Run();
 PlayerServiceTests.Run();
 PlayerCommandLineTests.Run();
 PlayerScreenTests.Run();
+PlayerDeviceTests.Run();
 
 GameApiTests.Run();
 AssetSleepTests.Run();
@@ -423,6 +424,7 @@ EngineEnumBoundaryTests.Run();
 UnityEventTests.Run();
 ScriptLayoutTests.Run();
 SynchronizationContextTests.Run();
+PlayerLoopTests.Run();
 ResourceTests.Run();
 PrefabResourceTests.Run();
 PlayerShaderTests.Run();

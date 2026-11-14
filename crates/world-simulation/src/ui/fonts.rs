@@ -1,3 +1,4 @@
+use super::positioning::PairPositioning;
 use super::text_cache::{TextCache, TextCacheStats};
 use super::{FontId, TextLayout, TextRun, UiError};
 use ab_glyph::FontArc;
@@ -27,8 +28,15 @@ impl Default for UiLimits {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct RegisteredFont {
+    pub font: FontArc,
+    pub positioning: PairPositioning,
+    pub empty_glyphs: Arc<[u16]>,
+}
+
 pub struct FontBook {
-    fonts: BTreeMap<FontId, FontArc>,
+    fonts: BTreeMap<FontId, RegisteredFont>,
     bytes: usize,
     cache: Mutex<TextCache>,
     pub(super) limits: UiLimits,
@@ -66,14 +74,30 @@ impl FontBook {
         if index >= self.limits.max_fonts || total > self.limits.max_font_bytes {
             return Err(UiError::FontLimit);
         }
-        super::font_data::validate(&bytes)?;
+        let empty_glyphs = super::font_data::validate(&bytes)?;
+        let face = ttf_parser::Face::parse(&bytes, 0).map_err(|_| UiError::InvalidFont)?;
+        let positioning = PairPositioning::new(&face)?;
+        let total = total
+            .checked_add(positioning.storage_bytes())
+            .and_then(|total| total.checked_add(empty_glyphs.len() * size_of::<u16>()))
+            .ok_or(UiError::FontLimit)?;
+        if total > self.limits.max_font_bytes {
+            return Err(UiError::FontLimit);
+        }
         let font = FontArc::try_from_vec(bytes).map_err(|_| UiError::InvalidFont)?;
         let id = FontId(
             NEXT_FONT
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
                 .map_err(|_| UiError::FontLimit)?,
         );
-        self.fonts.insert(id, font);
+        self.fonts.insert(
+            id,
+            RegisteredFont {
+                font,
+                positioning,
+                empty_glyphs: empty_glyphs.into(),
+            },
+        );
         self.bytes = total;
         Ok(id)
     }
@@ -88,13 +112,13 @@ impl FontBook {
             if !c.is_ascii() || c == '\n' || c == '\r' {
                 return Err(UiError::UnsupportedShaping(c));
             }
-            if font.glyph_id(c).0 == 0 {
+            if font.font.glyph_id(c).0 == 0 {
                 return Err(UiError::MissingGlyph(c));
             }
         }
         Ok(())
     }
-    pub(super) fn field_font(&self, id: FontId) -> Result<FontArc, UiError> {
+    pub(super) fn field_font(&self, id: FontId) -> Result<RegisteredFont, UiError> {
         self.fonts.get(&id).cloned().ok_or(UiError::MissingFont(id))
     }
     pub fn cache_stats(&self) -> TextCacheStats {

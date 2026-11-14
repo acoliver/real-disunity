@@ -14,6 +14,13 @@ public static partial class DisunityHost
     private static UnitySynchronizationContext? _mainThreadContext;
     private static SynchronizationContext? _previousContext;
     private static ulong _delayedTasks;
+
+    /// <summary>The player loop's phases that run before the frame's scripts, in order.</summary>
+    private static readonly Type[] LoopBeforeScripts =
+    [
+        typeof(global::UnityEngine.PlayerLoop.Initialization), typeof(global::UnityEngine.PlayerLoop.EarlyUpdate),
+        typeof(global::UnityEngine.PlayerLoop.PreUpdate),
+    ];
     private static int _mainThread = Environment.CurrentManagedThreadId;
 
     /// <summary>Whether the caller runs on the thread that loaded the world.</summary>
@@ -65,8 +72,15 @@ public static partial class DisunityHost
         if (identity != _delayedTasks) return false;
         switch (message)
         {
-            case DelayedTasksMessage: _mainThreadContext?.Execute(); return true;
-            case WillRenderMessage: Canvas.RaiseWillRender(); StoreChangedMeshes(); return true;
+            case DelayedTasksMessage:
+                _mainThreadContext?.Execute();
+                global::UnityEngine.LowLevel.PlayerLoop.Run(typeof(global::UnityEngine.PlayerLoop.Update));
+                return true;
+            case WillRenderMessage:
+                global::UnityEngine.LowLevel.PlayerLoop.Run(typeof(global::UnityEngine.PlayerLoop.PreLateUpdate));
+                Canvas.RaiseWillRender();
+                StoreChangedMeshes();
+                return true;
             default: return false;
         }
     }

@@ -1,4 +1,7 @@
-use super::{FontId, GlyphAtlas, UiError, UiLimits, atlas::AtlasBuilder, wrap};
+use super::{
+    FontId, GlyphAtlas, UiError, UiLimits, atlas::AtlasBuilder, fonts::RegisteredFont,
+    positioning::ScaledPairs, wrap,
+};
 use ab_glyph::{Font, FontArc, PxScale, ScaleFont, point};
 use glam::{UVec2, Vec2};
 use std::ops::Range;
@@ -206,15 +209,18 @@ fn offsets(lines: &[wrap::Line], spacing: f32, paragraph: f32) -> Vec<f32> {
 }
 
 pub(super) fn layout(
-    font: &FontArc,
+    registered: &RegisteredFont,
     run: &TextRun,
     size: Vec2,
     limits: UiLimits,
 ) -> Result<TextLayout, UiError> {
+    let font = &registered.font;
     let px = scale(font, run.font_size)?;
     let scaled = font.as_scaled(px);
+    let face = ttf_parser::Face::parse(font.font_data(), 0).map_err(|_| UiError::InvalidFont)?;
+    let pairs = registered.positioning.scaled(&face, run.font_size);
     let wrap_width = (run.horizontal_overflow == HorizontalOverflow::Wrap).then_some(size.x);
-    let mut lines = wrap::lines(&scaled, &run.text, wrap_width, limits)?;
+    let mut lines = wrap::lines(&scaled, pairs, &run.text, wrap_width, limits)?;
     let spacing = run
         .line_height
         .unwrap_or((scaled.height() + scaled.line_gap()) * run.line_spacing);
@@ -248,7 +254,8 @@ pub(super) fn layout(
         layout_line(
             &mut atlas,
             &mut glyphs,
-            &scaled,
+            registered,
+            pairs,
             run,
             &line,
             Vec2::new(size.x, baseline),
@@ -265,18 +272,23 @@ pub(super) fn layout(
 fn layout_line(
     atlas: &mut AtlasBuilder,
     glyphs: &mut Vec<GlyphLayout>,
-    font: &ab_glyph::PxScaleFont<&FontArc>,
+    registered: &RegisteredFont,
+    pairs: ScaledPairs<'_>,
     run: &TextRun,
     line: &wrap::Line,
     extent: Vec2,
 ) -> Result<(), UiError> {
+    let font = registered
+        .font
+        .as_scaled(scale(&registered.font, run.font_size)?);
     let mut x = (extent.x - line.width) * run.horizontal.factor();
     let mut previous = None;
     for &(byte, c) in &line.characters {
         let id = font.glyph_id(c);
-        x += previous.map_or(0., |p| font.kern(p, id));
+        x += previous.map_or(0., |p: ab_glyph::GlyphId| pairs.x_advance(p.0, id.0));
         let glyph = id.with_scale_and_position(font.scale(), point(x, -extent.y));
-        if let Some(outlined) = font.font.outline_glyph(glyph)
+        if registered.empty_glyphs.binary_search(&id.0).is_err()
+            && let Some(outlined) = font.font.outline_glyph(glyph)
             && let Some(mut glyph) = raster(atlas, &outlined, c, Vec2::new(x, extent.y))?
         {
             if let Some(span) = run.span(byte) {

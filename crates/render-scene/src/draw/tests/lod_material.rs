@@ -152,6 +152,7 @@ fn selected_level_changes_material_topology_and_pipeline() {
 #[test]
 fn the_runtime_path_records_the_fixed_commands_for_a_level_with_two_material_slots() {
     use crate::object::cost_tests::Tally;
+    use crate::renderer::legacy_objects::{Build, Pipelines};
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
@@ -168,11 +169,12 @@ fn the_runtime_path_records_the_fixed_commands_for_a_level_with_two_material_slo
     let frame = gpu.drawing_frame_group();
     let mut fixed = Tally::default();
     let view = gpu.begin_objects(&mut fixed, &frame, None);
-    let mut sink = super::super::lod_material::FixedSink::new(
-        &mut fixed,
-        pipelines.object_pipelines(),
-        &gpu.materials,
+    // The frozen fixed path stands in for the fixed pipelines no pass draws with any more.
+    let legacy = Pipelines::build(
+        context.device(),
+        &Build::of(&pipelines, Build::live_source(&pipelines)),
     );
+    let mut sink = super::super::lod_material::FixedSink::new(&mut fixed, &legacy, &gpu.materials);
     gpu.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
     let mut runtime = Tally::default();
     drop(gpu.draw_objects_prepared(&mut runtime, &frame, pipelines.object_context()));

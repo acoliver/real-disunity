@@ -1,5 +1,9 @@
 //! Lossless primitive receiver displacements, produced once at pixel centres.
 mod admission;
+#[cfg(test)]
+mod arithmetic_reference;
+#[cfg(test)]
+pub(crate) use arithmetic_reference::positions as main_receiver_positions;
 mod cards;
 #[cfg(test)]
 pub(crate) use cards::reference as late_card_source;
@@ -10,11 +14,15 @@ mod reject;
 mod reservation;
 pub(crate) use bindings::{SetTwo, ShadowInputs, object_layout, shadow_layout};
 pub use reservation::ReceiverGradientReservation;
+#[cfg(test)]
+pub(crate) mod poison;
 mod shader;
 mod targets;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod zero_bias_tests;
 pub(crate) use targets::ReceiverPayload;
 
 /// The number of independently displaced receivers retained by a geometry pair.
@@ -77,12 +85,33 @@ impl ReceiverLayout {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ReceiverCapture {
+    Position,
+    Normal,
+    #[cfg(test)]
+    MainArithmetic,
+}
+impl ReceiverCapture {
+    fn select(layout: ReceiverLayout, bias: f32, transmission: bool) -> Self {
+        if bias == 0.0 && layout == ReceiverLayout::Front && !transmission {
+            Self::Position
+        } else {
+            Self::Normal
+        }
+    }
+}
+
 pub(crate) fn producer_sources(
     output: super::MetadataOutput,
     layout: ReceiverLayout,
     bias: f32,
+    capture: ReceiverCapture,
 ) -> (String, String) {
-    shader::producer(output, layout, bias)
+    shader::producer(output, layout, bias, capture)
+}
+pub(crate) fn terrain_local_source(source: &str) -> String {
+    shader::terrain_local(source)
 }
 pub(crate) fn consumer_source(source: &str, layout: ReceiverLayout, terrain: bool) -> String {
     shader::consumer(source, layout, terrain)
@@ -100,10 +129,24 @@ pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
 #[cfg(test)]
 pub(crate) fn probe_source(source: &str) -> String {
     // Preserve shading and its control flow while exposing displacements in existing MRTs.
+    let mut source = source.to_owned();
+    for name in ["cascaded_sunlight_visibility", "scene_prepare_card_shadow"] {
+        let body = shader::function(&source, name).to_owned();
+        let start = body.find("let receiver_dy = ").unwrap();
+        let end = start + body[start..].find(';').unwrap() + 1;
+        let assignment = &body[start..end];
+        assert_eq!(body.matches(assignment).count(), 1);
+        source = source.replace(
+            &body,
+            &body.replace(
+                assignment,
+                &format!(
+                    "{assignment} scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;"
+                ),
+            ),
+        );
+    }
     let source = source.replace(
-        "let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y;",
-        "let receiver_dy = dpdy(position) + dpdy(normal) * shadow.bias.y; scene_probe_dx = receiver_dx; scene_probe_dy = receiver_dy;",
-    ).replace(
         "vec4<f32>(published_environment, 1.0), vec4<f32>(published_factor, 1.0)",
         "vec4<f32>(scene_probe_dx, scene_probe_dy.x), vec4<f32>(scene_probe_dy.yz, 0.0, 0.0)",
     );
@@ -122,15 +165,35 @@ var<private> scene_probe_dx: vec3<f32>; var<private> scene_probe_dy: vec3<f32>;"
 }
 
 #[cfg(test)]
+pub(crate) fn hardware_receiver_reference(source: &str) -> String {
+    arithmetic_reference::hardware_terrain(source)
+}
+
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ReceiverReference {
     LateCardRejection,
+    NormalProducer,
+    MainArithmetic,
+    PoisonUncovered,
+    PoisonShared,
+    PoisonIndependent,
+    UncoveredProbe {
+        depth: crate::renderer::depth::DepthMode,
+        family: poison::ConsumerFamily,
+        poison: bool,
+    },
     /// The runtime receivers with reused depth, without the relief card early reject.
     WithoutCardReject,
     /// The runtime receivers with reused depth, rejecting every relief card quad.
     ForcedCardReject,
     StoredShared,
     StoredIndependent,
+    HardwareProbeIndependent,
+    HardwareProbeShared,
+    HardwareProbeReuse,
+    FrozenIndependent,
+    FrozenReuse,
     ProbeIndependent,
     StoredProbeIndependent,
     ProbeShared,
@@ -145,17 +208,28 @@ pub(crate) enum ReceiverReference {
 impl ReceiverReference {
     pub(crate) const fn depth(self) -> crate::renderer::depth::DepthMode {
         match self {
-            Self::StoredIndependent | Self::ProbeIndependent | Self::StoredProbeIndependent => {
-                crate::renderer::depth::DepthMode::Independent
-            }
+            Self::UncoveredProbe { depth, .. } => depth,
+            Self::StoredIndependent
+            | Self::FrozenIndependent
+            | Self::ProbeIndependent
+            | Self::HardwareProbeIndependent
+            | Self::StoredProbeIndependent
+            | Self::PoisonIndependent => crate::renderer::depth::DepthMode::Independent,
             Self::StoredShared
+            | Self::PoisonShared
             | Self::ProbeShared
+            | Self::HardwareProbeShared
             | Self::StoredProbeShared
             | Self::BlackShared => crate::renderer::depth::DepthMode::Shared,
             Self::LateCardRejection
+            | Self::FrozenReuse
+            | Self::NormalProducer
+            | Self::MainArithmetic
+            | Self::PoisonUncovered
             | Self::WithoutCardReject
             | Self::ForcedCardReject
             | Self::ProbeReuse
+            | Self::HardwareProbeReuse
             | Self::StoredProbeReuse
             | Self::OffsetProbeReuse
             | Self::StoredOffsetProbeReuse => crate::renderer::depth::DepthMode::Reuse,
@@ -169,12 +243,18 @@ impl ReceiverReference {
                 | Self::BlackShared
                 | Self::ProbeIndependent
                 | Self::OffsetProbeReuse
+                | Self::HardwareProbeShared
+                | Self::HardwareProbeReuse
+                | Self::HardwareProbeIndependent
         )
     }
     pub(crate) const fn probe(self) -> bool {
         matches!(
             self,
             Self::ProbeShared
+                | Self::HardwareProbeShared
+                | Self::HardwareProbeReuse
+                | Self::HardwareProbeIndependent
                 | Self::ProbeReuse
                 | Self::OffsetProbeReuse
                 | Self::StoredOffsetProbeReuse
@@ -210,6 +290,13 @@ impl crate::compositor::FrameRenderer {
                     "receiver displacements exceed configured reservation",
                 ));
             }
+            let capture = ReceiverCapture::select(layout, bias, gpu.has_transmission());
+            #[cfg(test)]
+            let capture = match self.receiver_reference {
+                Some(ReceiverReference::NormalProducer) => ReceiverCapture::Normal,
+                Some(ReceiverReference::MainArithmetic) => ReceiverCapture::MainArithmetic,
+                _ => capture,
+            };
             let output = ReceiverPayload::output_for(screen);
             let colors = admission::metadata_colors(output);
             admission::validate(&device.limits(), layout, colors, gpu.terrain_surface())?;
@@ -227,14 +314,33 @@ impl crate::compositor::FrameRenderer {
                 receiver.layout != layout
                     || receiver.bias.to_bits() != bias.to_bits()
                     || receiver.output != output
+                    || receiver.capture != capture
             }) {
                 screen.receiver = Some(ReceiverPayload::new(
                     device,
                     screen,
                     layout,
                     bias,
+                    capture,
                     card_reject,
                 ));
+            }
+            #[cfg(test)]
+            if matches!(
+                self.receiver_reference,
+                Some(
+                    ReceiverReference::PoisonUncovered
+                        | ReceiverReference::PoisonShared
+                        | ReceiverReference::PoisonIndependent
+                        | ReceiverReference::UncoveredProbe { poison: true, .. }
+                )
+            ) {
+                screen.receiver.as_mut().unwrap().clear = [1.0, 2.0].map(|scale| wgpu::Color {
+                    r: 12344.0 * scale,
+                    g: -6788.0 * scale,
+                    b: 4320.0 * scale,
+                    a: -9872.0 * scale,
+                });
             }
         }
         Ok(())
@@ -247,6 +353,13 @@ impl crate::compositor::FrameRenderer {
         pipelines: &crate::renderer::ScenePipelines,
         depth: crate::renderer::depth::DepthMode,
     ) -> crate::renderer::ScenePipelines {
+        #[cfg(test)]
+        if matches!(
+            self.receiver_reference,
+            Some(ReceiverReference::FrozenIndependent | ReceiverReference::FrozenReuse)
+        ) {
+            return pipelines.clone();
+        }
         self.ssao
             .as_ref()
             .and_then(|screen| screen.receiver.as_ref())
@@ -257,7 +370,12 @@ impl crate::compositor::FrameRenderer {
                     if let Some(reference) = self.receiver_reference
                         && (reference.local()
                             || reference.probe()
-                            || matches!(reference, ReceiverReference::LateCardRejection))
+                            || matches!(
+                                reference,
+                                ReceiverReference::LateCardRejection
+                                    | ReceiverReference::MainArithmetic
+                                    | ReceiverReference::UncoveredProbe { .. }
+                            ))
                     {
                         return pipelines.for_receiver_reference(reference, receiver.layout);
                     }

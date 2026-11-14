@@ -8,12 +8,12 @@ struct UiOverlayVertex {
 }
 UI_DEPTH_BINDINGS
 @vertex
-fn vs_ui_overlay(vertex: VertexInput, tint: InstanceTint) -> UiOverlayVertex {
+fn vs_ui_overlay(vertex: VertexInput, tint: InstanceTint, @location(12) corner_color: vec4<f32>) -> UiOverlayVertex {
     var out: UiOverlayVertex;
     out.position = vec4<f32>(vertex.position.xy * 2.0 / vec2<f32>(UI_WIDTH, UI_HEIGHT) - 1.0, 0.0, 1.0);
     out.depth = vertex.position.z;
     out.uv = vertex.texcoord;
-    out.tint = tint.tint;
+    out.tint = tint.tint * corner_color;
     return out;
 }
 @fragment

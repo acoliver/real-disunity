@@ -189,8 +189,20 @@ impl ScenePipelines {
     ) -> Self {
         let spec = &self.specialization;
         let sources = [&spec.source, &spec.terrain].map(|source| {
+            use crate::scene_metadata::receiver::ReceiverReference;
+            let source = if matches!(
+                reference,
+                ReceiverReference::HardwareProbeShared
+                    | ReceiverReference::HardwareProbeReuse
+                    | ReceiverReference::HardwareProbeIndependent
+            ) {
+                crate::scene_metadata::receiver::hardware_receiver_reference(source)
+            } else {
+                source.to_string()
+            };
+            let source = source.as_str();
             assert!(!source.contains("scene_receiver_load("));
-            assert!(source.contains("dpdx(position) + dpdx(normal) * shadow.bias.y"));
+            assert!(source.contains("dpdx(normal) * shadow.bias.y"));
             if reference.probe() {
                 let source = crate::scene_metadata::receiver::probe_source(source);
                 if matches!(
@@ -213,6 +225,11 @@ impl ScenePipelines {
                 } else {
                     source
                 }
+            } else if matches!(
+                reference,
+                crate::scene_metadata::receiver::ReceiverReference::MainArithmetic
+            ) {
+                crate::scene_metadata::receiver::main_receiver_positions(source)
             } else {
                 source.to_string()
             }
@@ -231,6 +248,13 @@ impl ScenePipelines {
         } else {
             // References are the plain consumer the production frame must match.
             let selected = selected.for_receiver_gradients(receiver, false);
+            if let crate::scene_metadata::receiver::ReceiverReference::UncoveredProbe {
+                family,
+                ..
+            } = reference
+            {
+                return selected.with_uncovered_probe(receiver, family);
+            }
             if matches!(
                 reference,
                 crate::scene_metadata::receiver::ReceiverReference::LateCardRejection
@@ -240,6 +264,28 @@ impl ScenePipelines {
                 selected
             }
         }
+    }
+
+    #[cfg(test)]
+    fn with_uncovered_probe(
+        &self,
+        receiver: crate::scene_metadata::receiver::ReceiverLayout,
+        family: crate::scene_metadata::receiver::poison::ConsumerFamily,
+    ) -> Self {
+        let spec = &self.specialization;
+        let source =
+            crate::scene_metadata::receiver::poison::source(&spec.source, receiver, family, false);
+        let terrain =
+            crate::scene_metadata::receiver::poison::source(&spec.terrain, receiver, family, true);
+        let mut selected = Self::with_constants(
+            &spec.device,
+            (self.color_format, self.samples),
+            (&source, &terrain),
+            (&spec.shadow, spec.screen.as_ref()),
+            (spec.options, &spec.family),
+        );
+        selected.ssao = self.ssao;
+        selected
     }
 
     #[cfg(test)]
@@ -403,6 +449,13 @@ impl ScenePipelines {
     }
 }
 
+/// Which object programs a selection draws with: two selections share their programs exactly when
+/// they share the context.
+#[cfg(test)]
+fn id(pipelines: &ScenePipelines) -> u64 {
+    pipelines.object_context().id()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -416,7 +469,6 @@ mod tests {
         let _session = crate::test_support::SceneTestSession::acquire();
         let context = crate::device::GpuContext::shared_for_test().unwrap();
         let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
-        let key = crate::pipeline::PipelineKey::ALL[0];
         for roughness in [
             SceneRoughnessRemap::Perceptual045,
             SceneRoughnessRemap::Perceptual04,
@@ -438,11 +490,11 @@ mod tests {
                     };
                     let first = pipelines.for_convention(convention);
                     let again = pipelines.for_convention(convention);
-                    assert_eq!(first.get(key), again.get(key));
+                    assert_eq!(id(&first), id(&again));
                     if convention == SceneSpecularConvention::default() {
-                        assert_eq!(first.get(key), pipelines.get(key));
+                        assert_eq!(id(&first), id(&pipelines));
                     } else {
-                        assert_ne!(first.get(key), pipelines.get(key));
+                        assert_ne!(id(&first), id(&pipelines));
                     }
                 }
             }
@@ -467,14 +519,10 @@ fn disk_radius_is_part_of_existing_pipeline_cache_key() {
         ),
         ..Default::default()
     };
-    let key = crate::pipeline::PipelineKey::ALL[0];
     let default = pipelines.for_convention(convention(2700));
     let wide = pipelines.for_convention(convention(17_453));
-    assert_ne!(default.get(key), wide.get(key));
-    assert_eq!(
-        wide.get(key),
-        pipelines.for_convention(convention(17_453)).get(key)
-    );
+    assert_ne!(id(&default), id(&wide));
+    assert_eq!(id(&wide), id(&pipelines.for_convention(convention(17_453))));
     assert_eq!(pipelines.specialization.cache.borrow().len(), 2);
 }
 
@@ -485,12 +533,11 @@ fn winding_uses_existing_specialization_cache_without_changing_default_pipelines
     let context = crate::device::GpuContext::shared_for_test().unwrap();
     let pipelines = ScenePipelines::new(context.device(), wgpu::TextureFormat::Rgba16Float);
     let convention = worldrunner_render_plan::SceneSpecularConvention::default();
-    let key = crate::pipeline::PipelineKey::ALL[0];
     let right = pipelines.for_raster(convention, wgpu::FrontFace::Ccw);
     let left = pipelines.for_raster(convention, wgpu::FrontFace::Cw);
     let again = pipelines.for_raster(convention, wgpu::FrontFace::Cw);
-    assert_eq!(right.get(key), pipelines.get(key));
-    assert_eq!(left.get(key), again.get(key));
-    assert_ne!(left.get(key), right.get(key));
+    assert_eq!(id(&right), id(&pipelines));
+    assert_eq!(id(&left), id(&again));
+    assert_ne!(id(&left), id(&right));
     assert_eq!(pipelines.specialization.cache.borrow().len(), 1);
 }

@@ -211,6 +211,22 @@ impl SceneGpu {
         self.end_objects(view, None, count)
     }
 
+    /// Records the objects that `cascade` selects into its shadow map, with the caster programs of
+    /// `context` and the cascade's light frame `frame_group` lent at set 0.
+    pub(crate) fn draw_casters_prepared<P: PassCommands + ?Sized>(
+        &self,
+        pass: &mut P,
+        frame_group: &wgpu::BindGroup,
+        context: &Context,
+        cascade: (u32, glam::Mat4),
+    ) -> SelectionPublication {
+        let shadow = Some(cascade);
+        let view = self.begin_objects(pass, frame_group, shadow);
+        let mut sink = PreparedSink::new(pass, &self.objects, context);
+        let count = self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
+        self.end_objects(view, shadow, count)
+    }
+
     /// [`draw_objects_prepared`](Self::draw_objects_prepared), sending pipeline index `i` to the
     /// pipeline of key `i ^ mask`.
     #[cfg(test)]
@@ -241,7 +257,18 @@ impl SceneGpu {
         frame: &crate::frame::FrameUniform,
     ) -> Result<(), worldrunner_render_post::FrameError> {
         let selected = self.selected_pipelines(pipelines, frame);
-        let context = selected.object_context();
+        self.prepare_object_context(selected.object_context())
+    }
+
+    /// Prepares the pipeline of every pair of pipeline key and material the scene's batches draw,
+    /// for the programs of `context`, before a pass that draws with them opens.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses the objects' program, set or pipeline for the context.
+    pub(crate) fn prepare_object_context(
+        &self,
+        context: &Context,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
         for (index, material) in self.drawn_pairs() {
             self.objects
                 .pipeline(context, index, material)
@@ -253,6 +280,18 @@ impl SceneGpu {
                 )?;
         }
         Ok(())
+    }
+
+    /// Prepares the objects of a term replay drawn with `pipelines` in the frame being drawn,
+    /// before the replay's pass opens.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses the objects' program, set or pipeline for the context.
+    pub(crate) fn prepare_objects_replay(
+        &self,
+        pipelines: &crate::renderer::ScenePipelines,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        self.prepare_objects(pipelines, &self.drawing_uniform())
     }
 
     /// The pairs of pipeline index and material the batches that hold instances draw: a mesh

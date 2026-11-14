@@ -101,3 +101,113 @@ fn null_sink_carries_fractional_frames_and_cannot_open_a_device() {
     assert!(audio.set_mute(true).is_err());
     assert!(audio.set_master_gain(1.0).is_err());
 }
+
+#[test]
+fn null_device_commands_route_samples_configure_buses_and_keep_old_play_valid() {
+    let mut audio = AudioService::default();
+    audio.null_device();
+    let mut bytes = clip();
+    for sample in bytes[44..].chunks_exact_mut(2) {
+        sample.copy_from_slice(&16384_i16.to_le_bytes());
+    }
+    let clip = audio.load_wav(&bytes).unwrap();
+    let config = BusConfig {
+        gain: 0.5,
+        muted: false,
+        tier: 0,
+    };
+    assert_eq!(
+        audio
+            .command(AudioCommand::ConfigureBus {
+                name: "music".into(),
+                config
+            })
+            .unwrap(),
+        AudioReply::Applied
+    );
+    audio
+        .configure_bus("speech", BusConfig { tier: 1, ..config })
+        .unwrap();
+    let rule = DuckingRule {
+        source_buses: vec!["speech".into()],
+        target_buses: vec!["music".into()],
+        gain: 0.5,
+        attack: Duration::ZERO,
+        hold: Duration::ZERO,
+        release: Duration::ZERO,
+        envelope: EnvelopeMode::LinearGain,
+        detector: DuckingDetector::Activity,
+    };
+    audio
+        .command(AudioCommand::DuckingRules(vec![rule]))
+        .unwrap();
+    assert!(matches!(
+        audio
+            .command(AudioCommand::PlayOnBus {
+                clip: clip.clone(),
+                gain: 1.0,
+                bus: "music".into()
+            })
+            .unwrap(),
+        AudioReply::Playing(_)
+    ));
+    let source = audio.play_on_bus(&clip, 0.0, "speech").unwrap();
+    let old = audio.play(&clip, 0.25).unwrap();
+    let mut out = [[0.0; 2]];
+    audio.state.lock().unwrap().mixer.render(&mut out);
+    assert_eq!(out, [[0.25; 2]]);
+    assert!(audio.stop(&old));
+    assert!(audio.stop(&source));
+    audio.replace_ducking_rules(vec![]).unwrap();
+    audio.state.lock().unwrap().mixer.render(&mut out);
+    assert_eq!(out, [[0.25; 2]]);
+    assert!(
+        matches!(audio.play_on_bus(&clip, 1.0, "missing"), Err(AudioServiceError::Audio(AudioError::UnknownBus(name))) if name == "missing")
+    );
+    audio.shutdown();
+    assert!(audio.configure_bus("music", config).is_err());
+    assert!(audio.replace_ducking_rules(vec![]).is_err());
+}
+
+#[test]
+fn null_device_advances_ducking_release_during_silence() {
+    let mut audio = AudioService::default();
+    audio.null_device();
+    for (name, tier) in [("music", 0), ("speech", 1)] {
+        audio
+            .configure_bus(
+                name,
+                BusConfig {
+                    gain: 1.0,
+                    muted: false,
+                    tier,
+                },
+            )
+            .unwrap();
+    }
+    let mut bytes = clip();
+    for sample in bytes[44..].chunks_exact_mut(2) {
+        sample.copy_from_slice(&16384_i16.to_le_bytes());
+    }
+    let clip = audio.load_wav(&bytes).unwrap();
+    audio
+        .replace_ducking_rules(vec![DuckingRule {
+            source_buses: vec!["speech".into()],
+            target_buses: vec!["music".into()],
+            gain: 0.25,
+            attack: Duration::ZERO,
+            hold: Duration::ZERO,
+            release: Duration::from_millis(250),
+            envelope: EnvelopeMode::LinearGain,
+            detector: DuckingDetector::Activity,
+        }])
+        .unwrap();
+    let source = audio.play_on_bus(&clip, 0.0, "speech").unwrap();
+    audio.advance(Duration::from_millis(1));
+    audio.stop(&source);
+    audio.advance(Duration::from_millis(250));
+    audio.play_on_bus(&clip, 1.0, "music").unwrap();
+    let mut out = [[0.0; 2]];
+    audio.state.lock().unwrap().mixer.render(&mut out);
+    assert_eq!(out, [[0.5; 2]]);
+}

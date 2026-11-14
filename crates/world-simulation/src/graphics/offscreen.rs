@@ -138,6 +138,28 @@ pub enum OffscreenWork {
         pass: i32,
         block: Option<Box<ShaderProperties>>,
     },
+    /// Draws `vertex_count` generated vertices `instance_count` times with `matrix`
+    /// (column-major) and the material's pass into the bound targets, with the current view and
+    /// projection. The shader makes each vertex from its vertex and instance index, so no mesh is
+    /// read. A `pass` of -1 draws every pass. A zero count is a draw of nothing that keeps its
+    /// place among the records.
+    DrawProcedural {
+        matrix: [f32; 16],
+        material: MaterialId,
+        pass: i32,
+        topology: DrawTopology,
+        vertex_count: u32,
+        instance_count: u32,
+    },
+}
+
+/// How a procedural draw joins its generated vertices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DrawTopology {
+    /// Every three vertices make a triangle.
+    TriangleList,
+    /// Every two vertices make a line.
+    LineList,
 }
 
 impl OffscreenWork {

@@ -33,7 +33,10 @@ fn size_at(size: [u32; 2], mip: u32) -> [u32; 2] {
 /// The attachments a pass can use. A depth buffer under a color texture has one mip, and one of
 /// another size than the color cannot go with it, so a pass whose depth does not fit is drawn
 /// without it.
-fn usable(svc: &Services<'_>, target: Attachments) -> Result<Attachments, OffscreenError> {
+pub(super) fn usable(
+    svc: &Services<'_>,
+    target: Attachments,
+) -> Result<Attachments, OffscreenError> {
     for attachment in [target.color, target.depth].into_iter().flatten() {
         require_render_texture(svc, attachment.texture)?;
         if attachment.mip >= svc.textures.get(attachment.texture)?.mips {
@@ -61,7 +64,10 @@ fn usable(svc: &Services<'_>, target: Attachments) -> Result<Attachments, Offscr
 }
 
 /// The formats of a pass over `target`.
-fn signature(svc: &Services<'_>, target: Attachments) -> Result<TargetSignature, OffscreenError> {
+pub(super) fn signature(
+    svc: &Services<'_>,
+    target: Attachments,
+) -> Result<TargetSignature, OffscreenError> {
     let color = match target.color {
         Some(attachment) => {
             let info = svc.textures.get(attachment.texture)?;

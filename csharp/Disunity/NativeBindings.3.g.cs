@@ -178,6 +178,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_mesh(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass);
         /// <summary>
+        ///  Records a draw of `vertex_count` generated vertices, `instance_count` times, with `matrix`
+        ///  (16 floats, column-major) and the `material`'s `pass` (-1 for every pass), into the bound
+        ///  targets with the current view and projection. `topology` is 0 for a triangle list and 1 for a
+        ///  line list; any other value and a negative count are refused.
+        ///
+        ///  # Safety
+        ///  `matrix` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_procedural", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_procedural(ulong world, float* matrix, ulong material, int pass, uint topology, int vertex_count, int instance_count);
+        /// <summary>
         ///  Appends a piece of offscreen work to the frame's list. Everything it names must be alive.
         ///
         ///  # Safety

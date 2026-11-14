@@ -33,7 +33,7 @@ pub use compute::{
 };
 pub use context::MAX_CULL_PLANES;
 pub use material::{GlobalShaderState, MaterialEdit, WorldMaterial};
-pub use offscreen::{MAX_OFFSCREEN_WORK, OffscreenWork};
+pub use offscreen::{DrawTopology, MAX_OFFSCREEN_WORK, OffscreenWork};
 pub use properties::{
     MAX_NAME_BYTES, MAX_PROPERTIES_PER_KIND, MAX_PROPERTY_ARRAY_ELEMENTS, PropertyValue,
     ShaderProperties, TextureRef, TextureSlot,

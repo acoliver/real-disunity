@@ -55,6 +55,13 @@ pub(super) struct Declared {
 #[derive(Default)]
 pub(super) struct DeclaredInputs(HashMap<u32, Option<Declared>>);
 
+impl DeclaredInputs {
+    /// How many vertex inputs the stage declares, by location.
+    pub(super) fn count(&self) -> usize {
+        self.0.len()
+    }
+}
+
 /// What to bind for an input and how to read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Constant {

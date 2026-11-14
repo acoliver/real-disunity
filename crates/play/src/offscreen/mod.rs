@@ -62,6 +62,7 @@ mod mesh_draw;
 mod pass_notes;
 mod pixels;
 mod probe;
+mod procedural_draw;
 mod properties;
 mod report;
 mod script;

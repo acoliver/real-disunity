@@ -96,6 +96,14 @@ pub enum OffscreenError {
     BlitNeedsMaterial { reason: String },
     #[error("a blit with a material needs the frame to name a blit mesh")]
     NoBlitMesh,
+    #[error(
+        "shader {shader:?} pass {pass} reads {inputs} vertex inputs, but a procedural draw has no mesh to feed them"
+    )]
+    ProceduralVertexInputs {
+        shader: ShaderId,
+        pass: usize,
+        inputs: usize,
+    },
     #[error("the copy from {from:?} to {to:?} cannot be made: {reason}")]
     CopyMismatch {
         from: TextureId,

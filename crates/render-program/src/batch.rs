@@ -326,6 +326,7 @@ impl ProgramRuntime {
             layouts: &layouts,
             signature,
             colors: &colors,
+            topology: wgpu::PrimitiveTopology::TriangleList,
         })?;
         let groups = self.bind_groups_sharing(
             &draw.program.gpu,

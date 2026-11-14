@@ -2,12 +2,34 @@
 use super::WireError;
 use super::codec::{Reader, Wire, Writer};
 use super::readback_parts::{read_readback, write_readback};
-use crate::graphics::{MAX_CULL_PLANES, OffscreenWork};
+use crate::graphics::{DrawTopology, MAX_CULL_PLANES, OffscreenWork};
 
 pub(super) const WORK_CULL: u8 = 10;
 const WORK_SETUP_CAMERA: u8 = 11;
 const WORK_SET_VIEW_PROJECTION: u8 = 15;
 const WORK_DRAW_MESH: u8 = 16;
+const WORK_DRAW_PROCEDURAL: u8 = 17;
+
+const TOPOLOGY_TRIANGLE_LIST: u8 = 0;
+const TOPOLOGY_LINE_LIST: u8 = 1;
+
+impl Wire for DrawTopology {
+    fn write(&self, out: &mut Writer) -> Result<(), WireError> {
+        match self {
+            Self::TriangleList => TOPOLOGY_TRIANGLE_LIST,
+            Self::LineList => TOPOLOGY_LINE_LIST,
+        }
+        .write(out)
+    }
+
+    fn read(input: &mut Reader<'_>) -> Result<Self, WireError> {
+        match u8::read(input)? {
+            TOPOLOGY_TRIANGLE_LIST => Ok(Self::TriangleList),
+            TOPOLOGY_LINE_LIST => Ok(Self::LineList),
+            other => Err(WireError::UnknownTag(u32::from(other))),
+        }
+    }
+}
 
 /// The most planes a decoder accepts for one culling result.
 fn plane_limit() -> u32 {
@@ -67,6 +89,22 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             pass.write(out)?;
             block.write(out)
         }
+        OffscreenWork::DrawProcedural {
+            matrix,
+            material,
+            pass,
+            topology,
+            vertex_count,
+            instance_count,
+        } => {
+            WORK_DRAW_PROCEDURAL.write(out)?;
+            matrix.write(out)?;
+            material.write(out)?;
+            pass.write(out)?;
+            topology.write(out)?;
+            vertex_count.write(out)?;
+            instance_count.write(out)
+        }
         other => write_readback(other, out),
     }
 }
@@ -108,6 +146,14 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             submesh: Wire::read(input)?,
             pass: Wire::read(input)?,
             block: Wire::read(input)?,
+        }),
+        WORK_DRAW_PROCEDURAL => Ok(OffscreenWork::DrawProcedural {
+            matrix: Wire::read(input)?,
+            material: Wire::read(input)?,
+            pass: Wire::read(input)?,
+            topology: Wire::read(input)?,
+            vertex_count: Wire::read(input)?,
+            instance_count: Wire::read(input)?,
         }),
         other => read_readback(other, input),
     }

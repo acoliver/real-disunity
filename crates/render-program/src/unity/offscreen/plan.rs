@@ -50,6 +50,13 @@ pub(super) struct ProgramEntry {
     inputs: DeclaredInputs,
 }
 
+impl ProgramEntry {
+    /// How many vertex inputs the vertex stage declares.
+    pub(super) fn vertex_input_count(&self) -> usize {
+        self.inputs.count()
+    }
+}
+
 /// A constant buffer binding whose bytes are in the constants plan at `offset` of `chunk`.
 pub(super) struct PendingConstant {
     pub(super) set: u32,
@@ -225,9 +232,20 @@ impl Services<'_> {
     /// Chooses the program of `spec`, packs its constants, binds its textures and samplers.
     pub(super) fn plan_program(&mut self, spec: &DrawSpec<'_>) -> Result<DrawPlan, OffscreenError> {
         let (entry, render_state) = self.choose(spec)?;
+        self.plan_chosen(spec, entry, render_state)
+    }
+
+    /// Packs the constants of the program `choose` picked for `spec` and binds its textures and
+    /// samplers.
+    pub(super) fn plan_chosen(
+        &mut self,
+        spec: &DrawSpec<'_>,
+        entry: Arc<ProgramEntry>,
+        render_state: RenderState,
+    ) -> Result<DrawPlan, OffscreenError> {
         let slots = entry.program.layout().slots().to_vec();
         let mut plan = DrawPlan {
-            entry: entry.clone(),
+            entry,
             state: render_state,
             constants: Vec::new(),
             textures: Vec::new(),
@@ -235,6 +253,7 @@ impl Services<'_> {
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
         };
+        let entry = Arc::clone(&plan.entry);
         // Every texture is looked for before anything is bound, so a draw that lacks one changes
         // nothing in the frame.
         Self::require_textures(spec, &entry, &slots)?;
@@ -288,7 +307,8 @@ impl Services<'_> {
         Ok(())
     }
 
-    fn choose(
+    /// The program and render state of the pass and variant `spec` selects.
+    pub(super) fn choose(
         &mut self,
         spec: &DrawSpec<'_>,
     ) -> Result<(Arc<ProgramEntry>, RenderState), OffscreenError> {

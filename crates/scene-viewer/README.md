@@ -497,9 +497,12 @@ effective presentation admission budget, including the admitted replacement peak
 CPU edits do not replace it. Storage is one snapshot, with no event backlog or
 GPU readback. Submission does not imply GPU completion.
 
-`scene.meshes` and `scene.impostors` count main-camera indexed draws and their
-submitted instance counts. Material slots and transition complements each count
-as a draw; hidden and culled placements do not. Decals shade receivers inline,
+`scene.passes.opaque_objects` and `scene.passes.prepass_objects` count the
+indexed object draws the main camera's colour pass and depth/normal prepass
+recorded, split into `meshes` and `impostors`, with their instance counts and
+whether the pass drew gathered (`Compacted`) or per-range (`Ranged`) instances.
+Material slots and transition complements each count as a draw; hidden and
+culled placements do not. Decals shade receivers inline,
 without separate draw calls. `decals_visible` is the selected volume count after
 frustum culling, priority selection and the 32-volume shader limit;
 `decals_total` includes all authored volumes in that submitted frame.
@@ -568,7 +571,7 @@ hash collision limitation; they do not identify terrain content or a camera.
 
 Both completed capture outcomes retain their source `frame` and an `observation`
 with its accepted `generation` and full `scene: SceneStatistics`, including pass
-draws, meshes, impostors, decals, resource bytes, terrain pages and installed
+draws (including camera object draws), decals, resource bytes, terrain pages and installed
 effects and terrain geometry. Page and geometry readiness remain distinct fields
 in `observation.scene`.
 The snapshot is frozen at source submission, before resource-upload statistics

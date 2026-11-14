@@ -712,7 +712,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.gpu.reset_pass_statistics(context);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Installed,
@@ -751,23 +751,22 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.prepass_pipelines(),
-                &screen.group,
-            ));
+            self.publications.record_prepass(
+                self.gpu,
+                self.gpu
+                    .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+            );
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;
             }
             let matrix = self.cascades.matrices[index as usize];
             let group = &self.depth_frames[index as usize].1;
-            self.publications.record(self.gpu.draw_objects(
-                pass,
-                group,
-                self.depth_pipelines,
-                Some((index, matrix)),
-            ));
+            self.publications.record(
+                self.gpu
+                    .draw_objects(pass, group, self.depth_pipelines, Some((index, matrix)))
+                    .selection,
+            );
             let caster = self
                 .terrain_caster
                 .pipeline()

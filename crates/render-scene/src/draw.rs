@@ -53,10 +53,10 @@ pub use effect_statistics::{
 pub use geometry_statistics::{
     TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
 };
-pub use pass_statistics::PassDrawStatistics;
+pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
 mod terrain_runtime;
-pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
+pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
@@ -462,11 +462,11 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         group: &BindGroup,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         // Both passes consume the same camera selection, compacted instances and terrain stream.
         // The forward-only draws are appended after that paired prefix.
         pass.set_bind_group(3, group, &[]);
-        self.draw_color_pass(pass, pipelines, None, false).selection
+        self.draw_color_pass(pass, pipelines, None, false).drawn
     }
 
     pub(crate) fn draw_shadowed(
@@ -544,7 +544,7 @@ impl SceneGpu {
         let frame_group = self.drawing_frame_group();
         // The metadata prepass and the capture terms (`dynamic` is false) draw objects with the
         // fixed pipelines.
-        let selection = if dynamic {
+        let drawn = if dynamic {
             self.draw_objects_prepared(pass, &frame_group, pipelines.object_context())
         } else {
             self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None)
@@ -566,7 +566,7 @@ impl SceneGpu {
                 .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
-            selection,
+            drawn,
             terrain,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),

@@ -184,10 +184,12 @@ pub(super) fn capture(
         if let Some(pipelines) = &setup.shadow {
             let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
+                .total()
         } else {
             let pipelines = setup.pipelines.object_pipelines();
             let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
             gpu.record_selection(&mut sink, (None, &frame), &selected.ranges)
+                .total()
         }
     };
     let buffers: Vec<_> = colors

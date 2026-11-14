@@ -16,7 +16,7 @@ use worldrunner_render_program::runtime::{
 };
 
 use super::lod_material::{BoundState, Draw, DrawSink};
-use super::{SceneGpu, SelectionPublication};
+use super::{DrawnObjects, SceneGpu};
 use crate::object::prepared::PreparedObjects;
 use crate::object::program::{Context, vertex_layout};
 
@@ -204,11 +204,11 @@ impl SceneGpu {
         pass: &mut P,
         frame_group: &wgpu::BindGroup,
         context: &Context,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
         let mut sink = PreparedSink::new(pass, &self.objects, context);
-        let count = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
-        self.end_objects(view, None, count)
+        let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        self.end_objects(view, None, objects)
     }
 
     /// [`draw_objects_prepared`](Self::draw_objects_prepared), sending pipeline index `i` to the
@@ -220,11 +220,11 @@ impl SceneGpu {
         frame_group: &wgpu::BindGroup,
         context: &Context,
         mask: usize,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, None);
         let mut sink = PreparedSink::new(pass, &self.objects, context).with_mask(mask);
-        let count = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
-        self.end_objects(view, None, count)
+        let objects = self.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        self.end_objects(view, None, objects)
     }
 
     /// Prepares the pipelines of the pairs of pipeline key and material that the scene's batches

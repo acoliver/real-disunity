@@ -34,10 +34,11 @@ pub use timing::{
 };
 mod statistics;
 pub use statistics::{
-    DrawCount, EffectEnabled, EffectStatistics, PassExecution, PassInstallation, ReceiverBinding,
-    ReceiverBindings, ResourceStatistics, RetainedFrameStatistics, SceneStatistics,
-    ShadowStatistics, SsaoStatistics, TerrainGeometryStatistics, TerrainLeafIdentity,
-    TerrainPageStatistics, TerrainStreamingStatistics,
+    DrawCount, EffectEnabled, EffectStatistics, ObjectDraws, ObjectRecording, PassExecution,
+    PassInstallation, ReceiverBinding, ReceiverBindings, ResourceStatistics,
+    RetainedFrameStatistics, SceneStatistics, ShadowStatistics, SsaoStatistics,
+    TerrainGeometryStatistics, TerrainLeafIdentity, TerrainPageStatistics,
+    TerrainStreamingStatistics,
 };
 mod decals;
 pub use decals::DecalUpdate;

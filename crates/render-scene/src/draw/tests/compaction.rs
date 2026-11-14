@@ -157,6 +157,23 @@ impl Rig {
     fn compacted_draws(&self) -> usize {
         self.gpu.views[0].compaction.observed.compacted_draws.get()
     }
+
+    /// Records the committed camera selection again into a command tally, as the colour pass
+    /// recorded it, and returns the indexed draws the tally saw with what the recorder counted.
+    fn recorded_draws(&self) -> (u64, crate::draw::ObjectDraws) {
+        let mut tally = crate::object::cost_tests::Tally::default();
+        let frame_group = self.gpu.drawing_frame_group();
+        let view = self.gpu.begin_objects(&mut tally, &frame_group, None);
+        let mut sink = crate::draw::lod_material::FixedSink::new(
+            &mut tally,
+            self.pipelines.object_pipelines(),
+            &self.gpu.materials,
+        );
+        let drawn =
+            self.gpu
+                .record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        (u64::from(tally.0.draws), drawn)
+    }
 }
 
 fn moved(handle_x: i64) -> SceneTransform {
@@ -298,4 +315,34 @@ fn a_cancelled_edit_is_gathered_again_by_the_frame_that_publishes_it() {
         .set_instance_transform(handle, moved(-1_000))
         .unwrap();
     assert_eq!(published.pixels, ranged.render(&unlit(pose_at(0))).pixels);
+}
+
+#[test]
+fn camera_statistics_publish_the_draws_the_recorder_issued_for_fragmented_ranges() {
+    use crate::draw::ObjectRecording;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut compacted = Rig::new(false);
+    let mut per_range = Rig::new(true);
+    let frame = unlit(pose_at(0));
+    compacted.render(&frame);
+    per_range.render(&frame);
+    let (selected_ranges, groups) = compacted
+        .gpu
+        .published_ranges_and_groups(crate::draw::selection_reuse::CAMERA);
+    assert!(
+        selected_ranges > groups,
+        "the hidden cards split each batch's selection"
+    );
+    let gathered = compacted.gpu.statistics().passes.opaque_objects;
+    let walked = per_range.gpu.statistics().passes.opaque_objects;
+    assert_eq!(gathered.recording, ObjectRecording::Compacted);
+    assert_eq!(walked.recording, ObjectRecording::Ranged);
+    assert_eq!(gathered.total().instances, walked.total().instances);
+    assert!(gathered.total().calls >= groups as u64);
+    assert!(gathered.total().calls < walked.total().calls);
+    for (rig, published) in [(&compacted, gathered), (&per_range, walked)] {
+        let (tallied, recorded) = rig.recorded_draws();
+        assert_eq!(recorded, published);
+        assert_eq!(tallied, published.total().calls);
+    }
 }

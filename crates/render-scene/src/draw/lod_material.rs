@@ -5,8 +5,8 @@ use wgpu::{BindGroup, Buffer, RenderPass, RenderPipeline};
 use worldrunner_render_program::runtime::PassCommands;
 
 use super::{
-    DrawCount, FRAME_GROUP, FrameUniform, MATERIAL_GROUP, SceneGpu, SelectionPublication,
-    selection_reuse,
+    DrawnObjects, FRAME_GROUP, FrameUniform, MATERIAL_GROUP, ObjectDraws, SceneGpu,
+    SelectionPublication, selection_reuse,
     visibility::{SelectedRange, Selection},
 };
 
@@ -129,15 +129,15 @@ impl SceneGpu {
         frame_group: &BindGroup,
         pipelines: &(impl std::ops::Index<usize, Output = wgpu::RenderPipeline> + ?Sized),
         shadow_matrix: Option<(u32, glam::Mat4)>,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         let view = self.begin_objects(pass, frame_group, shadow_matrix);
         let mut sink = FixedSink::new(pass, pipelines, &self.materials);
-        let count = self.record_selection(
+        let objects = self.record_selection(
             &mut sink,
             (shadow_matrix, &view.frame),
             &view.selection.ranges,
         );
-        self.end_objects(view, shadow_matrix, count)
+        self.end_objects(view, shadow_matrix, objects)
     }
 
     /// Selects the view's objects and binds the frame group, which both ways of recording them
@@ -178,19 +178,23 @@ impl SceneGpu {
         }
     }
 
-    /// Counts what was recorded for a shadow cascade and publishes the selection.
+    /// Publishes a shadow cascade's recorded draws. A camera pass's draws go to the caller,
+    /// which knows the pass, with the selection to publish.
     pub(super) fn end_objects(
         &self,
         view: ObjectView,
         shadow_matrix: Option<(u32, glam::Mat4)>,
-        count: DrawCount,
-    ) -> SelectionPublication {
+        objects: ObjectDraws,
+    ) -> DrawnObjects {
         if let Some((index, _)) = shadow_matrix {
-            self.pass_counters.shadows[index as usize].record(count);
+            self.pass_counters.shadows[index as usize].record(objects.total());
         }
-        SelectionPublication {
-            destination: view.published,
-            selection: view.selection,
+        DrawnObjects {
+            selection: SelectionPublication {
+                destination: view.published,
+                selection: view.selection,
+            },
+            objects,
         }
     }
 
@@ -198,31 +202,33 @@ impl SceneGpu {
         &self,
         sink: &mut impl DrawSink,
         range: &SelectedRange,
-    ) -> DrawCount {
+        drawn: &mut ObjectDraws,
+    ) {
         let batch = &self.instances.batches[&range.key];
         sink.instances(
             batch.buffer.as_ref().expect("flushed instance buffer"),
             batch.previous.as_ref(),
         );
-        self.record_lod_draws(sink, range)
+        self.record_lod_draws(sink, range, drawn);
     }
 
-    /// Draws the instances `range.slots` of the buffer the sink already holds as the instances.
+    /// Draws the instances `range.slots` of the buffer the sink already holds as the instances,
+    /// counting each draw in `drawn`.
     pub(super) fn record_lod_draws(
         &self,
         sink: &mut impl DrawSink,
         range: &SelectedRange,
-    ) -> DrawCount {
+        drawn: &mut ObjectDraws,
+    ) {
         let (_, mesh, _) = range.key;
         let lod = &self.meshes[mesh].lods[range.lod];
         sink.vertices(&lod.vertices);
-        let mut count = self.record_lod_slots(sink, range, range.lod);
+        self.record_lod_slots(sink, range, range.lod, drawn);
         if let Some(vertices) = &lod.transition {
             sink.vertices(vertices);
             // The complement belongs to the preceding level, including its materials.
-            count.add(self.record_lod_slots(sink, range, range.lod - 1));
+            self.record_lod_slots(sink, range, range.lod - 1, drawn);
         }
-        count
     }
 
     fn record_lod_slots(
@@ -230,8 +236,8 @@ impl SceneGpu {
         sink: &mut impl DrawSink,
         range: &SelectedRange,
         level: usize,
-    ) -> DrawCount {
-        let mut count = DrawCount::default();
+        drawn: &mut ObjectDraws,
+    ) {
         let instances = u64::from(range.slots.end - range.slots.start);
         let (pipeline, mesh, material) = range.key;
         let lod = &self.meshes[mesh].lods[level];
@@ -245,7 +251,7 @@ impl SceneGpu {
                     indices: slot.indices(),
                     instances: range.slots.clone(),
                 });
-                count.draw(instances);
+                drawn.draw(self.resource_counters.impostors[material], instances);
             }
         } else {
             sink.draw(Draw {
@@ -254,9 +260,8 @@ impl SceneGpu {
                 indices: 0..lod.index_count,
                 instances: range.slots.clone(),
             });
-            count.draw(instances);
+            drawn.draw(self.resource_counters.impostors[material], instances);
         }
-        count
     }
 }
 

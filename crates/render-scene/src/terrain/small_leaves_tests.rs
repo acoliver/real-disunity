@@ -293,3 +293,97 @@ fn skirts_cover_a_128_texel_coarse_edge_beside_16_texel_leaves() {
         }
     }
 }
+
+fn default_flat_terrain(side: u32) -> SceneTerrain {
+    SceneTerrain::new(SceneTerrainParts {
+        columns: side,
+        rows: side,
+        origin_east_millimeters: 0,
+        origin_north_millimeters: 0,
+        sample_spacing_millimeters: 1000,
+        heights_millimeters: vec![0; usize::try_from(side * side).unwrap()],
+        surface_indices: vec![0; usize::try_from(side * side).unwrap()],
+        surfaces: vec![SceneTerrainSurface::new(
+            MaterialHandle::from_raw(0),
+            SceneTerrainAppearance::NEUTRAL,
+        )],
+        lod_policy: TerrainLodPolicy::FullResolution,
+    })
+    .unwrap()
+    .with_streaming_policy(Some(
+        TerrainStreamingPolicy::new(64, 1024, 4, 4000).unwrap(),
+    ))
+}
+
+fn default_policy_ortho() -> Mat4 {
+    glam::camera::rh::proj::directx::orthographic(-256.0, 256.0, -256.0, 256.0, 0.1, 1000.0)
+        * glam::camera::rh::view::look_at_mat4(
+            Vec3::new(128.0, 128.0, 100.0),
+            Vec3::new(128.0, 128.0, 0.0),
+            Vec3::Y,
+        )
+}
+
+#[test]
+fn default_policy_admits_coordinate_first_refinement_on_odd_interval_grid() {
+    let terrain = default_flat_terrain(258);
+    let bounds = TerrainHeightBounds::new(&terrain);
+    let current = root(&terrain).children(64).unwrap();
+    for node in &current {
+        assert_eq!(node.stride, 4);
+        assert_eq!(
+            streaming::error(&terrain, &bounds, *node, default_policy_ortho(), [1024; 2]).to_bits(),
+            8.0_f64.to_bits()
+        );
+    }
+    let plan = streaming::select(
+        &terrain,
+        &bounds,
+        &current,
+        default_policy_ortho(),
+        [1024; 2],
+    );
+    let expected = [
+        ([0, 0], [64, 64]),
+        ([64, 0], [128, 64]),
+        ([0, 64], [64, 128]),
+        ([64, 64], [128, 128]),
+    ]
+    .map(|(minimum, maximum)| TerrainChunk {
+        minimum,
+        maximum,
+        stride: 2,
+    });
+    assert_eq!(plan.uploads, expected);
+    assert!(!plan.leaves.contains(&current[0]));
+    assert!(current[1..].iter().all(|node| plan.leaves.contains(node)));
+}
+
+#[test]
+fn default_policy_below_cap_root_keeps_stride_footprint() {
+    let terrain = default_flat_terrain(33);
+    let bounds = TerrainHeightBounds::new(&terrain);
+    let node = root(&terrain);
+    assert_eq!(span(node), 32);
+    assert_eq!(node.stride, 1);
+    assert_eq!(
+        streaming::error(&terrain, &bounds, node, default_policy_ortho(), [1024; 2]).to_bits(),
+        2.0_f64.to_bits()
+    );
+}
+
+#[test]
+fn default_policy_partial_terminal_window_keeps_stride_footprint() {
+    let terrain = default_flat_terrain(130);
+    let bounds = TerrainHeightBounds::new(&terrain);
+    let parent = root(&terrain).children(64).unwrap()[3];
+    let node = parent.children(64).unwrap()[3];
+    assert_eq!(node.minimum, [96, 96]);
+    assert_eq!(node.maximum, [129, 129]);
+    assert_eq!(node.stride, 1);
+    assert!(node.children(64).is_none());
+    assert_eq!(
+        streaming::error(&terrain, &bounds, node, default_policy_ortho(), [1024; 2]).to_bits(),
+        2.0_f64.to_bits()
+    );
+}

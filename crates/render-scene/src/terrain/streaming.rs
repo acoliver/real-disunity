@@ -251,8 +251,15 @@ fn refine(
     candidates.sort_by(|(error_a, a), (error_b, b)| {
         error_b
             .total_cmp(error_a)
-            // Window span still orders levels after the sampling stride reaches one.
-            .then_with(|| b.span().cmp(&a.span()))
+            .then_with(|| b.stride.cmp(&a.stride))
+            .then_with(|| {
+                // Only opted-in stride-one levels need span to distinguish their depth.
+                if a.stride == 1 && policy.minimum_leaf_texels() < policy.chunk_intervals() {
+                    b.span().cmp(&a.span())
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
             .then_with(|| a.cmp(b))
     });
     let refinements = Nested::new(desired);
@@ -417,14 +424,16 @@ pub(super) fn footprint(
     if outside(&clips) {
         return 0.0;
     }
-    let cap = terrain
-        .streaming_policy()
-        .expect("streaming policy")
-        .chunk_intervals();
-    // Below the mesh cap, the nominal footprint keeps shrinking even though
-    // source sampling stays at stride one. Integer stride division would reach zero.
-    let fraction = f32::from(u16::try_from(node.span().min(cap)).expect("bounded cell cap"))
-        / f32::from(u16::try_from(cap).expect("bounded cell cap"));
+    let policy = terrain.streaming_policy().expect("streaming policy");
+    let cap = policy.chunk_intervals();
+    // Opted-in leaves keep shrinking the nominal footprint below the mesh cap
+    // even though source sampling stays at stride one.
+    let fraction = if policy.minimum_leaf_texels() == cap {
+        1.0
+    } else {
+        f32::from(u16::try_from(node.span().min(cap)).expect("bounded cell cap"))
+            / f32::from(u16::try_from(cap).expect("bounded cell cap"))
+    };
     let cell = crate::geometry::millimeter_to_meter(
         i64::from(node.stride) * i64::from(terrain.sample_spacing_millimeters()),
     ) * fraction;

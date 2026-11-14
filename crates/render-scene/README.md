@@ -51,21 +51,24 @@ ordered residents. Equal-depth boundary overlap therefore has stable ownership
 when the resident leaf set is identical, independently of upload retirement timing.
 Ordering does not change chunk geometry, streaming budgets or draw counts for
 an identical leaf set. Selection ranks candidates by descending projected error,
-then quadtree level from the root (descending longest-axis texel span), then the
-chunk's derived coordinate key. Exact-error ties therefore have explicit admission priority under
-constrained budgets, independent of resident storage and upload-completion history.
-Selected leaves are returned in derived-key order. Relative to history-based tie
-admission, only exact-error ties can change which geometry becomes resident.
+then descending sampling stride, then the chunk's derived coordinate key. When
+smaller leaves are enabled, equal-error stride-one candidates use descending
+longest-axis texel span before the coordinate key to distinguish refinement levels.
+Exact-error ties therefore have explicit admission priority under constrained
+budgets, independent of resident storage and upload-completion history.
+Selected leaves are returned in derived-key order.
 
 `TerrainStreamingPolicy::chunk_intervals` caps cells per mesh axis. Its
 `minimum_leaf_texels` independently limits quadtree refinement and defaults to
 that cap. `with_minimum_leaf_texels` accepts a positive power of two no larger
 than the cap. On square power-of-two grids, a leaf of N texels has
-`min(chunk_intervals, N)` cells per side. Below the cap, sampling stride stays
-one while the selector's nominal cell-axis step is `N / chunk_intervals` in
-floating point. This keeps the LOD metric continuous instead of quantizing it
-to a source texel. It approximates projected footprint, not height residuals or
-the actual finest mesh spacing. Eye-plane intersections still request finest
+`min(chunk_intervals, N)` cells per side. With the default minimum, the selector's
+cell-axis step is the sampling stride, including below-cap roots and partial
+terminal windows. When smaller leaves are enabled, below-cap sampling stride stays
+one while the nominal cell-axis step is `N / chunk_intervals` in floating point.
+This keeps that LOD metric continuous instead of quantizing it to a source texel.
+It approximates projected footprint, not height residuals or the actual finest
+mesh spacing. Eye-plane intersections still request finest
 detail through infinite error; ordinary in-front minimum leaves have finite
 error. A split is refused if halving a stride-one window's longest axis would
 cross the minimum; rectangular or partial windows can have shorter other axes.

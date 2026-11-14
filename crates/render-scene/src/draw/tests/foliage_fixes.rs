@@ -195,7 +195,7 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
     // Even a 2x2 triangle source needs 80 bytes. Exercise admitted contact bindings
     // independently; full terrain uploads are covered on the unrestricted device.
     let reduced_scene = reduced_contact_scene(true, 2);
-    let reduced = upload_contact_materials(&device, &authority, &reduced_scene).unwrap();
+    let reduced = upload_contact_materials(&device, &authority, &layouts, &reduced_scene).unwrap();
     assert_eq!(reduced.size(), 48);
     let rejected = SceneGpu::upload(
         &device,
@@ -211,14 +211,20 @@ fn enabled_contact_admits_reduced_samples_and_rejects_device_limit_before_bindin
         })
     ));
     let inactive_scene = reduced_contact_scene(false, 1);
-    let inactive = upload_contact_materials(&device, &authority, &inactive_scene).unwrap();
+    let inactive =
+        upload_contact_materials(&device, &authority, &layouts, &inactive_scene).unwrap();
     assert_eq!(inactive.size(), 48);
     assert!(pollster::block_on(scope.pop()).is_none());
 }
 
+/// Uploads the scene's materials and prepares each one's set-1 group and pipeline through
+/// `PreparedObjects::pipeline`, the call the scene's passes make. That binds the contact heights
+/// into a bind group on `device`, and a refusal comes back as an error rather than being dropped
+/// as `warm` does.
 fn upload_contact_materials(
     device: &wgpu::Device,
     authority: &worldrunner_render_gpu::submission::SubmissionAuthority,
+    layouts: &ScenePipelines,
     scene: &RenderScene,
 ) -> Result<wgpu::Buffer, DrawError> {
     let prepared = super::super::PreparedScene::new(scene)?;
@@ -237,7 +243,14 @@ fn upload_contact_materials(
             heights: &heights,
         },
     );
-    assert_eq!(imports.len(), scene.resources().materials().len());
+    let materials = scene.resources().materials().len();
+    assert_eq!(imports.len(), materials);
+    let objects = crate::object::prepared::PreparedObjects::new(authority.clone(), imports);
+    for material in 0..materials {
+        objects
+            .pipeline(layouts.object_context(), 0, material)
+            .unwrap_or_else(|error| panic!("material {material} prepares: {error}"));
+    }
     Ok(heights)
 }
 

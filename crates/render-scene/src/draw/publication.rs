@@ -28,11 +28,8 @@ pub(crate) struct DrawPublications {
 
 impl DrawPublications {
     pub fn record_color(&self, scene: &super::SceneGpu, draw: ColorDraw) {
-        self.geometry.set(
-            (draw.terrain.calls > 0)
-                .then(|| scene.drawing_geometry_statistics())
-                .flatten(),
-        );
+        self.geometry
+            .set(scene.drawing_geometry_statistics(draw.terrain));
         scene.pass_counters.terrain.record(draw.terrain);
         scene.pass_counters.sky.record(draw.sky);
         let mut effects = self.effects.get();

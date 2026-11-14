@@ -228,9 +228,19 @@ fn a_property_that_is_not_a_float_is_a_named_error() {
 
 #[test]
 fn state_this_slice_does_not_draw_is_a_named_error() {
-    let cases: [(&str, Change); 6] = [
-        ("stencil", |s| s.stencil.both.compare = fixed(3.0)),
-        ("stencil", |s| s.stencil.front.pass = fixed(2.0)),
+    let cases: [(&str, Change); 8] = [
+        ("stencil comparison", |s| {
+            s.stencil.both.compare = fixed(3.0);
+        }),
+        ("front stencil pass operation", |s| {
+            s.stencil.front.pass = fixed(2.0);
+        }),
+        ("back stencil depth-fail operation", |s| {
+            s.stencil.back.z_fail = fixed(2.0);
+        }),
+        ("back stencil comparison", |s| {
+            s.stencil.back.compare = fixed(2.0);
+        }),
         ("depth offset", |s| s.depth.offset_units = fixed(-1.0)),
         ("depth offset", |s| s.depth.offset_factor = fixed(1.0)),
         ("alpha to coverage", |s| s.depth.alpha_to_mask = fixed(1.0)),

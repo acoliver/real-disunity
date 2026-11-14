@@ -39,6 +39,31 @@ const MAX_TRACES: usize = 32;
 /// The most frame and flush traces a report keeps.
 const MAX_WORK_TRACES: usize = 64;
 
+/// The most textures the draw:MissingTexture line names.
+const TOP_TEXTURES: usize = 5;
+
+/// `title` and the `top` names with the largest counts, largest first and equal counts by name,
+/// as `title: name count, name count`. A count of names past `top` ends the line as `and N more`.
+/// There is no line for no counts.
+fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) -> Option<String> {
+    if counts.is_empty() {
+        return None;
+    }
+    let mut ranked: Vec<_> = counts.iter().collect();
+    // A stable sort keeps the names of equal counts in the map's order.
+    ranked.sort_by(|a, b| b.1.cmp(a.1));
+    let named: Vec<String> = ranked
+        .iter()
+        .take(top)
+        .map(|(name, count)| format!("{name} {count}"))
+        .collect();
+    let line = format!("{title}: {}", named.join(", "));
+    Some(match ranked.len().saturating_sub(top) {
+        0 => line,
+        more => format!("{line}, and {more} more"),
+    })
+}
+
 /// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GlobalListing {
@@ -292,10 +317,16 @@ impl GpuWorkReport {
             "[gpu] draw lists {}, draws recorded {}, draws left out for want of a pass, texture or channel {}",
             self.list_renders, self.list_draws, self.list_unmatched
         );
+        if let Some(line) = top_counts_line(
+            "draw:MissingTexture by texture",
+            &self.missing_textures,
+            TOP_TEXTURES,
+        ) {
+            eprintln!("[gpu] {line}");
+        }
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
-            ("draws without a texture", &self.missing_textures),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
             ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),
@@ -631,6 +662,36 @@ mod tests {
             error: error.map(str::to_owned),
             ..WorkTrace::default()
         }
+    }
+
+    fn counted(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
+        entries
+            .iter()
+            .map(|(name, count)| ((*name).to_owned(), *count))
+            .collect()
+    }
+
+    #[test]
+    fn the_missing_texture_line_names_the_textures_with_the_most_draws_first() {
+        let counts = counted(&[("_A", 60), ("_B", 120), ("_C", 60)]);
+        assert_eq!(
+            top_counts_line("draw:MissingTexture by texture", &counts, 5).as_deref(),
+            Some("draw:MissingTexture by texture: _B 120, _A 60, _C 60")
+        );
+    }
+
+    #[test]
+    fn the_missing_texture_line_counts_the_textures_past_the_top_ones() {
+        let counts = counted(&[("_A", 4), ("_B", 3), ("_C", 2), ("_D", 1)]);
+        assert_eq!(
+            top_counts_line("t", &counts, 2).as_deref(),
+            Some("t: _A 4, _B 3, and 2 more")
+        );
+    }
+
+    #[test]
+    fn there_is_no_missing_texture_line_without_missing_textures() {
+        assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
     }
 
     fn listing(names: &[&str]) -> Report {

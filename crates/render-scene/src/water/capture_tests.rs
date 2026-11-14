@@ -3,8 +3,10 @@
 //! are compared with a capture that draws nothing.
 //!
 //! Every capture starts from a cleared scene colour, cleared receivers and a cleared depth, and
-//! the live capture has to differ from a capture that draws nothing, so a path that draws
-//! nothing cannot pass. The snapshot is a checker, so refraction reads something that varies.
+//! each target of the live capture has to differ from the same target of a capture that draws
+//! nothing: the resolved scene colour, the depth, and in every sample the scene colour and each
+//! of the three receivers. So a path that draws nothing, or leaves one receiver out, cannot
+//! pass. The snapshot is a checker, so refraction reads something that varies.
 //!
 //! The captures do not independently establish that the uniforms or the specialised text are
 //! correct; the equation tests beside this file do that.
@@ -396,10 +398,12 @@ fn compare_prepared(
             drawn[0] != cleared[0],
             "{name}: the water left sample {sample} of the scene colour as it was cleared"
         );
-        assert!(
-            (1..4).any(|index| drawn[index] != cleared[index]),
-            "{name}: the water wrote no receiver in sample {sample}"
-        );
+        for (target, (drawn, cleared)) in PER_SAMPLE.iter().zip(drawn.iter().zip(cleared)).skip(1) {
+            assert!(
+                drawn != cleared,
+                "{name}: the water left {target} of sample {sample} as it was cleared"
+            );
+        }
     }
     live_images.len()
 }

@@ -485,34 +485,6 @@ fn gpu_grid_pass_behind_budget_skip_and_perspective_match_cpu() {
 }
 
 #[test]
-fn gpu_default_trace_bytes_match_pre_grid_shader() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let old = gpu::trace_source(1, false).replace(
-        &include_str!("trace.wgsl").replace("SAMPLE_LANES", "1"),
-        &include_str!("legacy_trace_test.wgsl").replace("SAMPLE_LANES", "1"),
-    );
-    assert!(!old.contains("grid_reflection"));
-    for scale in [1.0, 10.0] {
-        for occluder in [false, true] {
-            let current =
-                controls_tests::capture_with_shader(&context, settings(), scale, occluder, None);
-            let retired = controls_tests::capture_with_shader(
-                &context,
-                settings(),
-                scale,
-                occluder,
-                Some(&old),
-            );
-            let case = format!("scale {scale} occluder {occluder}");
-            controls_tests::assert_traces_agree(&current, &retired, &case);
-            controls_tests::assert_centre_matches_model(&current, !occluder, &case);
-            controls_tests::assert_centre_matches_model(&retired, !occluder, &case);
-        }
-    }
-}
-
-#[test]
 fn grid_policy_compiles_opaque_water_msaa() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();

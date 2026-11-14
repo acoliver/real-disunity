@@ -152,43 +152,42 @@ fn gather(source: Source, mode: DepthMode) -> usize {
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_plain_terrain() {
+fn gather_receivers_draw_on_plain_terrain() {
     assert!(gather(Source::Plain, DepthMode::Independent) > 0);
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_page_terrain() {
+fn gather_receivers_draw_on_page_terrain() {
     assert!(gather(Source::Pages, DepthMode::Independent) > 0);
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_terrain() {
+fn gather_receivers_draw_on_layered_terrain() {
     gather(Source::Layered, DepthMode::Independent);
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_page_terrain() {
+fn gather_receivers_draw_on_layered_page_terrain() {
     gather(Source::LayeredPages, DepthMode::Independent);
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_plain_terrain_with_depth_reuse() {
+fn gather_receivers_draw_on_plain_terrain_with_depth_reuse() {
     assert!(gather(Source::Plain, DepthMode::Reuse) > 0);
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_page_terrain_with_depth_reuse() {
+fn gather_receivers_draw_on_page_terrain_with_depth_reuse() {
     assert!(gather(Source::Pages, DepthMode::Reuse) > 0);
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_terrain_with_depth_reuse() {
+fn gather_receivers_draw_on_layered_terrain_with_depth_reuse() {
     gather(Source::Layered, DepthMode::Reuse);
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_on_layered_page_terrain_with_depth_reuse()
- {
+fn gather_receivers_draw_on_layered_page_terrain_with_depth_reuse() {
     gather(Source::LayeredPages, DepthMode::Reuse);
 }
 
@@ -289,7 +288,7 @@ fn conventions() -> Vec<(String, SceneSpecularConvention)> {
 }
 
 #[test]
-fn terrain_matches_the_fixed_pipeline_for_every_specular_convention_and_winding() {
+fn terrain_draws_for_every_specular_convention_and_winding() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut images = Vec::new();
@@ -319,7 +318,7 @@ fn terrain_matches_the_fixed_pipeline_for_every_specular_convention_and_winding(
 }
 
 #[test]
-fn terrain_matches_the_fixed_pipeline_in_mirrored_winding_with_depth_reuse() {
+fn terrain_draws_in_mirrored_winding_with_depth_reuse() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let frame = scenes::mirrored(scenes::frame(scenes::pose()));
@@ -330,7 +329,7 @@ fn terrain_matches_the_fixed_pipeline_in_mirrored_winding_with_depth_reuse() {
 }
 
 #[test]
-fn terrain_matches_the_fixed_pipeline_for_a_non_default_convention_with_depth_reuse() {
+fn terrain_draws_for_a_non_default_convention_with_depth_reuse() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let mut frame = scenes::frame(scenes::pose());

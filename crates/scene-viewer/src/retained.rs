@@ -16,7 +16,8 @@ mod clipboard_tests;
 mod startup;
 pub use audio::{
     AudioCommand, AudioError, AudioReply, AudioService, AudioServiceError, AudioStatus,
-    AudioUnavailable, ClipHandle, VoiceHandle,
+    AudioUnavailable, BusConfig, ClipHandle, DuckingDetector, DuckingRule, EnvelopeMode,
+    VoiceHandle,
 };
 mod timers;
 #[cfg(test)]

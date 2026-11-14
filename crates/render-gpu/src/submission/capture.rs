@@ -81,10 +81,14 @@ impl Lease {
     }
     fn wait<E>(&self, device: &wgpu::Device) -> Result<(), CaptureError<E>> {
         self.authority.check_device()?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         device.poll(wgpu::PollType::Wait {
             submission_index: self.last.clone(),
             timeout: Some(std::time::Duration::from_secs(30)),
         })?;
+        // Another thread's poll may still be running the callback that records this serial.
+        self.authority
+            .await_completion_record(device, self.serial, deadline)?;
         self.authority.check_device()?;
         Ok(())
     }

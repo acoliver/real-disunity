@@ -416,8 +416,10 @@ fn device_requirements(budget: u64, available: &wgpu::Limits) -> DeviceRequireme
     };
     DeviceRequirements {
         // The player stores some textures block-compressed; a device without the feature leaves
-        // them out by name.
-        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+        // them out by name. Unity filters its 32-bit float render textures; without
+        // FLOAT32_FILTERABLE they are read at the nearest texel instead.
+        optional_features: wgpu::Features::TEXTURE_COMPRESSION_BC
+            | wgpu::Features::FLOAT32_FILTERABLE,
         optional_limits: Some(wgpu::Limits {
             max_storage_textures_per_shader_stage: PREFERRED_STORAGE_IMAGES,
             ..required.clone()

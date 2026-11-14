@@ -20,6 +20,7 @@ mod probe;
 mod procedural;
 mod readback;
 mod resample;
+mod sampling;
 mod steps;
 mod textures;
 mod tracker;

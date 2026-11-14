@@ -32,7 +32,11 @@ pub struct Rig {
 
 impl Rig {
     pub fn new() -> Self {
-        let gpu = Gpu::new();
+        Self::on(Gpu::new())
+    }
+
+    /// A rig on `gpu`.
+    pub fn on(gpu: Gpu) -> Self {
         let runtime = gpu.runtime_with(AllocationBudget(BUDGET));
         let limits = gpu.device.limits();
         let mut renderer = Configuration::new(

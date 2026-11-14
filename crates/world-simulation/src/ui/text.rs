@@ -254,7 +254,7 @@ pub(super) fn layout(
         layout_line(
             &mut atlas,
             &mut glyphs,
-            &scaled,
+            registered,
             pairs,
             run,
             &line,
@@ -272,19 +272,23 @@ pub(super) fn layout(
 fn layout_line(
     atlas: &mut AtlasBuilder,
     glyphs: &mut Vec<GlyphLayout>,
-    font: &ab_glyph::PxScaleFont<&FontArc>,
+    registered: &RegisteredFont,
     pairs: ScaledPairs<'_>,
     run: &TextRun,
     line: &wrap::Line,
     extent: Vec2,
 ) -> Result<(), UiError> {
+    let font = registered
+        .font
+        .as_scaled(scale(&registered.font, run.font_size)?);
     let mut x = (extent.x - line.width) * run.horizontal.factor();
     let mut previous = None;
     for &(byte, c) in &line.characters {
         let id = font.glyph_id(c);
         x += previous.map_or(0., |p: ab_glyph::GlyphId| pairs.x_advance(p.0, id.0));
         let glyph = id.with_scale_and_position(font.scale(), point(x, -extent.y));
-        if let Some(outlined) = font.font.outline_glyph(glyph)
+        if registered.empty_glyphs.binary_search(&id.0).is_err()
+            && let Some(outlined) = font.font.outline_glyph(glyph)
             && let Some(mut glyph) = raster(atlas, &outlined, c, Vec2::new(x, extent.y))?
         {
             if let Some(span) = run.span(byte) {

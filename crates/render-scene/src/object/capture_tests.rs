@@ -2,8 +2,9 @@
 //!
 //! Each configuration draws the same objects through the scene on one device and compares the
 //! attachments with an untouched render. Every colour attachment is read back, and at one
-//! sample the depth plane too. The objects have to change the attachments they write, which
-//! keeps "the objects drew nothing" from passing.
+//! sample the depth plane too. The objects have to change the attachments they write, and every
+//! card has to change the pixels of its own footprint in the colour (`scenes::footprint`), which
+//! keeps "the objects drew nothing" and "one card drew" from passing.
 //!
 //! Each run prints one `OBJECT-CAPTURE` line per configuration, scene and attachment with a
 //! hash of the bytes, so captures taken before and after a change can be compared as text.
@@ -382,7 +383,7 @@ pub(in crate::object) fn capture(rig: &mut Rig<'_>, case: &Case<'_>) -> Captured
     });
     rig.prime();
     let untouched = render(context, case.target, &mut rig.gpu, |_, _| {});
-    compare(case, [&scene, &untouched]);
+    compare(case, rig, [&scene, &untouched]);
     report(context, case, &scene);
     Captured {
         images: scene,
@@ -399,8 +400,9 @@ fn attachment_name(index: usize, case: &Case<'_>) -> String {
 }
 
 /// Checks that the objects changed the colour, the velocity target when there is one, and the
-/// depth plane from an untouched render.
-fn compare(case: &Case<'_>, [scene, untouched]: [&[Vec<u8>]; 2]) {
+/// depth plane from an untouched render, and that every card changed the pixels of its own
+/// footprint in the colour.
+fn compare(case: &Case<'_>, rig: &Rig<'_>, [scene, untouched]: [&[Vec<u8>]; 2]) {
     let colors = case.target.formats.len();
     let planes = usize::from(case.target.samples == 1);
     assert_eq!(scene.len(), colors + planes);
@@ -416,6 +418,35 @@ fn compare(case: &Case<'_>, [scene, untouched]: [&[Vec<u8>]; 2]) {
             attachment_name(index, case)
         );
     }
+    for card in 0..rig.count {
+        let footprint = scenes::footprint(card, rig.count, &rig.frame);
+        assert!(
+            changed_within(footprint, (&scene[0], &untouched[0])),
+            "{} {}: card {card} left the pixels of its footprint {footprint:?} as they were",
+            case.name,
+            case.scene,
+        );
+    }
+}
+
+/// Whether the images differ at a pixel wholly inside `footprint`, a box of `[left, top, right,
+/// bottom]` in pixels.
+fn changed_within(
+    [left, top, right, bottom]: [f32; 4],
+    (drawn, untouched): (&[u8], &[u8]),
+) -> bool {
+    let pixel = drawn.len() / (SIZE * SIZE) as usize;
+    let at = |value: u32| f32::from(u8::try_from(value).expect("a small target"));
+    (0..SIZE).any(|row| {
+        (0..SIZE).any(|column| {
+            let inside = at(column) >= left
+                && at(column) + 1.0 <= right
+                && at(row) >= top
+                && at(row) + 1.0 <= bottom;
+            let texel = (row * SIZE + column) as usize * pixel;
+            inside && drawn[texel..texel + pixel] != untouched[texel..texel + pixel]
+        })
+    })
 }
 
 fn report(context: &GpuContext, case: &Case<'_>, images: &[Vec<u8>]) {

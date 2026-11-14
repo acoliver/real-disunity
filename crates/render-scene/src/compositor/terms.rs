@@ -78,14 +78,13 @@ impl TermCapture {
         self.replay(encoder, gpu, &pipelines, (shadow.map(|s| s.1), group));
     }
     /// Draws the term into this capture's texture with `pipelines`, binding the shadow group at
-    /// set two and the screen group at set three. The terrain's pipeline is prepared before the
-    /// pass opens.
+    /// set two and the screen group at set three. The terrain's and the objects' pipelines are
+    /// prepared before the pass opens.
     ///
     /// # Panics
-    /// Panics when the terrain program does not prepare against the pipelines' layouts, which
-    /// the program tests rule out for every context the crate builds, and when the scene has
-    /// skinned placements, whose layout the fixed object pipelines of a replay do not have. A
-    /// replay returns no error.
+    /// Panics when the terrain or object programs do not prepare against the pipelines' layouts,
+    /// which the program tests rule out for every context the crate builds. A replay returns no
+    /// error.
     pub(crate) fn replay(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -95,6 +94,8 @@ impl TermCapture {
     ) {
         gpu.prepare_terrain_replay(pipelines)
             .expect("the terrain program of a term replay prepares against its layouts");
+        gpu.prepare_objects_replay(pipelines)
+            .expect("the object programs of a term replay prepare against their layouts");
         self.record(encoder, (shadow, group), |pass| {
             gpu.draw_opaque_capture(pass, pipelines, shadow);
         });

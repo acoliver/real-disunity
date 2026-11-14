@@ -199,6 +199,44 @@ pub(crate) struct Description {
     pub frame: BindGroupLayout,
     pub shadow: Option<BindGroupLayout>,
     pub screen: Option<BindGroupLayout>,
+    /// Which entry points the programs use, and for the casters their depth state.
+    pub entry: Entry,
+}
+
+/// The entry points a context's programs are made from.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Entry {
+    /// The forward pass: the shared vertex entry point and the key's fragment entry point.
+    Forward,
+    /// The shadow casters: a depth-only pass into a directional map, drawn with the caster entry
+    /// points and the map's depth test and bias.
+    Caster(Caster),
+    /// The camera-relative celestial bodies, drawn into the sky's mesh target with the
+    /// celestial entry points.
+    Celestial,
+}
+
+/// The depth state of a directional map's casters.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Caster {
+    pub compare: wgpu::CompareFunction,
+    pub bias: wgpu::DepthBiasState,
+}
+
+/// The vertex and fragment entry points of the casters and of the celestial bodies.
+const CASTER_VERTEX: &str = "vs_shadow";
+const CASTER_OPAQUE: &str = "fs_depth_opaque";
+const CASTER_MASKED: &str = "fs_depth_masked";
+const CELESTIAL_VERTEX: &str = "vs_celestial";
+const CELESTIAL_OPAQUE: &str = "fs_celestial_opaque";
+const CELESTIAL_MASKED: &str = "fs_celestial_masked";
+
+/// The key whose caster `key` draws with. A directional map tells apart only whether a key is an
+/// impostor and the two lowest bits of its index (masked and double-sided): relief is flat in the
+/// map, and one sample has no coverage choice. Every key casts as the first key of its family, so
+/// the casters share eight pipelines among the keys.
+fn caster_key(key: PipelineKey) -> PipelineKey {
+    PipelineKey::ALL[usize::from(key.sampling.is_impostor()) * 16 + key.index() % 4]
 }
 
 static CONTEXTS: AtomicU64 = AtomicU64::new(0);
@@ -278,6 +316,9 @@ impl Context {
     /// # Errors
     /// Fails when the attachments are not ones the runtime draws into.
     pub(crate) fn signature(&self) -> Result<TargetSignature, ProgramError> {
+        if matches!(self.0.description.entry, Entry::Caster(_)) {
+            return TargetSignature::depth_only(worldrunner_render_shadow::DEPTH_FORMAT, 1);
+        }
         TargetSignature::attachments(
             &self.0.description.colors,
             Some(self.0.description.depth.format()),
@@ -287,10 +328,26 @@ impl Context {
 
     /// Objects write every attachment of their pass, with no blend. The cull mode and alpha to
     /// coverage are the key's, and the depth and stencil state is the pass's [`DepthMode`] for a
-    /// drawing that writes depth: the same function the fixed pipelines use, so forward depth
-    /// reuse (equal depth and stencil at one sample) is unchanged.
+    /// drawing that writes depth: the translation [`DepthMode::render_state`] that terrain and
+    /// objects share, so forward depth reuse (equal depth and stencil at one sample) holds.
     pub(crate) fn state(&self, key: PipelineKey) -> RenderState {
         let description = &self.0.description;
+        if let Entry::Caster(caster) = description.entry {
+            return RenderState {
+                raster: RasterState {
+                    cull: caster_key(key).cull_mode(),
+                    front_face: FrontFace::Ccw,
+                    alpha_to_coverage: false,
+                },
+                depth: Some(worldrunner_render_program::state::DepthState {
+                    test: caster.compare,
+                    write: true,
+                    bias: caster.bias,
+                }),
+                colors: Vec::new(),
+                stencil: None,
+            };
+        }
         description.depth.render_state(
             description.colors.len(),
             RasterState {
@@ -338,7 +395,12 @@ impl Context {
         let vertex = StageProgram::new(
             StageModule {
                 source: StageSource::Wgsl(source),
-                entry_point: VERTEX_ENTRY.to_owned(),
+                entry_point: match self.0.description.entry {
+                    Entry::Forward => VERTEX_ENTRY,
+                    Entry::Caster(_) => CASTER_VERTEX,
+                    Entry::Celestial => CELESTIAL_VERTEX,
+                }
+                .to_owned(),
                 kind: StageKind::Vertex,
             },
             declarations(geometry),
@@ -359,6 +421,12 @@ impl Context {
         key: PipelineKey,
         geometry: GeometryLayout,
     ) -> Result<GraphicsProgram, ProgramError> {
+        let description = &self.0.description;
+        let key = if matches!(description.entry, Entry::Caster(_)) {
+            caster_key(key)
+        } else {
+            key
+        };
         if geometry.is_skinned() && self.previous_transforms() {
             return Err(ProgramError::UnsupportedState {
                 what: "skinned geometry in a pass that writes object motion",
@@ -368,14 +436,20 @@ impl Context {
         if let Some(program) = self.0.programs.borrow().get(&(geometry, features.clone())) {
             return Ok(program.clone());
         }
-        let description = &self.0.description;
         let vertex = self.vertex(geometry)?;
         // One parse serves the vertex stage and every fragment entry point. Only the fragment
-        // stage reads the specialization constants, as the frozen reference does.
+        // stage reads the specialization constants.
         let mut constants = description.constants.clone();
         constants.extend(key.fragment_constants(description.samples));
+        let entry = match (description.entry, key.masked) {
+            (Entry::Caster(_), true) => CASTER_MASKED,
+            (Entry::Caster(_), false) => CASTER_OPAQUE,
+            (Entry::Celestial, true) => CELESTIAL_MASKED,
+            (Entry::Celestial, false) => CELESTIAL_OPAQUE,
+            (Entry::Forward, _) => key.fragment_entry(),
+        };
         let fragment = vertex
-            .sibling(key.fragment_entry(), StageKind::Fragment)?
+            .sibling(entry, StageKind::Fragment)?
             .with_declarations(declarations(geometry))
             .with_overrides(&constants)?;
         let program = runtime.graphics_program_in(&vertex, &fragment, &self.external())?;

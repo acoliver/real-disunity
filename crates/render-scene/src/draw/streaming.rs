@@ -1,6 +1,4 @@
 pub(crate) mod casters;
-#[cfg(test)]
-pub(crate) mod legacy_access;
 mod meshes;
 mod observations;
 mod replacement;

@@ -73,17 +73,19 @@ fn main() {
 }
 
 fn generate_native_records() {
-    let mut output =
-        String::from("// Generated from disunity-ffi ABI definitions. Do not edit.\n\n");
+    let mut parts = vec![NATIVE_HEADER.to_owned()];
     for file in ABI_SOURCES {
         let source = std::fs::read_to_string(file).expect("read ABI definitions");
         for record in source.split("#[repr(C)]").skip(1) {
             let end = record.find("\n}").expect("flat C record ends") + 2;
-            output.push_str("#[repr(C)]");
-            output.push_str(&record[..end]);
-            output.push_str("\n\n");
+            let record = format!("#[repr(C)]{}\n", &record[..end]);
+            if parts.last().expect("first part").lines().count() + record.lines().count() > 650 {
+                parts.push(NATIVE_HEADER.to_owned());
+            }
+            parts.last_mut().expect("record part").push_str(&record);
         }
     }
+    let output = &mut parts[0];
     output.push_str(&format!(
         "/// The ABI revision these records belong to.
 pub const DISUNITY_ABI_VERSION: u32 = {};
@@ -97,21 +99,49 @@ pub const DISUNITY_ABI_VERSION: u32 = {};
     output.push_str("#[repr(u64)]");
     output.push_str(&reason[..end]);
     output.push('\n');
-    let path = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"))
-        .join("NativeBindings.g.rs");
-    std::fs::write(&path, output.as_bytes()).expect("write native records");
+    for index in 1..parts.len() {
+        let number = index + 1;
+        parts[0].push_str(&format!(
+            "#[path = \"native.{number}.g.rs\"]\nmod records_{number};\npub use records_{number}::*;\n"
+        ));
+    }
+    write_native_parts(parts);
+}
+
+const NATIVE_HEADER: &str = "// Generated from disunity-ffi ABI definitions. Do not edit.\n\n";
+
+fn write_native_parts(parts: Vec<String>) {
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo sets OUT_DIR"));
     let checked = PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR").expect("Cargo sets manifest directory"),
     )
-    .join("../disunity-runtime/src/native.g.rs");
-    println!("cargo:rerun-if-changed={}", checked.display());
-    assert_eq!(
-        std::fs::read(&checked).unwrap_or_default(),
-        output.as_bytes(),
-        "native ABI bindings drifted; copy {} to {}",
-        path.display(),
-        checked.display()
-    );
+    .join("../disunity-runtime/src");
+    let mut files = Vec::new();
+    for (index, contents) in parts.into_iter().enumerate() {
+        let suffix = if index == 0 {
+            String::new()
+        } else {
+            format!(".{}", index + 1)
+        };
+        let path = out.join(format!("NativeBindings{suffix}.g.rs"));
+        let checked = checked.join(format!("native{suffix}.g.rs"));
+        assert!(
+            contents.lines().count() < 750,
+            "split generated native records"
+        );
+        std::fs::write(&path, &contents).expect("write native records");
+        files.push((path, checked, contents));
+    }
+    for (path, checked, contents) in files {
+        println!("cargo:rerun-if-changed={}", checked.display());
+        assert_eq!(
+            std::fs::read(&checked).unwrap_or_default(),
+            contents.as_bytes(),
+            "native ABI bindings drifted; copy {} to {}",
+            path.display(),
+            checked.display()
+        );
+    }
 }
 
 /// The revision declared by `DISUNITY_ABI_VERSION` in `src/abi.rs`, so generated consumers never

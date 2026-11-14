@@ -1,70 +1,5 @@
 //! Claims about the object forward path that need no byte comparison.
 
-/// The shader files the object forward path reads, with the snapshot of each. The object
-/// forward path is the 32 `PipelineKey` variants of `vs_main` with the four fragment entry points
-/// of `fs_opaque`, `fs_masked`, `fs_relief_opaque` and `fs_relief_masked`, and these files hold
-/// them together with the lighting, decal, impostor, foliage and shadow code they call.
-///
-/// The captures in `object::capture_tests` compare the scene's output with the output of the
-/// frozen path built from the snapshots. A change to a live file is then a change to what the
-/// captures mean, and it fails here before it can hide inside a capture.
-macro_rules! pairs {
-    ($($name:literal => $live:expr),* $(,)?) => {
-        [$((
-            $name,
-            $live,
-            include_str!(concat!("fixtures/", $name, ".wgsl")),
-        )),*]
-    };
-}
-
-#[test]
-fn the_live_object_wgsl_equals_the_frozen_snapshot() {
-    let pairs = pairs! {
-        "lighting_crate" => worldrunner_render_lighting::lighting_wgsl!()
-            .strip_suffix("\n\n")
-            .expect("the lighting crate's text ends in two blank lines, left out of the snapshot"),
-        "post_crate" => worldrunner_render_post::post_wgsl!(),
-        "shadow_crate" => worldrunner_render_shadow::shadow_wgsl!(),
-        "lighting" => include_str!("../shader/lighting.wgsl"),
-        "ambient_visibility" => include_str!("../shader/ambient_visibility.wgsl"),
-        "decals" => include_str!("../shader/decals.wgsl"),
-        "decals_sample" => include_str!("../shader/decals_sample.wgsl"),
-        "camera_rays" => include_str!("../shader/camera_rays.wgsl"),
-        "unshadowed" => include_str!("../shader/unshadowed.wgsl"),
-        "shadows" => include_str!("../shader/shadows.wgsl"),
-        "geometry" => include_str!("../shader/geometry.wgsl"),
-        "foliage" => include_str!("../shader/foliage.wgsl"),
-        "impostor" => include_str!("../shader/impostor.wgsl"),
-        "surface_sample" => include_str!("../shader/surface_sample.wgsl"),
-        "impostor_end" => include_str!("../shader/impostor_end.wgsl"),
-        "normal_forward" => include_str!("../shader/normal_forward.wgsl"),
-        "normal_sample" => include_str!("../shader/normal_sample.wgsl"),
-        "environment" => include_str!("../shader/environment.wgsl"),
-        "forward_cards" => include_str!("../shader/forward_cards.wgsl"),
-    };
-    let drifted: Vec<_> = pairs
-        .iter()
-        .filter(|(_, live, frozen)| live != frozen)
-        .map(|(name, ..)| *name)
-        .collect();
-    assert!(
-        drifted.is_empty(),
-        "the live object WGSL differs from its frozen snapshot in object/fixtures for {drifted:?}. \
-         When the change is intended (another branch changes fs_masked, for one), copy the live \
-         WGSL into object/fixtures so the snapshot matches it again: `cp shader/<name>.wgsl \
-         object/fixtures/<name>.wgsl` from crates/render-scene/src, and for the three \
-         *_crate files write the text the lighting, post and shadow crates' macros expand to. \
-         Then rerun the captures: they compare the scene against the frozen path built from the \
-         snapshots, and a snapshot that is not updated shows as a capture difference."
-    );
-    assert_eq!(
-        crate::renderer::legacy_objects::compose(crate::renderer::legacy_objects::Recipe::default()),
-        crate::shader::ENVIRONMENT_WGSL,
-        "the frozen environment source is not the live one"
-    );
-}
-
 /// What the program runtime has built for the objects: the pipelines and the prepared sets of
 /// their materials.
 ///
@@ -165,7 +100,7 @@ fn object_programs_register_for_every_key_in_every_context_with_one_material_lay
 }
 
 /// A key's features are the five axes of its pipeline, so 32 keys are 32 feature sets and the
-/// fragment entry point follows from the key as the fixed pipelines chose it.
+/// fragment entry point follows from the key.
 #[test]
 fn the_features_of_a_key_name_its_axes_and_are_distinct() {
     use crate::pipeline::PipelineKey;

@@ -16,7 +16,7 @@ The allocation closure creates private replacement objects. It must not publish 
 
 ## Stock renderer
 
-`render-scene::compositor::ConfiguredFrameRenderer` supplies the stock inventory and replacement builder. `RendererConfiguration` describes targets, HDR output, post settings, SSAO, reflections, water, active frame slots and timing. Storage whose lifetime follows compositor replacement belongs in `additional`; imported references do not create additional physical allocations. Work and scene resources with independent owners use `ConfiguredFrameRenderer::reserve`.
+`render-scene::compositor::ConfiguredFrameRenderer` supplies the stock inventory and replacement builder. `RendererConfiguration` describes targets, HDR output, post settings, SSAO, reflections, shadow depth fitting, water, active frame slots and timing. Depth fitting, like SSAO and reflections, makes the frame own the depth and normal prepass and budgets its metadata. Storage whose lifetime follows compositor replacement belongs in `additional`; imported references do not create additional physical allocations. Work and scene resources with independent owners use `ConfiguredFrameRenderer::reserve`.
 
 Stock effect implementations retain three physical slots. `frame_slots` restricts the active subset and does not reduce the physical inventory. Timing capability selection is fixed at device setup. Exposure carry and slot history remain retained across replacement, including temporary disabling of the HDR output. Exposure reset stays explicit. Unread timing storage is also retained.
 

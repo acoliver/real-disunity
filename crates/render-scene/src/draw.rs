@@ -16,8 +16,8 @@ use crate::terrain::{TerrainError, build_terrain_mesh};
 use crate::terrain_uniform::{TerrainUniformError, TerrainUniformState};
 use crate::texture::{PreparedTexture, TextureError, prepare_texture};
 use crate::upload::{
-    FRAME_GROUP, MATERIAL_GROUP, material_sampler, placeholder_with_view, upload_buffer,
-    upload_palette_array, upload_texture, upload_type_grid,
+    FRAME_GROUP, material_sampler, placeholder_with_view, upload_buffer, upload_palette_array,
+    upload_texture, upload_type_grid,
 };
 
 mod append;
@@ -32,8 +32,6 @@ pub(crate) mod decals;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
-#[cfg(test)]
-mod legacy_object_access;
 mod lod_material;
 mod object_runtime;
 pub(crate) mod overlay;
@@ -62,14 +60,24 @@ pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
 #[cfg(test)]
-pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
-#[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
 use crate::instances::Instances;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
+
+/// Which pass a colour-pass draw records for, which decides whether the forward-only draws follow
+/// the objects and the terrain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// The forward pass: then the sky, the celestial meshes and the dynamic meshes.
+    Forward,
+    /// The metadata prepass: objects and terrain only.
+    Prepass,
+    /// The capture terms: objects and terrain only.
+    Capture,
+}
 
 #[cfg(test)]
 pub(crate) struct StreamingPreparation {
@@ -387,7 +395,7 @@ impl SceneGpu {
             resource_counters: statistics::ResourceCounters::new(&prepared),
             decal_counts: std::rc::Rc::default(),
             decals,
-            celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
+            celestial: celestial::upload(device, scene, pipelines, &meshes),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
             casters: caster_edits::CasterEdits::default(),
             post: resources::post_settings(scene)?,
@@ -489,7 +497,8 @@ impl SceneGpu {
         // Both passes consume the same camera selection, compacted instances and terrain stream.
         // The forward-only draws are appended after that paired prefix.
         pass.set_bind_group(3, group, &[]);
-        self.draw_color_pass(pass, pipelines, None, false).selection
+        self.draw_color_pass(pass, pipelines, None, Route::Prepass)
+            .selection
     }
 
     pub(crate) fn draw_shadowed(
@@ -507,7 +516,7 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
     ) {
-        self.draw_color_pass(pass, pipelines, shadow, false);
+        self.draw_color_pass(pass, pipelines, shadow, Route::Capture);
     }
 
     pub(crate) fn draw_color(
@@ -516,7 +525,7 @@ impl SceneGpu {
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
     ) -> ColorDraw {
-        self.draw_color_pass(pass, pipelines, shadow, true)
+        self.draw_color_pass(pass, pipelines, shadow, Route::Forward)
     }
 
     fn drawing_uniform(&self) -> FrameUniform {
@@ -556,7 +565,7 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         shadow: Option<&BindGroup>,
-        dynamic: bool,
+        route: Route,
     ) -> ColorDraw {
         if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
             pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
@@ -565,16 +574,10 @@ impl SceneGpu {
         let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
-        // The metadata prepass and the capture terms (`dynamic` is false) draw objects with the
-        // fixed pipelines.
-        let selection = if dynamic {
-            self.draw_objects_prepared(pass, &frame_group, pipelines.object_context())
-        } else {
-            self.draw_objects(pass, &frame_group, pipelines.object_pipelines(), None)
-        };
+        let selection = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
-        if dynamic {
+        if route == Route::Forward {
             if let Some(sky) = &self.sky {
                 sky_count = sky.draw_targets(pass, &frame_group, pipelines.sky_targets());
             }

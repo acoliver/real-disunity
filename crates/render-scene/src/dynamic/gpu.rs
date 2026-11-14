@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "gpu_tests.rs"]
+mod tests;
+
 use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
@@ -342,6 +346,14 @@ impl DynamicGpu {
             pass.set_vertex_buffer(0, draw.resources.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.resources.instance.slice(..));
             pass.set_vertex_buffer(2, draw.resources.tint.slice(..));
+            pass.set_vertex_buffer(
+                3,
+                draw.resources
+                    .corner_colors
+                    .as_ref()
+                    .expect("overlay quads carry corner colours")
+                    .slice(..),
+            );
             pass.draw_indexed(0..draw.resources.index_count, 0, 0..draw.instance_count);
             count.draw(u64::from(draw.instance_count));
             if draw.depth_test {
@@ -447,6 +459,15 @@ impl QuadDraw {
                 &instances,
             ),
             tint: upload_buffer(device, queue, "dynamic tints", BufferUsages::VERTEX, &tints),
+            corner_colors: bindings.overlay_layout.map(|_| {
+                upload_buffer(
+                    device,
+                    queue,
+                    "overlay corner colours",
+                    BufferUsages::VERTEX,
+                    &pack_corner_colors(quad),
+                )
+            }),
             material: upload_buffer(
                 device,
                 queue,
@@ -534,14 +555,24 @@ fn overlay_material(
 /// Clips the next draws to `clip`, a lower-left pixel rectangle, or to the whole target without
 /// one. Returns whether anything of the target is left to draw into.
 fn set_scissor(pass: &mut RenderPass<'_>, clip: Option<[u32; 4]>, size: [u32; 2]) -> bool {
+    let Some([x, y, width, height]) = scissor_rect(clip, size) else {
+        return false;
+    };
+    pass.set_scissor_rect(x, y, width, height);
+    true
+}
+
+/// The scissor rectangle of `clip`, a lower-left pixel rectangle, over a target of `size`: x,
+/// y from the top, width and height. The clip is cut to the target, and a clip with nothing of the
+/// target left in it, or no area, has no rectangle. Without a clip the rectangle is the target.
+pub(super) fn scissor_rect(clip: Option<[u32; 4]>, size: [u32; 2]) -> Option<[u32; 4]> {
     let [x, y, width, height] = clip.unwrap_or([0, 0, size[0], size[1]]);
     let width = width.min(size[0].saturating_sub(x));
     let height = height.min(size[1].saturating_sub(y));
     if width == 0 || height == 0 {
-        return false;
+        return None;
     }
-    pass.set_scissor_rect(x, size[1] - y - height, width, height);
-    true
+    Some([x, size[1] - y - height, width, height])
 }
 
 fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
@@ -550,6 +581,16 @@ fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
         && a.texture == b.texture
         && a.corners == b.corners
         && a.triangle_uv == b.triangle_uv
+        && a.corner_colors == b.corner_colors
         && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
         && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
+}
+
+fn pack_corner_colors(quad: &DynamicQuad) -> Vec<u8> {
+    let count = if quad.triangle_uv.is_some() { 3 } else { 4 };
+    quad.corner_colors.unwrap_or([[1.; 4]; 4])[..count]
+        .iter()
+        .flatten()
+        .flat_map(|v| v.to_le_bytes())
+        .collect()
 }

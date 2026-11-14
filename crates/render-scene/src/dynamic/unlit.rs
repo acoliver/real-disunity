@@ -10,7 +10,7 @@
 //! Preparation happens before the pass, where it can fail and allocate: staging a contribution
 //! prepares a draw for each frame slot for the pass the staging pipelines describe, and a frame
 //! that draws into another pass prepares its own before it opens the pass. Recording is then only
-//! state setting, at the position the fixed pipeline's draw had.
+//! state setting, at the position in the pass where the quads draw.
 
 use std::sync::Arc;
 
@@ -55,6 +55,8 @@ pub(super) struct QuadResources {
     pub(super) vertices: Buffer,
     pub(super) instance: Buffer,
     pub(super) tint: Buffer,
+    /// Allocated only for the retained overlay; scene draws never bind this stream.
+    pub(super) corner_colors: Option<Buffer>,
     pub(super) material: Buffer,
     pub(super) albedo: Texture,
     pub(super) albedo_view: TextureView,

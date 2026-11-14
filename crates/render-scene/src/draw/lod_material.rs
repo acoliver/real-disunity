@@ -1,16 +1,21 @@
 use std::cell::RefCell;
-use std::ops::{Index, Range};
+#[cfg(test)]
+use std::ops::Index;
+use std::ops::Range;
 
-use wgpu::{BindGroup, Buffer, RenderPass, RenderPipeline};
+use wgpu::{BindGroup, Buffer};
+#[cfg(test)]
+use wgpu::{RenderPass, RenderPipeline};
 use worldrunner_render_program::runtime::PassCommands;
 
 use crate::object::layout::GeometryLayout;
 
 use super::{
-    DrawCount, FRAME_GROUP, FrameUniform, MATERIAL_GROUP, SceneGpu, SelectionPublication,
-    selection_reuse,
+    DrawCount, FRAME_GROUP, FrameUniform, SceneGpu, SelectionPublication, selection_reuse,
     visibility::{SelectedRange, Selection},
 };
+#[cfg(test)]
+use crate::upload::MATERIAL_GROUP;
 
 /// Render state the current selection's draws have already set. wgpu validates and encodes
 /// every state call again, including a pipeline change to the pipeline already bound, so
@@ -49,8 +54,8 @@ pub(super) struct Draw {
 }
 
 /// Where the draws of a selection go. The walk over a selection says which buffers a draw reads
-/// and in what order, and a sink decides how they reach the pass: the fixed path sets each
-/// buffer as it is named, and the runtime path draws a geometry over them.
+/// and in what order, and a sink decides how they reach the pass: the test-only `FixedSink` sets
+/// each buffer as it is named, and the runtime sink draws a geometry over them.
 pub(super) trait DrawSink {
     /// The instance buffer of the draws that follow, the previous-instance buffer when the
     /// batch has one, and the skin stream when the batch's mesh is skinned.
@@ -62,8 +67,11 @@ pub(super) trait DrawSink {
     fn draw(&mut self, draw: Draw);
 }
 
-/// Records the fixed pipelines' draws: a render pipeline for each key and a bind group for each
-/// material.
+/// Records draws with render pipelines the caller built, one for each pipeline index, and a bind
+/// group for each material. Only tests use it: the shadow-depth walks in `fade_empty` and
+/// `curved_wind` and the foliage tests draw with pipelines they build themselves. No scene pass
+/// draws this way.
+#[cfg(test)]
 pub(super) struct FixedSink<'a, P: ?Sized, I: ?Sized> {
     pass: &'a mut P,
     pipelines: &'a I,
@@ -71,6 +79,7 @@ pub(super) struct FixedSink<'a, P: ?Sized, I: ?Sized> {
     state: BoundState,
 }
 
+#[cfg(test)]
 impl<'a, P: ?Sized, I: ?Sized> FixedSink<'a, P, I> {
     pub(super) fn new(pass: &'a mut P, pipelines: &'a I, materials: &'a [BindGroup]) -> Self {
         Self {
@@ -82,6 +91,7 @@ impl<'a, P: ?Sized, I: ?Sized> FixedSink<'a, P, I> {
     }
 }
 
+#[cfg(test)]
 impl<P, I> DrawSink for FixedSink<'_, P, I>
 where
     P: PassCommands + ?Sized,
@@ -132,8 +142,10 @@ pub(super) struct ObjectView {
 }
 
 impl SceneGpu {
-    /// Records the view's objects with fixed render pipelines, one for each pipeline index:
-    /// the shadow casters', the metadata prepass's and the capture terms'.
+    /// Records the view's objects with render pipelines the caller built, one for each pipeline
+    /// index. Only tests draw this way; the scene's passes use
+    /// [`draw_objects_prepared`](Self::draw_objects_prepared).
+    #[cfg(test)]
     pub(crate) fn draw_objects(
         &self,
         pass: &mut RenderPass<'_>,

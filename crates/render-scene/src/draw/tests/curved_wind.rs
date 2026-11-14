@@ -354,7 +354,8 @@ fn curved_motion_has_identical_production_pass_depth_and_fixed_clock_bytes() {
     }
 }
 
-/// The depth the scene's objects write through the fixed pipelines `pipelines`.
+/// The depth the scene's objects write through the render pipelines `pipelines`, which the test
+/// built itself, drawn with `draw_objects`.
 pub(super) fn read_depth(
     context: &GpuContext,
     gpu: &SceneGpu,

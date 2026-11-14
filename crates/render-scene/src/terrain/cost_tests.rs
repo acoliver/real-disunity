@@ -1,22 +1,22 @@
 //! What a terrain frame costs: the commands it records, and the objects the program runtime
 //! builds for it.
 //!
-//! Issue 450 requires that frame cost does not rise. The fixed path records `2 + 4C` commands
-//! for C resident chunks (`3 + 4C` under a shadow map): one pipeline, the material group, the
-//! shadow group when there is one, and per chunk two vertex buffers, one index buffer and one
-//! draw. The runtime path is held to the same arithmetic and to a steady state that builds no
-//! pipeline, module, bind group or set.
+//! Issue 450 requires that frame cost does not rise. A frame records `2 + 4C` commands for C
+//! resident chunks (`3 + 4C` under a shadow map): one pipeline, the material group, the shadow
+//! group when there is one, and per chunk two vertex buffers, one index buffer and one draw. The
+//! runtime path is held to that arithmetic and to a steady state that builds no pipeline,
+//! module, bind group or set.
 
 use super::capture_tests::{
     Rig, Source, Target, prepass::pipelines as prepass_pipelines, render, render_depth, scenes,
     streaming::settle,
 };
 use crate::dynamic::capture_tests::{CONFIGS, build, context};
-use crate::renderer::legacy_terrain::Counted;
+use crate::object::cost_tests::Counted;
 use std::ops::Range;
 use worldrunner_render_program::runtime::PassCommands;
 
-/// Counts the commands the runtime path issues, by kind, as [`Counted`] does for the fixed path.
+/// Counts the commands the runtime path issues, by kind.
 #[derive(Default)]
 struct Recorded(Counted);
 
@@ -42,7 +42,7 @@ impl PassCommands for Recorded {
 }
 
 #[test]
-fn the_fixed_terrain_path_records_two_plus_four_per_chunk_commands() {
+fn the_runtime_path_records_two_plus_four_per_chunk_commands() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let built = build(context.device(), &CONFIGS[2]);
@@ -54,30 +54,12 @@ fn the_fixed_terrain_path_records_two_plus_four_per_chunk_commands() {
         (Source::Plain, frame),
     );
     settle(&context, &rig.gpu, &frame, 6);
-    let target = Target {
-        formats: &built.formats,
-        samples: 1,
-    };
-    let mut chunks = 0;
-    render(
-        &context,
-        target,
-        |_| {},
-        |pass| {
-            chunks = rig
-                .gpu
-                .draw_color(pass, &built.pipelines, None)
-                .terrain
-                .calls;
-        },
-    );
-    assert!(chunks > 1, "{chunks} chunks");
     let selected = rig.selected(&built.pipelines);
-    let legacy = super::capture_tests::Legacy::new(&context, &rig.gpu, &selected);
-    let mut counted = Counted::default();
-    let drawn = legacy.draw(&mut counted, &rig.gpu, None);
-    assert_eq!(drawn.calls, chunks);
-    let chunks = u32::try_from(chunks).unwrap();
+    let mut recorded = Recorded::default();
+    let (drawn, bound) = rig.gpu.draw_terrain_runtime(&mut recorded, &selected, None);
+    assert!(bound && drawn.calls > 1, "{} chunks", drawn.calls);
+    let counted = recorded.0;
+    let chunks = u32::try_from(drawn.calls).unwrap();
     assert_eq!(counted.total(), 2 + 4 * chunks);
     assert_eq!(
         (counted.pipelines, counted.groups),
@@ -139,10 +121,10 @@ fn steady_state_terrain_frames_build_no_pipelines_bind_groups_or_buffers() {
     );
 }
 
-/// A streaming frame on the runtime records the commands the fixed path recorded, chunk for
-/// chunk, and while the same chunks stay resident it builds nothing on the runtime.
+/// A streaming frame on the runtime records `2 + 4C` commands for its C chunks, and while the
+/// same chunks stay resident it builds nothing on the runtime.
 #[test]
-fn a_streaming_frame_records_the_same_draw_calls_as_the_fixed_path() {
+fn a_streaming_frame_records_commands_for_each_chunk_and_builds_nothing_after_the_first() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let built = build(context.device(), &CONFIGS[2]);
@@ -155,24 +137,20 @@ fn a_streaming_frame_records_the_same_draw_calls_as_the_fixed_path() {
     );
     settle(&context, &rig.gpu, &frame, 6);
     let selected = rig.selected(&built.pipelines);
-    let legacy = super::capture_tests::Legacy::new(&context, &rig.gpu, &selected);
-    let mut fixed = Counted::default();
-    let drawn = legacy.draw(&mut fixed, &rig.gpu, None);
     let mut first = Recorded::default();
     let (runtime, bound) = rig.gpu.draw_terrain_runtime(&mut first, &selected, None);
-    assert!(bound && runtime.calls == drawn.calls && runtime.calls > 1);
+    assert!(bound && runtime.calls > 1);
     assert_eq!(
-        first.0, fixed,
-        "the runtime records the fixed path's commands"
+        first.0.total(),
+        2 + 4 * u32::try_from(runtime.calls).unwrap()
     );
-    assert_eq!(first.0.total(), 2 + 4 * u32::try_from(drawn.calls).unwrap());
     let built_by_first_frame = built.pipelines.terrain_runtime_stats();
     assert!(built_by_first_frame.pipelines_built > 0);
     assert!(built_by_first_frame.sets_prepared > 0);
     for _ in 0..3 {
         let mut again = Recorded::default();
         rig.gpu.draw_terrain_runtime(&mut again, &selected, None);
-        assert_eq!(again.0, fixed);
+        assert_eq!(again.0, first.0);
     }
     assert_eq!(
         built.pipelines.terrain_runtime_stats(),
@@ -180,10 +158,9 @@ fn a_streaming_frame_records_the_same_draw_calls_as_the_fixed_path() {
         "frames over the same chunks build nothing on the runtime"
     );
     println!(
-        "TERRAIN-COST chunks={} commands={} fixed_commands={} first_frame={built_by_first_frame:?}",
-        drawn.calls,
-        first.0.total(),
-        fixed.total()
+        "TERRAIN-COST chunks={} commands={} first_frame={built_by_first_frame:?}",
+        runtime.calls,
+        first.0.total()
     );
 }
 
@@ -387,10 +364,10 @@ fn one_terrain_prepares_material_sets_in_each_pipeline_context() {
 }
 
 /// The shadow caster prepares its pipelines before the passes open, one set for each cascade's
-/// light frame and one pipeline for all of them, records the fixed caster's commands
-/// (`2 + 4C`) in every cascade, and builds nothing in the frames after.
+/// light frame and one pipeline for all of them, records `2 + 4C` commands in every cascade
+/// that selects chunks, and builds nothing in the frames after.
 #[test]
-fn the_shadow_caster_prepares_before_its_passes_records_the_fixed_commands_and_builds_nothing_in_steady_state()
+fn the_shadow_caster_prepares_before_its_passes_records_two_plus_four_per_chunk_commands_and_builds_nothing_in_steady_state()
  {
     use super::capture_tests::caster::{BIAS, Casting, render_map};
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -422,16 +399,14 @@ fn the_shadow_caster_prepares_before_its_passes_records_the_fixed_commands_and_b
             (&pipeline, &casting.frames[index].1),
             (u32::try_from(index).unwrap(), casting.matrices[index]),
         );
-        let mut fixed = Counted::default();
-        let fixed_drawn = casting.fixed_draw(&mut fixed, (&context, &rig.gpu), index);
-        assert_eq!(drawn, fixed_drawn, "cascade {index}");
-        assert_eq!(recorded.0, fixed, "cascade {index}");
         if drawn.calls > 0 {
             assert_eq!(
-                fixed.total(),
+                recorded.0.total(),
                 2 + 4 * u32::try_from(drawn.calls).unwrap(),
                 "cascade {index}"
             );
+        } else {
+            assert_eq!(recorded.0, Counted::default(), "cascade {index}");
         }
         drawn_chunks += drawn.calls;
     }

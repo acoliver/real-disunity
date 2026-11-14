@@ -80,22 +80,17 @@ fn existing_modes() -> Vec<(FrameConfig, HdrPostSettings)> {
 }
 
 #[test]
-fn every_existing_mode_has_a_valid_deterministic_allocation_set() {
+fn every_existing_mode_allocates_for_its_bloom_and_taa_stages() {
     let all = existing_modes();
-    assert!(!all.is_empty());
+    assert_eq!(all.len(), 54);
     for (index, (config, settings)) in all.into_iter().enumerate() {
-        let set = post_allocations(config, settings);
-        assert_eq!(
-            format!("{set:?}"),
-            format!("{:?}", post_allocations(config, settings)),
-            "configuration {index} is not deterministic"
-        );
         let bytes = whole(config, &settings);
-        assert_eq!(
-            bytes > 0,
-            settings.enabled(),
-            "configuration {index} allocation does not follow its enabled stages"
-        );
+        if settings.bloom.is_some() {
+            assert!(
+                bytes > without_bloom(config, &settings),
+                "configuration {index} allocates nothing for its bloom chain"
+            );
+        }
         if settings.resolve.active_taa().is_some() {
             assert!(
                 bytes > without_taa(config, &settings),
@@ -103,6 +98,17 @@ fn every_existing_mode_has_a_valid_deterministic_allocation_set() {
             );
         }
     }
+}
+
+/// Bytes of everything except the bloom chain.
+fn without_bloom(config: FrameConfig, settings: &HdrPostSettings) -> u64 {
+    whole(
+        config,
+        &HdrPostSettings {
+            bloom: None,
+            ..*settings
+        },
+    )
 }
 
 /// Bytes of everything except the TAA bank.

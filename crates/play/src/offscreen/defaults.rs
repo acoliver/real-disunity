@@ -40,10 +40,12 @@ const INT_PROPERTY: i32 = 5;
 pub enum DefaultTexture {
     White,
     Black,
+    /// Unity's default 2D texture, RGBA (0.5, 0.5, 0.5, 1).
+    Grey,
 }
 
 impl DefaultTexture {
-    pub const ALL: [Self; 2] = [Self::White, Self::Black];
+    pub const ALL: [Self; 3] = [Self::White, Self::Black, Self::Grey];
 
     /// The default a shader names, or `None` for a name this host does not supply.
     #[must_use]
@@ -51,6 +53,7 @@ impl DefaultTexture {
         match name {
             "white" => Some(Self::White),
             "black" => Some(Self::Black),
+            "gray" => Some(Self::Grey),
             _ => None,
         }
     }
@@ -61,6 +64,7 @@ impl DefaultTexture {
         match self {
             Self::White => "white",
             Self::Black => "black",
+            Self::Grey => "gray",
         }
     }
 
@@ -70,6 +74,7 @@ impl DefaultTexture {
         let texel = match self {
             Self::White => [255; 4],
             Self::Black => [0, 0, 0, 255],
+            Self::Grey => [128, 128, 128, 255],
         };
         SourceTexture {
             id: ids::default_texture(self.index()),
@@ -84,6 +89,7 @@ impl DefaultTexture {
         match self {
             Self::White => 0,
             Self::Black => 1,
+            Self::Grey => 2,
         }
     }
 

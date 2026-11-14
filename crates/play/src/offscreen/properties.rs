@@ -26,10 +26,11 @@ use super::ids;
 
 /// Why a texture property is counted that was given its shader's default.
 const DEFAULT_READ: &str = "no texture set, the shader's default read";
-/// Why a texture property is counted that was given Unity's white texture: nothing set it and
-/// the shader does not declare it. Unity gives such a property "an empty white texture"
-/// (manual, Material properties: how property values are provided to shaders).
-const UNDECLARED_READ: &str = "no texture set and not declared, Unity's white read";
+/// Why a texture property is counted that was given Unity's default texture: nothing set it and
+/// the shader does not declare it. Unity binds its grey default 2D texture (`UnityDefault2D`) to
+/// such a property, as frame-debugger reports of unset `_CameraDepthTexture` and
+/// `_MotionVectorTexture` show.
+const UNDECLARED_READ: &str = "no texture set and not declared, Unity's default grey read";
 
 /// Which textures a frame can name, and which render textures its properties did.
 pub struct Textures<'a> {
@@ -177,10 +178,10 @@ pub fn layer(properties: &ShaderProperties, textures: &mut Textures<'_>) -> Prop
 }
 
 /// The texture a property that no layer sets and the shader does not declare reads: Unity's
-/// white texture, when the host registered it, and the names the shader declares.
+/// default grey texture, when the host registered it, and the names the shader declares.
 #[derive(Clone, Copy, Debug)]
 pub struct Undeclared<'a> {
-    pub white: TextureId,
+    pub texture: TextureId,
     pub declared: &'a [String],
 }
 
@@ -222,7 +223,7 @@ pub fn layer_with_defaults(
             layer.textures.insert(
                 name.clone(),
                 TextureInput {
-                    texture: rule.white,
+                    texture: rule.texture,
                     sampler: None,
                 },
             );

@@ -879,18 +879,18 @@ fn a_texture_property_that_names_no_texture_the_frame_can_read_is_counted_by_nam
         BTreeMap::from([
             ("_NotUploaded: asset not readable by the host".to_owned(), 1),
             (
-                "_Nothing: no texture set and not declared, Unity's white read".to_owned(),
+                "_Nothing: no texture set and not declared, Unity's default grey read".to_owned(),
                 1
             ),
         ])
     );
 }
 
-/// Unity gives a texture property that nothing sets and the shader does not declare an empty
-/// white texture; one the shader declares reads its declared default, and one whose default
-/// the host does not supply stays unset, as does any when the host registered no white texture.
+/// Unity binds its grey default texture to a texture property that nothing sets and the shader
+/// does not declare; one the shader declares reads its declared default, and one whose default
+/// the host does not supply stays unset, as does any when the host registered no defaults.
 #[test]
-fn an_unset_texture_the_shader_does_not_declare_reads_white() {
+fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     let mut world = world();
     let target = render_texture(&mut world, [8, 8]);
     let shader = shader(&mut world, "Blit");
@@ -918,14 +918,14 @@ fn an_unset_texture_the_shader_does_not_declare_reads_white() {
     let textures = &adapted.frame.materials[&ids::material(material)]
         .properties
         .textures;
-    assert_eq!(textures["_UserLut"].texture, DefaultTexture::White.id());
+    assert_eq!(textures["_UserLut"].texture, DefaultTexture::Grey.id());
     assert!(!textures.contains_key("_Declared"));
     assert_eq!(
         adapted.report.unresolved_textures,
         BTreeMap::from([
             ("_Declared: no texture set".to_owned(), 1),
             (
-                "_UserLut: no texture set and not declared, Unity's white read".to_owned(),
+                "_UserLut: no texture set and not declared, Unity's default grey read".to_owned(),
                 1
             ),
         ])

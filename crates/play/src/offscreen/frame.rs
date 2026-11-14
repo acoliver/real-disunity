@@ -767,9 +767,9 @@ impl<'a> Mapper<'a> {
             let undeclared = self
                 .available
                 .default_textures
-                .contains(&DefaultTexture::White)
+                .contains(&DefaultTexture::Grey)
                 .then(|| Undeclared {
-                    white: DefaultTexture::White.id(),
+                    texture: DefaultTexture::Grey.id(),
                     declared: &info.fill.declared_textures,
                 });
             let properties = layer_with_defaults(

@@ -843,8 +843,8 @@ SSAO installation and enablement, prepass execution, and typed mesh/terrain
 receiver bindings. These follow the installed features and encoded binding
 paths, independently of pixel coverage. A reused shadow cascade remains installed
 and bound even when its per-frame draw count is zero. Raw draws and abandoned
-transactions preserve the previous submitted observations. Reflection-only receivers
-can bind neutral AO while SSAO is disabled. A depth-fitted frame includes its
+transactions preserve the previous submitted observations. Reflection-only and
+depth-fitting-only receivers can bind neutral AO while SSAO is disabled. A depth-fitted frame includes its
 completed geometry-prefix prepass; a later frame never inherits that execution.
 
 `terrain_pages` counts exact selected leaf pages: requested, resident in the

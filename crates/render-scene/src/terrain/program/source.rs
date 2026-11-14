@@ -2,8 +2,8 @@
 //! source the draw selects.
 //!
 //! The composition is textual and exact: the byte-equality captures compare the pixels it
-//! produces with the frozen path's, and `draw/tests/metadata_forward_sources.rs` fingerprints
-//! the composed sources.
+//! produces with the frozen path's, and `draw/tests/metadata_forward_sources.rs` validates
+//! the composed sources with naga.
 
 use super::Surface;
 

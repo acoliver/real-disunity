@@ -97,5 +97,8 @@ fn an_unweighted_vertex_keeps_its_source_values_exactly() {
     let skinned = skin(&format!(
         "scene_skin_point({OFFSET}u, {unweighted}, {point})"
     ));
-    assert_eq!(skinned, [0.1, -7.25, 3.0]);
+    assert_eq!(
+        skinned.map(f32::to_bits),
+        [0.1_f32, -7.25, 3.0].map(f32::to_bits)
+    );
 }

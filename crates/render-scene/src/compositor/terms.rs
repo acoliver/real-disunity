@@ -83,7 +83,9 @@ impl TermCapture {
     ///
     /// # Panics
     /// Panics when the terrain program does not prepare against the pipelines' layouts, which
-    /// the program tests rule out for every context the crate builds. A replay returns no error.
+    /// the program tests rule out for every context the crate builds, and when the scene has
+    /// skinned placements, whose layout the fixed object pipelines of a replay do not have. A
+    /// replay returns no error.
     pub(crate) fn replay(
         &self,
         encoder: &mut wgpu::CommandEncoder,

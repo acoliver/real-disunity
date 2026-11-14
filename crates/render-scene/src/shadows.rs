@@ -512,6 +512,7 @@ impl ShadowedScene {
             &FrameUniform,
         ),
     ) -> Result<(), ShadowError> {
+        gpu.admit_fixed_objects("shadow casters of skinned objects")?;
         if let Some(screen) = screen {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
         }

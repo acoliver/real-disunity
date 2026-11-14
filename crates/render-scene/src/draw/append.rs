@@ -12,7 +12,7 @@ use wgpu::{BufferUsages, Device, TextureView, TextureViewDescriptor};
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_plan::{
     MeshHandle, RenderScene, SceneAppend, SceneFadeCoverage, SceneMaterial, SceneMesh,
-    SceneTexture, TextureHandle,
+    SceneTexture, SkeletonHandle, TextureHandle,
 };
 
 use super::resources::{GroupInputs, material_group, table_index, upload_meshes, upload_textures};
@@ -45,6 +45,8 @@ pub struct PreparedAppend {
     textures: Vec<OwnedPreparedTexture>,
     meshes: Vec<prepared::PreparedMesh>,
     selection: Vec<MeshSelection>,
+    /// The skeleton of each skinned level of each appended mesh.
+    skeletons: Vec<Vec<SkeletonHandle>>,
     materials: Vec<SceneMaterial>,
 }
 
@@ -76,6 +78,11 @@ impl PreparedAppend {
             textures,
             meshes,
             selection,
+            skeletons: append
+                .meshes
+                .iter()
+                .map(crate::instances::skin::mesh_skeletons)
+                .collect(),
             materials: append.materials.clone(),
         })
     }
@@ -133,6 +140,9 @@ impl PreparedScene {
         }
         for mesh in &self.meshes {
             mesh_allocations(&mut set, mesh);
+        }
+        if !self.palette.is_empty() {
+            set.buffer("scene skin palette", self.palette.bytes().len() as u64, 1);
         }
         set
     }
@@ -385,6 +395,7 @@ pub struct PreparedMeshReplacement {
     index: usize,
     mesh: prepared::PreparedMesh,
     selection: MeshSelection,
+    skeletons: Vec<SkeletonHandle>,
 }
 
 impl PreparedMeshReplacement {
@@ -406,6 +417,7 @@ impl PreparedMeshReplacement {
             index,
             mesh: prepared::prepare_mesh(index, mesh)?,
             selection: MeshSelection::new(mesh),
+            skeletons: crate::instances::skin::mesh_skeletons(mesh),
         })
     }
 
@@ -502,6 +514,7 @@ impl SceneGpu {
         self.mesh_selection.extend(prepared.selection);
         self.instances
             .extend_resources(&prepared.materials, self.meshes.len());
+        self.instances.skin.extend_meshes(prepared.skeletons);
         Ok(())
     }
 
@@ -593,6 +606,14 @@ impl SceneGpu {
         if index >= self.meshes.len() {
             return Err(needs_rebuild("mesh", index, "it is not resident"));
         }
+        if self.instances.skin.is_skinned(index) == replacement.skeletons.is_empty() {
+            // Placements batch by mesh, and a skinned mesh's batches carry a skin stream.
+            return Err(needs_rebuild(
+                "mesh",
+                index,
+                "its skinning changed, and placements keep skin streams per mesh",
+            ));
+        }
         let bytes = mesh_payload_bytes(&replacement.mesh);
         let uploaded = upload_meshes(device, queue, std::slice::from_ref(&replacement.mesh))
             .pop()
@@ -600,6 +621,9 @@ impl SceneGpu {
         self.resource_counters.replace_mesh(index, bytes);
         self.meshes[index] = uploaded;
         self.mesh_selection[index] = replacement.selection;
+        self.instances
+            .skin
+            .replace_mesh(index, replacement.skeletons);
         self.instances.forget_mesh_bounds(index);
         self.casters.global();
         Ok(())

@@ -123,6 +123,7 @@ fn objects_are_recorded_through_the_program_runtime() {
 #[test]
 fn object_programs_register_for_every_key_in_every_context_with_one_material_layout() {
     use crate::dynamic::capture_tests::{CONFIGS, build, context, supported};
+    use crate::object::layout::GeometryLayout;
     use crate::pipeline::PipelineKey;
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
@@ -134,9 +135,11 @@ fn object_programs_register_for_every_key_in_every_context_with_one_material_lay
             .with_objects((context.device(), context.submission()), |runtime| {
                 let mut layout = None;
                 for key in PipelineKey::ALL {
-                    let program = objects.program(runtime, key).unwrap_or_else(|error| {
-                        panic!("{} {key:?}: {error}", config.name);
-                    });
+                    let program = objects
+                        .program(runtime, key, GeometryLayout::Static)
+                        .unwrap_or_else(|error| {
+                            panic!("{} {key:?}: {error}", config.name);
+                        });
                     let bindings: Vec<u32> = program
                         .layout()
                         .slots()

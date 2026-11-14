@@ -8,11 +8,13 @@ use worldrunner_render_plan::{SceneAffineMatrix, SceneMeshLod, SceneSkinInfluenc
 
 use crate::geometry::{
     GeometryError, VERTEX_BYTES, micro_to_unit, millimeter_to_meter, pack_vertices,
+    vertex_attributes,
 };
 
+pub(crate) mod admission;
 mod palette;
 
-pub(crate) use palette::{PaletteOverflow, PoseRange, ScenePalette};
+pub(crate) use palette::{PoseRange, ScenePalette};
 
 /// Bytes of one palette entry on the GPU: three `vec4<f32>` rows.
 pub(crate) const PALETTE_ENTRY_BYTES: u64 = 48;
@@ -22,6 +24,42 @@ pub(crate) const SKIN_WORD_BYTES: usize = 8;
 
 /// Bytes of one skinned vertex: the unchanged static vertex followed by its skin word.
 pub(crate) const SKINNED_VERTEX_BYTES: usize = VERTEX_BYTES + SKIN_WORD_BYTES;
+
+/// Bytes of one skin descriptor: the per-instance record of the auxiliary skin stream.
+pub(crate) const SKIN_INSTANCE_BYTES: usize = 16;
+
+/// Vertex location of the skin word.
+const SKIN_WORD_LOCATION: u32 = 9;
+
+/// Vertex location of the per-instance skin descriptor.
+const SKIN_DESCRIPTOR_LOCATION: u32 = 15;
+
+/// Describes the skinned vertex to `wgpu`: the static attributes unchanged, then the skin word.
+pub(crate) const fn skinned_vertex_attributes() -> [wgpu::VertexAttribute; 7] {
+    let base = vertex_attributes();
+    [
+        base[0],
+        base[1],
+        base[2],
+        base[3],
+        base[4],
+        base[5],
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Uint32x2,
+            offset: VERTEX_BYTES as u64,
+            shader_location: SKIN_WORD_LOCATION,
+        },
+    ]
+}
+
+/// Describes the auxiliary skin stream to `wgpu`: one `Uint32x4` descriptor per instance.
+pub(crate) const fn skin_instance_attributes() -> [wgpu::VertexAttribute; 1] {
+    [wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Uint32x4,
+        offset: 0,
+        shader_location: SKIN_DESCRIPTOR_LOCATION,
+    }]
+}
 
 /// One vertex's influences as the `Uint32x2` skin word.
 ///
@@ -42,7 +80,14 @@ pub(crate) fn pack_skinned_vertices(lod: &SceneMeshLod) -> Result<Option<Vec<u8>
     let Some(influences) = lod.skin_influences() else {
         return Ok(None);
     };
-    let static_bytes = pack_vertices(lod)?;
+    Ok(Some(append_skin_words(&pack_vertices(lod)?, influences)))
+}
+
+/// Interleaves each packed static vertex with the skin word of its influence.
+///
+/// The card complement of a skinned level goes through here too: it repacks the preceding
+/// level's vertices with their flags changed, and their influences are that level's.
+pub(crate) fn append_skin_words(static_bytes: &[u8], influences: &[SceneSkinInfluence]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(influences.len() * SKINNED_VERTEX_BYTES);
     for (vertex, influence) in static_bytes.chunks_exact(VERTEX_BYTES).zip(influences) {
         bytes.extend_from_slice(vertex);
@@ -50,7 +95,7 @@ pub(crate) fn pack_skinned_vertices(lod: &SceneMeshLod) -> Result<Option<Vec<u8>
             bytes.extend_from_slice(&lane.to_le_bytes());
         }
     }
-    Ok(Some(bytes))
+    bytes
 }
 
 /// One palette entry as three rows of a row-major 3x4 matrix in metres.
@@ -184,7 +229,7 @@ mod tests {
         let mut bytes = Vec::new();
         extend_palette(&mut bytes, &[SceneAffineMatrix::IDENTITY; 3]);
         assert_eq!(bytes.len() as u64, 3 * PALETTE_ENTRY_BYTES);
-        assert_eq!(f32::from_le_bytes(bytes[0..4].try_into().unwrap()), 1.0);
-        assert_eq!(f32::from_le_bytes(bytes[60..64].try_into().unwrap()), 0.0);
+        assert_eq!(bytes[0..4], 1.0_f32.to_le_bytes());
+        assert_eq!(bytes[60..64], 0.0_f32.to_le_bytes());
     }
 }

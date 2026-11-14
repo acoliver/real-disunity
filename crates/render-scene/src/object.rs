@@ -6,8 +6,10 @@
 //! shadow casters, the metadata prepass, the capture terms and the celestial meshes still draw
 //! with the fixed pipelines.
 
+pub(crate) mod layout;
 pub(crate) mod prepared;
 pub(crate) mod program;
+pub(crate) mod skin_source;
 
 #[cfg(test)]
 mod capture_tests;

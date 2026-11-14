@@ -119,6 +119,15 @@ pub enum DrawError {
         /// Smaller of the buffer and storage binding limits.
         limit: u64,
     },
+    /// The scene's skin palettes need more entries than the shader indexes with 32 bits.
+    #[error("skin palettes need {entries} entries, beyond the 32-bit palette index")]
+    SkinPalette {
+        /// Entries the palettes of every pose need.
+        entries: u64,
+    },
+    /// The device cannot hold the skin palette or read it from the vertex stage.
+    #[error(transparent)]
+    SkinAdmission(#[from] crate::skinning::admission::SkinAdmissionError),
     #[error(transparent)]
     Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// The environmental profile requests an unsupported stock effect.
@@ -189,6 +198,8 @@ pub enum DrawError {
 /// One mesh level held as the buffer pair a draw needs.
 #[derive(Clone, Debug)]
 struct GpuLod {
+    /// The vertex format of `vertices` and `transition`.
+    layout: crate::object::layout::GeometryLayout,
     transition: Option<Buffer>,
     vertices: Buffer,
     indices: Buffer,
@@ -346,8 +357,20 @@ impl SceneGpu {
             &contact_heights,
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
-        let objects =
-            crate::object::prepared::PreparedObjects::new(authority.clone(), material_imports);
+        let palette = (!prepared.palette.is_empty()).then(|| {
+            upload_buffer(
+                device,
+                queue,
+                "scene skin palette",
+                BufferUsages::STORAGE,
+                prepared.palette.bytes(),
+            )
+        });
+        let objects = crate::object::prepared::PreparedObjects::new(
+            authority.clone(),
+            material_imports,
+            palette,
+        );
         objects.warm(pipelines.object_context());
         let terrain = resources::upload_terrain(
             device,

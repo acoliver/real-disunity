@@ -4,6 +4,8 @@ use std::ops::{Index, Range};
 use wgpu::{BindGroup, Buffer, RenderPass, RenderPipeline};
 use worldrunner_render_program::runtime::PassCommands;
 
+use crate::object::layout::GeometryLayout;
+
 use super::{
     DrawCount, FRAME_GROUP, FrameUniform, MATERIAL_GROUP, SceneGpu, SelectionPublication,
     selection_reuse,
@@ -40,6 +42,8 @@ impl BoundState {
 pub(super) struct Draw {
     pub pipeline: usize,
     pub material: usize,
+    /// The vertex format of the level the draw reads, which selects the program and layout.
+    pub geometry: GeometryLayout,
     pub indices: Range<u32>,
     pub instances: Range<u32>,
 }
@@ -48,9 +52,9 @@ pub(super) struct Draw {
 /// and in what order, and a sink decides how they reach the pass: the fixed path sets each
 /// buffer as it is named, and the runtime path draws a geometry over them.
 pub(super) trait DrawSink {
-    /// The instance buffer of the draws that follow, and the previous-instance buffer when the
-    /// batch has one.
-    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>);
+    /// The instance buffer of the draws that follow, the previous-instance buffer when the
+    /// batch has one, and the skin stream when the batch's mesh is skinned.
+    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>, skin: Option<&Buffer>);
     /// The vertex buffer of the level the next draws read.
     fn vertices(&mut self, vertices: &Buffer);
     /// The index buffer of the level the next draws read.
@@ -83,7 +87,7 @@ where
     P: PassCommands + ?Sized,
     I: Index<usize, Output = RenderPipeline> + ?Sized,
 {
-    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>) {
+    fn instances(&mut self, current: &Buffer, previous: Option<&Buffer>, _skin: Option<&Buffer>) {
         self.pass.set_vertex_buffer(1, current);
         // Only velocity pipelines declare this buffer; the others ignore the extra binding.
         if let Some(previous) = previous {
@@ -101,6 +105,13 @@ where
     }
 
     fn draw(&mut self, draw: Draw) {
+        // The fixed routes have no skinned layout. The passes that can return an error are
+        // refused before they open (`SceneGpu::admit_fixed_objects`); the capture-term replay
+        // has no error channel and stops here.
+        assert!(
+            !draw.geometry.is_skinned(),
+            "a fixed object route reached skinned geometry"
+        );
         let (set_pipeline, set_material) = self.state.bind(draw.pipeline, draw.material);
         if set_pipeline {
             self.pass.set_pipeline(&self.pipelines[draw.pipeline]);
@@ -203,6 +214,10 @@ impl SceneGpu {
         sink.instances(
             batch.buffer.as_ref().expect("flushed instance buffer"),
             batch.previous.as_ref(),
+            batch
+                .skin
+                .as_ref()
+                .map(|stream| stream.buffer.as_ref().expect("flushed skin buffer")),
         );
         self.record_lod_draws(sink, range)
     }
@@ -242,6 +257,7 @@ impl SceneGpu {
                 sink.draw(Draw {
                     pipeline: self.instances.pipelines[material],
                     material,
+                    geometry: lod.layout,
                     indices: slot.indices(),
                     instances: range.slots.clone(),
                 });
@@ -251,6 +267,7 @@ impl SceneGpu {
             sink.draw(Draw {
                 pipeline,
                 material,
+                geometry: lod.layout,
                 indices: 0..lod.index_count,
                 instances: range.slots.clone(),
             });

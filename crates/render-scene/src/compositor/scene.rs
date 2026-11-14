@@ -102,6 +102,7 @@ fn prepare_terrain(
         gpu.prepare_terrain(pipelines, frame)?;
         return gpu.prepare_objects(pipelines, frame);
     };
+    gpu.admit_fixed_objects("screen-space prepass of skinned objects")?;
     gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
     let colour = screen
         .forward

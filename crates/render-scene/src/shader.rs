@@ -127,6 +127,10 @@ mod terrain_cell_tests;
 #[cfg(test)]
 mod foliage_tests;
 
+pub(crate) mod rewrite;
+#[cfg(test)]
+mod rewrite_tests;
+
 #[cfg(test)]
 mod foliage_reference_tests;
 

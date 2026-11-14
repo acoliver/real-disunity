@@ -1,4 +1,5 @@
 use super::*;
+use crate::shader::rewrite::ShaderRewrite;
 
 pub(crate) fn install_source(
     frame: &crate::compositor::FrameRenderer,
@@ -17,13 +18,16 @@ pub(crate) fn install_source(
     ];
     if raw {
         let selected = "let adjusted_visibility = direct_sunlight_visibility(raw_visibility);";
-        assert_eq!(source.matches(selected).count(), 1);
-        source = source.replace(
+        source = source.anchored(
+            "water::shadow_probe::install_source",
+            1,
             selected,
             &format!("{selected} captured_visibility = adjusted_visibility;"),
         );
         source.push_str("\nvar<private> captured_visibility: f32;\n");
-        source = source.replace(
+        source = source.anchored(
+            "water::shadow_probe::install_source",
+            1,
             "vec4<f32>(color, 1.0)",
             "vec4<f32>(vec3<f32>(captured_visibility), 1.0)",
         );

@@ -9,9 +9,10 @@ namespace UnityEngine.Rendering;
 /// commands, in order. Sending does not empty the buffer, so a buffer sent twice delivers its commands twice; <see cref="Clear"/>
 /// empties it. The members that record are in CommandBufferTargets.cs, CommandBufferGlobals.cs, CommandBufferCamera.cs,
 /// CommandBufferTemporaries.cs and CommandBufferRendererLists.cs.
-/// The members that would draw procedural geometry, set a global float array, set the viewport or open profiler samples have no
-/// record yet and throw <see cref="NotSupportedException"/> naming themselves. <see cref="DrawMesh(Mesh, Matrix4x4, Material)"/>
-/// is recorded for the host to draw (see CommandBufferMesh.cs). Global vector and matrix arrays are recorded in order (see
+/// The members that would draw indexed procedural geometry, set a global float array, set the viewport or open profiler
+/// samples have no record yet and throw <see cref="NotSupportedException"/> naming themselves. <see cref="DrawMesh(Mesh, Matrix4x4, Material)"/>
+/// is recorded for the host to draw (see CommandBufferMesh.cs), and so are the non-indexed procedural draws (see
+/// CommandBufferProcedural.cs). Global vector and matrix arrays are recorded in order (see
 /// CommandBufferArrays.cs).
 /// After <see cref="Release"/> every member except <see cref="name"/> and Release throws <see cref="ObjectDisposedException"/>;
 /// releasing twice is allowed. The name starts empty, which is the engine's choice, and a null name becomes empty.
@@ -63,8 +64,12 @@ public sealed partial class CommandBuffer : IDisposable
         _commands.Add(send);
     }
 
-    public void BeginSample(string name) => Fail(nameof(BeginSample));
-    public void EndSample(string name) => Fail(nameof(EndSample));
+    /// <summary>Records nothing: the engine has no profiler capture, so a sample marks no span. A render graph pass and
+    /// third-party passes open and close samples around their work every frame.</summary>
+    public void BeginSample(string name) => ThrowIfReleased();
+
+    /// <summary>Records nothing, as <see cref="BeginSample(string)"/>; an end without a begin is not checked.</summary>
+    public void EndSample(string name) => ThrowIfReleased();
 
     public void DrawMeshInstancedIndirect(Mesh mesh, int submeshIndex, Material material, int shaderPass, ComputeBuffer bufferWithArgs,
         int argsOffset, MaterialPropertyBlock properties) => Fail(nameof(DrawMeshInstancedIndirect));

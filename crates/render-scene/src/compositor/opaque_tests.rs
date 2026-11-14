@@ -113,14 +113,19 @@ fn synthetic_heightfield_admission_reports_layout_bytes_and_limits() {
     );
     assert_eq!(
         report.layouts[0].formats,
-        ["Rgba16Float", "Rgba16Float", "Rgba16Float", "Rgba16Uint"]
+        [
+            wgpu::TextureFormat::Rgba16Float,
+            wgpu::TextureFormat::Rgba16Float,
+            wgpu::TextureFormat::Rgba16Float,
+            wgpu::TextureFormat::Rgba16Uint,
+        ]
     );
-    assert_eq!(report.layouts[0].bytes_per_sample, 32);
+    assert_eq!(report.layouts[0].color_attachment_byte_cost, 32);
     assert_eq!(
         report.layouts[0].byte_limit,
         limits.max_color_attachment_bytes_per_sample
     );
-    assert_eq!(report.layouts[1].bytes_per_sample, 14);
+    assert_eq!(report.layouts[1].color_attachment_byte_cost, 26);
     assert_eq!(report.layouts[0].attachment_count, 4);
     assert_eq!(
         report.layouts[0].attachment_limit,
@@ -130,6 +135,35 @@ fn synthetic_heightfield_admission_reports_layout_bytes_and_limits() {
     assert_eq!(report.layouts[0].record_limit, 65_536);
     assert_eq!(report.layouts[1].record_limit, 65_536);
     assert!(report.layouts[0].admitted);
+}
+
+#[test]
+fn layout_admission_uses_wgpu_color_target_byte_cost() {
+    let configuration = crate::compositor::RendererConfiguration::legacy(
+        [2, 2],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    );
+    for (limit, expected_compact, expected_wide) in [
+        (25, false, false),
+        (26, true, false),
+        (31, true, false),
+        (32, true, true),
+    ] {
+        let limits = wgpu::Limits {
+            max_color_attachment_bytes_per_sample: limit,
+            ..wgpu::Limits::default()
+        };
+        let report = configuration
+            .opaque_admission_report(&prepared(), &limits)
+            .unwrap();
+        assert_eq!(report.layouts[1].color_attachment_byte_cost, 26);
+        assert_eq!(
+            report.layouts[1].admitted, expected_compact,
+            "limit {limit}"
+        );
+        assert_eq!(report.layouts[0].color_attachment_byte_cost, 32);
+        assert_eq!(report.layouts[0].admitted, expected_wide, "limit {limit}");
+    }
 }
 
 #[test]

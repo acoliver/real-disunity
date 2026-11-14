@@ -22,6 +22,8 @@
 //! Do not edit the behaviour of this file. A change to object output is a change to what the
 //! captures mean and is its own proposal.
 
+mod casters;
+pub(crate) mod celestial;
 mod commands;
 mod depth;
 mod layouts;
@@ -29,6 +31,7 @@ mod pipelines;
 mod record;
 mod source;
 
+pub(crate) use casters::{caster_pipelines, caster_source};
 pub(crate) use commands::{Commands, Counted};
 pub(crate) use depth::Depth;
 pub(crate) use pipelines::{Build, Pipelines};

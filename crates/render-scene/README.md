@@ -141,7 +141,7 @@ Terrain draws through `render-program` in every forward context: plain, velocity
 
 ## Objects on the program runtime
 
-Lit objects, foliage and impostors draw through `render-program` in the forward passes: plain, velocity, SSAO and its gather receiver, reflection, and each of them as a shadow receiver, at one or four samples. The shadow casters, the metadata prepass and the opaque term replays still draw with the fixed `ObjectPipelines`: `SceneGpu::draw_color` records the objects through the runtime and `draw_prepass` and `draw_opaque_capture` through the fixed pipelines. Celestial meshes keep their own fixed pipelines (`renderer::celestial_specialization`), built from the same object source. The shader source is the scene's own, unchanged.
+Lit objects, foliage and impostors draw through `render-program` in the forward passes: plain, velocity, SSAO and its gather receiver, reflection, and each of them as a shadow receiver, at one or four samples. The metadata prepass, the opaque term replays and the shadow casters draw them through the runtime too, in their own contexts: `SceneGpu::draw_color`, `draw_prepass`, `draw_opaque_capture` and `draw_casters_prepared` record the objects through the runtime. A caster context draws into a depth-only signature with the caster entry points and the map's depth test and bias, and casts every key as the first key of its family. No pass draws objects with the fixed `ObjectPipelines`. They exist only in test builds, for the tests that compare against them, so a production `ScenePipelines` compiles no fixed object shader module and has no public `get`. Celestial meshes keep their own fixed pipelines (`renderer::celestial_specialization`), built from the same object source. The shader source is the scene's own, unchanged.
 
 - **Programs.** `object::program::Context` holds one program per `PipelineKey`, made on first use. The key's five axes are the features `MASKED`, `DOUBLE_SIDED`, `COVERAGE_MULTISAMPLE`, `IMPOSTOR` and `RELIEF` (`PipelineKey::features`); they pick the fragment entry point (`fs_opaque`, `fs_masked`, `fs_relief_opaque` or `fs_relief_masked`) and the `SCENE_ALPHA_TO_COVERAGE` and `SCENE_IMPOSTOR` overrides, and the key's cull mode and `RasterState::alpha_to_coverage` (multisampled passes only). One parse of the context's source serves the vertex stage and every fragment entry point. The depth and stencil state is `DepthMode::render_state`, the translation terrain shares, so forward depth reuse (equal depth and stencil at one sample) is unchanged.
 - **Sets the pass owner binds.** The frame group (set 0, with the previous-frame block in the velocity contexts), the shadow map (set 2) and the screen group (set 3) are lent as `ExternalSet`s over the layouts the scene already uses.
@@ -843,8 +843,8 @@ SSAO installation and enablement, prepass execution, and typed mesh/terrain
 receiver bindings. These follow the installed features and encoded binding
 paths, independently of pixel coverage. A reused shadow cascade remains installed
 and bound even when its per-frame draw count is zero. Raw draws and abandoned
-transactions preserve the previous submitted observations. Reflection-only receivers
-can bind neutral AO while SSAO is disabled. A depth-fitted frame includes its
+transactions preserve the previous submitted observations. Reflection-only and
+depth-fitting-only receivers can bind neutral AO while SSAO is disabled. A depth-fitted frame includes its
 completed geometry-prefix prepass; a later frame never inherits that execution.
 
 `terrain_pages` counts exact selected leaf pages: requested, resident in the
@@ -888,11 +888,11 @@ retained settings publication, including removal and consumer changes.
 ## Native-resolution RCAS
 
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
-candidate-layout bytes, attachment limits, and material-record counts for a prepared
-scene. Callers invoke it explicitly; it is independent of `SceneOpaquePath` and creates
-no renderer resources. The report uses typed material-family classification, enforces
-the 16-bit material-ID capacity of 65,536 records, and refuses sample counts other than
-one with a typed error. Selecting `Forward` remains the default, and every experiment
+candidate-layout colour attachment byte costs, attachment limits, and material-record
+counts for a prepared scene. Callers invoke it explicitly; it is independent of
+`SceneOpaquePath` and creates no renderer resources. The report uses typed
+material-family classification, enforces the 16-bit material-ID capacity of 65,536
+records, and refuses sample counts other than one with a typed error. Selecting `Forward` remains the default, and every experiment
 tuple is refused until implemented. No rendering behavior changes in this step.
 
 `RendererConfiguration::post.native_rcas` selects an optional native RCAS pass.

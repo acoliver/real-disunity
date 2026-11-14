@@ -117,6 +117,11 @@ impl PreparedObjects {
 
     /// One bind group for each material, made from what the material lends. The scene's passes
     /// bind the prepared sets instead; only the tests that record draws themselves bind these.
+    ///
+    /// The groups use a layout from `upload::material_bind_group_layout`, which is the function
+    /// that also makes the layout the tests' pipelines take as their material group
+    /// (`Pipelines::material_layout`). wgpu treats identical layouts as compatible, so a group made
+    /// here binds to those pipelines.
     #[cfg(test)]
     pub(crate) fn material_groups(&self, device: &wgpu::Device) -> Vec<wgpu::BindGroup> {
         use worldrunner_render_program::runtime::{ImportedResource, ImportedTexture};
@@ -139,7 +144,7 @@ impl PreparedObjects {
                 };
                 let views = MAP_SEMANTICS.map(|name| match lent(name) {
                     ImportedResource::Texture(ImportedTexture { view, .. }) => view,
-                    _ => panic!("{name} is lent as a texture view"),
+                    other => panic!("{name} is lent as {other:?}, not a texture view"),
                 });
                 crate::upload::extended_material_group(
                     device,

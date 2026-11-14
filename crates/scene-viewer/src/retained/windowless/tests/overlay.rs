@@ -1,6 +1,7 @@
 mod annotation_depth;
 mod annotations;
 mod blend_tests;
+mod draw_list;
 mod graphics;
 mod text_field;
 mod text_flow;

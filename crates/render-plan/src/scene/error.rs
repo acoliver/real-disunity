@@ -37,6 +37,9 @@ pub enum SceneValidationError {
     EnvironmentIntensity { observed: u32 },
     #[error("unsupported scene input: {part}")]
     UnsupportedInput { part: &'static str },
+    /// An opaque-path tuple has no implementation in the current renderer step.
+    #[error("opaque path experiment tuple is not implemented")]
+    UnsupportedOpaquePath,
     #[error("invalid HDR post quantity: {part}")]
     PostSettings { part: &'static str },
     /// Mesh ceilings must be present per level, positive and strictly increasing.

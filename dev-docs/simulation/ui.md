@@ -371,11 +371,49 @@ for the window visibility order and activation contract.
 
 ## Text contract
 
-Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.
+Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font, including unmapped glyphs. Simple glyph records require strictly increasing contour endpoints and complete instruction, flag and coordinate arrays. Well-formed single-point and all-collinear contours are empty for drawing and retain their authored horizontal metrics; their empty-glyph index counts against the font storage limit. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.
 
 The supported character set is printable ASCII (U+0020..U+007E), Latin-1 U+00A0..U+00FF, LF and CR. CR is ignored; LF starts a new paragraph. Other controls and characters return `UnsupportedShaping(character)`. A supported character absent from the supplied font returns `MissingGlyph(character)`, including spaces. Neither error substitutes or drops the character. This implementation does not provide ligatures, bidirectional layout, combining marks or script shaping. Latin-1 support requires the caller's font to contain the requested glyphs; the synthetic test font covers ASCII only.
 
 With `HorizontalOverflow::Wrap`, a line that grows past the rectangle's width breaks before its last word and the space at the break is consumed; a word wider than the line breaks between characters (`ui/wrap.rs`). A single glyph wider than the rectangle occupies a line and is clipped at extraction. `HorizontalOverflow::Overflow` keeps each line whole. Font kerning applies within each line. Font size is pixels per em, converted to `ab_glyph`'s ascent-minus-descent scale through the font's units per em. `line_spacing` multiplies the font height plus gap. `line_height: Some(pixels)` overrides that baseline distance and must be finite and positive. `paragraph_spacing` adds finite nonnegative logical pixels after explicit newlines, including blank paragraphs. Wrapped continuations get only the baseline distance. Alignment applies to each line horizontally and to the entire visible block vertically. Empty strings produce zero content height and no lines, glyphs or texture bytes.
+
+Line-width measurement, wrapping, glyph origins, text-field caret advances and
+`FaceBook::pair_adjustments` share `ui::positioning::PairPositioning`. It reads
+OpenType GPOS PairPos formats 1 and 2 and type-9 extensions through `ttf-parser`.
+Class zero participates, but the first glyph must be covered. Select `kern`
+features reachable from the DFLT default language system, otherwise the latn
+one, including a required `kern` feature. Do not combine script branches.
+Distinct lookups apply in lookup-list order, taking the first matching subtable
+of each lookup, including matches with zero advance. If GPOS contains any `kern`
+feature, legacy `kern` is ignored even when no default-script lookup or pair
+matches, or all selected lookups are unsupported. Otherwise horizontal,
+non-variable legacy subtables without state machines supply the adjustments.
+
+Only ValueRecord1.XAdvance moves the horizontal pen, scaled by size/units-per-em.
+Both value records are parsed, but placement, vertical advances, the second
+record and device/variation adjustments are ignored. This subset provides no
+GSUB, mark/cursive or language-specific shaping, or variable-instance evaluation.
+Pair state resets at explicit and wrapped line breaks, including recomputed wrap
+tails. Registration resolves supported PairPos offsets and their lookup identities;
+queries read those subtables directly without traversing lookup lists. These owned
+descriptors count against the existing font/face storage limits. Class matrices
+remain compact in the original font bytes.
+
+Both `FontBook::register` and `FaceBook::load` reject malformed GPOS headers or
+feature records with `InvalidGpos`, including unrelated features. Selected type-9
+subtables require extension format 1, an inner type other than 9, and a nonzero
+in-bounds offset; violations return `InvalidGposExtension` before positioning
+parsing. Malformed GPOS never enables legacy fallback. Registration deduplicates
+feature indices before walking lookup arrays and limits reference work to 8,192
+visits, counting language feature references, unique selected feature lookup
+references, selected lookup headers and expanded subtable references. Aliases
+count as separate visits. A second bound permits at most 1,024 potential PairPos
+slots across selected type-2/type-9 lookups, limiting retained descriptors and
+worst-case probes per pair. Both bounds are checked before expanded traversal;
+exceeding either returns `PositioningLimit`. They permit thousands of ordinary
+references while preventing small aliased tables from causing quadratic work.
+`ui_positioning` and `ui_positioning_hostile` exercise selection, precedence,
+measurement, storage accounting, malformed input and bounded registration.
 
 `TextRun::spans` contains ordered, nonempty, disjoint `TextSpan` UTF-8 byte ranges. Each range must end on character boundaries inside `text`. Invalid ranges or colours return `InvalidText`. A span's linear RGBA colour multiplies the run colour and inherited group alpha; unstyled glyphs use white. The source ranges survive wrapping, consumed break spaces and CR/LF. `GlyphLayout::color` and `UiGlyphQuad::color` carry the span tint through extraction, and both presentation paths multiply it by the contribution tint. This structured API accepts no markup. There are no bundled font faces or simulated bold or italic weights. A span can carry `link: Some(UiLinkId(value))`; plain colour spans use `None`. Link identities are caller-chosen and must be unique within one run. Duplicate identities return `InvalidText`. Both cached glyph layouts and extracted glyph quads retain the link identity. Link spans also produce solid underline quads through `UiRenderPlan::graphics`, one per line segment, using the span colour multiplied by the run tint and inherited alpha. Their thickness is one sixteenth of the font size, with a minimum of one logical pixel; their upper edge is one thickness below the baseline. Underlines share glyph pixel snapping and rectangle, renderer and scroll clipping.
 
@@ -442,6 +480,13 @@ canvas viewport and any explicit `CanvasRenderer::clip_rect`. The latter is
 measured in root-canvas coordinates and also applies to text on that object.
 Bounds round inward to whole-pixel scissors, which intersect the current render
 extent. This bounds rotated graphics even when CPU quad clipping keeps them whole.
+`UiDraw::corner_colors` optionally supplies BL/BR/TR/TL linear straight-alpha
+multipliers. None supplies white. The sampled texture is multiplied by common
+`color` and the interpolated corner colour, using the existing 0-2 triangle diagonal,
+not bilinear interpolation. Triangles use their first three colours. UV flips do
+not move destination colours. Every corner channel must be finite and in 0..=1;
+overlay conversion and ABI copy-out/decode reject invalid values. Dynamic scene
+quads reject this overlay-only metadata. Scene vertex layouts remain unchanged.
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes
 its generated underline graphics through `append_graphics` before glyph quads;

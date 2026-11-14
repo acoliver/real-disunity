@@ -3,7 +3,7 @@ use super::readback::Rect;
 use super::renderer_lists::RendererListDesc;
 use super::{
     ComputeBindings, ComputeShaderId, GraphicsError, MaterialId, PropertyValue, RenderTextureId,
-    TargetRef, TextureRef, WorldRenderTexture,
+    ShaderProperties, TargetRef, TextureRef, WorldRenderTexture,
 };
 use crate::{ComponentDesc, ComponentHandle, World, WorldError};
 
@@ -127,14 +127,39 @@ pub enum OffscreenWork {
     /// mesh's coordinates to the world) and the material's pass, into the bound targets with the
     /// current view and projection. `submesh` picks one sub-mesh; a `pass` of -1 draws every
     /// pass. The world keeps no mesh contents (the host reads them by identity), so it checks
-    /// that the identity is nonzero and leaves an identity nothing stored to the host.
+    /// that the identity is nonzero and leaves an identity nothing stored to the host. `block` is
+    /// the draw's own property block, read between its per-draw values and the material, as a
+    /// renderer's block is; the world checks that the render textures it names are alive.
     DrawMesh {
         mesh: u64,
         matrix: [f32; 16],
         material: MaterialId,
         submesh: u32,
         pass: i32,
+        block: Option<Box<ShaderProperties>>,
     },
+    /// Draws `vertex_count` generated vertices `instance_count` times with `matrix`
+    /// (column-major) and the material's pass into the bound targets, with the current view and
+    /// projection. The shader makes each vertex from its vertex and instance index, so no mesh is
+    /// read. A `pass` of -1 draws every pass. A zero count is a draw of nothing that keeps its
+    /// place among the records.
+    DrawProcedural {
+        matrix: [f32; 16],
+        material: MaterialId,
+        pass: i32,
+        topology: DrawTopology,
+        vertex_count: u32,
+        instance_count: u32,
+    },
+}
+
+/// How a procedural draw joins its generated vertices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DrawTopology {
+    /// Every three vertices make a triangle.
+    TriangleList,
+    /// Every two vertices make a line.
+    LineList,
 }
 
 impl OffscreenWork {
@@ -150,6 +175,12 @@ impl OffscreenWork {
             }
             Self::Dispatch { bindings, .. } => bindings
                 .properties
+                .textures
+                .iter()
+                .any(|(_, slot)| texture(&slot.texture)),
+            Self::DrawMesh {
+                block: Some(block), ..
+            } => block
                 .textures
                 .iter()
                 .any(|(_, slot)| texture(&slot.texture)),

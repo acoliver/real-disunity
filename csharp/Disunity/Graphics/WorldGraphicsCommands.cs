@@ -101,6 +101,21 @@ internal static unsafe partial class WorldGraphics
         Check(NativeBindings.disunity_offscreen_set_view_projection(World, matrices, matrices + 16));
     }
 
+    /// <summary>Writes <paramref name="block"/> to the world's draw scope, which the next mesh draw takes as its own property
+    /// block. A value the world refuses (a property name longer than it accepts) throws and leaves the scope empty, so no part
+    /// of the block reaches a later draw.</summary>
+    internal static void StageDrawBlock(PropertyStore block)
+    {
+        var next = new Link(World, 0);
+        ClearProperties(ScopeDraw, next);
+        try { SendAll(ScopeDraw, next, block); }
+        catch
+        {
+            ClearProperties(ScopeDraw, next);
+            throw;
+        }
+    }
+
     /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it.</summary>
     internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, int submesh, int pass)
     {
@@ -109,6 +124,17 @@ internal static unsafe partial class WorldGraphics
             for (var row = 0; row < 4; row++)
                 columns[column * 4 + row] = matrix[row, column];
         Check(NativeBindings.disunity_offscreen_draw_mesh(World, mesh, columns, material, (uint)submesh, pass));
+    }
+
+    /// <summary>Records a draw of generated vertices with the matrix column by column, as the world holds it. Topology 0 is a
+    /// triangle list and 1 a line list.</summary>
+    internal static void RecordDrawProcedural(Matrix4x4 matrix, ulong material, int pass, uint topology, (int Vertices, int Instances) counts)
+    {
+        var columns = stackalloc float[16];
+        for (var column = 0; column < 4; column++)
+            for (var row = 0; row < 4; row++)
+                columns[column * 4 + row] = matrix[row, column];
+        Check(NativeBindings.disunity_offscreen_draw_procedural(World, columns, material, pass, topology, counts.Vertices, counts.Instances));
     }
 
     private static long _lastHandle;

@@ -10,6 +10,10 @@ use crate::geometry::{
     GeometryError, VERTEX_BYTES, micro_to_unit, millimeter_to_meter, pack_vertices,
 };
 
+mod palette;
+
+pub(crate) use palette::{PaletteOverflow, PoseRange, ScenePalette};
+
 /// Bytes of one palette entry on the GPU: three `vec4<f32>` rows.
 pub(crate) const PALETTE_ENTRY_BYTES: u64 = 48;
 

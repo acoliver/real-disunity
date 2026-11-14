@@ -63,6 +63,8 @@ pub struct FrameRenderer {
     pub(crate) ssr: Option<crate::ssr::Ssr>,
     ssao_requested: Option<worldrunner_render_plan::SceneSsao>,
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
+    /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
+    pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -111,6 +113,7 @@ impl FrameRenderer {
             ssr: None,
             ssao_requested: None,
             ssr_requested: None,
+            gbuffer: None,
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -200,12 +203,21 @@ impl FrameRenderer {
             ssr_requested.as_ref(),
             effects.is_some_and(|effects| effects.depth_fitting().is_some()),
         );
+        let gbuffer = opaque::allocate_path(
+            context.device(),
+            effects.map_or_else(
+                Default::default,
+                worldrunner_render_plan::SceneEffects::opaque_path,
+            ),
+            config,
+        )?;
         let mut renderer = Self {
             overlay: overlay::OverlayStage::default(),
             output_format,
             environment_conventions: [None; 2],
             ssao_requested,
             ssr_requested,
+            gbuffer,
             ssr: None,
             water: None,
             water_state: std::rc::Rc::default(),
@@ -453,6 +465,13 @@ impl FrameRenderer {
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
         }
+        if let Some(gbuffer) = self
+            .gbuffer
+            .as_mut()
+            .filter(|gbuffer| gbuffer.size() != size)
+        {
+            *gbuffer = crate::gbuffer::Gbuffer::new(device, size);
+        }
         self.share_metadata_depth(device);
         Ok(changed)
     }
@@ -632,6 +651,10 @@ impl FrameRenderer {
                 prepared: feature,
             });
         }
+        if let Some(gbuffer) = &self.gbuffer {
+            let declared = combined.iter().map(|feature| &feature.declaration);
+            gbuffer.schedule(&mut passes, &mut views, declared.chain(&retained))?;
+        }
         if let Some(opaque) = passes
             .iter()
             .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
@@ -686,6 +709,11 @@ impl FrameRenderer {
         if self.ssao.is_some() || self.water.is_some() || self.ssr.is_some() {
             return Err(FrameError::UnsupportedEffect(
                 "SSAO requires stock geometry composition",
+            ));
+        }
+        if self.gbuffer.is_some() {
+            return Err(FrameError::UnsupportedEffect(
+                "the opaque G-buffer requires stock geometry composition",
             ));
         }
         self.chain.encode_geometry(

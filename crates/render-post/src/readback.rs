@@ -60,10 +60,12 @@ impl Readback {
             return Err(PostError::ReadbackSource.into());
         }
         let bytes = match config.format {
+            wgpu::TextureFormat::R16Uint => 2,
             wgpu::TextureFormat::Rgba8Unorm
             | wgpu::TextureFormat::Rgba8UnormSrgb
             | wgpu::TextureFormat::Bgra8Unorm
             | wgpu::TextureFormat::Bgra8UnormSrgb
+            | wgpu::TextureFormat::Rgb10a2Unorm
             | wgpu::TextureFormat::R32Float
             | wgpu::TextureFormat::Rg16Float => 4,
             wgpu::TextureFormat::Rgba16Float | wgpu::TextureFormat::Rg32Float => 8,

@@ -7,7 +7,7 @@ pub(super) fn keep(terrain: &SceneTerrain, matrix: Mat4) -> impl Fn(&TerrainChun
     let frustum = Frustum::new(matrix);
     move |chunk| {
         let [min, max] = chunk_bounds(terrain, *chunk);
-        frustum.intersects(Bounds { min, max })
+        frustum.intersects(Bounds { min, max }.outward_rounded())
     }
 }
 
@@ -77,6 +77,48 @@ mod tests {
             )
             .is_empty()
         );
+    }
+
+    #[test]
+    fn translated_rotated_leaf_with_raster_visible_vertex_is_kept() {
+        let source = terrain();
+        let terrain = SceneTerrain::new(worldrunner_render_plan::SceneTerrainParts {
+            columns: 129,
+            rows: 129,
+            origin_east_millimeters: 1_013_727,
+            origin_north_millimeters: 0,
+            sample_spacing_millimeters: 1000,
+            heights_millimeters: (0..129 * 129)
+                .map(|i| if i == 0 { 0 } else { 3000 })
+                .collect(),
+            surface_indices: vec![0; 129 * 129],
+            surfaces: source.surfaces().to_vec(),
+            lod_policy: source.lod_policy(),
+        })
+        .unwrap()
+        .with_streaming_policy(source.streaming_policy());
+        let chunk = root(&terrain);
+        let [min, max] = chunk_bounds(&terrain, chunk);
+        assert_eq!(min, Vec3::new(1013.727, 0.0, -1.0));
+        assert_eq!(max, Vec3::new(1141.727, 128.0, 3.0));
+        let matrix = Mat4::from_cols_array_2d(&[
+            [96.66466, -25.611_404, 0.0, 0.0],
+            [25.611_404, 96.66466, 0.0, 0.0],
+            [0.0, 0.0, 0.1, 0.0],
+            [-97990.58, 25962.973, 0.1, 1.0],
+        ]);
+        let clip = matrix * Vec3::new(min.x, min.y, 0.0).extend(1.0);
+        assert!(clip.x > -clip.w && clip.x < clip.w);
+        assert!(clip.y > -clip.w && clip.y < clip.w);
+        assert!(clip.z > 0.0 && clip.z < clip.w);
+        let rows = matrix.transpose();
+        let right = rows.w_axis - rows.x_axis;
+        let support = right.truncate().dot((min + max) * 0.5)
+            + right.w
+            + right.truncate().abs().dot((max - min) * 0.5);
+        assert!(support < 0.0, "unpadded support: {support}");
+        assert!(!Frustum::new(matrix).intersects(Bounds { min, max }));
+        assert_eq!(visible(&terrain, matrix, &[(chunk, ())]).len(), 1);
     }
 
     #[test]

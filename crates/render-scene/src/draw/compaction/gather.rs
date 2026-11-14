@@ -2,6 +2,7 @@
 use std::cell::{OnceCell, RefCell};
 
 use wgpu::Buffer;
+use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
 use worldrunner_render_post::PrepareContext;
 
 use super::mirror;
@@ -90,10 +91,11 @@ pub(super) struct Bindings<'a> {
 }
 
 /// A view's run list buffer, reused across frames and grown when a list outgrows it, and the
-/// bind group of its last gather.
+/// bind group of its last gather. The list counts as instance bytes in the scene's census: its
+/// size follows the view's selected ranges.
 #[derive(Debug, Default)]
 pub(super) struct Scratch {
-    runs: Option<Buffer>,
+    runs: Option<Tracked<Buffer>>,
     group: Option<(Vec<Buffer>, wgpu::BindGroup)>,
 }
 
@@ -130,11 +132,12 @@ impl Shared {
         crate::compositor::publication::key(&self.mirror.committed)
     }
 
-    /// Stages one dispatch that writes every run into the view buffers.
+    /// Stages one dispatch that writes every run into the view buffers. A grown run list is
+    /// created through `census`.
     pub(super) fn dispatch(
         &self,
         context: &mut PrepareContext<'_>,
-        scratch: &RefCell<Scratch>,
+        (scratch, census): (&RefCell<Scratch>, &MemoryCensus),
         runs: &[Run],
         bindings: &Bindings<'_>,
     ) {
@@ -146,7 +149,7 @@ impl Shared {
         };
         let bytes = run_bytes(runs);
         let mut scratch = scratch.borrow_mut();
-        let list = scratch.runs_holding(&device, bytes.len() as u64);
+        let list = scratch.runs_holding(&device, census, bytes.len() as u64);
         context.upload_buffer(&list, 0, &bytes);
         let group = scratch.group(&device, &pipeline.layout, &list, bindings);
         let limit = device.limits().max_compute_workgroups_per_dimension;
@@ -161,8 +164,14 @@ impl Shared {
 }
 
 impl Scratch {
-    fn runs_holding(&mut self, device: &wgpu::Device, bytes: u64) -> Buffer {
-        if let Some(buffer) = self.runs.as_ref().filter(|buffer| buffer.size() >= bytes) {
+    /// Bytes of the run list buffer, zero before the first gather.
+    #[cfg(test)]
+    pub fn bytes(&self) -> u64 {
+        self.runs.as_deref().map_or(0, Buffer::size)
+    }
+
+    fn runs_holding(&mut self, device: &wgpu::Device, census: &MemoryCensus, bytes: u64) -> Buffer {
+        if let Some(buffer) = self.runs.as_deref().filter(|buffer| buffer.size() >= bytes) {
             return buffer.clone();
         }
         let size = bytes
@@ -173,14 +182,19 @@ impl Scratch {
             size <= limits.max_buffer_size && size <= limits.max_storage_buffer_binding_size,
             "gather run list of {size} bytes exceeds the device's storage buffer limits"
         );
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("gather runs"),
-            size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.runs = Some(buffer.clone());
-        buffer
+        let buffer = census.create_buffer(
+            device,
+            ResourceClass::Instance,
+            &wgpu::BufferDescriptor {
+                label: Some("gather runs"),
+                size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        );
+        let list = Buffer::clone(&buffer);
+        self.runs = Some(buffer);
+        list
     }
 
     /// The bind group of the last gather when it bound the same buffers, otherwise a new one.
@@ -193,7 +207,7 @@ impl Scratch {
     ) -> wgpu::BindGroup {
         let mut buffers = vec![
             list.clone(),
-            bindings.mirror.current.clone(),
+            Buffer::clone(&bindings.mirror.current),
             bindings.current.clone(),
         ];
         if let Some(previous) = bindings.previous {
@@ -202,7 +216,7 @@ impl Scratch {
                 .previous
                 .as_ref()
                 .expect("previous mirror for a previous gather");
-            buffers.extend([mirror.clone(), previous.clone()]);
+            buffers.extend([Buffer::clone(mirror), previous.clone()]);
         }
         if let Some((_, group)) = self.group.as_ref().filter(|(bound, _)| *bound == buffers) {
             return group.clone();

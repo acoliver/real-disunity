@@ -15,7 +15,7 @@ use worldrunner_render_post::BufferReadback;
 const CARDS: i64 = 48;
 
 /// Card `index % 8` of the compaction scene, one row further back for every eight cards.
-fn object(index: i64) -> SceneObject {
+pub(super) fn object(index: i64) -> SceneObject {
     let mut transform = *placement(index % 8).transform();
     transform.position_millimeters[1] += 2_000 * (index / 8);
     let material = u32::try_from(index % 3).expect("three materials");

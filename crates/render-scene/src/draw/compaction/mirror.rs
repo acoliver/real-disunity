@@ -9,15 +9,19 @@
 //!
 //! Like the view buffers, the mirror is overwritten in place within a transaction, and what it
 //! holds publishes with the transaction, so a cancelled frame leaves the committed state exact.
+//!
+//! Its buffers count as instance bytes in the scene's memory census until the last state that
+//! holds them (committed or in a transaction) drops.
 use std::collections::BTreeMap;
 use std::{cell::RefCell, rc::Rc};
 
 use wgpu::Buffer;
+use worldrunner_render_gpu::census::{ResourceClass, Tracked};
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::PrepareContext;
 
 use super::STRIDE;
-use crate::instances::{BatchKey, InstanceBatch};
+use crate::instances::{BatchKey, InstanceBatch, Instances};
 
 /// The record range of one batch in the mirror.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,8 +100,8 @@ struct Held {
 /// The mirror buffers; `previous` exists once a gather needed previous transforms.
 #[derive(Clone, Debug)]
 pub(super) struct Buffers {
-    pub current: Buffer,
-    pub previous: Option<Buffer>,
+    pub current: Rc<Tracked<Buffer>>,
+    pub previous: Option<Rc<Tracked<Buffer>>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -137,10 +141,11 @@ impl Mirror {
     pub fn prepare(
         &self,
         context: &mut PrepareContext<'_>,
-        batches: &BTreeMap<BatchKey, InstanceBatch>,
+        instances: &Instances,
         keys: &[BatchKey],
         previous: bool,
     ) -> State {
+        let batches = &instances.batches;
         let owner = context.publications();
         let mut state = self.state_in(&owner);
         let mut layout = state.layout.clone();
@@ -159,7 +164,7 @@ impl Mirror {
                 .retain(|key, _| layout.extents.get(key) == moved.get(key));
             state.layout = layout;
         } else {
-            state = Self::allocate(context.device(), &state, batches, keys, previous);
+            state = Self::allocate(context.device(), &state, instances, keys, previous);
         }
         for &key in keys {
             Self::refresh(context, &mut state, (key, &batches[&key]), previous);
@@ -178,10 +183,11 @@ impl Mirror {
     fn allocate(
         device: &wgpu::Device,
         state: &State,
-        batches: &BTreeMap<BatchKey, InstanceBatch>,
+        instances: &Instances,
         keys: &[BatchKey],
         previous: bool,
     ) -> State {
+        let batches = &instances.batches;
         let sizes: BTreeMap<BatchKey, u32> = state
             .layout
             .extents
@@ -197,12 +203,16 @@ impl Mirror {
             "gather mirror of {bytes} bytes exceeds the device's storage buffer limits"
         );
         let create = |label| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: bytes,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
+            Rc::new(instances.census.create_buffer(
+                device,
+                ResourceClass::Instance,
+                &wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: bytes,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                },
+            ))
         };
         let keep_previous = state
             .buffers
@@ -238,16 +248,14 @@ impl Mirror {
         }
         let buffers = state.buffers.as_ref().expect("allocated gather mirror");
         let base = u64::from(state.layout.base(key)) * STRIDE;
-        let records = (batch.bytes.len() as u64 / STRIDE).min(u64::from(reserved(
-            batch.buffer.as_ref().expect("flushed instance buffer"),
-        )));
-        let current = batch.buffer.as_ref().expect("flushed instance buffer");
-        context.copy_buffer_region((current, 0), (&buffers.current, base), records * STRIDE);
+        let current = batch.buffer.as_deref().expect("flushed instance buffer");
+        let records = (batch.bytes.len() as u64 / STRIDE).min(u64::from(reserved(current)));
+        context.copy_buffer_region((current, 0), (&**buffers.current, base), records * STRIDE);
         if previous {
-            let source = batch.previous.as_ref().expect("flushed previous buffer");
-            let target = buffers
+            let source = batch.previous.as_deref().expect("flushed previous buffer");
+            let target: &Buffer = buffers
                 .previous
-                .as_ref()
+                .as_deref()
                 .expect("allocated previous mirror");
             let records = records.min(u64::from(reserved(source)));
             context.copy_buffer_region((source, 0), (target, base), records * STRIDE);
@@ -259,6 +267,6 @@ impl Mirror {
 fn flushed(batches: &BTreeMap<BatchKey, InstanceBatch>, key: BatchKey) -> &Buffer {
     batches[&key]
         .buffer
-        .as_ref()
+        .as_deref()
         .expect("flushed instance buffer")
 }

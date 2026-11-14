@@ -12,10 +12,14 @@
 //! and a cancelled frame discards its encoder, so the committed state stays exact. Within one transaction a draw may use the compacted
 //! groups only when that transaction prepared the view with the draw's key, or prepared nothing
 //! for the view and the committed key equals the draw's key.
+//!
+//! The view buffers, the mirror and the run lists count as instance bytes in the scene's memory
+//! census, like the batch buffers they gather from.
 use std::{cell::RefCell, rc::Rc};
 
 use glam::Mat4;
 use wgpu::Buffer;
+use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::PrepareContext;
 
@@ -43,10 +47,14 @@ pub(super) struct Key {
     previous: bool,
 }
 
+/// A view buffer; the committed and in-transaction states share it, and it stays counted until
+/// the last of them drops.
+type ViewBuffer = Rc<Tracked<Buffer>>;
+
 #[derive(Clone, Debug)]
 struct Buffers {
-    current: Buffer,
-    previous: Option<Buffer>,
+    current: ViewBuffer,
+    previous: Option<ViewBuffer>,
 }
 
 impl Buffers {
@@ -59,7 +67,12 @@ impl Buffers {
                     .is_some_and(|buffer| buffer.size() >= bytes))
     }
 
-    fn allocate(device: &wgpu::Device, bytes: u64, previous: bool) -> Option<Self> {
+    fn allocate(
+        device: &wgpu::Device,
+        census: &MemoryCensus,
+        bytes: u64,
+        previous: bool,
+    ) -> Option<Self> {
         let capacity = bytes.checked_next_power_of_two()?;
         let limits = device.limits();
         if capacity > limits.max_buffer_size {
@@ -70,15 +83,19 @@ impl Buffers {
             "view instance buffer of {capacity} bytes exceeds the device's storage binding limit"
         );
         let create = |label| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: capacity,
-                usage: wgpu::BufferUsages::VERTEX
-                    | wgpu::BufferUsages::STORAGE
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            })
+            Rc::new(census.create_buffer(
+                device,
+                ResourceClass::Instance,
+                &wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: capacity,
+                    usage: wgpu::BufferUsages::VERTEX
+                        | wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST
+                        | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                },
+            ))
         };
         Some(Self {
             current: create("view instances"),
@@ -213,9 +230,12 @@ impl SceneGpu {
         };
         let buffers = if plan.total == 0 {
             latest.buffers.clone()
-        } else if let Some(buffers) =
-            Self::gather_buffers(context.device(), &latest, plan.total, key.previous)
-        {
+        } else if let Some(buffers) = Self::gather_buffers(
+            (context.device(), &self.instances.census),
+            &latest,
+            plan.total,
+            key.previous,
+        ) {
             self.stage_gather(
                 context,
                 (compaction, &plan, &keys),
@@ -266,7 +286,7 @@ impl SceneGpu {
     /// Reuses the latest buffers while they hold `total` records, otherwise allocates new
     /// ones; a grown buffer is never an in-place copy target.
     fn gather_buffers(
-        device: &wgpu::Device,
+        (device, census): (&wgpu::Device, &MemoryCensus),
         latest: &Resident,
         total: u32,
         previous: bool,
@@ -274,7 +294,7 @@ impl SceneGpu {
         let bytes = u64::from(total) * STRIDE;
         match latest.buffers.as_ref().filter(|b| b.holds(bytes, previous)) {
             Some(existing) => Some(existing.clone()),
-            None => Buffers::allocate(device, bytes, previous),
+            None => Buffers::allocate(device, census, bytes, previous),
         }
     }
 
@@ -288,15 +308,23 @@ impl SceneGpu {
         let mirror = self
             .gather
             .mirror
-            .prepare(context, &self.instances.batches, keys, previous);
+            .prepare(context, &self.instances, keys, previous);
         let runs = plan.runs(|key| mirror.layout.base(key));
         let bindings = gather::Bindings {
             mirror: mirror.buffers.as_ref().expect("allocated gather mirror"),
             current: &buffers.current,
-            previous: buffers.previous.as_ref().filter(|_| previous),
+            previous: buffers
+                .previous
+                .as_deref()
+                .map(|b| &**b)
+                .filter(|_| previous),
         };
-        self.gather
-            .dispatch(context, &compaction.scratch, &runs, &bindings);
+        self.gather.dispatch(
+            context,
+            (&compaction.scratch, &self.instances.census),
+            &runs,
+            &bindings,
+        );
     }
 
     /// Records a view's selection: one draw per (batch, LOD) group from the view buffer when
@@ -331,7 +359,7 @@ impl SceneGpu {
         else {
             return drawn;
         };
-        sink.instances(&buffers.current, buffers.previous.as_ref());
+        sink.instances(&buffers.current, buffers.previous.as_deref().map(|b| &**b));
         for group in resident.groups.iter() {
             self.record_lod_draws(sink, group, &mut drawn);
         }
@@ -339,8 +367,58 @@ impl SceneGpu {
     }
 }
 
+/// Bytes of the committed buffers compaction holds, by kind.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CompactionBytes {
+    /// The mirror and its previous-transform half.
+    pub mirror: u64,
+    /// Every view's gathered records and previous transforms.
+    pub views: u64,
+    /// Every view's run list.
+    pub runs: u64,
+}
+
+#[cfg(test)]
+impl CompactionBytes {
+    pub fn total(self) -> u64 {
+        self.mirror + self.views + self.runs
+    }
+}
+
 #[cfg(test)]
 impl SceneGpu {
+    /// Sizes of the committed mirror, view buffers and run lists.
+    pub(crate) fn compaction_bytes(&self) -> CompactionBytes {
+        let pair = |current: &Buffer, previous: Option<&Buffer>| {
+            current.size() + previous.map_or(0, Buffer::size)
+        };
+        let mirror = self.gather.mirror.committed.borrow();
+        let mirror = mirror.buffers.as_ref().map_or(0, |buffers| {
+            pair(&buffers.current, buffers.previous.as_deref().map(|b| &**b))
+        });
+        let views = self
+            .views
+            .iter()
+            .map(|view| {
+                let resident = view.compaction.committed.borrow();
+                resident.buffers.as_ref().map_or(0, |buffers| {
+                    pair(&buffers.current, buffers.previous.as_deref().map(|b| &**b))
+                })
+            })
+            .sum();
+        let runs = self
+            .views
+            .iter()
+            .map(|view| view.compaction.scratch.borrow().bytes())
+            .sum();
+        CompactionBytes {
+            mirror,
+            views,
+            runs,
+        }
+    }
+
     /// Selected ranges and (batch, LOD) groups of the view's last published selection.
     pub(crate) fn published_ranges_and_groups(&self, view: usize) -> (usize, usize) {
         let selection = self.views[view].published.borrow();
@@ -360,8 +438,12 @@ impl SceneGpu {
             .map(|copy| {
                 let batch = &self.instances.batches[&copy.key];
                 GatherCopy {
-                    current: batch.buffer.clone().expect("flushed instance buffer"),
-                    previous: batch.previous.clone(),
+                    current: batch
+                        .buffer
+                        .as_deref()
+                        .cloned()
+                        .expect("flushed instance buffer"),
+                    previous: batch.previous.as_deref().cloned(),
                     source: u64::from(copy.source.start) * STRIDE,
                     destination: u64::from(copy.destination) * STRIDE,
                     bytes: u64::from(copy.source.end - copy.source.start) * STRIDE,
@@ -369,8 +451,8 @@ impl SceneGpu {
             })
             .collect();
         CommittedGather {
-            current: buffers.current,
-            previous: buffers.previous,
+            current: Buffer::clone(&buffers.current),
+            previous: buffers.previous.as_deref().map(|b| Buffer::clone(b)),
             bytes: u64::from(plan.total) * STRIDE,
             keys: plan
                 .groups

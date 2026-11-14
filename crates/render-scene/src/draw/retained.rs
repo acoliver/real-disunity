@@ -264,8 +264,10 @@ impl SceneGpu {
     ) -> Vec<InstanceWrite> {
         let mut writes = Vec::new();
         let track = self.instances.track_previous;
+        let census = &self.instances.census;
         for (&(_, mesh, material), batch) in &mut self.instances.batches {
-            for instances in crate::instances::batch::flush_prepared(batch, context, track) {
+            for instances in crate::instances::batch::flush_prepared(batch, context, census, track)
+            {
                 writes.push(InstanceWrite {
                     mesh,
                     material,

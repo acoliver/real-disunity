@@ -147,3 +147,49 @@ fn gpu_gather_with_previous_transforms_matches_plain_copies() {
         assert_gather_matches_copies(&rig.context, &rig.gpu, true);
     }
 }
+
+/// The batch buffers and every buffer the gather adds (the mirror with its previous-transform
+/// half, the view buffers and the run lists) count as instance bytes in the scene's census,
+/// replaced buffers stop counting when the mirror and the batches grow, and nothing is left
+/// once the scene drops.
+#[test]
+fn gpu_gather_buffers_count_in_the_census_until_the_scene_drops() {
+    use super::super::compaction_gather::{fragmented, hide_every_fifth, object};
+    use worldrunner_render_gpu::census::ResourceClass;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut rig = Rig::of(&fragmented());
+    hide_every_fifth(&mut rig.gpu);
+    // Each test context has its own authority, so only this scene counts in its census.
+    let census = rig.context.submission().census().clone();
+    let counted = |rig: &Rig| {
+        let batches: u64 = rig
+            .gpu
+            .instances
+            .batches
+            .values()
+            .flat_map(|batch| [batch.buffer.as_deref(), batch.previous.as_deref()])
+            .map(|buffer| buffer.map_or(0, wgpu::Buffer::size))
+            .sum();
+        let compaction = rig.gpu.compaction_bytes();
+        assert_eq!(
+            census.snapshot().get(ResourceClass::Instance),
+            batches + compaction.total(),
+            "{compaction:?}"
+        );
+        compaction
+    };
+    rig.velocity(0);
+    let first = counted(&rig);
+    assert!(
+        first.mirror > 0 && first.views > 0 && first.runs > 0,
+        "{first:?}"
+    );
+    for index in 0..40 {
+        rig.gpu.add_instance(object(index), true).unwrap();
+    }
+    rig.velocity(0);
+    let grown = counted(&rig);
+    assert!(grown.mirror > first.mirror, "{first:?} {grown:?}");
+    drop(rig);
+    assert_eq!(census.snapshot().get(ResourceClass::Instance), 0);
+}

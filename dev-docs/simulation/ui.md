@@ -371,7 +371,7 @@ for the window visibility order and activation contract.
 
 ## Text contract
 
-Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.
+Register owned TrueType SFNT bytes with `FontBook::register`, then use its typed `FontId` in a `TextRun`. Registration validates horizontal metrics, positive font height, character mapping, glyph offsets and nonempty outlines before publishing the font, including unmapped glyphs. Simple glyph records require strictly increasing contour endpoints and complete instruction, flag and coordinate arrays. Well-formed single-point and all-collinear contours are empty for drawing and retain their authored horizontal metrics; their empty-glyph index counts against the font storage limit. This subset requires `glyf` and `loca` outlines; CFF, bitmap-only and other representations return `InvalidFont`. Authored zero advances and empty glyphs remain valid. Font identities are process-unique and never reused between books. Missing fonts, invalid bytes, missing glyphs and resource limits are distinct errors. There is no substitution for missing content.
 
 The supported character set is printable ASCII (U+0020..U+007E), Latin-1 U+00A0..U+00FF, LF and CR. CR is ignored; LF starts a new paragraph. Other controls and characters return `UnsupportedShaping(character)`. A supported character absent from the supplied font returns `MissingGlyph(character)`, including spaces. Neither error substitutes or drops the character. This implementation does not provide ligatures, bidirectional layout, combining marks or script shaping. Latin-1 support requires the caller's font to contain the requested glyphs; the synthetic test font covers ASCII only.
 
@@ -480,6 +480,13 @@ canvas viewport and any explicit `CanvasRenderer::clip_rect`. The latter is
 measured in root-canvas coordinates and also applies to text on that object.
 Bounds round inward to whole-pixel scissors, which intersect the current render
 extent. This bounds rotated graphics even when CPU quad clipping keeps them whole.
+`UiDraw::corner_colors` optionally supplies BL/BR/TR/TL linear straight-alpha
+multipliers. None supplies white. The sampled texture is multiplied by common
+`color` and the interpolated corner colour, using the existing 0-2 triangle diagonal,
+not bilinear interpolation. Triangles use their first three colours. UV flips do
+not move destination colours. Every corner channel must be finite and in 0..=1;
+overlay conversion and ABI copy-out/decode reject invalid values. Dynamic scene
+quads reject this overlay-only metadata. Scene vertex layouts remain unchanged.
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes
 its generated underline graphics through `append_graphics` before glyph quads;

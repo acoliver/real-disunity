@@ -160,6 +160,13 @@ pub(super) fn capture(
     if cull == Cull::ForceEmpty {
         selected.ranges.clear();
     }
+    let legacy = crate::renderer::legacy_objects::Pipelines::build(
+        device,
+        &crate::renderer::legacy_objects::Build::of(
+            &setup.pipelines,
+            crate::renderer::legacy_objects::Build::live_source(&setup.pipelines),
+        ),
+    );
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
     let count = {
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -185,7 +192,8 @@ pub(super) fn capture(
             let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
         } else {
-            let pipelines = setup.pipelines.object_pipelines();
+            // The frozen fixed path stands in for the fixed pipelines no pass draws with any more.
+            let pipelines = &legacy;
             let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
             gpu.record_selection(&mut sink, (None, &frame), &selected.ranges)
         }

@@ -2,7 +2,8 @@
 //! source the draw selects.
 //!
 //! The composition is textual and exact: the terrain captures print a hash of the pixels it
-//! produces, and `draw/tests/metadata_forward_sources.rs` fingerprints the composed sources.
+//! produces, and `draw/tests/metadata_forward_sources.rs` validates the composed sources with
+//! naga.
 
 use super::Surface;
 use crate::shader::rewrite::ShaderRewrite;

@@ -97,7 +97,7 @@ fn object_programs_register_for_every_key_in_every_context_with_one_material_lay
 }
 
 /// A key's features are the five axes of its pipeline, so 32 keys are 32 feature sets and the
-/// fragment entry point follows from the key as the fixed pipelines chose it.
+/// fragment entry point follows from the key.
 #[test]
 fn the_features_of_a_key_name_its_axes_and_are_distinct() {
     use crate::pipeline::PipelineKey;

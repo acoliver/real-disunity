@@ -1,11 +1,11 @@
 //! Records the forward objects through the program runtime.
 //!
-//! The walk over a view's selection is the fixed path's ([`DrawSink`]); only how a draw reaches
-//! the pass differs. A change of pipeline or material binds the prepared pipeline of the pair
-//! (the pipeline and the material's set), and every draw is one [`GeometryDraw`] over the
-//! buffers the walk named. The pass records the commands the fixed path recorded: a buffer is
-//! set when the walk names it, a pipeline when it differs from the one set, and the material's
-//! group when the material changes.
+//! The walk over a view's selection is shared with the test-only fixed sink ([`DrawSink`]); only
+//! how a draw reaches the pass differs. A change of pipeline or material binds the prepared
+//! pipeline of the pair (the pipeline and the material's set), and every draw is one
+//! [`GeometryDraw`] over the buffers the walk named. The pass records a buffer when the walk
+//! names it, a pipeline when it differs from the one set, and the material's group when the
+//! material changes.
 
 use std::rc::Rc;
 
@@ -196,8 +196,7 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
 }
 
 impl SceneGpu {
-    /// Records the scene's objects through the program runtime, as
-    /// [`draw_objects`](Self::draw_objects) records them with the fixed pipelines. The frame
+    /// Records the scene's objects through the program runtime. The frame
     /// group is bound here; the shadow and screen groups are the pass's, bound before this.
     pub(crate) fn draw_objects_prepared<P: PassCommands + ?Sized>(
         &self,

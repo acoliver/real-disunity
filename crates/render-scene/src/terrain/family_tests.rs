@@ -35,7 +35,7 @@ fn case<'a>(built: &'a Built, name: &'a str, source: Source, samples: u32) -> Ca
 }
 
 /// Draws one uploaded scene through two independently built sets of pipelines, then through the
-/// first again. Each draw is compared with the fixed path by [`capture`], and the three agree.
+/// first again. [`capture`] reads each draw back, and the three agree.
 fn through_independent_pipelines(source: Source) {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();

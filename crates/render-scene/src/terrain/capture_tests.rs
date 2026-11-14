@@ -494,8 +494,7 @@ fn compare(case: &Case<'_>, [scene, untouched]: [&[Vec<u8>]; 2]) {
 }
 
 /// The scene's terrain draw went through the program runtime, once, and its context prepared a
-/// terrain pipeline and set there. The fixed path no longer exists to fall back to, so this
-/// guards a draw that records nothing.
+/// terrain pipeline and set there. This guards a draw that records nothing.
 pub(super) fn assert_recorded_by_runtime(name: &str, pipelines: &ScenePipelines, before: u64) {
     assert_eq!(
         terrain_paths::recorded(),

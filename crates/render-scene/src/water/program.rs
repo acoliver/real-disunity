@@ -4,14 +4,14 @@
 //! with, and counts nothing against a budget: every buffer and texture a body draws with belongs
 //! to [`Water`](super::Water) and is lent to the runtime, as the dynamic unlit material lends its
 //! quads. There is one program for each pipeline key, `([u32; 5], shadows)`, built on first use
-//! from the text the fixed pipeline builder composed. The four text bits of `options[4]`
+//! from the water source with its text options applied. The four text bits of `options[4]`
 //! (endpoint 256, vertex seeds 512, shadow response 1024 through its filter 2048) and `shadows`
 //! choose the text, and the specular options and term bits are override constants of both
-//! stages, as the fixed pipelines set them.
+//! stages.
 //!
-//! Set 0 is water's own and is built from imports for each body and frame slot, as the fixed
-//! path builds a bind group per body for each feature. Set 1 is the shadow group, lent: the pass
-//! owner binds it once before the bodies, and the runtime builds none ([`ExternalSet`]).
+//! Set 0 is water's own and is built from imports for each body and frame slot. Set 1 is the
+//! shadow group, lent: the pass owner binds it once before the bodies, and the runtime builds
+//! none ([`ExternalSet`]).
 //!
 //! A draw is prepared, and retained by the frame's encoder, when the frame's water feature is
 //! made, before the pass opens. Recording it in the pass only sets state.
@@ -137,8 +137,8 @@ impl Programs {
         Ok(program)
     }
 
-    /// The text of `key` and the options it is compiled with: what the fixed pipeline builder
-    /// built its module from.
+    /// The text of `key` and the options it is compiled with: what the program's module is
+    /// built from.
     fn source(&self, (options, shadows): Key) -> (Arc<str>, [u32; 5]) {
         if let Some((source, options)) = self.sources.get(&(options, shadows)) {
             return (text(source, *options, shadows), *options);
@@ -167,8 +167,7 @@ impl Programs {
             Some(depth.format()),
             samples,
         )?;
-        // The fixed pipeline's primitive state is wgpu's default: no culling, counter-clockwise
-        // fronts.
+        // The primitive state is wgpu's default: no culling, counter-clockwise fronts.
         let state = depth.render_state(
             4,
             RasterState {
@@ -218,7 +217,7 @@ impl Programs {
     }
 }
 
-/// `source` specialised for `options` as the fixed pipeline builder does: the shadow response
+/// `source` specialised for `options`: the shadow response
 /// filter first, then the vertex seeds.
 fn text(source: &str, options: [u32; 5], shadows: bool) -> Arc<str> {
     let source = super::shadow_response::specialize(source, options[4], shadows);
@@ -356,7 +355,7 @@ fn build(
 }
 
 /// The body's vertices, and the endpoint coordinates when the text reads them, in the layouts
-/// `geometry::layouts` gives the fixed pipeline.
+/// `geometry::layouts` gives.
 ///
 /// # Errors
 /// `GeometryLayoutMismatch` when a vertex buffer slot has no layout, and `VertexBufferCount`

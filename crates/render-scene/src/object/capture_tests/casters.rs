@@ -83,7 +83,7 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
         false,
     );
     let sampling = worldrunner_render_plan::SceneShadowSampling::default();
-    let (live, _) = crate::shadows::object_casters(&pipelines, settings(), sampling);
+    let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
     let start = pipelines.object_runtime_stats();
     rig.gpu.prepare_object_context(&live).unwrap();
     let before = pipelines.object_runtime_stats();

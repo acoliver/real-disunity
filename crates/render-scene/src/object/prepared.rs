@@ -2,15 +2,16 @@
 //!
 //! A material's resources are lent to the runtime once, when the scene is uploaded: one
 //! [`ImportTable`] per material holds the 576-byte material block, the surface maps, the sampler,
-//! the contact heights and the impostor and wind textures, as the fixed material group binds
-//! them. A [`PreparedSet`] is made from a table the first time a runtime needs it, and every
-//! pipeline of that runtime whose set-1 layout equals the set's shares it.
+//! the contact heights and the impostor and wind textures, as the material's bind group
+//! (`SceneGpu::materials`, which the celestial meshes still draw with) binds them. A
+//! [`PreparedSet`] is made from a table the first time a runtime needs it, and every pipeline of
+//! that runtime whose set-1 layout equals the set's shares it.
 //!
 //! A prepared pipeline holds the bind groups it sets, so the runtime path prepares one pipeline
 //! for each pair of a [`PipelineKey`] and a material that a scene draws. Recording a pair
-//! costs what the fixed path spent on a pipeline change and a material change together: the
-//! pass sets the pipeline once for the run of draws that share it
-//! (`draw::object_runtime`'s pass adapter), and the material's group each time the material changes.
+//! costs a pipeline change and a material change together: the pass sets the pipeline once for
+//! the run of draws that share it (`draw::object_runtime`'s pass adapter), and the material's
+//! group each time the material changes.
 //! Nothing is built in a steady-state frame: pairs are made the first time a frame prepares for
 //! a context, or the first time a draw needs one, and kept as long as the context lives.
 

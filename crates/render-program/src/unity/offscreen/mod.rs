@@ -322,6 +322,7 @@ impl OffscreenState {
                 resample: &mut self.resample,
                 textures: &self.textures,
                 meshes: &self.meshes,
+                undeclared_texture: frame.undeclared_texture,
                 defaults,
                 tracker: &mut tracker,
                 constants: &mut constants,
@@ -619,6 +620,14 @@ pub struct CameraPassReport {
     pub programs: Vec<ProgramProbe>,
 }
 
+/// Draws that read the frame's `undeclared_texture` because no layer set a texture property the
+/// shader does not declare, counted for one texture property.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UndeclaredDefaultDraws {
+    pub texture: String,
+    pub draws: usize,
+}
+
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
 /// counted for one source channel, the shader input it feeds and the format the input was given.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -669,6 +678,21 @@ impl OffscreenOperations {
             .missing_textures
             .iter()
             .map(|(texture, draws)| MissingTextureDraws {
+                texture: texture.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The draws that read the frame's `undeclared_texture` for a texture property no layer set
+    /// and the shader does not declare, by the texture property, sorted by name. They are drawn;
+    /// none is counted as missing a texture.
+    #[must_use]
+    pub fn undeclared_default_draws(&self) -> Vec<UndeclaredDefaultDraws> {
+        self.counts
+            .undeclared_defaults
+            .iter()
+            .map(|(texture, draws)| UndeclaredDefaultDraws {
                 texture: texture.clone(),
                 draws: *draws,
             })

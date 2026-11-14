@@ -21,4 +21,5 @@ mod rig;
 mod sampler;
 mod shapes;
 mod storage;
+mod undeclared;
 mod volume;

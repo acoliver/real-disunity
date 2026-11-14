@@ -15,7 +15,7 @@ use crate::budget::Reservation;
 use crate::draw::VertexInput;
 use crate::error::ProgramError;
 use crate::ids::{MeshId, ShaderId, TextureId};
-use crate::layers::Layers;
+use crate::layers::{Layers, TextureInput};
 use crate::layout::Slot;
 use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
@@ -70,6 +70,9 @@ pub(super) struct DrawPlan {
     pub(super) texture_uses: Vec<ResourceUse>,
     /// What a probed camera render's look needs, noted only while the services are probing.
     pub(super) facts: Option<DrawFacts>,
+    /// The texture properties that no layer set and the shader does not declare, which the draw
+    /// reads from the frame's `undeclared_texture`.
+    pub(super) undeclared: Vec<String>,
 }
 
 /// Set in the blob number of the key of a program whose fragment stage writes a constant colour,
@@ -138,6 +141,9 @@ pub(super) struct DrawCounts {
     /// texture property.
     pub(super) missing_texture: usize,
     pub(super) missing_textures: std::collections::BTreeMap<String, usize>,
+    /// Draws that read the frame's `undeclared_texture` for a texture property no layer set and
+    /// the shader does not declare, by the texture property.
+    pub(super) undeclared_defaults: std::collections::BTreeMap<String, usize>,
     /// Camera draws left out because the mesh lacks a vertex channel the pass reads, in all and
     /// by (source channel, shader input).
     pub(super) missing_channel: usize,
@@ -177,6 +183,13 @@ impl DrawCounts {
         };
     }
 
+    /// Counts one draw that read the frame's undeclared-texture default for each of `names`.
+    pub(super) fn note_undeclared(&mut self, names: &[String]) {
+        for name in names {
+            *self.undeclared_defaults.entry(name.clone()).or_default() += 1;
+        }
+    }
+
     /// Counts one draw that read a constant for each of `defaulted`.
     pub(super) fn note_defaulted(&mut self, defaulted: &[(i8, i8, wgpu::VertexFormat)]) {
         for &(channel, input, format) in defaulted {
@@ -207,6 +220,8 @@ pub(super) struct Services<'a> {
     pub(super) resample: &'a mut Option<GraphicsProgram>,
     pub(super) textures: &'a TextureTable,
     pub(super) meshes: &'a MeshTable,
+    /// The frame's texture for a slot no layer sets and the shader does not declare.
+    pub(super) undeclared_texture: Option<TextureId>,
     pub(super) defaults: DefaultBuffers,
     pub(super) tracker: &'a mut Tracker,
     pub(super) constants: &'a mut ConstantsPlan,
@@ -234,10 +249,11 @@ impl Services<'_> {
             samplers: Vec::new(),
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
+            undeclared: Vec::new(),
         };
         // Every texture is looked for before anything is bound, so a draw that lacks one changes
         // nothing in the frame.
-        Self::require_textures(spec, &entry, &slots)?;
+        self.require_textures(spec, &entry, &slots)?;
         let mut sampler_states = HashMap::new();
         for slot in &slots {
             match slot.ty {
@@ -261,8 +277,9 @@ impl Services<'_> {
         Ok(plan)
     }
 
-    /// Checks that a layer names the texture of every texture slot.
+    /// Checks that every texture slot has a texture to read.
     fn require_textures(
+        &self,
         spec: &DrawSpec<'_>,
         entry: &ProgramEntry,
         slots: &[Slot],
@@ -278,14 +295,51 @@ impl Services<'_> {
             else {
                 continue;
             };
-            let name = target.name.resolve(&[])?;
-            if spec.layers.texture(name).is_none() {
-                return Err(OffscreenError::MissingTexture {
-                    name: name.to_owned(),
-                });
-            }
+            self.texture_input(spec, target.name.resolve(&[])?, slot)?;
         }
         Ok(())
+    }
+
+    /// The texture a slot of property `name` reads, and whether it is the frame's default for an
+    /// undeclared property.
+    ///
+    /// A layer's texture wins. With none, Unity binds its grey default 2D texture when the shader
+    /// does not declare the property, so the frame's `undeclared_texture` stands in, for a slot
+    /// that samples a 2D float texture. A declared property, a slot of another kind and a frame
+    /// without the texture leave the property missing.
+    fn texture_input(
+        &self,
+        spec: &DrawSpec<'_>,
+        name: &str,
+        slot: &Slot,
+    ) -> Result<(TextureInput, bool), OffscreenError> {
+        if let Some(input) = spec.layers.texture(name) {
+            return Ok((*input, false));
+        }
+        let takes_color_2d = matches!(
+            slot.ty,
+            wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { .. },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            }
+        );
+        let declared = self
+            .shaders
+            .get(&spec.shader)
+            .is_some_and(|shader| shader.declares_texture(name));
+        match self.undeclared_texture {
+            Some(texture) if takes_color_2d && !declared => Ok((
+                TextureInput {
+                    texture,
+                    sampler: None,
+                },
+                true,
+            )),
+            _ => Err(OffscreenError::MissingTexture {
+                name: name.to_owned(),
+            }),
+        }
     }
 
     fn choose(
@@ -396,8 +450,8 @@ impl Services<'_> {
         Ok(())
     }
 
-    /// Binds the texture a layer names for the slot's parameter and returns the sampler state it
-    /// is read with.
+    /// Binds the texture a layer names for the slot's parameter, or the frame's default for an
+    /// undeclared one, and returns the sampler state it is read with.
     fn bind_texture(
         &mut self,
         spec: &DrawSpec<'_>,
@@ -423,12 +477,10 @@ impl Services<'_> {
                 what: "a texture no parameter names",
             })?;
         let name = target.name.resolve(&[])?;
-        let input = spec
-            .layers
-            .texture(name)
-            .ok_or_else(|| OffscreenError::MissingTexture {
-                name: name.to_owned(),
-            })?;
+        let (input, undeclared) = self.texture_input(spec, name, slot)?;
+        if undeclared {
+            plan.undeclared.push(name.to_owned());
+        }
         if let Some(facts) = plan.facts.as_mut() {
             facts.textures.push((name.to_owned(), input.texture));
         }

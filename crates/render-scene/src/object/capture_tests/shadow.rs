@@ -9,7 +9,6 @@ use crate::dynamic::capture_tests::shadow_fixture::groups;
 use crate::dynamic::capture_tests::{HDR, VELOCITY, ambient_group, context, reflection_group};
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
-use crate::renderer::legacy_objects::{Recipe, compose};
 
 #[derive(Clone, Copy)]
 enum Screen {
@@ -92,24 +91,17 @@ impl Set {
                     .sample_count_supported(self.samples)
             })
     }
-
-    fn recipe(&self) -> Recipe {
-        Recipe {
-            shadowed: true,
-            ssao: matches!(self.screen, Screen::Ambient),
-            reflection: matches!(self.screen, Screen::Reflection),
-            velocity: self.velocity,
-        }
-    }
 }
 
 /// Pipelines whose objects sample the shadow map, with the group they need at set three.
 fn pipelines(context: &GpuContext, set: &Set) -> (ScenePipelines, Option<BindGroup>) {
     let device = context.device();
     let layout = crate::shadows::water_layout(device);
-    let recipe = set.recipe();
-    let (object, terrain) =
-        crate::shadows::receiver_sources(recipe.ssao, recipe.reflection, set.velocity);
+    let (ssao, reflection) = (
+        matches!(set.screen, Screen::Ambient),
+        matches!(set.screen, Screen::Reflection),
+    );
+    let (object, terrain) = crate::shadows::receiver_sources(ssao, reflection, set.velocity);
     let (screen_layout, screen) = match set.screen {
         Screen::None => (None, None),
         Screen::Ambient => (
@@ -130,12 +122,12 @@ fn pipelines(context: &GpuContext, set: &Set) -> (ScenePipelines, Option<BindGro
         Some(&layout),
         screen_layout.as_ref(),
     );
-    built.ssao = recipe.ssao;
+    built.ssao = ssao;
     (built, screen)
 }
 
 #[test]
-fn shadow_receiving_objects_match_the_fixed_pipeline_byte_for_byte_for_every_key() {
+fn shadow_receiving_objects_draw_in_every_shadow_slot() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let shadow = groups(&context);
@@ -151,8 +143,6 @@ fn shadow_receiving_objects_match_the_fixed_pipeline_byte_for_byte_for_every_key
         }
         let (built, screen) = pipelines(&context, set);
         let formats = set.formats();
-        let source = compose(set.recipe());
-        let mut legacy = None;
         for (slot, group) in shadow.iter().enumerate() {
             let name = format!("{}-slot{slot}", set.name);
             let (keys, compared) = capture_scenes(
@@ -165,13 +155,11 @@ fn shadow_receiving_objects_match_the_fixed_pipeline_byte_for_byte_for_every_key
                         samples: set.samples,
                     },
                     pipelines: &built,
-                    source: &source,
                     screen: screen.as_ref(),
                     shadow: Some(group),
                     mask: 0,
                 },
                 None,
-                &mut legacy,
             );
             assert_eq!(
                 keys.len(),
@@ -181,6 +169,6 @@ fn shadow_receiving_objects_match_the_fixed_pipeline_byte_for_byte_for_every_key
             run += compared;
         }
     }
-    println!("OBJECT-CAPTURE-SUMMARY set=shadow compared={run} skipped={skipped}");
+    println!("OBJECT-CAPTURE-SUMMARY set=shadow captures={run} skipped={skipped}");
     assert_eq!(skipped, 0, "a skipped capture fails");
 }

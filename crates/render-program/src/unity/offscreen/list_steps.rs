@@ -34,7 +34,10 @@ fn size_at(size: [u32; 2], mip: u32) -> [u32; 2] {
 /// their mip, and none may repeat; a depth buffer under a color texture has one mip, and one of
 /// another size than the color cannot go with it, so a pass whose depth does not fit is drawn
 /// without it.
-fn usable(svc: &Services<'_>, target: Attachments) -> Result<Attachments, OffscreenError> {
+pub(super) fn usable(
+    svc: &Services<'_>,
+    target: Attachments,
+) -> Result<Attachments, OffscreenError> {
     if target.colors.len() > MAX_COLOR_ATTACHMENTS {
         return Err(OffscreenError::ColorTargets {
             count: target.colors.len(),
@@ -101,7 +104,10 @@ fn check_colors(svc: &Services<'_>, colors: &[Attachment]) -> Result<(), Offscre
 }
 
 /// The formats of a pass over `target`.
-fn signature(svc: &Services<'_>, target: &Attachments) -> Result<TargetSignature, OffscreenError> {
+pub(super) fn signature(
+    svc: &Services<'_>,
+    target: &Attachments,
+) -> Result<TargetSignature, OffscreenError> {
     let mut colors = Vec::new();
     for attachment in &target.colors {
         let info = svc.textures.get(attachment.texture)?;
@@ -114,18 +120,13 @@ fn signature(svc: &Services<'_>, target: &Attachments) -> Result<TargetSignature
         None => None,
     };
     Ok(match (colors.as_slice(), depth) {
-        ([], Some(depth)) => TargetSignature::depth_only(depth, 1)?,
+        ([], Some(depth)) => TargetSignature::depth_attachment(depth, 1)?,
         ([], None) => {
             return Err(OffscreenError::Unknown(
                 "a color or depth buffer to draw into".to_owned(),
             ));
         }
-        ([color], depth) => TargetSignature::new(&[*color], depth, 1)?,
-        (colors, depth) => {
-            // The depth is held to the rules of a pass of one color, which refuse a stencil aspect.
-            TargetSignature::new(&colors[..1], depth, 1)?;
-            TargetSignature::attachments(colors, depth, 1)?
-        }
+        (colors, depth) => TargetSignature::attachments(colors, depth, 1)?,
     })
 }
 

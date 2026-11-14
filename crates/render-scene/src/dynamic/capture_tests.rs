@@ -1,33 +1,22 @@
 //! Byte-level captures of the dynamic unlit-alpha material.
 //!
-//! Each configuration draws the same quads twice on one device: once through the scene's own
-//! dynamic path and once through [`Legacy`], a frozen copy of the fixed pipeline, vertex
-//! packing and material bind group that path used before it drew through the program runtime.
-//! Every colour attachment is read back and compared byte for byte. The attachments the
-//! material does not write start with known values, so a stray write shows as a difference.
+//! Each configuration draws quads through the scene's own dynamic path on one device. Every
+//! colour attachment is read back and compared with an untouched render: the first has to change
+//! and the attachments the material does not write start with known values, so a stray write
+//! shows as a difference.
 //!
 //! Each run prints one `UNLIT-CAPTURE` line per configuration and attachment with a hash of the
 //! bytes, so captures taken before and after a change can be compared as text. Hashes differ
 //! between adapters and are only comparable on one.
 
-use glam::{Mat4, Quat, Vec3};
-use wgpu::{
-    BindGroup, Buffer, BufferUsages, Device, RenderPipeline, Texture, TextureFormat, TextureView,
-};
+use wgpu::{BindGroup, Buffer, BufferUsages, Device, Texture, TextureFormat, TextureView};
 use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace};
 
 use super::DynamicQuad;
 use crate::device::GpuContext;
-use crate::draw::{DrawCount, SceneGpu};
+use crate::draw::SceneGpu;
 use crate::frame::FrameUniform;
-use crate::geometry::{BILLBOARD_FIXED, pack_model_instance, push_f32, push_vec3};
-use crate::pipeline::MATERIAL_UNIFORM_BYTES;
 use crate::renderer::ScenePipelines;
-use crate::texture::prepare_texture;
-use crate::upload::{
-    material_bind_group_layout, material_group, material_sampler, placeholder_with_view,
-    upload_buffer, upload_texture,
-};
 use crate::{CameraPose, OrthographicLens, SceneView, Viewport};
 
 pub(crate) const SIZE: u32 = 32;
@@ -630,10 +619,9 @@ fn report(context: &GpuContext, name: &str, images: &[Vec<u8>]) {
     }
 }
 
-/// Draws `quads` over `textures` with the scene's dynamic path and with [`Legacy`] in the pass
-/// of `config`, checks the two agree on every attachment, that quads drew something and that
-/// the material left the attachments it does not write as they were, and returns the scene's
-/// attachments.
+/// Draws `quads` over `textures` with the scene's dynamic path in the pass of `config`, checks
+/// that quads drew something and that the material left the attachments it does not write as
+/// they were, and returns the scene's attachments.
 fn capture(
     context: &GpuContext,
     config: &Config,
@@ -663,7 +651,6 @@ fn capture_expecting(
     )
     .unwrap();
     gpu.set_frame(context.queue(), FrameUniform::unlit(&view));
-    let legacy = Legacy::new(context, &built.pipelines, textures, quads, &view);
     let bind_screen = |pass: &mut wgpu::RenderPass<'_>| {
         if let Some(screen) = &built.screen {
             pass.set_bind_group(3, screen, &[]);
@@ -673,20 +660,9 @@ fn capture_expecting(
         bind_screen(pass);
         gpu.draw(pass, &built.pipelines);
     });
-    let reference = render(context, (&built.formats, config.samples), |pass| {
-        bind_screen(pass);
-        legacy.draw(pass);
-    });
     let untouched = render(context, (&built.formats, config.samples), |_| {});
     assert_eq!(scene.len(), built.formats.len());
-    for (index, ((scene, reference), untouched)) in
-        scene.iter().zip(&reference).zip(&untouched).enumerate()
-    {
-        assert!(
-            scene == reference,
-            "{}: attachment {index} differs from the fixed pipeline's output",
-            config.name
-        );
+    for (index, (scene, untouched)) in scene.iter().zip(&untouched).enumerate() {
         if index == 0 && drawn {
             assert!(
                 scene != untouched,
@@ -727,7 +703,7 @@ pub(crate) fn supported(context: &GpuContext, config: &Config) -> bool {
 }
 
 #[test]
-fn dynamic_quads_match_the_fixed_pipeline_byte_for_byte_in_every_target_set() {
+fn dynamic_quads_draw_in_every_target_set() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (textures, quads) = (textures(), quads());
@@ -744,7 +720,7 @@ fn dynamic_quads_match_the_fixed_pipeline_byte_for_byte_in_every_target_set() {
 }
 
 #[test]
-fn an_untextured_batch_and_an_empty_contribution_match_the_fixed_pipeline() {
+fn an_untextured_batch_draws_and_an_empty_contribution_draws_nothing() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let config = &CONFIGS[2];
@@ -767,21 +743,18 @@ fn an_untextured_batch_and_an_empty_contribution_match_the_fixed_pipeline() {
 }
 
 mod clipping;
-mod legacy;
 pub(crate) mod shadow_fixture;
 mod world;
 
-use legacy::Legacy;
-
 #[test]
-fn native_sprites_match_the_fixed_pipeline_through_the_frame_renderer() {
+fn native_sprites_draw_through_the_frame_renderer() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     world::captures(&context, "sprite", &world::sprite_frame());
 }
 
 #[test]
-fn world_glyphs_match_the_fixed_pipeline_through_the_frame_renderer() {
+fn world_glyphs_draw_through_the_frame_renderer() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     world::captures(&context, "glyph", &world::glyph_frame());

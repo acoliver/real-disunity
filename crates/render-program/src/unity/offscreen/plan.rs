@@ -21,7 +21,7 @@ use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
 use crate::resources::BufferHandle;
 use crate::runtime::ProgramRuntime;
-use crate::sampler::{Filter, SamplerCache, SamplerState, Wrap};
+use crate::sampler::{SamplerCache, SamplerState};
 use crate::unity::constants::pack_layout;
 use crate::unity::shader::{PassSelector, ProgramShader, Variant};
 use crate::unity::state::{RenderState, resolve_state};
@@ -33,6 +33,7 @@ use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, def
 use super::error::OffscreenError;
 use super::meshes::MeshTable;
 use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
+use super::sampling::{self, Sampled, read_unfilterable};
 use super::textures::TextureTable;
 use super::tracker::Tracker;
 
@@ -50,6 +51,13 @@ pub(super) struct ProgramEntry {
     inputs: DeclaredInputs,
     /// The color locations the fragment stage writes.
     pub(super) color_outputs: Vec<u32>,
+}
+
+impl ProgramEntry {
+    /// How many vertex inputs the vertex stage declares.
+    pub(super) fn vertex_input_count(&self) -> usize {
+        self.inputs.count()
+    }
 }
 
 /// A constant buffer binding whose bytes are in the constants plan at `offset` of `chunk`.
@@ -242,9 +250,20 @@ impl Services<'_> {
     /// Chooses the program of `spec`, packs its constants, binds its textures and samplers.
     pub(super) fn plan_program(&mut self, spec: &DrawSpec<'_>) -> Result<DrawPlan, OffscreenError> {
         let (entry, render_state) = self.choose(spec)?;
+        self.plan_chosen(spec, entry, render_state)
+    }
+
+    /// Packs the constants of the program `choose` picked for `spec` and binds its textures and
+    /// samplers.
+    pub(super) fn plan_chosen(
+        &mut self,
+        spec: &DrawSpec<'_>,
+        entry: Arc<ProgramEntry>,
+        render_state: RenderState,
+    ) -> Result<DrawPlan, OffscreenError> {
         let slots = entry.program.layout().slots().to_vec();
         let mut plan = DrawPlan {
-            entry: entry.clone(),
+            entry,
             state: render_state,
             constants: Vec::new(),
             textures: Vec::new(),
@@ -253,19 +272,23 @@ impl Services<'_> {
             facts: self.probing.then(DrawFacts::default),
             undeclared: Vec::new(),
         };
+        let entry = Arc::clone(&plan.entry);
         // Every texture is looked for before anything is bound, so a draw that lacks one changes
         // nothing in the frame.
         self.require_textures(spec, &entry, &slots)?;
         let mut sampler_states = HashMap::new();
+        let mut any_unfiltered = false;
         for slot in &slots {
             match slot.ty {
                 wgpu::BindingType::Buffer { .. } => {
                     self.bind_constants(spec, &entry, slot, &mut plan)?;
                 }
                 wgpu::BindingType::Texture { .. } => {
-                    let state = self.bind_texture(spec, &entry, slot, &mut plan)?;
+                    let read = self.bind_texture(spec, &entry, slot, &mut plan)?;
+                    any_unfiltered |= read.unfiltered;
                     if let Some(sampler) = entry.samplers.get(&(slot.set, slot.binding)) {
-                        sampler_states.insert((slot.set, *sampler), state);
+                        let key = (slot.set, *sampler);
+                        sampler_states.insert(key, sampling::merge(sampler_states.get(&key), read));
                     }
                 }
                 _ => {}
@@ -273,7 +296,7 @@ impl Services<'_> {
         }
         for slot in &slots {
             if let wgpu::BindingType::Sampler(kind) = slot.ty {
-                self.bind_sampler(slot, kind, &sampler_states, &mut plan)?;
+                self.bind_sampler(slot, kind, (&sampler_states, any_unfiltered), &mut plan)?;
             }
         }
         Ok(plan)
@@ -344,7 +367,8 @@ impl Services<'_> {
         }
     }
 
-    fn choose(
+    /// The program and render state of the pass and variant `spec` selects.
+    pub(super) fn choose(
         &mut self,
         spec: &DrawSpec<'_>,
     ) -> Result<(Arc<ProgramEntry>, RenderState), OffscreenError> {
@@ -462,14 +486,14 @@ impl Services<'_> {
         entry: &ProgramEntry,
         slot: &Slot,
         plan: &mut DrawPlan,
-    ) -> Result<Option<SamplerState>, OffscreenError> {
+    ) -> Result<Sampled, OffscreenError> {
         let wgpu::BindingType::Texture {
             sample_type,
             view_dimension,
             ..
         } = slot.ty
         else {
-            return Ok(None);
+            return Ok(Sampled::default());
         };
         let target = entry
             .textures
@@ -535,7 +559,10 @@ impl Services<'_> {
                 kind: TextureBindingKind::Sampled(sample_type),
             },
         ));
-        Ok(state)
+        Ok(Sampled {
+            state,
+            unfiltered: sample_type == wgpu::TextureSampleType::Float { filterable: false },
+        })
     }
 
     /// Counts a read of `texture` (property, levels bound, levels it has) by the pass that made it.
@@ -578,7 +605,7 @@ impl Services<'_> {
         &mut self,
         slot: &Slot,
         kind: wgpu::SamplerBindingType,
-        states: &HashMap<(u32, u32), Option<SamplerState>>,
+        (states, any_unfiltered): (&HashMap<(u32, u32), Sampled>, bool),
         plan: &mut DrawPlan,
     ) -> Result<(), OffscreenError> {
         if kind == wgpu::SamplerBindingType::Comparison {
@@ -588,7 +615,8 @@ impl Services<'_> {
                 what: "a comparison sampler",
             });
         }
-        let state = states.get(&(slot.set, slot.binding)).copied().flatten();
+        let state =
+            sampling::sampler_state(kind, states.get(&(slot.set, slot.binding)), any_unfiltered);
         plan.samplers.push((
             slot.set,
             SamplerBinding {
@@ -710,39 +738,14 @@ impl Services<'_> {
             return Ok(TargetSignature::new(&[info.format], None, 1)?);
         };
         if info.color.is_none() {
-            return Ok(TargetSignature::depth_only(depth, 1)?);
+            return Ok(TargetSignature::depth_attachment(depth, 1)?);
         }
-        Ok(TargetSignature::new(&[info.format], Some(depth), 1)?)
+        Ok(TargetSignature::attachments(
+            &[info.format],
+            Some(depth),
+            1,
+        )?)
     }
-}
-
-/// How a texture the device cannot filter is read by a pass written for a filtered one.
-///
-/// A pass declares its textures as filterable floats. A format the device cannot filter (32-bit
-/// floats without `FLOAT32_FILTERABLE`, and depth) is bound as a non-filterable float instead and
-/// its sampler reads the nearest texel, since a filtering sampler cannot read it. The wrap modes
-/// are kept; a texture with no sampler state gets the fixed sampler's clamp to the edge.
-pub(super) fn read_unfilterable(
-    declared: wgpu::TextureSampleType,
-    format: wgpu::TextureFormat,
-    features: wgpu::Features,
-    state: Option<SamplerState>,
-) -> (wgpu::TextureSampleType, Option<SamplerState>) {
-    use wgpu::TextureSampleType as Type;
-    let filterable = Type::Float { filterable: true };
-    let actual = format.sample_type(Some(wgpu::TextureAspect::All), Some(features));
-    if declared != filterable || actual.is_none() || actual == Some(filterable) {
-        return (declared, state);
-    }
-    let point = SamplerState {
-        filter: Filter::Point,
-        ..state.unwrap_or(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Clamp,
-            filter: Filter::Point,
-        })
-    };
-    (Type::Float { filterable: false }, Some(point))
 }
 
 /// The prepared sampler binding each prepared texture binding is read with: the binding the

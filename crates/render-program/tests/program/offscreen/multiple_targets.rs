@@ -143,6 +143,32 @@ fn each_output_of_a_shader_reaches_its_own_texture_and_the_depth_reaches_another
 }
 
 #[test]
+fn three_colours_draw_with_the_24_bit_depth_of_one_of_them_which_has_a_stencil_aspect() {
+    let mut rig = Rig::new();
+    let target = Attachments {
+        colors: vec![at(TARGET), at(SECOND), at(THIRD)],
+        depth: Some(at(TARGET)),
+    };
+    let records = vec![
+        Record::Clear {
+            target: target.clone(),
+            clear: clear_all(CLEAR.map(|byte| f64::from(byte) / 255.0)),
+        },
+        list(target, vec![item(1)]),
+    ];
+    let mut frame = frame_of(&mut rig, records);
+    for texture in &mut frame.render_textures {
+        if texture.id == TARGET {
+            texture.depth_bits = 24;
+        }
+    }
+    let images = read(&mut rig, &frame, &[TARGET, SECOND, THIRD]);
+    halves(&images[0], RED, CLEAR, "output 0");
+    halves(&images[1], GREEN, CLEAR, "output 1");
+    halves(&images[2], BLUE, CLEAR, "output 2");
+}
+
+#[test]
 fn a_clear_sets_every_colour_attachment() {
     let mut rig = Rig::new();
     let records = vec![Record::Clear {

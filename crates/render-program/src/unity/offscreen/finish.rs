@@ -133,13 +133,23 @@ impl Finish<'_> {
 
     /// A draw of the camera's program: a rebinding of the pipeline an earlier draw made when its
     /// layouts agree, else a new pipeline.
+    ///
+    /// The draw's stencil reference is its own: pipelines are keyed without it, and the draw sets
+    /// it on the pass before it draws, so draws of one pipeline may each write another value.
     fn checked_draw(
         &mut self,
         draw: &CameraDraw,
         bindings: Vec<CheckedBindings>,
     ) -> Result<CheckedDraw, OffscreenError> {
         let program = &draw.plan.entry.program;
-        let state = draw.plan.state.neutral(draw.front_face);
+        let mut state = draw
+            .plan
+            .state
+            .neutral_with_stencil(draw.front_face, draw.signature.has_stencil());
+        let reference = state.stencil.as_ref().map(|stencil| stencil.reference);
+        if let Some(stencil) = state.stencil.as_mut() {
+            stencil.reference = 0;
+        }
         let layouts = vertex_layouts(&draw.vertices.inputs);
         let colors = draw_colors(draw.signature, &state, &draw.plan.entry.color_outputs)?;
         let request = PipelineRequest {
@@ -148,9 +158,26 @@ impl Finish<'_> {
             layouts: &layouts,
             signature: draw.signature,
             colors: &colors,
+            topology: draw.topology,
         };
         request.check_color_outputs()?;
         let key = request.key();
+        let checked = self.pipeline_draw(&request, key, draw, bindings)?;
+        Ok(match reference {
+            Some(reference) => checked.with_stencil_reference(reference),
+            None => checked,
+        })
+    }
+
+    /// The draw of `request`, from the pipeline of `key` if an earlier draw made it.
+    fn pipeline_draw(
+        &mut self,
+        request: &PipelineRequest<'_>,
+        key: blake3::Hash,
+        draw: &CameraDraw,
+        bindings: Vec<CheckedBindings>,
+    ) -> Result<CheckedDraw, OffscreenError> {
+        let program = request.program;
         if let Some(prototype) = self.draws.get(&key) {
             match prototype.rebind(bindings.clone(), draw.geometry.clone()) {
                 Ok(rebound) => return Ok(rebound),
@@ -161,7 +188,7 @@ impl Finish<'_> {
         let modules = self.runtime.program_modules(program)?;
         let device = self.runtime.device().clone();
         let created =
-            with_pipeline_descriptor(&request, &modules, &program.gpu.pipeline, |descriptor| {
+            with_pipeline_descriptor(request, &modules, &program.gpu.pipeline, |descriptor| {
                 self.runtime.guarded(|| {
                     CheckedDraw::with_geometry(&device, descriptor, bindings, draw.geometry.clone())
                 })
@@ -212,6 +239,7 @@ impl Finish<'_> {
             layouts: &layouts,
             signature,
             colors: &colors,
+            topology: wgpu::PrimitiveTopology::TriangleList,
         };
         request.check_color_outputs()?;
         let modules = self.runtime.program_modules(program)?;
@@ -314,7 +342,7 @@ fn vertex_layouts(inputs: &[VertexInput]) -> Vec<VertexLayout<'_>> {
 }
 
 /// The colour state of each colour attachment of `signature`: one for a colour pass, none for a
-/// depth-only pass.
+/// depth-only pass. The state may name stencil, which the pipeline checks against the pass.
 fn colors_of(
     signature: TargetSignature,
     state: &RenderState,
@@ -322,7 +350,7 @@ fn colors_of(
     if signature.color().is_none() {
         return Ok(Vec::new());
     }
-    Ok(vec![state.check_drawable()?])
+    Ok(state.check_targets(1, signature.samples())?)
 }
 
 /// The colour state of each colour attachment of a draw whose fragment stage writes the colour
@@ -331,16 +359,15 @@ fn colors_of(
 /// its location and the attachment then gets undefined values, while an empty mask leaves it as it
 /// was, which is what Unity does with a render target a shader has no output for. An output with
 /// no attachment is dropped by wgpu. `PipelineRequest::check_color_outputs` holds the result to
-/// that rule.
+/// that rule. The state may name stencil, which the pipeline checks against the pass.
 fn draw_colors(
     signature: TargetSignature,
     state: &RenderState,
     outputs: &[u32],
 ) -> Result<Vec<ColorState>, OffscreenError> {
-    if signature.color().is_none() {
+    let Some(written) = colors_of(signature, state)?.first().copied() else {
         return Ok(Vec::new());
-    }
-    let written = state.check_drawable()?;
+    };
     let unwritten = ColorState {
         blend: None,
         write_mask: wgpu::ColorWrites::empty(),

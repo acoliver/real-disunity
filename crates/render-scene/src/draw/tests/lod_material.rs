@@ -147,10 +147,10 @@ fn selected_level_changes_material_topology_and_pipeline() {
 }
 
 /// A level with two material slots draws twice from one set of buffers. The runtime path sets
-/// the vertex, instance and index buffers once for both, as the fixed path does, and a pipeline
-/// and a material group for each slot.
+/// the vertex, instance and index buffers once for both, and a pipeline and a material group for
+/// each slot.
 #[test]
-fn the_runtime_path_records_the_fixed_commands_for_a_level_with_two_material_slots() {
+fn the_runtime_path_records_the_commands_of_a_level_with_two_material_slots() {
     use crate::object::cost_tests::Tally;
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
@@ -166,17 +166,8 @@ fn the_runtime_path_records_the_fixed_commands_for_a_level_with_two_material_slo
         .unwrap();
     gpu.set_frame(context.queue(), selection_frame(5_001));
     let frame = gpu.drawing_frame_group();
-    let mut fixed = Tally::default();
-    let view = gpu.begin_objects(&mut fixed, &frame, None);
-    let mut sink = super::super::lod_material::FixedSink::new(
-        &mut fixed,
-        pipelines.object_pipelines(),
-        &gpu.materials,
-    );
-    gpu.record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
     let mut runtime = Tally::default();
     drop(gpu.draw_objects_prepared(&mut runtime, &frame, pipelines.object_context()));
-    assert_eq!(runtime.0, fixed.0);
     assert_eq!(
         (runtime.0.draws, runtime.0.pipelines, runtime.0.groups),
         (2, 2, 3),

@@ -181,9 +181,9 @@ impl Attachments {
     }
 }
 
-/// The parts of the attachments a clear sets. A part that is `None` keeps what it holds. The
-/// depth formats this renderer draws into have no stencil, so `stencil` is carried for the
-/// record and sets nothing.
+/// The parts of the attachments a clear sets. A part that is `None` keeps what it holds. A clear
+/// of the depth also clears the stencil of a depth buffer that has one to 0, so `stencil` is
+/// carried for the record and sets nothing of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Clear {
     pub color: Option<[f64; 4]>,
@@ -212,6 +212,27 @@ pub struct DrawList {
     /// The winding that counts as a front face, in framebuffer space.
     pub front_face: wgpu::FrontFace,
     pub draws: Vec<ListDraw>,
+}
+
+/// A draw with no mesh: the material's passes draw `vertices` vertices `instances` times, and the
+/// vertex stage makes each vertex from its vertex and instance index. A pass whose vertex stage
+/// declares vertex inputs is refused, since nothing feeds them. Both counts are nonzero: the
+/// record of an empty draw is left out of the frame.
+#[derive(Clone, Debug)]
+pub struct ProceduralDraw {
+    pub target: Attachments,
+    /// The values of the view the draw uses, as a list's are.
+    pub values: PropertyLayer,
+    /// The draw's own values, such as its object matrix, below the view's.
+    pub per_draw: PropertyLayer,
+    /// The winding that counts as a front face, in framebuffer space.
+    pub front_face: wgpu::FrontFace,
+    pub material: MaterialId,
+    /// The passes that draw, in order.
+    pub passes: Vec<PassSelector>,
+    pub topology: wgpu::PrimitiveTopology,
+    pub vertices: u32,
+    pub instances: u32,
 }
 
 /// The global values and keywords the records after it read, in place of the frame's own.
@@ -250,6 +271,8 @@ pub enum Record {
     },
     /// Draws a list into its attachments, keeping what they hold.
     Draws(Arc<DrawList>),
+    /// Draws generated vertices with a material into its attachments, keeping what they hold.
+    Procedural(Arc<ProceduralDraw>),
     /// Replaces the global values and keywords of the records after it, until the next such
     /// record. Records before the first one read the frame's own.
     Globals(Arc<GlobalState>),

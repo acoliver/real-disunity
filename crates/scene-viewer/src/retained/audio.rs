@@ -14,7 +14,8 @@ use std::{
     time::Duration,
 };
 pub use worldrunner_world_simulation::audio::{
-    AudioCommand, AudioError, AudioReply, ClipHandle, VoiceHandle,
+    AudioCommand, AudioError, AudioReply, BusConfig, ClipHandle, DuckingDetector, DuckingRule,
+    EnvelopeMode, VoiceHandle,
 };
 use worldrunner_world_simulation::audio::{AudioMixer, MAX_VOICES};
 
@@ -108,6 +109,22 @@ impl AudioService {
     }
     /// Null-device playback is explicit simulated playback, never a Ready device.
     pub fn play(&mut self, clip: &ClipHandle, gain: f32) -> Result<VoiceHandle, AudioServiceError> {
+        self.play_routed(clip, gain, None)
+    }
+    pub fn play_on_bus(
+        &mut self,
+        clip: &ClipHandle,
+        gain: f32,
+        bus: &str,
+    ) -> Result<VoiceHandle, AudioServiceError> {
+        self.play_routed(clip, gain, Some(bus))
+    }
+    fn play_routed(
+        &mut self,
+        clip: &ClipHandle,
+        gain: f32,
+        bus: Option<&str>,
+    ) -> Result<VoiceHandle, AudioServiceError> {
         if !matches!(
             self.status(),
             AudioStatus::Ready { .. } | AudioStatus::Unavailable(AudioUnavailable::NullDevice)
@@ -118,7 +135,35 @@ impl AudioService {
         if state.mixer.occupied_voices() + state.pending.len() == MAX_VOICES {
             return Err(AudioError::VoiceLimit.into());
         }
-        Ok(state.mixer.play(clip, gain)?)
+        Ok(match bus {
+            Some(bus) => state.mixer.play_on_bus(clip, gain, bus)?,
+            None => state.mixer.play(clip, gain)?,
+        })
+    }
+    pub fn configure_bus(
+        &mut self,
+        name: &str,
+        config: BusConfig,
+    ) -> Result<(), AudioServiceError> {
+        self.require_open()?;
+        Ok(self
+            .state
+            .lock()
+            .expect("audio mixer poisoned")
+            .mixer
+            .configure_bus(name, config)?)
+    }
+    pub fn replace_ducking_rules(
+        &mut self,
+        rules: Vec<DuckingRule>,
+    ) -> Result<(), AudioServiceError> {
+        self.require_open()?;
+        Ok(self
+            .state
+            .lock()
+            .expect("audio mixer poisoned")
+            .mixer
+            .replace_ducking_rules(rules)?)
     }
     /// Already queued device samples drain within the 2048-frame handoff bound.
     pub fn stop(&mut self, voice: &VoiceHandle) -> bool {
@@ -150,14 +195,17 @@ impl AudioService {
     pub fn command(&mut self, command: AudioCommand) -> Result<AudioReply, AudioServiceError> {
         Ok(match command {
             AudioCommand::Play { clip, gain } => AudioReply::Playing(self.play(&clip, gain)?),
-            AudioCommand::Stop(voice) => AudioReply::Stopped(self.stop(&voice)),
-            AudioCommand::MasterGain(gain) => {
-                self.set_master_gain(gain)?;
-                AudioReply::Applied
+            AudioCommand::PlayOnBus { clip, gain, bus } => {
+                AudioReply::Playing(self.play_on_bus(&clip, gain, &bus)?)
             }
-            AudioCommand::Mute(muted) => {
-                self.set_mute(muted)?;
-                AudioReply::Applied
+            AudioCommand::Stop(voice) => AudioReply::Stopped(self.stop(&voice)),
+            control => {
+                self.require_open()?;
+                self.state
+                    .lock()
+                    .expect("audio mixer poisoned")
+                    .mixer
+                    .command(control)?
             }
         })
     }
@@ -191,7 +239,7 @@ impl AudioService {
         let mut frames = scaled / 1_000_000_000;
         self.fractional_frames = scaled % 1_000_000_000;
         let mut output = [[0.0; 2]; ring::BLOCK];
-        while frames != 0 && state.mixer.active_voices() != 0 {
+        while frames != 0 {
             let count = usize::try_from(frames.min(ring::BLOCK as u128)).expect("bounded block");
             state.mixer.render(&mut output[..count]);
             frames -= count as u128;

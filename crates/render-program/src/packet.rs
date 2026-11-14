@@ -118,6 +118,22 @@ impl TargetSignature {
         Self::build(&[], Some(depth), samples)
     }
 
+    /// The signature of a pass with a depth attachment of `format` and no colour attachment, which
+    /// like [`depth_only`](Self::depth_only) takes a state with no colour targets but admits a
+    /// combined depth/stencil format: the pass of a renderer that draws into the depth buffer of
+    /// a render texture with colour.
+    ///
+    /// # Errors
+    /// Fails by name for a format that has no depth and for a sample count that is not a power
+    /// of two up to 16.
+    pub fn depth_attachment(
+        depth: wgpu::TextureFormat,
+        samples: u32,
+    ) -> Result<Self, ProgramError> {
+        check_samples(samples)?;
+        Self::build(&[], Some(depth), samples)
+    }
+
     /// The signature of a pass a renderer opens: one to eight colour attachments, the first of
     /// which the fragment stage writes and the others of which a draw may leave unwritten with
     /// an empty write mask, and `samples` of 1, 2, 4, 8 or 16 per pixel. A pass with one colour
@@ -405,6 +421,7 @@ impl ProgramRuntime {
             layouts: &layouts,
             signature,
             colors: &[color],
+            topology: wgpu::PrimitiveTopology::TriangleList,
         })?;
         let groups = self.bind_groups_with(&packet.program.gpu, packet.bindings, snapshots)?;
         let vertex_buffers = packet
@@ -575,6 +592,7 @@ pub(crate) fn with_pipeline_descriptor<T>(
             buffers: &layouts,
         },
         primitive: wgpu::PrimitiveState {
+            topology: request.topology,
             front_face: state.raster.front_face,
             cull_mode: state.raster.cull,
             ..wgpu::PrimitiveState::default()
@@ -624,6 +642,9 @@ pub(crate) struct PipelineRequest<'a> {
     pub(crate) layouts: &'a [VertexLayout<'a>],
     pub(crate) signature: TargetSignature,
     pub(crate) colors: &'a [ColorState],
+    /// How the vertices join: a triangle list for meshes and fullscreen draws, or what a
+    /// procedural draw names.
+    pub(crate) topology: wgpu::PrimitiveTopology,
 }
 
 impl PipelineRequest<'_> {
@@ -671,8 +692,8 @@ impl PipelineRequest<'_> {
             .collect()
     }
 
-    /// The pipeline's content key: stage sources, layout, the whole state, the target signature
-    /// and the vertex layouts.
+    /// The pipeline's content key: stage sources, layout, the whole state, the target signature,
+    /// the vertex layouts and the topology.
     pub(crate) fn key(&self) -> blake3::Hash {
         let mut key = Key::new("render");
         key.hash(self.program.vertex.content_key());
@@ -693,6 +714,7 @@ impl PipelineRequest<'_> {
         for layout in self.layouts {
             key.debug(&(layout.stride, layout.step, layout.attributes));
         }
+        key.debug(&self.topology);
         key.finish()
     }
 }

@@ -578,3 +578,34 @@ fn the_camera_target_of_a_camera_that_has_no_texture_is_skipped() {
     assert_eq!(adapted.report.skipped.get(&Skip::UnboundTarget), Some(&2));
     assert!(adapted.frame.records.is_empty());
 }
+
+#[test]
+fn the_camera_target_as_a_depth_target_binds_the_camera_texture_depth() {
+    let mut world = world();
+    let (a, b) = (
+        render_texture(&mut world, [8, 8]),
+        render_texture(&mut world, [8, 8]),
+    );
+    let camera = camera(&mut world);
+    record(
+        &mut world,
+        OffscreenWork::SetupCamera {
+            camera,
+            view: Mat4::IDENTITY.to_cols_array(),
+            projection: Mat4::IDENTITY.to_cols_array(),
+            target: TargetRef::Render(a),
+            buffers: None,
+        },
+    );
+    record(
+        &mut world,
+        target(&[TargetRef::Render(b)], Some(TargetRef::CameraTarget)),
+    );
+    record(&mut world, clear(false, true, false));
+    let adapted = run(&mut world);
+    let bound: Vec<_> = clears(&adapted)
+        .iter()
+        .map(|(target, _)| (target.colors[0].texture, target.depth.unwrap().texture))
+        .collect();
+    assert_eq!(bound, [(ids::render_texture(b), ids::render_texture(a))]);
+}

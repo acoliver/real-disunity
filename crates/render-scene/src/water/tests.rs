@@ -14,8 +14,6 @@ mod contracts;
 mod default_tests;
 #[path = "diffuse_tests.rs"]
 mod diffuse_tests;
-#[path = "fixed.rs"]
-mod fixed;
 #[path = "lighting_tests.rs"]
 mod lighting_tests;
 #[path = "numerical.rs"]

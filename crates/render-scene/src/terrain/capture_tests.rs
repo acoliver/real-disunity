@@ -1,11 +1,9 @@
 //! Byte-level captures of the terrain material.
 //!
-//! Each configuration draws the same terrain twice on one device: once through the scene and
-//! once through the frozen copy of the fixed path in [`crate::renderer::legacy_terrain`], with
-//! the fixed pipelines, layouts and bind groups built from the resources the scene's terrain
-//! holds. Every colour attachment is read back and compared byte for byte. Terrain writes every
-//! attachment of its pass, so each is also compared with an untouched render, which keeps
-//! "terrain drew nothing" from passing.
+//! Each configuration draws the terrain through the scene on one device and reads back every
+//! colour attachment. The first is compared with an untouched render, which keeps "terrain drew
+//! nothing" from passing, and the paired depth modes check the depth and stencil planes they
+//! leave.
 //!
 //! Each run prints one `TERRAIN-CAPTURE` line per configuration, surface source and attachment
 //! with a hash of the bytes, so captures taken before and after a change can be compared as
@@ -29,7 +27,6 @@ use crate::renderer::ScenePipelines;
 use crate::renderer::depth::DepthMode;
 
 pub(in crate::terrain) mod caster;
-mod legacy;
 mod pixel_normal;
 pub(in crate::terrain) mod prepass;
 pub(super) mod scenes;
@@ -37,8 +34,6 @@ mod shadow;
 pub(super) mod streaming;
 mod terms;
 mod variants;
-
-pub(super) use legacy::Legacy;
 
 /// Which terrain draw a capture exercises.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -384,8 +379,7 @@ fn copy_plane(
     (buffer, row as usize, padded as usize)
 }
 
-/// What one capture drew: the scene's attachments and the draw calls it recorded, which equal
-/// the fixed path's.
+/// What one capture drew: the scene's attachments and the draw calls it recorded.
 pub(super) struct Captured {
     pub images: Vec<Vec<u8>>,
     pub scene: DrawCount,
@@ -402,28 +396,21 @@ pub(super) struct Case<'a> {
     pub shadow: Option<&'a BindGroup>,
 }
 
-/// Draws the rig's terrain through the scene and through the fixed path, checks that the two
-/// agree on every attachment and that terrain drew something, prints the hash lines and returns
-/// the scene's attachments.
-pub(super) fn capture(rig: &Rig<'_>, case: &Case<'_>) -> Captured {
-    let legacy = Legacy::new(rig.context, &rig.gpu, &rig.selected(case.pipelines));
-    capture_against(rig, case, &legacy)
-}
-
-/// [`capture`] against fixed pipelines built earlier for the same pipelines and frame.
+/// Draws the rig's terrain through the scene, checks that terrain drew something, prints the
+/// hash lines and returns the scene's attachments.
 ///
 /// The depth representation is the one `case.pipelines` were built for. In the paired modes the
-/// depth and stencil planes are compared along with the colour attachments, and each mode's
-/// effect on them is checked: shared and prepass terrain writes depth, prepass terrain marks its
+/// depth and stencil planes are read along with the colour attachments, and each mode's effect
+/// on them is checked: shared and prepass terrain writes depth, prepass terrain marks its
 /// winners in the stencil, and reuse terrain draws exactly those winners and leaves the depth
 /// and stencil as the prepass wrote them.
-pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -> Captured {
+pub(super) fn capture(rig: &Rig<'_>, case: &Case<'_>) -> Captured {
     let frame = Frame::new(rig, case);
-    let mode = case.pipelines.depth;
     let mut scene_count = DrawCount::default();
-    let recorded = terrain_paths::recorded();
+    let mut recorded = 0;
     let scene = frame.render(|pass| {
         frame.bind(pass);
+        recorded = terrain_paths::recorded();
         let drawn = rig.gpu.draw_color(pass, case.pipelines, case.shadow);
         assert_eq!(drawn.sky, DrawCount::default(), "the fixture draws no sky");
         scene_count = drawn.terrain;
@@ -433,22 +420,8 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
         case.pipelines,
         recorded,
     );
-    let mut fixed_count = DrawCount::default();
-    let fixed = frame.render(|pass| {
-        frame.bind(pass);
-        if mode != DepthMode::Independent {
-            pass.set_stencil_reference(1);
-        }
-        pass.set_bind_group(0, &rig.gpu.legacy_frame_group(), &[]);
-        fixed_count = legacy.draw(pass, &rig.gpu, case.shadow);
-    });
     let untouched = frame.render(|_| {});
-    compare(case, [&scene, &fixed, &untouched]);
-    assert_eq!(
-        scene_count, fixed_count,
-        "{} {}: draw counts differ",
-        case.name, case.source
-    );
+    compare(case, [&scene, &untouched]);
     report(rig.context, case, &scene);
     Captured {
         images: scene,
@@ -461,17 +434,11 @@ pub(super) fn capture_against(rig: &Rig<'_>, case: &Case<'_>, legacy: &Legacy) -
 struct Frame<'a> {
     rig: &'a Rig<'a>,
     case: &'a Case<'a>,
-    prepass: Option<Legacy>,
 }
 
 impl<'a> Frame<'a> {
     fn new(rig: &'a Rig<'a>, case: &'a Case<'a>) -> Self {
-        // The prepass the forward draw reuses: the fixed prepass terrain over the same frame.
-        let prepass = (case.pipelines.depth == DepthMode::Reuse).then(|| {
-            let selected = rig.selected(&case.pipelines.for_depth(DepthMode::Prepass));
-            Legacy::new(rig.context, &rig.gpu, &selected)
-        });
-        Self { rig, case, prepass }
+        Self { rig, case }
     }
 
     fn bind(&self, pass: &mut RenderPass<'_>) {
@@ -480,21 +447,20 @@ impl<'a> Frame<'a> {
         }
     }
 
-    /// The pass ahead of the drawn one, which leaves the prepass's depth and stencil.
-    fn seed(&self, pass: &mut RenderPass<'_>, prepass: &Legacy) {
+    /// The pass ahead of the drawn one, which leaves the prepass's depth and stencil: the scene's
+    /// terrain drawn with the pipelines of the prepass depth mode.
+    fn seed(&self, pass: &mut RenderPass<'_>) {
         self.bind(pass);
         pass.set_stencil_reference(1);
-        pass.set_bind_group(0, &self.rig.gpu.legacy_frame_group(), &[]);
-        prepass.draw(pass, &self.rig.gpu, self.case.shadow);
+        let prepass = self.case.pipelines.for_depth(DepthMode::Prepass);
+        self.rig.gpu.draw_color(pass, &prepass, self.case.shadow);
     }
 
-    /// Renders one pass over fresh attachments, preceded by the seed when there is a prepass.
+    /// Renders one pass over fresh attachments, preceded by the seed in the reuse mode.
     fn render(&self, draw: impl FnOnce(&mut RenderPass<'_>)) -> Vec<Vec<u8>> {
-        let seed = |pass: &mut RenderPass<'_>| {
-            let prepass = self.prepass.as_ref().expect("only a reuse capture seeds");
-            self.seed(pass, prepass);
-        };
-        let seeded: Option<Seed<'_>> = self.prepass.is_some().then_some(&seed);
+        let seed = |pass: &mut RenderPass<'_>| self.seed(pass);
+        let seeded: Option<Seed<'_>> =
+            (self.case.pipelines.depth == DepthMode::Reuse).then_some(&seed);
         render_depth(
             self.rig.context,
             self.case.target,
@@ -505,30 +471,19 @@ impl<'a> Frame<'a> {
     }
 }
 
-/// Checks the scene's attachments against the fixed path's, byte for byte, that terrain changed
-/// the colour from an untouched render, and the planes the depth mode leaves.
-fn compare(case: &Case<'_>, [scene, fixed, untouched]: [&[Vec<u8>]; 3]) {
+/// Checks that terrain changed the colour from an untouched render, and the planes the depth
+/// mode leaves.
+fn compare(case: &Case<'_>, [scene, untouched]: [&[Vec<u8>]; 2]) {
     let mode = case.pipelines.depth;
     let colors = case.target.formats.len();
     let planes = if mode == DepthMode::Independent { 0 } else { 2 };
     assert_eq!(scene.len(), colors + planes);
-    for (index, ((scene, fixed), untouched)) in scene.iter().zip(fixed).zip(untouched).enumerate() {
-        assert!(
-            scene == fixed,
-            "{} {} {mode:?}: {} differs from the fixed pipeline's output",
-            case.name,
-            case.source,
-            attachment_name(index, colors)
-        );
-        if index == 0 {
-            assert!(
-                scene != untouched,
-                "{} {}: terrain drew nothing into the colour attachment",
-                case.name,
-                case.source
-            );
-        }
-    }
+    assert!(
+        scene[0] != untouched[0],
+        "{} {} {mode:?}: terrain drew nothing into the colour attachment",
+        case.name,
+        case.source
+    );
     if planes > 0 {
         check_planes(
             case,
@@ -539,9 +494,7 @@ fn compare(case: &Case<'_>, [scene, fixed, untouched]: [&[Vec<u8>]; 3]) {
 }
 
 /// The scene's terrain draw went through the program runtime, once, and its context prepared a
-/// terrain pipeline and set there. The fixed path no longer exists to fall back to, so this
-/// guards a draw that records nothing, which would compare equal to a frozen draw that also
-/// drew nothing.
+/// terrain pipeline and set there. This guards a draw that records nothing.
 pub(super) fn assert_recorded_by_runtime(name: &str, pipelines: &ScenePipelines, before: u64) {
     assert_eq!(
         terrain_paths::recorded(),
@@ -553,14 +506,6 @@ pub(super) fn assert_recorded_by_runtime(name: &str, pipelines: &ScenePipelines,
         stats.pipelines_built > 0 && stats.sets_prepared > 0,
         "{name}: the context's runtime prepared no terrain pipeline or set: {stats:?}"
     );
-}
-
-fn attachment_name(index: usize, colors: usize) -> String {
-    match index.checked_sub(colors) {
-        None => format!("attachment {index}"),
-        Some(0) => "depth plane".to_owned(),
-        Some(_) => "stencil plane".to_owned(),
-    }
 }
 
 /// What the paired depth modes leave in the depth and stencil planes. `untouched` is the planes
@@ -713,30 +658,30 @@ macro_rules! forward_tests {
 }
 
 forward_tests! {
-    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+    plain_terrain_draws_in_every_forward_target_set:
         Source::Plain, DepthMode::Independent;
-    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+    page_terrain_draws_in_every_forward_target_set:
         Source::Pages, DepthMode::Independent;
-    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+    layered_terrain_draws_in_every_forward_target_set:
         Source::Layered, DepthMode::Independent;
-    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_forward_target_set:
+    layered_page_terrain_draws_in_every_forward_target_set:
         Source::LayeredPages, DepthMode::Independent;
-    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+    plain_terrain_draws_in_every_single_sample_set_with_depth_reuse:
         Source::Plain, DepthMode::Reuse;
-    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+    page_terrain_draws_in_every_single_sample_set_with_depth_reuse:
         Source::Pages, DepthMode::Reuse;
-    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+    layered_terrain_draws_in_every_single_sample_set_with_depth_reuse:
         Source::Layered, DepthMode::Reuse;
-    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_depth_reuse:
+    layered_page_terrain_draws_in_every_single_sample_set_with_depth_reuse:
         Source::LayeredPages, DepthMode::Reuse;
-    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+    plain_terrain_draws_in_every_single_sample_set_with_shared_depth:
         Source::Plain, DepthMode::Shared;
-    page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+    page_terrain_draws_in_every_single_sample_set_with_shared_depth:
         Source::Pages, DepthMode::Shared;
-    layered_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+    layered_terrain_draws_in_every_single_sample_set_with_shared_depth:
         Source::Layered, DepthMode::Shared;
-    layered_page_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_with_shared_depth:
+    layered_page_terrain_draws_in_every_single_sample_set_with_shared_depth:
         Source::LayeredPages, DepthMode::Shared;
-    plain_terrain_matches_the_fixed_pipeline_byte_for_byte_in_every_single_sample_set_in_the_prepass:
+    plain_terrain_draws_in_every_single_sample_set_in_the_prepass:
         Source::Plain, DepthMode::Prepass;
 }

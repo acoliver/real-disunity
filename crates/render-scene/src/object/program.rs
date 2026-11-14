@@ -166,7 +166,7 @@ fn object_frame_bindings() -> ResourceLayout {
 }
 
 /// How the pipelines read the mesh, instance and, in the velocity contexts, previous-instance
-/// buffers, which are the fixed path's.
+/// buffers: slots 0, 1 and 2.
 pub(crate) fn vertex_layout(previous_transforms: bool) -> VertexLayoutSpec {
     let mut buffers = vec![
         VertexBufferSpec {
@@ -241,8 +241,8 @@ const CELESTIAL_MASKED: &str = "fs_celestial_masked";
 
 /// The key whose caster `key` draws with. A directional map tells apart only whether a key is an
 /// impostor and the two lowest bits of its index (masked and double-sided): relief is flat in the
-/// map, and one sample has no coverage choice. Every key casts as the first key of its family, as
-/// the fixed casters shared eight pipelines among the keys.
+/// map, and one sample has no coverage choice. Every key casts as the first key of its family, so
+/// the casters share eight pipelines among the keys.
 fn caster_key(key: PipelineKey) -> PipelineKey {
     PipelineKey::ALL[usize::from(key.sampling.is_impostor()) * 16 + key.index() % 4]
 }
@@ -336,8 +336,8 @@ impl Context {
 
     /// Objects write every attachment of their pass, with no blend. The cull mode and alpha to
     /// coverage are the key's, and the depth and stencil state is the pass's [`DepthMode`] for a
-    /// drawing that writes depth: the same function the fixed pipelines use, so forward depth
-    /// reuse (equal depth and stencil at one sample) is unchanged.
+    /// drawing that writes depth: the translation [`DepthMode::render_state`] that terrain and
+    /// objects share, so forward depth reuse (equal depth and stencil at one sample) holds.
     pub(crate) fn state(&self, key: PipelineKey) -> RenderState {
         let description = &self.0.description;
         if let Entry::Caster(caster) = description.entry {
@@ -435,7 +435,7 @@ impl Context {
         }
         let vertex = self.vertex()?;
         // One parse serves the vertex stage and every fragment entry point. Only the fragment
-        // stage reads the specialization constants, as the frozen reference does.
+        // stage reads the specialization constants.
         let mut constants = description.constants.clone();
         constants.extend(key.fragment_constants(description.samples));
         let entry = match (description.entry, key.masked) {

@@ -32,6 +32,7 @@ impl Default for UiLimits {
 pub(super) struct RegisteredFont {
     pub font: FontArc,
     pub positioning: PairPositioning,
+    pub empty_glyphs: Arc<[u16]>,
 }
 
 pub struct FontBook {
@@ -73,11 +74,12 @@ impl FontBook {
         if index >= self.limits.max_fonts || total > self.limits.max_font_bytes {
             return Err(UiError::FontLimit);
         }
-        super::font_data::validate(&bytes)?;
+        let empty_glyphs = super::font_data::validate(&bytes)?;
         let face = ttf_parser::Face::parse(&bytes, 0).map_err(|_| UiError::InvalidFont)?;
         let positioning = PairPositioning::new(&face)?;
         let total = total
             .checked_add(positioning.storage_bytes())
+            .and_then(|total| total.checked_add(empty_glyphs.len() * size_of::<u16>()))
             .ok_or(UiError::FontLimit)?;
         if total > self.limits.max_font_bytes {
             return Err(UiError::FontLimit);
@@ -88,7 +90,14 @@ impl FontBook {
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| v.checked_add(1))
                 .map_err(|_| UiError::FontLimit)?,
         );
-        self.fonts.insert(id, RegisteredFont { font, positioning });
+        self.fonts.insert(
+            id,
+            RegisteredFont {
+                font,
+                positioning,
+                empty_glyphs: empty_glyphs.into(),
+            },
+        );
         self.bytes = total;
         Ok(id)
     }

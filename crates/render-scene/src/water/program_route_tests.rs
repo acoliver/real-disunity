@@ -1,7 +1,7 @@
 //! The body draw's use of the program runtime: which frames it accepts, and how much it builds.
 //!
-//! The captures in `capture_tests` establish that the program route writes the bytes the frozen
-//! fixed path writes. These tests establish what the captures cannot see: that a feature refuses
+//! The captures in `capture_tests` establish that the program route draws the bodies into the
+//! scene colour, receivers and depth. These tests establish what the captures cannot see: that a feature refuses
 //! a frame of another submission authority, that each body prepares exactly one draw per
 //! feature, and that programs, modules and pipelines are built once per key and reused by later
 //! features.

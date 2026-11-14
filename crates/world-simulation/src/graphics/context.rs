@@ -56,8 +56,21 @@ impl World {
                 matrix,
                 material,
                 pass,
+                block,
                 ..
-            } => self.check_draw_mesh(*mesh, matrix, *material, *pass),
+            } => {
+                self.check_draw_mesh(*mesh, matrix, *material, *pass)?;
+                block
+                    .iter()
+                    .flat_map(|block| &block.textures)
+                    .try_for_each(|(_, slot)| self.check_texture(&slot.texture))
+            }
+            OffscreenWork::DrawProcedural {
+                matrix,
+                material,
+                pass,
+                ..
+            } => self.check_draw(matrix, *material, *pass),
             _ => Ok(()),
         }
     }
@@ -83,7 +96,21 @@ impl World {
         material: MaterialId,
         pass: i32,
     ) -> Result<(), WorldError> {
-        if mesh == 0 || pass < -1 {
+        if mesh == 0 {
+            return Err(GraphicsError::InvalidOffscreen.into());
+        }
+        self.check_draw(matrix, material, pass)
+    }
+
+    /// A draw's pass is -1 (every pass) or a pass index, its matrix is finite and its material
+    /// is live.
+    fn check_draw(
+        &self,
+        matrix: &[f32; 16],
+        material: MaterialId,
+        pass: i32,
+    ) -> Result<(), WorldError> {
+        if pass < -1 {
             return Err(GraphicsError::InvalidOffscreen.into());
         }
         if !matrix.iter().all(|value| value.is_finite()) {

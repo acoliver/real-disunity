@@ -84,8 +84,8 @@ impl DepthMode {
 impl DepthMode {
     /// The program runtime's state of a draw that writes depth and every one of `colors`
     /// attachments without blending, under this mode's depth and stencil test: the translation
-    /// of [`state`](Self::state) that terrain and objects share, so that neither can disagree
-    /// with the fixed pipelines' depth reuse.
+    /// of [`state`](Self::state) that terrain and objects share, so that they cannot disagree
+    /// on depth reuse.
     pub(crate) fn render_state(
         self,
         colors: usize,
@@ -170,7 +170,12 @@ mod tests {
         };
         for layout in [ReceiverLayout::Front, ReceiverLayout::Opposing] {
             for output in [MetadataOutput::Normal, MetadataOutput::Merged] {
-                let (object, terrain) = producer_sources(output, layout, 0.012);
+                let (object, terrain) = producer_sources(
+                    output,
+                    layout,
+                    0.012,
+                    crate::scene_metadata::receiver::ReceiverCapture::Normal,
+                );
                 for source in [&object, &terrain] {
                     assert_eq!(
                         DepthMode::Independent.vertex_source(source).as_ref(),

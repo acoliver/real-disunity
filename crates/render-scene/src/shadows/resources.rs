@@ -1,14 +1,18 @@
 #[cfg(test)]
 #[path = "card_rejection_test_support.rs"]
 mod card_rejection_test_support;
+#[cfg(test)]
 use crate::geometry::{instance_attributes, vertex_attributes};
+#[cfg(test)]
 use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 use crate::shader::ENVIRONMENT_WGSL;
 use crate::upload::upload_buffer;
+#[cfg(test)]
+use worldrunner_render_shadow::{DepthFragmentState, DepthPipelineDescriptor};
 use worldrunner_render_shadow::{
-    DepthFragmentState, DepthMap, DepthMapBudget, DepthMapDescriptor, DepthMapError,
-    DepthPipelineDescriptor, ReceiverDescriptor, ReceiverDimension,
+    DepthMap, DepthMapBudget, DepthMapDescriptor, DepthMapError, ReceiverDescriptor,
+    ReceiverDimension,
 };
 
 use super::DirectionalShadowSettings;
@@ -31,7 +35,7 @@ pub(super) const SHADOWED_WGSL: &str = concat!(
     crate::shader::environment_wgsl!("../shader/")
 );
 
-pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
+const SHADOWED_TERRAIN_WGSL: &str = concat!(
     worldrunner_render_shadow::shadow_wgsl!(),
     worldrunner_render_lighting::lighting_wgsl!(),
     worldrunner_render_post::post_wgsl!(),
@@ -42,6 +46,13 @@ pub(super) const SHADOWED_TERRAIN_WGSL: &str = concat!(
     include_str!("../shader/shadows.wgsl"),
     include_str!("../shader/terrain.wgsl")
 );
+
+pub(super) fn shadowed_terrain_source() -> &'static str {
+    static SOURCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SOURCE.get_or_init(|| {
+        crate::scene_metadata::receiver::terrain_local_source(SHADOWED_TERRAIN_WGSL)
+    })
+}
 
 pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     worldrunner_render_shadow::receiver_layout(
@@ -57,6 +68,51 @@ pub(super) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     )
 }
 
+/// The object casters of `pipelines` for `settings` and `sampling`: the caster programs over
+/// [`depth_source`], on the program runtime the receiver pipelines' objects draw with.
+pub(super) fn object_caster(
+    pipelines: &ScenePipelines,
+    settings: DirectionalShadowSettings,
+    sampling: worldrunner_render_plan::SceneShadowSampling,
+) -> crate::object::program::Context {
+    object_caster_from(
+        pipelines,
+        &depth_source(),
+        caster_configuration(settings, sampling),
+    )
+}
+
+/// The object casters of `pipelines` over the caster text `source`, with the depth test and bias
+/// of `configuration`.
+pub(super) fn object_caster_from(
+    pipelines: &ScenePipelines,
+    source: &str,
+    configuration: worldrunner_render_shadow::DirectionalShadowConfig,
+) -> crate::object::program::Context {
+    let objects = pipelines.object_context();
+    crate::object::program::Context::new(
+        crate::object::program::Description {
+            device: objects.device().clone(),
+            source: source.into(),
+            colors: Vec::new(),
+            samples: 1,
+            front_face: wgpu::FrontFace::Ccw,
+            depth: crate::renderer::depth::DepthMode::Independent,
+            previous_transforms: false,
+            constants: Vec::new(),
+            frame: pipelines.frame_layout().clone(),
+            shadow: None,
+            screen: None,
+            entry: crate::object::program::Entry::Caster(crate::object::program::Caster {
+                compare: configuration.caster_compare,
+                bias: configuration.caster_bias,
+            }),
+        },
+        objects.family(),
+    )
+}
+
+#[cfg(test)]
 pub(super) fn depth_pipelines(
     device: &wgpu::Device,
     pipelines: &ScenePipelines,
@@ -88,7 +144,7 @@ pub(super) fn depth_pipelines(
 }
 
 /// The caster policy of `settings` with the slope bias of the scene's shadow sampling.
-fn caster_configuration(
+pub(super) fn caster_configuration(
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
 ) -> worldrunner_render_shadow::DirectionalShadowConfig {
@@ -113,6 +169,7 @@ pub(super) fn terrain_caster(
     )
 }
 
+#[cfg(test)]
 fn object_depth_pipeline(
     device: &wgpu::Device,
     key: PipelineKey,
@@ -154,6 +211,7 @@ fn object_depth_pipeline(
     )
 }
 
+#[cfg(test)]
 fn depth_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     let source = depth_source();
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -382,7 +440,7 @@ pub(super) fn receiver_pipelines(
 pub(crate) fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> (String, String) {
     if reflection {
         return crate::ssr::forward::velocity_sources(
-            (SHADOWED_WGSL, SHADOWED_TERRAIN_WGSL),
+            (SHADOWED_WGSL, shadowed_terrain_source()),
             velocity,
             false,
         );
@@ -393,9 +451,9 @@ pub(crate) fn receiver_sources(ssao: bool, reflection: bool, velocity: bool) -> 
         SHADOWED_WGSL.to_owned()
     };
     let terrain = if velocity {
-        crate::velocity::terrain_source(SHADOWED_TERRAIN_WGSL)
+        crate::velocity::terrain_source(shadowed_terrain_source())
     } else {
-        SHADOWED_TERRAIN_WGSL.to_owned()
+        shadowed_terrain_source().to_owned()
     };
     if ssao {
         (

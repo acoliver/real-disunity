@@ -10,8 +10,8 @@ use worldrunner_world_simulation::presentation::{Camera, LightKind, LightSetting
 
 use super::super::builtins::{
     CAMERA_POSITION, MAIN_LIGHT_COLOR, MAIN_LIGHT_POSITION, OBJECT_TO_WORLD, ORTHO_PARAMS,
-    SCREEN_PARAMS, VIEW, WORLD_TO_OBJECT, add_main_light, add_screen_size, camera_layer,
-    draw_layer,
+    PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, WORLD_TO_OBJECT, WORLD_TRANSFORM_PARAMS,
+    add_main_light, add_screen_size, camera_layer, draw_layer,
 };
 use super::super::camera::projection;
 use super::super::frame::{Settings, adapt};
@@ -238,4 +238,78 @@ fn a_camera_render_carries_its_target_size_and_projection_kind() {
     let values = &adapted.frame.cameras[&CameraId(0)].values;
     assert_close(&vector(values, SCREEN_PARAMS), &[8.0, 4.0, 0.0, 0.0]);
     assert_close(&vector(values, ORTHO_PARAMS), &[0.0, 0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn the_projection_params_hold_the_screen_y_sign_and_the_near_plane() {
+    // x is +1: Play draws positive clip y into the high rows, which the game's screen position
+    // samples as the fragment's own texel only with +1. y is the near-plane distance.
+    let at = |settings: Camera| CameraView {
+        settings,
+        world_matrix: IDENTITY,
+    };
+    let perspective = Camera {
+        projection: Projection::Perspective,
+        field_of_view: 60.0,
+        near: 0.5,
+        far: 50.0,
+        ..Camera::default()
+    };
+    let orthographic = Camera {
+        projection: Projection::Orthographic,
+        near: 0.3,
+        far: 100.0,
+        ..Camera::default()
+    };
+    // A script's own projection decides, whatever the camera's near setting says.
+    let scripted = Camera {
+        projection_matrix: Some(
+            projection(
+                &Camera {
+                    near: 2.0,
+                    ..perspective
+                },
+                1.0,
+            )
+            .to_cols_array(),
+        ),
+        ..perspective
+    };
+    for (settings, near) in [(perspective, 0.5), (orthographic, 0.3), (scripted, 2.0)] {
+        let layer = camera_layer(&at(settings), 2.0);
+        assert_close(&vector(&layer, PROJECTION_PARAMS), &[1.0, near, 0.0, 0.0]);
+    }
+}
+
+#[test]
+fn a_projection_without_a_near_plane_leaves_the_projection_params_missing() {
+    let flat = Camera {
+        projection_matrix: Some([0.0; 16]),
+        ..Camera::default()
+    };
+    let view = CameraView {
+        settings: flat,
+        world_matrix: IDENTITY,
+    };
+    assert!(
+        camera_layer(&view, 1.0)
+            .values
+            .get(PROJECTION_PARAMS)
+            .is_none()
+    );
+}
+
+#[test]
+fn a_mirrored_renderer_flips_the_bitangent_sign() {
+    // The game's vertex stage multiplies its bitangent by the sign of the fourth component, which
+    // keeps the tangent frame's handedness only when that sign is the sign of the determinant.
+    let mirrored = Mat4::from_scale(Vec3::new(-1.0, 2.0, 1.0)).to_cols_array();
+    let scaled = Mat4::from_scale(Vec3::new(3.0, 2.0, 1.0)).to_cols_array();
+    for (local_to_world, sign) in [(IDENTITY, 1.0), (scaled, 1.0), (mirrored, -1.0)] {
+        let layer = draw_layer(&local_to_world);
+        assert_close(
+            &vector(&layer, WORLD_TRANSFORM_PARAMS),
+            &[0.0, 0.0, 0.0, sign],
+        );
+    }
 }

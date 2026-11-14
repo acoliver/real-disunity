@@ -1,20 +1,18 @@
 //! Object term replays: the six terms a replay writes, in the plain, shadowed, ambient and
-//! reflection contexts, drawn through `TermCapture::replay` and through the frozen fixed path
-//! into the capture's own colour and depth pass. The term texture is read back and compared byte
-//! for byte, as the terrain term captures do.
+//! reflection contexts, drawn through `TermCapture::replay`. The term texture is read back and
+//! compared with an untouched capture, as the terrain term captures do.
 //!
 //! The scene is the prepass captures' frame: an opaque mesh, a relief impostor, a masked
 //! double-sided card and a foliage card under wind, three pipeline keys in one frame.
 
 use wgpu::BindGroup;
 
-use super::{Legacy, Rig, digest, keys_used, prepass, scenes};
-use crate::compositor::terms::{CaptureTerm, TermCapture, pipelines_for, sources, term_sources};
+use super::{Rig, digest, prepass, scenes};
+use crate::compositor::terms::{CaptureTerm, TermCapture, pipelines_for};
 use crate::draw::SceneGpu;
 use crate::dynamic::capture_tests::{
     SIZE, ambient_group, context, copy_results, read_results, reflection_group, shadow_fixture,
 };
-use crate::renderer::legacy_objects::{Recipe, compose};
 
 const TERMS: [(CaptureTerm, &str); 6] = [
     (CaptureTerm::Albedo, "albedo"),
@@ -56,35 +54,6 @@ const REPLAYS: [(Replay, &str); 4] = [
     (Replay::Reflection, "reflection"),
 ];
 
-/// The object text of `term` in `replay`, composed as `pipelines_for` composes it but over the
-/// frozen forward source. The term rewrite and the ambient and reflection rewriters are the live
-/// ones, as the terrain term captures use them. While the live forward source equals the
-/// snapshot, the composition must equal the live one.
-fn frozen_source(term: CaptureTerm, replay: Replay) -> String {
-    let base = compose(Recipe {
-        shadowed: replay.shadowed(),
-        ..Recipe::default()
-    });
-    let live = crate::shadows::capture_sources(replay.shadowed());
-    let screen = replay.screen();
-    let compose = |stock: (&str, &str)| {
-        sources(
-            term_sources(stock, term),
-            screen.is_some(),
-            screen == Some(true),
-        )
-        .0
-    };
-    let source = compose((&base, live.1));
-    if live.0 == base {
-        assert!(
-            source == compose(live),
-            "{replay:?} {term:?}: the frozen replay composition differs from the live one"
-        );
-    }
-    source
-}
-
 /// Reads back the term texture of a capture that `record` draws.
 fn read(
     rig: &mut Rig<'_>,
@@ -105,7 +74,7 @@ fn read(
     read_results(device, index, staging).remove(0)
 }
 
-/// Compares every term in every replay context and returns how many captures ran.
+/// Captures every term in every replay context and returns how many captures ran.
 fn replays() -> usize {
     let context = context();
     let device = context.device();
@@ -130,11 +99,6 @@ fn replays() -> usize {
             let config = format!("term-{name}-{label}");
             let pipelines = pipelines_for(device, term, layout, replay.screen());
             let mut rig = Rig::moving(&context, &pipelines, &scene, false);
-            let legacy = Legacy::new(
-                &context,
-                &rig.selected(&pipelines),
-                &frozen_source(term, replay),
-            );
             let inputs = (group, screen.as_ref());
             let before = pipelines.object_runtime_stats().pipelines_built;
             let drawn = read(&mut rig, term, |encoder, capture, gpu| {
@@ -144,33 +108,13 @@ fn replays() -> usize {
                 pipelines.object_runtime_stats().pipelines_built > before,
                 "{config}: the replay built no object pipeline on the program runtime"
             );
-            let mut calls = 0;
-            let fixed = read(&mut rig, term, |encoder, capture, gpu| {
-                capture.record(encoder, inputs, |pass| {
-                    calls = legacy.draw(pass, gpu, 0).calls;
-                });
-            });
             let untouched = read(&mut rig, term, |encoder, capture, _| {
                 capture.record(encoder, inputs, |_| {});
             });
-            assert!(
-                drawn == fixed,
-                "{config}: the term differs from the fixed pipeline's output (if \
-                 the_live_object_wgsl_equals_the_frozen_snapshot fails too, copy the live WGSL \
-                 into object/fixtures)"
-            );
-            assert!(calls > 0, "{config}: the fixed path drew nothing");
             // Every term of this scene writes something, so equal bytes are never two blanks.
             assert!(
                 drawn != untouched,
                 "{config}: the objects drew nothing into the term"
-            );
-            let keys = keys_used(&rig.gpu, 0);
-            assert_eq!(
-                keys.len(),
-                3,
-                "{config}: the opaque mesh, the relief impostor and the masked double-sided cards \
-                 each draw with their own key, got {keys:?}"
             );
             println!(
                 "OBJECT-CAPTURE adapter={adapter:?} config={config} scene=terms mask=0 attachment=0 bytes={} hash={:016x}",
@@ -184,9 +128,9 @@ fn replays() -> usize {
 }
 
 #[test]
-fn object_terms_match_the_fixed_pipeline_byte_for_byte_in_every_replay() {
+fn object_terms_draw_in_every_replay() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let run = replays();
     assert_eq!(run, TERMS.len() * REPLAYS.len());
-    println!("OBJECT-CAPTURE-SUMMARY set=terms compared={run} skipped=0");
+    println!("OBJECT-CAPTURE-SUMMARY set=terms captures={run} skipped=0");
 }

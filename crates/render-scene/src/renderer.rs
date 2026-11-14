@@ -44,10 +44,6 @@
 //! Stencil consumption preserves the first primitive at a tied minimum depth.
 
 pub(crate) mod depth;
-#[cfg(test)]
-pub(crate) mod legacy_objects;
-#[cfg(test)]
-pub(crate) mod legacy_terrain;
 pub(crate) mod overlay;
 mod specular;
 mod terrain_access;
@@ -64,9 +60,8 @@ use wgpu::{
 };
 #[cfg(test)]
 use wgpu::{
-    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout,
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, RenderPipeline,
-    RenderPipelineDescriptor, VertexState,
+    FragmentState, MultisampleState, PipelineCompilationOptions, PipelineLayout, PolygonMode,
+    PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor, VertexState,
 };
 
 use crate::geometry::{INSTANCE_STRIDE, VERTEX_STRIDE};
@@ -489,24 +484,6 @@ fn scene_shader(device: &Device, label: &str, source: &str) -> wgpu::ShaderModul
     })
 }
 
-#[cfg(test)]
-fn pipeline_groups<'a>(
-    frame: &'a BindGroupLayout,
-    material: &'a BindGroupLayout,
-    shadow: Option<&'a BindGroupLayout>,
-    screen: Option<&'a BindGroupLayout>,
-) -> Vec<Option<&'a BindGroupLayout>> {
-    let mut groups = vec![Some(frame), Some(material)];
-    if let Some(shadow) = shadow {
-        groups.push(Some(shadow));
-    }
-    if let Some(screen) = screen {
-        groups.resize(3, None);
-        groups.push(Some(screen));
-    }
-    groups
-}
-
 fn color_targets(format: TextureFormat) -> [Option<ColorTargetState>; 1] {
     [Some(ColorTargetState {
         format,
@@ -547,18 +524,6 @@ pub(crate) fn celestial_source(
         crate::sky::meshes::VERTEX.to_owned()
     };
     format!("{source}\n{vertex}")
-}
-#[cfg(test)]
-fn scene_layout(
-    device: &Device,
-    label: &str,
-    groups: &[Option<&BindGroupLayout>],
-) -> PipelineLayout {
-    device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        label: Some(label),
-        bind_group_layouts: groups,
-        immediate_size: 0,
-    })
 }
 
 fn source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {

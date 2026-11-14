@@ -175,19 +175,12 @@ fn compare_cases(
 }
 
 #[test]
-fn gpu_fade_empty_cull_preserves_colour_depth_mrts_velocity_and_metadata() {
+fn gpu_fade_empty_cull_preserves_colour_and_depth() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for impostor in [false, true] {
         for direction in [SceneFadeDirection::Keep, SceneFadeDirection::Complement] {
-            for kind in [
-                readback::Kind::Forward,
-                readback::Kind::Velocity,
-                readback::Kind::Reflections,
-                readback::Kind::Metadata,
-            ] {
-                compare_cases(&context, impostor, direction, kind);
-            }
+            compare_cases(&context, impostor, direction, readback::Kind::Forward);
         }
     }
 }

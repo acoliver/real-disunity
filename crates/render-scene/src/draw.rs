@@ -32,8 +32,6 @@ pub(crate) mod decals;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
-#[cfg(test)]
-mod legacy_object_access;
 mod lod_material;
 mod object_runtime;
 pub(crate) mod overlay;
@@ -61,8 +59,6 @@ pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPage
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
-#[cfg(test)]
-pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;

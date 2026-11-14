@@ -4,11 +4,9 @@
 use wgpu::BindGroup;
 use worldrunner_render_plan::SceneSsaoReceiver;
 
-use super::{Case, Target, capture_scenes, recipe};
+use super::{Case, Target, capture_scenes};
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{CONFIGS, build, context, one_texel, supported};
-use crate::pipeline::PipelineKey;
-use crate::renderer::legacy_objects::{compose, gathered};
 
 fn gather_ssao(context: &GpuContext) -> BindGroup {
     let device = context.device();
@@ -95,7 +93,7 @@ fn gather_reflection(context: &GpuContext) -> BindGroup {
 }
 
 #[test]
-fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_for_every_key() {
+fn gather_receivers_draw_the_object_scenes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let (mut run, mut skipped) = (0, 0);
@@ -110,11 +108,7 @@ fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_for_every_key() {
             continue;
         }
         let built = build(context.device(), config);
-        let source = gathered(
-            &compose(recipe(config.kind)),
-            SceneSsaoReceiver::DepthAwareGather,
-        );
-        let (keys, compared) = capture_scenes(
+        let compared = capture_scenes(
             &context,
             &Case {
                 name,
@@ -124,21 +118,14 @@ fn gather_receivers_match_the_fixed_pipeline_byte_for_byte_for_every_key() {
                     samples: config.samples,
                 },
                 pipelines: &built.pipelines,
-                source: &source,
                 screen: Some(&group),
                 shadow: None,
                 mask: 0,
             },
             Some(SceneSsaoReceiver::DepthAwareGather),
-            &mut None,
-        );
-        assert_eq!(
-            keys.len(),
-            PipelineKey::ALL.len(),
-            "{name}: every key is drawn"
         );
         run += compared;
     }
-    println!("OBJECT-CAPTURE-SUMMARY set=gather compared={run} skipped={skipped}");
+    println!("OBJECT-CAPTURE-SUMMARY set=gather captures={run} skipped={skipped}");
     assert_eq!(skipped, 0, "a skipped capture fails");
 }

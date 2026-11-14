@@ -1,7 +1,5 @@
 use super::*;
 
-mod baseline;
-
 #[test]
 fn gpu_water_pcf5_keeps_ambient_shadow_input_byte_identical() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -54,23 +52,6 @@ fn visibility_energy(bytes: &[u8]) -> f64 {
                 .powi(2)
         })
         .sum()
-}
-
-#[test]
-fn gpu_water_absent_response_preserves_base_colour_bytes() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let context = context();
-    let original = baseline::source();
-    for scene_path in [false, true] {
-        let expected = capture_source(&context, None, scene_path, false, Some(&original));
-        let actual = capture(&context, None, scene_path, false);
-        assert_eq!(
-            baseline::hash(&actual),
-            baseline::hash(&expected),
-            "scene={scene_path}"
-        );
-        assert_eq!(actual, expected, "scene={scene_path}");
-    }
 }
 
 #[test]

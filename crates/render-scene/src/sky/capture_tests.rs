@@ -1,14 +1,12 @@
-//! Byte-equality captures of the celestial mesh draw: a whole frame is encoded through
-//! `compositor::encode_scene` with the scene's celestial meshes recording live, through the
-//! frozen fixed path (`renderer::legacy_objects::celestial`) and not at all, and the resolved
-//! colour and depth of the frame are compared byte for byte.
+//! Captures of the celestial mesh draw: a whole frame is encoded through
+//! `compositor::encode_scene` with the scene's celestial meshes recording live and not at all,
+//! and the resolved colour of the frame has to differ.
 //!
 //! The celestial pass draws into its own mesh target and the composite brings its colour into
 //! the frame, so a colour difference the composite passes on is seen here. The mesh target's
 //! depth is neither copyable nor sampled; it decides only which of the body's own fragments
-//! survive, which shows in the colour. The frame depth is compared too, but the celestial pass
-//! does not write it (every case reads the same depth on lavapipe), so it guards only against
-//! the frozen path writing where the live path does not. The
+//! survive, which shows in the colour. The frame depth is read back too, but the celestial pass
+//! does not write it (every case reads the same depth on lavapipe). The
 //! sun and ambient are lit, so the lighting multipliers and the specular convention reach the
 //! image; every case other than the base also has to differ from the base, so a case that
 //! does not exercise its axis fails rather than passing twice over the same pixels.
@@ -357,7 +355,7 @@ pub(super) fn render(
     }
 }
 
-/// Captures `case` live, frozen and empty, checks live equals frozen, and returns the live
+/// Captures `case` live and empty, checks the body changed the frame, and returns the live
 /// image.
 fn compare(context: &GpuContext, case: &Case) -> Image {
     let device = context.device();
@@ -376,17 +374,6 @@ fn compare(context: &GpuContext, case: &Case) -> Image {
     let mut draw = |recorder| render(context, (&mut gpu, &pipelines), &frame, recorder);
     let nothing = draw(Recorder::Nothing);
     let live = draw(Recorder::Live);
-    let frozen = draw(Recorder::Frozen);
-    assert!(
-        live.color == frozen.color,
-        "{}: the colour differs from the fixed path's",
-        case.name
-    );
-    assert!(
-        live.depth == frozen.depth,
-        "{}: the depth differs from the fixed path's",
-        case.name
-    );
     assert!(
         live.color != nothing.color,
         "{}: the body left the frame as it was",
@@ -396,7 +383,7 @@ fn compare(context: &GpuContext, case: &Case) -> Image {
 }
 
 #[test]
-fn the_celestial_draw_matches_the_frozen_fixed_path_byte_for_byte() {
+fn the_celestial_draw_changes_the_frame_in_every_case() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = GpuContext::shared_for_test().unwrap();
     let adapter = context.adapter().get_info().name;

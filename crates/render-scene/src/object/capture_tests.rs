@@ -1,10 +1,9 @@
 //! Byte-level captures of the lit object family: objects, foliage and impostors.
 //!
-//! Each configuration draws the same objects twice on one device: once through the scene and
-//! once through the frozen copy of the fixed path in [`crate::renderer::legacy_objects`], with
-//! pipelines built from the frozen shader snapshots. Every colour attachment is read back, and
-//! at one sample the depth plane too, and compared byte for byte. Each is also compared with an
-//! untouched render, which keeps "the objects drew nothing" from passing.
+//! Each configuration draws the same objects through the scene on one device and compares the
+//! attachments with an untouched render. Every colour attachment is read back, and at one
+//! sample the depth plane too. The objects have to change the attachments they write, which
+//! keeps "the objects drew nothing" from passing.
 //!
 //! Each run prints one `OBJECT-CAPTURE` line per configuration, scene and attachment with a
 //! hash of the bytes, so captures taken before and after a change can be compared as text.
@@ -14,10 +13,7 @@
 //! The scenes cover the 32 `PipelineKey` variants. [`scenes::surface_specs`],
 //! [`scenes::impostor_specs`] and relief impostors draw through `SceneGpu::draw_color`. The keys
 //! no material reaches are drawn with a mask, which sends the index of one of the
-//! [`scenes::base_specs`] cards to the pipeline of the key `index ^ mask`, on the scene's and on
-//! the fixed path's pipelines alike.
-
-use std::collections::BTreeSet;
+//! [`scenes::base_specs`] cards to the pipeline of the key `index ^ mask`.
 
 use wgpu::{BindGroup, RenderPass, TextureFormat};
 use worldrunner_render_plan::{RenderScene, SceneSsao, SceneSsaoReceiver};
@@ -25,24 +21,19 @@ use worldrunner_render_plan::{RenderScene, SceneSsao, SceneSsaoReceiver};
 use crate::device::GpuContext;
 use crate::draw::{DrawCount, SceneGpu};
 use crate::dynamic::capture_tests::{
-    Attachments, CONFIGS, Config, Kind, SIZE, VELOCITY, build, context, copy_results, digest, fill,
+    Attachments, CONFIGS, Config, SIZE, VELOCITY, build, context, copy_results, digest, fill,
     read_results, supported,
 };
 use crate::frame::FrameUniform;
-use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
-use crate::renderer::legacy_objects::{Counted, Recipe, Recorded, compose};
 
 mod casters;
 mod gather;
-mod legacy;
 pub(in crate::object) mod prepass;
 pub(in crate::object) mod scenes;
 mod shadow;
 mod terms;
 mod variants;
-
-pub(in crate::object) use legacy::Legacy;
 
 /// The attachments of a pass and the sample count of its pipelines.
 #[derive(Clone, Copy)]
@@ -334,16 +325,14 @@ fn copy_plane(
     (buffer, row as usize, padded as usize)
 }
 
-/// What a capture draws with besides the rig: the pipelines the scene was built with and the
-/// frozen source the fixed path is built from, the groups bound at sets two and three, and the
-/// names the hash lines carry.
+/// What a capture draws with besides the rig: the pipelines the scene was built with, the groups
+/// bound at sets two and three, and the names the hash lines carry.
 #[derive(Clone, Copy)]
 pub(in crate::object) struct Case<'a> {
     pub name: &'a str,
     pub scene: &'a str,
     pub target: Target<'a>,
     pub pipelines: &'a ScenePipelines,
-    pub source: &'a str,
     pub screen: Option<&'a BindGroup>,
     pub shadow: Option<&'a BindGroup>,
     /// Sends pipeline index `i` to the pipeline of key `i ^ mask`. Zero draws through
@@ -354,14 +343,11 @@ pub(in crate::object) struct Case<'a> {
 /// What one capture drew.
 pub(in crate::object) struct Captured {
     pub images: Vec<Vec<u8>>,
-    /// The keys, as indices into [`PipelineKey::ALL`], the draw used.
-    pub keys: BTreeSet<usize>,
 }
 
-/// Draws the rig's objects through the scene and through the fixed path, checks that the two
-/// agree on every attachment and that the objects drew something, prints the hash lines and
-/// returns the scene's attachments.
-pub(in crate::object) fn capture(rig: &mut Rig<'_>, legacy: &Legacy, case: &Case<'_>) -> Captured {
+/// Draws the rig's objects through the scene, checks that the objects drew something, prints the
+/// hash lines and returns the scene's attachments.
+pub(in crate::object) fn capture(rig: &mut Rig<'_>, case: &Case<'_>) -> Captured {
     let bind = |pass: &mut RenderPass<'_>| {
         if let Some(shadow) = case.shadow {
             pass.set_bind_group(2, shadow, &[]);
@@ -384,59 +370,15 @@ pub(in crate::object) fn capture(rig: &mut Rig<'_>, legacy: &Legacy, case: &Case
             );
             assert_eq!(drawn.sky, DrawCount::default(), "the fixture draws no sky");
         } else {
-            let frame = gpu.legacy_objects().frame;
+            let frame = gpu.drawing_frame_group_for_test();
             gpu.draw_objects_prepared_masked(pass, &frame, selected.object_context(), case.mask);
         }
     });
-    let mut recorded = Recorded::default();
-    rig.prime();
-    let fixed = render(context, case.target, &mut rig.gpu, |pass, gpu| {
-        bind(pass);
-        recorded = legacy.draw(pass, gpu, case.mask);
-    });
     rig.prime();
     let untouched = render(context, case.target, &mut rig.gpu, |_, _| {});
-    let targets: Vec<_> = legacy
-        .pipelines()
-        .targets()
-        .iter()
-        .flatten()
-        .map(|target| target.format)
-        .collect();
-    assert_eq!(
-        targets, case.target.formats,
-        "{}: the fixed pipelines write other targets than the pass has",
-        case.name
-    );
-    compare(case, [&scene, &fixed, &untouched]);
-    assert!(
-        recorded.calls > 0,
-        "{}: the fixed path drew nothing",
-        case.name
-    );
+    compare(case, [&scene, &untouched]);
     report(context, case, &scene);
-    Captured {
-        images: scene,
-        keys: keys_used(&rig.gpu, case.mask),
-    }
-}
-
-/// The keys the scene's draws select, after the mask.
-fn keys_used(gpu: &SceneGpu, mask: usize) -> BTreeSet<usize> {
-    let objects = gpu.legacy_objects();
-    let mut keys = BTreeSet::new();
-    for draw in &objects.draws {
-        let levels = std::iter::once(&draw.level).chain(draw.transition.iter().map(|(_, l)| l));
-        for level in levels {
-            match &level.slots {
-                Some(slots) => keys.extend(slots.iter().map(|slot| slot.pipeline ^ mask)),
-                None => {
-                    keys.insert(draw.pipeline ^ mask);
-                }
-            }
-        }
-    }
-    keys
+    Captured { images: scene }
 }
 
 fn attachment_name(index: usize, case: &Case<'_>) -> String {
@@ -447,24 +389,13 @@ fn attachment_name(index: usize, case: &Case<'_>) -> String {
     }
 }
 
-/// Checks the scene's attachments against the fixed path's, byte for byte, and that the objects
-/// changed the colour, the velocity target when there is one, and the depth plane from an
-/// untouched render. The message names the guard test too: a snapshot that is stale shows up
-/// here as a difference.
-fn compare(case: &Case<'_>, [scene, fixed, untouched]: [&[Vec<u8>]; 3]) {
+/// Checks that the objects changed the colour, the velocity target when there is one, and the
+/// depth plane from an untouched render.
+fn compare(case: &Case<'_>, [scene, untouched]: [&[Vec<u8>]; 2]) {
     let colors = case.target.formats.len();
     let planes = usize::from(case.target.samples == 1);
     assert_eq!(scene.len(), colors + planes);
-    for (index, ((scene, fixed), untouched)) in scene.iter().zip(fixed).zip(untouched).enumerate() {
-        assert!(
-            scene == fixed,
-            "{} {}: {} differs from the fixed pipeline's output (if \
-             the_live_object_wgsl_equals_the_frozen_snapshot fails too, copy the live WGSL into \
-             object/fixtures)",
-            case.name,
-            case.scene,
-            attachment_name(index, case)
-        );
+    for (index, (scene, untouched)) in scene.iter().zip(untouched).enumerate() {
         let written = index == 0
             || (index < colors && case.target.formats[index] == VELOCITY)
             || index == colors;
@@ -495,44 +426,6 @@ fn report(context: &GpuContext, case: &Case<'_>, images: &[Vec<u8>]) {
             digest(image)
         );
     }
-}
-
-/// The scene features a configuration's object source is specialised for.
-fn recipe(kind: Kind) -> Recipe {
-    match kind {
-        Kind::Plain(_) => Recipe::default(),
-        Kind::Velocity => Recipe {
-            velocity: true,
-            ..Recipe::default()
-        },
-        Kind::Ssao => Recipe {
-            ssao: true,
-            ..Recipe::default()
-        },
-        Kind::SsaoVelocity => Recipe {
-            ssao: true,
-            velocity: true,
-            ..Recipe::default()
-        },
-        Kind::Reflection { velocity } => Recipe {
-            reflection: true,
-            velocity,
-            ..Recipe::default()
-        },
-    }
-}
-
-/// The frozen source of `recipe`. While the live WGSL equals the snapshots, it is also the live
-/// source the scene's pipelines were built from, which checks the composition recipe.
-fn frozen_source(pipelines: &ScenePipelines, recipe: Recipe) -> String {
-    let source = compose(recipe);
-    if crate::shader::ENVIRONMENT_WGSL == compose(Recipe::default()) && !recipe.shadowed {
-        assert!(
-            source == crate::renderer::legacy_objects::Build::live_source(pipelines),
-            "{recipe:?}: the frozen composition differs from the live one"
-        );
-    }
-    source
 }
 
 /// A scene, the specs of its cards and the pipeline masks it is drawn with.
@@ -569,19 +462,13 @@ fn all_scenes() -> Vec<Scene> {
     ]
 }
 
-/// Captures every scene of [`all_scenes`] with the pipelines of `case`, returning the keys they
-/// used and how many captures ran.
-///
-/// `legacy` holds the fixed pipelines of the context. They are built when the first scene is
-/// uploaded, from the pipelines that scene selects, and then reused: compiling 32 pipelines is
-/// the cost of a capture, and every scene of a context selects the same ones.
+/// Captures every scene of [`all_scenes`] with the pipelines of `case`, returning how many
+/// captures ran.
 pub(in crate::object) fn capture_scenes(
     context: &GpuContext,
     case: &Case<'_>,
     receiver: Option<SceneSsaoReceiver>,
-    legacy: &mut Option<Legacy>,
-) -> (BTreeSet<usize>, usize) {
-    let mut keys = BTreeSet::new();
+) -> usize {
     let mut run = 0;
     for scene in all_scenes() {
         let rig = Rig::new(context, case.pipelines, &scenes::scene(&scene.specs));
@@ -589,24 +476,19 @@ pub(in crate::object) fn capture_scenes(
             Some(receiver) => rig.receiving(receiver),
             None => rig,
         };
-        let fixed = legacy.get_or_insert_with(|| {
-            Legacy::new(context, &rig.selected(case.pipelines), case.source)
-        });
         for &mask in scene.masks {
-            let captured = capture(
+            capture(
                 &mut rig,
-                fixed,
                 &Case {
                     scene: scene.name,
                     mask,
                     ..*case
                 },
             );
-            keys.extend(captured.keys);
             run += 1;
         }
     }
-    (keys, run)
+    run
 }
 
 /// How many captures a full run of [`capture_scenes`] makes.
@@ -615,10 +497,9 @@ fn captures_per_config() -> usize {
 }
 
 /// One of the 12 forward target sets, all scenes.
-fn forward(context: &GpuContext, config: &Config) -> (usize, usize) {
+fn forward(context: &GpuContext, config: &Config) -> usize {
     let built = build(context.device(), config);
-    let source = frozen_source(&built.pipelines, recipe(config.kind));
-    let (keys, run) = capture_scenes(
+    capture_scenes(
         context,
         &Case {
             name: config.name,
@@ -628,15 +509,12 @@ fn forward(context: &GpuContext, config: &Config) -> (usize, usize) {
                 samples: config.samples,
             },
             pipelines: &built.pipelines,
-            source: &source,
             screen: built.screen.as_ref(),
             shadow: None,
             mask: 0,
         },
         None,
-        &mut None,
-    );
-    (keys.len(), run)
+    )
 }
 
 fn forward_set(index: usize) {
@@ -645,7 +523,7 @@ fn forward_set(index: usize) {
     let config = &CONFIGS[index];
     if !supported(&context, config) {
         println!(
-            "OBJECT-CAPTURE-SUMMARY set=forward config={} keys=0 compared=0 skipped={}",
+            "OBJECT-CAPTURE-SUMMARY set=forward config={} captures=0 skipped={}",
             config.name,
             captures_per_config()
         );
@@ -654,13 +532,11 @@ fn forward_set(index: usize) {
             config.name
         );
     }
-    let (keys, run) = forward(&context, config);
+    let run = forward(&context, config);
     println!(
-        "OBJECT-CAPTURE-SUMMARY set=forward config={} keys={keys}/{} compared={run} skipped=0",
-        config.name,
-        PipelineKey::ALL.len()
+        "OBJECT-CAPTURE-SUMMARY set=forward config={} captures={run} skipped=0",
+        config.name
     );
-    assert_eq!(keys, PipelineKey::ALL.len(), "every key is drawn");
     assert_eq!(run, captures_per_config());
 }
 
@@ -674,23 +550,16 @@ macro_rules! forward_tests {
 }
 
 forward_tests! {
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_in_srgb_at_one_sample: 0;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_in_srgb_at_four_samples: 1;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_in_hdr_at_one_sample: 2;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_in_hdr_at_four_samples: 3;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_velocity_at_one_sample: 4;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_velocity_at_four_samples: 5;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_ssao_at_one_sample: 6;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_ssao_and_velocity_at_four_samples: 7;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_reflection_at_one_sample: 8;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_reflection_at_four_samples: 9;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_reflection_and_velocity_at_one_sample: 10;
-    objects_match_the_fixed_pipeline_byte_for_byte_for_every_key_with_reflection_and_velocity_at_four_samples: 11;
-}
-
-/// The command counts of the fixed path over the rig's scene, drawn into a counter.
-pub(in crate::object) fn counted(rig: &Rig<'_>, legacy: &Legacy) -> (Counted, Recorded) {
-    let mut counted = Counted::default();
-    let recorded = legacy.draw(&mut counted, &rig.gpu, 0);
-    (counted, recorded)
+    objects_draw_in_srgb_at_one_sample: 0;
+    objects_draw_in_srgb_at_four_samples: 1;
+    objects_draw_in_hdr_at_one_sample: 2;
+    objects_draw_in_hdr_at_four_samples: 3;
+    objects_draw_with_velocity_at_one_sample: 4;
+    objects_draw_with_velocity_at_four_samples: 5;
+    objects_draw_with_ssao_at_one_sample: 6;
+    objects_draw_with_ssao_and_velocity_at_four_samples: 7;
+    objects_draw_with_reflection_at_one_sample: 8;
+    objects_draw_with_reflection_at_four_samples: 9;
+    objects_draw_with_reflection_and_velocity_at_one_sample: 10;
+    objects_draw_with_reflection_and_velocity_at_four_samples: 11;
 }

@@ -1,20 +1,17 @@
 //! The terrain shadow caster: depth-only passes over the light frames of the four cascades, drawn
-//! through the scene's vertex-only program and through the frozen fixed caster, with the depth
-//! texels read back and compared byte for byte. The terrain is drawn whole, and streamed with the
-//! cascades' volumes and a slice hull selecting which chunks each map receives.
+//! through the scene's vertex-only program, with the depth texels read back and compared with an
+//! untouched map. The terrain is drawn whole, and streamed with the cascades' volumes and a slice
+//! hull selecting which chunks each map receives.
 
 use glam::{Mat4, Vec3};
-use wgpu::{BindGroup, Buffer, RenderPipeline, TextureFormat};
+use wgpu::{BindGroup, Buffer, TextureFormat};
 
 use super::{Rig, Source, copy_plane, scenes, streaming::settle};
 use crate::device::GpuContext;
-use crate::draw::{DrawCount, SceneGpu, SliceHull};
+use crate::draw::{DrawCount, SliceHull};
 use crate::dynamic::capture_tests::{CONFIGS, SIZE, build, context, digest, read_results};
 use crate::frame::FrameUniform;
 use crate::renderer::ScenePipelines;
-use crate::renderer::legacy_terrain::{
-    Chunk, Geometry, build_terrain_depth, draw_terrain_depth as draw_fixed,
-};
 use crate::shadows::{DirectionalShadowSettings, TerrainCaster};
 
 /// A top-down orthographic map over a square of `half` metres about `centre`.
@@ -59,10 +56,9 @@ pub(in crate::terrain) const BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
     clamp: 0.0,
 };
 
-/// The scene's caster, the fixed caster, and the light frame of each cascade for both.
+/// The scene's caster and the light frame of each cascade.
 pub(in crate::terrain) struct Casting {
     pub caster: TerrainCaster,
-    pub fixed: RenderPipeline,
     pub frames: [(Buffer, BindGroup); 4],
     pub matrices: [Mat4; 4],
 }
@@ -95,46 +91,9 @@ impl Casting {
                 (device, context.submission()),
                 pipelines.frame_layout(),
             ),
-            fixed: build_terrain_depth(device, pipelines.frame_layout(), configuration),
             frames,
             matrices,
         }
-    }
-
-    /// What the fixed caster draws into cascade `index`, recorded into `pass`: nothing when the
-    /// cascade's volume misses the terrain.
-    pub(in crate::terrain) fn fixed_draw<C: crate::renderer::legacy_terrain::Commands>(
-        &self,
-        pass: &mut C,
-        (context, gpu): (&GpuContext, &SceneGpu),
-        index: usize,
-    ) -> DrawCount {
-        let Some(keep) =
-            gpu.terrain_caster_selection(u32::try_from(index).unwrap(), self.matrices[index])
-        else {
-            return DrawCount::default();
-        };
-        let inputs = gpu
-            .legacy_inputs(context.device(), context.queue())
-            .expect("the scene has terrain");
-        let chunks;
-        let geometry = if inputs.streaming {
-            chunks = gpu.legacy_chunks();
-            Geometry::Streaming(&chunks)
-        } else {
-            let (vertices, indices, index_count) = inputs.mesh.as_ref().expect("a mesh");
-            Geometry::Mesh {
-                vertices,
-                indices,
-                index_count: *index_count,
-            }
-        };
-        draw_fixed(
-            pass,
-            (&self.fixed, &self.frames[index].1),
-            (&geometry, &inputs.instances),
-            |chunk: &Chunk| keep(chunk.bounds),
-        )
     }
 }
 
@@ -186,8 +145,8 @@ pub(in crate::terrain) fn render_map(
     read_results(device, index, vec![staging]).remove(0)
 }
 
-/// One cascade through the scene and through the fixed caster: the depth texels and the draw
-/// calls must agree, and terrain must have drawn something when it drew a call.
+/// One cascade through the scene's caster: terrain must have written depth exactly when it drew
+/// a call.
 fn capture_map(
     context: &GpuContext,
     (rig, casting): (&Rig<'_>, &Casting),
@@ -202,19 +161,7 @@ fn capture_map(
             (u32::try_from(index).unwrap(), casting.matrices[index]),
         );
     });
-    let mut fixed_count = DrawCount::default();
-    let fixed = render_map(context, |pass| {
-        fixed_count = casting.fixed_draw(pass, (context, &rig.gpu), index);
-    });
     let untouched = render_map(context, |_| {});
-    assert!(
-        scene == fixed,
-        "{name} cascade {index}: the depth texels differ from the fixed caster's"
-    );
-    assert_eq!(
-        scene_count, fixed_count,
-        "{name} cascade {index}: draw calls"
-    );
     assert_eq!(
         scene != untouched,
         scene_count.calls > 0,
@@ -231,7 +178,7 @@ fn capture_map(
 }
 
 #[test]
-fn the_whole_terrain_caster_matches_the_fixed_caster_byte_for_byte_in_every_cascade() {
+fn the_whole_terrain_caster_writes_depth_in_the_cascades_it_covers() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let built = build(context.device(), &CONFIGS[2]);
@@ -297,8 +244,7 @@ fn streamed_chunks(context: &GpuContext, hull: Option<(usize, &[Vec3])>) -> Vec<
 }
 
 #[test]
-fn the_streamed_terrain_caster_matches_the_fixed_caster_byte_for_byte_under_volume_and_slice_culling()
- {
+fn the_streamed_terrain_caster_culls_chunks_by_volume_and_slice_hull() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let volume = streamed_chunks(&context, None);

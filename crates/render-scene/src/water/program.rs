@@ -4,10 +4,10 @@
 //! with, and counts nothing against a budget: every buffer and texture a body draws with belongs
 //! to [`Water`](super::Water) and is lent to the runtime, as the dynamic unlit material lends its
 //! quads. There is one program for each pipeline key, `([u32; 5], shadows)`, built on first use
-//! from the text the fixed pipeline builder composed (`water::fixed` keeps a frozen copy). The
-//! four text bits of `options[4]` (endpoint 256, vertex seeds 512, shadow response 1024 through
-//! its filter 2048) and `shadows` choose the text, and the specular options and term bits are
-//! override constants of both stages, as the fixed pipelines set them.
+//! from the text the fixed pipeline builder composed. The four text bits of `options[4]`
+//! (endpoint 256, vertex seeds 512, shadow response 1024 through its filter 2048) and `shadows`
+//! choose the text, and the specular options and term bits are override constants of both
+//! stages, as the fixed pipelines set them.
 //!
 //! Set 0 is water's own and is built from imports for each body and frame slot, as the fixed
 //! path builds a bind group per body for each feature. Set 1 is the shadow group, lent: the pass
@@ -138,7 +138,7 @@ impl Programs {
     }
 
     /// The text of `key` and the options it is compiled with: what the fixed pipeline builder
-    /// built its module from (`water::fixed::pipelines` for the frozen copy).
+    /// built its module from.
     fn source(&self, (options, shadows): Key) -> (Arc<str>, [u32; 5]) {
         if let Some((source, options)) = self.sources.get(&(options, shadows)) {
             return (text(source, *options, shadows), *options);

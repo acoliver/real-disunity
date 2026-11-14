@@ -227,6 +227,13 @@ impl SceneGpu {
         self.end_objects(view, shadow, count)
     }
 
+    /// The group the object draws bind at set 0, for tests that record the objects into pass
+    /// commands of their own.
+    #[cfg(test)]
+    pub(crate) fn drawing_frame_group_for_test(&self) -> wgpu::BindGroup {
+        self.drawing_frame_group()
+    }
+
     /// [`draw_objects_prepared`](Self::draw_objects_prepared), sending pipeline index `i` to the
     /// pipeline of key `i ^ mask`.
     #[cfg(test)]

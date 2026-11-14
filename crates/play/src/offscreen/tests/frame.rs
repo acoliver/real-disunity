@@ -921,6 +921,11 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     assert_eq!(textures["_UserLut"].texture, DefaultTexture::Grey.id());
     assert!(!textures.contains_key("_Declared"));
     assert_eq!(
+        adapted.frame.undeclared_texture,
+        Some(DefaultTexture::Grey.id()),
+        "records read the grey default for what no layer names"
+    );
+    assert_eq!(
         adapted.report.unresolved_textures,
         BTreeMap::from([
             ("_Declared: no texture set".to_owned(), 1),
@@ -932,6 +937,7 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     );
     available.default_textures.clear();
     let adapted = adapt(&snapshot, &available, &settings());
+    assert_eq!(adapted.frame.undeclared_texture, None);
     assert!(
         !adapted.frame.materials[&ids::material(material)]
             .properties

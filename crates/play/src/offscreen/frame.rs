@@ -369,7 +369,15 @@ impl<'a> Mapper<'a> {
         settings: &'a Settings,
     ) -> Self {
         let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
-        let mut frame = OffscreenFrame::default();
+        let mut frame = OffscreenFrame {
+            // Unity binds its grey default to a texture nothing sets and the shader does not
+            // declare, command-buffer records included.
+            undeclared_texture: available
+                .default_textures
+                .contains(&DefaultTexture::Grey)
+                .then(|| DefaultTexture::Grey.id()),
+            ..OffscreenFrame::default()
+        };
         if let Some(global) = &snapshot.global {
             frame.globals = layer(&global.properties, &mut textures);
             frame.global_keywords.clone_from(&global.keywords);

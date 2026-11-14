@@ -405,3 +405,56 @@ fn drain_waits_for_the_completion_record_while_other_threads_poll() {
     drained.unwrap();
     assert!(authority.is_idle());
 }
+
+/// A second poller collects the capture's completion callback together with a mapping callback
+/// and is held inside the mapping callback, which wgpu-core fires before the submission
+/// callbacks it collected in the same poll. The capture's own wait then returns before its
+/// bookkeeping has run. Drain must wait for that bookkeeping, then leave the authority idle and
+/// admit the next capture at once.
+#[test]
+fn drain_waits_for_bookkeeping_a_held_poller_has_not_run() {
+    use std::sync::mpsc;
+    let (device, authority) = fresh_context();
+    let prefix = authority
+        .begin_capture(&device, writes(), frozen(), |_, _, _| Ok::<_, ()>(()))
+        .unwrap();
+    drop(prefix.submit().unwrap());
+    let held = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("held mapping"),
+        size: 4,
+        usage: wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let (entered, entered_signal) = mpsc::channel();
+    let (release, release_signal) = mpsc::channel::<()>();
+    held.slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            result.unwrap();
+            entered.send(()).unwrap();
+            release_signal.recv().unwrap();
+        });
+    let poller = {
+        let device = device.clone();
+        std::thread::spawn(move || {
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        })
+    };
+    entered_signal.recv().unwrap();
+    assert!(
+        !authority.is_idle(),
+        "the held poller has not run the capture's completion callback"
+    );
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        release.send(()).unwrap();
+    });
+    authority.drain_captures(&device).unwrap();
+    assert!(authority.is_idle());
+    let next = authority
+        .begin_capture(&device, writes(), frozen(), |_, _, _| Ok::<_, ()>(()))
+        .expect("the next capture is admitted after drain");
+    drop(next.submit().unwrap());
+    releaser.join().unwrap();
+    poller.join().unwrap();
+    authority.drain_captures(&device).unwrap();
+}

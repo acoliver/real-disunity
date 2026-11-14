@@ -65,17 +65,19 @@ impl SubmissionAuthority {
         }
         Ok(())
     }
-    /// Waits until this authority has recorded `serial` as completed. The callback that records
-    /// it runs on whichever thread's poll took the completion, which can be after this thread's
-    /// own wait for the submission returned. Polls without blocking until it has run, stops
-    /// early on device loss, and fails with `PollError::Timeout` past `deadline`.
+    /// Waits until every submission up to `serial` has finished its completion bookkeeping
+    /// ([`Self::settled_through`]): its serial recorded, its in-flight count released and its
+    /// leases dropped. The callback runs on whichever thread's poll took the completion, which
+    /// can be after this thread's own wait for the submission returned. Polls without blocking
+    /// until it has run, stops early on device loss, and fails with `PollError::Timeout` past
+    /// `deadline`. Only the callback changes the bookkeeping; this only waits for it.
     pub fn await_completion_record(
         &self,
         device: &wgpu::Device,
         serial: u64,
         deadline: std::time::Instant,
     ) -> Result<(), wgpu::PollError> {
-        while self.completed_serial() < serial && self.check_device().is_ok() {
+        while !self.settled_through(serial) && self.check_device().is_ok() {
             if std::time::Instant::now() >= deadline {
                 return Err(wgpu::PollError::Timeout);
             }

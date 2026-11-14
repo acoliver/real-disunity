@@ -130,9 +130,24 @@ fn scene_record_transmission(normal: vec3<f32>, albedo: vec3<f32>, record: Scene
         * visibility;
 }
 
+// An object fragment's material after projected decals: the values the forward path lights and
+// the G-buffer stores, evaluated once by either. surface.properties holds roughness, metalness
+// and AO; masked_amount is the per-pixel scattering amount.
+struct SceneObjectMaterial {
+    geometric_normal: vec3<f32>,
+    surface: SceneShadingSurface,
+    masked_amount: f32,
+    emission: f32,
+}
+
 // Shades one fragment. Both entry points funnel here so that the masked and
 // opaque pipelines cannot drift apart in anything except the cutout test.
 fn shade(original: VertexOutput, front_facing: bool, position: vec3<f32>) -> vec4<f32> {
+    var input = original;
+    input.world_position = position;
+    return scene_finish_shading(input, shade_material(original, front_facing, position));
+}
+fn shade_material(original: VertexOutput, front_facing: bool, position: vec3<f32>) -> SceneObjectMaterial {
     var input = original;
     input.world_position = position;
     let albedo_footprint = scene_atlas_footprint(albedo_texture, input);
@@ -164,20 +179,23 @@ fn shade(original: VertexOutput, front_facing: bool, position: vec3<f32>) -> vec
     let occlusion = scene_shading_occlusion(input, auxiliary.x);
     let scattering = scene_shading_scattering(input, metalness, occlusion);
     let surface_material = SceneShadingSurface(albedo_sample, normal, vec3<f32>(roughness, scattering.x, occlusion.x));
-    return scene_finish_shading(input, geometric_normal, surface_material, scattering.y, auxiliary.y);
+    return scene_object_material(input, geometric_normal, surface_material, scattering.y, auxiliary.y);
 }
-fn scene_finish_shading(input: VertexOutput, geometric_normal: vec3<f32>, surface: SceneShadingSurface, masked_amount: f32, emission: f32) -> vec4<f32> {
-    var normal = surface.normal;
-    var albedo_sample = surface.albedo;
-    var roughness = surface.properties.x;
-    var metalness = surface.properties.y;
-    let ambient_occlusion = surface.properties.z;
+fn scene_object_material(input: VertexOutput, geometric_normal: vec3<f32>, surface: SceneShadingSurface, masked_amount: f32, emission: f32) -> SceneObjectMaterial {
     let projected = scene_project_decals(input.world_position, geometric_normal, 1u,
-        albedo_sample.rgb, vec2<f32>(roughness, metalness), normal);
-    normal = projected.normal;
-    albedo_sample = vec4<f32>(projected.albedo, albedo_sample.a);
-    roughness = projected.properties.x;
-    metalness = projected.properties.y;
+        surface.albedo.rgb, surface.properties.xy, surface.normal);
+    let decorated = SceneShadingSurface(vec4<f32>(projected.albedo, surface.albedo.a), projected.normal,
+        vec3<f32>(projected.properties, surface.properties.z));
+    return SceneObjectMaterial(geometric_normal, decorated, masked_amount, emission);
+}
+fn scene_finish_shading(input: VertexOutput, material_surface: SceneObjectMaterial) -> vec4<f32> {
+    let normal = material_surface.surface.normal;
+    let albedo_sample = material_surface.surface.albedo;
+    let roughness = material_surface.surface.properties.x;
+    let metalness = material_surface.surface.properties.y;
+    let ambient_occlusion = material_surface.surface.properties.z;
+    let masked_amount = material_surface.masked_amount;
+    let emission = material_surface.emission;
     let lighting = scene_surface_lighting(
         input.world_position,
         normal,

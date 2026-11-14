@@ -122,7 +122,7 @@ pub(crate) fn card_reject_source(source: &str, layout: ReceiverLayout) -> String
     reject::card_reject_source(source, layout)
 }
 
-#[cfg(test)]
+/// The text of WGSL function `name` in `source`, from `fn` to its closing brace.
 pub(crate) fn function_source<'a>(source: &'a str, name: &str) -> &'a str {
     shader::function(source, name)
 }

@@ -693,6 +693,7 @@ fn build(
         )?,
     };
     renderer.install_reflections(device)?;
+    renderer.install_gbuffer_producer(device);
     renderer.share_metadata_depth(device);
     install_jitter(&mut renderer, settings)?;
     renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;

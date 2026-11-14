@@ -129,6 +129,25 @@ pub(crate) fn allocate_path(
     })
 }
 
+impl super::FrameRenderer {
+    /// Builds the scene's G-buffer pipelines when the frame observes the G-buffer and has the
+    /// prepass metadata whose depth and screen camera they use. A screen that already has them,
+    /// and a frame without a G-buffer or metadata, are left as they are.
+    pub(crate) fn install_gbuffer_producer(&mut self, device: &wgpu::Device) {
+        if self.gbuffer.is_none() {
+            return;
+        }
+        if let Some(screen) = self
+            .ssao
+            .as_mut()
+            .filter(|screen| screen.geometry.gbuffer.is_none())
+        {
+            screen.geometry.gbuffer =
+                Some(crate::gbuffer_writes::pipelines(device, &screen.uniform));
+        }
+    }
+}
+
 /// Whether `path` allocates the G-buffer, refusing paths this renderer cannot draw.
 pub(crate) fn admit_path(path: SceneOpaquePath, samples: u32) -> Result<bool, PostError> {
     match path {

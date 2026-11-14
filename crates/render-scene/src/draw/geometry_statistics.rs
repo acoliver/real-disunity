@@ -21,9 +21,9 @@ pub struct TerrainLeafIdentity {
 pub struct TerrainStreamingStatistics {
     /// Desired terminal leaves from the streaming selector, including merge hysteresis.
     pub selected_leaves: usize,
-    /// Drawn leaves at selected detail or finer, including fine coverage awaiting a merge.
+    /// Resident leaves at selected detail or finer, before view culling, including pending merges.
     pub drawn_at_detail: usize,
-    /// Drawn resident ancestors of selected leaves, not their desired descendants.
+    /// Resident ancestors of selected leaves before view culling, not their desired descendants.
     pub drawn_coarse: usize,
     /// Resident leaves used by this frame, including uploads ordered before its draws.
     /// Retired allocations are excluded.
@@ -37,6 +37,7 @@ pub struct TerrainStreamingStatistics {
 }
 
 pub(crate) fn measure(
+    residents: &[TerrainChunk],
     drawn: &[TerrainChunk],
     observation: TerrainSelectionObservation,
 ) -> TerrainStreamingStatistics {
@@ -44,7 +45,7 @@ pub(crate) fn measure(
         selected_leaves: observation.selected_leaves,
         drawn_at_detail: observation.drawn_at_detail,
         drawn_coarse: observation.drawn_coarse,
-        resident_leaves: drawn.len(),
+        resident_leaves: residents.len(),
         unresolved_leaves: observation.unresolved_leaves,
         complete: observation.unresolved_leaves == 0,
         drawn: identity(drawn),
@@ -76,14 +77,22 @@ fn identity(drawn: &[TerrainChunk]) -> TerrainLeafIdentity {
 }
 
 impl super::SceneGpu {
-    pub(super) fn drawing_geometry_statistics(&self) -> Option<TerrainGeometryStatistics> {
-        self.terrain.as_ref().map(|terrain| {
-            terrain
-                .streaming
-                .as_ref()
-                .map_or(TerrainGeometryStatistics::Static, |streaming| {
-                    TerrainGeometryStatistics::Streaming(streaming.drawing_statistics())
-                })
+    pub(super) fn drawing_geometry_statistics(
+        &self,
+        drawn: super::DrawCount,
+    ) -> Option<TerrainGeometryStatistics> {
+        self.terrain.as_ref().and_then(|terrain| {
+            terrain.streaming.as_ref().map_or(
+                (drawn.calls > 0).then_some(TerrainGeometryStatistics::Static),
+                |streaming| {
+                    Some(TerrainGeometryStatistics::Streaming(
+                        streaming.drawing_statistics(
+                            self.drawing_uniform().view_projection,
+                            drawn.calls > 0,
+                        ),
+                    ))
+                },
+            )
         })
     }
 }

@@ -288,12 +288,24 @@ pub struct RetainedHost {
     size: [u32; 2],
     exit: bool,
     occluded: bool,
+    window_on_top: bool,
 }
 
 impl RetainedHost {
     /// Effective startup options, including any selected-adapter frame decision.
     pub fn options(&self) -> &ViewerOptions {
         &self.options
+    }
+
+    /// Creates the desktop window above ordinary windows without requesting focus.
+    /// Intended for measurement runs, such as presented-frame timing comparisons.
+    /// Disabled by default; normal play leaves this off. Other elevated windows can
+    /// still cover it. Windowless execution ignores this setting.
+    /// This builder does not start a display or GPU and can follow either constructor.
+    #[must_use]
+    pub fn with_window_on_top(mut self, enabled: bool) -> Self {
+        self.window_on_top = enabled;
+        self
     }
 
     /// Selects shader time independently of CPU edit generations.

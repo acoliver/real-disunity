@@ -48,6 +48,9 @@ pub(super) trait Content {
     fn window_mode(&self) -> crate::WindowMode {
         crate::WindowMode::default()
     }
+    fn window_on_top(&self) -> bool {
+        false
+    }
     fn interval(&self) -> Duration {
         Duration::from_millis(16)
     }
@@ -110,19 +113,41 @@ pub(super) fn run_retained(
     run_content(Box::new(crate::retained::Session::new(host, driver)))
 }
 
+pub(crate) fn window_attributes(content: &dyn Content) -> winit::window::WindowAttributes {
+    let attributes = content.window_mode().attributes(
+        Window::default_attributes()
+            .with_title(content.title())
+            .with_inner_size(content.window_size_unit().creation_size(content.size()))
+            .with_visible(false),
+    );
+    if content.window_on_top() {
+        attributes
+            .with_window_level(winit::window::WindowLevel::AlwaysOnTop)
+            .with_active(false)
+            // On macOS, showing a hidden window later makes it key even with active=false.
+            .with_visible(true)
+    } else {
+        attributes
+    }
+}
+
 fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {
+    let mut event_loop = EventLoop::<UserEvent>::with_user_event();
+    #[cfg(target_os = "macos")]
+    if content.window_on_top() {
+        use winit::platform::macos::EventLoopBuilderExtMacOS;
+        event_loop.with_activate_ignoring_other_apps(false);
+    }
     let mut app = App::new(content);
-    let result = EventLoop::<UserEvent>::with_user_event()
-        .build()
-        .and_then(|event_loop| {
-            let proxy = event_loop.create_proxy();
-            app.proxy = Some(proxy.clone());
-            app.content.set_work_waker(Arc::new(move || {
-                // A closed loop means the host is shutting down.
-                let _ = proxy.send_event(UserEvent::WorkReady);
-            }));
-            event_loop.run_app(&mut app)
-        });
+    let result = event_loop.build().and_then(|event_loop| {
+        let proxy = event_loop.create_proxy();
+        app.proxy = Some(proxy.clone());
+        app.content.set_work_waker(Arc::new(move || {
+            // A closed loop means the host is shutting down.
+            let _ = proxy.send_event(UserEvent::WorkReady);
+        }));
+        event_loop.run_app(&mut app)
+    });
     let shutdown = app.content.shutdown();
     let drain = app.renderer.as_ref().map(Renderer::drain).transpose();
     cleanup(&mut app.renderer);

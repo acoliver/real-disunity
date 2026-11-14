@@ -12,6 +12,7 @@ fn triangle_copy_out(depth_test: bool) {
     let draw = UiDraw {
         kind: UiDrawKind::Graphic,
         depth_test,
+        corner_colors: None,
         triangle_uv: Some([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]),
         corners: [
             [10., 10., 0.],
@@ -116,6 +117,7 @@ fn snapshot_draw(order: i32, hierarchy: usize) -> UiDraw {
     UiDraw {
         kind: UiDrawKind::Graphic,
         depth_test: false,
+        corner_colors: None,
         triangle_uv: None,
         corners: [[0.; 3]; 4],
         uv_rect: [0.; 4],
@@ -209,4 +211,66 @@ fn ui_copy_out_accepts_signed_sort_orders_and_empty_clips() {
         count_snapshot(vec![snapshot_draw(i32::MIN, 1), empty]),
         (0, 2, 0)
     );
+}
+
+#[test]
+fn ui_copy_out_rejects_invalid_corner_channels() {
+    for value in [f32::NAN, f32::INFINITY, -0.01, 1.01] {
+        for corner in 0..4 {
+            for channel in 0..4 {
+                let mut draw = snapshot_draw(0, 0);
+                let mut colors = [[1.; 4]; 4];
+                colors[corner][channel] = value;
+                draw.corner_colors = Some(colors);
+                let (code, draws, textures) = count_snapshot(vec![draw]);
+                assert_ne!(code, 0, "invalid corner channel must fail at copy-out");
+                assert_eq!((draws, textures), (99, 99));
+            }
+        }
+    }
+}
+
+#[test]
+fn corner_metadata_packs_all_channels_without_folding_common_tint() {
+    let colors = std::array::from_fn(|i| std::array::from_fn(|c| (i * 4 + c) as f32 / 16.));
+    let mut draw = snapshot_draw(0, 0);
+    draw.color = [0.25; 4];
+    draw.corner_colors = Some(colors);
+    let meta = encode_metadata(&draw);
+    assert_eq!(meta.corner_colors_present, 1);
+    assert_eq!(metadata_colors(meta), colors);
+    assert_eq!(encode(&draw).r, 0.25);
+    draw.corner_colors = None;
+    let meta = encode_metadata(&draw);
+    assert_eq!(meta.corner_colors_present, 0);
+    assert_eq!(metadata_colors(meta), [[1.; 4]; 4]);
+}
+
+fn metadata_colors(meta: DisunityUiDraw) -> [[f32; 4]; 4] {
+    [
+        [
+            meta.corner_0_r,
+            meta.corner_0_g,
+            meta.corner_0_b,
+            meta.corner_0_a,
+        ],
+        [
+            meta.corner_1_r,
+            meta.corner_1_g,
+            meta.corner_1_b,
+            meta.corner_1_a,
+        ],
+        [
+            meta.corner_2_r,
+            meta.corner_2_g,
+            meta.corner_2_b,
+            meta.corner_2_a,
+        ],
+        [
+            meta.corner_3_r,
+            meta.corner_3_g,
+            meta.corner_3_b,
+            meta.corner_3_a,
+        ],
+    ]
 }

@@ -287,6 +287,7 @@ fn a_refused_mesh_draw_is_counted_by_its_reason_and_leaves_the_running_state_alo
                 material,
                 submesh: 0,
                 pass: -1,
+                block: None,
             },
         );
     }

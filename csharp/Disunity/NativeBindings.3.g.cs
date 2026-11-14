@@ -168,7 +168,9 @@ namespace Disunity.Native
         ///  Records a draw of the stored mesh `mesh` (see `disunity_mesh_store`) with `matrix` (16 floats,
         ///  column-major, from the mesh's coordinates to the world), the `material`'s `pass` (-1 for every
         ///  pass) and the mesh's sub-mesh `submesh`, into the bound targets with the current view and
-        ///  projection. An identity nothing stored is refused.
+        ///  projection. The values written to the draw scope (3) since the last call are the draw's own
+        ///  property block; the call takes them whether or not the draw is recorded, so they never reach a
+        ///  later draw. An identity nothing stored is refused.
         ///
         ///  # Safety
         ///  `matrix` is readable for 16 floats.
@@ -255,8 +257,8 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_shader_texture_write", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_shader_texture_write(ulong world, uint scope, ulong target, byte* name, uint length, DisunityTextureSlot* slot);
         /// <summary>
-        ///  Removes every property value from a material, the global state or a renderer's property
-        ///  block. Keywords stay.
+        ///  Removes every property value from a material, the global state, a renderer's property block
+        ///  or the block staged for the next mesh draw. Keywords stay.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_shader_properties_clear", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_shader_properties_clear(ulong world, uint scope, ulong target);

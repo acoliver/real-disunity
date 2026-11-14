@@ -4,7 +4,8 @@ fn geometry_observations_retain_selected_fine_leaves_in_hysteresis_band() {
     let children = root(&terrain).children().unwrap();
     let matrix = ortho(90.0, [32.0, 32.0, 100.0]);
     let plan = select(&terrain, &children, matrix, [128; 2]);
-    let stats = crate::draw::geometry_statistics::measure(&plan.leaves, plan.observation);
+    let stats =
+        crate::draw::geometry_statistics::measure(&plan.leaves, &plan.leaves, plan.observation);
     let mut expected = children;
     expected.sort();
     assert_eq!(plan.leaves, expected);
@@ -21,7 +22,11 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     let children = root(&terrain).children().unwrap();
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
     let blocked = select_with_retired(&terrain, &children, matrix, [128; 2], 1, &|_| true);
-    let before = crate::draw::geometry_statistics::measure(&blocked.leaves, blocked.observation);
+    let before = crate::draw::geometry_statistics::measure(
+        &blocked.leaves,
+        &blocked.leaves,
+        blocked.observation,
+    );
     let mut expected = children;
     expected.sort();
     assert_eq!(blocked.leaves, expected);
@@ -30,7 +35,11 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     assert_eq!(before.unresolved_leaves, 1);
     assert!(!before.complete);
     let admitted = select_with_retired(&terrain, &blocked.leaves, matrix, [128; 2], 0, &|_| true);
-    let after = crate::draw::geometry_statistics::measure(&admitted.leaves, admitted.observation);
+    let after = crate::draw::geometry_statistics::measure(
+        &admitted.leaves,
+        &admitted.leaves,
+        admitted.observation,
+    );
     assert_eq!(admitted.leaves, [root(&terrain)]);
     assert_eq!(admitted.uploads, [root(&terrain)]);
     assert_eq!(after.unresolved_leaves, 0);
@@ -44,7 +53,7 @@ fn geometry_observations_distinguish_budget_coverage_from_threshold_completion()
     let terrain = terrain(9);
     let matrix = ortho(8.0, [32.0, 32.0, 100.0]);
     let plan = select(&terrain, &[root(&terrain)], matrix, [128; 2]);
-    let stats = measure(&plan.leaves, plan.observation);
+    let stats = measure(&plan.leaves, &plan.leaves, plan.observation);
     assert_eq!(stats.selected_leaves, 28);
     assert_eq!(stats.drawn_at_detail, 0);
     assert_eq!(stats.drawn_coarse, 4);
@@ -63,15 +72,18 @@ fn geometry_observations_settle_and_identify_drawn_windows_independent_of_order(
         leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
     }
     let observation = observe(&terrain, &leaves, matrix, [128; 2]);
-    let stats = measure(&leaves, observation);
+    let stats = measure(&leaves, &leaves, observation);
     assert!(stats.complete);
     assert_eq!(stats.selected_leaves, stats.drawn_at_detail);
     assert_eq!(stats.unresolved_leaves, 0);
     leaves.reverse();
-    assert_eq!(measure(&leaves, observation), stats);
+    assert_eq!(measure(&leaves, &leaves, observation), stats);
     let distant = ortho(10000.0, [32.0, 32.0, 100.0]);
     let far = select(&terrain, &leaves, distant, [128; 2]);
-    assert_ne!(measure(&far.leaves, far.observation).drawn, stats.drawn);
+    assert_ne!(
+        measure(&far.leaves, &far.leaves, far.observation).drawn,
+        stats.drawn
+    );
 }
 
 #[test]
@@ -80,7 +92,7 @@ fn geometry_observations_respect_terminal_and_offscreen_leaves() {
     let terrain = terrain(1000);
     let matrix = ortho(8.0, [-100.0, -100.0, 100.0]);
     let plan = select(&terrain, &[root(&terrain)], matrix, [128; 2]);
-    let stats = measure(&plan.leaves, plan.observation);
+    let stats = measure(&plan.leaves, &plan.leaves, plan.observation);
     assert!(stats.complete);
     assert_eq!(stats.selected_leaves, 1);
     assert_eq!(stats.drawn_at_detail, 1);

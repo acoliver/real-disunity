@@ -87,7 +87,7 @@ The `[gpu] adapter` report line names the budget and which rule chose it. When a
 
 The flush handler reads meshes, textures and samplers through `GpuFlush` (`mesh_channels_since`, `player_texture` and `texture_sampler`), as `PlayerGpu::frame` reads them through `DisunityHost`, so a mesh or texture the first flush names is read for that flush. `tests` in `gpu_flush_tests.rs` runs a managed fixture whose flush reads a stored texture, its sampler and a stored mesh with no frame before it.
 
-The windowed paths do not run the offscreen work yet. `SceneGpu::admit_offscreen` takes the operations before the scene is encoded, but the viewer makes the device, its submission authority and the renderer's allocation reservation for the program arena, and the retained and live drivers have no hook that gives them to the player. That hook is the remaining step of the live wiring.
+`play_player_window` (the windowed built player, used when `play --player` gets `--size`, `--capture` or `--key`) runs the same offscreen work and answers the same synchronous flushes as the headless run. It makes its `PlayerGpu` as `run_player` does (`--gpu-work off` skips it, and a machine with no adapter runs without it), installs it before the scene loads, calls `PlayerGpu::frame` once per update after the frame's meshes are refreshed and before the frame's UI and textures go to the viewer, and prints the `[gpu]` report when the window closes. A script's `Texture2D.ReadPixels` after a `Graphics.Blit` therefore fills its texture, and `Apply` stores the new texels under a higher generation, which `PlayerTextures::refresh` and the UI's image generations pick up in the same frame. That device is the player's own headless one, apart from the viewer's. `SceneGpu::admit_offscreen` takes the operations before the scene is encoded, but the viewer makes the device, its submission authority and the renderer's allocation reservation for the program arena, and the live driver (`PlayDriver`, the original games) has no hook that gives them to the player, so the live driver does not run the offscreen work yet.
 
 `play_player_window` draws built-player mesh objects and screen-space overlay UI
 through the retained scene renderer. Text coverage and image quads retain native
@@ -139,6 +139,7 @@ engine's choices:
 The library's synthetic retained-player UI test runs the managed host and captures
 windowless frames. It requires .NET 8 and a GPU adapter and checks image bytes,
 text, clipping and unchanged-frame UI update counts without opening a window.
+`retained_gpu_tests.rs` plays the portable readback fixture the same way with the offscreen work on a device: a script blits a colour with no material, reads it back into a `Texture2D` and shows it in a UI image, and the captured frames show the first colour and, after a later `Update`, the second. With `GpuWork::Off` the image keeps the texture's zero texels.
 
 `scene_light` unit tests pin the main-light choice, the sun direction of a turned light, the
 irradiance limit, the fixed shadow settings, when a frame sends new effects, which shadow

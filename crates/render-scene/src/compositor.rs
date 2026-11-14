@@ -1,6 +1,7 @@
 //! Stock composition uses the same feature and attachment boundary as external draws.
 mod adapters;
 mod capture;
+pub mod opaque;
 #[cfg(test)]
 mod overlay_tests;
 pub mod terms;

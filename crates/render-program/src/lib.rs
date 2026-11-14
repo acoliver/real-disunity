@@ -41,6 +41,7 @@ mod set_layout;
 pub mod state;
 mod stats;
 pub mod targets;
+mod texel_buffer;
 pub mod texels;
 #[cfg(feature = "unity")]
 pub mod unity;

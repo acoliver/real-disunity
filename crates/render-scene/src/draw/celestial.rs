@@ -7,7 +7,6 @@ pub(super) fn upload(
     scene: &RenderScene,
     pipelines: &ScenePipelines,
     meshes: &[GpuMesh],
-    materials: &[wgpu::BindGroup],
 ) -> Option<crate::sky::meshes::Meshes> {
     let settings = scene.effects()?.atmosphere()?;
     if settings.meshes.is_empty() {
@@ -33,7 +32,7 @@ pub(super) fn upload(
                 vertices: lod.vertices.clone(),
                 indices: lod.indices.clone(),
                 count: lod.index_count,
-                material: materials[settings.material.raw() as usize].clone(),
+                material_index: settings.material.raw() as usize,
                 instance,
                 key: crate::pipeline::PipelineKey::from_material(material),
             }
@@ -74,9 +73,32 @@ impl super::SceneGpu {
             meshes.plan(device, size, passes, views, declaration);
         }
     }
+    /// The scene's celestial meshes, for the captures that switch how they record.
+    #[cfg(test)]
+    pub(crate) fn celestial_meshes(&self) -> Option<&crate::sky::meshes::Meshes> {
+        self.celestial.as_ref()
+    }
+    /// Prepares the celestial bodies' pipelines for the frame `frame`, before the pass that
+    /// draws them opens.
+    ///
+    /// # Errors
+    /// Fails when the runtime refuses a body's program, material set or pipeline.
+    pub(crate) fn prepare_celestial(
+        &self,
+        frame: &crate::frame::FrameUniform,
+    ) -> Result<(), worldrunner_render_post::FrameError> {
+        self.celestial
+            .as_ref()
+            .map_or(Ok(()), |meshes| meshes.prepare(frame, &self.objects))
+    }
     pub(crate) fn draw_celestial(&self, pass: &mut wgpu::RenderPass<'_>) {
         if let Some(meshes) = &self.celestial {
-            meshes.draw_geometry(pass, &self.drawing_frame_group(), &self.drawing_uniform());
+            meshes.draw_geometry(
+                pass,
+                &self.drawing_frame_group(),
+                &self.drawing_uniform(),
+                &self.objects,
+            );
         }
     }
 }

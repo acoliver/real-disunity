@@ -53,9 +53,11 @@ The C# side and the Rust host load the same `disunity-ffi` dynamic library. `dis
 ## Native short-clip audio
 
 `world-simulation::audio` owns bounded WAV decoding, typed commands and handles,
-voice state, gain/mute, linear resampling and hard-clipped f32 stereo mixing.
-Like the UI router, the mixer is a caller-owned session service in the existing
-simulation owner. No device or wall clock enters that crate.
+voice state, voice/master gain, master mute, named option buses, tiered ducking,
+linear resampling and hard-clipped f32 stereo mixing. Bus controls and ducking
+rules travel through the same typed native commands as play and stop. Playback
+does not cross the C ABI. Like the UI router, the mixer is a caller-owned session
+service in the existing simulation owner. No device or wall clock enters that crate.
 
 `scene-viewer` owns cpal device startup and shutdown, the mixer worker and a
 preallocated atomic sample ring. Retained host and event-host interfaces share

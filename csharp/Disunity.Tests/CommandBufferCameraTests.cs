@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 using static GraphicsTestSupport;
 
 /// <summary>CommandBuffer.SetupCameraProperties records the camera's view and projection when it is called, and the global float array
-/// and DrawProcedural members name themselves and record nothing, through a real world and the public execution paths.</summary>
+/// and the indexed DrawProcedural members name themselves and record nothing, through a real world and the public execution paths.</summary>
 internal static class CommandBufferCameraTests
 {
     public static void Run()
@@ -23,8 +23,8 @@ internal static class CommandBufferCameraTests
             Console.WriteLine("PASS: every SetGlobalFloatArray overload throws NotSupportedException naming itself, records nothing and changes no global or world state");
             GlobalArraysRefuseAReleasedBufferFirst();
             Console.WriteLine("PASS: a released buffer throws ObjectDisposedException from every global array overload, including a null or empty array");
-            DrawProceduralNamesItself();
-            Console.WriteLine("PASS: CommandBuffer.DrawProcedural throws NotSupportedException naming itself and records nothing");
+            IndexedDrawProceduralNamesItself();
+            Console.WriteLine("PASS: CommandBuffer.DrawProcedural with an index buffer throws NotSupportedException naming itself and records nothing");
         }
         finally
         {
@@ -189,7 +189,7 @@ internal static class CommandBufferCameraTests
                 Throws<ObjectDisposedException>(call, $"{member} with {mode} on a released buffer", "CommandBuffer");
     }
 
-    private static void DrawProceduralNamesItself()
+    private static void IndexedDrawProceduralNamesItself()
     {
         var buffer = new CommandBuffer();
         var material = new Material(Material.SpriteLit);
@@ -197,15 +197,12 @@ internal static class CommandBufferCameraTests
         using var indices = new GraphicsBuffer(GraphicsBuffer.Target.Index, 3, 4);
         var calls = new Action[]
         {
-            () => buffer.DrawProcedural(Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3, 1, properties),
-            () => buffer.DrawProcedural(Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3, 1),
-            () => buffer.DrawProcedural(Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3),
             () => buffer.DrawProcedural(indices, Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3, 1, properties),
             () => buffer.DrawProcedural(indices, Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3, 1),
             () => buffer.DrawProcedural(indices, Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3),
         };
-        foreach (var call in calls) Throws<NotSupportedException>(call, "DrawProcedural", "CommandBuffer.DrawProcedural", "cannot record this member yet");
-        Ensure(buffer.commandCount == 0, "a procedural draw records nothing");
+        foreach (var call in calls) Throws<NotSupportedException>(call, "DrawProcedural with an index buffer", "CommandBuffer.DrawProcedural with an index buffer", "cannot record this member yet");
+        Ensure(buffer.commandCount == 0, "an indexed procedural draw records nothing");
         Graphics.ExecuteCommandBuffer(buffer);
         Ensure(CommandWireReader.Take().Length == 0, "executing the buffer sends the world nothing");
         buffer.Release();

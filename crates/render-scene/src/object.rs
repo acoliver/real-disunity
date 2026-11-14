@@ -1,10 +1,10 @@
 //! Object materials on the program runtime, slice 2 of issue 450.
 //!
-//! The forward passes (plain, velocity, SSAO, reflection and the shadow receivers of each) draw
-//! lit objects, foliage and impostors through [`program`] and [`prepared`]. The fixed path is
-//! frozen in [`crate::renderer::legacy_objects`] and pinned by byte-equality captures; the
-//! shadow casters, the metadata prepass, the capture terms and the celestial meshes still draw
-//! with the fixed pipelines.
+//! Every object pass draws lit objects, foliage and impostors through [`program`] and
+//! [`prepared`]: the forward passes (plain, velocity, SSAO, reflection and the shadow receivers
+//! of each), the metadata prepass, the capture term replays and the shadow casters. The fixed
+//! path is frozen in [`crate::renderer::legacy_objects`] and pinned by byte-equality captures.
+//! Celestial meshes (`sky::meshes`) still draw with fixed pipelines of their own.
 
 pub(crate) mod prepared;
 pub(crate) mod program;

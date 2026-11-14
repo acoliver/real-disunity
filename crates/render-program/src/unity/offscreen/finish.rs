@@ -141,7 +141,7 @@ impl Finish<'_> {
         let program = &draw.plan.entry.program;
         let state = draw.plan.state.neutral(draw.front_face);
         let layouts = vertex_layouts(&draw.vertices.inputs);
-        let colors = colors_of(draw.signature, &state)?;
+        let colors = draw_colors(draw.signature, &state, &draw.plan.entry.color_outputs)?;
         let request = PipelineRequest {
             program,
             state: &state,
@@ -321,4 +321,33 @@ fn colors_of(
         return Ok(Vec::new());
     }
     Ok(vec![state.check_drawable()?])
+}
+
+/// The colour state of each colour attachment of a draw whose fragment stage writes the colour
+/// locations `outputs`: the pass's state for an attachment the stage writes, and an empty write
+/// mask for one it does not. wgpu builds a pipeline whose written target has no fragment output at
+/// its location and the attachment then gets undefined values, while an empty mask leaves it as it
+/// was, which is what Unity does with a render target a shader has no output for. An output with
+/// no attachment is dropped by wgpu. A fragment stage that names no colour output at all is taken to
+/// write location 0, as a draw into one attachment always did.
+fn draw_colors(
+    signature: TargetSignature,
+    state: &RenderState,
+    outputs: &[u32],
+) -> Result<Vec<ColorState>, OffscreenError> {
+    if signature.color().is_none() {
+        return Ok(Vec::new());
+    }
+    let written = state.check_drawable()?;
+    let unwritten = ColorState {
+        blend: None,
+        write_mask: wgpu::ColorWrites::empty(),
+    };
+    Ok((0..)
+        .zip(signature.colors())
+        .map(|(location, _)| {
+            let writes = outputs.contains(&location) || (location == 0 && outputs.is_empty());
+            if writes { written } else { unwritten }
+        })
+        .collect())
 }

@@ -16,20 +16,27 @@ struct Rig {
 
 impl Rig {
     fn new(ranged_only: bool) -> Self {
-        let context = context();
-        let (scene, effects) = with_taa(&cards());
-        let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
-        let mut gpu =
-            SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
-        let handles: Vec<_> = gpu.instance_handles().collect();
+        let mut rig = Self::of(&cards());
+        let handles: Vec<_> = rig.gpu.instance_handles().collect();
         for hidden in [4, 3] {
-            gpu.set_instance_visible(handles[hidden], false).unwrap();
+            rig.gpu
+                .set_instance_visible(handles[hidden], false)
+                .unwrap();
         }
-        gpu.views[0]
+        rig.gpu.views[0]
             .compaction
             .observed
             .ranged_only
             .set(ranged_only);
+        rig
+    }
+
+    fn of(source: &RenderScene) -> Self {
+        let context = context();
+        let (scene, effects) = with_taa(source);
+        let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
+        let gpu =
+            SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
         let (renderer, color, depth) = taa_target(&context, &effects, MsaaSamples::X1);
         Self {
             context,
@@ -121,4 +128,22 @@ fn the_frame_after_an_edit_gathers_the_previous_transforms_again() {
     );
     rig.velocity(0);
     assert_eq!(rig.staged(), settled);
+}
+
+#[test]
+fn gpu_gather_with_previous_transforms_matches_plain_copies() {
+    use super::super::compaction_gather::{
+        assert_gather_matches_copies, fragmented, hide_every_fifth,
+    };
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut rig = Rig::of(&fragmented());
+    hide_every_fifth(&mut rig.gpu);
+    // The edited slot's previous transform differs for one frame and converges the next.
+    for frame in 0..3 {
+        if frame == 1 {
+            rig.edit(6, -2_500);
+        }
+        rig.velocity(0);
+        assert_gather_matches_copies(&rig.context, &rig.gpu, true);
+    }
 }

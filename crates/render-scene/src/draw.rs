@@ -284,6 +284,8 @@ pub struct SceneGpu {
     >,
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
+    /// The instance mirror and pipelines every view's compaction gathers with.
+    gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
@@ -393,6 +395,7 @@ impl SceneGpu {
             drawing_frame: RefCell::new(None),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
+            gather: compaction::Shared::default(),
             terrain,
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),

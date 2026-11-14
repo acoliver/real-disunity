@@ -5,9 +5,11 @@
 //! on large retained scenes. Compaction gathers the selected records, ordered by (batch, LOD, slot),
 //! into a buffer owned by the view, so each (batch, LOD) group becomes one instanced draw.
 //!
-//! The gather is a GPU buffer copy per range, staged only when the compaction key changes.
-//! Preparation overwrites the view buffer in place and a cancelled frame discards its encoder,
-//! so the committed state stays exact. Within one transaction a draw may use the compacted
+//! The gather is one compute dispatch per view, staged only when the compaction key changes. It
+//! reads a scene-wide mirror of the gathered batches (see [`mirror`]) through a list of runs
+//! uploaded into a buffer the view reuses, so recording a moved view costs one upload and one
+//! dispatch however fragmented its selection is. Preparation overwrites the view buffer in place
+//! and a cancelled frame discards its encoder, so the committed state stays exact. Within one transaction a draw may use the compacted
 //! groups only when that transaction prepared the view with the draw's key, or prepared nothing
 //! for the view and the committed key equals the draw's key.
 use std::{cell::RefCell, rc::Rc};
@@ -21,8 +23,12 @@ use super::selection_reuse::{self, Key as SelectionKey};
 use super::visibility::SelectedRange;
 use super::{FrameUniform, ObjectDraws, ObjectRecording, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
+use crate::instances::BatchKey;
 
+mod gather;
+mod mirror;
 mod plan;
+pub(super) use gather::Shared;
 use plan::Plan;
 
 const STRIDE: u64 = INSTANCE_BYTES as u64;
@@ -55,14 +61,20 @@ impl Buffers {
 
     fn allocate(device: &wgpu::Device, bytes: u64, previous: bool) -> Option<Self> {
         let capacity = bytes.checked_next_power_of_two()?;
-        if capacity > device.limits().max_buffer_size {
+        let limits = device.limits();
+        if capacity > limits.max_buffer_size {
             return None;
         }
+        assert!(
+            capacity <= limits.max_storage_buffer_binding_size,
+            "view instance buffer of {capacity} bytes exceeds the device's storage binding limit"
+        );
         let create = |label| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
                 size: capacity,
                 usage: wgpu::BufferUsages::VERTEX
+                    | wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
@@ -95,6 +107,7 @@ struct Prepared {
 pub(super) struct Compaction {
     pub committed: Rc<RefCell<Resident>>,
     drawing: RefCell<Option<Prepared>>,
+    scratch: RefCell<gather::Scratch>,
     #[cfg(test)]
     pub observed: Observed,
 }
@@ -103,7 +116,7 @@ pub(super) struct Compaction {
 #[cfg(test)]
 #[derive(Debug, Default)]
 pub(super) struct Observed {
-    /// Gather copies staged so far.
+    /// Selected ranges gathered so far.
     pub staged: std::cell::Cell<usize>,
     /// Draws of the view that used the compacted groups.
     pub compacted_draws: std::cell::Cell<usize>,
@@ -143,12 +156,6 @@ impl Compaction {
             .as_ref()
             .map_or(0, |buffers| buffers.current.size())
     }
-}
-
-/// The batch buffers one gather copy reads.
-struct Source<'a> {
-    current: &'a Buffer,
-    previous: Option<&'a Buffer>,
 }
 
 impl SceneGpu {
@@ -201,7 +208,7 @@ impl SceneGpu {
         let Some(plan) = Plan::new(&selection.ranges) else {
             return;
         };
-        let Some(sources) = self.gather_sources(&plan, key.previous) else {
+        let Some(keys) = self.gather_sources(&plan, key.previous) else {
             return;
         };
         let buffers = if plan.total == 0 {
@@ -209,7 +216,11 @@ impl SceneGpu {
         } else if let Some(buffers) =
             Self::gather_buffers(context.device(), &latest, plan.total, key.previous)
         {
-            Self::stage_gather(context, &plan, &sources, &buffers);
+            self.stage_gather(
+                context,
+                (compaction, &plan, &keys),
+                (&buffers, key.previous),
+            );
             #[cfg(test)]
             compaction
                 .observed
@@ -234,23 +245,22 @@ impl SceneGpu {
         });
     }
 
-    /// The batch buffers of each copy, or `None` when a selected batch has no flushed buffer.
-    fn gather_sources(&self, plan: &Plan, previous: bool) -> Option<Vec<Source<'_>>> {
-        plan.copies
-            .iter()
-            .map(|copy| {
-                let batch = self.instances.batches.get(&copy.key)?;
-                let current = batch.buffer.as_ref()?;
-                Some(Source {
-                    current,
-                    previous: if previous {
-                        Some(batch.previous.as_ref()?)
-                    } else {
-                        None
-                    },
-                })
-            })
-            .collect()
+    /// The batches the plan gathers from, once each in key order, or `None` when a selected
+    /// batch has no flushed buffer (or no previous buffer when `previous`).
+    fn gather_sources(&self, plan: &Plan, previous: bool) -> Option<Vec<BatchKey>> {
+        let mut keys: Vec<BatchKey> = Vec::new();
+        for copy in &plan.copies {
+            if keys.last() == Some(&copy.key) {
+                continue;
+            }
+            let batch = self.instances.batches.get(&copy.key)?;
+            batch.buffer.as_ref()?;
+            if previous {
+                batch.previous.as_ref()?;
+            }
+            keys.push(copy.key);
+        }
+        Some(keys)
     }
 
     /// Reuses the latest buffers while they hold `total` records, otherwise allocates new
@@ -268,25 +278,25 @@ impl SceneGpu {
         }
     }
 
+    /// Brings the mirror up to date for the plan's batches, then stages the view's dispatch.
     fn stage_gather(
+        &self,
         context: &mut PrepareContext<'_>,
-        plan: &Plan,
-        sources: &[Source<'_>],
-        buffers: &Buffers,
+        (compaction, plan, keys): (&Compaction, &Plan, &[BatchKey]),
+        (buffers, previous): (&Buffers, bool),
     ) {
-        for (copy, buffer) in plan.copies.iter().zip(sources) {
-            let bytes = u64::from(copy.source.end - copy.source.start) * STRIDE;
-            let source = u64::from(copy.source.start) * STRIDE;
-            let destination = u64::from(copy.destination) * STRIDE;
-            context.copy_buffer_region(
-                (buffer.current, source),
-                (&buffers.current, destination),
-                bytes,
-            );
-            if let (Some(previous), Some(target)) = (buffer.previous, &buffers.previous) {
-                context.copy_buffer_region((previous, source), (target, destination), bytes);
-            }
-        }
+        let mirror = self
+            .gather
+            .mirror
+            .prepare(context, &self.instances.batches, keys, previous);
+        let runs = plan.runs(|key| mirror.layout.base(key));
+        let bindings = gather::Bindings {
+            mirror: mirror.buffers.as_ref().expect("allocated gather mirror"),
+            current: &buffers.current,
+            previous: buffers.previous.as_ref().filter(|_| previous),
+        };
+        self.gather
+            .dispatch(context, &compaction.scratch, &runs, &bindings);
     }
 
     /// Records a view's selection: one draw per (batch, LOD) group from the view buffer when
@@ -337,6 +347,61 @@ impl SceneGpu {
         let groups = Plan::new(&selection.ranges).map_or(0, |plan| plan.groups.len());
         (selection.ranges.len(), groups)
     }
+
+    /// The committed view buffers of `view` and, for each range of its last published
+    /// selection, the batch buffers and offsets a plain buffer copy of that range would use.
+    pub(crate) fn committed_gather(&self, view: usize) -> CommittedGather {
+        let resident = self.views[view].compaction.committed.borrow().clone();
+        let buffers = resident.buffers.expect("committed view buffers");
+        let plan = Plan::new(&self.views[view].published.borrow().ranges).expect("compactable");
+        let copies = plan
+            .copies
+            .iter()
+            .map(|copy| {
+                let batch = &self.instances.batches[&copy.key];
+                GatherCopy {
+                    current: batch.buffer.clone().expect("flushed instance buffer"),
+                    previous: batch.previous.clone(),
+                    source: u64::from(copy.source.start) * STRIDE,
+                    destination: u64::from(copy.destination) * STRIDE,
+                    bytes: u64::from(copy.source.end - copy.source.start) * STRIDE,
+                }
+            })
+            .collect();
+        CommittedGather {
+            current: buffers.current,
+            previous: buffers.previous,
+            bytes: u64::from(plan.total) * STRIDE,
+            keys: plan
+                .groups
+                .iter()
+                .map(|group| (group.key, group.lod))
+                .collect(),
+            copies,
+        }
+    }
+}
+
+/// What a test needs to rebuild a view's gather with plain buffer copies.
+#[cfg(test)]
+pub(crate) struct CommittedGather {
+    pub current: Buffer,
+    pub previous: Option<Buffer>,
+    /// Bytes of the view buffer the gather wrote.
+    pub bytes: u64,
+    /// (batch, LOD) of every group, in view buffer order.
+    pub keys: Vec<(BatchKey, usize)>,
+    pub copies: Vec<GatherCopy>,
+}
+
+/// One selected range as a buffer copy from its batch buffers.
+#[cfg(test)]
+pub(crate) struct GatherCopy {
+    pub current: Buffer,
+    pub previous: Option<Buffer>,
+    pub source: u64,
+    pub destination: u64,
+    pub bytes: u64,
 }
 
 #[cfg(test)]

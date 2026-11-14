@@ -13,7 +13,7 @@ pub(super) fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMate
     SceneLodMaterialSlot::new(MaterialHandle::from_raw(material), indices).unwrap()
 }
 
-fn mesh() -> SceneMesh {
+pub(super) fn mesh() -> SceneMesh {
     let near = card(None).lods()[0]
         .clone()
         .with_material_slots(vec![slot(0, 0..6)])

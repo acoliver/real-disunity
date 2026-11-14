@@ -76,6 +76,7 @@ fn settle(delay: usize, append_input: bool) -> Settled {
             return Settled {
                 statistics: crate::draw::geometry_statistics::measure(
                     &chunks,
+                    &chunks,
                     selection.observation,
                 ),
                 chunks,

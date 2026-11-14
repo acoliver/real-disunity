@@ -29,6 +29,12 @@ pub(super) struct Bounds {
 }
 
 impl Bounds {
+    pub(super) fn outward_rounded(self) -> Self {
+        // Cover float rounding in model and clip transforms, including flat bounds.
+        let pad = self.min.abs().max(self.max.abs()).max(Vec3::ONE) * 0.000_01;
+        self.expanded(pad)
+    }
+
     pub(super) fn expanded(self, extent: Vec3) -> Self {
         Self {
             min: self.min - extent,
@@ -205,12 +211,7 @@ impl MeshSelection {
         } else {
             self.bounds.transformed(model)
         };
-        // Cover float rounding in the model and clip transforms, including flat meshes.
-        let pad = bounds.min.abs().max(bounds.max.abs()).max(Vec3::ONE) * 0.000_01;
-        Bounds {
-            min: bounds.min - pad,
-            max: bounds.max + pad,
-        }
+        bounds.outward_rounded()
     }
 }
 
@@ -507,12 +508,7 @@ pub(super) fn terrain_bounds(vertices: &[u8]) -> Bounds {
         min = min.min(point);
         max = max.max(point);
     }
-    // Enclose the uploaded vertices, including rounding at flat terrain boundaries.
-    let pad = min.abs().max(max.abs()).max(Vec3::ONE) * 0.000_01;
-    Bounds {
-        min: min - pad,
-        max: max + pad,
-    }
+    Bounds { min, max }.outward_rounded()
 }
 
 #[cfg(test)]

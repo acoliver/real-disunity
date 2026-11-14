@@ -96,14 +96,14 @@ fn active_attachment_sampling_and_unsupported_effects_fail_before_execution() {
 }
 
 #[test]
-fn slot_order_is_explicit_and_never_silently_reordered() {
+fn the_same_entry_twice_is_refused_and_never_silently_reordered() {
     let passes = [
         PassDeclaration::new(PassSlot::Opaque),
         PassDeclaration::new(PassSlot::Opaque),
     ];
     assert_eq!(
         validate_frame(&passes, &[], &[]),
-        Err(FrameError::SlotOrder)
+        Err(FrameError::DuplicatePass(PassEntry::new(PassSlot::Opaque)))
     );
 }
 
@@ -226,4 +226,101 @@ fn the_mask_pass_sits_between_the_water_and_alpha_passes_and_loads_what_the_host
     let mut first = PassDeclaration::new(PassSlot::Opaque);
     first.color = Some(clearing);
     assert!(validate_frame(&[first, after_water], &[], &[]).is_ok());
+}
+
+fn writing(slot: PassSlot, occurrence: u32, name: &'static str) -> PassDeclaration {
+    let mut pass = PassDeclaration::nth(slot, occurrence);
+    let mut color = attachment(
+        AttachmentLoad::ClearColor(wgpu::Color::BLACK),
+        wgpu::StoreOp::Store,
+    );
+    color.resource = ResourceRef::new(name);
+    pass.color = Some(color);
+    pass
+}
+
+fn reading(entry: PassEntry, name: &'static str) -> FeatureDeclaration {
+    let mut feature = FeatureDeclaration::new(entry.slot());
+    feature.passes[0] = FeaturePass::nth(entry.slot(), entry.occurrence());
+    feature.passes[0].reads.push(ResourceRef::new(name));
+    feature
+}
+
+#[test]
+fn authored_order_decides_whether_a_read_has_a_producer_not_the_slot_enum() {
+    assert!(PassSlot::ShadowCasters(0) < PassSlot::Opaque);
+    let producer = writing(PassSlot::Opaque, 0, "a");
+    let consumer = writing(PassSlot::ShadowCasters(0), 0, "b");
+    let read = reading(PassEntry::new(PassSlot::ShadowCasters(0)), "a");
+    assert_eq!(
+        validate_frame(
+            &[producer.clone(), consumer.clone()],
+            std::slice::from_ref(&read),
+            &[]
+        ),
+        Ok(()),
+        "a later enum slot may run first when the author lists it first"
+    );
+    assert_eq!(
+        validate_frame(&[consumer, producer], &[read], &[]),
+        Err(FrameError::MissingProducer(ResourceRef::new("a"))),
+        "a read whose producer is listed after it is refused by resource name"
+    );
+}
+
+#[test]
+fn a_repeated_entry_is_refused_by_name() {
+    let entry = PassEntry::nth(PassSlot::Opaque, 1);
+    let passes = [
+        writing(PassSlot::Opaque, 0, "a"),
+        writing(PassSlot::Opaque, 1, "b"),
+        writing(PassSlot::Opaque, 1, "c"),
+    ];
+    assert_eq!(
+        validate_frame(&passes, &[], &[]),
+        Err(FrameError::DuplicatePass(entry))
+    );
+}
+
+#[test]
+fn one_role_may_appear_twice_and_a_feature_draws_only_in_the_entry_it_names() {
+    let first = PassEntry::new(PassSlot::Opaque);
+    let second = PassEntry::nth(PassSlot::Opaque, 1);
+    let passes = [
+        writing(PassSlot::Opaque, 0, "a"),
+        writing(PassSlot::Opaque, 1, "b"),
+    ];
+    assert_eq!(validate_frame(&passes, &[], &[]), Ok(()));
+    // "a" is stored by the first entry, so the second may sample it, but the first may not.
+    assert_eq!(
+        validate_frame(&passes, &[reading(second, "a")], &[]),
+        Ok(())
+    );
+    assert_eq!(
+        validate_frame(&passes, &[reading(first, "a")], &[]),
+        Err(FrameError::AttachmentHazard(ResourceRef::new("a")))
+    );
+    assert_eq!(
+        validate_frame(&passes, &[reading(first, "b")], &[]),
+        Err(FrameError::MissingProducer(ResourceRef::new("b")))
+    );
+    let mut wrong_format = reading(second, "a");
+    wrong_format.passes[0].color_format = Some(wgpu::TextureFormat::Rgba16Float);
+    assert_eq!(
+        validate_frame(&passes, &[wrong_format], &[]),
+        Err(FrameError::AttachmentContract(PassSlot::Opaque))
+    );
+}
+
+#[test]
+fn a_feature_naming_an_entry_the_frame_does_not_author_is_refused() {
+    let absent = PassEntry::nth(PassSlot::Opaque, 2);
+    let passes = [
+        writing(PassSlot::Opaque, 0, "a"),
+        writing(PassSlot::Opaque, 1, "b"),
+    ];
+    assert_eq!(
+        validate_frame(&passes, &[reading(absent, "a")], &[]),
+        Err(FrameError::MissingPass(absent))
+    );
 }

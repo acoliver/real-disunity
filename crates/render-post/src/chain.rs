@@ -505,7 +505,7 @@ impl<F: StageFactory> PostChain<F> {
         encoder: &mut wgpu::CommandEncoder,
         borrowed: &mut [crate::BorrowedFeature<'_>],
         views: &[crate::AttachmentView],
-        completed: &[crate::PassSlot],
+        completed: &[crate::PassEntry],
     ) -> Result<(), crate::FrameError> {
         let replacements = self
             .features
@@ -611,7 +611,8 @@ impl<F: StageFactory> PostChain<F> {
             crate::contracts::stock::compile(device, passes, views, &declarations, registry)?;
         self.prepare_features(device, encoder, borrowed, views, &completed)?;
         for (index, declaration) in passes.iter().enumerate() {
-            if completed.contains(&declaration.slot) {
+            let entry = declaration.entry();
+            if completed.contains(&entry) {
                 continue;
             }
             let context = crate::DrawContext {
@@ -624,7 +625,7 @@ impl<F: StageFactory> PostChain<F> {
                         .declaration
                         .passes
                         .iter()
-                        .any(|pass| pass.slot == context.slot)
+                        .any(|pass| pass.entry() == entry)
                 }) {
                     feature.prepared.draw(&context, pass);
                 }
@@ -633,7 +634,7 @@ impl<F: StageFactory> PostChain<F> {
                         .declaration
                         .passes
                         .iter()
-                        .any(|pass| pass.slot == context.slot)
+                        .any(|pass| pass.entry() == entry)
                 }) {
                     feature
                         .prepared

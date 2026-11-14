@@ -313,7 +313,10 @@ fn invalid_plans(
     depth: &AttachmentView,
 ) -> Vec<(Vec<PassDeclaration>, FrameError)> {
     let original = opaque(Some(color), Some(depth), 0.125, 1.0);
-    let mut cases = vec![(Vec::new(), FrameError::MissingSlot(PassSlot::Opaque))];
+    let mut cases = vec![(
+        Vec::new(),
+        FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)),
+    )];
     for missing_color in [false, true] {
         let mut pass = original.clone();
         if missing_color {

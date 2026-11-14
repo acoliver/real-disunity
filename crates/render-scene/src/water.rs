@@ -27,8 +27,8 @@ use geometry::Body;
 use snapshots::Snapshots;
 use worldrunner_render_plan::SceneWaterBody;
 use worldrunner_render_post::{
-    AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError, PassDeclaration, PassSlot,
-    PreparedFeature, ResourceRef,
+    AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError, PassDeclaration, PassEntry,
+    PassSlot, PreparedFeature, ResourceRef,
 };
 
 #[derive(Default)]
@@ -512,7 +512,7 @@ impl WaterFeature {
         let mut water = passes
             .iter()
             .find(|pass| pass.slot == PassSlot::Opaque)
-            .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?
+            .ok_or(FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)))?
             .clone();
         water.slot = PassSlot::TransparentWater;
         water.additional_colors.clear();

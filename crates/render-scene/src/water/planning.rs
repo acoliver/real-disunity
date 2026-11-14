@@ -1,8 +1,8 @@
 use super::snapshots::{SnapshotFeature, Snapshots};
 use crate::frame::FrameUniform;
 use worldrunner_render_post::{
-    AttachmentView, FeatureDeclaration, FrameConfig, FrameError, PassDeclaration, PassSlot,
-    ResourceRef,
+    AttachmentView, FeatureDeclaration, FrameConfig, FrameError, PassDeclaration, PassEntry,
+    PassSlot, ResourceRef,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -21,7 +21,7 @@ pub(crate) fn opaque_source<'a>(
     let opaque = passes
         .iter()
         .find(|pass| pass.slot == PassSlot::Opaque)
-        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
+        .ok_or(FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)))?;
     let attachment = if depth { &opaque.depth } else { &opaque.color }
         .as_ref()
         .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;

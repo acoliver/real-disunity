@@ -11,6 +11,7 @@ mod configuration;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
+mod forward_order;
 mod offscreen;
 mod output;
 mod overlay;
@@ -649,7 +650,7 @@ impl FrameRenderer {
                 }
             }
         }
-        passes.sort_by_key(|pass| pass.slot);
+        forward_order::forward_order(&mut passes);
         encode_planned(
             &mut self.chain,
             device,

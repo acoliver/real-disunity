@@ -1,5 +1,5 @@
-//! CPU checks of the G-buffer producer sources: every terrain variant compiles and writes the
-//! four targets from the same material evaluation the forward path lights.
+//! CPU checks of the G-buffer producer sources: every terrain variant and object entry compiles
+//! and writes the four targets from the same material evaluation the forward path lights.
 
 use naga::{Binding, ScalarKind, ShaderStage, TypeInner, VectorSize};
 
@@ -28,9 +28,9 @@ fn fragment_outputs(module: &naga::Module, name: &str) -> Vec<(u32, ScalarKind, 
     };
     members
         .iter()
-        .map(|member| {
+        .filter_map(|member| {
             let Some(Binding::Location { location, .. }) = member.binding else {
-                panic!("{name} output {:?} has no location", member.name);
+                return None;
             };
             let (kind, count) = match module.types[member.ty].inner {
                 TypeInner::Scalar(scalar) => (scalar.kind, 1),
@@ -44,10 +44,33 @@ fn fragment_outputs(module: &naga::Module, name: &str) -> Vec<(u32, ScalarKind, 
                 ),
                 ref other => panic!("{name} output of type {other:?}"),
             };
-            (location, kind, count)
+            Some((location, kind, count))
         })
         .collect()
 }
+
+/// Whether fragment entry `name` writes `@builtin(frag_depth)`.
+fn writes_depth(module: &naga::Module, name: &str) -> bool {
+    let entry = module
+        .entry_points
+        .iter()
+        .find(|entry| entry.name == name)
+        .expect("fragment entry");
+    let result = entry.function.result.as_ref().expect("fragment result");
+    let TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
+        return false;
+    };
+    members
+        .iter()
+        .any(|member| member.binding == Some(Binding::BuiltIn(naga::BuiltIn::FragDepth)))
+}
+
+const TARGETS: [(u32, ScalarKind, u32); 4] = [
+    (0, ScalarKind::Float, 4),
+    (1, ScalarKind::Float, 4),
+    (2, ScalarKind::Float, 4),
+    (3, ScalarKind::Uint, 1),
+];
 
 fn terrain_variants() -> [String; 4] {
     let base = super::terrain_source(crate::shader::TERRAIN_WGSL);
@@ -56,12 +79,7 @@ fn terrain_variants() -> [String; 4] {
 
 #[test]
 fn every_terrain_variant_writes_the_four_gbuffer_targets() {
-    let expected = vec![
-        (0, ScalarKind::Float, 4),
-        (1, ScalarKind::Float, 4),
-        (2, ScalarKind::Float, 4),
-        (3, ScalarKind::Uint, 1),
-    ];
+    let expected = TARGETS.to_vec();
     for (index, source) in terrain_variants().iter().enumerate() {
         let module = module(&format!("terrain variant {index}"), source);
         assert_eq!(
@@ -86,8 +104,15 @@ fn terrain_gbuffer_entry_stores_the_forward_material_without_lighting_it() {
     let entry = &base[base.find("fn fs_terrain(").unwrap()..];
     assert!(entry.contains("terrain_material(input)"));
     assert!(entry.contains("scene_gbuffer_encode("));
-    for lighting in ["scene_surface_lighting(", "apply_exposure(", "apply_height_fog("] {
-        assert!(!entry.contains(lighting), "the G-buffer entry calls {lighting}");
+    for lighting in [
+        "scene_surface_lighting(",
+        "apply_exposure(",
+        "apply_height_fog(",
+    ] {
+        assert!(
+            !entry.contains(lighting),
+            "the G-buffer entry calls {lighting}"
+        );
     }
     let forward = crate::shader::TERRAIN_WGSL;
     let forward_entry = &forward[forward.find("fn fs_terrain(").unwrap()..];
@@ -103,5 +128,92 @@ fn page_variants_replace_surface_selection_inside_the_shared_material() {
     for source in [&pages, &layered_pages] {
         assert!(source.contains("let blended = cached_surface("));
         assert!(!source.contains("read_surface_at(i32(round(grid.x))"));
+    }
+}
+
+#[test]
+fn every_object_entry_writes_the_four_gbuffer_targets() {
+    let module = module(
+        "object G-buffer",
+        &super::object_source(crate::shader::ENVIRONMENT_WGSL),
+    );
+    for entry in super::FORWARD_OBJECTS {
+        assert_eq!(
+            fragment_outputs(&module, entry),
+            TARGETS.to_vec(),
+            "{entry}"
+        );
+        assert_eq!(
+            writes_depth(&module, entry),
+            entry.starts_with("fs_relief"),
+            "{entry}"
+        );
+    }
+    let mut found: Vec<_> = module
+        .entry_points
+        .iter()
+        .filter(|entry| entry.stage == ShaderStage::Fragment)
+        .map(|entry| entry.name.as_str())
+        .collect();
+    let mut expected = super::FORWARD_OBJECTS.to_vec();
+    expected.push("fs_unlit");
+    found.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(found, expected, "the module keeps no forward object entry");
+}
+
+#[test]
+fn object_gbuffer_entries_store_the_forward_material_without_lighting_it() {
+    let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
+    let entries = &source[source.find("fn scene_gbuffer_object(").unwrap()..];
+    assert_eq!(entries.matches("shade_material(").count(), 4);
+    for lighting in ["scene_finish_shading(", "scene_surface_lighting("] {
+        assert!(
+            !entries.contains(lighting),
+            "a G-buffer entry calls {lighting}"
+        );
+    }
+    let forward = crate::shader::ENVIRONMENT_WGSL;
+    let shade = &forward[forward.find("fn shade(").unwrap()..];
+    let shade = &shade[..shade.find("\n}\n").unwrap()];
+    assert!(shade.contains("scene_finish_shading(input, shade_material("));
+}
+
+#[test]
+fn card_gbuffer_material_is_the_frozen_card_shading_without_its_lighting() {
+    let source = super::object_source(crate::shader::ENVIRONMENT_WGSL);
+    let card =
+        crate::scene_metadata::receiver::function_source(&source, "scene_card_gbuffer_material");
+    let frozen = crate::scene_metadata::receiver::function_source(
+        crate::shader::ENVIRONMENT_WGSL,
+        "scene_card_shade",
+    );
+    for removed in ["scene_prepare_card_shadow(", "scene_card_finish_shading("] {
+        assert!(frozen.contains(removed));
+        assert!(!card.contains(removed), "{removed}");
+    }
+    // Every card statement but the signature and the material return is a frozen statement, in
+    // the frozen order: nothing is added to or reordered in the card material.
+    let lines: Vec<&str> = card.lines().map(str::trim).collect();
+    let mut rest = frozen.lines().map(str::trim);
+    for line in &lines[1..lines.len() - 2] {
+        assert!(
+            rest.any(|candidate| candidate == *line),
+            "{line} is not a frozen statement in order"
+        );
+    }
+    assert!(lines[lines.len() - 2].starts_with("return SceneObjectMaterial("));
+}
+
+#[test]
+fn renderer_builds_gbuffer_targets_for_a_producer_source() {
+    let (object, terrain) = super::sources();
+    for source in [&object, &terrain] {
+        let formats: Vec<_> =
+            crate::renderer::base_source_targets_for_test(source, wgpu::TextureFormat::Rgba16Float)
+                .into_iter()
+                .map(|target| target.expect("target").format)
+                .collect();
+        assert_eq!(formats, crate::gbuffer::GBUFFER_FORMATS.to_vec());
     }
 }

@@ -14,10 +14,8 @@ pub mod draw;
 pub mod dynamic;
 pub mod frame;
 pub mod gbuffer;
-pub mod geometry;
-// Wired into the G-buffer pass once restructure step 1 allocates its targets.
-#[cfg(test)]
 mod gbuffer_writes;
+pub mod geometry;
 mod instances;
 mod object;
 pub mod offscreen;

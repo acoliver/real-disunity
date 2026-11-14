@@ -42,6 +42,7 @@ fn reflections() -> SceneSsr {
 enum Frame {
     Plain,
     Reflecting,
+    Flat,
 }
 
 impl Frame {
@@ -49,13 +50,14 @@ impl Frame {
         match self {
             Self::Plain => scenes::plain(),
             Self::Reflecting => scenes::reflecting(reflections()),
+            Self::Flat => scenes::flat_reflecting(reflections()),
         }
     }
 
     fn uniform(self, scene: &RenderScene) -> FrameUniform {
         match self {
             Self::Plain => scenes::frame(scenes::pose()),
-            Self::Reflecting => {
+            Self::Reflecting | Self::Flat => {
                 scenes::frame_with(scenes::pose(), scene.effects().expect("scene effects"))
             }
         }
@@ -66,7 +68,7 @@ impl Frame {
             RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);
         settings.frame = FrameConfig::new([SIZE; 2], HDR, 1);
         settings.hdr = Some((1.0, ToneMap::Reinhard));
-        if matches!(self, Self::Reflecting) {
+        if matches!(self, Self::Reflecting | Self::Flat) {
             settings.ssr = Some(reflections());
         }
         settings.opaque_path = opaque_path;
@@ -146,8 +148,18 @@ fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>
     })
 }
 
+/// The texels of the target bytes `g3` (`R16Uint`) that a producer covered.
+fn covered(g3: &[u8]) -> impl Iterator<Item = (usize, u16)> + '_ {
+    g3.chunks(2)
+        .map(|code| u16::from_le_bytes([code[0], code[1]]))
+        .enumerate()
+        .filter(|&(_, code)| code != 0)
+}
+
+/// Without the depth prepass the scene stores nothing and the four targets stay clear; with it
+/// the scene's terrain is stored. The visible frame is the forward frame either way.
 #[test]
-fn gbuffer_observation_keeps_the_forward_frame_and_clears_four_targets() {
+fn gbuffer_observation_keeps_the_forward_frame_and_stores_the_prepassed_scene() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     for frame in [Frame::Plain, Frame::Reflecting] {
@@ -169,15 +181,57 @@ fn gbuffer_observation_keeps_the_forward_frame_and_clears_four_targets() {
         let mut observed = prepare(&context, frame, SceneOpaquePath::GBUFFER_OBSERVATION);
         let colour = render(&context, &mut observed, 3).unwrap();
         assert!(colour == expected, "{frame:?}: the observed frame differs");
-        for (target, bytes) in GbufferTarget::ALL
-            .iter()
-            .zip(gbuffer(&context, &observed.renderer))
-        {
+        let targets = gbuffer(&context, &observed.renderer);
+        if matches!(frame, Frame::Plain) {
+            for (target, bytes) in GbufferTarget::ALL.iter().zip(&targets) {
+                assert!(
+                    bytes.iter().all(|&byte| byte == 0),
+                    "{frame:?}: {target:?} is not clear"
+                );
+            }
+        } else {
             assert!(
-                bytes.iter().all(|&byte| byte == 0),
-                "{frame:?}: {target:?} is not clear"
+                covered(&targets[3]).next().is_some(),
+                "{frame:?}: the scene stored no terrain"
             );
         }
+    }
+}
+
+/// Level terrain stores its up normal (+Z, the heightfield axis) in G3 at every covered texel, with terrain's AO of 1, no
+/// emission, no flags and the reserved channels zero.
+#[test]
+fn gbuffer_observation_stores_level_terrain_facing_up() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let mut forward = prepare(&context, Frame::Flat, SceneOpaquePath::Forward);
+    let expected = render(&context, &mut forward, 1).unwrap();
+    let mut observed = prepare(&context, Frame::Flat, SceneOpaquePath::GBUFFER_OBSERVATION);
+    let colour = render(&context, &mut observed, 1).unwrap();
+    assert!(colour == expected, "the producer changed the visible frame");
+    let targets = gbuffer(&context, &observed.renderer);
+    let texels = covered(&targets[3]).collect::<Vec<_>>();
+    assert!(
+        texels.len() * 4 >= (SIZE * SIZE) as usize,
+        "the level terrain covers {} of {} texels",
+        texels.len(),
+        SIZE * SIZE
+    );
+    for (pixel, code) in texels {
+        let normal = reference::g3_normal(code);
+        let off = angle_degrees(normal, Vec3::Z);
+        assert!(
+            off <= GEOMETRIC_DEGREES,
+            "{pixel}: geometric normal off by {off} degrees"
+        );
+        assert_eq!(code & 3, 0, "{pixel}: terrain sets no flags");
+        let g1 = &targets[1][pixel * 4..pixel * 4 + 4];
+        let g2 = &targets[2][pixel * 4..pixel * 4 + 4];
+        assert_eq!(
+            g1[3], 0,
+            "{pixel}: G1 alpha is the lighting record, 0 for terrain"
+        );
+        assert_eq!([g2[2], g2[3]], [0, 255], "{pixel}: terrain emission and AO");
     }
 }
 
@@ -429,11 +483,9 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
 fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    for (frame, with_depth) in [
-        (Frame::Plain, false),
-        (Frame::Reflecting, false),
-        (Frame::Reflecting, true),
-    ] {
+    // In a prepass frame the scene's own producer tests the finished depth in this slot, so a
+    // producer drawn with it must declare that depth too.
+    for (frame, with_depth) in [(Frame::Plain, false), (Frame::Reflecting, true)] {
         let mut drawn = prepare(&context, frame, SceneOpaquePath::GBUFFER_OBSERVATION);
         let mut forward = prepare(&context, frame, SceneOpaquePath::Forward);
         let expected = render(&context, &mut forward, 1).unwrap();
@@ -461,6 +513,8 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
             colour == expected,
             "{frame:?}: the producer changed the visible frame"
         );
+        // Printed so that a failing decode names its frame.
+        println!("GBUFFER-PROBE frame={frame:?} depth={with_depth}");
         check_decoded(&gbuffer(&context, &drawn.renderer));
     }
 }

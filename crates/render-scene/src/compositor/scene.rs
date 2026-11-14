@@ -58,6 +58,12 @@ impl PreparedFeature for SceneFeature<'_> {
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
         if let Some(screen) = &self.screen {
+            if context.slot == PassSlot::OpaqueGbuffer {
+                if let Some((pipelines, group)) = &screen.gbuffer {
+                    self.gpu.draw_gbuffer(pass, pipelines, group);
+                }
+                return;
+            }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
                 self.publications.record(self.gpu.draw_prepass(
@@ -104,6 +110,10 @@ fn prepare_terrain(
     };
     gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
     gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
+    if let Some((gbuffer, _)) = &screen.gbuffer {
+        gpu.prepare_terrain(gbuffer, frame)?;
+        gpu.prepare_objects(gbuffer, frame)?;
+    }
     let colour = screen
         .forward
         .as_ref()
@@ -186,6 +196,7 @@ pub fn encode_scene(
     let mut declaration = SceneFeature::declaration(pipelines);
     if let Some(screen) = &renderer.ssao {
         crate::ssao::passes::geometry_declaration(&mut declaration, screen);
+        crate::gbuffer::declare_producer(&mut declaration, screen);
     }
     let mut views = vec![
         color.with_resource(color_id)?,

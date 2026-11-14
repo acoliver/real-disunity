@@ -77,6 +77,8 @@ enum Route {
     Prepass,
     /// The capture terms: objects and terrain only.
     Capture,
+    /// The G-buffer slot: objects and terrain only.
+    Gbuffer,
 }
 
 #[cfg(test)]
@@ -476,6 +478,19 @@ impl SceneGpu {
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, Route::Prepass)
             .selection
+    }
+
+    /// Records the terrain and objects the camera selected into the G-buffer slot with
+    /// `pipelines`, the producer pipelines that test the finished scene depth. The selection is
+    /// the one the prepass and the colour pass draw; nothing is published for it.
+    pub(crate) fn draw_gbuffer(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        group: &BindGroup,
+    ) {
+        pass.set_bind_group(3, group, &[]);
+        self.draw_color_pass(pass, pipelines, None, Route::Gbuffer);
     }
 
     pub(crate) fn draw_shadowed(

@@ -39,7 +39,7 @@ fn report_sampling_time(context: &GpuContext, source: &RenderScene) {
         let timing = timing_probe::timed_frame(&mut renderer, context, &view, &target, frame);
         if frame >= 8 {
             opaque_ns.extend(timing.passes.iter().filter_map(|pass| {
-                (pass.pass_id == PassId::Geometry(PassSlot::Opaque))
+                (pass.pass_id == PassId::Geometry(PassEntry::new(PassSlot::Opaque)))
                     .then_some(pass.duration_ns)
                     .flatten()
             }));

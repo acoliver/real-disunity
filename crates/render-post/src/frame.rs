@@ -50,6 +50,17 @@ impl PassEntry {
         self.occurrence
     }
 }
+/// The role's name for the first appearance and `role#n` for the nth after it, so a
+/// single-appearance entry reads exactly as its role always has.
+impl std::fmt::Display for PassEntry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{:?}", self.slot)?;
+        match self.occurrence {
+            0 => Ok(()),
+            occurrence => write!(formatter, "#{occurrence}"),
+        }
+    }
+}
 
 /// A specific texture version and subresource, never an implicit latest value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -186,11 +197,11 @@ pub enum FrameError {
     #[error("invalid or unsupported SSAO setting: {0}")]
     SsaoSettings(&'static str),
     /// The list names one entry twice. A role may repeat; an entry (role and occurrence) may not.
-    #[error("pass entry appears more than once in the frame: {0:?}")]
+    #[error("pass entry appears more than once in the frame: {0}")]
     DuplicatePass(PassEntry),
     #[error(transparent)]
     ResourceContract(#[from] crate::contracts::ContractError),
-    #[error("feature requests an undeclared pass entry {0:?}")]
+    #[error("feature requests an undeclared pass entry {0}")]
     MissingPass(PassEntry),
     #[error("resource has no preceding producer: {0:?}")]
     MissingProducer(ResourceRef),
@@ -198,8 +209,8 @@ pub enum FrameError {
     LoadAfterDiscard(ResourceRef),
     #[error("resource is sampled while attached or written ambiguously: {0:?}")]
     AttachmentHazard(ResourceRef),
-    #[error("attachment or pipeline contract is incompatible in slot {0:?}")]
-    AttachmentContract(PassSlot),
+    #[error("attachment or pipeline contract is incompatible in slot {0}")]
+    AttachmentContract(PassEntry),
     #[error("frame does not support requested effect {0}")]
     UnsupportedEffect(&'static str),
     #[error("attachment view does not match its declared subresource: {0:?}")]
@@ -339,7 +350,7 @@ fn validate_attachments(
         .chain(&pass.depth)
         .collect();
     if attachments.is_empty() {
-        return Err(FrameError::AttachmentContract(pass.slot));
+        return Err(FrameError::AttachmentContract(pass.entry()));
     }
     validate_attachment_shapes(pass, &attachments)?;
     for attachment in &attachments {
@@ -362,7 +373,7 @@ fn validate_attachments(
                 (true, AttachmentLoad::ClearColor(_)) | (false, AttachmentLoad::ClearDepth(_))
             )
         {
-            return Err(FrameError::AttachmentContract(pass.slot));
+            return Err(FrameError::AttachmentContract(pass.entry()));
         }
         if produced.contains_key(&attachment.resource)
             && matches!(
@@ -378,7 +389,7 @@ fn validate_attachments(
                 || previous.size != attachment.size
                 || previous.samples != attachment.samples
             {
-                return Err(FrameError::AttachmentContract(pass.slot));
+                return Err(FrameError::AttachmentContract(pass.entry()));
             }
         } else if produced.contains_key(&attachment.resource) {
             return Err(FrameError::AttachmentHazard(attachment.resource));
@@ -398,7 +409,7 @@ fn validate_attachment_shapes(
             return Err(FrameError::AttachmentHazard(attachment.resource));
         }
         if attachment.size != attachments[0].size || attachment.samples != attachments[0].samples {
-            return Err(FrameError::AttachmentContract(pass.slot));
+            return Err(FrameError::AttachmentContract(pass.entry()));
         }
     }
     Ok(())
@@ -426,7 +437,7 @@ fn validate_feature(
             .depth_format
             .is_some_and(|format| pass.depth.as_ref().is_none_or(|a| a.format != format))
     {
-        return Err(FrameError::AttachmentContract(pass.slot));
+        return Err(FrameError::AttachmentContract(pass.entry()));
     }
     for resource in &feature.reads {
         let sampled_depth = pass.depth.as_ref().is_some_and(|depth| {
@@ -555,7 +566,19 @@ impl<'a> PrepareContext<'a> {
 /// inter-slot compute, copy and fullscreen operations. Those operations are not
 /// part of this geometry-only interface; stock effect validation remains separate.
 pub struct DrawContext {
+    /// The role of the entry being drawn, which is `entry.slot()`.
     pub slot: PassSlot,
+    /// The entry being drawn. A feature declared in two entries of one role tells them
+    /// apart by `entry.occurrence()`.
+    pub entry: PassEntry,
+}
+impl DrawContext {
+    pub const fn new(entry: PassEntry) -> Self {
+        Self {
+            slot: entry.slot(),
+            entry,
+        }
+    }
 }
 
 /// Features receive neither a queue nor authority to open or replace attachments.

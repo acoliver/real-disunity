@@ -13,7 +13,7 @@ use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::{COLOR_FORMAT, settings};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::contracts::RasterId;
-use worldrunner_render_post::{PassId, PassSlot, TimingMode};
+use worldrunner_render_post::{PassEntry, PassId, PassSlot, TimingMode};
 use worldrunner_render_program::ids::{
     CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId,
 };
@@ -370,7 +370,7 @@ fn check_timing(fixture: &Fixture, ids: &[RasterId]) {
     let listed: Vec<_> = timing.passes.iter().map(|pass| pass.pass_id).collect();
     let expected: Vec<_> = ids.iter().map(|id| PassId::Operation(*id)).collect();
     assert_eq!(listed[..expected.len()], expected[..]);
-    assert!(listed[expected.len()..].contains(&PassId::Geometry(PassSlot::Opaque)));
+    assert!(listed[expected.len()..].contains(&PassId::Geometry(PassEntry::new(PassSlot::Opaque))));
 }
 
 #[test]

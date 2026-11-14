@@ -1,7 +1,7 @@
 use super::*;
 use std::{cell::Cell, rc::Rc};
 use worldrunner_render_post::{
-    BufferReadback, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PassSlot,
+    BufferReadback, DrawContext, FeatureDeclaration, FrameError, FrameFeature, PassEntry, PassSlot,
     PrepareContext, PreparedFeature,
 };
 
@@ -204,7 +204,7 @@ fn invalid_plain_contract_does_not_publish_frame_or_consume_uploads() {
             (&color, &target.depth_attachment()),
             frame_from(pose()),
         ),
-        Err(FrameError::AttachmentContract(PassSlot::Opaque))
+        Err(FrameError::AttachmentContract(entry)) if entry == PassEntry::new(PassSlot::Opaque)
     ));
     assert_eq!(gpu.frame.get(), None);
     encoder.finish().submit().unwrap();

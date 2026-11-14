@@ -322,3 +322,84 @@ fn a_prefix_that_encoded_one_entry_of_a_role_does_not_skip_the_next_entry_of_tha
         "the prefix completed entry 0 of Opaque only"
     );
 }
+
+/// Declared in two entries of one role; records the context each draw receives.
+struct Spy {
+    seen: Rc<RefCell<Vec<(PassSlot, PassEntry)>>>,
+}
+impl PreparedFeature for Spy {
+    fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
+        Ok(())
+    }
+    fn draw(&self, context: &DrawContext, _: &mut wgpu::RenderPass<'_>) {
+        self.seen.borrow_mut().push((context.slot, context.entry));
+    }
+}
+
+#[test]
+fn a_feature_declared_in_two_entries_of_one_role_tells_them_apart() {
+    let gpu = TestGpu::shared(&DeviceRequirements::default()).unwrap();
+    let (device, queue) = (gpu.device, gpu.queue);
+    let config = FrameConfig::new(SIZE, FORMAT, 1);
+    let mut chain = PostChain::new(
+        &device,
+        config,
+        Resources::default(),
+        CopyOutput::new(&device, FORMAT),
+    )
+    .unwrap();
+    let first = PassEntry::new(PassSlot::Opaque);
+    let second = PassEntry::nth(PassSlot::Opaque, 1);
+    let resources = [ResourceRef::new("a"), ResourceRef::new("b")];
+    let textures: Vec<_> = resources
+        .iter()
+        .map(|resource| color_texture(&device, resource.name, SIZE, FORMAT))
+        .collect();
+    let views: Vec<_> = resources
+        .iter()
+        .zip(&textures)
+        .map(|(resource, texture)| AttachmentView::new(*resource, texture).unwrap())
+        .collect();
+    let passes = [
+        clearing(first, resources[0]),
+        clearing(second, resources[1]),
+    ];
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut spy = Spy { seen: seen.clone() };
+    let declaration = FeatureDeclaration {
+        passes: [first, second]
+            .map(|entry| {
+                let mut pass = FeaturePass::nth(entry.slot(), entry.occurrence());
+                pass.color_format = Some(FORMAT);
+                pass
+            })
+            .to_vec(),
+        effects: Vec::new(),
+    };
+    let mut encoder = worldrunner_render_gpu::submission::SubmissionAuthority::new(queue.clone())
+        .begin(&device)
+        .unwrap();
+    chain
+        .encode_geometry(
+            &device,
+            &mut encoder,
+            &FramePlan {
+                passes: &passes,
+                views: &views,
+                requested: &[],
+            },
+            &mut [BorrowedFeature {
+                declaration,
+                prepared: &mut spy,
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        *seen.borrow(),
+        [(PassSlot::Opaque, first), (PassSlot::Opaque, second)],
+        "one draw per entry; the role is shared and the entry differs"
+    );
+    assert_eq!(second.occurrence(), 1);
+    assert_eq!(DrawContext::new(second).entry, second);
+    assert_eq!(DrawContext::new(second).slot, PassSlot::Opaque);
+}

@@ -37,7 +37,7 @@ impl GeometryPrefix {
                 || pass.additional_colors != produced.additional_colors
                 || pass.depth != produced.depth
             {
-                return Err(FrameError::AttachmentContract(pass.slot));
+                return Err(FrameError::AttachmentContract(pass.entry()));
             }
             for attachment in pass
                 .color

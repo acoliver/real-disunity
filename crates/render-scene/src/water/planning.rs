@@ -24,7 +24,9 @@ pub(crate) fn opaque_source<'a>(
         .ok_or(FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)))?;
     let attachment = if depth { &opaque.depth } else { &opaque.color }
         .as_ref()
-        .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque,
+        )))?;
     let view = views
         .iter()
         .find(|view| view.resource() == attachment.resource)
@@ -47,7 +49,9 @@ pub(crate) fn opaque_source<'a>(
             .usage()
             .contains(wgpu::TextureUsages::TEXTURE_BINDING)
     {
-        return Err(FrameError::AttachmentContract(PassSlot::Opaque));
+        return Err(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque,
+        )));
     }
     Ok(view)
 }

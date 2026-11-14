@@ -80,12 +80,8 @@ fn depth_fitting_reduction_passes_share_interactive_and_capture_samples() {
                 1
             );
         }
-        assert!(
-            samples[0]
-                .passes
-                .iter()
-                .any(|pass| pass.pass_id == crate::PassId::Geometry(crate::PassSlot::Opaque))
-        );
+        assert!(samples[0].passes.iter().any(|pass| pass.pass_id
+            == crate::PassId::Geometry(crate::PassEntry::new(crate::PassSlot::Opaque))));
     }
 }
 

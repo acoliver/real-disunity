@@ -31,7 +31,7 @@ pub use work::{
 };
 mod timing;
 pub use timing::{
-    FrameTiming, GpuTiming, GpuTimingUnavailable, PassId, PassSlot, PassTiming, StageId,
+    FrameTiming, GpuTiming, GpuTimingUnavailable, PassEntry, PassId, PassSlot, PassTiming, StageId,
 };
 mod statistics;
 pub use statistics::{

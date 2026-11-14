@@ -615,11 +615,9 @@ impl<F: StageFactory> PostChain<F> {
             if completed.contains(&entry) {
                 continue;
             }
-            let context = crate::DrawContext {
-                slot: declaration.slot,
-            };
-            let stamp = self.stamp(crate::PassId::Geometry(declaration.slot));
-            raster.encode_stock_pass(index, declaration.slot, encoder, stamp.as_ref(), |pass| {
+            let context = crate::DrawContext::new(entry);
+            let stamp = self.stamp(crate::PassId::Geometry(entry));
+            raster.encode_stock_pass(index, entry, encoder, stamp.as_ref(), |pass| {
                 for feature in borrowed.iter().filter(|feature| {
                     feature
                         .declaration

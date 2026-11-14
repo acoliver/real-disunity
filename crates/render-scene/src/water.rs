@@ -519,12 +519,16 @@ impl WaterFeature {
         water
             .color
             .as_mut()
-            .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?
+            .ok_or(FrameError::AttachmentContract(PassEntry::new(
+                PassSlot::Opaque,
+            )))?
             .load = AttachmentLoad::Load;
         let depth = water
             .depth
             .as_mut()
-            .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+            .ok_or(FrameError::AttachmentContract(PassEntry::new(
+                PassSlot::Opaque,
+            )))?;
         depth.load = AttachmentLoad::Load;
         // The surface writes depth even when relief card rejection made the Opaque copy read-only.
         depth.read_only = false;

@@ -112,7 +112,9 @@ fn attachment_and_pipeline_mismatches_are_rejected() {
     let mut pass = PassDeclaration::new(PassSlot::Opaque);
     assert_eq!(
         validate_frame(&[pass.clone()], &[], &[]),
-        Err(FrameError::AttachmentContract(PassSlot::Opaque))
+        Err(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque
+        )))
     );
     pass.color = Some(attachment(
         AttachmentLoad::ClearColor(wgpu::Color::BLACK),
@@ -122,7 +124,9 @@ fn attachment_and_pipeline_mismatches_are_rejected() {
     feature.passes[0].color_format = Some(wgpu::TextureFormat::Rgba16Float);
     assert_eq!(
         validate_frame(&[pass.clone()], &[feature], &[]),
-        Err(FrameError::AttachmentContract(PassSlot::Opaque))
+        Err(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque
+        )))
     );
     let mut loaded = pass.clone();
     loaded.slot = PassSlot::TransparentWater;
@@ -130,12 +134,16 @@ fn attachment_and_pipeline_mismatches_are_rejected() {
     loaded.color.as_mut().unwrap().size = [4, 4];
     assert_eq!(
         validate_frame(&[pass.clone(), loaded], &[], &[]),
-        Err(FrameError::AttachmentContract(PassSlot::TransparentWater))
+        Err(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::TransparentWater
+        )))
     );
     pass.color.as_mut().unwrap().samples = 4;
     assert_eq!(
         validate_frame(&[pass], &[FeatureDeclaration::new(PassSlot::Opaque)], &[]),
-        Err(FrameError::AttachmentContract(PassSlot::Opaque))
+        Err(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque
+        )))
     );
 }
 
@@ -199,7 +207,9 @@ fn every_selectable_sample_count_validates_and_other_counts_are_rejected() {
     for samples in [0, 3, 16] {
         assert_eq!(
             validate_frame(&[declare(samples)], &[], &[]),
-            Err(FrameError::AttachmentContract(PassSlot::Opaque)),
+            Err(FrameError::AttachmentContract(PassEntry::new(
+                PassSlot::Opaque
+            ))),
             "{samples}x"
         );
     }
@@ -308,7 +318,8 @@ fn one_role_may_appear_twice_and_a_feature_draws_only_in_the_entry_it_names() {
     wrong_format.passes[0].color_format = Some(wgpu::TextureFormat::Rgba16Float);
     assert_eq!(
         validate_frame(&passes, &[wrong_format], &[]),
-        Err(FrameError::AttachmentContract(PassSlot::Opaque))
+        Err(FrameError::AttachmentContract(second)),
+        "the error names the entry whose feature broke the contract"
     );
 }
 

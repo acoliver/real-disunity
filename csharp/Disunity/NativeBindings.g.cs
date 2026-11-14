@@ -581,6 +581,12 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_world_advance(ulong world, ulong numerator, ulong denominator, DisunityAdvance* output);
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one record.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_world_advance_teardown", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_world_advance_teardown(ulong world, DisunityAdvance* output);
+        /// <summary>
+        ///  # Safety
         ///  Input points to `length` bytes; output is writable for one record.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_world_resume", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -734,13 +740,5 @@ namespace Disunity.Native
         internal static extern DisunityResult disunity_callback_read(ulong world, ulong script, DisunityCallback* output);
         [DllImport(__DllName, EntryPoint = "disunity_callback_wait", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_callback_wait(ulong world, ulong ticket, uint kind, ulong num, ulong den);
-        /// <summary>
-        ///  # Safety
-        ///  `output` is writable for one coroutine identity.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
-        [DllImport(__DllName, EntryPoint = "disunity_coroutine_stop", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_coroutine_stop(ulong world, ulong routine);
     }
 }

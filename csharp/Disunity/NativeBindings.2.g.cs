@@ -12,6 +12,14 @@ namespace Disunity.Native
     {
         /// <summary>
         ///  # Safety
+        ///  `output` is writable for one coroutine identity.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_start", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_start(ulong world, ulong script, uint kind, ulong num, ulong den, ulong* output);
+        [DllImport(__DllName, EntryPoint = "disunity_coroutine_stop", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_coroutine_stop(ulong world, ulong routine);
+        /// <summary>
+        ///  # Safety
         ///  `output` is writable for one identity, or zero when the queue is empty.
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_coroutine_cancelled", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -734,13 +742,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_read(ulong world, ulong material, DisunityMaterialInfo* output);
-        /// <summary>
-        ///  Creates a render texture and writes its id.
-        ///
-        ///  # Safety
-        ///  `desc` is readable for one record; `output` is writable for one id.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_render_texture_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_render_texture_create(ulong world, DisunityRenderTexture* desc, ulong* output);
     }
 }

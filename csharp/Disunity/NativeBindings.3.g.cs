@@ -11,6 +11,14 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Creates a render texture and writes its id.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_create(ulong world, DisunityRenderTexture* desc, ulong* output);
+        /// <summary>
         ///  Replaces a render texture's description and raises its generation.
         ///
         ///  # Safety

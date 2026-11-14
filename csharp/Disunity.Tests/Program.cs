@@ -78,6 +78,7 @@ CheckImport("disunity_construction_object_create", u64, u64, u64.MakePointerType
 CheckImport("disunity_construction_activate", u64, u64, advance.MakePointerType());
 CheckImport("disunity_construction_abort", u64, u64);
 CheckImport("disunity_world_advance", u64, u64, u64, advance.MakePointerType());
+CheckImport("disunity_world_advance_teardown", u64, advance.MakePointerType());
 CheckImport("disunity_world_resume", u64, u64, u32, bytes, u32, advance.MakePointerType());
 CheckImport("disunity_world_clock", u64, clock.MakePointerType());
 CheckImport("disunity_cleanup_flush", u64, advance.MakePointerType());

@@ -38,8 +38,9 @@ After an intentional ABI change:
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 9 adds the dimension and volume depth to `DisunityRenderTexture`, so
-   native and managed peers built for revision 8 refuse it. Revision 5 retains revision 4 batch construction, object wake and body position
+   Revision 10 adds `disunity_world_advance_teardown`, so native and managed peers
+   built for revision 9 refuse it. Revision 9 adds the dimension and volume depth to
+   `DisunityRenderTexture`, so native and managed peers built for revision 8 refuse it. Revision 5 retains revision 4 batch construction, object wake and body position
    constraints, and moves canvas scale out of the Canvas record into
    `disunity_canvas_scale_read`, `_write` and `_factor`. Native and managed hosts
    require revision 5. Rebuild all peers.
@@ -200,7 +201,10 @@ the suspended native callback. Completion and cancellation dispose iterators.
 MonoBehaviour.enabled delegates eligibility changes to native lifecycle scopes.
 Deactivation, destruction and callback-failure cancellation notifications transfer
 once. Unload releases the world even when an iterator disposer throws; disposal
-failures remain errors. Coroutine joins, end-of-frame and custom yields are not
+failures remain errors. `UnloadWorld` destroys the scenes' objects and then the
+DontDestroyOnLoad objects and assets, and runs each cleanup through
+`disunity_world_advance_teardown`, so no `Update` or other frame message runs while
+the world unloads. Coroutine joins, end-of-frame and custom yields are not
 supported.
 
 Loading a world installs Unity's main thread `SynchronizationContext`

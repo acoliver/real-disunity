@@ -963,7 +963,7 @@ pub struct DisunityUiDraw {
 }
 
 /// The ABI revision these records belong to.
-pub const DISUNITY_ABI_VERSION: u32 = 9;
+pub const DISUNITY_ABI_VERSION: u32 = 10;
 
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

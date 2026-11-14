@@ -54,6 +54,52 @@ fn visibility_energy(bytes: &[u8]) -> f64 {
         .sum()
 }
 
+/// The live water source with the shadow response taken out of the three places it reaches the
+/// lit colour: the water's own visibility, the visibility terms of the surface lighting and the
+/// limit on the disk highlight. What is left is the water as it lit before the response existed,
+/// written over the live lighting rather than a stored copy of it.
+fn source_without_the_shadow_response() -> String {
+    let source = crate::water::water_source(true);
+    let source = replace_once(
+        &source,
+        "    let ambient_visibility = raw_sunlight_visibility(input.world, normal);\n    let raw_visibility = water_shadow_visibility(input.world, normal, ambient_visibility);\n    let adjusted_visibility = direct_sunlight_visibility(raw_visibility);\n    let visibility = water_shadow_response(adjusted_visibility, water_shadow_depth(original_distance));",
+        "    let visibility = sunlight_visibility(input.world, normal);",
+    );
+    let source = replace_once(
+        &source,
+        "scene_surface_lighting_with_visibility(input.world, normal, base_color,\n            vec3<f32>(roughness, water.terms.z, 1.0), lighting_f0,\n            SceneSurfaceVisibility(raw_visibility, ambient_visibility, visibility, water_shadow_disk_factor(adjusted_visibility)))",
+        "scene_surface_lighting(input.world, normal, base_color,\n            vec3<f32>(roughness, water.terms.z, 1.0), lighting_f0)",
+    );
+    replace_once(
+        &source,
+        "water_shadow_disk(water_disk_highlight(normal, view, light, material_f0, roughness, visibility), adjusted_visibility)",
+        "water_disk_highlight(normal, view, light, material_f0, roughness, visibility)",
+    )
+}
+
+fn replace_once(source: &str, needle: &str, replacement: &str) -> String {
+    assert_eq!(source.matches(needle).count(), 1, "{needle}");
+    source.replace(needle, replacement)
+}
+
+#[test]
+fn gpu_water_absent_response_preserves_base_colour_bytes() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let without_response = source_without_the_shadow_response();
+    for scene_path in [false, true] {
+        let expected = capture_source(&context, None, scene_path, false, Some(&without_response));
+        let actual = capture(&context, None, scene_path, false);
+        assert!(
+            expected
+                .chunks_exact(8)
+                .any(|pixel| pixel != &expected[..8]),
+            "scene={scene_path}: the capture is blank"
+        );
+        assert_eq!(actual, expected, "scene={scene_path}");
+    }
+}
+
 #[test]
 fn gpu_water_specialized_neutral_is_identical_with_msaa_and_rippling_normals() {
     let _session = crate::test_support::SceneTestSession::acquire();

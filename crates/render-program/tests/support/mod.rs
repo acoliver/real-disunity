@@ -3,7 +3,7 @@
 
 use wgpu::util::DeviceExt;
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::runtime::{PreparedProgramDraw, ProgramRuntime};
 
@@ -22,7 +22,7 @@ pub struct Attachment<'a> {
 
 impl Gpu {
     pub fn new() -> Self {
-        let instance = headless_instance();
+        let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("these tests need a GPU adapter");

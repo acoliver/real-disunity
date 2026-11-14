@@ -111,6 +111,14 @@ fn capture(output: MetadataOutput, mode: DepthMode) -> usize {
     let planes = formats.len() + 1 + usize::from(depth.has_stencil_aspect());
     assert_eq!(scene.len(), planes, "{name}: every plane is read");
     compare_planes((&context, &name, mode), formats.len(), [&scene, &untouched]);
+    // The foliage card and the masked double-sided card share a key: wind is material state.
+    let keys = rig.gpu.pipeline_keys_drawn(0);
+    assert_eq!(
+        keys.len(),
+        3,
+        "{name}: the opaque mesh, the relief impostor and the masked double-sided cards each \
+         draw with their own key, got {keys:?}"
+    );
     planes
 }
 

@@ -7,6 +7,7 @@ use super::{Case, Target, capture_scenes};
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::shadow_fixture::groups;
 use crate::dynamic::capture_tests::{HDR, VELOCITY, ambient_group, context, reflection_group};
+use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 
 #[derive(Clone, Copy)]
@@ -144,7 +145,7 @@ fn shadow_receiving_objects_draw_in_every_shadow_slot() {
         let formats = set.formats();
         for (slot, group) in shadow.iter().enumerate() {
             let name = format!("{}-slot{slot}", set.name);
-            let compared = capture_scenes(
+            let (keys, compared) = capture_scenes(
                 &context,
                 &Case {
                     name: &name,
@@ -159,6 +160,11 @@ fn shadow_receiving_objects_draw_in_every_shadow_slot() {
                     mask: 0,
                 },
                 None,
+            );
+            assert_eq!(
+                keys.len(),
+                PipelineKey::ALL.len(),
+                "{name}: every key is drawn"
             );
             run += compared;
         }

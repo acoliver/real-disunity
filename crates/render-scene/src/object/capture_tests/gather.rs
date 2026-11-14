@@ -7,6 +7,7 @@ use worldrunner_render_plan::SceneSsaoReceiver;
 use super::{Case, Target, capture_scenes};
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{CONFIGS, build, context, one_texel, supported};
+use crate::pipeline::PipelineKey;
 
 fn gather_ssao(context: &GpuContext) -> BindGroup {
     let device = context.device();
@@ -108,7 +109,7 @@ fn gather_receivers_draw_the_object_scenes() {
             continue;
         }
         let built = build(context.device(), config);
-        let compared = capture_scenes(
+        let (keys, compared) = capture_scenes(
             &context,
             &Case {
                 name,
@@ -123,6 +124,11 @@ fn gather_receivers_draw_the_object_scenes() {
                 mask: 0,
             },
             Some(SceneSsaoReceiver::DepthAwareGather),
+        );
+        assert_eq!(
+            keys.len(),
+            PipelineKey::ALL.len(),
+            "{name}: every key is drawn"
         );
         run += compared;
     }

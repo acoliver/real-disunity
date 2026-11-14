@@ -13,7 +13,10 @@
 //! The scenes cover the 32 `PipelineKey` variants. [`scenes::surface_specs`],
 //! [`scenes::impostor_specs`] and relief impostors draw through `SceneGpu::draw_color`. The keys
 //! no material reaches are drawn with a mask, which sends the index of one of the
-//! [`scenes::base_specs`] cards to the pipeline of the key `index ^ mask`.
+//! [`scenes::base_specs`] cards to the pipeline of the key `index ^ mask`. The keys a capture
+//! drew are read from the selection it made, through the same walk the pass records.
+
+use std::collections::BTreeSet;
 
 use wgpu::{BindGroup, RenderPass, TextureFormat};
 use worldrunner_render_plan::{RenderScene, SceneSsao, SceneSsaoReceiver};
@@ -25,6 +28,7 @@ use crate::dynamic::capture_tests::{
     read_results, supported,
 };
 use crate::frame::FrameUniform;
+use crate::pipeline::PipelineKey;
 use crate::renderer::ScenePipelines;
 
 mod casters;
@@ -343,6 +347,8 @@ pub(in crate::object) struct Case<'a> {
 /// What one capture drew.
 pub(in crate::object) struct Captured {
     pub images: Vec<Vec<u8>>,
+    /// The keys, as indices into [`PipelineKey::ALL`], the draw used.
+    pub keys: BTreeSet<usize>,
 }
 
 /// Draws the rig's objects through the scene, checks that the objects drew something, prints the
@@ -378,7 +384,10 @@ pub(in crate::object) fn capture(rig: &mut Rig<'_>, case: &Case<'_>) -> Captured
     let untouched = render(context, case.target, &mut rig.gpu, |_, _| {});
     compare(case, [&scene, &untouched]);
     report(context, case, &scene);
-    Captured { images: scene }
+    Captured {
+        images: scene,
+        keys: rig.gpu.pipeline_keys_drawn(case.mask),
+    }
 }
 
 fn attachment_name(index: usize, case: &Case<'_>) -> String {
@@ -462,13 +471,14 @@ fn all_scenes() -> Vec<Scene> {
     ]
 }
 
-/// Captures every scene of [`all_scenes`] with the pipelines of `case`, returning how many
-/// captures ran.
+/// Captures every scene of [`all_scenes`] with the pipelines of `case`, returning the keys they
+/// used and how many captures ran.
 pub(in crate::object) fn capture_scenes(
     context: &GpuContext,
     case: &Case<'_>,
     receiver: Option<SceneSsaoReceiver>,
-) -> usize {
+) -> (BTreeSet<usize>, usize) {
+    let mut keys = BTreeSet::new();
     let mut run = 0;
     for scene in all_scenes() {
         let rig = Rig::new(context, case.pipelines, &scenes::scene(&scene.specs));
@@ -477,7 +487,7 @@ pub(in crate::object) fn capture_scenes(
             None => rig,
         };
         for &mask in scene.masks {
-            capture(
+            let captured = capture(
                 &mut rig,
                 &Case {
                     scene: scene.name,
@@ -485,10 +495,11 @@ pub(in crate::object) fn capture_scenes(
                     ..*case
                 },
             );
+            keys.extend(captured.keys);
             run += 1;
         }
     }
-    run
+    (keys, run)
 }
 
 /// How many captures a full run of [`capture_scenes`] makes.
@@ -497,9 +508,9 @@ fn captures_per_config() -> usize {
 }
 
 /// One of the 12 forward target sets, all scenes.
-fn forward(context: &GpuContext, config: &Config) -> usize {
+fn forward(context: &GpuContext, config: &Config) -> (usize, usize) {
     let built = build(context.device(), config);
-    capture_scenes(
+    let (keys, run) = capture_scenes(
         context,
         &Case {
             name: config.name,
@@ -514,7 +525,8 @@ fn forward(context: &GpuContext, config: &Config) -> usize {
             mask: 0,
         },
         None,
-    )
+    );
+    (keys.len(), run)
 }
 
 fn forward_set(index: usize) {
@@ -523,7 +535,7 @@ fn forward_set(index: usize) {
     let config = &CONFIGS[index];
     if !supported(&context, config) {
         println!(
-            "OBJECT-CAPTURE-SUMMARY set=forward config={} captures=0 skipped={}",
+            "OBJECT-CAPTURE-SUMMARY set=forward config={} keys=0 captures=0 skipped={}",
             config.name,
             captures_per_config()
         );
@@ -532,11 +544,13 @@ fn forward_set(index: usize) {
             config.name
         );
     }
-    let run = forward(&context, config);
+    let (keys, run) = forward(&context, config);
     println!(
-        "OBJECT-CAPTURE-SUMMARY set=forward config={} captures={run} skipped=0",
-        config.name
+        "OBJECT-CAPTURE-SUMMARY set=forward config={} keys={keys}/{} captures={run} skipped=0",
+        config.name,
+        PipelineKey::ALL.len()
     );
+    assert_eq!(keys, PipelineKey::ALL.len(), "every key is drawn");
     assert_eq!(run, captures_per_config());
 }
 

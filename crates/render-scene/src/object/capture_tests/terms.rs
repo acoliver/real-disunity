@@ -116,6 +116,13 @@ fn replays() -> usize {
                 drawn != untouched,
                 "{config}: the objects drew nothing into the term"
             );
+            let keys = rig.gpu.pipeline_keys_drawn(0);
+            assert_eq!(
+                keys.len(),
+                3,
+                "{config}: the opaque mesh, the relief impostor and the masked double-sided cards \
+                 each draw with their own key, got {keys:?}"
+            );
             println!(
                 "OBJECT-CAPTURE adapter={adapter:?} config={config} scene=terms mask=0 attachment=0 bytes={} hash={:016x}",
                 drawn.len(),

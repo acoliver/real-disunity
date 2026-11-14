@@ -149,6 +149,7 @@ impl Finish<'_> {
             signature: draw.signature,
             colors: &colors,
         };
+        request.check_color_outputs()?;
         let key = request.key();
         if let Some(prototype) = self.draws.get(&key) {
             match prototype.rebind(bindings.clone(), draw.geometry.clone()) {
@@ -212,6 +213,7 @@ impl Finish<'_> {
             signature,
             colors: &colors,
         };
+        request.check_color_outputs()?;
         let modules = self.runtime.program_modules(program)?;
         Ok(with_pipeline_descriptor(
             &request,
@@ -328,8 +330,8 @@ fn colors_of(
 /// mask for one it does not. wgpu builds a pipeline whose written target has no fragment output at
 /// its location and the attachment then gets undefined values, while an empty mask leaves it as it
 /// was, which is what Unity does with a render target a shader has no output for. An output with
-/// no attachment is dropped by wgpu. A fragment stage that names no colour output at all is taken to
-/// write location 0, as a draw into one attachment always did.
+/// no attachment is dropped by wgpu. `PipelineRequest::check_color_outputs` holds the result to
+/// that rule.
 fn draw_colors(
     signature: TargetSignature,
     state: &RenderState,
@@ -346,8 +348,11 @@ fn draw_colors(
     Ok((0..)
         .zip(signature.colors())
         .map(|(location, _)| {
-            let writes = outputs.contains(&location) || (location == 0 && outputs.is_empty());
-            if writes { written } else { unwritten }
+            if outputs.contains(&location) {
+                written
+            } else {
+                unwritten
+            }
         })
         .collect())
 }

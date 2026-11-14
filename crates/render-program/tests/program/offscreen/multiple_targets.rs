@@ -13,7 +13,7 @@ use worldrunner_render_program::unity::offscreen::frame::{
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
 use worldrunner_render_program::unity::synthetic::shaders::{
-    camera_pass_combining, camera_pass_three_outputs,
+    POSITION_AND_UV, TINT, camera_pass_combining, camera_pass_reading, camera_pass_three_outputs,
 };
 
 use super::camera::{TARGET, alpha, fixture};
@@ -275,6 +275,37 @@ fn a_shader_with_fewer_outputs_leaves_the_other_attachments_as_they_were() {
             number + 1
         );
     }
+}
+
+#[test]
+fn a_shader_with_no_colour_output_leaves_every_attachment_as_it_was() {
+    let mut rig = Rig::new();
+    let target = Attachments::single(Some(at(TARGET)), None);
+    let mut frame = frame_of(&mut rig, Vec::new());
+    let silent = TINT.replace(
+        "@fragment fn fs_main(in: VOut) -> @location(0) vec4<f32> { return material.tint; }",
+        "@fragment fn fs_main(in: VOut) { if material.tint.r < -1.0 { discard; } }",
+    );
+    register(
+        &mut rig,
+        ShaderId(4),
+        camera_pass_reading(&silent, &POSITION_AND_UV),
+    );
+    for material in frame.materials.values_mut() {
+        material.shader = Some(ShaderId(4));
+    }
+    frame.records = vec![
+        Record::Clear {
+            target: target.clone(),
+            clear: clear_all([0.0, 0.0, 1.0, 1.0]),
+        },
+        list(target, vec![item(1)]),
+    ];
+    let images = read(&mut rig, &frame, &[TARGET]);
+    assert!(
+        images[0].chunks(4).all(|texel| texel == BLUE),
+        "the clear stays"
+    );
 }
 
 #[test]

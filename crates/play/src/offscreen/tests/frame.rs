@@ -2,9 +2,8 @@
 
 use glam::{Quat, Vec3};
 use std::collections::BTreeMap;
-use worldrunner_render_program::ids::{CameraId, MeshId, RendererId, ShaderId, TextureId};
+use worldrunner_render_program::ids::{CameraId, MeshId, RendererId, ShaderId};
 use worldrunner_render_program::properties::PropertyValue;
-use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_render_program::unity::offscreen::frame::Record;
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
@@ -14,7 +13,6 @@ use worldrunner_world_simulation::graphics::{
 use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
 
-use super::super::defaults::DefaultTexture;
 use super::super::frame::{BLIT_MESH, Placed, RendererSkip, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{
@@ -24,7 +22,7 @@ use super::support::{
 
 const MESH: u64 = (1 << 41) + 3;
 
-fn settings() -> Settings {
+pub(super) fn settings() -> Settings {
     Settings {
         light_modes: vec!["Alpha".to_owned(), "Fallback".to_owned()],
         untagged_light_mode: None,
@@ -37,7 +35,7 @@ fn draw(world: &mut World, camera: ComponentHandle, target: RenderTextureId) {
         .unwrap();
 }
 
-fn blit(
+pub(super) fn blit(
     world: &mut World,
     source: TextureRef,
     target: RenderTextureId,
@@ -814,177 +812,6 @@ fn a_renderer_with_no_material_at_all_is_skipped() {
             .renderers_skipped
             .get(&RendererSkip::NoMaterial),
         Some(&1)
-    );
-}
-
-#[test]
-fn a_stored_texture_the_host_can_read_is_named_by_its_identity() {
-    let mut world = world();
-    let (a, b) = (
-        render_texture(&mut world, [8, 8]),
-        render_texture(&mut world, [8, 8]),
-    );
-    let shader = shader(&mut world, "Blit");
-    let material = material(&mut world, shader);
-    set(
-        &mut world,
-        material,
-        WorldValue::Texture("_Lookup".into(), texture_slot(TextureRef::Asset(1 << 40))),
-    );
-    blit(&mut world, TextureRef::Asset(1 << 40), b, Some(material), 0);
-    blit(&mut world, TextureRef::Render(a), b, Some(material), 0);
-    let snapshot = snapshot(&mut world);
-    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[1 << 40]), &settings());
-    let input = adapted.frame.materials[&ids::material(material)]
-        .properties
-        .textures["_Lookup"];
-    assert_eq!(input.texture, TextureId(1 << 40));
-    let Record::Blit { source, .. } = &adapted.frame.records[0] else {
-        panic!("a blit");
-    };
-    assert_eq!(*source, TextureId(1 << 40));
-}
-
-#[test]
-fn a_texture_property_that_names_no_texture_the_frame_can_read_is_counted_by_name_and_reason() {
-    let mut world = world();
-    let target = render_texture(&mut world, [8, 8]);
-    let shader = shader(&mut world, "Blit");
-    let material = material(&mut world, shader);
-    for (name, texture) in [
-        ("_NotUploaded", TextureRef::Asset(1 << 40)),
-        ("_Uploaded", TextureRef::Asset(1 << 41)),
-        ("_Nothing", TextureRef::None),
-    ] {
-        set(
-            &mut world,
-            material,
-            WorldValue::Texture(name.into(), texture_slot(texture)),
-        );
-    }
-    blit(
-        &mut world,
-        TextureRef::Render(target),
-        target,
-        Some(material),
-        0,
-    );
-    let snapshot = snapshot(&mut world);
-    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[1 << 41]), &settings());
-    assert_eq!(
-        adapted.report.unresolved_textures,
-        BTreeMap::from([
-            ("_NotUploaded: asset not readable by the host".to_owned(), 1),
-            (
-                "_Nothing: no texture set and not declared, Unity's default grey read".to_owned(),
-                1
-            ),
-        ])
-    );
-}
-
-/// Unity binds its grey default texture to a texture property that nothing sets and the shader
-/// does not declare; one the shader declares reads its declared default, and one whose default
-/// the host does not supply stays unset, as does any when the host registered no defaults.
-#[test]
-fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
-    let mut world = world();
-    let target = render_texture(&mut world, [8, 8]);
-    let shader = shader(&mut world, "Blit");
-    let material = material(&mut world, shader);
-    for name in ["_UserLut", "_Declared"] {
-        set(
-            &mut world,
-            material,
-            WorldValue::Texture(name.into(), texture_slot(TextureRef::None)),
-        );
-    }
-    blit(
-        &mut world,
-        TextureRef::Render(target),
-        target,
-        Some(material),
-        0,
-    );
-    let snapshot = snapshot(&mut world);
-    let mut available = available(&snapshot, 1, &[]);
-    for info in available.shaders.values_mut() {
-        info.fill.declared_textures = vec!["_Declared".to_owned()];
-    }
-    let adapted = adapt(&snapshot, &available, &settings());
-    let textures = &adapted.frame.materials[&ids::material(material)]
-        .properties
-        .textures;
-    assert_eq!(textures["_UserLut"].texture, DefaultTexture::Grey.id());
-    assert!(!textures.contains_key("_Declared"));
-    assert_eq!(
-        adapted.frame.undeclared_texture,
-        Some(DefaultTexture::Grey.id()),
-        "records read the grey default for what no layer names"
-    );
-    assert_eq!(
-        adapted.report.unresolved_textures,
-        BTreeMap::from([
-            ("_Declared: no texture set".to_owned(), 1),
-            (
-                "_UserLut: no texture set and not declared, Unity's default grey read".to_owned(),
-                1
-            ),
-        ])
-    );
-    available.default_textures.clear();
-    let adapted = adapt(&snapshot, &available, &settings());
-    assert_eq!(adapted.frame.undeclared_texture, None);
-    assert!(
-        !adapted.frame.materials[&ids::material(material)]
-            .properties
-            .textures
-            .contains_key("_UserLut")
-    );
-}
-
-#[test]
-fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
-    let mut world = world();
-    let description = WorldRenderTexture {
-        width: 8,
-        height: 8,
-        format: 8,
-        depth_bits: 0,
-        mip_count: 1,
-        srgb: false,
-        dimension: 2,
-        volume_depth: 1,
-        sampler: WorldSampler {
-            wrap_u: 1,
-            wrap_v: 2,
-            wrap_w: 0,
-            filter: 0,
-            aniso_level: 1,
-            mip_bias: 0.0,
-        },
-        generation: 0,
-    };
-    let (a, b) = (
-        world.create_render_texture(description).unwrap(),
-        render_texture(&mut world, [8, 8]),
-    );
-    world
-        .set_global_property(WorldValue::Texture(
-            "_Lookup".into(),
-            texture_slot(TextureRef::Render(a)),
-        ))
-        .unwrap();
-    blit(&mut world, TextureRef::Render(a), b, None, 0);
-    let snapshot = snapshot(&mut world);
-    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
-    assert_eq!(
-        adapted.frame.globals.textures["_Lookup"].sampler,
-        Some(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Mirror,
-            filter: Filter::Point,
-        })
     );
 }
 

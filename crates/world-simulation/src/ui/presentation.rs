@@ -20,6 +20,9 @@ pub struct UiDraw {
     pub corners: [[f32; 3]; 4],
     pub uv_rect: [f32; 4],
     pub color: [f32; 4],
+    /// Optional linear straight-alpha multipliers in BL/BR/TR/TL order; None is white.
+    /// Triangles use the first three colours. Every channel must be finite and in 0..=1.
+    pub corner_colors: Option<[[f32; 4]; 4]>,
     /// Graphic image identity, or an identity in `UiPresentation::coverage` for text.
     pub texture: Option<u64>,
     pub sorting_layer: i32,
@@ -94,6 +97,7 @@ impl UiPresentation {
                 result.draws.push(UiDraw {
                     kind: UiDrawKind::Graphic,
                     depth_test: false,
+                    corner_colors: None,
                     triangle_uv: Some(triangle.map(|v| [v.uv[0], 1. - v.uv[1]])),
                     corners: [a.position, b.position, c.position, c.position],
                     uv_rect: [0.; 4],
@@ -109,6 +113,7 @@ impl UiPresentation {
                 result.draws.push(UiDraw {
                     kind: UiDrawKind::Graphic,
                     depth_test: false,
+                    corner_colors: None,
                     triangle_uv: None,
                     corners: quad.corners,
                     uv_rect: quad.uv_rect,
@@ -144,6 +149,7 @@ impl UiPresentation {
                 self.draws.push(UiDraw {
                     kind: UiDrawKind::Text,
                     depth_test: false,
+                    corner_colors: None,
                     triangle_uv: None,
                     corners: glyph.corners,
                     uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],

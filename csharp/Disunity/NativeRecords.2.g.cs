@@ -541,6 +541,26 @@ namespace Disunity.Native
         public float triangle_v1;
         public float triangle_u2;
         public float triangle_v2;
+        /// <summary>
+        ///  Zero for white corners, one for explicit linear RGBA in BL/BR/TR/TL order.
+        /// </summary>
+        public uint corner_colors_present;
+        public float corner_0_r;
+        public float corner_0_g;
+        public float corner_0_b;
+        public float corner_0_a;
+        public float corner_1_r;
+        public float corner_1_g;
+        public float corner_1_b;
+        public float corner_1_a;
+        public float corner_2_r;
+        public float corner_2_g;
+        public float corner_2_b;
+        public float corner_2_a;
+        public float corner_3_r;
+        public float corner_3_g;
+        public float corner_3_b;
+        public float corner_3_a;
     }
 
 }

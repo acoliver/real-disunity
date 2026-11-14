@@ -83,6 +83,12 @@ pub enum ModuleError {
     Parse(String),
     #[error("naga rejects the module: {0}")]
     Validate(String),
+    #[error("texel buffer at set {set} binding {binding}: {what}")]
+    TexelBuffer {
+        set: u32,
+        binding: u32,
+        what: String,
+    },
     #[error("naga panicked on the module: {0}")]
     Panicked(String),
     #[error("the module has no {kind:?} entry point named {name}")]
@@ -517,6 +523,7 @@ fn stage_key(
 }
 
 fn parse_spirv(words: &[u32]) -> Result<naga::Module, ModuleError> {
+    let words = crate::texel_buffer::lower(words)?;
     let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
     // The default options flip the vertex position's Y, which turns the SPIR-V clip space
     // (Y down) into the one wgpu draws with; the crate's convention tests pin the result.

@@ -28,6 +28,42 @@ Execution consumes only these values. `layout::ProgramLayout::build` checks each
 
 `tests/native.rs` drives this interface with WGSL stages and no Unity record, and runs without the `unity` feature.
 
+## SPIR-V typed buffer images
+
+Before naga parsing, `StageSource::SpirV` lowers read-only typed buffer fetches to
+ordinary storage buffers at the original descriptor set and binding. Declare the
+slot as `ResourceKind::Storage { access: StorageAccess::ReadOnly, min_size }` and
+bind a plain buffer containing tightly packed elements. No texture view is needed.
+The exact supported formats are `R32f/i/ui`, `Rg32f/i/ui` and `Rgba32f/i/ui`, with
+element strides of 4, 8 and 16 bytes respectively. Missing fetched components are
+filled as Vulkan specifies: `(x, 0, 0, 1)` or `(x, y, 0, 1)`, using integer zero
+and one for integer formats. In-range fetches preserve the element bits; callers
+must provide the same valid element indices as the source shader requires.
+
+`ModuleError::TexelBuffer { set, binding, what }` names unsupported operations:
+writes and storage buffer images, size queries, sparse fetches, descriptor arrays,
+arrayed images, image function parameters, `OpCopyObject`, other non-fetch uses,
+and fetch operands beyond an absent or empty image-operands mask. Formats needing
+conversion, including Unknown, 8/16-bit, normalized, packed and 64-bit formats,
+are refused rather than approximated. The pass changes neither source hashes nor
+stage hashes. Modules without a Buffer image borrow their original words unless
+they declare unused `SampledBuffer` or `ImageBuffer` capabilities, which naga
+rejects. In that case, only those capability instructions are removed from an
+owned copy; every other word stays unchanged. Modules with Buffer images still
+undergo the operation and format checks above before any capability is removed.
+
+The pass uses `rspirv` (MIT/Apache-2.0) for operand-aware parsing and emission.
+The owned HLSL and committed DXC fixtures in `tests/fixtures/texel_buffer/` need
+no compiler in CI. Regenerate them with
+`python3 crates/render-program/tests/fixtures/texel_buffer/regenerate.py /path/to/dxc`;
+the script prints each exact command. CPU tests cover lowering and reflection.
+`texel_buffer::gpu_typed_buffer_fetches_match_storage_buffers` compares
+all nine element shapes with WGSL storage-buffer dispatches on the selected GPU.
+`texel_buffer::gpu_missing_components_match_vulkan_defaults` checks all four
+returned channels for the six scalar/two-component formats. Its fixtures expose
+the raw fetched vec4 with a documented post-DXC edit, because HLSL otherwise
+reconstructs or discards the missing channels.
+
 ## The native API
 
 A Rust game registers programs and makes materials without building stages, layouts and bindings by hand. The calls are on `ProgramRuntime` and take no Unity type. [Drawing with your own shader programs](../../docs/render-program-native.md) is the guide, with a complete example that `cargo run -p worldrunner-render-program --example native_material` runs and that CI compiles.

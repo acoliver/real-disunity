@@ -23,6 +23,9 @@ pub struct RendererConfiguration {
     pub post: HdrPostSettings,
     pub ssao: Option<worldrunner_render_plan::SceneSsao>,
     pub ssr: Option<worldrunner_render_plan::SceneSsr>,
+    /// Shadow depth fitting reduces the depth and normal prepass, which this frame then owns
+    /// and pairs with Opaque, as for SSAO and SSR. Requires HDR, like those effects.
+    pub depth_fitting: Option<worldrunner_render_plan::SceneDepthFitting>,
     /// Upper bound for dynamically present shadow receiver displacements.
     pub receiver_gradients: super::ReceiverGradientReservation,
     pub water: Vec<worldrunner_render_plan::SceneWaterBody>,
@@ -48,6 +51,7 @@ impl RendererConfiguration {
             post: HdrPostSettings::default(),
             ssao: None,
             ssr: None,
+            depth_fitting: None,
             receiver_gradients: super::ReceiverGradientReservation::Opposing,
             water: Vec::new(),
             ui_depth: false,
@@ -98,6 +102,13 @@ impl RendererConfiguration {
             self.allocations_with_history(retained_effect_history)
         }
     }
+    fn prepass_metadata(&self) -> Option<worldrunner_render_plan::SceneSsao> {
+        super::depth_reuse::prepass_metadata(
+            self.ssao,
+            self.ssr.as_ref(),
+            self.depth_fitting.is_some(),
+        )
+    }
     fn validate(&self, context: &GpuContext) -> Result<(), PostError> {
         super::validate_clear(self.clear_color)?;
         self.frame.validate_adapter(context.adapter())?;
@@ -122,6 +133,7 @@ impl RendererConfiguration {
             && (self.post.enabled()
                 || self.ssao.is_some()
                 || self.ssr.is_some()
+                || self.depth_fitting.is_some()
                 || !self.water.is_empty())
         {
             return Err(PostError::UnsupportedProfile("effects require HDR"));
@@ -150,8 +162,7 @@ impl RendererConfiguration {
 }
 fn screen_allocations(settings: &RendererConfiguration, set: &mut AllocationSet) {
     let [w, h] = settings.frame.size;
-    let reflection = settings.ssr.filter(|ssr| ssr.enabled);
-    if settings.ssao.is_some() || reflection.is_some() {
+    if settings.prepass_metadata().is_some() {
         set.texture(
             "prepass normals",
             [w, h, 1],
@@ -625,6 +636,7 @@ fn build(
             settings.output_format,
         ))
     };
+    let metadata = settings.prepass_metadata();
     let mut renderer = FrameRenderer {
         overlay: super::overlay::OverlayStage::default(),
         output_format: settings.output_format,
@@ -633,11 +645,7 @@ fn build(
             settings.frame,
             Resources::default(),
             factory,
-            super::depth_reuse::allocation(
-                device,
-                settings.frame,
-                settings.ssao.is_some() || settings.ssr.is_some_and(|ssr| ssr.enabled),
-            ),
+            super::depth_reuse::allocation(device.features(), settings.frame, metadata.is_some()),
         )?,
         environment_conventions: [None; 2],
         water: None,
@@ -657,8 +665,7 @@ fn build(
         post_time: std::rc::Rc::default(),
         exposure_reset: std::rc::Rc::default(),
         temporal: std::rc::Rc::default(),
-        ssao: settings
-            .ssao
+        ssao: metadata
             .map(|ssao| {
                 crate::scene_metadata::SceneMetadata::new(device, settings.frame.size, ssao)
             })
@@ -667,7 +674,7 @@ fn build(
         ssao_requested: settings.ssao,
         ssr_requested: settings.ssr,
     };
-    renderer.install_reflections(device, settings.frame.size)?;
+    renderer.install_reflections(device)?;
     renderer.share_metadata_depth(device);
     install_jitter(&mut renderer, settings)?;
     renderer.install_water_bodies(device, context.submission(), settings.water.clone())?;

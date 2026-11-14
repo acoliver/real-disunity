@@ -552,9 +552,17 @@ pub(crate) fn base_source_targets_for_test(
 
 fn base_source_targets(source: &str, format: TextureFormat) -> Vec<Option<ColorTargetState>> {
     if source.contains(crate::gbuffer_writes::MARKER) {
-        crate::gbuffer::GBUFFER_FORMATS
+        let mut targets = crate::gbuffer::GBUFFER_FORMATS
             .map(|format| color_targets(format)[0].clone())
-            .to_vec()
+            .to_vec();
+        if source.contains(crate::velocity::MARKER) {
+            targets.push(Some(ColorTargetState {
+                format: worldrunner_render_post::VELOCITY_FORMAT,
+                blend: None,
+                write_mask: ColorWrites::ALL,
+            }));
+        }
+        targets
     } else if source.contains(crate::velocity::MARKER) {
         let reflection = source.contains("struct ReflectionOutput");
         let mut targets = if reflection {

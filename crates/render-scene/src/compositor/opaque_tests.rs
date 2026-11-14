@@ -192,30 +192,34 @@ fn unsupported_samples_and_record_overflow_are_typed() {
 }
 
 #[test]
-fn only_forward_and_the_single_sample_gbuffer_observation_are_admitted() {
+fn only_forward_and_the_single_sample_gbuffer_paths_are_admitted() {
+    use crate::gbuffer::GbufferUse;
     use worldrunner_render_plan::{
         SceneOpaqueFamily, SceneOpaqueMode, SceneOpaqueStorage, SceneOpaqueVisibility,
     };
     for samples in [1, 2, 4, 8] {
         assert_eq!(
             admit_path(SceneOpaquePath::Forward, samples).ok(),
-            Some(false)
+            Some(None)
         );
     }
-    assert_eq!(
-        admit_path(SceneOpaquePath::GBUFFER_OBSERVATION, 1).ok(),
-        Some(true)
-    );
-    for samples in [2, 4, 8] {
-        match admit_path(SceneOpaquePath::GBUFFER_OBSERVATION, samples) {
-            Err(PostError::Frame(FrameError::FeaturePreparation { feature, reason })) => {
-                assert_eq!(feature, "opaque G-buffer");
-                assert_eq!(
-                    reason,
-                    OpaqueAdmissionError::UnsupportedSampleCount { observed: samples }.to_string()
-                );
+    for (path, usage) in [
+        (SceneOpaquePath::GBUFFER_OBSERVATION, GbufferUse::Observe),
+        (SceneOpaquePath::GBUFFER_RENDER, GbufferUse::Render),
+    ] {
+        assert_eq!(admit_path(path, 1).ok(), Some(Some(usage)));
+        for samples in [2, 4, 8] {
+            match admit_path(path, samples) {
+                Err(PostError::Frame(FrameError::FeaturePreparation { feature, reason })) => {
+                    assert_eq!(feature, "opaque G-buffer");
+                    assert_eq!(
+                        reason,
+                        OpaqueAdmissionError::UnsupportedSampleCount { observed: samples }
+                            .to_string()
+                    );
+                }
+                other => panic!("{usage:?} at {samples} samples: {other:?}"),
             }
-            other => panic!("{samples} samples: {other:?}"),
         }
     }
     let other = SceneOpaquePath::experiment(

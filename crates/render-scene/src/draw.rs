@@ -489,15 +489,58 @@ impl SceneGpu {
 
     /// Records the terrain and objects the camera selected into the G-buffer slot with
     /// `pipelines`, the producer pipelines that test the finished scene depth. The selection is
-    /// the one the prepass and the colour pass draw; nothing is published for it.
+    /// the one the prepass and the colour pass draw. In observation the caller publishes
+    /// nothing for it; when the frame renders from the G-buffer it stands in for the colour
+    /// pass's draw of the same surfaces.
     pub(crate) fn draw_gbuffer(
         &self,
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         group: &BindGroup,
-    ) {
+    ) -> ColorDraw {
         pass.set_bind_group(3, group, &[]);
-        self.draw_color_pass(pass, pipelines, None, Route::Gbuffer);
+        self.draw_color_pass(pass, pipelines, None, Route::Gbuffer)
+    }
+
+    /// Records what Opaque still draws when the frame renders from the G-buffer: the sky, the
+    /// celestial meshes and the dynamic meshes, which have no G-buffer producer, over the lit
+    /// colour with `pipelines`, the colour pass's pipelines. Terrain and objects were stored
+    /// in the G-buffer and lit before this pass. Returns the sky's draw count.
+    pub(crate) fn draw_forward_remainder(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+    ) -> DrawCount {
+        if pipelines.depth != crate::renderer::depth::DepthMode::Independent {
+            pass.set_stencil_reference(crate::renderer::depth::STENCIL_REFERENCE);
+        }
+        let frame = self.drawing_uniform();
+        let selected = self.selected_pipelines(pipelines, &frame);
+        let frame_group = self.drawing_frame_group();
+        self.draw_forward_tail(pass, &frame_group, &selected)
+    }
+
+    /// The forward pass's draws after terrain and objects.
+    fn draw_forward_tail(
+        &self,
+        pass: &mut RenderPass<'_>,
+        frame_group: &BindGroup,
+        pipelines: &ScenePipelines,
+    ) -> DrawCount {
+        let mut sky_count = DrawCount::default();
+        if let Some(sky) = &self.sky {
+            sky_count = sky.draw_targets(pass, frame_group, pipelines.sky_targets());
+        }
+        if let Some(meshes) = &self.celestial {
+            self.sky
+                .as_ref()
+                .expect("celestial atmosphere")
+                .bind_background(pass, frame_group);
+            meshes.draw(pass, pipelines.sky_targets());
+        }
+        self.dynamic
+            .draw(pass, self.drawing_frame_slot(), pipelines);
+        sky_count
     }
 
     pub(crate) fn draw_shadowed(
@@ -575,24 +618,15 @@ impl SceneGpu {
         let frame_group = self.drawing_frame_group();
         let selection = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
-        let mut sky_count = DrawCount::default();
-        if route == Route::Forward {
-            if let Some(sky) = &self.sky {
-                sky_count = sky.draw_targets(pass, &frame_group, pipelines.sky_targets());
-            }
-            if let Some(meshes) = &self.celestial {
-                self.sky
-                    .as_ref()
-                    .expect("celestial atmosphere")
-                    .bind_background(pass, &frame_group);
-                meshes.draw(pass, pipelines.sky_targets());
-            }
-            self.dynamic
-                .draw(pass, self.drawing_frame_slot(), pipelines);
-        }
+        let sky_count = if route == Route::Forward {
+            self.draw_forward_tail(pass, &frame_group, pipelines)
+        } else {
+            DrawCount::default()
+        };
         ColorDraw {
             selection,
             terrain,
+            terrain_bound,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),
             ssao: ReceiverBindings::new(

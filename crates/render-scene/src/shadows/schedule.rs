@@ -116,7 +116,11 @@ impl ShadowSchedule {
         scheduler.prepare_deferred_lighting(
             device,
             (gpu, selected),
-            (self.scene_depth(), depth),
+            (
+                self.scene_depth(),
+                depth,
+                depth_mode == crate::renderer::depth::DepthMode::Reuse,
+            ),
             frame,
             &mut self.declaration,
         )

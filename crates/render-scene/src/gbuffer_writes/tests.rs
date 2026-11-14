@@ -207,13 +207,66 @@ fn card_gbuffer_material_is_the_frozen_card_shading_without_its_lighting() {
 
 #[test]
 fn renderer_builds_gbuffer_targets_for_a_producer_source() {
-    let (object, terrain) = super::sources();
-    for source in [&object, &terrain] {
-        let formats: Vec<_> =
-            crate::renderer::base_source_targets_for_test(source, wgpu::TextureFormat::Rgba16Float)
-                .into_iter()
-                .map(|target| target.expect("target").format)
-                .collect();
-        assert_eq!(formats, crate::gbuffer::GBUFFER_FORMATS.to_vec());
+    for velocity in [false, true] {
+        let (object, terrain) = super::sources(velocity);
+        let mut expected = crate::gbuffer::GBUFFER_FORMATS.to_vec();
+        if velocity {
+            expected.push(worldrunner_render_post::VELOCITY_FORMAT);
+        }
+        for source in [&object, &terrain] {
+            let formats: Vec<_> = crate::renderer::base_source_targets_for_test(
+                source,
+                wgpu::TextureFormat::Rgba16Float,
+            )
+            .into_iter()
+            .map(|target| target.expect("target").format)
+            .collect();
+            assert_eq!(formats, expected, "velocity {velocity}");
+            assert_eq!(source.contains(crate::velocity::MARKER), velocity);
+        }
     }
+}
+
+/// The four targets followed by the object-motion residual at location 4.
+const VELOCITY_TARGETS: [(u32, ScalarKind, u32); 5] = [
+    TARGETS[0],
+    TARGETS[1],
+    TARGETS[2],
+    TARGETS[3],
+    (4, ScalarKind::Float, 2),
+];
+
+#[test]
+fn velocity_producers_write_the_four_targets_and_the_residual() {
+    let (object, terrain) = super::sources(true);
+    let objects = module("object G-buffer with velocity", &object);
+    for entry in super::FORWARD_OBJECTS {
+        assert_eq!(
+            fragment_outputs(&objects, entry),
+            VELOCITY_TARGETS.to_vec(),
+            "{entry}"
+        );
+        assert_eq!(
+            writes_depth(&objects, entry),
+            entry.starts_with("fs_relief"),
+            "{entry}"
+        );
+    }
+    // The residual is the forward velocity entries' own, over the previous-transform vertex
+    // stage, and the stored targets are the plain producer's.
+    assert!(object.contains("fn scene_object_velocity(input: VertexOutput)"));
+    assert!(object.contains("previous: PreviousInstance"));
+    assert_eq!(object.matches("scene_object_velocity(input)").count(), 4);
+    for (index, source) in crate::terrain::program::source::test_sources(&terrain)
+        .iter()
+        .enumerate()
+    {
+        let module = module(&format!("terrain variant {index} with velocity"), source);
+        assert_eq!(
+            fragment_outputs(&module, crate::shader::TERRAIN_FRAGMENT_ENTRY_POINT),
+            VELOCITY_TARGETS.to_vec(),
+            "terrain variant {index}"
+        );
+    }
+    assert!(terrain.contains("SceneVelocityOutput(t.g0, t.g1, t.g2, t.g3, vec2<f32>(0.0))"));
 }

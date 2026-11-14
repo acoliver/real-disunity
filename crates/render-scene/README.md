@@ -892,7 +892,7 @@ those views without filtering or allocating another cube. `set_water_environment
 `set_scene_environment` selects Water, Reflections or Both explicitly. Scene-viewer installs these bindings at startup and on
 retained settings publication, including removal and consumer changes.
 
-## Deferred G-buffer observation
+## Deferred G-buffer
 
 `SceneOpaquePath::GBUFFER_OBSERVATION` (render-plan) selects the compact deferred
 G-buffer in observation: the renderer allocates four single-sample targets at the
@@ -931,14 +931,15 @@ lighting input), `flags` (bits 0..1 stored) and `lighting_record` (0..255).
 Producers pass the rotation of `FrameUniform::view` as `view_from_scene`; the
 lighting pass decodes with its transpose.
 
-Depth: in observation the slot does not own depth, and Opaque or the depth
-prepass keep writing it as before. A producer that declares a `depth_format` in
-the slot gets the scene depth attached read-only when it is complete before
-Opaque (the depth prepass ran and Opaque loads it); it tests against it, `Equal`
-for exact forward winners, and writes nothing. Without a completed depth the
-request fails with `FrameError::AttachmentContract(OpaqueGbuffer)`. Moving the
-scene depth clear and writes into this slot is part of the switch that renders
-from the G-buffer.
+Depth: the slot does not own depth; the depth prepass clears and writes it. A
+producer that declares a `depth_format` in the slot gets the scene depth attached
+read-only when it is complete before Opaque (the depth prepass ran and Opaque
+loads it); it tests against it, `Equal` for exact forward winners, and writes
+nothing. Without a completed depth the request fails with
+`FrameError::AttachmentContract(OpaqueGbuffer)`. The stock producers
+(`gbuffer_writes`: terrain, opaque, masked and relief meshes, impostor cards) are
+the scene's own terrain and object programs with their fragment entries replaced,
+drawn over the camera selection the prepass and Opaque draw.
 
 Encoding. View space is the camera's right-handed view space (it looks down -z),
 so camera-facing normals have z > 0. G0 stores the Lambert azimuthal equal-area
@@ -980,8 +981,10 @@ are never truncated. Forward drawing is unaffected by the count.
 
 ### Deferred lighting
 
-With the observation the renderer also runs `PassSlot::OpaqueLighting`, one
-full-screen pass after Opaque has completed the scene depth. The stock scene features
+With a G-buffer path the renderer also runs `PassSlot::OpaqueLighting`, one
+full-screen pass after the G-buffer slot and before Opaque, on the scene depth the
+depth prepass completed. A frame without the prepass has no producers, so its
+observation lights nothing. The stock scene features
 (plain, resident and shadowed) draw it with the same forward pipelines, frame group,
 shadow set and screen-space set as their Opaque draws: the program is the frame's
 forward object source with `gbuffer.wgsl` and `shader/gbuffer_lighting.wgsl` appended,
@@ -995,20 +998,58 @@ SH or hemisphere ambient, material and screen AO through the selected occlusion 
 environment lookup and BRDF factor), then `scene_record_scattering` and
 `scene_record_transmission` from the record, emission, and height fog and exposure once.
 Forward meshes and impostor cards call the same record functions. Pixels whose G3 is 0
-are written zero; every lighting function still runs there so that the shadow lookups'
-derivatives stay in uniform control flow.
+are discarded, so they keep the targets' clear; every lighting function still runs there
+so that the shadow lookups' derivatives stay in uniform control flow.
 
-Outputs, in the scene colour format at the scene extent, cleared every frame:
-`LightingTarget::Colour` (exposed radiance, alpha 1 where covered) and, when reflections
-are installed, `Environment` and `Factor`: the replaceable environment contribution and
-replacement factor that Opaque's second and third colour targets carry for SSR. Captures
-read them as `FeatureTarget::DeferredLighting(target)`; nothing else reads them, so the
-visible frame stays forward. In this observation the pass sits after Opaque, so a pixel
-that a forward-only draw won over a producer's surface is lit at the winner's depth; the
-switch that renders from the G-buffer moves the depth clear into the G-buffer slot and the
-lighting before Opaque. Shadow receiver-plane derivatives come from neighbouring pixels in
-the full-screen pass (the receiver payload, when present, is read per pixel instead), so
-they differ from forward at depth and normal discontinuities.
+Outputs, in the scene colour format at the scene extent: the exposed radiance (alpha 1
+where covered) and, when reflections are installed, the replaceable environment
+contribution and replacement factor that Opaque's second and third colour targets carry
+for SSR. In observation they are diagnostic targets cleared to zero every frame
+(`LightingTarget::Colour`, `Environment`, `Factor`), read only by captures as
+`FeatureTarget::DeferredLighting(target)`, so the visible frame stays forward. Shadow
+receiver-plane derivatives come from neighbouring pixels in the full-screen pass (the
+receiver payload, when present, is read per pixel instead), so they differ from forward
+at depth and normal discontinuities.
+
+### Rendering from the G-buffer
+
+`SceneOpaquePath::GBUFFER_RENDER`, `experiment(Render, AllStock, Compact,
+MaterialOwnedDepth)`, makes the visible frame come from the G-buffer. It needs the
+depth prepass (screen-space AO or reflections): without it the frame is refused with
+`FrameError::FeaturePreparation { feature: "opaque G-buffer" }` and the reason
+`rendering from the G-buffer needs the depth prepass`, and like the observation it
+refuses a multisampled frame. The frame is:
+
+1. The depth prepass clears and writes the scene depth, as in every prepass frame; SSAO
+   and the depth pyramid follow.
+2. `OpaqueGbuffer`: the producers store terrain, meshes and impostor cards, testing the
+   prepass depth `Equal` and writing none. When the frame's colour draws write the TAA
+   object-motion residual, the producers write it too (`@location(4)`, the same
+   residual as the forward velocity entries, zero for terrain), and the slot clears the
+   velocity target in Opaque's place.
+3. `OpaqueLighting`: the lighting pass takes Opaque's colour target and, with
+   reflections, its two reflection products, with Opaque's clears, so the lit surfaces
+   are the scene colour and SSR reads the lighting pass's environment and factor where
+   Opaque's draws wrote them before. No diagnostic lighting targets are allocated.
+4. `Opaque` loads those targets, the depth and the velocity and draws only what has no
+   producer: the sky, the celestial meshes and the dynamic meshes. Terrain and objects
+   are not drawn again.
+5. Water, transparency, SSR and post as in Forward: the after-opaque snapshot copies the
+   lit colour.
+
+The prepass stays the depth owner because it is already there in every frame that has
+producers (SSAO and SSR need it before Opaque), so the G-buffer slot adds no depth work;
+moving the depth writes into the slot would mean a second full depth pass or dropping
+the prepass's metadata outputs. Forward stays the default and draws the same bytes as
+before.
+
+Differences from Forward: the G-buffer quantisation above; scattering materials that also have a per-pixel
+metalness keep only the scattering amount; shadow receiver-plane derivatives come from
+screen neighbours, so shadow edges can differ by a texel at depth and normal
+discontinuities; impostor cards are lit through the mesh path, without the card shading's
+separate back-face shadow lookup for transmission (the far-side visibility uses the
+receiver's `-normal` lookup instead); and a masked surface's scene colour alpha is 1
+where forward wrote its coverage alpha.
 
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
 candidate-layout colour attachment byte costs, attachment limits, and lighting-record

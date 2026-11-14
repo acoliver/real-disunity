@@ -1,12 +1,17 @@
-//! Deferred lighting of the G-buffer observation.
+//! Deferred lighting of the G-buffer.
 //!
-//! One full-screen pass in [`PassSlot::OpaqueLighting`], after Opaque has completed the scene
-//! depth, lights every pixel a producer wrote with the frame's own forward lighting: the
-//! program is the frame's forward object source with [`LIGHTING_WGSL`] appended, so every
-//! shadow, ambient-occlusion and reflection variant and every specialisation constant is the
-//! one the forward draws use. It writes a diagnostic HDR colour target, and with reflections
-//! the environment contribution and replacement factor the forward Opaque pass writes for SSR.
-//! In observation nothing reads these except captures, so the visible frame stays forward.
+//! One full-screen pass in [`PassSlot::OpaqueLighting`], after the G-buffer and before Opaque,
+//! reads the scene depth the depth prepass completed and lights every pixel a producer wrote
+//! with the frame's own forward lighting: the program is the frame's forward object source
+//! with [`LIGHTING_WGSL`] appended, so every shadow, ambient-occlusion and reflection variant
+//! and every specialisation constant is the one the forward draws use. It writes an HDR colour,
+//! and with reflections the environment contribution and replacement factor the forward
+//! Opaque pass writes for SSR. Pixels no producer wrote are discarded, so they keep the clear.
+//!
+//! In observation the outputs are diagnostic targets that nothing reads except captures, so the
+//! visible frame stays forward. When the frame renders from the G-buffer, the outputs are
+//! Opaque's own colour targets ([`schedule_render`]), so the lit surfaces are the scene colour
+//! and the reflection products SSR reads.
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -51,20 +56,26 @@ impl LightingTarget {
     }
 }
 
-/// The lighting pass's targets, at the scene extent in the scene colour format.
+/// The lighting pass's diagnostic targets, at the scene extent in the scene colour format.
+/// A frame that renders from the G-buffer allocates none: its lighting writes Opaque's targets.
 pub(crate) struct LightingTargets {
+    format: wgpu::TextureFormat,
+    reflections: bool,
     textures: Vec<(LightingTarget, wgpu::Texture)>,
 }
 
 impl LightingTargets {
-    /// The colour target, and with `reflections` the two reflection products.
+    /// The colour target, and with `reflections` the two reflection products, allocated when
+    /// `diagnostic`.
     pub(crate) fn new(
         device: &wgpu::Device,
         size: [u32; 2],
-        format: wgpu::TextureFormat,
-        reflections: bool,
+        (format, reflections): (wgpu::TextureFormat, bool),
+        diagnostic: bool,
     ) -> Self {
-        let outputs: &[LightingTarget] = if reflections {
+        let outputs: &[LightingTarget] = if !diagnostic {
+            &[]
+        } else if reflections {
             &[
                 LightingTarget::Colour,
                 LightingTarget::Environment,
@@ -74,6 +85,8 @@ impl LightingTargets {
             &[LightingTarget::Colour]
         };
         Self {
+            format,
+            reflections,
             textures: outputs
                 .iter()
                 .map(|&target| {
@@ -96,12 +109,12 @@ impl LightingTargets {
             .map(|(_, texture)| texture)
     }
 
-    pub(crate) fn format(&self) -> wgpu::TextureFormat {
-        self.textures[0].1.format()
+    pub(crate) const fn format(&self) -> wgpu::TextureFormat {
+        self.format
     }
 
-    pub(crate) fn reflections(&self) -> bool {
-        self.textures.len() == 3
+    pub(crate) const fn reflections(&self) -> bool {
+        self.reflections
     }
 
     /// Adds the lighting pass, which clears its targets to zero.
@@ -132,6 +145,35 @@ impl LightingTargets {
         passes.push(pass);
         Ok(())
     }
+}
+
+/// Gives the lighting pass Opaque's colour target and, with reflections, its two reflection
+/// products, with Opaque's clears, and makes Opaque load them. The lit surfaces are then the
+/// scene colour and the products SSR reads, and Opaque's remaining draws land over them.
+pub(crate) fn schedule_render(passes: &mut Vec<PassDeclaration>) -> Result<(), FrameError> {
+    let opaque = passes
+        .iter_mut()
+        .find(|pass| pass.slot == PassSlot::Opaque)
+        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
+    let colour = opaque
+        .color
+        .as_mut()
+        .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+    let mut pass = PassDeclaration::new(PassSlot::OpaqueLighting);
+    pass.color = Some(colour.clone());
+    colour.load = AttachmentLoad::Load;
+    for resource in crate::ssr::forward::resources() {
+        if let Some(product) = opaque
+            .additional_colors
+            .iter_mut()
+            .find(|attachment| attachment.resource == resource)
+        {
+            pass.additional_colors.push(product.clone());
+            product.load = AttachmentLoad::Load;
+        }
+    }
+    passes.push(pass);
+    Ok(())
 }
 
 /// The lighting program over `object`, a frame's forward object source.
@@ -170,14 +212,15 @@ pub(crate) fn source(object: &str) -> String {
 fn fs_scene_deferred_lighting(@builtin(position) pixel: vec4<f32>) -> SceneDeferredReflection {
     let colour = scene_deferred_shade(pixel);
     let products = reflection_output(colour);
-    let covered = colour.a != 0.0;
-    return SceneDeferredReflection(colour, select(vec4<f32>(0.0), products.environment, covered),
-        select(vec4<f32>(0.0), products.factor, covered));
+    if colour.a == 0.0 { discard; }
+    return SceneDeferredReflection(colour, products.environment, products.factor);
 }"
     } else {
         "@fragment
 fn fs_scene_deferred_lighting(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
-    return scene_deferred_shade(pixel);
+    let colour = scene_deferred_shade(pixel);
+    if colour.a == 0.0 { discard; }
+    return colour;
 }"
     };
     format!(

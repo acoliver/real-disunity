@@ -115,22 +115,24 @@ impl RendererConfiguration {
 }
 
 /// Admits the selected opaque path for `config` and allocates what it needs: nothing for
-/// Forward, the four G-buffer targets for the G-buffer observation. The G-buffer is
-/// single-sample, so a multisampled frame is refused with the admission's sample error.
+/// Forward, the four G-buffer targets for the G-buffer paths, and the diagnostic lighting
+/// targets for the observation. The G-buffer is single-sample, so a multisampled frame is
+/// refused with the admission's sample error.
 pub(crate) fn allocate_path(
     device: &wgpu::Device,
     path: SceneOpaquePath,
     config: FrameConfig,
     reflections: bool,
 ) -> Result<Option<crate::gbuffer::Gbuffer>, PostError> {
-    admit_path(path, config.samples).map(|gbuffer| {
-        gbuffer
-            .then(|| crate::gbuffer::Gbuffer::new(device, config.size, config.format, reflections))
+    admit_path(path, config.samples).map(|usage| {
+        usage.map(|usage| {
+            crate::gbuffer::Gbuffer::new(device, config.size, (config.format, reflections), usage)
+        })
     })
 }
 
 impl super::FrameRenderer {
-    /// Builds the scene's G-buffer pipelines when the frame observes the G-buffer and has the
+    /// Builds the scene's G-buffer pipelines when the frame uses the G-buffer and has the
     /// prepass metadata whose depth and screen camera they use. A screen that already has them,
     /// and a frame without a G-buffer or metadata, are left as they are.
     pub(crate) fn install_gbuffer_producer(&mut self, device: &wgpu::Device) {
@@ -142,29 +144,62 @@ impl super::FrameRenderer {
             .as_mut()
             .filter(|screen| screen.geometry.gbuffer.is_none())
         {
-            screen.geometry.gbuffer =
-                Some(crate::gbuffer_writes::pipelines(device, &screen.uniform));
+            screen.geometry.gbuffer = Some(crate::gbuffer_writes::pipelines(
+                device,
+                &screen.uniform,
+                false,
+            ));
+        }
+    }
+
+    /// When the frame renders from the G-buffer, rebuilds the producer pipelines if they do not
+    /// match `velocity`, whether the frame's colour draws write the object-motion residual: the
+    /// producers then draw the surfaces Opaque no longer draws, so they write it in its place.
+    /// Observation keeps producers without velocity.
+    pub(crate) fn match_producer_velocity(&mut self, device: &wgpu::Device, velocity: bool) {
+        if !self
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders)
+        {
+            return;
+        }
+        if let Some(screen) = self.ssao.as_mut().filter(|screen| {
+            screen
+                .geometry
+                .gbuffer
+                .as_ref()
+                .is_some_and(|(pipelines, _)| pipelines.writes_velocity() != velocity)
+        }) {
+            screen.geometry.gbuffer = Some(crate::gbuffer_writes::pipelines(
+                device,
+                &screen.uniform,
+                velocity,
+            ));
         }
     }
 }
 
-/// Whether `path` allocates the G-buffer, refusing paths this renderer cannot draw.
-pub(crate) fn admit_path(path: SceneOpaquePath, samples: u32) -> Result<bool, PostError> {
-    match path {
-        SceneOpaquePath::Forward => Ok(false),
-        SceneOpaquePath::GBUFFER_OBSERVATION => {
-            validate_samples(samples).map_err(|error| {
-                PostError::Frame(FrameError::FeaturePreparation {
-                    feature: "opaque G-buffer",
-                    reason: error.to_string(),
-                })
-            })?;
-            Ok(true)
-        }
+/// How `path` uses the G-buffer, if at all, refusing paths this renderer cannot draw.
+pub(crate) fn admit_path(
+    path: SceneOpaquePath,
+    samples: u32,
+) -> Result<Option<crate::gbuffer::GbufferUse>, PostError> {
+    let usage = match path {
+        SceneOpaquePath::Forward => return Ok(None),
+        SceneOpaquePath::GBUFFER_OBSERVATION => crate::gbuffer::GbufferUse::Observe,
+        SceneOpaquePath::GBUFFER_RENDER => crate::gbuffer::GbufferUse::Render,
         SceneOpaquePath::Experiment(_) => {
-            Err(PostError::UnsupportedProfile("opaque path experiment"))
+            return Err(PostError::UnsupportedProfile("opaque path experiment"));
         }
-    }
+    };
+    validate_samples(samples).map_err(|error| {
+        PostError::Frame(FrameError::FeaturePreparation {
+            feature: "opaque G-buffer",
+            reason: error.to_string(),
+        })
+    })?;
+    Ok(Some(usage))
 }
 
 fn validate_samples(sample_count: u32) -> Result<(), OpaqueAdmissionError> {

@@ -63,6 +63,11 @@ impl Frame {
         }
     }
 
+    /// Whether the frame has the depth prepass, which completes scene depth before Opaque.
+    pub(super) const fn prepassed(self) -> bool {
+        matches!(self, Self::Reflecting | Self::Flat)
+    }
+
     fn configuration(self, opaque_path: SceneOpaquePath) -> RendererConfiguration {
         let mut settings =
             RendererConfiguration::legacy([SIZE; 2], wgpu::TextureFormat::Rgba8UnormSrgb);

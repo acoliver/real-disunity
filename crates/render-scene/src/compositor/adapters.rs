@@ -91,7 +91,7 @@ pub fn encode_resident(
     let deferred = renderer.prepare_deferred_lighting(
         device,
         (scene, pipelines),
-        (depth.resource(), depth.texture()),
+        (depth.resource(), depth.texture(), false),
         &scene.resident_frame(),
         &mut declaration,
     )?;

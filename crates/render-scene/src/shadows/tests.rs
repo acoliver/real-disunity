@@ -543,6 +543,7 @@ fn render_target(
 }
 
 mod refresh;
+mod render_path;
 
 fn unsupported_water_body() -> SceneWaterBody {
     SceneWaterBody {

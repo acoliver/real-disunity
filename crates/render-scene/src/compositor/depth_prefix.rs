@@ -60,6 +60,7 @@ impl FrameRenderer {
             screen: Some(source.geometry_for_depth(depth_mode)),
             programs: None,
             deferred: None,
+            renders: false,
         };
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: source,

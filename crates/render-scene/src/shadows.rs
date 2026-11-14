@@ -593,6 +593,7 @@ impl ShadowedScene {
         let frame = scheduler.prepare_uniform(FrameUniform::new(view, Some(&self.effects))?)?;
         self.gpu
             .prepare_frame_geometry(context.device(), encoder, &frame, color.size())?;
+        scheduler.match_producer_velocity(context.device(), selected.writes_velocity());
         let screen = scheduler.geometry_for_depth(depth_mode);
         Self::prepare_terrain_passes(
             (&self.gpu, &self.terrain_caster, object_casters),
@@ -633,6 +634,10 @@ impl ShadowedScene {
         )?;
         let mut feature = ShadowFeature {
             publications: crate::draw::DrawPublications::default(),
+            renders: scheduler
+                .gbuffer
+                .as_ref()
+                .is_some_and(crate::gbuffer::Gbuffer::renders),
             screen,
             gpu: &mut self.gpu,
             pipelines: &selected,
@@ -701,6 +706,9 @@ pub fn capture_scene_shadowed(
 
 struct ShadowFeature<'a> {
     publications: crate::draw::DrawPublications,
+    /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
+    /// before Opaque, which draws only the rest.
+    renders: bool,
     screen: Option<crate::scene_metadata::Geometry>,
     gpu: &'a mut SceneGpu,
     pipelines: &'a ScenePipelines,
@@ -716,7 +724,7 @@ struct ShadowFeature<'a> {
     shadow_uniform: &'a wgpu::Buffer,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-    /// Set 1 of the deferred lighting pass, present only with the G-buffer observation.
+    /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
     deferred: Option<crate::gbuffer::lighting::LightingInputs>,
 }
 impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
@@ -766,7 +774,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         if context.slot == worldrunner_render_post::PassSlot::OpaqueGbuffer {
             let screen = self.screen.as_ref().expect("declared G-buffer producer");
             let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
-            self.gpu.draw_gbuffer(pass, pipelines, group);
+            let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
+            if self.renders {
+                self.publications
+                    .record_gbuffer(draw, true, self.pipelines.has_ao_receiver());
+            }
         } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
@@ -811,6 +823,13 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
                 let inputs = self.deferred.as_ref().expect("declared lighting pass");
                 self.gpu
                     .draw_deferred_lighting(pass, self.pipelines, inputs);
+                return;
+            }
+            if self.renders {
+                self.publications.record_remainder(
+                    self.gpu,
+                    self.gpu.draw_forward_remainder(pass, self.pipelines),
+                );
                 return;
             }
             self.publications.record_color(

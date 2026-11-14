@@ -1,7 +1,8 @@
 //! Deferred lighting of the G-buffer observation on the terrain scenes: the visible frame stays
 //! the forward frame, the lighting pass lights only pixels a producer wrote, and it lights a
 //! stored surface as the forward mesh shading (`scene_finish_shading`) lights the same surface
-//! with the same material.
+//! with the same material. The lighting pass runs before Opaque on the depth the prepass
+//! completed, so the plain frame, which has no prepass, lights nothing.
 
 use glam::{Mat3, Vec3};
 use wgpu::util::DeviceExt;
@@ -189,11 +190,14 @@ fn block_values(surfaces: impl Iterator<Item = Surface>) -> Vec<u8> {
 }
 
 /// A producer that writes each block's surface through `scene_gbuffer_encode` in the
-/// `covered` columns of blocks and leaves the rest unwritten.
+/// `covered` columns of blocks and leaves the rest unwritten. In a frame with the depth
+/// prepass the slot attaches the scene depth, so the producer declares its format (`depth`)
+/// and draws over it without testing or writing it.
 pub(crate) struct Producer {
     pub(crate) blocks: Vec<Surface>,
     pub(crate) view: Mat3,
     pub(crate) covered: u32,
+    pub(crate) depth: Option<wgpu::TextureFormat>,
 }
 
 struct ProducerDraw {
@@ -206,6 +210,7 @@ impl FrameFeature for Producer {
         let mut declaration = FeatureDeclaration::new(PassSlot::OpaqueGbuffer);
         declaration.passes[0].color_format = Some(GBUFFER_FORMATS[0]);
         declaration.passes[0].additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
+        declaration.passes[0].depth_format = self.depth;
         declaration
     }
 
@@ -270,7 +275,13 @@ fn fs_blocks(@builtin(position) position: vec4<f32>) -> SceneGbufferTargets {{
                 buffers: &[],
             },
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            depth_stencil: self.depth.map(|format| wgpu::DepthStencilState {
+                format,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &module,
@@ -324,18 +335,60 @@ fn lighting(context: &GpuContext, drawn: &Drawn, target: LightingTarget) -> Opti
         })
 }
 
-/// Registers a producer of `blocks` over the first `covered` columns of blocks.
-fn produce(context: &GpuContext, drawn: &mut Drawn, blocks: &[Block], covered: u32) {
+/// Registers a producer of `blocks` over the first `covered` columns of blocks, declaring the
+/// scene depth when `frame` has the depth prepass.
+fn produce(context: &GpuContext, drawn: &mut Drawn, frame: Frame, blocks: &[Block], covered: u32) {
     let producer = Producer {
         blocks: blocks.iter().map(|block| block.surface).collect(),
         view: Mat3::from_mat4(drawn.frame.view),
         covered,
+        depth: frame
+            .prepassed()
+            .then(|| drawn.renderer.targets().depth().texture().format()),
     };
     drawn
         .renderer
         .renderer_mut()
         .register(context.device(), Box::new(producer))
         .unwrap();
+}
+
+/// G3 of the last encoded frame, one code per pixel.
+fn stored(context: &GpuContext, drawn: &Drawn) -> Vec<u16> {
+    let texture = drawn
+        .renderer
+        .feature_target(FeatureTarget::Gbuffer(crate::gbuffer::GbufferTarget::G3))
+        .expect("G3");
+    read(context, texture, texture.format())
+        .chunks_exact(2)
+        .map(|code| u16::from_le_bytes([code[0], code[1]]))
+        .collect()
+}
+
+/// Checks that `output` is lit exactly where `g3` is stored (alpha 1, some radiance) and zero
+/// everywhere else, and returns the number of lit pixels.
+fn lit_where_stored(label: &str, output: &[f32], g3: &[u16], colour: bool) -> usize {
+    let mut lit = 0;
+    for (pixel, (texel, code)) in output.chunks_exact(4).zip(g3).enumerate() {
+        if *code == 0 {
+            assert!(
+                texel.iter().all(|value| value.to_bits() == 0),
+                "{label}: pixel {pixel} is not stored but lit: {texel:?}"
+            );
+        } else if colour {
+            assert_eq!(
+                texel[3].to_bits(),
+                1.0_f32.to_bits(),
+                "{label}: pixel {pixel}"
+            );
+            assert!(
+                texel[..3].iter().any(|value| *value > 0.0),
+                "{label}: {pixel}"
+            );
+            lit += 1;
+        }
+    }
+    lit
 }
 
 #[test]
@@ -347,65 +400,53 @@ fn deferred_lighting_keeps_the_forward_frame_and_lights_only_written_pixels() {
         let mut forward = prepare_scene(&context, frame, SceneOpaquePath::Forward, &scene);
         let expected = render(&context, &mut forward, 3).unwrap();
         assert!(lighting(&context, &forward, LightingTarget::Colour).is_none());
-
-        let mut idle = prepare_scene(
-            &context,
-            frame,
-            SceneOpaquePath::GBUFFER_OBSERVATION,
-            &scene,
-        );
-        let colour = render(&context, &mut idle, 3).unwrap();
-        assert!(colour == expected, "{frame:?}: the observed frame differs");
         let reflections = matches!(frame, Frame::Reflecting);
-        for target in [
-            LightingTarget::Colour,
-            LightingTarget::Environment,
-            LightingTarget::Factor,
-        ] {
-            let output = lighting(&context, &idle, target);
-            if target != LightingTarget::Colour && !reflections {
-                assert!(
-                    output.is_none(),
-                    "{frame:?}: {target:?} without reflections"
-                );
-                continue;
-            }
-            let output = output.unwrap_or_else(|| panic!("{frame:?}: {target:?} is missing"));
-            assert!(
-                output.iter().all(|value| value.to_bits() == 0),
-                "{frame:?}: {target:?} lit a pixel no producer wrote"
+        for probe in [false, true] {
+            let label = format!("{frame:?}, probe {probe}");
+            let mut drawn = prepare_scene(
+                &context,
+                frame,
+                SceneOpaquePath::GBUFFER_OBSERVATION,
+                &scene,
             );
-        }
-
-        let mut drawn = prepare_scene(
-            &context,
-            frame,
-            SceneOpaquePath::GBUFFER_OBSERVATION,
-            &scene,
-        );
-        let table = drawn.gpu.lighting_record_table().records().to_vec();
-        let blocks = blocks(&table, scene.resources().materials());
-        produce(&context, &mut drawn, &blocks, COLUMNS / 2);
-        let colour = render(&context, &mut drawn, 3).unwrap();
-        assert!(colour == expected, "{frame:?}: the lit frame differs");
-        let lit = lighting(&context, &drawn, LightingTarget::Colour).unwrap();
-        for (pixel, texel) in lit.chunks_exact(4).enumerate() {
-            let x = u32::try_from(pixel).unwrap() % SIZE;
-            if x >= COLUMNS / 2 * BLOCK {
-                assert!(
-                    texel.iter().all(|value| value.to_bits() == 0),
-                    "{frame:?}: pixel {pixel} is unwritten but lit: {texel:?}"
+            if probe {
+                let table = drawn.gpu.lighting_record_table().records().to_vec();
+                let blocks = blocks(&table, scene.resources().materials());
+                produce(&context, &mut drawn, frame, &blocks, COLUMNS / 2);
+            }
+            let colour = render(&context, &mut drawn, 3).unwrap();
+            assert!(colour == expected, "{label}: the observed frame differs");
+            let g3 = stored(&context, &drawn);
+            for target in [
+                LightingTarget::Colour,
+                LightingTarget::Environment,
+                LightingTarget::Factor,
+            ] {
+                let output = lighting(&context, &drawn, target);
+                if target != LightingTarget::Colour && !reflections {
+                    assert!(output.is_none(), "{label}: {target:?} without reflections");
+                    continue;
+                }
+                let output = output.unwrap_or_else(|| panic!("{label}: {target:?} is missing"));
+                if !frame.prepassed() {
+                    // The lighting pass runs before Opaque on the prepass depth, so without
+                    // the prepass it lights nothing, even where the probe stored surfaces.
+                    assert!(
+                        output.iter().all(|value| value.to_bits() == 0),
+                        "{label}: {target:?} lit without the prepass"
+                    );
+                    continue;
+                }
+                let lit = lit_where_stored(
+                    &format!("{label}, {target:?}"),
+                    &output,
+                    &g3,
+                    target == LightingTarget::Colour,
                 );
-            } else {
-                assert_eq!(
-                    texel[3].to_bits(),
-                    1.0_f32.to_bits(),
-                    "{frame:?}: pixel {pixel} coverage"
-                );
-                assert!(
-                    texel[..3].iter().any(|value| *value > 0.0),
-                    "{frame:?}: {pixel}"
-                );
+                if target == LightingTarget::Colour {
+                    // The scene's own producers store the terrain; the probe adds its blocks.
+                    assert!(lit > g3.len() / 4, "{label}: {lit} lit pixels");
+                }
             }
         }
     }
@@ -415,7 +456,7 @@ fn deferred_lighting_keeps_the_forward_frame_and_lights_only_written_pixels() {
 fn deferred_lighting_refuses_more_than_255_lighting_records_by_name() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    let base = Frame::Plain.scene();
+    let base = Frame::Reflecting.scene();
     let mut materials = base.resources().materials().to_vec();
     materials.extend((0..256).map(|index| leaf(index * 1000, 100_000)));
     let scene = RenderScene::new(SceneParts {
@@ -425,11 +466,16 @@ fn deferred_lighting_refuses_more_than_255_lighting_records_by_name() {
         effects: base.effects().cloned(),
     })
     .unwrap();
-    let mut forward = prepare_scene(&context, Frame::Plain, SceneOpaquePath::Forward, &scene);
+    let mut forward = prepare_scene(
+        &context,
+        Frame::Reflecting,
+        SceneOpaquePath::Forward,
+        &scene,
+    );
     render(&context, &mut forward, 1).unwrap();
     let mut observed = prepare_scene(
         &context,
-        Frame::Plain,
+        Frame::Reflecting,
         SceneOpaquePath::GBUFFER_OBSERVATION,
         &scene,
     );
@@ -450,7 +496,9 @@ mod reference_pass;
 fn deferred_lighting_matches_the_forward_shading_of_the_same_surfaces() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
-    for frame in [Frame::Plain, Frame::Reflecting] {
+    // Only a frame with the depth prepass lights; the reflecting frame has one.
+    {
+        let frame = Frame::Reflecting;
         let scene = lit_scene(frame);
         let mut drawn = prepare_scene(
             &context,
@@ -461,7 +509,7 @@ fn deferred_lighting_matches_the_forward_shading_of_the_same_surfaces() {
         let materials = scene.resources().materials();
         let table = drawn.gpu.lighting_record_table().records().to_vec();
         let blocks = blocks(&table, materials);
-        produce(&context, &mut drawn, &blocks, COLUMNS);
+        produce(&context, &mut drawn, frame, &blocks, COLUMNS);
         render(&context, &mut drawn, 1).unwrap();
         let deferred = lighting(&context, &drawn, LightingTarget::Colour).unwrap();
         // The values the G-buffer stores, decoded by the CPU mirror of the encoding.

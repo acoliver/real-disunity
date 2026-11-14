@@ -14,8 +14,11 @@ pub(crate) struct SceneFeature<'a> {
     /// Admitted player program draws, recorded after the stock opaque draw. Present only
     /// without screen-space passes, so the early returns below never skip them.
     pub programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
-    /// Set 1 of the deferred lighting pass, present only with the G-buffer observation.
+    /// Set 1 of the deferred lighting pass, present only with a G-buffer path.
     pub deferred: Option<crate::gbuffer::lighting::LightingInputs>,
+    /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
+    /// before Opaque, which draws only the rest.
+    pub renders: bool,
 }
 impl SceneFeature<'_> {
     pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
@@ -68,7 +71,11 @@ impl PreparedFeature for SceneFeature<'_> {
         if let Some(screen) = &self.screen {
             if context.slot == PassSlot::OpaqueGbuffer {
                 if let Some((pipelines, group)) = &screen.gbuffer {
-                    self.gpu.draw_gbuffer(pass, pipelines, group);
+                    let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
+                    if self.renders {
+                        let ao = colour_pipelines(self.pipelines, Some(screen)).has_ao_receiver();
+                        self.publications.record_gbuffer(draw, false, ao);
+                    }
                 }
                 return;
             }
@@ -83,11 +90,25 @@ impl PreparedFeature for SceneFeature<'_> {
             }
             if let Some((pipelines, group)) = &screen.forward {
                 pass.set_bind_group(3, group, &[]);
+                if self.renders {
+                    self.publications.record_remainder(
+                        self.gpu,
+                        self.gpu.draw_forward_remainder(pass, pipelines),
+                    );
+                    return;
+                }
                 self.publications
                     .record_color(self.gpu, self.gpu.draw_color(pass, pipelines, None));
                 return;
             }
             pass.set_bind_group(3, &screen.ambient, &[]);
+        }
+        if self.renders {
+            self.publications.record_remainder(
+                self.gpu,
+                self.gpu.draw_forward_remainder(pass, self.pipelines),
+            );
+            return;
         }
         self.publications
             .record_color(self.gpu, self.gpu.draw_color(pass, self.pipelines, None));
@@ -210,6 +231,7 @@ pub fn encode_scene(
     let selected = renderer.color_pipelines(pipelines, depth_mode);
     let pipelines = &selected;
     let writes_velocity = renderer.draws_velocity(pipelines);
+    renderer.match_producer_velocity(device, writes_velocity);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
     let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
@@ -251,7 +273,11 @@ pub fn encode_scene(
     let deferred = renderer.prepare_deferred_lighting(
         device,
         (gpu, colour_pipelines(pipelines, screen.as_ref())),
-        (depth_id, depth.texture()),
+        (
+            depth_id,
+            depth.texture(),
+            depth_mode == crate::renderer::depth::DepthMode::Reuse,
+        ),
         &frame,
         &mut declaration,
     )?;
@@ -263,6 +289,10 @@ pub fn encode_scene(
         pipelines,
         frame,
         deferred,
+        renders: renderer
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders),
     };
     renderer.encode_frame(
         device,

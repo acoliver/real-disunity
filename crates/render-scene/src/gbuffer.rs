@@ -1,11 +1,19 @@
-//! The compact deferred G-buffer selected by `SceneOpaquePath::GBUFFER_OBSERVATION`.
+//! The compact deferred G-buffer selected by `SceneOpaquePath::GBUFFER_OBSERVATION` and
+//! `SceneOpaquePath::GBUFFER_RENDER`.
 //!
 //! The renderer owns four single-sample targets at the scene extent and clears them in
 //! the [`PassSlot::OpaqueGbuffer`] slot, which runs before Opaque, every frame. Producers
 //! draw into that slot through the ordinary feature boundary; the shared encoding lives in
-//! [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote into diagnostic targets
-//! after Opaque, with the lighting records of [`records`]. In observation nothing reads the
-//! targets except captures, so the visible frame and every other pass are unchanged.
+//! [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote, after the G-buffer and
+//! before Opaque, with the lighting records of [`records`].
+//!
+//! In observation the lighting pass writes diagnostic targets and nothing reads them except
+//! captures, so the visible frame and every other pass are unchanged. When the frame renders
+//! from the G-buffer ([`GbufferUse::Render`]), the lighting pass takes over Opaque's colour
+//! targets and their clears, so it writes the scene colour and the reflection products SSR
+//! reads, and Opaque loads them and draws only the surfaces without a producer. With
+//! velocity, the producers write the object-motion residual and the G-buffer slot clears the
+//! velocity target in Opaque's place.
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError,
@@ -64,21 +72,33 @@ pub const GBUFFER_FORMATS: [wgpu::TextureFormat; 4] = [
     GbufferTarget::G3.format(),
 ];
 
+/// What a frame does with the G-buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GbufferUse {
+    /// `SceneOpaquePath::GBUFFER_OBSERVATION`: store and light into diagnostic targets; the
+    /// visible frame stays forward.
+    Observe,
+    /// `SceneOpaquePath::GBUFFER_RENDER`: the lighting pass writes the scene colour.
+    Render,
+}
+
 /// The renderer's four targets and the lighting pass's targets, reallocated with the scene
 /// extent.
 pub(crate) struct Gbuffer {
     textures: [wgpu::Texture; 4],
     lighting: lighting::LightingTargets,
+    usage: GbufferUse,
 }
 
 impl Gbuffer {
-    /// The targets at `size`, with lighting targets in the scene colour `format` and, with
-    /// `reflections`, the two reflection products.
+    /// The targets at `size`, with lighting outputs in the scene colour `format` and, with
+    /// `reflections`, the two reflection products. Only observation allocates diagnostic
+    /// lighting targets; rendering writes Opaque's own.
     pub(crate) fn new(
         device: &wgpu::Device,
         size: [u32; 2],
-        format: wgpu::TextureFormat,
-        reflections: bool,
+        (format, reflections): (wgpu::TextureFormat, bool),
+        usage: GbufferUse,
     ) -> Self {
         Self {
             textures: GbufferTarget::ALL.map(|target| {
@@ -89,7 +109,13 @@ impl Gbuffer {
                     target.format(),
                 )
             }),
-            lighting: lighting::LightingTargets::new(device, size, format, reflections),
+            lighting: lighting::LightingTargets::new(
+                device,
+                size,
+                (format, reflections),
+                usage == GbufferUse::Observe,
+            ),
+            usage,
         }
     }
 
@@ -98,9 +124,14 @@ impl Gbuffer {
         Self::new(
             device,
             size,
-            self.lighting.format(),
-            self.lighting.reflections(),
+            (self.lighting.format(), self.lighting.reflections()),
+            self.usage,
         )
+    }
+
+    /// Whether the frame renders from the G-buffer rather than observing it.
+    pub(crate) fn renders(&self) -> bool {
+        self.usage == GbufferUse::Render
     }
 
     pub(crate) fn size(&self) -> [u32; 2] {
@@ -156,9 +187,52 @@ impl Gbuffer {
             views.push(view);
         }
         passes.push(pass);
-        self.lighting.schedule(passes, views)?;
+        let features: Vec<_> = features.into_iter().collect();
+        if self.renders() {
+            lighting::schedule_render(passes)?;
+            move_velocity(passes, features.iter().copied())?;
+        } else {
+            self.lighting.schedule(passes, views)?;
+        }
         attach_producer_depth(passes, features)
     }
+}
+
+/// When the producers write the object-motion residual, the G-buffer slot clears and writes
+/// the velocity target that Opaque declared, and Opaque loads it for its remaining draws.
+fn move_velocity<'a>(
+    passes: &mut [PassDeclaration],
+    features: impl IntoIterator<Item = &'a FeatureDeclaration>,
+) -> Result<(), FrameError> {
+    let writes = features
+        .into_iter()
+        .flat_map(|feature| &feature.passes)
+        .filter(|pass| pass.slot == PassSlot::OpaqueGbuffer)
+        .any(|pass| {
+            pass.additional_color_formats
+                .contains(&worldrunner_render_post::VELOCITY_FORMAT)
+        });
+    if !writes {
+        return Ok(());
+    }
+    let opaque = passes
+        .iter_mut()
+        .find(|pass| pass.slot == PassSlot::Opaque)
+        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
+    let velocity = opaque
+        .additional_colors
+        .iter_mut()
+        .find(|attachment| attachment.resource.name == "scene velocity")
+        .ok_or(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))?;
+    let cleared = velocity.clone();
+    velocity.load = AttachmentLoad::Load;
+    passes
+        .iter_mut()
+        .find(|pass| pass.slot == PassSlot::OpaqueGbuffer)
+        .ok_or(FrameError::MissingSlot(PassSlot::OpaqueGbuffer))?
+        .additional_colors
+        .push(cleared);
+    Ok(())
 }
 
 /// Declares the scene's G-buffer producer pass when the prepass metadata carries G-buffer
@@ -168,12 +242,16 @@ pub(crate) fn declare_producer(
     declaration: &mut FeatureDeclaration,
     screen: &crate::scene_metadata::SceneMetadata,
 ) {
-    if screen.geometry.gbuffer.is_none() {
+    let Some((pipelines, _)) = &screen.geometry.gbuffer else {
         return;
-    }
+    };
     let mut pass = worldrunner_render_post::FeaturePass::new(PassSlot::OpaqueGbuffer);
     pass.color_format = Some(GBUFFER_FORMATS[0]);
     pass.additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
+    if pipelines.writes_velocity() {
+        pass.additional_color_formats
+            .push(worldrunner_render_post::VELOCITY_FORMAT);
+    }
     pass.depth_format = Some(screen.depth.format());
     declaration.passes.push(pass);
 }
@@ -215,15 +293,20 @@ pub(crate) fn attach_producer_depth<'a>(
     Ok(())
 }
 
-/// Declares the four targets and the lighting targets for the allocation budget.
+/// Declares the four targets and, in observation, the lighting targets for the allocation
+/// budget.
 pub(crate) fn allocations(
     frame: worldrunner_render_post::FrameConfig,
     reflections: bool,
+    usage: GbufferUse,
     set: &mut AllocationSet,
 ) {
     let size = [frame.size[0], frame.size[1], 1];
     for target in GbufferTarget::ALL {
         set.texture(target.resource_name(), size, target.format(), [1, 1], 1);
+    }
+    if usage == GbufferUse::Render {
+        return;
     }
     let outputs: &[lighting::LightingTarget] = if reflections {
         &[

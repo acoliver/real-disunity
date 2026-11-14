@@ -71,10 +71,11 @@ impl RendererConfiguration {
         ));
         screen_allocations(self, &mut set);
         snapshots::allocations(self, &mut set);
-        if super::opaque::admit_path(self.opaque_path, self.frame.samples).unwrap_or(false) {
+        if let Ok(Some(usage)) = super::opaque::admit_path(self.opaque_path, self.frame.samples) {
             crate::gbuffer::allocations(
                 self.frame,
                 self.ssr.is_some_and(|ssr| ssr.enabled),
+                usage,
                 &mut set,
             );
         }

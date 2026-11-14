@@ -1,10 +1,10 @@
 //! `Graphics.CopyTexture`: whole-mip copies between elements of texture arrays.
 
 use worldrunner_render_program::ids::TextureId;
-use worldrunner_render_program::unity::offscreen::OffscreenError;
 use worldrunner_render_program::unity::offscreen::frame::{
     OffscreenFrame, Record, RenderDimension,
 };
+use worldrunner_render_program::unity::offscreen::{OffscreenError, RENDER_FORMATS};
 
 use super::rig::{BLUE, GREEN, RED, Rig, ZERO, image, pixel, source, texture};
 
@@ -130,12 +130,15 @@ fn a_copy_to_an_element_or_mip_the_target_lacks_is_a_named_error() {
 
 #[test]
 fn a_format_outside_the_table_is_a_named_error_with_its_code() {
+    // 50 is R32G32_SFloat, which no offscreen test draws into.
+    const OUTSIDE: u32 = 50;
     let mut rig = rig_with_sources();
+    assert!(!RENDER_FORMATS.contains(&OUTSIDE));
     let mut frame = array([4, 4], 1, 1);
-    frame.render_textures[0].graphics_format = 49;
+    frame.render_textures[0].graphics_format = OUTSIDE;
     let error = rig.build(&frame).err().unwrap();
     assert!(
-        matches!(error, OffscreenError::UnsupportedFormat { code: 49 }),
+        matches!(error, OffscreenError::UnsupportedFormat { code: OUTSIDE }),
         "{error}"
     );
 }

@@ -61,6 +61,22 @@ pub(crate) fn depth_format(bits: u8) -> Result<Option<wgpu::TextureFormat>, Offs
     })
 }
 
+/// The depth format of the depth buffer of `bits` under a color texture. Unity's 24-bit and
+/// 32-bit depth buffers carry 8 bits of stencil, which a draw may test and write; 16 bits is
+/// depth alone. A device without `DEPTH32FLOAT_STENCIL8` gets a 32-bit buffer with no stencil.
+pub(crate) fn depth_format_with_stencil(
+    bits: u8,
+    features: wgpu::Features,
+) -> Result<Option<wgpu::TextureFormat>, OffscreenError> {
+    Ok(match (bits, depth_format(bits)?) {
+        (24, _) => Some(wgpu::TextureFormat::Depth24PlusStencil8),
+        (32, plain) if features.contains(wgpu::Features::DEPTH32FLOAT_STENCIL8) => {
+            plain.map(|_| wgpu::TextureFormat::Depth32FloatStencil8)
+        }
+        (_, plain) => plain,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,6 +163,34 @@ mod tests {
                 Err(OffscreenError::UnsupportedFormat { code: found }) if found == code
             ));
         }
+    }
+
+    #[test]
+    fn the_depth_under_color_has_stencil_from_24_bits_when_the_device_has_the_format() {
+        use wgpu::TextureFormat as F;
+        let none = wgpu::Features::empty();
+        let d32s8 = wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        assert_eq!(depth_format_with_stencil(0, none).unwrap(), None);
+        assert_eq!(
+            depth_format_with_stencil(16, d32s8).unwrap(),
+            Some(F::Depth16Unorm)
+        );
+        assert_eq!(
+            depth_format_with_stencil(24, none).unwrap(),
+            Some(F::Depth24PlusStencil8)
+        );
+        assert_eq!(
+            depth_format_with_stencil(32, none).unwrap(),
+            Some(F::Depth32Float)
+        );
+        assert_eq!(
+            depth_format_with_stencil(32, d32s8).unwrap(),
+            Some(F::Depth32FloatStencil8)
+        );
+        assert!(matches!(
+            depth_format_with_stencil(8, d32s8),
+            Err(OffscreenError::UnsupportedDepth { bits: 8 })
+        ));
     }
 
     #[test]

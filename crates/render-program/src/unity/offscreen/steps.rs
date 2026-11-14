@@ -224,8 +224,18 @@ fn pass_report(
     let mut states = std::collections::BTreeMap::<String, usize>::new();
     for draw in draws {
         let state = &draw.plan.state;
+        let stencil = state.stencil.as_ref().map_or_else(String::new, |stencil| {
+            format!(
+                ", stencil reference {} read mask {} write mask {} front {:?} back {:?}",
+                stencil.reference,
+                stencil.ops.read_mask,
+                stencil.ops.write_mask,
+                stencil.ops.front,
+                stencil.ops.back
+            )
+        });
         let words = format!(
-            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}",
+            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}{stencil}",
             state.cull,
             state.depth_compare,
             state.depth_write,

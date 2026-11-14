@@ -20,6 +20,7 @@ mod resolve;
 mod rig;
 mod sampler;
 mod shapes;
+mod stencil;
 mod storage;
 mod undeclared;
 mod volume;

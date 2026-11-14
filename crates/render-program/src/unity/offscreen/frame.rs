@@ -170,9 +170,9 @@ impl Attachments {
     }
 }
 
-/// The parts of the attachments a clear sets. A part that is `None` keeps what it holds. The
-/// depth formats this renderer draws into have no stencil, so `stencil` is carried for the
-/// record and sets nothing.
+/// The parts of the attachments a clear sets. A part that is `None` keeps what it holds. A clear
+/// of the depth also clears the stencil of a depth buffer that has one to 0, so `stencil` is
+/// carried for the record and sets nothing of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Clear {
     pub color: Option<[f64; 4]>,

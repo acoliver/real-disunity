@@ -133,6 +133,30 @@ fn teardown_with_nothing_queued_completes_without_callbacks() {
 }
 
 #[test]
+fn teardown_reports_no_fixed_step_after_a_frame_that_had_some() {
+    let mut world = World::new(WorldSettings::default()).unwrap();
+    let mut work = world.advance(TimeSpan::new(1, 5).unwrap()).unwrap();
+    assert!(drain(&mut world, &mut work).is_empty());
+    let Advance::Complete(before) = work else {
+        panic!("expected a completed frame, got {work:?}");
+    };
+    assert!(
+        before.fixed_steps > 0,
+        "the frame ran fixed steps: {before:?}"
+    );
+    let mut work = world.advance_teardown().unwrap();
+    assert!(drain(&mut world, &mut work).is_empty());
+    assert_eq!(
+        work,
+        Advance::Complete(FrameSummary {
+            frame: before.frame,
+            fixed_steps: 0,
+        }),
+        "teardown runs no fixed step and keeps the frame count"
+    );
+}
+
+#[test]
 fn teardown_is_refused_while_another_advance_is_in_progress() {
     let mut world = World::new(WorldSettings::default()).unwrap();
     script(&mut world);

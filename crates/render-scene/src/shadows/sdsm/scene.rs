@@ -449,6 +449,8 @@ impl SceneDepthFitting {
         scheduler: &crate::compositor::FrameRenderer,
         size: [u32; 2],
     ) -> Result<crate::scene_metadata::SceneMetadata, ShadowError> {
+        // An HDR frame configured with depth fitting owns this prepass and pairs its depth with
+        // Opaque. Only a frame without screen-space metadata leaves fitting to draw its own.
         if scheduler.ssao.is_none()
             && self
                 .metadata

@@ -71,6 +71,7 @@ fn configure_hdr(
             .unwrap_or_default();
         settings.ssao = effects.and_then(|effects| effects.ssao()).copied();
         settings.ssr = effects.and_then(|effects| effects.ssr()).copied();
+        settings.depth_fitting = effects.and_then(|effects| effects.depth_fitting()).copied();
         settings.water = effects.map_or_else(Vec::new, |effects| effects.water_bodies().to_vec());
     }
     Ok(())

@@ -223,11 +223,11 @@ fn atlas_cutout_depth_matches_forward_metadata() {
         &screen,
         crate::scene_metadata::MetadataOutput::Material,
     );
-    let read = super::curved_wind::read_depth;
+    let read = super::curved_wind::read_program_depth;
     let expected = read(
         &context,
         &gpu,
-        forward.object_pipelines(),
+        forward.object_context(),
         (Some(COLOR_FORMAT), None),
     );
     let covered = expected
@@ -237,11 +237,11 @@ fn atlas_cutout_depth_matches_forward_metadata() {
     assert!(covered > 0 && covered < (TARGET * TARGET) as usize / 2);
     for (pipeline, state) in [
         (
-            metadata.object_pipelines(),
+            metadata.object_context(),
             (Some(TextureFormat::Rgba16Float), Some(&group)),
         ),
         (
-            reflection.object_pipelines(),
+            reflection.object_context(),
             (Some(TextureFormat::Rgba16Float), Some(&reflection_group)),
         ),
     ] {
@@ -386,10 +386,10 @@ fn instance_fade_bands_share_forward_and_shadow_silhouettes() {
                 target_millimeters: [0, 0, 1000],
             }),
         );
-        let forward = super::curved_wind::read_depth(
+        let forward = super::curved_wind::read_program_depth(
             &context,
             &gpu,
-            layouts.object_pipelines(),
+            layouts.object_context(),
             (Some(COLOR_FORMAT), None),
         );
         let depth = super::curved_wind::read_depth(&context, &gpu, &shadow, (None, None));
@@ -520,10 +520,10 @@ fn relief_raster_bias_keeps_surface_when_card_is_beyond_far_plane() {
         glam::camera::rh::proj::directx::perspective(std::f32::consts::FRAC_PI_2, 1.0, 1.0, 3.0)
             * frame.view;
     gpu.set_frame(context.queue(), frame);
-    let bytes = super::curved_wind::read_depth(
+    let bytes = super::curved_wind::read_program_depth(
         &context,
         &gpu,
-        layouts.object_pipelines(),
+        layouts.object_context(),
         (Some(COLOR_FORMAT), None),
     );
     let center = ((TARGET / 2 * TARGET + TARGET / 2) * 4) as usize;

@@ -1,5 +1,45 @@
 use super::*;
 use crate::scene::direction::SceneDirection;
+use crate::scene::opaque::{
+    SceneOpaqueFamily, SceneOpaqueMode, SceneOpaquePath, SceneOpaqueStorage, SceneOpaqueVisibility,
+};
+
+#[test]
+fn opaque_path_defaults_to_forward_and_refuses_every_experiment() {
+    let effects = SceneEffects::new(parts()).unwrap();
+    assert_eq!(effects.opaque_path(), SceneOpaquePath::Forward);
+    assert_eq!(
+        effects
+            .clone()
+            .with_opaque_path(SceneOpaquePath::Forward)
+            .unwrap(),
+        effects
+    );
+    assert_eq!(effects.clone(), effects);
+    for mode in [SceneOpaqueMode::Observe, SceneOpaqueMode::Render] {
+        for family in [
+            SceneOpaqueFamily::Terrain,
+            SceneOpaqueFamily::Meshes,
+            SceneOpaqueFamily::AllStock,
+        ] {
+            for storage in [SceneOpaqueStorage::Wide, SceneOpaqueStorage::Compact] {
+                for visibility in [
+                    SceneOpaqueVisibility::MaterialOwnedDepth,
+                    SceneOpaqueVisibility::CoveragePrefix,
+                ] {
+                    assert_eq!(
+                        effects
+                            .clone()
+                            .with_opaque_path(SceneOpaquePath::experiment(
+                                mode, family, storage, visibility,
+                            )),
+                        Err(SceneValidationError::UnsupportedOpaquePath)
+                    );
+                }
+            }
+        }
+    }
+}
 
 #[test]
 fn shadow_override_preserves_direct_sun_and_can_be_cleared() {

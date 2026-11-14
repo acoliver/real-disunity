@@ -2,7 +2,9 @@ use super::UiError;
 use ab_glyph::{Font, FontRef, GlyphId};
 use ttf_parser::{Face, Tag, loca};
 
-pub(super) fn validate(bytes: &[u8]) -> Result<(), UiError> {
+mod simple;
+
+pub(super) fn validate(bytes: &[u8]) -> Result<Vec<u16>, UiError> {
     let face = Face::parse(bytes, 0).map_err(|_| UiError::InvalidFont)?;
     let font = FontRef::try_from_slice(bytes).map_err(|_| UiError::InvalidFont)?;
     if !font.height_unscaled().is_finite() || font.height_unscaled() <= 0. {
@@ -28,6 +30,7 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), UiError> {
     {
         return Err(UiError::InvalidFont);
     }
+    let mut empty_glyphs = Vec::new();
     for id in 0..face.number_of_glyphs() {
         let glyph = ttf_parser::GlyphId(id);
         if metrics.advance(glyph).is_none() || metrics.side_bearing(glyph).is_none() {
@@ -35,21 +38,29 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), UiError> {
         }
         let data = glyph_data(glyf, locations, id).ok_or(UiError::InvalidFont)?;
         // Equal offsets are an authored empty glyph.
-        if !data.is_empty() && !outline_valid(&font, data, glyf, locations, id) {
+        if data.is_empty() {
+            continue;
+        }
+        let degenerate = simple::degenerate(data).ok_or(UiError::InvalidFont)?;
+        if !outline_valid(&font, data, glyf, locations, id, degenerate) {
             return Err(UiError::InvalidFont);
         }
+        if degenerate {
+            empty_glyphs.push(id);
+        }
     }
-    Ok(())
+    Ok(empty_glyphs)
 }
 
-/// Whether nonempty glyph `id` has an outline, or is legitimately empty: zero contours, or a
-/// composite whose well-formed components are all empty glyphs.
+/// Whether nonempty glyph `id` has an outline, is a validated degenerate simple glyph,
+/// has zero contours, or is a composite whose well-formed components are all empty glyphs.
 fn outline_valid(
     font: &FontRef<'_>,
     data: &[u8],
     glyf: &[u8],
     locations: loca::Table<'_>,
     id: u16,
+    degenerate: bool,
 ) -> bool {
     let Some(&[high, low]) = data.get(..2) else {
         return false;
@@ -59,7 +70,7 @@ fn outline_valid(
         return data.len() >= 10;
     }
     if contours > 0 {
-        return false;
+        return degenerate;
     }
     components(data).is_some_and(|ids| {
         ids.iter().all(|&component| {

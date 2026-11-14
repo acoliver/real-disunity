@@ -178,6 +178,8 @@ pub(super) fn configure_effects(
     settings.post.native_rcas = native_rcas;
     settings.ssao = effects.ssao().copied();
     settings.ssr = effects.ssr().copied();
+    // Legacy output has no screen-space metadata; depth fitting there draws its own prepass.
+    settings.depth_fitting = settings.hdr.and(effects.depth_fitting().copied());
     settings.water = effects.water_bodies().to_vec();
     if let Some((exposure, _)) = &mut settings.hdr {
         *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;

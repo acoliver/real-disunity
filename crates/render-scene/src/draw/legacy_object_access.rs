@@ -48,6 +48,25 @@ impl SceneGpu {
         }
     }
 
+    /// The ranges `cascade` selects for its shadow map and the material groups, as the fixed
+    /// caster draw reads them now, drawn under the light frame `frame`.
+    pub(crate) fn legacy_caster_objects(
+        &self,
+        cascade: (u32, glam::Mat4),
+        frame: wgpu::BindGroup,
+    ) -> Objects {
+        let selection = self.select_objects(Some(cascade), &self.drawing_uniform());
+        Objects {
+            frame,
+            materials: self.materials.clone(),
+            draws: selection
+                .ranges
+                .iter()
+                .map(|range| self.legacy_draw(range))
+                .collect(),
+        }
+    }
+
     /// The camera view's selected ranges and material groups as the fixed draw reads them now.
     pub(crate) fn legacy_objects(&self) -> Objects {
         let frame = self.drawing_uniform();

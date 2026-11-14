@@ -77,17 +77,19 @@ impl SceneGeometry {
         for pose in &self.skin_poses {
             pose.validate()?;
         }
-        self.validate_lod_skinning()?;
+        for mesh in self.meshes.iter() {
+            self.validate_mesh_skinning(mesh)?;
+        }
         self.validate_objects()
     }
 
-    fn validate_lod_skinning(&self) -> Result<(), SceneValidationError> {
-        let skeleton_limit = u64::try_from(self.skeletons.len()).map_err(|_| {
-            SceneValidationError::ArithmeticOverflow {
-                part: "skeleton table",
-            }
-        })?;
-        for lod in self.meshes.iter().flat_map(SceneMesh::lods) {
+    /// Checks one mesh's skinned LODs against this geometry's skeleton table.
+    pub(in crate::scene) fn validate_mesh_skinning(
+        &self,
+        mesh: &SceneMesh,
+    ) -> Result<(), SceneValidationError> {
+        let skeleton_limit = table_len(self.skeletons.len(), "skeleton table")?;
+        for lod in mesh.lods() {
             let Some(skeleton_handle) = lod.skeleton() else {
                 continue;
             };
@@ -110,7 +112,8 @@ impl SceneGeometry {
         Ok(())
     }
 
-    fn validate_objects(&self) -> Result<(), SceneValidationError> {
+    /// Checks every object's mesh and skin pose handles and pose joint counts.
+    pub(in crate::scene) fn validate_objects(&self) -> Result<(), SceneValidationError> {
         let mesh_limit = table_len(self.meshes.len(), "mesh table")?;
         let pose_limit = table_len(self.skin_poses.len(), "skin pose table")?;
         for object in &self.objects {

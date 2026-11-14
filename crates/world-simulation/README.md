@@ -111,10 +111,22 @@ on the next mixed frame. Rule replacement, `clear_voices` and an accepted output
 rate change reset envelopes.
 
 Rendering evaluates detectors and envelopes on every output frame, including
-silence. Dividing the same ordered frames into different caller blocks does not
-change results. It allocates no memory, resolves no names, reads no wall clock
+silence. Rule configuration caches descending source-tier order and each target's
+eligible prefix; bus tier changes refresh those lookups without resetting envelopes.
+Each frame computes source maxima once per rule, then looks up demand for each
+target, with work linear in the source and target counts rather than their product.
+Dividing the same ordered frames into different caller blocks does not change
+results. Rendering allocates no memory, resolves no names, reads no wall clock
 and uses no device. Floating-point math is deterministic for the same inputs on
 the same target; cross-platform bit identity of `powf` is not promised.
+
+`cargo bench --locked -j 2 -p worldrunner-world-simulation --bench audio_ducking`
+runs a CPU-only optimized workload with 64 rules, 64 sources and 64 targets per
+rule, and 32 active voices at 48 kHz. It asserts bit-exact output and that rendering
+4,800 stereo frames finishes within their 100 ms playback duration. Unoptimized
+`cargo test --all-targets` runs check the output without asserting playback speed.
+Run the benchmark on an otherwise idle machine to measure playback throughput
+without scheduling contention.
 
 For option groups that also have distinct priority presets, create one bus per
 (group, preset) pair and apply a group's option gain/mute to each of its buses.

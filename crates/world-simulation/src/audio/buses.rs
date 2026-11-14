@@ -77,7 +77,24 @@ struct Rule {
     config: DuckingRule,
     sources: Vec<usize>,
     times: [u32; 3],
-    targets: Vec<(usize, Envelope)>,
+    targets: Vec<Target>,
+}
+struct Target {
+    bus: usize,
+    source_count: usize,
+    envelope: Envelope,
+}
+
+impl Rule {
+    fn refresh_tiers(&mut self, buses: &[Bus]) {
+        self.sources
+            .sort_unstable_by_key(|&source| std::cmp::Reverse(buses[source].config.tier));
+        for target in &mut self.targets {
+            target.source_count = self.sources.partition_point(|&source| {
+                buses[source].config.tier > buses[target.bus].config.tier
+            });
+        }
+    }
 }
 
 #[derive(Default)]
@@ -98,7 +115,13 @@ impl Routing {
         }
         validate_gain(config.gain)?;
         if let Some(bus) = self.buses.iter_mut().find(|bus| bus.name == name) {
+            let tier_changed = bus.config.tier != config.tier;
             bus.config = config;
+            if tier_changed {
+                for rule in &mut self.rules {
+                    rule.refresh_tiers(&self.buses);
+                }
+            }
         } else {
             if self.buses.len() == MAX_AUDIO_BUSES {
                 return Err(AudioError::BusLimit);
@@ -130,15 +153,21 @@ impl Routing {
         let targets = self
             .resolve_names(&config.target_buses)?
             .into_iter()
-            .map(|index| (index, Envelope::default()))
+            .map(|bus| Target {
+                bus,
+                source_count: 0,
+                envelope: Envelope::default(),
+            })
             .collect();
         let times = rule_times(&config, rate);
-        Ok(Rule {
+        let mut rule = Rule {
             config,
             sources,
             times,
             targets,
-        })
+        };
+        rule.refresh_tiers(&self.buses);
+        Ok(rule)
     }
     fn resolve_names(&self, names: &[String]) -> Result<Vec<usize>, AudioError> {
         if names.is_empty() || names.len() > MAX_AUDIO_BUSES {
@@ -168,11 +197,13 @@ impl Routing {
     pub fn advance(&mut self) {
         for rule in &mut self.rules {
             let config = &rule.config;
-            for (target, envelope) in &mut rule.targets {
-                let demand = source_demand(&self.buses, &rule.sources, *target, config.detector);
-                let depth = envelope.advance(demand, rule.times);
+            let demands = source_demands(&self.buses, &rule.sources, config.detector);
+            for target in &mut rule.targets {
+                let demand = demands[target.source_count];
+                let depth = target.envelope.advance(demand, rule.times);
                 let gain = gain_at(config.envelope, config.gain, depth);
-                self.buses[*target].duck = self.buses[*target].duck.min(gain);
+                let bus = &mut self.buses[target.bus];
+                bus.duck = bus.duck.min(gain);
             }
         }
     }
@@ -183,23 +214,22 @@ impl Routing {
     pub fn reset(&mut self, rate: u32) {
         for rule in &mut self.rules {
             rule.times = rule_times(&rule.config, rate);
-            for (_, envelope) in &mut rule.targets {
-                *envelope = Envelope::default();
+            for target in &mut rule.targets {
+                target.envelope = Envelope::default();
             }
         }
     }
 }
 
-fn source_demand(
+fn source_demands(
     buses: &[Bus],
     sources: &[usize],
-    target: usize,
     detector: DuckingDetector,
-) -> f32 {
-    sources
-        .iter()
-        .filter(|&&source| buses[source].config.tier > buses[target].config.tier)
-        .map(|&source| match detector {
+) -> [f32; MAX_AUDIO_BUSES + 1] {
+    // Descending tiers make each target's eligible sources a prefix, excluding equal tiers.
+    let mut demands = [0.0_f32; MAX_AUDIO_BUSES + 1];
+    for (position, &source) in sources.iter().enumerate() {
+        let demand = match detector {
             DuckingDetector::Activity => {
                 if buses[source].active {
                     1.0
@@ -208,8 +238,10 @@ fn source_demand(
                 }
             }
             DuckingDetector::Peak => buses[source].peak,
-        })
-        .fold(0.0, f32::max)
+        };
+        demands[position + 1] = demands[position].max(demand);
+    }
+    demands
 }
 
 fn validate_rule(rule: &DuckingRule) -> Result<(), AudioError> {
@@ -227,4 +259,77 @@ fn validate_rule(rule: &DuckingRule) -> Result<(), AudioError> {
 
 fn rule_times(config: &DuckingRule, rate: u32) -> [u32; 3] {
     [config.attack, config.hold, config.release].map(|time| duration_frames(time, rate))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_demands_match_direct_tier_scan_bit_for_bit() {
+        let mut routing = Routing::default();
+        let names: Vec<_> = (0..MAX_AUDIO_BUSES).map(|i| format!("b{i}")).collect();
+        let tiers = [i32::MIN, 0, -1, 0, i32::MAX, 1];
+        for (i, name) in names.iter().enumerate() {
+            routing
+                .configure(
+                    name,
+                    BusConfig {
+                        gain: 1.0,
+                        muted: false,
+                        tier: tiers[i % tiers.len()],
+                    },
+                )
+                .unwrap();
+        }
+        for detector in [DuckingDetector::Activity, DuckingDetector::Peak] {
+            routing
+                .replace(
+                    vec![DuckingRule {
+                        source_buses: names.iter().step_by(2).cloned().collect(),
+                        target_buses: names.clone(),
+                        gain: 0.25,
+                        attack: Duration::ZERO,
+                        hold: Duration::ZERO,
+                        release: Duration::ZERO,
+                        envelope: EnvelopeMode::LinearGain,
+                        detector,
+                    }],
+                    48_000,
+                )
+                .unwrap();
+            for changed in [0, 4, 31, 63] {
+                let mut config = routing.buses[changed].config;
+                config.tier = i32::MAX;
+                routing.configure(&names[changed], config).unwrap();
+                routing.begin_frame();
+                for i in (0..MAX_AUDIO_BUSES).step_by(3) {
+                    routing.observe(i, [f32::from(u16::try_from(i).unwrap()) / 64.0; 2]);
+                }
+                let rule = &routing.rules[0];
+                let demands = source_demands(&routing.buses, &rule.sources, detector);
+                for target in &rule.targets {
+                    let direct = routing
+                        .buses
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, bus)| {
+                            i % 2 == 0 && bus.config.tier > routing.buses[target.bus].config.tier
+                        })
+                        .map(|(_, bus)| match detector {
+                            DuckingDetector::Activity => {
+                                if bus.active {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            }
+                            DuckingDetector::Peak => bus.peak,
+                        })
+                        .fold(0.0_f32, f32::max);
+                    assert_eq!(demands[target.source_count].to_bits(), direct.to_bits());
+                }
+            }
+        }
+    }
 }

@@ -527,3 +527,22 @@ fn accepted_output_reconfiguration_retimes_rules_and_clear_resets_envelopes() {
     assert_eq!(samples(&mut mixer, 1), [29.0 / 64.0]);
     assert_eq!(samples(&mut mixer, 7).last(), Some(&0.125));
 }
+
+#[test]
+fn tier_changes_refresh_lookups_without_resetting_live_envelopes() {
+    let (mut mixer, clip) = setup();
+    bus(&mut mixer, "alert", 2);
+    let mut r = rule("speech", "music");
+    r.source_buses.push("alert".into());
+    mixer.replace_ducking_rules(vec![r]).unwrap();
+    mixer.play_on_bus(&clip, 1.0, "music").unwrap();
+    mixer.play_on_bus(&clip, 0.0, "speech").unwrap();
+    mixer.play_on_bus(&clip, 0.0, "alert").unwrap();
+    assert_eq!(samples(&mut mixer, 1), [0.40625]);
+    bus(&mut mixer, "speech", 3);
+    assert_eq!(samples(&mut mixer, 1), [0.3125]);
+    bus(&mut mixer, "music", 3);
+    assert_eq!(samples(&mut mixer, 2), [0.3125; 2]);
+    bus(&mut mixer, "alert", 4);
+    assert_eq!(samples(&mut mixer, 1), [0.265_625]);
+}

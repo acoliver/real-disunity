@@ -44,6 +44,7 @@ const OTHER_MESH: u64 = (1 << 41) + 6;
 
 mod block;
 mod persistent;
+mod screen;
 
 /// A vertex stage that places its position by the draw's matrices, a fragment stage that writes
 /// the material's `_Tint` and one that writes its `_Over`.

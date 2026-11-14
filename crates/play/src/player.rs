@@ -288,6 +288,15 @@ pub(crate) fn player_gpu(work: GpuWork, data: &Path) -> Option<PlayerGpu> {
     }
 }
 
+/// What a headless run writes of the screen the player's offscreen work draws into: the screen's
+/// size, and a file for the image the screen holds after each listed frame's GPU work.
+#[derive(Clone, Debug)]
+pub struct ScreenOutput {
+    pub size: [u32; 2],
+    /// A frame, counting from zero, and the PNG its screen image is written to.
+    pub files: Vec<(u64, PathBuf)>,
+}
+
 /// The environment variable that makes a headless run print the GPU report after every frame, not
 /// only at the end.
 const REPORT_EACH_FRAME: &str = "PLAY_REPORT_EACH_FRAME";
@@ -299,18 +308,39 @@ pub fn run_player(prepared: &PreparedPlayer, frames: u64, dt: Duration) -> Resul
     run_player_with(prepared, frames, dt, GpuWork::Auto)
 }
 
-/// [`run_player`] with `gpu` saying whether the offscreen work runs.
+/// [`run_player`] with `gpu` saying whether the offscreen work runs. The run has no screen.
 pub fn run_player_with(
     prepared: &PreparedPlayer,
     frames: u64,
     dt: Duration,
     gpu: GpuWork,
 ) -> Result<(), PlayError> {
+    run_player_screens(prepared, frames, dt, gpu, None)
+}
+
+/// [`run_player_with`] with a screen, when `screen` is given: the offscreen work draws a
+/// `CameraTarget` with no camera texture into a screen of its size, and after the GPU work of each
+/// frame `screen` lists, the newest image of the screen is written to that frame's file as an RGB
+/// PNG. Without `screen` the run has none and behaves as [`run_player_with`] always did.
+///
+/// # Errors
+/// As [`run_player_with`]. A run with a screen also fails before the scene starts when the work
+/// has no device or a listed frame is not among the `frames` run, and at a listed frame that has no
+/// image yet because no work has drawn into the screen.
+pub fn run_player_screens(
+    prepared: &PreparedPlayer,
+    frames: u64,
+    dt: Duration,
+    gpu: GpuWork,
+    screen: Option<&ScreenOutput>,
+) -> Result<(), PlayError> {
     let mut host = DisunityHost::boot(&prepared.config)?;
     let gpu = player_gpu(gpu, &prepared.data);
+    check_screen(gpu.as_ref(), frames, screen)?;
     // Installed before the scene loads: a script may read a compute buffer back while it does.
     if let Some(gpu) = &gpu {
         gpu.install(&mut host)?;
+        gpu.set_screen(screen.map(|screen| screen.size));
     }
     host.run_slice(&prepared.request)?;
     let nanos = u64::try_from(dt.as_nanos())
@@ -324,7 +354,8 @@ pub fn run_player_with(
             .advance(nanos, 1_000_000_000)
             .map_err(PlayError::from)
             .and_then(|()| present_meshes(&mut host, &mut meshes))
-            .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)));
+            .and_then(|()| gpu.as_ref().map_or(Ok(()), |gpu| gpu.frame(&mut host)))
+            .and_then(|()| write_screens(gpu.as_ref(), frame, screen));
         times.push(started.elapsed());
         // A run that dies in a later frame still leaves the counts of the frames before it.
         if std::env::var_os(REPORT_EACH_FRAME).is_some()
@@ -350,6 +381,56 @@ pub fn run_player_with(
     result.and(unloaded.map_err(PlayError::from))
 }
 
+/// Checks that a run with a screen can give the images asked for: the work has a device and every
+/// listed frame is one of the `frames` run.
+fn check_screen(
+    gpu: Option<&PlayerGpu>,
+    frames: u64,
+    screen: Option<&ScreenOutput>,
+) -> Result<(), PlayError> {
+    let Some(screen) = screen else {
+        return Ok(());
+    };
+    if gpu.is_none() {
+        return Err(PlayError::Invalid(
+            "a screen needs the offscreen work on a device, and the run has none".into(),
+        ));
+    }
+    match screen.files.iter().find(|(frame, _)| *frame >= frames) {
+        Some((frame, _)) => Err(PlayError::Invalid(format!(
+            "screen frame {frame} is not among the {frames} frames the run plays"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Writes the newest screen image to the file `screen` lists for `frame`, if it lists one. The
+/// image is the one the last frame whose work drew into the screen left, which is this frame's
+/// when its work did.
+fn write_screens(
+    gpu: Option<&PlayerGpu>,
+    frame: u64,
+    screen: Option<&ScreenOutput>,
+) -> Result<(), PlayError> {
+    let Some(screen) = screen else {
+        return Ok(());
+    };
+    for (_, file) in screen.files.iter().filter(|(listed, _)| *listed == frame) {
+        let image = gpu.and_then(PlayerGpu::screen).ok_or_else(|| {
+            PlayError::Invalid(format!(
+                "no screen image after frame {frame}: no work has drawn into the screen yet"
+            ))
+        })?;
+        image.write_png(file)?;
+        eprintln!(
+            "[player] screen of frame {} written to {}",
+            image.frame,
+            file.display()
+        );
+    }
+    Ok(())
+}
+
 /// Writes the first, mean and slowest frame time to standard error.
 fn report_times(times: &[Duration]) {
     let Some(first) = times.first() else {
@@ -372,6 +453,10 @@ fn present_meshes(host: &mut DisunityHost, meshes: &mut PlayerMeshes) -> Result<
     let objects = host.mesh_objects()?;
     meshes.refresh(host, &objects)
 }
+
+#[cfg(test)]
+#[path = "player_screen_tests.rs"]
+mod screen_tests;
 
 #[cfg(test)]
 mod tests {

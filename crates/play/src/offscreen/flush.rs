@@ -39,6 +39,7 @@ use super::ids;
 use super::pass_notes;
 use super::pixels::{self, Copied, PixelAnswer, Wanted};
 use super::probe::{BeforeDispatch, Probe};
+use super::screen::{ScreenImage, touches_screen};
 use super::trace::WorkTrace;
 
 /// Why a flush stopped. The world logs it once and the read that asked for the flush returns the
@@ -170,6 +171,8 @@ pub struct OffscreenHost {
     adapter: OffscreenAdapter,
     compute: ComputeAdapter,
     traces: Vec<WorkTrace>,
+    /// Whether work has drawn into the screen's colour since it was last read back.
+    screen_written: bool,
 }
 
 impl OffscreenHost {
@@ -207,9 +210,57 @@ impl OffscreenHost {
             adapter,
             compute,
             traces: Vec::new(),
+            screen_written: false,
         }
     }
 
+    /// Sets the size of the screen a `CameraTarget` with no camera texture draws into, or takes
+    /// the screen away with `None`. The next frame or flush that names it makes it at the new
+    /// size, empty.
+    pub fn set_screen(&mut self, size: Option<[u32; 2]>) {
+        self.adapter.set_screen(size);
+    }
+
+    /// Whether work has drawn into the screen since [`read_screen`](Self::read_screen) last
+    /// gave its image.
+    #[must_use]
+    pub fn screen_written(&self) -> bool {
+        self.screen_written
+    }
+
+    /// Reads the screen back: the image the screen holds now, which `frame` numbers. The copy is
+    /// submitted and waited for on its own, after every submission before it. A refusal is the
+    /// reason, for the caller to count (see the `screen` module), and leaves the screen marked as
+    /// written.
+    ///
+    /// # Errors
+    /// Fails with the reason when the screen has no storage, the copy cannot be made or read, or
+    /// the screen is not four 8-bit channels.
+    pub fn read_screen(&mut self, frame: u64) -> Result<ScreenImage, String> {
+        let handle = self
+            .state
+            .texture_handle(ids::screen_color())
+            .ok_or(pixels::REFUSED_NO_TEXTURE)?;
+        let authority = self.runtime.authority().clone();
+        let device = self.runtime.device().clone();
+        let mut encoder = authority
+            .begin(&device)
+            .map_err(|error| ProgramError::from(error).to_string())?;
+        let copy = self
+            .runtime
+            .read_texture(&mut encoder, handle)
+            .map_err(|error| pixels::no_copy(&error))?;
+        let submission = encoder
+            .finish()
+            .submit()
+            .map_err(|error| ProgramError::from(error).to_string())?;
+        let image = copy
+            .resolve(submission)
+            .map_err(|_| pixels::REFUSED_NOT_READ)?;
+        let screen = ScreenImage::from_gpu_rows(&image, frame)?;
+        self.screen_written = false;
+        Ok(screen)
+    }
     /// The traces of the frames and flushes since the last call, in order, whether they were
     /// refused or not.
     pub fn take_traces(&mut self) -> Vec<WorkTrace> {
@@ -296,7 +347,9 @@ impl OffscreenHost {
         );
         let error = built.as_ref().err().map(ToString::to_string);
         self.note(("frame", live_before), &adapted.report, error);
-        Ok((Some(built?), adapted.report))
+        let operations = built?;
+        self.screen_written |= touches_screen(&adapted.frame.records);
+        Ok((Some(operations), adapted.report))
     }
 
     /// Runs the work of `snapshot` to completion and returns the compute buffers it changed.
@@ -323,7 +376,9 @@ impl OffscreenHost {
         adapted.report.reclaimed.add(reclaimed);
         adapted.report.phases.adapt = started.elapsed();
         let mut buffers = GpuBuffers::default();
+        let touched = touches_screen(&adapted.frame.records);
         let result = self.run(snapshot, &mut adapted, &mut buffers);
+        self.screen_written |= touched && result.is_ok();
         let error = result.as_ref().err().map(ToString::to_string);
         // The buffers can go once the GPU has finished with them, and the next flush then
         // allocates on top of what is live, not of what this one released.

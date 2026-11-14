@@ -113,6 +113,19 @@ impl OffscreenAdapter {
         self
     }
 
+    /// Sets the size of the screen a `CameraTarget` with no camera texture draws into, or takes
+    /// the screen away with `None`. The next snapshot makes its textures at the new size.
+    pub fn set_screen(&mut self, size: Option<[u32; 2]>) {
+        self.settings.screen = size;
+    }
+
+    /// The screen's texture when there is a screen.
+    fn screen_targets(&self) -> Vec<TextureId> {
+        self.settings
+            .screen
+            .map_or_else(Vec::new, |_| vec![ids::screen_color()])
+    }
+
     #[cfg(test)]
     pub(super) fn mesh_metadata_counts(&self) -> (usize, usize, usize) {
         (self.meshes.len(), self.bounds.len(), self.sub_meshes.len())
@@ -151,8 +164,15 @@ impl OffscreenAdapter {
             .map(|id| ids::render_texture(*id))
             .collect();
         live_targets.extend(temporary_ids(&snapshot.work));
+        // The screen holds its contents between snapshots, so every snapshot names it and it is
+        // never given back to make room.
+        let screen = self.screen_targets();
+        live_targets.extend(screen.iter().copied());
         state.retain_render_textures(runtime, &live_targets);
-        self.stamp_targets(reclaim::named_targets(snapshot), &live_targets);
+        self.stamp_targets(
+            reclaim::named_targets(snapshot).into_iter().chain(screen),
+            &live_targets,
+        );
         self.register_shaders(snapshot, state, &mut available, &mut notes);
         let meshes = named_meshes(snapshot);
         let wanted = stored_textures(snapshot);

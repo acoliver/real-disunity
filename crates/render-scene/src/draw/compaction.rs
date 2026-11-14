@@ -19,7 +19,7 @@ use worldrunner_render_post::PrepareContext;
 
 use super::selection_reuse::{self, Key as SelectionKey};
 use super::visibility::SelectedRange;
-use super::{DrawCount, FrameUniform, SceneGpu};
+use super::{FrameUniform, ObjectDraws, ObjectRecording, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
 
 mod plan;
@@ -290,40 +290,42 @@ impl SceneGpu {
     }
 
     /// Records a view's selection: one draw per (batch, LOD) group from the view buffer when
-    /// it holds exactly this selection, otherwise one draw per selected range.
+    /// it holds exactly this selection, otherwise one draw per selected range. Returns the
+    /// draws recorded and which of the two ways recorded them.
     pub(super) fn record_selection(
         &self,
         sink: &mut impl super::lod_material::DrawSink,
         view: (Option<(u32, Mat4)>, &FrameUniform),
         ranges: &[SelectedRange],
-    ) -> DrawCount {
+    ) -> ObjectDraws {
         let (shadow_matrix, frame) = view;
         let key = self.compaction_key(shadow_matrix, frame);
         let compaction = &self.views[selection_reuse::view_index(shadow_matrix)].compaction;
-        let mut count = DrawCount::default();
         let Some(resident) = compaction.usable(key) else {
+            let mut drawn = ObjectDraws::new(ObjectRecording::Ranged);
             for range in ranges {
-                count.add(self.record_lod_range(sink, range));
+                self.record_lod_range(sink, range, &mut drawn);
             }
-            return count;
+            return drawn;
         };
         #[cfg(test)]
         compaction
             .observed
             .compacted_draws
             .set(compaction.observed.compacted_draws.get() + 1);
+        let mut drawn = ObjectDraws::new(ObjectRecording::Compacted);
         let Some(buffers) = resident
             .buffers
             .as_ref()
             .filter(|_| !resident.groups.is_empty())
         else {
-            return count;
+            return drawn;
         };
         sink.instances(&buffers.current, buffers.previous.as_ref());
         for group in resident.groups.iter() {
-            count.add(self.record_lod_draws(sink, group));
+            self.record_lod_draws(sink, group, &mut drawn);
         }
-        count
+        drawn
     }
 }
 

@@ -41,21 +41,15 @@ pub(crate) use resources::SHADOW_UNIFORM_BYTES;
 #[cfg(test)]
 pub(crate) use resources::{depth_source, receiver_sources};
 
-/// The object shadow casters of `pipelines` for `settings` and `sampling`, and the caster policy
-/// they were built with, for the captures that compare them with the frozen casters.
+/// The object shadow casters of `pipelines` for `settings` and `sampling`, for the captures that
+/// draw casters outside a shadowed scene.
 #[cfg(test)]
 pub(crate) fn object_casters(
     pipelines: &crate::renderer::ScenePipelines,
     settings: DirectionalShadowSettings,
     sampling: worldrunner_render_plan::SceneShadowSampling,
-) -> (
-    crate::object::program::Context,
-    worldrunner_render_shadow::DirectionalShadowConfig,
-) {
-    (
-        resources::object_caster(pipelines, settings, sampling),
-        resources::caster_configuration(settings, sampling),
-    )
+) -> crate::object::program::Context {
+    resources::object_caster(pipelines, settings, sampling)
 }
 mod schedule;
 mod settings;
@@ -736,7 +730,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.gpu.reset_pass_statistics(context);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Installed,
@@ -776,11 +770,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.prepass_pipelines(),
-                &screen.group,
-            ));
+            self.publications.record_prepass(
+                self.gpu,
+                self.gpu
+                    .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+            );
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;

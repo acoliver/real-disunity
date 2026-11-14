@@ -32,8 +32,6 @@ pub(crate) mod decals;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
-#[cfg(test)]
-mod legacy_object_access;
 mod lod_material;
 mod object_runtime;
 pub(crate) mod overlay;
@@ -53,16 +51,14 @@ pub use effect_statistics::{
 pub use geometry_statistics::{
     TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
 };
-pub use pass_statistics::PassDrawStatistics;
+pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
 mod terrain_runtime;
-pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
+pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
-#[cfg(test)]
-pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
@@ -376,7 +372,7 @@ impl SceneGpu {
             resource_counters: statistics::ResourceCounters::new(&prepared),
             decal_counts: std::rc::Rc::default(),
             decals,
-            celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
+            celestial: celestial::upload(device, scene, pipelines, &meshes),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
             casters: caster_edits::CasterEdits::default(),
             post: resources::post_settings(scene)?,
@@ -474,12 +470,12 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         group: &BindGroup,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         // Both passes consume the same camera selection, compacted instances and terrain stream.
         // The forward-only draws are appended after that paired prefix.
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, Route::Prepass)
-            .selection
+            .drawn
     }
 
     pub(crate) fn draw_shadowed(
@@ -555,7 +551,7 @@ impl SceneGpu {
         let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
-        let selection = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
+        let drawn = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if route == Route::Forward {
@@ -573,7 +569,7 @@ impl SceneGpu {
                 .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
-            selection,
+            drawn,
             terrain,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),

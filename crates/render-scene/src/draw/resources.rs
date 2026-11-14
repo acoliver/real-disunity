@@ -276,8 +276,8 @@ pub(super) fn upload_terrain(
         sampler: sampler.clone(),
         grid_view: grid.create_view(&TextureViewDescriptor::default()),
         grid: grid.clone(),
-        // The dimension is stated for the same reason as in the frozen bind group: a palette
-        // of one surface would otherwise get a plain 2D view.
+        // The dimension is stated because a palette of one surface would otherwise get a plain
+        // 2D view.
         palettes: palettes
             .iter()
             .map(|texture| {

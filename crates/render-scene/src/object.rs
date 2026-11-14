@@ -2,8 +2,7 @@
 //!
 //! Every object pass draws lit objects, foliage and impostors through [`program`] and
 //! [`prepared`]: the forward passes (plain, velocity, SSAO, reflection and the shadow receivers
-//! of each), the metadata prepass, the capture term replays and the shadow casters. The fixed
-//! path is frozen in [`crate::renderer::legacy_objects`] and pinned by byte-equality captures.
+//! of each), the metadata prepass, the capture term replays and the shadow casters.
 //! Celestial meshes (`sky::meshes`) still draw with fixed pipelines of their own.
 
 pub(crate) mod prepared;

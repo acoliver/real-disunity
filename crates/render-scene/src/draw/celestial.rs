@@ -7,7 +7,6 @@ pub(super) fn upload(
     scene: &RenderScene,
     pipelines: &ScenePipelines,
     meshes: &[GpuMesh],
-    materials: &[wgpu::BindGroup],
 ) -> Option<crate::sky::meshes::Meshes> {
     let settings = scene.effects()?.atmosphere()?;
     if settings.meshes.is_empty() {
@@ -33,7 +32,6 @@ pub(super) fn upload(
                 vertices: lod.vertices.clone(),
                 indices: lod.indices.clone(),
                 count: lod.index_count,
-                material: materials[settings.material.raw() as usize].clone(),
                 material_index: settings.material.raw() as usize,
                 instance,
                 key: crate::pipeline::PipelineKey::from_material(material),

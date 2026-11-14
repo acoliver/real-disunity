@@ -14,6 +14,17 @@ with a clip handle and gain, `stop`, `set_master_gain` and `set_mute`, or typed
 through the driver event hook, including while presentation is paused. Stop and
 shutdown cancel voices without a natural-ending notification.
 
+`configure_bus`, `play_on_bus` and `replace_ducking_rules` expose the same mixer
+bus/ducking controls through both retained host interfaces. Typed commands use
+`ConfigureBus`, `PlayOnBus` and `DuckingRules`; existing `Play` and `Stop` commands
+remain valid and unrouted playback bypasses buses. Bus and rule changes can be
+configured before device startup, but fail after shutdown. Routed admission uses
+the same device-status and pending-completion limits as ordinary playback.
+Configuration errors, including unknown bus names and unsupported envelope names,
+come from the shared CPU mixer. Audio playback commands do not cross the C ABI;
+there is no ABI record or revision change. See the
+[bus and envelope contract](../world-simulation/README.md#option-buses-and-ducking).
+
 `status()` distinguishes `Ready`, `Closed` and `Unavailable` reasons: not started,
 null device, no device, open failure, unsupported configuration and device loss.
 Transitions deliver `AudioStatusChanged`; startup failures also provide

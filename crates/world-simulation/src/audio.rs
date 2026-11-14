@@ -1,6 +1,12 @@
 //! Bounded short-clip state and deterministic device-independent stereo mixing.
+mod buses;
+mod envelope;
 mod mixer;
 mod wav;
+pub use buses::{
+    BusConfig, DuckingDetector, DuckingRule, EnvelopeMode, MAX_AUDIO_BUSES, MAX_BUS_NAME_BYTES,
+    MAX_DUCKING_RULES, MAX_DUCKING_TIME,
+};
 pub use mixer::AudioMixer;
 use std::sync::Arc;
 pub use wav::Clip;
@@ -34,7 +40,20 @@ pub struct VoiceHandle {
 /// Typed controls; clip loading accepts a bounded borrowed byte slice separately.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AudioCommand {
-    Play { clip: ClipHandle, gain: f32 },
+    Play {
+        clip: ClipHandle,
+        gain: f32,
+    },
+    PlayOnBus {
+        clip: ClipHandle,
+        gain: f32,
+        bus: String,
+    },
+    ConfigureBus {
+        name: String,
+        config: BusConfig,
+    },
+    DuckingRules(Vec<DuckingRule>),
     Stop(VoiceHandle),
     MasterGain(f32),
     Mute(bool),
@@ -46,8 +65,22 @@ pub enum AudioReply {
     Applied,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum AudioError {
+    #[error("unknown audio bus: {0}")]
+    UnknownBus(String),
+    #[error("audio bus name must contain 1..=128 bytes: {0}")]
+    InvalidBusName(String),
+    #[error("audio bus limit reached (64)")]
+    BusLimit,
+    #[error("ducking rule limit reached (64)")]
+    DuckingRuleLimit,
+    #[error(
+        "invalid ducking rule: need nonempty bus sets, gain in 0..=1 (positive for linear-db), and times at most 3600 seconds"
+    )]
+    InvalidDuckingRule,
+    #[error("unsupported ducking envelope mode: {0}")]
+    UnsupportedEnvelope(String),
     #[error("WAV input exceeds the 8 MiB short-clip limit")]
     ClipTooLarge,
     #[error("malformed or truncated RIFF/WAVE file")]

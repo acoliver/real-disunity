@@ -4,14 +4,14 @@
 //! with, and counts nothing against a budget: every buffer and texture a body draws with belongs
 //! to [`Water`](super::Water) and is lent to the runtime, as the dynamic unlit material lends its
 //! quads. There is one program for each pipeline key, `([u32; 5], shadows)`, built on first use
-//! from the text `pipeline_with_source_depth` composes: the four text bits of `options[4]`
+//! from the water source with its text options applied. The four text bits of `options[4]`
 //! (endpoint 256, vertex seeds 512, shadow response 1024 through its filter 2048) and `shadows`
 //! choose the text, and the specular options and term bits are override constants of both
-//! stages, as the fixed pipelines set them.
+//! stages.
 //!
-//! Set 0 is water's own and is built from imports for each body and frame slot, as the fixed
-//! path builds a bind group per body for each feature. Set 1 is the shadow group, lent: the pass
-//! owner binds it once before the bodies, and the runtime builds none ([`ExternalSet`]).
+//! Set 0 is water's own and is built from imports for each body and frame slot. Set 1 is the
+//! shadow group, lent: the pass owner binds it once before the bodies, and the runtime builds
+//! none ([`ExternalSet`]).
 //!
 //! A draw is prepared, and retained by the frame's encoder, when the frame's water feature is
 //! made, before the pass opens. Recording it in the pass only sets state.
@@ -137,8 +137,8 @@ impl Programs {
         Ok(program)
     }
 
-    /// The text of `key` and the options it is compiled with: what `pipeline_with_source_depth`
-    /// built its module from.
+    /// The text of `key` and the options it is compiled with: what the program's module is
+    /// built from.
     fn source(&self, (options, shadows): Key) -> (Arc<str>, [u32; 5]) {
         if let Some((source, options)) = self.sources.get(&(options, shadows)) {
             return (text(source, *options, shadows), *options);
@@ -167,8 +167,7 @@ impl Programs {
             Some(depth.format()),
             samples,
         )?;
-        // The fixed pipeline's primitive state is wgpu's default: no culling, counter-clockwise
-        // fronts.
+        // The primitive state is wgpu's default: no culling, counter-clockwise fronts.
         let state = depth.render_state(
             4,
             RasterState {
@@ -178,19 +177,22 @@ impl Programs {
             },
         );
         let endpoint = key.0[4] & super::endpoint::SPECIALIZATION != 0;
-        let vertex_inputs = vertex_inputs(inputs, endpoint);
-        // The fixed pipelines declared every binding of set 0 whatever the text read; the
-        // runtime gives a binding the text never reads no slot and refuses an import for it.
-        // A substituted text may read fewer, so only what the program uses is lent.
+        let vertex_inputs = vertex_inputs((inputs.vertices.0, inputs.seed), endpoint)?;
+        // The runtime gives a binding the text never reads no slot and refuses an import for
+        // it. Water's own text reads all of set 0, so every input is lent and an unread one is
+        // the runtime's `UnusedImport`. A substituted test text may read fewer, and only there
+        // is what the program does not read held back.
+        let substituted = self.sources.contains_key(&key);
         let imports: Vec<_> = imports(inputs)
             .into_iter()
             .filter(|import| {
                 let source = BindingSource::Engine(import.semantic.clone());
-                program
-                    .layout()
-                    .slots()
-                    .iter()
-                    .any(|slot| slot.source == source)
+                !substituted
+                    || program
+                        .layout()
+                        .slots()
+                        .iter()
+                        .any(|slot| slot.source == source)
             })
             .collect();
         let draw = self.runtime.prepare_imported_draw(
@@ -215,7 +217,7 @@ impl Programs {
     }
 }
 
-/// `source` specialised for `options` as the fixed pipeline builder does: the shadow response
+/// `source` specialised for `options`: the shadow response
 /// filter first, then the vertex seeds.
 fn text(source: &str, options: [u32; 5], shadows: bool) -> Arc<str> {
     let source = super::shadow_response::specialize(source, options[4], shadows);
@@ -245,7 +247,7 @@ fn texture(dimension: TextureViewDimension, filterable: bool) -> ResourceKind {
 }
 
 /// Set 0 as `input_layout` declares it.
-fn bindings() -> Vec<ResourceBinding> {
+pub(super) fn bindings() -> Vec<ResourceBinding> {
     use TextureViewDimension::{Cube, D2};
     let (fragment, both) = (ShaderStages::FRAGMENT, ShaderStages::VERTEX_FRAGMENT);
     let filtering = ResourceKind::Sampler(wgpu::SamplerBindingType::Filtering);
@@ -353,20 +355,31 @@ fn build(
 }
 
 /// The body's vertices, and the endpoint coordinates when the text reads them, in the layouts
-/// `geometry::layouts` gives the fixed pipeline.
-fn vertex_inputs(inputs: &BodyInputs<'_>, endpoint: bool) -> Vec<ImportedVertexInput> {
-    let buffers = [Some(inputs.vertices.0), inputs.seed.filter(|_| endpoint)];
-    super::geometry::layouts(endpoint)
+/// `geometry::layouts` gives.
+///
+/// # Errors
+/// `GeometryLayoutMismatch` when a vertex buffer slot has no layout, and `VertexBufferCount`
+/// when the text reads endpoint coordinates the body does not have.
+pub(super) fn vertex_inputs(
+    (vertices, seed): (&wgpu::Buffer, Option<&wgpu::Buffer>),
+    endpoint: bool,
+) -> Result<Vec<ImportedVertexInput>, ProgramError> {
+    let buffers = [Some(vertices), seed.filter(|_| endpoint)];
+    let layouts = super::geometry::layouts(endpoint);
+    let expected = layouts.len();
+    let found = buffers.iter().take(expected).flatten().count();
+    layouts
         .into_iter()
         .zip(buffers)
         .map(|(layout, buffer)| {
-            let layout = layout.expect("water declares every vertex buffer slot");
-            ImportedVertexInput {
-                buffer: buffer.expect("an endpoint body has coordinates").clone(),
+            let layout = layout.ok_or(ProgramError::GeometryLayoutMismatch)?;
+            let buffer = buffer.ok_or(ProgramError::VertexBufferCount { expected, found })?;
+            Ok(ImportedVertexInput {
+                buffer: buffer.clone(),
                 stride: layout.array_stride,
                 step: layout.step_mode,
                 attributes: layout.attributes.to_vec(),
-            }
+            })
         })
         .collect()
 }

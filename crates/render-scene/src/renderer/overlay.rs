@@ -21,6 +21,21 @@ pub(crate) fn build(
         shader_location: 9,
     }];
     let buffers = super::unlit::alpha_buffers(&buffers, &tint);
+    let corners = [wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x4,
+        offset: 0,
+        shader_location: 12,
+    }];
+    let buffers = [
+        buffers[0].clone(),
+        buffers[1].clone(),
+        buffers[2].clone(),
+        Some(wgpu::VertexBufferLayout {
+            array_stride: 16,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &corners,
+        }),
+    ];
     pipeline(device, &module, &layout, &buffers, format, size)
 }
 fn pipeline(

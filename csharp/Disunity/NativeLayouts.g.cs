@@ -671,11 +671,28 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityUiDraw>("triangle_v1").ToInt32() != 44) throw new InvalidOperationException("DisunityUiDraw.triangle_v1 offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("triangle_u2").ToInt32() != 48) throw new InvalidOperationException("DisunityUiDraw.triangle_u2 offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("triangle_v2").ToInt32() != 52) throw new InvalidOperationException("DisunityUiDraw.triangle_v2 offset");
-        if (Marshal.SizeOf<DisunityUiDraw>() != 56 || typeof(DisunityUiDraw).GetFields().Length != 12) throw new InvalidOperationException("DisunityUiDraw layout");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_colors_present").ToInt32() != 56) throw new InvalidOperationException("DisunityUiDraw.corner_colors_present offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_0_r").ToInt32() != 60) throw new InvalidOperationException("DisunityUiDraw.corner_0_r offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_0_g").ToInt32() != 64) throw new InvalidOperationException("DisunityUiDraw.corner_0_g offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_0_b").ToInt32() != 68) throw new InvalidOperationException("DisunityUiDraw.corner_0_b offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_0_a").ToInt32() != 72) throw new InvalidOperationException("DisunityUiDraw.corner_0_a offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_1_r").ToInt32() != 76) throw new InvalidOperationException("DisunityUiDraw.corner_1_r offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_1_g").ToInt32() != 80) throw new InvalidOperationException("DisunityUiDraw.corner_1_g offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_1_b").ToInt32() != 84) throw new InvalidOperationException("DisunityUiDraw.corner_1_b offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_1_a").ToInt32() != 88) throw new InvalidOperationException("DisunityUiDraw.corner_1_a offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_2_r").ToInt32() != 92) throw new InvalidOperationException("DisunityUiDraw.corner_2_r offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_2_g").ToInt32() != 96) throw new InvalidOperationException("DisunityUiDraw.corner_2_g offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_2_b").ToInt32() != 100) throw new InvalidOperationException("DisunityUiDraw.corner_2_b offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_2_a").ToInt32() != 104) throw new InvalidOperationException("DisunityUiDraw.corner_2_a offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_3_r").ToInt32() != 108) throw new InvalidOperationException("DisunityUiDraw.corner_3_r offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_3_g").ToInt32() != 112) throw new InvalidOperationException("DisunityUiDraw.corner_3_g offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_3_b").ToInt32() != 116) throw new InvalidOperationException("DisunityUiDraw.corner_3_b offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("corner_3_a").ToInt32() != 120) throw new InvalidOperationException("DisunityUiDraw.corner_3_a offset");
+        if (Marshal.SizeOf<DisunityUiDraw>() != 128 || typeof(DisunityUiDraw).GetFields().Length != 29) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 9;
+    internal const uint Version = 10;
 }

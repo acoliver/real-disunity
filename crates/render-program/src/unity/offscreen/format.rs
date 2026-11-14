@@ -3,6 +3,10 @@
 
 use super::error::OffscreenError;
 
+/// The `GraphicsFormat` codes offscreen work draws into and samples: every code of the
+/// [`color_format`] table. A player reports these as the render formats its device supports.
+pub const RENDER_FORMATS: [u32; 7] = [4, 5, 8, 45, 48, 49, 52];
+
 /// The wgpu format of an engine `GraphicsFormat` code.
 pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenError> {
     Ok(match code {
@@ -11,6 +15,7 @@ pub(crate) fn color_format(code: u32) -> Result<wgpu::TextureFormat, OffscreenEr
         8 => wgpu::TextureFormat::Rgba8Unorm,
         45 => wgpu::TextureFormat::R16Float,
         48 => wgpu::TextureFormat::Rgba16Float,
+        49 => wgpu::TextureFormat::R32Float,
         52 => wgpu::TextureFormat::Rgba32Float,
         _ => return Err(OffscreenError::UnsupportedFormat { code }),
     })
@@ -62,6 +67,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_render_formats_are_exactly_the_color_table() {
+        let mapped: Vec<u32> = (0..256)
+            .filter(|&code| color_format(code).is_ok())
+            .collect();
+        assert_eq!(mapped, RENDER_FORMATS);
+    }
+
+    #[test]
     fn the_formats_with_a_test_map_to_their_wgpu_formats() {
         for (code, format) in [
             (4, wgpu::TextureFormat::Rgba8UnormSrgb),
@@ -69,6 +82,7 @@ mod tests {
             (8, wgpu::TextureFormat::Rgba8Unorm),
             (45, wgpu::TextureFormat::R16Float),
             (48, wgpu::TextureFormat::Rgba16Float),
+            (49, wgpu::TextureFormat::R32Float),
             (52, wgpu::TextureFormat::Rgba32Float),
         ] {
             assert_eq!(color_format(code).unwrap(), format);
@@ -129,7 +143,7 @@ mod tests {
     #[test]
     fn other_formats_are_named_errors_with_their_code() {
         // Rgb8 has no wgpu format; 93 is a depth format, which is not a color format.
-        for code in [0, 7, 49, 93, 101, 4000] {
+        for code in [0, 7, 50, 93, 101, 4000] {
             assert!(matches!(
                 color_format(code),
                 Err(OffscreenError::UnsupportedFormat { code: found }) if found == code

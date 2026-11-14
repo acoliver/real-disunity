@@ -1,7 +1,7 @@
 //! The body draw's use of the program runtime: which frames it accepts, and how much it builds.
 //!
-//! The captures in `capture_tests` establish that the program route writes the bytes the frozen
-//! fixed path writes. These tests establish what the captures cannot see: that a feature refuses
+//! The captures in `capture_tests` establish that the program route draws the bodies into the
+//! scene colour, receivers and depth. These tests establish what the captures cannot see: that a feature refuses
 //! a frame of another submission authority, that each body prepares exactly one draw per
 //! feature, and that programs, modules and pipelines are built once per key and reused by later
 //! features.
@@ -164,4 +164,32 @@ fn programs_carry_the_override_constants_of_both_stages() {
             "WATER_TERMS reaches the vertex stage exactly when wind or vertex seeds ask for it"
         );
     }
+}
+
+/// A key whose text reads endpoint coordinates, for a body that has none, is refused as an error
+/// rather than a panic: the endpoint bit and the body's seed are set in different places.
+#[test]
+fn an_endpoint_text_for_a_body_without_coordinates_is_refused() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test().unwrap();
+    let vertices = context.device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("water vertices"),
+        size: 64,
+        usage: wgpu::BufferUsages::VERTEX,
+        mapped_at_creation: false,
+    });
+    assert!(matches!(
+        crate::water::program::vertex_inputs((&vertices, None), true),
+        Err(ProgramError::VertexBufferCount {
+            expected: 2,
+            found: 1
+        })
+    ));
+    assert_eq!(
+        crate::water::program::vertex_inputs((&vertices, None), false)
+            .unwrap()
+            .len(),
+        1,
+        "without the endpoint text the body draws from its vertices alone"
+    );
 }

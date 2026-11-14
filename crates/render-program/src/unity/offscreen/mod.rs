@@ -17,6 +17,7 @@ mod list_steps;
 mod meshes;
 mod plan;
 mod probe;
+mod procedural;
 mod readback;
 mod resample;
 mod steps;
@@ -53,6 +54,7 @@ use textures::TextureTable;
 use tracker::Tracker;
 
 pub use error::OffscreenError;
+pub use format::RENDER_FORMATS;
 pub use probe::{
     CONSTANT_COLOR, CameraProbe, ClipCounts, MemberOrigin, Origin, PassSetup, ProgramProbe,
     SampledTexture, StateVariant, TriangleCounts,

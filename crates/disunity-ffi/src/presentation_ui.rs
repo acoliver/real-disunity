@@ -23,6 +23,14 @@ fn validate_draw(draw: &UiDraw, previous: Option<&UiDraw>) -> Result<(), crate::
     if previous.is_some_and(|before| draw_order(before) > draw_order(draw)) {
         return Err("presentation UI draw order is descending".into());
     }
+    if draw.corner_colors.is_some_and(|colors| {
+        colors
+            .into_iter()
+            .flatten()
+            .any(|v| !v.is_finite() || !(0. ..=1.).contains(&v))
+    }) {
+        return Err("presentation UI corner_colors must be finite channels in 0..=1".into());
+    }
     let [x, y, width, height] = draw.clip_rect;
     if x.checked_add(width).is_none() || y.checked_add(height).is_none() {
         return Err("presentation UI clip bounds overflow".into());
@@ -47,6 +55,24 @@ pub struct DisunityUiDraw {
     pub triangle_v1: f32,
     pub triangle_u2: f32,
     pub triangle_v2: f32,
+    /// Zero for white corners, one for explicit linear RGBA in BL/BR/TR/TL order.
+    pub corner_colors_present: u32,
+    pub corner_0_r: f32,
+    pub corner_0_g: f32,
+    pub corner_0_b: f32,
+    pub corner_0_a: f32,
+    pub corner_1_r: f32,
+    pub corner_1_g: f32,
+    pub corner_1_b: f32,
+    pub corner_1_a: f32,
+    pub corner_2_r: f32,
+    pub corner_2_g: f32,
+    pub corner_2_b: f32,
+    pub corner_2_a: f32,
+    pub corner_3_r: f32,
+    pub corner_3_g: f32,
+    pub corner_3_b: f32,
+    pub corner_3_a: f32,
 }
 
 /// # Safety
@@ -103,34 +129,8 @@ pub unsafe extern "C" fn disunity_presentation_ui_draw(
             .get(index)
             .ok_or("presentation UI draw index out of range")?;
         validate_draw(draw, index.checked_sub(1).and_then(|i| ui.draws.get(i)))?;
-        let [clip_x, clip_y, clip_width, clip_height] = draw.clip_rect;
-        let [
-            [triangle_u0, triangle_v0],
-            [triangle_u1, triangle_v1],
-            [triangle_u2, triangle_v2],
-        ] = draw.triangle_uv.unwrap_or([[0.; 2]; 3]);
         unsafe {
-            *output = DisunityUiDraw {
-                kind: (if draw.triangle_uv.is_some() {
-                    2
-                } else {
-                    match draw.kind {
-                        UiDrawKind::Graphic => 0,
-                        UiDrawKind::Text => 1,
-                    }
-                }) | (u32::from(draw.depth_test) << 2),
-                hierarchy_order: draw.hierarchy_order as u64,
-                clip_x,
-                clip_y,
-                clip_width,
-                clip_height,
-                triangle_u0,
-                triangle_v0,
-                triangle_u1,
-                triangle_v1,
-                triangle_u2,
-                triangle_v2,
-            };
+            *output = encode_metadata(draw);
             *quad = encode(draw);
         }
         Ok(())
@@ -158,6 +158,59 @@ pub unsafe extern "C" fn disunity_presentation_ui_coverage(
             .ok_or("presentation UI texture index out of range")?;
         unsafe { crate::presentation::copy_coverage(*identity, texture, output, bytes, capacity) }
     })
+}
+
+fn encode_metadata(draw: &UiDraw) -> DisunityUiDraw {
+    let [clip_x, clip_y, clip_width, clip_height] = draw.clip_rect;
+    let [
+        [triangle_u0, triangle_v0],
+        [triangle_u1, triangle_v1],
+        [triangle_u2, triangle_v2],
+    ] = draw.triangle_uv.unwrap_or([[0.; 2]; 3]);
+    let [
+        [corner_0_r, corner_0_g, corner_0_b, corner_0_a],
+        [corner_1_r, corner_1_g, corner_1_b, corner_1_a],
+        [corner_2_r, corner_2_g, corner_2_b, corner_2_a],
+        [corner_3_r, corner_3_g, corner_3_b, corner_3_a],
+    ] = draw.corner_colors.unwrap_or([[1.; 4]; 4]);
+    DisunityUiDraw {
+        kind: (if draw.triangle_uv.is_some() {
+            2
+        } else {
+            match draw.kind {
+                UiDrawKind::Graphic => 0,
+                UiDrawKind::Text => 1,
+            }
+        }) | (u32::from(draw.depth_test) << 2),
+        hierarchy_order: draw.hierarchy_order as u64,
+        clip_x,
+        clip_y,
+        clip_width,
+        clip_height,
+        triangle_u0,
+        triangle_v0,
+        triangle_u1,
+        triangle_v1,
+        triangle_u2,
+        triangle_v2,
+        corner_colors_present: u32::from(draw.corner_colors.is_some()),
+        corner_0_r,
+        corner_0_g,
+        corner_0_b,
+        corner_0_a,
+        corner_1_r,
+        corner_1_g,
+        corner_1_b,
+        corner_1_a,
+        corner_2_r,
+        corner_2_g,
+        corner_2_b,
+        corner_2_a,
+        corner_3_r,
+        corner_3_g,
+        corner_3_b,
+        corner_3_a,
+    }
 }
 
 fn encode(draw: &UiDraw) -> DisunityQuad {

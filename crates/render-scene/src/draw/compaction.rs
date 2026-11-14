@@ -160,6 +160,27 @@ impl SceneGpu {
         }
     }
 
+    /// Selects together every view in `views` whose gathered instances `context`'s transaction
+    /// must restage, so `prepare_view_compaction` then finds each selection built.
+    pub(crate) fn select_stale_views(
+        &self,
+        context: &PrepareContext<'_>,
+        views: &[Option<(u32, Mat4)>],
+        frame: &FrameUniform,
+    ) {
+        let owner = context.publications();
+        let stale: Vec<_> = views
+            .iter()
+            .copied()
+            .filter(|&shadow_matrix| {
+                let compaction = &self.views[selection_reuse::view_index(shadow_matrix)].compaction;
+                compaction.state_in(Some(&owner)).key
+                    != Some(self.compaction_key(shadow_matrix, frame))
+            })
+            .collect();
+        self.select_views(&stale, frame);
+    }
+
     /// Gathers a view's selected instances for the draws of the transaction that `context`
     /// belongs to. Call after the instance uploads and the frame are staged in `context`.
     /// Nothing is staged while the view's compaction key is unchanged.

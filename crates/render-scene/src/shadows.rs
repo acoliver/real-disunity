@@ -745,6 +745,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.select_views(context);
         self.gpu.prepare_view_compaction(context, None, &self.frame);
         self.prepare_cascade_compaction(context);
         // Each light view has its own immutable uniform range; billboards keep the main eye.

@@ -2,10 +2,14 @@ use super::*;
 use crate::draw::lod_material::FixedSink;
 use crate::draw::object_runtime::PreparedSink;
 use crate::pipeline::PipelineKey;
+use crate::scene_metadata::{MetadataOutput, SceneMetadata};
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Kind {
     Forward,
+    Velocity,
+    Reflections,
+    Metadata,
     Shadow,
 }
 
@@ -18,6 +22,7 @@ pub(super) enum Cull {
 
 struct Setup {
     pipelines: ScenePipelines,
+    group: Option<wgpu::BindGroup>,
     formats: Vec<TextureFormat>,
     shadow: Option<[wgpu::RenderPipeline; PipelineKey::ALL.len()]>,
 }
@@ -27,18 +32,71 @@ impl Setup {
         let hdr = TextureFormat::Rgba16Float;
         let mut setup = Self {
             pipelines: ScenePipelines::new(device, hdr),
+            group: None,
             formats: vec![hdr],
             shadow: None,
         };
-        if matches!(kind, Kind::Shadow) {
-            setup.shadow = Some(crate::shadows::wind_test_pipelines(
-                device,
-                &setup.pipelines,
-            ));
-            setup.formats.clear();
+        match kind {
+            Kind::Forward => (),
+            Kind::Velocity => {
+                setup.pipelines = ScenePipelines::with_taa_velocity(device, hdr, 1).unwrap();
+                setup.formats.push(worldrunner_render_post::VELOCITY_FORMAT);
+            }
+            Kind::Reflections => {
+                let screen =
+                    SceneMetadata::new(device, [TARGET; 2], crate::ssr::neutral_ao()).unwrap();
+                let maps = crate::water::receivers::empty_environment(device);
+                setup.group = Some(crate::ssr::forward::group(
+                    device, &screen, &maps, 1_000_000,
+                ));
+                let (object, terrain) = crate::ssr::forward::velocity_sources(
+                    (crate::shader::ENVIRONMENT_WGSL, crate::shader::TERRAIN_WGSL),
+                    true,
+                    false,
+                );
+                setup.pipelines = ScenePipelines::with_screen_space(
+                    device,
+                    (hdr, 1),
+                    &object,
+                    &terrain,
+                    None,
+                    Some(&crate::ssr::forward::layout(device)),
+                );
+                setup.formats = vec![hdr, hdr, hdr, worldrunner_render_post::VELOCITY_FORMAT];
+            }
+            Kind::Metadata => {
+                let uniform = metadata_uniform(device);
+                let (pipelines, group) =
+                    crate::scene_metadata::pipelines(device, &uniform, MetadataOutput::Merged);
+                setup.pipelines = pipelines;
+                setup.group = Some(group);
+                setup.formats = vec![hdr; 2];
+            }
+            Kind::Shadow => {
+                setup.shadow = Some(crate::shadows::wind_test_pipelines(
+                    device,
+                    &setup.pipelines,
+                ));
+                setup.formats.clear();
+            }
         }
         setup
     }
+}
+
+fn metadata_uniform(device: &Device) -> Buffer {
+    use wgpu::util::DeviceExt;
+    let bytes: Vec<_> = [glam::Mat4::IDENTITY; 3]
+        .into_iter()
+        .flat_map(|matrix| matrix.to_cols_array())
+        .chain([0.0; 8])
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("fade fixture metadata camera"),
+        contents: &bytes,
+        usage: BufferUsages::UNIFORM,
+    })
 }
 
 fn attachment(device: &Device, format: TextureFormat) -> Texture {
@@ -122,6 +180,9 @@ pub(super) fn capture(
             multiview_mask: None,
         });
         pass.set_bind_group(0, &gpu.frame_group, &[]);
+        if let Some(group) = &setup.group {
+            pass.set_bind_group(3, group, &[]);
+        }
         if let Some(pipelines) = &setup.shadow {
             let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)

@@ -1,5 +1,6 @@
 use super::*;
 use crate::draw::lod_material::FixedSink;
+use crate::draw::object_runtime::PreparedSink;
 use crate::pipeline::PipelineKey;
 use crate::scene_metadata::{MetadataOutput, SceneMetadata};
 
@@ -160,6 +161,7 @@ pub(super) fn capture(
     if cull == Cull::ForceEmpty {
         selected.ranges.clear();
     }
+    let forward = gpu.selected_pipelines(&setup.pipelines, &frame);
     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor::default());
     let count = {
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -186,8 +188,7 @@ pub(super) fn capture(
             gpu.record_selection(&mut sink, (shadow, &frame), &selected.ranges)
                 .total()
         } else {
-            let pipelines = setup.pipelines.object_pipelines();
-            let mut sink = FixedSink::new(&mut pass, pipelines, &gpu.materials);
+            let mut sink = PreparedSink::new(&mut pass, &gpu.objects, forward.object_context());
             gpu.record_selection(&mut sink, (None, &frame), &selected.ranges)
                 .total()
         }

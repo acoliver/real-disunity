@@ -158,20 +158,19 @@ impl Rig {
         self.gpu.views[0].compaction.observed.compacted_draws.get()
     }
 
-    /// Records the committed camera selection again into a command tally, as the colour pass
-    /// recorded it, and returns the indexed draws the tally saw with what the recorder counted.
+    /// Records the committed camera selection again into a command tally, through the program
+    /// runtime with the pipelines the colour pass selected, and returns the indexed draws the
+    /// tally saw with what the recorder counted.
     fn recorded_draws(&self) -> (u64, crate::draw::ObjectDraws) {
         let mut tally = crate::object::cost_tests::Tally::default();
         let frame_group = self.gpu.drawing_frame_group();
-        let view = self.gpu.begin_objects(&mut tally, &frame_group, None);
-        let mut sink = crate::draw::lod_material::FixedSink::new(
-            &mut tally,
-            self.pipelines.object_pipelines(),
-            &self.gpu.materials,
-        );
-        let drawn =
-            self.gpu
-                .record_selection(&mut sink, (None, &view.frame), &view.selection.ranges);
+        let selected = self
+            .gpu
+            .selected_pipelines(&self.pipelines, &self.gpu.drawing_uniform());
+        let drawn = self
+            .gpu
+            .draw_objects_prepared(&mut tally, &frame_group, selected.object_context())
+            .objects;
         (u64::from(tally.0.draws), drawn)
     }
 }

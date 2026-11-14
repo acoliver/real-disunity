@@ -86,9 +86,8 @@ fn every_capture_term_draws_terrain_on_the_runtime_in_every_replay() {
     }
 }
 
-/// A capture compares bytes with the frozen path, which a fixed-path draw reproduces, so the
-/// recording itself is what the capture checks. This is the claim that a capture over which the
-/// runtime recorded nothing is refused.
+/// A capture checks that the runtime recorded the terrain. This is the claim that a capture over
+/// which the runtime recorded nothing is refused.
 #[test]
 #[should_panic(expected = "terrain was not recorded through the program runtime")]
 fn a_capture_over_which_the_runtime_recorded_nothing_is_refused() {

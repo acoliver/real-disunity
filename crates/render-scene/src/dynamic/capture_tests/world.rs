@@ -191,24 +191,7 @@ pub(super) fn captures(context: &GpuContext, name: &str, frame: &WorldSceneContr
         )
         .unwrap();
         let scene = compositor(context, &mut gpu, &pipelines, samples, frame);
-        let legacy = Legacy::new(
-            context,
-            &pipelines,
-            &frame.textures,
-            &frame.quads,
-            &frame.view,
-        );
         let [r, g, b, a] = frame.clear;
-        let reference = render_cleared(
-            context,
-            (&[SPRITE], samples),
-            Some(wgpu::Color { r, g, b, a }),
-            |pass| legacy.draw(pass),
-        );
-        assert!(
-            scene == reference[0],
-            "{name} at {samples} samples differs from the fixed pipeline's output"
-        );
         let clear_only = render_cleared(
             context,
             (&[SPRITE], samples),

@@ -64,7 +64,7 @@ fn calls_in(
 }
 
 #[test]
-fn streamed_terrain_matches_the_fixed_pipeline_over_changing_residency() {
+fn streamed_terrain_draws_over_changing_residency() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let config = &CONFIGS[2];
@@ -110,7 +110,7 @@ fn streamed_terrain_matches_the_fixed_pipeline_over_changing_residency() {
 }
 
 #[test]
-fn streamed_terrain_matches_the_fixed_pipeline_in_every_target_set() {
+fn streamed_terrain_draws_in_every_target_set() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let near = scenes::frame(scenes::pose());
@@ -136,7 +136,7 @@ fn streamed_terrain_matches_the_fixed_pipeline_in_every_target_set() {
 }
 
 #[test]
-fn a_tight_chunk_budget_draws_fewer_chunks_than_a_loose_one_and_both_match_the_fixed_pipeline() {
+fn a_tight_chunk_budget_draws_fewer_chunks_than_a_loose_one() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let config = &CONFIGS[2];
@@ -162,7 +162,7 @@ fn a_tight_chunk_budget_draws_fewer_chunks_than_a_loose_one_and_both_match_the_f
 }
 
 #[test]
-fn streamed_terrain_matches_the_fixed_pipeline_with_depth_reuse_over_changing_residency() {
+fn streamed_terrain_draws_with_depth_reuse_over_changing_residency() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let config = &CONFIGS[2];

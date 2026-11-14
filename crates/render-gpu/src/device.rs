@@ -105,9 +105,18 @@ pub async fn request_device(
 
 /// Uses the native primary APIs by default, respecting WGPU_* diagnostic overrides.
 pub fn headless_instance() -> wgpu::Instance {
-    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle().with_env();
+    wgpu::Instance::new(headless_descriptor(wgpu::InstanceFlags::default()))
+}
+
+/// The headless descriptor starting from `flags`; WGPU_* variables still override each flag.
+pub(crate) fn headless_descriptor(flags: wgpu::InstanceFlags) -> wgpu::InstanceDescriptor {
+    let mut descriptor = wgpu::InstanceDescriptor {
+        flags,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    }
+    .with_env();
     if std::env::var_os("WGPU_BACKEND").is_none() {
         descriptor.backends = wgpu::Backends::PRIMARY;
     }
-    wgpu::Instance::new(descriptor)
+    descriptor
 }

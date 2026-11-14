@@ -1,6 +1,7 @@
+use super::buses::Routing;
 use super::{
-    AudioCommand, AudioError, AudioReply, Clip, ClipHandle, MAX_CLIPS, MAX_DECODED_BYTES,
-    MAX_VOICES, Owner, VoiceHandle, small_float, validate_gain, validate_rate,
+    AudioCommand, AudioError, AudioReply, BusConfig, Clip, ClipHandle, DuckingRule, MAX_CLIPS,
+    MAX_DECODED_BYTES, MAX_VOICES, Owner, VoiceHandle, small_float, validate_gain, validate_rate,
 };
 use std::{collections::VecDeque, sync::Arc};
 
@@ -9,6 +10,7 @@ struct Voice {
     clip: Clip,
     position: u64,
     gain: f32,
+    bus: Option<usize>,
 }
 
 /// Linear interpolation with a held final sample, integer rational phase and
@@ -25,6 +27,7 @@ pub struct AudioMixer {
     generation: u64,
     master: f32,
     muted: bool,
+    routing: Routing,
 }
 impl AudioMixer {
     pub fn new(output_rate: u32) -> Result<Self, AudioError> {
@@ -39,6 +42,7 @@ impl AudioMixer {
             generation: 0,
             master: 1.0,
             muted: false,
+            routing: Routing::default(),
         })
     }
     pub fn output_rate(&self) -> u32 {
@@ -54,6 +58,7 @@ impl AudioMixer {
             return Err(AudioError::OutputBusy);
         }
         self.rate = rate;
+        self.routing.reset(self.rate);
         Ok(())
     }
     pub fn occupied_voices(&self) -> usize {
@@ -77,6 +82,29 @@ impl AudioMixer {
         Ok(handle)
     }
     pub fn play(&mut self, clip: &ClipHandle, gain: f32) -> Result<VoiceHandle, AudioError> {
+        self.admit_voice(clip, gain, None)
+    }
+    pub fn play_on_bus(
+        &mut self,
+        clip: &ClipHandle,
+        gain: f32,
+        bus: &str,
+    ) -> Result<VoiceHandle, AudioError> {
+        let index = self.routing.index(bus)?;
+        self.admit_voice(clip, gain, Some(index))
+    }
+    pub fn configure_bus(&mut self, name: &str, config: BusConfig) -> Result<(), AudioError> {
+        self.routing.configure(name, config)
+    }
+    pub fn replace_ducking_rules(&mut self, rules: Vec<DuckingRule>) -> Result<(), AudioError> {
+        self.routing.replace(rules, self.rate)
+    }
+    fn admit_voice(
+        &mut self,
+        clip: &ClipHandle,
+        gain: f32,
+        bus: Option<usize>,
+    ) -> Result<VoiceHandle, AudioError> {
         validate_gain(gain)?;
         if clip.owner != self.owner {
             return Err(AudioError::UnknownClip);
@@ -97,6 +125,7 @@ impl AudioMixer {
             clip: self.clips[clip.index].clone(),
             position: 0,
             gain,
+            bus,
         });
         Ok(handle)
     }
@@ -119,6 +148,17 @@ impl AudioMixer {
     pub fn command(&mut self, command: AudioCommand) -> Result<AudioReply, AudioError> {
         Ok(match command {
             AudioCommand::Play { clip, gain } => AudioReply::Playing(self.play(&clip, gain)?),
+            AudioCommand::PlayOnBus { clip, gain, bus } => {
+                AudioReply::Playing(self.play_on_bus(&clip, gain, &bus)?)
+            }
+            AudioCommand::ConfigureBus { name, config } => {
+                self.configure_bus(&name, config)?;
+                AudioReply::Applied
+            }
+            AudioCommand::DuckingRules(rules) => {
+                self.replace_ducking_rules(rules)?;
+                AudioReply::Applied
+            }
             AudioCommand::Stop(voice) => AudioReply::Stopped(self.stop(&voice)),
             AudioCommand::MasterGain(gain) => {
                 self.set_master_gain(gain)?;
@@ -136,13 +176,12 @@ impl AudioMixer {
     pub fn clear_voices(&mut self) {
         self.voices.clear();
         self.finished.clear();
+        self.routing.reset(self.rate);
     }
     pub fn render(&mut self, output: &mut [[f32; 2]]) {
         for frame in output {
             *frame = [0.0; 2];
-            for voice in &mut self.voices {
-                add_voice(frame, voice, self.rate);
-            }
+            self.mix_frame(frame);
             for sample in frame {
                 *sample = if self.muted {
                     0.0
@@ -161,18 +200,38 @@ impl AudioMixer {
             }
         }
     }
+    fn mix_frame(&mut self, frame: &mut [f32; 2]) {
+        let mut samples = [[0.0; 2]; MAX_VOICES];
+        self.routing.begin_frame();
+        for (voice, sample) in self.voices.iter_mut().zip(&mut samples) {
+            *sample = voice_sample(voice, self.rate);
+            if let Some(bus) = voice.bus {
+                self.routing.observe(bus, *sample);
+            }
+        }
+        self.routing.advance();
+        for (voice, sample) in self.voices.iter().zip(samples) {
+            for channel in 0..2 {
+                frame[channel] += if let Some(bus) = voice.bus {
+                    sample[channel] * self.routing.gain(bus)
+                } else {
+                    sample[channel]
+                };
+            }
+        }
+    }
 }
-fn add_voice(frame: &mut [f32; 2], voice: &mut Voice, rate: u32) {
+fn voice_sample(voice: &mut Voice, rate: u32) -> [f32; 2] {
     let index = usize::try_from(voice.position / u64::from(rate)).expect("bounded clip position");
     let samples = voice.clip.samples();
     let next = (index + 1).min(samples.len() - 1);
     let fraction =
         small_float(u32::try_from(voice.position % u64::from(rate)).expect("rate remainder"))
             / small_float(rate);
-    for channel in 0..2 {
-        frame[channel] += (samples[index][channel]
-            + (samples[next][channel] - samples[index][channel]) * fraction)
-            * voice.gain;
-    }
+    let frame = std::array::from_fn(|channel| {
+        (samples[index][channel] + (samples[next][channel] - samples[index][channel]) * fraction)
+            * voice.gain
+    });
     voice.position += u64::from(voice.clip.sample_rate());
+    frame
 }

@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "gpu_tests.rs"]
+mod tests;
+
 use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
@@ -342,6 +346,14 @@ impl DynamicGpu {
             pass.set_vertex_buffer(0, draw.resources.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.resources.instance.slice(..));
             pass.set_vertex_buffer(2, draw.resources.tint.slice(..));
+            pass.set_vertex_buffer(
+                3,
+                draw.resources
+                    .corner_colors
+                    .as_ref()
+                    .expect("overlay quads carry corner colours")
+                    .slice(..),
+            );
             pass.draw_indexed(0..draw.resources.index_count, 0, 0..draw.instance_count);
             count.draw(u64::from(draw.instance_count));
             if draw.depth_test {
@@ -447,6 +459,15 @@ impl QuadDraw {
                 &instances,
             ),
             tint: upload_buffer(device, queue, "dynamic tints", BufferUsages::VERTEX, &tints),
+            corner_colors: bindings.overlay_layout.map(|_| {
+                upload_buffer(
+                    device,
+                    queue,
+                    "overlay corner colours",
+                    BufferUsages::VERTEX,
+                    &pack_corner_colors(quad),
+                )
+            }),
             material: upload_buffer(
                 device,
                 queue,
@@ -560,53 +581,16 @@ fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
         && a.texture == b.texture
         && a.corners == b.corners
         && a.triangle_uv == b.triangle_uv
+        && a.corner_colors == b.corner_colors
         && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
         && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::scissor_rect;
-
-    const SIZE: [u32; 2] = [32, 16];
-
-    #[test]
-    fn no_clip_scissors_to_the_whole_target() {
-        assert_eq!(scissor_rect(None, SIZE), Some([0, 0, 32, 16]));
-        assert_eq!(
-            scissor_rect(Some([0, 0, 32, 16]), SIZE),
-            Some([0, 0, 32, 16])
-        );
-    }
-
-    #[test]
-    fn a_lower_left_clip_becomes_a_rectangle_measured_from_the_top() {
-        // A rectangle on the bottom edge sits at the target's last rows.
-        assert_eq!(
-            scissor_rect(Some([2, 0, 10, 4]), SIZE),
-            Some([2, 12, 10, 4])
-        );
-        assert_eq!(scissor_rect(Some([6, 3, 8, 5]), SIZE), Some([6, 8, 8, 5]));
-    }
-
-    #[test]
-    fn a_clip_past_the_target_is_cut_to_it() {
-        assert_eq!(
-            scissor_rect(Some([8, 4, 100, 100]), SIZE),
-            Some([8, 0, 24, 12])
-        );
-    }
-
-    #[test]
-    fn a_clip_with_nothing_of_the_target_in_it_has_no_rectangle() {
-        for clip in [
-            [40, 0, 8, 8],
-            [32, 4, 4, 4],
-            [0, 16, 4, 4],
-            [4, 4, 0, 4],
-            [4, 4, 4, 0],
-        ] {
-            assert_eq!(scissor_rect(Some(clip), SIZE), None, "{clip:?}");
-        }
-    }
+fn pack_corner_colors(quad: &DynamicQuad) -> Vec<u8> {
+    let count = if quad.triangle_uv.is_some() { 3 } else { 4 };
+    quad.corner_colors.unwrap_or([[1.; 4]; 4])[..count]
+        .iter()
+        .flatten()
+        .flat_map(|v| v.to_le_bytes())
+        .collect()
 }

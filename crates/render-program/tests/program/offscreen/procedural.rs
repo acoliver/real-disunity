@@ -14,6 +14,7 @@ use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::UndeclaredDefaultDraws;
 use worldrunner_render_program::unity::offscreen::frame::{
     Attachment, Attachments, Clear, Material, OffscreenFrame, ProceduralDraw, Record,
+    UndeclaredTextures,
 };
 use worldrunner_render_program::unity::shader::{PassSelector, ProgramShader};
 use worldrunner_render_program::unity::synthetic::shaders::{no_cull, variant};
@@ -164,7 +165,10 @@ fn grey_rig(undeclared: Option<TextureId>) -> (Rig, OffscreenFrame) {
         render_textures: vec![texture(10, [4, 4])],
         materials: BTreeMap::from([(MaterialId(2), material(TEST, [1.0; 4], 0.0))]),
         records: vec![clear(CLEAR.map(|c| f64::from(c) / 255.0)), draw(2)],
-        undeclared_texture: undeclared,
+        undeclared_textures: UndeclaredTextures {
+            d2: undeclared,
+            ..UndeclaredTextures::default()
+        },
         ..OffscreenFrame::default()
     };
     (rig, frame)

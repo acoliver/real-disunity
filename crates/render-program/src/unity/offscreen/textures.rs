@@ -13,7 +13,7 @@ use crate::sampler::SamplerState;
 
 use super::error::OffscreenError;
 use super::format::{depth_format, depth_format_with_stencil, render_color_format, source_format};
-use super::frame::{RenderDimension, RenderTextureSpec, SourceTexture};
+use super::frame::{RenderDimension, RenderTextureSpec, SourceDimension, SourceTexture};
 
 /// A texture of the state and what its color and depth storage is.
 pub(super) struct TextureInfo {
@@ -77,14 +77,38 @@ impl TextureTable {
         source: &SourceTexture,
     ) -> Result<(), OffscreenError> {
         let format = source_format(source.graphics_format)?;
-        let color =
-            runtime.create_texture_2d("offscreen source", source.size, format, &source.bytes)?;
+        let (color, dimension) = match source.dimension {
+            SourceDimension::D2 => (
+                runtime.create_texture_2d(
+                    "offscreen source",
+                    source.size,
+                    format,
+                    &source.bytes,
+                )?,
+                RenderDimension::D2,
+            ),
+            SourceDimension::Cube => {
+                if source.size[0] != source.size[1] {
+                    return Err(OffscreenError::CubeShape {
+                        id: source.id,
+                        reason: "is square",
+                    });
+                }
+                let color = runtime.create_texture_cube(
+                    "offscreen source cube",
+                    source.size[0],
+                    format,
+                    &source.bytes,
+                )?;
+                (color, RenderDimension::Cube)
+            }
+        };
         let info = TextureInfo {
             color: Some(color),
             depth: None,
             size: source.size,
-            layers: 1,
-            dimension: RenderDimension::D2,
+            layers: dimension.layers(),
+            dimension,
             mips: 1,
             format,
             depth_format: None,

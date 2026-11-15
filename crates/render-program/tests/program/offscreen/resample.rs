@@ -6,7 +6,7 @@ use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_render_program::unity::offscreen::OffscreenError;
 use worldrunner_render_program::unity::offscreen::frame::{
-    OffscreenFrame, Record, RenderTextureSpec, SourceTexture,
+    OffscreenFrame, Record, RenderTextureSpec, SourceDimension, SourceTexture,
 };
 
 use super::rig::{BLUE, RED, Rig, image, pixel, texture};
@@ -45,6 +45,7 @@ fn upload(rig: &mut Rig, source: &SourceTexture) {
 fn texels(size: [u32; 2], graphics_format: u32, bytes: Vec<u8>) -> SourceTexture {
     SourceTexture {
         id: SOURCE,
+        dimension: SourceDimension::D2,
         size,
         graphics_format,
         bytes,

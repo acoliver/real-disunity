@@ -292,14 +292,37 @@ pub struct OffscreenFrame {
     pub later_reads: Vec<ReadRange>,
     /// The camera renders to examine in detail; none by default.
     pub probe: CameraProbe,
-    /// The texture a texture slot reads when no layer sets it and the shader does not declare it:
-    /// Unity binds its grey default 2D texture (RGBA 0.5 0.5 0.5 1) there. The host uploads it as
-    /// it does any source texture. A draw that reads it is counted by property in
+    /// The textures a texture slot reads when no layer sets it and the shader does not declare
+    /// it: Unity binds its grey default texture of the slot's dimension there. The host uploads
+    /// each as it does any source texture. A draw that reads one is counted by property in
     /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
-    /// Only a slot that samples a 2D float texture reads it. A property the shader declares, and
-    /// a depth, cube or array slot, are missing as before. With `None`, which is the default,
-    /// every slot no layer sets is missing.
-    pub undeclared_texture: Option<TextureId>,
+    /// Only a single-sampled float slot of a dimension that has a default here reads it. A
+    /// property the shader declares, and a depth, multisampled or array slot, are missing as
+    /// before. Without a default for a dimension, which is the default, every slot of that
+    /// dimension no layer sets is missing.
+    pub undeclared_textures: UndeclaredTextures,
+}
+
+/// The texture an unset, undeclared slot reads, by the view dimension of the slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UndeclaredTextures {
+    /// For a slot that samples a 2D texture. Unity's grey default 2D texture is RGBA
+    /// 0.5 0.5 0.5 1.
+    pub d2: Option<TextureId>,
+    /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
+    /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.
+    pub cube: Option<TextureId>,
+}
+
+impl UndeclaredTextures {
+    /// The default for a slot that samples through `view`, if the frame names one.
+    pub(super) fn for_view(self, view: wgpu::TextureViewDimension) -> Option<TextureId> {
+        match view {
+            wgpu::TextureViewDimension::D2 => self.d2,
+            wgpu::TextureViewDimension::Cube => self.cube,
+            _ => None,
+        }
+    }
 }
 
 impl Default for OffscreenFrame {
@@ -316,15 +339,28 @@ impl Default for OffscreenFrame {
             records: Vec::new(),
             later_reads: Vec::new(),
             probe: CameraProbe::default(),
-            undeclared_texture: None,
+            undeclared_textures: UndeclaredTextures::default(),
         }
     }
+}
+
+/// The shape of an uploaded source texture.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SourceDimension {
+    /// A plain 2D texture: `bytes` is its one level.
+    #[default]
+    D2,
+    /// A cube of six square faces, sampled through a cube view. `size` is one face, which must be
+    /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
+    /// +Z, -Z, each as a 2D level is.
+    Cube,
 }
 
 /// A texture the host uploads once: uncompressed, one mip.
 #[derive(Clone, Debug)]
 pub struct SourceTexture {
     pub id: TextureId,
+    pub dimension: SourceDimension,
     pub size: [u32; 2],
     pub graphics_format: u32,
     pub bytes: Vec<u8>,

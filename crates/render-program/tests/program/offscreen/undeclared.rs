@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 use worldrunner_render_program::ids::{MaterialId, ShaderId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
-use worldrunner_render_program::unity::offscreen::frame::{Material, OffscreenFrame, Record};
+use worldrunner_render_program::unity::offscreen::frame::{
+    Material, OffscreenFrame, Record, UndeclaredTextures,
+};
 use worldrunner_render_program::unity::offscreen::{OffscreenError, UndeclaredDefaultDraws};
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::SyntheticShader;
@@ -75,7 +77,10 @@ fn frame(pass: usize, grey: Option<TextureId>) -> OffscreenFrame {
             material: Some(MaterialId(1)),
             pass,
         }],
-        undeclared_texture: grey,
+        undeclared_textures: UndeclaredTextures {
+            d2: grey,
+            ..UndeclaredTextures::default()
+        },
         ..OffscreenFrame::default()
     }
 }

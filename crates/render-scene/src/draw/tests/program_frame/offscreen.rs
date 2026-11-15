@@ -536,3 +536,30 @@ fn the_admitted_work_reports_only_the_written_textures_the_host_exported() {
     );
     recording.finish().cancel();
 }
+
+#[test]
+fn a_render_texture_with_a_depth_buffer_exports_its_colour() {
+    let mut fixture = timed();
+    let mut player = player(&mut fixture);
+    let authority = fixture.context.submission().clone();
+    let mut frame = frame();
+    // A's depth buffer is Depth24PlusStencil8; the export must still describe the colour.
+    frame.render_textures[0].depth_bits = 24;
+    let mut operations = player
+        .state
+        .build(&mut player.runtime, &player.arena, &frame)
+        .unwrap();
+    let camera = ResourceRef::new("camera");
+    operations.export(A, 0, 0, camera).unwrap();
+    let recording = authority.begin(fixture.context.device()).unwrap();
+    let admitted = operations.admit(&recording).unwrap();
+    assert_eq!(
+        admitted.produces(),
+        [OperationsOutput::new(
+            camera,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [8, 8]
+        )]
+    );
+    recording.finish().cancel();
+}

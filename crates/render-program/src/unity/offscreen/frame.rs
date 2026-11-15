@@ -293,8 +293,10 @@ pub struct OffscreenFrame {
     /// The camera renders to examine in detail; none by default.
     pub probe: CameraProbe,
     /// The textures a texture slot reads when no layer sets it and the shader does not declare
-    /// it: Unity binds its grey default texture of the slot's dimension there. The host uploads
-    /// each as it does any source texture. A draw that reads one is counted by property in
+    /// it: this engine binds a grey default texture of the slot's dimension there, so a draw
+    /// the Old World player makes with such a slot is drawn and counted instead of left out. The
+    /// host uploads each as it does any source texture. A draw that reads one is counted by
+    /// property in
     /// [`OffscreenOperations::undeclared_default_draws`](super::OffscreenOperations::undeclared_default_draws).
     /// Only a single-sampled float slot of a dimension that has a default here reads it. A
     /// property the shader declares, and a depth, multisampled or array slot, are missing as
@@ -306,8 +308,7 @@ pub struct OffscreenFrame {
 /// The texture an unset, undeclared slot reads, by the view dimension of the slot.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UndeclaredTextures {
-    /// For a slot that samples a 2D texture. Unity's grey default 2D texture is RGBA
-    /// 0.5 0.5 0.5 1.
+    /// For a slot that samples a 2D texture. The host's grey 2D default is RGBA 0.5 0.5 0.5 1.
     pub d2: Option<TextureId>,
     /// For a slot that samples a cube texture, such as the `_BlitCubeTexture` the URP blit
     /// program reflects beside its 2D source. Upload it as a [`SourceDimension::Cube`] source.

@@ -13,9 +13,10 @@
 //!
 //! One default no shader names is the grey cube. A shader program can reflect a cube slot that
 //! nothing sets and the shader does not declare, such as the `_BlitCubeTexture` beside the 2D
-//! source of the URP blit program (Old World, 180 draws a run). Unity binds its default cube
-//! there. The player's data does not give that cube's colour, so it is assumed to be the 2D
-//! grey: RGBA (0.5, 0.5, 0.5, 1) in every texel of all six faces.
+//! source of the URP blit program (Old World, 180 draws a run, each left out as a missing texture
+//! until this default existed). This engine reads a cube default there. The player's data does
+//! not give that cube's colour, so it is assumed to be the 2D grey: RGBA (0.5, 0.5, 0.5, 1) in
+//! every texel of all six faces.
 
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{SourceDimension, SourceTexture};
@@ -46,7 +47,8 @@ const INT_PROPERTY: i32 = 5;
 pub enum DefaultTexture {
     White,
     Black,
-    /// Unity's default 2D texture, RGBA (0.5, 0.5, 0.5, 1).
+    /// The 2D texture a slot reads that nothing sets and no shader declares, and the one a
+    /// property declared `gray` reads: RGBA (0.5, 0.5, 0.5, 1).
     Grey,
     /// The cube a slot reads that nothing sets and no shader declares: assumed to be the grey of
     /// the 2D default on every face. No shader names it.
@@ -156,8 +158,9 @@ fn whole_number(value: f32) -> Option<i32> {
 pub struct ShaderFill {
     /// Every 2D texture property, whether or not the host supplies its default texture.
     pub textures: Vec<String>,
-    /// Every texture property of any dimension. A texture the shader reads but does not declare
-    /// reads Unity's white texture when nothing sets it.
+    /// Every texture property of any dimension. A texture the shader reads but does not list
+    /// here has no default of its own, and this engine gives it the grey default when nothing
+    /// sets it.
     pub declared_textures: Vec<String>,
     /// The default value of each colour, vector, float, range and integer property, in the
     /// order the shader declares them.

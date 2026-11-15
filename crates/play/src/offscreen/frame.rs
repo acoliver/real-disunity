@@ -372,9 +372,8 @@ impl<'a> Mapper<'a> {
     ) -> Self {
         let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
         let mut frame = OffscreenFrame {
-            // Unity binds its grey default to a texture nothing sets and the shader does not
-            // declare, command-buffer records included: a 2D one to a 2D slot, a cube to a cube
-            // slot.
+            // A texture nothing sets and the shader does not declare reads the grey default,
+            // command-buffer records included: a 2D one for a 2D slot, a cube for a cube slot.
             undeclared_textures: UndeclaredTextures {
                 d2: available
                     .default_textures

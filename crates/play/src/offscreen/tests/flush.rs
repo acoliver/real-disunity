@@ -580,7 +580,7 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
     );
 }
 
-/// With the grey default registered, the same draw reads Unity's default 2D texture: it is kept,
+/// With the grey default registered, the same draw reads the grey 2D default: it is kept,
 /// no failure names it, and the report counts it by the texture property.
 #[test]
 fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_counted_so() {

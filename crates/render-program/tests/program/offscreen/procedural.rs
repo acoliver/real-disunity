@@ -32,7 +32,7 @@ const MARK: ShaderId = ShaderId(1);
 const TEST: ShaderId = ShaderId(2);
 const SIZE: u32 = 8;
 
-/// What Unity's grey default 2D texture is in RGBA8.
+/// What the grey default 2D texture is in RGBA8.
 const GREY_TEXEL: [u8; 4] = [128, 128, 128, 255];
 
 /// The shader text: the vertex stage covers clip x from -1 to `right`, the fragment stage writes

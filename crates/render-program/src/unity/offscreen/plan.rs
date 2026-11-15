@@ -327,8 +327,8 @@ impl Services<'_> {
     /// The texture a slot of property `name` reads, and whether it is the frame's default for an
     /// undeclared property.
     ///
-    /// A layer's texture wins. With none, Unity binds its grey default texture of the slot's
-    /// dimension when the shader does not declare the property, so the frame's
+    /// A layer's texture wins. With none, and when the shader does not declare the property,
+    /// this engine reads a grey default texture of the slot's dimension, so the frame's
     /// `undeclared_textures` stand in, for a slot that samples a single-sampled float texture of
     /// a dimension with a default. A declared property, a slot of another kind or dimension and a
     /// frame without the texture leave the property missing.

@@ -1,5 +1,5 @@
-//! A texture property no layer sets: Unity binds its grey default 2D texture when the shader does
-//! not declare the property, and the frame names that texture. The blit shader reads `_Source`
+//! A texture property no layer sets: this engine reads its grey default 2D texture when the shader
+//! does not declare the property, and the frame names that texture. The blit shader reads `_Source`
 //! while the frame binds the blit's source as `_MainTex`, so `_Source` is set by nothing.
 
 use std::collections::BTreeMap;
@@ -25,7 +25,7 @@ const SOURCE: TextureId = TextureId(5);
 const GREY: TextureId = TextureId(6);
 const TARGET: TextureId = TextureId(11);
 
-/// What Unity's grey default 2D texture is in RGBA8.
+/// What the grey default 2D texture is in RGBA8.
 const GREY_TEXEL: [u8; 4] = [128, 128, 128, 255];
 
 /// A texture property of the player's shaders: 2D, defaulting to `white`.

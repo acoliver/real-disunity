@@ -424,7 +424,7 @@ fn render_bytes(spec: &RenderTextureSpec, device: &wgpu::Device) -> u64 {
 }
 
 /// The format of the depth buffer of a render texture: under a color texture, the camera's own
-/// buffer, which has stencil when Unity's would; without color, the texture itself, which has
+/// buffer, which has stencil where the depth bits allow it (see `depth_format_with_stencil`); without color, the texture itself, which has
 /// depth alone so that it can be sampled and copied.
 fn render_depth_format(
     spec: &RenderTextureSpec,

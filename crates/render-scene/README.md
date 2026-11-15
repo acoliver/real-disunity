@@ -88,6 +88,26 @@ page lookup, so it has identical semantics for live and cached materials.
 
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
+
+`texture::release_texture_sources` converts a `SceneResources` table into a new
+table whose textures are `SceneTexture::Released` descriptors. It reads each source
+through the preparation parser, including texel colour spaces, `DDS` headers,
+`DXGI` formats, colour-space declarations and complete mip chains. Descriptor
+admission also requires a valid single-layer, two-dimensional, non-cube DX10
+header. Header inspection borrows the bytes and permits trailing container bytes,
+which remain part of the logical source length. Descriptor lengths include the
+148-byte DDS header and must fit an addressable source allocation. It copies no
+payload. The first failing texture stops the conversion
+with `TextureReleaseError::Texture` naming its table index and the underlying
+`TextureError`; the input is never modified. KTX and opaque encodings cannot be
+uploaded and are rejected the same way. `texture::describe_texture` returns the
+descriptor of one texture. A released texture fails `prepare_texture`, and so
+`PreparedScene::new`, with `TextureError::SourceReleased`. Converting a table that
+is already released returns an equal table. The input table and its clones keep
+their bytes, so a clone can still be prepared and drawn. The conversion makes no
+claim about process memory: reclaiming memory needs every holder of the sources to
+drop them. Retained-host release, upload staging and material bind groups do not
+use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. The HDR
 profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through
@@ -964,7 +984,10 @@ it is defined at the singular point n.z = -1, which encodes as (1, 0.5) and
 decodes to (0, 0, -1). The decode is `f = min(|4 enc - 2|^2, 4)`,
 `n = ((4 enc - 2) sqrt(1 - f / 4), 1 - f / 2)`. Measured quantisation of the
 shading normal: at most 0.25 degrees for camera-facing normals, 0.35 for
-z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1. The
+z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1, on
+Metal. lavapipe and RADV round some stores to the neighbouring code, so the GPU
+probe holds each stored normal to the worst decode within one code of the CPU
+mirror's code, or the band bound if that is larger. The
 geometric normal's 7+7 bit octahedral code is within 1.9 degrees. Base colour is
 within 0.0045 in linear units, roughness, metal and AO within half a code, and
 emission within 1/255 through its square-root transfer. Every target clears to
@@ -977,6 +1000,20 @@ readback; `Readback` reads `Rgb10a2Unorm` and `R16Uint` natively. The CPU tests
 check the quantisation through a Rust mirror of the WGSL and validate the module
 with naga; the GPU tests draw a small terrain scene with and without the path,
 and a producer that writes known surfaces through `scene_gbuffer_encode`.
+
+The scene itself is a producer. When the frame observes the G-buffer and Opaque
+loads the completed prepass depth (`DepthMode::Reuse`), the prepass metadata carries
+G-buffer pipelines (four targets), and the scene feature draws the camera's selection
+into the slot through the same walk as the colour pass, in the unshadowed and the
+shadowed scene. Other depth modes declare no producer and leave the cleared targets
+untouched. Each fragment entry stores the material its forward entry would light,
+before any lighting: terrain stores `terrain_material`, objects `shade_material`,
+and impostor cards `scene_card_gbuffer_material`, which is derived from the frozen
+`scene_card_shade` by counted rewrites. Scattering materials set flag bit 0 and
+store their per-pixel amount in G2.y with metal 0. For scattering materials whose
+mask is not packed, forward lights both the metalness and the amount that
+`scene_mask_response` returns, and the G-buffer keeps only the amount. Frames
+without the depth prepass store nothing.
 
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
 candidate-layout colour attachment byte costs, attachment limits, and material-record

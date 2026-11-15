@@ -250,6 +250,7 @@ impl FrameRenderer {
             )?,
         };
         renderer.install_reflections(context.device())?;
+        renderer.install_gbuffer_producer(context.device());
         renderer.share_metadata_depth(context.device());
         renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
         if let Some(effects) = effects {
@@ -464,6 +465,7 @@ impl FrameRenderer {
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
+            self.install_gbuffer_producer(device);
         }
         if let Some(gbuffer) = self
             .gbuffer

@@ -688,11 +688,22 @@ internal static class NativeLayouts
         if (Marshal.OffsetOf<DisunityUiDraw>("corner_3_g").ToInt32() != 112) throw new InvalidOperationException("DisunityUiDraw.corner_3_g offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("corner_3_b").ToInt32() != 116) throw new InvalidOperationException("DisunityUiDraw.corner_3_b offset");
         if (Marshal.OffsetOf<DisunityUiDraw>("corner_3_a").ToInt32() != 120) throw new InvalidOperationException("DisunityUiDraw.corner_3_a offset");
-        if (Marshal.SizeOf<DisunityUiDraw>() != 128 || typeof(DisunityUiDraw).GetFields().Length != 29) throw new InvalidOperationException("DisunityUiDraw layout");
+        if (Marshal.OffsetOf<DisunityUiDraw>("distance_mode").ToInt32() != 124) throw new InvalidOperationException("DisunityUiDraw.distance_mode offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("distance_spread").ToInt32() != 128) throw new InvalidOperationException("DisunityUiDraw.distance_spread offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("distance_radius").ToInt32() != 132) throw new InvalidOperationException("DisunityUiDraw.distance_radius offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("effect_r").ToInt32() != 136) throw new InvalidOperationException("DisunityUiDraw.effect_r offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("effect_g").ToInt32() != 140) throw new InvalidOperationException("DisunityUiDraw.effect_g offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("effect_b").ToInt32() != 144) throw new InvalidOperationException("DisunityUiDraw.effect_b offset");
+        if (Marshal.OffsetOf<DisunityUiDraw>("effect_a").ToInt32() != 148) throw new InvalidOperationException("DisunityUiDraw.effect_a offset");
+        if (Marshal.SizeOf<DisunityUiDraw>() != 152 || typeof(DisunityUiDraw).GetFields().Length != 36) throw new InvalidOperationException("DisunityUiDraw layout");
     }
 }
 /// The native ABI revision this assembly was built against.
 internal static class NativeAbi
 {
-    internal const uint Version = 10;
+    internal const uint Version = 11;
+    internal static void VerifyRevision(uint actual)
+    {
+        if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);
+    }
 }

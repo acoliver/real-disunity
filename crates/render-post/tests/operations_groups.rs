@@ -80,6 +80,7 @@ struct Ops {
     log: Log,
     saw_timing: Cell<Option<bool>>,
     fails: bool,
+    color: wgpu::Color,
     outputs: Vec<OperationsOutput>,
 }
 impl Ops {
@@ -90,6 +91,7 @@ impl Ops {
             log: log.clone(),
             saw_timing: Cell::new(None),
             fails: false,
+            color: wgpu::Color::RED,
             outputs: Vec::new(),
         }
     }
@@ -121,7 +123,7 @@ impl FrameOperations for Ops {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::RED),
+                    load: wgpu::LoadOp::Clear(self.color),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -703,3 +705,6 @@ fn a_geometry_pass_that_writes_the_groups_texture_is_refused_by_name() {
     );
     assert!(frame.rig.logged().is_empty(), "nothing encoded");
 }
+
+#[path = "operations_groups/retry.rs"]
+mod retry;

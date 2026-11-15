@@ -31,6 +31,7 @@ use super::ids;
 use super::pixels::{self, Wanted};
 use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
 use super::script::{Script, kind};
+use super::supplied::{SuppliedGlobal, add_supplied};
 
 pub use super::report::{Reclaimed, Report};
 use worldrunner_world_simulation::graphics::{CameraView, GraphicsSnapshot, RendererView};
@@ -130,6 +131,8 @@ pub struct Settings {
     /// and the convention [`OffscreenHost`](super::OffscreenHost) gives its render-program state.
     /// Forward unless the caller says otherwise.
     pub depth: DepthRange,
+    /// Globals the run supplies by name, as fallbacks under the world's own (see `supplied`).
+    pub supplied: Vec<SuppliedGlobal>,
 }
 
 impl Settings {
@@ -141,7 +144,7 @@ impl Settings {
         Self {
             light_modes: CAMERA_LIGHT_MODES.map(str::to_owned).to_vec(),
             untagged_light_mode: Some(UNTAGGED_LIGHT_MODE.to_owned()),
-            depth: DepthRange::default(),
+            ..Self::default()
         }
     }
 
@@ -410,6 +413,7 @@ impl<'a> Mapper<'a> {
         }
         // The host's light stands in for one the world and the script never set: it sits in the
         // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
+        add_supplied(&mut frame.globals, &settings.supplied);
         add_main_light(&mut frame.globals, &snapshot.lights);
         let script = Script::new(frame.globals.clone(), &frame.global_keywords);
         Self {

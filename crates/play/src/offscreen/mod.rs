@@ -72,6 +72,7 @@ mod properties;
 mod report;
 mod script;
 mod shaders;
+mod supplied;
 mod trace;
 
 #[cfg(test)]
@@ -108,4 +109,5 @@ pub use pixels::{
 };
 pub use script::temporary_ids;
 pub use shaders::{LoadedShader, ShaderLoadError, ShaderLoader, ShaderSupply};
+pub use supplied::{SuppliedGlobal, supplied_line};
 pub use trace::{Phases, WorkTrace};

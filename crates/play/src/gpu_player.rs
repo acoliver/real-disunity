@@ -29,7 +29,7 @@ use worldrunner_render_program::runtime::ProgramRuntime;
 use crate::PlayError;
 use crate::offscreen::{
     ComputeAdapter, DepthRange, DispatchTrace, OffscreenAdapter, OffscreenHost, PlayerKernels,
-    Reclaimed, Report, Settings, WorkTrace,
+    Reclaimed, Report, Settings, SuppliedGlobal, WorkTrace, supplied_line,
 };
 use crate::storage_budget::{self, Choice, STORAGE_BUDGET_ENV, host_available_bytes};
 
@@ -113,6 +113,8 @@ impl GlobalListing {
 pub struct GpuWorkReport {
     /// The adapter and the buffer limits of the device the work ran on.
     pub device: String,
+    /// The line saying which globals the run supplied, when it supplied any.
+    pub supplied_globals: Option<String>,
     /// Frames the player has run the frame path for, those without work included.
     pub frames: u64,
     /// The textures the globals held at each piece of work that listed any, in order.
@@ -318,9 +320,17 @@ impl GpuWorkReport {
         }
     }
 
+    /// The lines that say what the run was given: the device and the globals it supplied.
+    fn print_run_setup(&self) {
+        eprintln!("[gpu] {}", self.device);
+        if let Some(line) = &self.supplied_globals {
+            eprintln!("[gpu] {line}");
+        }
+    }
+
     /// Writes the counts, one line each, to standard error.
     pub fn print(&self) {
-        eprintln!("[gpu] {}", self.device);
+        self.print_run_setup();
         eprintln!(
             "[gpu] frames with work {}, flushes {}, records {}, built {}, dispatches {}",
             self.frames_with_work, self.flushes, self.records, self.built, self.dispatches
@@ -514,12 +524,17 @@ impl PlayerGpu {
     }
 
     /// A device without a window and the host on it, with shaders loaded from the player in
-    /// `data` and depth running as `depth` says.
+    /// `data`, depth running as `depth` says, and the globals in `supplied` as fallbacks under
+    /// the world's own (see `SuppliedGlobal`).
     ///
     /// # Errors
     /// Fails with the reason when the machine has no adapter, the device cannot be had or the
     /// program runtime cannot reserve its arena. The run goes on without GPU work then.
-    pub fn headless(data: &Path, depth: DepthRange) -> Result<Self, String> {
+    pub fn headless(
+        data: &Path,
+        depth: DepthRange,
+        supplied: &[SuppliedGlobal],
+    ) -> Result<Self, String> {
         let instance = headless_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
@@ -563,7 +578,10 @@ impl PlayerGpu {
             budget.0,
             choice.source
         );
-        let settings = Settings::cameras().with_depth(depth);
+        let settings = Settings {
+            supplied: supplied.to_vec(),
+            ..Settings::cameras().with_depth(depth)
+        };
         let offscreen = OffscreenHost::new(
             runtime,
             arena,
@@ -574,6 +592,7 @@ impl PlayerGpu {
             offscreen: Rc::new(RefCell::new(offscreen)),
             report: Rc::new(RefCell::new(GpuWorkReport {
                 device: device_line,
+                supplied_globals: supplied_line(supplied),
                 ..GpuWorkReport::default()
             })),
             authority,
@@ -854,15 +873,28 @@ mod tests {
     fn the_headless_host_draws_with_the_depth_range_it_is_given() {
         let directory = tempfile::tempdir().unwrap();
         for depth in [DepthRange::Forward, DepthRange::Reversed] {
-            let gpu = PlayerGpu::headless(directory.path(), depth).unwrap();
+            let gpu = PlayerGpu::headless(directory.path(), depth, &[]).unwrap();
             assert_eq!(gpu.reversed_depth(), depth.reversed(), "{depth:?}");
         }
     }
 
     #[test]
+    fn the_report_says_which_globals_the_run_supplied_and_says_nothing_when_it_supplied_none() {
+        let directory = tempfile::tempdir().unwrap();
+        let none = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
+        assert_eq!(none.report().supplied_globals, None);
+        let value = SuppliedGlobal::parse("unity_LightData=1,1,1,1").unwrap();
+        let some = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[value]).unwrap();
+        assert_eq!(
+            some.report().supplied_globals.as_deref(),
+            Some("globals supplied for this run: unity_LightData=(1, 1, 1, 1)")
+        );
+    }
+
+    #[test]
     fn the_headless_device_takes_the_budget_the_chooser_gives_its_adapter() {
         let directory = tempfile::tempdir().unwrap();
-        let gpu = PlayerGpu::headless(directory.path(), DepthRange::Forward).unwrap();
+        let gpu = PlayerGpu::headless(directory.path(), DepthRange::Forward, &[]).unwrap();
         assert!(gpu.storage_budget() >= storage_budget::DEFAULT_BYTES);
         assert!(
             gpu.report().device.contains("runtime budget"),

@@ -73,6 +73,10 @@ impl ShaderSupply for Synthetic {
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "light_color" => super::lights_gpu::per_frame_passes("fs_color"),
             "light_position" => super::lights_gpu::per_frame_passes("fs_position"),
+            "light_data" => super::lights_gpu::per_frame_passes_named(
+                "fs_color",
+                [super::supplied_gpu::NAME, "_MainLightPosition"],
+            ),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default

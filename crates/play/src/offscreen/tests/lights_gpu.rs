@@ -53,12 +53,18 @@ struct VOut { @builtin(position) position: vec4<f32> }
 
 /// One pass tagged `Alpha` whose fragment stage is `entry` of [`PER_FRAME`].
 pub(super) fn per_frame_passes(entry: &'static str) -> SyntheticShader {
+    per_frame_passes_named(entry, [COLOR, POSITION])
+}
+
+/// As [`per_frame_passes`], with the two members of `_PerFrame` named `members`: first the one
+/// `fs_color` writes, then the one `fs_position` writes.
+pub(super) fn per_frame_passes_named(entry: &'static str, members: [&str; 2]) -> SyntheticShader {
     let parameters = VariantParameters {
         constant_buffers: vec![
             constant_buffer(
                 "_PerFrame",
                 32,
-                vec![vector_member(COLOR, 0), vector_member(POSITION, 16)],
+                vec![vector_member(members[0], 0), vector_member(members[1], 16)],
             ),
             constant_buffer("Draw", 16, vec![vector_member("_Place", 0)]),
         ],
@@ -103,7 +109,7 @@ fn host_light(world: &mut World, color: [f32; 3], intensity: f32) {
 }
 
 /// A renderer of the shader in `file` on `layer`, over the part of the target `place` says.
-fn quad(world: &mut World, file: &str, layer: u8, place: [f32; 4]) {
+pub(super) fn quad(world: &mut World, file: &str, layer: u8, place: [f32; 4]) {
     let shader = world_shader(world, file);
     let material = world.create_material(shader).unwrap();
     let mut block = ShaderProperties::default();
@@ -119,7 +125,7 @@ fn quad(world: &mut World, file: &str, layer: u8, place: [f32; 4]) {
     renderer_with(world, (layer, true), MESH, renderer);
 }
 
-fn record(world: &mut World, work: OffscreenWork) {
+pub(super) fn record(world: &mut World, work: OffscreenWork) {
     world.record_offscreen(work).unwrap();
 }
 
@@ -133,7 +139,7 @@ fn set_global(world: &mut World, name: &str, value: [f32; 3]) {
 
 /// What a read of a target should hold when columns 0 and 1 hold `left` and the others `right`,
 /// each an 8-bit colour with an alpha of one.
-fn halves(left: [f32; 3], right: [f32; 3]) -> Vec<f32> {
+pub(super) fn halves(left: [f32; 3], right: [f32; 3]) -> Vec<f32> {
     let texel = |color: [f32; 3]| [color[0], color[1], color[2], 1.0].map(unorm);
     (0..SIDE)
         .flat_map(|_| {
@@ -143,19 +149,19 @@ fn halves(left: [f32; 3], right: [f32; 3]) -> Vec<f32> {
 }
 
 /// What a read of a target should hold when every texel is `color`.
-fn filled(color: [f32; 3]) -> Vec<f32> {
+pub(super) fn filled(color: [f32; 3]) -> Vec<f32> {
     halves(color, color)
 }
 
 /// A value as an 8-bit texel stores it and a read gives it back.
-fn unorm(value: f32) -> f32 {
+pub(super) fn unorm(value: f32) -> f32 {
     (value * 255.0).round() / 255.0
 }
 
 /// Sets a pipeline up that draws the renderers of layer 0 into the left half of a target and
 /// those of layer 1 into the right half, as two lists. `before` records the commands that go
 /// before the first draw, and `between` those between the two draws.
-fn two_lists(
+pub(super) fn two_lists(
     world: &mut World,
     drawn: RenderTextureId,
     (before, between): (Commands<'_>, Commands<'_>),
@@ -260,7 +266,7 @@ fn halves_world(file: &str, (color, intensity): ([f32; 3], f32)) -> (World, Rend
 }
 
 /// Commands a test records at one place of its pipeline.
-type Commands<'a> = &'a dyn Fn(&mut World);
+pub(super) type Commands<'a> = &'a dyn Fn(&mut World);
 
 const A: [f32; 3] = [0.2, 0.4, 0.6];
 const B: [f32; 3] = [0.8, 0.6, 0.2];

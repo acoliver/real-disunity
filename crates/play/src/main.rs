@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use worldrunner_play::{
     Capture, DepthRange, Game, GpuWork, PlayDriver, PlayerLaunch, PlayerWindow, REVERSED_DEPTH_ENV,
-    ScheduledKey, key_code, play_player_window, prepare, prepare_player, run_player_with,
+    ScheduledKey, SuppliedGlobal, key_code, play_player_window, prepare, prepare_player,
+    run_player_with,
 };
 use worldrunner_scene_viewer::{LiveInputEvent, LiveOptions, ScheduledInput, run_live};
 
@@ -20,7 +21,7 @@ const USAGE: &str = "usage: play <snake|pong|breakout> [--size WxH] [--frames N]
        play compute-census <player data directory>
        play --player <player data directory> [--scene FILE] [--frames N] [--fixed-dt MS]
             [--size WxH] [--key FRAME:KEY:down|up]... [--capture FRAME:FILE.png]... [--arg VALUE]...
-            [--gpu-work on|off] [--depth reversed|forward]
+            [--gpu-work on|off] [--depth reversed|forward] [--global NAME=v0,v1,v2,v3]...
             [--plugins DIRECTORY]...";
 
 #[derive(Default)]
@@ -42,6 +43,8 @@ struct Arguments {
     /// The depth range `--depth` names; without it the environment and then the player's default
     /// choose (see `DepthRange::choose`).
     depth: Option<DepthRange>,
+    /// The globals `--global` supplies for the run, in the order given.
+    globals: Vec<SuppliedGlobal>,
     /// The player's command line after its executable path, in the order given.
     command_line: Vec<String>,
 }
@@ -119,6 +122,21 @@ fn option(arguments: &mut Arguments, name: &str, value: &str) -> Result<(), Stri
                     .ok_or_else(|| format!("--depth `{value}` is reversed or forward"))?,
             );
         }
+        "--global" => {
+            let global = SuppliedGlobal::parse(value)
+                .map_err(|reason| format!("--global `{value}`: {reason}"))?;
+            if arguments
+                .globals
+                .iter()
+                .any(|held| held.name() == global.name())
+            {
+                return Err(format!(
+                    "--global `{value}`: {} is given twice",
+                    global.name()
+                ));
+            }
+            arguments.globals.push(global);
+        }
         "--arg" => arguments.command_line.push(value.to_owned()),
         _ => return Err(format!("unknown option {name}")),
     }
@@ -151,6 +169,13 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
     let scene = arguments.scene.as_deref().unwrap_or("level0");
     let windowed =
         arguments.size.is_some() || !arguments.keys.is_empty() || !arguments.captures.is_empty();
+    if !arguments.globals.is_empty() && (windowed || matches!(arguments.gpu_work, GpuWork::Off)) {
+        return Err(
+            "--global needs the offscreen work of a headless run: no --size, --capture or --key, \
+             and --gpu-work on"
+                .into(),
+        );
+    }
     // The window opens at `--size`, else at the size the live loop defaults to.
     let screen = windowed.then(|| arguments.size.unwrap_or(WINDOW_SIZE));
     // The one place the environment is read: the request and the GPU work get this value.
@@ -163,6 +188,7 @@ fn player(data: &std::path::Path, arguments: &Arguments) -> Result<(), String> {
         screen,
         plugins: &arguments.plugins,
         depth,
+        globals: &arguments.globals,
     };
     let prepared = prepare_player(data, scene, launch).map_err(|error| error.to_string())?;
     if windowed {
@@ -404,6 +430,67 @@ mod tests {
             Some(DepthRange::Reversed)
         );
         assert!(parsed(&["--player", "Game_Data", "--depth", "sideways"]).is_err());
+    }
+
+    #[test]
+    fn global_options_supply_named_values_in_the_order_given() {
+        let arguments = parsed(&[
+            "--player",
+            "Game_Data",
+            "--global",
+            "unity_LightData=1,1,1,1",
+            "--global",
+            "_Other=0.5,2",
+        ])
+        .expect("parses");
+        let names: Vec<_> = arguments
+            .globals
+            .iter()
+            .map(worldrunner_play::SuppliedGlobal::name)
+            .collect();
+        assert_eq!(names, ["unity_LightData", "_Other"]);
+        let bits = |index: usize| arguments.globals[index].value().map(f32::to_bits);
+        assert_eq!(bits(0), [1.0_f32; 4].map(f32::to_bits));
+        assert_eq!(bits(1), [0.5_f32, 2.0, 0.0, 0.0].map(f32::to_bits));
+        let none = parsed(&["--player", "Game_Data"]).expect("parses");
+        assert!(none.globals.is_empty());
+    }
+
+    #[test]
+    fn a_malformed_global_option_is_refused_naming_the_option_and_the_value() {
+        for value in [
+            "unity_LightData",
+            "unity_LightData=",
+            "unity_LightData=1,2,3,4,5",
+            "unity_LightData=1,x",
+            "9name=1",
+            "a b=1",
+            "a=nan",
+        ] {
+            let error = parsed(&["--player", "Game_Data", "--global", value])
+                .err()
+                .unwrap_or_else(|| panic!("`{value}` parsed"));
+            assert!(error.starts_with(&format!("--global `{value}`")), "{error}");
+        }
+        let twice = parsed(&["--global", "a=1", "--global", "a=2"])
+            .err()
+            .unwrap();
+        assert!(
+            twice.contains("`a=2`") && twice.contains("given twice"),
+            "{twice}"
+        );
+        assert!(parsed(&["--player", "Game_Data", "--global"]).is_err());
+    }
+
+    #[test]
+    fn a_global_is_refused_for_a_run_that_does_no_offscreen_work() {
+        for extra in [&["--size", "64x64"][..], &["--gpu-work", "off"][..]] {
+            let mut args = vec!["--player", "Game_Data", "--global", "a=1"];
+            args.extend_from_slice(extra);
+            let arguments = parsed(&args).expect("parses");
+            let error = super::player(std::path::Path::new("Game_Data"), &arguments).unwrap_err();
+            assert!(error.starts_with("--global needs"), "{error}");
+        }
     }
 
     #[test]

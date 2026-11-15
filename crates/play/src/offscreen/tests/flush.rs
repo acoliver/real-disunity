@@ -60,7 +60,7 @@ pub(super) fn host_with_budget(directory: &Path, budget: u64) -> OffscreenHost {
     host_on(directory, settings, gpu_with_budget(budget))
 }
 
-fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
+pub(super) fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
     host_on(directory, settings, gpu())
 }
 

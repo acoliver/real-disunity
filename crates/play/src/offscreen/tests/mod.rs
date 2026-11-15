@@ -31,6 +31,7 @@ mod script;
 mod shaders;
 mod shapes;
 mod storage;
+mod supplied_gpu;
 mod support;
 mod texture_cache;
 mod texture_properties;

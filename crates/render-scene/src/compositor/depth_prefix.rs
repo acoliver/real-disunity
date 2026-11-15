@@ -116,6 +116,10 @@ impl FrameRenderer {
         if let Some(ssr) = &self.ssr {
             textures.extend(ssr.textures());
         }
+        if let Some(gbuffer) = &self.gbuffer {
+            textures
+                .extend(crate::gbuffer::GbufferTarget::ALL.map(|target| gbuffer.texture(target)));
+        }
         if let Some(snapshots) = &self.snapshots {
             let snapshot = &snapshots[self.frame_slot];
             textures.extend([&snapshot.color, &snapshot.depth, &snapshot.final_depth]);

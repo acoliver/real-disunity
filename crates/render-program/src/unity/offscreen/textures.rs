@@ -136,15 +136,24 @@ impl TextureTable {
     ) -> Result<(), OffscreenError> {
         self.release_waiting(runtime);
         for spec in specs {
-            let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
-            let held = self.textures.get(&spec.id);
-            let current = held.and_then(|t| t.spec.as_ref());
-            if current != Some(spec) || held.is_some_and(|t| t.storage != storage) {
+            if let Some(storage) = self.replacement_storage(runtime, spec) {
                 let info = create_render_texture(runtime, spec, storage)?;
                 self.replace(runtime, spec.id, info);
             }
         }
         Ok(())
+    }
+
+    fn replacement_storage(
+        &self,
+        runtime: &ProgramRuntime,
+        spec: &RenderTextureSpec,
+    ) -> Option<bool> {
+        let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
+        let held = self.textures.get(&spec.id);
+        let current = held.and_then(|info| info.spec.as_ref());
+        (current != Some(spec) || held.is_some_and(|info| info.storage != storage))
+            .then_some(storage)
     }
 
     /// Gives back the storage of every render texture that `live` does not name, as one that its
@@ -228,7 +237,7 @@ impl TextureTable {
     ) -> u64 {
         specs
             .iter()
-            .filter(|spec| self.textures.get(&spec.id).and_then(|t| t.spec.as_ref()) != Some(*spec))
+            .filter(|spec| self.replacement_storage(runtime, spec).is_some())
             .map(|spec| render_bytes(spec, runtime.device()))
             .sum()
     }

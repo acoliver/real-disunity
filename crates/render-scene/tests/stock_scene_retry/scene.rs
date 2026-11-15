@@ -4,7 +4,7 @@ use worldrunner_render_scene::{
     compositor::{FeatureTarget, FrameRenderer, encode_scene},
     device::GpuContext,
     draw::{ObjectRecording, SceneGpu},
-    executor::{AttachmentView, ResourceRef, ToneMap},
+    executor::{AttachmentView, FrameError, ResourceRef, ToneMap, color_texture},
     frame::FrameUniform,
     offscreen::OffscreenTarget,
     renderer::ScenePipelines,
@@ -14,6 +14,7 @@ use worldrunner_render_scene::{
 pub(super) struct Scene {
     pub frame: FrameRenderer,
     pub gpu: SceneGpu,
+    pub output: wgpu::Texture,
     pipelines: ScenePipelines,
     uniform: FrameUniform,
 }
@@ -42,6 +43,12 @@ impl Scene {
         Self {
             frame,
             gpu,
+            output: color_texture(
+                context.device(),
+                "public stock retry output",
+                [view.viewport().width, view.viewport().height],
+                OffscreenTarget::COLOR_FORMAT,
+            ),
             pipelines,
             uniform: FrameUniform::new(&view, source.effects()).unwrap(),
         }
@@ -55,6 +62,17 @@ impl Scene {
     }
 
     pub(super) fn complete(&mut self, context: &GpuContext) {
+        let jitter = self.frame.projection_jitter_index();
+        self.try_complete(context).unwrap();
+        assert_eq!(self.frame.projection_jitter_index(), jitter + 1);
+        assert!(self.frame.has_temporal_history());
+        let draws = self.gpu.statistics().passes.prepass_objects;
+        assert_eq!(draws.recording, ObjectRecording::Compacted);
+        assert_eq!(draws.meshes.calls, 2);
+        assert_eq!(draws.meshes.instances, 3);
+    }
+
+    pub(super) fn try_complete(&mut self, context: &GpuContext) -> Result<(), FrameError> {
         let color = AttachmentView::new(
             ResourceRef::new("scene color"),
             self.frame.targets().scene().texture(),
@@ -73,13 +91,17 @@ impl Scene {
             (&mut self.gpu, &self.pipelines),
             (&color, &depth),
             self.uniform,
-        )
-        .unwrap();
-        encoder.finish().submit().unwrap();
-        let draws = self.gpu.statistics().passes.prepass_objects;
-        assert_eq!(draws.recording, ObjectRecording::Compacted);
-        assert_eq!(draws.meshes.calls, 2);
-        assert_eq!(draws.meshes.instances, 3);
+        )?;
+        self.frame
+            .encode_output(
+                &mut encoder,
+                &self
+                    .output
+                    .create_view(&wgpu::TextureViewDescriptor::default()),
+            )
+            .unwrap();
+        encoder.finish().submit()?;
+        Ok(())
     }
 
     pub(super) fn seed_confidence(&self, context: &GpuContext) {

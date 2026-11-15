@@ -1,5 +1,6 @@
+use super::scene::Scene;
 use worldrunner_render_scene::{
-    compositor::{FeatureTarget, FrameRenderer},
+    compositor::FeatureTarget,
     device::GpuContext,
     executor::{FrameConfig, Readback},
     gbuffer::GbufferTarget,
@@ -11,6 +12,7 @@ const TOLERANCE_UV: f32 = 1e-3;
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Products {
     color: Vec<u8>,
+    output: Vec<u8>,
     g3: Vec<u8>,
     velocity: Vec<u8>,
     confidence: Vec<u8>,
@@ -36,7 +38,8 @@ fn halves(bytes: &[u8]) -> Vec<f32> {
 }
 
 impl Products {
-    pub(super) fn read(context: &GpuContext, frame: &FrameRenderer) -> Self {
+    pub(super) fn read(context: &GpuContext, scene: &Scene) -> Self {
+        let frame = &scene.frame;
         let g3 = frame
             .feature_target(FeatureTarget::Gbuffer(GbufferTarget::G3))
             .unwrap();
@@ -53,6 +56,7 @@ impl Products {
         assert_eq!(u64::try_from(velocity_bytes.len()).unwrap(), pixels * 4);
         Self {
             color: read(context, frame.targets().scene().texture()),
+            output: read(context, &scene.output),
             g3: g3_bytes,
             velocity: velocity_bytes,
             confidence: read(context, confidence.texture),

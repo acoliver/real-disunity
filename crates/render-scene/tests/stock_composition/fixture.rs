@@ -3,16 +3,20 @@ use worldrunner_render_plan::{
     MaterialHandle, MeshHandle, ROTATION_MICRO_SCALE, RenderScene, SceneAlphaMode, SceneAmbient,
     SceneAntiAlias, SceneCamera, SceneColor, SceneColorGrading, SceneDirection, SceneEffects,
     SceneEffectsParts, SceneGeometry, SceneMaterial, SceneMaterialParts, SceneMesh, SceneMeshLod,
-    SceneObject, SceneParts, SceneResources, SceneRotation, SceneShadowCascades, SceneSky,
-    SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel, SceneSsaoReceiver,
-    SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat, TextureColorSpace,
-    TextureHandle,
+    SceneObject, SceneOpaquePath, SceneParts, SceneResources, SceneRotation, SceneShadowCascades,
+    SceneSky, SceneSsao, SceneSsaoDepthFootprint, SceneSsaoFilter, SceneSsaoKernel,
+    SceneSsaoReceiver, SceneSun, SceneTexture, SceneTransform, SceneVertex, TexelFormat,
+    TextureColorSpace, TextureHandle,
 };
 use worldrunner_render_scene::{CameraPose, SceneView, Viewport};
 
 pub const SIZE: [u32; 2] = [64, 48];
 
 pub fn effects() -> SceneEffects {
+    effects_with(SceneAntiAlias::Disabled)
+}
+
+fn effects_with(anti_alias: SceneAntiAlias) -> SceneEffects {
     SceneEffects::new(SceneEffectsParts {
         water: None,
         sky: SceneSky::ProceduralHemisphere {
@@ -58,13 +62,29 @@ pub fn effects() -> SceneEffects {
             saturation_micro: 1_000_000,
         },
         post: vec![],
-        anti_alias: SceneAntiAlias::Disabled,
+        anti_alias,
     })
     .unwrap()
 }
 
+/// The scene rendered from the G-buffer under temporal anti-aliasing, whose frames draw the
+/// object-motion residual.
+pub fn gbuffer_taa_scene() -> RenderScene {
+    let effects = effects_with(SceneAntiAlias::Taa {
+        history_micro: 900_000,
+        clip_scale_micro: 1_000_000,
+    })
+    .with_opaque_path(SceneOpaquePath::GBUFFER_RENDER)
+    .unwrap();
+    scene_with(effects)
+}
+
 /// One lit quad facing the camera.
 pub fn scene() -> RenderScene {
+    scene_with(effects())
+}
+
+fn scene_with(effects: SceneEffects) -> RenderScene {
     let half = 3_000;
     let corners = [
         ([-half, -half, 0], [0, 0]),
@@ -132,7 +152,7 @@ pub fn scene() -> RenderScene {
         resources: SceneResources::new(vec![texture], vec![material]).unwrap(),
         geometry: SceneGeometry::new(vec![mesh], vec![object]).unwrap(),
         terrain: None,
-        effects: Some(effects()),
+        effects: Some(effects),
     })
     .unwrap()
 }

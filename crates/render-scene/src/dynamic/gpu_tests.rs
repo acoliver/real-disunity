@@ -184,3 +184,55 @@ fn a_clip_with_nothing_of_the_target_in_it_has_no_rectangle() {
         assert_eq!(scissor_rect(Some(clip), SIZE), None, "{clip:?}");
     }
 }
+
+#[test]
+fn distance_mode_radius_spread_and_colour_split_adjacent_groups() {
+    use worldrunner_render_plan::ui::{UiDistanceMode, UiDistanceStyle};
+    let plain = DynamicQuad {
+        overlay: true,
+        ..DynamicQuad::default()
+    };
+    let style = UiDistanceStyle {
+        spread_px: 8.,
+        radius_px: 2.,
+        mode: UiDistanceMode::Outline,
+        effect_color: [1.; 4],
+    };
+    let a = DynamicQuad {
+        distance_field: Some(style),
+        ..plain
+    };
+    assert!(!compatible(&plain, &a));
+    assert!(compatible(&a, &a));
+    for style in [
+        UiDistanceStyle {
+            mode: UiDistanceMode::Glow,
+            ..style
+        },
+        UiDistanceStyle {
+            radius_px: 3.,
+            ..style
+        },
+        UiDistanceStyle {
+            spread_px: 9.,
+            ..style
+        },
+        UiDistanceStyle {
+            effect_color: [0.5; 4],
+            ..style
+        },
+    ] {
+        let b = DynamicQuad {
+            distance_field: Some(style),
+            ..a
+        };
+        assert!(!compatible(&a, &b));
+        assert_eq!(
+            [plain, a, b, plain]
+                .chunk_by(compatible)
+                .map(<[DynamicQuad]>::len)
+                .collect::<Vec<_>>(),
+            [1, 1, 1, 1]
+        );
+    }
+}

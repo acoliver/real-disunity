@@ -346,6 +346,7 @@ CheckImport("disunity_graphics_snapshot", u64, bytes, u32, u32.MakePointerType()
 var unverified = bindings.GetMethods(Imports).Select(method => method.Name).Except(checkedImports).ToArray();
 Require(unverified.Length == 0, $"native imports without a signature check: {string.Join(", ", unverified)}");
 AbiType("NativeLayouts").GetMethod("Verify", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
+AbiRevisionTests.Run();
 
 CheckLayout(result, 16, ("code", typeof(int), 0), ("detail", u64, 8));
 CheckLayout(command, 24, ("object", u64, 0), ("kind", u32, 8),

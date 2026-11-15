@@ -58,6 +58,30 @@ impl UiOverlay {
         };
         let mut indices = BTreeMap::new();
         for draw in &plan.draws {
+            draw.validate_distance()
+                .map_err(|_| DynamicError::InvalidQuad {
+                    index: result.quads.len(),
+                    field: "distance_field",
+                })?;
+            if let Some(style) = draw.distance_field {
+                let atlas = plan
+                    .coverage
+                    .get(&draw.texture.expect("validated distance texture"))
+                    .ok_or(DynamicError::InvalidQuad {
+                        index: result.quads.len(),
+                        field: "distance atlas",
+                    })?;
+                style
+                    .validate_extent(
+                        draw.corners,
+                        draw.uv_rect,
+                        glam::UVec2::new(atlas.width, atlas.height),
+                    )
+                    .map_err(|_| DynamicError::InvalidQuad {
+                        index: result.quads.len(),
+                        field: "distance field spread",
+                    })?;
+            }
             let key = draw.texture.map(|id| (draw.kind, id));
             let texture = match key {
                 Some(key) => Some(if let Some(&index) = indices.get(&key) {
@@ -95,6 +119,7 @@ fn dynamic_quad(draw: &UiDraw, texture: Option<usize>) -> DynamicQuad {
         uv_rect: draw.uv_rect,
         tint: draw.color,
         corner_colors: draw.corner_colors,
+        distance_field: draw.distance_field,
         texture,
         sorting_layer: draw.sorting_layer,
         sorting_order: draw.sorting_order,

@@ -31,6 +31,8 @@ fn validate_draw(draw: &UiDraw, previous: Option<&UiDraw>) -> Result<(), crate::
     }) {
         return Err("presentation UI corner_colors must be finite channels in 0..=1".into());
     }
+    draw.validate_distance()
+        .map_err(|error| crate::errors::AbiError::from(error.to_string()))?;
     let [x, y, width, height] = draw.clip_rect;
     if x.checked_add(width).is_none() || y.checked_add(height).is_none() {
         return Err("presentation UI clip bounds overflow".into());
@@ -73,6 +75,14 @@ pub struct DisunityUiDraw {
     pub corner_3_g: f32,
     pub corner_3_b: f32,
     pub corner_3_a: f32,
+    /// 0 ordinary coverage; 1 distance fill, 2 outline, 3 glow.
+    pub distance_mode: u32,
+    pub distance_spread: f32,
+    pub distance_radius: f32,
+    pub effect_r: f32,
+    pub effect_g: f32,
+    pub effect_b: f32,
+    pub effect_a: f32,
 }
 
 /// # Safety
@@ -173,7 +183,19 @@ fn encode_metadata(draw: &UiDraw) -> DisunityUiDraw {
         [corner_2_r, corner_2_g, corner_2_b, corner_2_a],
         [corner_3_r, corner_3_g, corner_3_b, corner_3_a],
     ] = draw.corner_colors.unwrap_or([[1.; 4]; 4]);
+    let (distance_mode, distance_spread, distance_radius, effect) =
+        draw.distance_field.map_or((0, 0., 0., [0.; 4]), |s| {
+            (s.mode as u32, s.spread_px, s.radius_px, s.effect_color)
+        });
+    let [effect_r, effect_g, effect_b, effect_a] = effect;
     DisunityUiDraw {
+        distance_mode,
+        distance_spread,
+        distance_radius,
+        effect_r,
+        effect_g,
+        effect_b,
+        effect_a,
         kind: (if draw.triangle_uv.is_some() {
             2
         } else {

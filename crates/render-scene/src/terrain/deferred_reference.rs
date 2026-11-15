@@ -31,7 +31,8 @@ fn fs_reference(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     let scattering = (u32(d.y) & 1u) != 0u;
     let surface = SceneShadingSurface(vec4<f32>(c.xyz, 1.0), a.xyz,
         vec3<f32>(a.w, select(b.w, 0.0, scattering), d.x));
-    let shaded = scene_finish_shading(input, b.xyz, surface, select(0.0, b.w, scattering), c.w);
+    let shaded = scene_finish_shading(input,
+        SceneObjectMaterial(b.xyz, surface, select(0.0, b.w, scattering), c.w));
     return vec4<f32>(shaded.rgb, 1.0);
 }
 ";

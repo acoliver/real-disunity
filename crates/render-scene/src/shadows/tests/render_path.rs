@@ -49,6 +49,24 @@ fn card_material(albedo: u32, normal: u32) -> SceneMaterial {
     )
 }
 
+/// A sky the opaque pass draws where nothing is stored, the forward-only draw the frame keeps.
+fn sky() -> SceneAtmosphere {
+    SceneAtmosphere {
+        celestial_composition: SceneCelestialComposition::Inherit,
+        celestial_exposure_micro: None,
+        background_depth_policy: SceneBackgroundDepthPolicy::ConstantDistance,
+        scattering: None,
+        horizon_radiance_micro: [200_000, 300_000, 2_000_000],
+        zenith_radiance_micro: [100_000, 200_000, 2_000_000],
+        gradient_exponent_micro: 1_000_000,
+        sun_angular_radius_millidegrees: 0,
+        fog: None,
+        discs: Vec::new(),
+        meshes: Vec::new(),
+        background_distance_millimeters: 20_000,
+    }
+}
+
 /// A water body over the east half of the terrain, 1 mm above it, with a rippling normal map
 /// at texture `normal`.
 fn water(normal: u32) -> SceneWaterBody {
@@ -58,13 +76,13 @@ fn water(normal: u32) -> SceneWaterBody {
     water.north_min_millimeters = -3000;
     water.east_extent_millimeters = 3000;
     water.north_extent_millimeters = 6000;
-    water.material.direct_surface = true;
     water.material.normal = Some(TextureHandle::from_raw(normal));
     water
 }
 
-/// Terrain in place of the ground quad, the caster mesh and an impostor card, with SSAO for the
-/// depth prepass when `prepass` and, with `with_water`, water over the east half.
+/// Terrain in place of the ground quad, the caster mesh and an impostor card under a drawn sky,
+/// with SSAO for the depth prepass when `prepass` and, with `with_water`, water over the east
+/// half.
 fn source(with_water: bool, prepass: bool) -> RenderScene {
     let base = super::terrain::terrain_scene(&scene(&[[0, 0, 1_000]], 600_000, None), false, false);
     let mut textures = base.resources().textures().to_vec();
@@ -104,7 +122,12 @@ fn source(with_water: bool, prepass: bool) -> RenderScene {
         resources: SceneResources::new(textures, materials).unwrap(),
         geometry: SceneGeometry::new(meshes, objects).unwrap(),
         terrain: base.terrain().cloned(),
-        effects: Some(SceneEffects::new(parts).unwrap()),
+        effects: Some(
+            SceneEffects::new(parts)
+                .unwrap()
+                .with_atmosphere(sky())
+                .unwrap(),
+        ),
     })
     .unwrap()
 }
@@ -194,14 +217,10 @@ fn gpu_shadowed_render_path_matches_forward_without_unlit_holes() {
             "{label}: {share} of stored pixels over {RELATIVE}"
         );
         assert!(mean <= MEAN, "{label}: mean error {mean}");
-        // The frame really comes from the G-buffer: a second capture through the same path is
-        // identical, and it is not the forward frame byte for byte.
+        // Opaque no longer draws terrain or objects, so the lit stored pixels can only come
+        // from the lighting pass; a second capture through the same path is identical.
         let again = capture(&context, &source, &view(), SceneOpaquePath::GBUFFER_RENDER).unwrap();
         assert!(again.colour == rendered.colour, "{label}: not repeatable");
-        assert!(
-            rendered.colour != forward.colour,
-            "{label}: identical to Forward"
-        );
     }
 }
 

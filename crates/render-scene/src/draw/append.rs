@@ -400,6 +400,7 @@ pub struct PreparedMeshReplacement {
     mesh: prepared::PreparedMesh,
     selection: MeshSelection,
     skeletons: Vec<SkeletonHandle>,
+    needs: Vec<SkinNeed>,
 }
 
 impl PreparedMeshReplacement {
@@ -422,6 +423,7 @@ impl PreparedMeshReplacement {
             mesh: prepared::prepare_mesh(index, mesh)?,
             selection: MeshSelection::new(mesh),
             skeletons: crate::instances::skin::mesh_skeletons(mesh),
+            needs: skin_needs(mesh),
         })
     }
 
@@ -465,6 +467,33 @@ impl SceneGpu {
                     mesh: prepared.base.meshes + offset,
                     source,
                 })?;
+        }
+        Ok(())
+    }
+
+    /// Refuses a replacement of mesh `replacement.index` that names a skeleton or joint the
+    /// resident tables lack, or that a live placement's pose cannot drive, so that no placement
+    /// of the mesh is left unable to draw.
+    fn admit_replacement(&self, replacement: &PreparedMeshReplacement) -> Result<(), DrawError> {
+        let index = replacement.index;
+        let skin = &self.instances.skin;
+        let refuse = |source| DrawError::SkinReference {
+            mesh: index,
+            source,
+        };
+        skin.admit(&replacement.needs).map_err(refuse)?;
+        if replacement.skeletons.is_empty() {
+            return Ok(());
+        }
+        for (_, object, _) in self
+            .instances
+            .batches
+            .iter()
+            .filter(|(key, _)| key.1 == index)
+            .flat_map(|(_, batch)| batch.placements())
+        {
+            skin.check_pose(&replacement.skeletons, &object)
+                .map_err(|error| refuse(error.into()))?;
         }
         Ok(())
     }
@@ -615,7 +644,9 @@ impl SceneGpu {
     ///
     /// # Errors
     ///
-    /// Returns [`DrawError`] for a handle outside the resident table.
+    /// Returns [`DrawError`] for a handle outside the resident table, a replacement whose skin
+    /// changes how the mesh's placements batch, or a skinned replacement that names skeletons or
+    /// joints the resident tables lack or that the pose of a live placement cannot drive.
     pub fn replace_mesh_prepared(
         &mut self,
         device: &Device,
@@ -634,6 +665,7 @@ impl SceneGpu {
                 "its skinning changed, and placements keep skin streams per mesh",
             ));
         }
+        self.admit_replacement(&replacement)?;
         let bytes = mesh_payload_bytes(&replacement.mesh);
         let uploaded = upload_meshes(device, queue, std::slice::from_ref(&replacement.mesh))
             .pop()

@@ -211,6 +211,19 @@ impl SkinTables {
         let Some(skeletons) = self.mesh_skeletons.get(mesh).filter(|s| !s.is_empty()) else {
             return Ok(None);
         };
+        self.check_pose(skeletons, object).map(Some)
+    }
+
+    /// The descriptor `object` is drawn with on a mesh whose skinned levels use `skeletons`.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`check`](Self::check) for a skinned mesh.
+    pub(crate) fn check_pose(
+        &self,
+        skeletons: &[SkeletonHandle],
+        object: &SceneObject,
+    ) -> Result<[u32; 4], InstanceError> {
         let handle = object.skin_pose().ok_or(InstanceError::MissingSkinPose)?;
         let range = self
             .poses
@@ -235,6 +248,6 @@ impl SkinTables {
                 });
             }
         }
-        Ok(Some(range.descriptor(false)))
+        Ok(range.descriptor(false))
     }
 }

@@ -1,8 +1,8 @@
-//! Skinned meshes appended to a resident scene must fit its skeleton table, and a refusal leaves
-//! the resident scene as it was.
+//! Skinned meshes appended to or swapped into a resident scene must fit its skeleton and pose
+//! tables, and a refusal leaves the resident scene as it was.
 use super::skinning::{ribbon, shifted, skeleton};
 use super::*;
-use crate::draw::{DrawError, PreparedAppend};
+use crate::draw::{DrawError, PreparedAppend, PreparedMeshReplacement};
 use crate::instances::InstanceError;
 use crate::instances::skin::SkinTables;
 use worldrunner_render_plan::{
@@ -112,4 +112,74 @@ fn an_append_naming_skins_the_scene_lacks_is_refused_and_changes_nothing() {
             })
         ));
     }
+}
+
+#[test]
+fn a_replacement_naming_skins_the_scene_lacks_is_refused_before_a_placement_can_use_it() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let source = scene();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let generation = gpu.caster_generation();
+    for (skeleton, last_joint) in [(9, 1), (0, 3)] {
+        let replacement = PreparedMeshReplacement::new(
+            &source,
+            MeshHandle::from_raw(0),
+            &ribbon_on(skeleton, last_joint),
+        )
+        .unwrap();
+        let refusal = gpu
+            .replace_mesh_prepared(context.device(), context.queue(), replacement)
+            .expect_err("the resident tables cannot skin this mesh");
+        assert!(
+            matches!(refusal, DrawError::SkinReference { mesh: 0, .. }),
+            "{refusal}"
+        );
+        assert_eq!(gpu.caster_generation(), generation);
+        gpu.add_instance(placed(0, 0), true)
+            .expect("the mesh still has the skin it was uploaded with");
+    }
+}
+
+#[test]
+fn a_replacement_that_a_live_pose_cannot_drive_is_refused_and_changes_nothing() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+    let source = scene();
+    let mut gpu =
+        SceneGpu::upload(context.device(), context.submission(), &source, &pipelines).unwrap();
+    let handle = gpu
+        .add_instance(placed(0, 0), true)
+        .expect("the two-joint pose drives the two-joint mesh");
+    let (base, generation) = (gpu.resource_base(), gpu.caster_generation());
+    // The replacement skins to the three-joint skeleton and weights joint 2.
+    let replacement = || {
+        PreparedMeshReplacement::new(&source, MeshHandle::from_raw(0), &ribbon_on(1, 2)).unwrap()
+    };
+    let refusal = gpu
+        .replace_mesh_prepared(context.device(), context.queue(), replacement())
+        .expect_err("the live placement's pose has two joints");
+    assert!(
+        matches!(refusal, DrawError::SkinReference { mesh: 0, .. }),
+        "{refusal}"
+    );
+    assert_eq!(gpu.resource_base(), base);
+    assert_eq!(gpu.caster_generation(), generation);
+    assert_eq!(gpu.instance_handles().count(), 1);
+    // Without the placement nothing contradicts the replacement, and a three-joint pose takes it.
+    gpu.remove_instance(handle).unwrap();
+    gpu.replace_mesh_prepared(context.device(), context.queue(), replacement())
+        .expect("no live placement holds the two-joint pose");
+    gpu.add_instance(placed(0, 1), true)
+        .expect("the three-joint pose drives the replacement");
+    assert!(matches!(
+        gpu.add_instance(placed(0, 0), true),
+        Err(InstanceError::SkinPoseJoints {
+            pose_joints: 2,
+            skeleton_joints: 3
+        })
+    ));
 }

@@ -357,6 +357,27 @@ impl<T> Configuration<T> {
             old.last_submission > complete
         });
     }
+    /// [`Self::collect`] after the completion bookkeeping of every retired generation's last
+    /// submission has run, so a caller that waited for them is not charged for memory that is
+    /// already free (hub issue 4d2b47c55165). Polls without blocking until then or until
+    /// `deadline`.
+    ///
+    /// # Errors
+    /// Fails with the poll error, `PollError::Timeout` past `deadline`; generations that are
+    /// still in flight then stay counted.
+    pub fn collect_settled(
+        &mut self,
+        device: &wgpu::Device,
+        deadline: std::time::Instant,
+    ) -> Result<(), wgpu::PollError> {
+        let last = self.retired.iter().map(|old| old.last_submission).max();
+        let settled = last.map_or(Ok(()), |serial| {
+            self.authority
+                .await_completion_record(device, serial, deadline)
+        });
+        self.collect();
+        settled
+    }
     pub fn resident_bytes(&self, limits: &wgpu::Limits) -> Result<u64, &'static str> {
         let reservations: Vec<_> = self
             .reservations

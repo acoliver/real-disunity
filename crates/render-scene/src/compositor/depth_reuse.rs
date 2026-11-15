@@ -125,6 +125,7 @@ impl FrameRenderer {
             crate::scene_metadata::SceneMetadata::new(device, config.size, screen.settings).unwrap()
         });
         self.install_reflections(device).unwrap();
+        self.install_gbuffer_producer(device);
         if self.water.is_some() {
             self.chain
                 .register(

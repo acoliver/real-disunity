@@ -5,7 +5,7 @@ fn program(context: &GpuContext, pipelines: &ScenePipelines, key: crate::pipelin
         .family()
         .with_objects((context.device(), context.submission()), |runtime| {
             objects
-                .program(runtime, key)
+                .program(runtime, key, crate::object::layout::GeometryLayout::Static)
                 .unwrap_or_else(|error| panic!("{key:?}: {error}"));
         });
 }

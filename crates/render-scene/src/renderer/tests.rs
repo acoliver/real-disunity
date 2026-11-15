@@ -53,7 +53,7 @@ fn every_pipeline_variant_compiles_against_the_declared_layout() {
             .with_objects((device, context.submission()), |runtime| {
                 for key in PipelineKey::ALL {
                     objects
-                        .program(runtime, key)
+                        .program(runtime, key, crate::object::layout::GeometryLayout::Static)
                         .unwrap_or_else(|error| panic!("{key:?}: {error}"));
                 }
             });

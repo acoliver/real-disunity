@@ -19,6 +19,8 @@ pub(crate) struct SceneFeature<'a> {
     /// Whether the frame renders from the G-buffer: terrain and objects are stored and lit
     /// before Opaque, which draws only the rest.
     pub renders: bool,
+    /// Metadata-only prefixes retain the previous colour pass's published draw results.
+    pub opaque_drawn: std::cell::Cell<bool>,
 }
 impl SceneFeature<'_> {
     pub fn declaration(pipelines: &crate::renderer::ScenePipelines) -> FeatureDeclaration {
@@ -37,7 +39,7 @@ impl PreparedFeature for SceneFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.opaque_drawn.set(false);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Absent,
@@ -49,7 +51,9 @@ impl PreparedFeature for SceneFeature<'_> {
         self.gpu.prepare_view_compaction(context, None, &self.frame);
     }
     fn finish_draws(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.publications.publish(context, self.gpu);
+        if self.opaque_drawn.get() {
+            self.publications.publish(context, self.gpu);
+        }
     }
     fn draw(
         &self,
@@ -71,6 +75,7 @@ impl PreparedFeature for SceneFeature<'_> {
         if self.draw_metadata(context.slot, pass) {
             return;
         }
+        self.begin_colour(context.slot);
         if let Some(screen) = &self.screen {
             if let Some((pipelines, group)) = &screen.forward {
                 pass.set_bind_group(3, group, &[]);
@@ -107,6 +112,13 @@ impl PreparedFeature for SceneFeature<'_> {
 }
 
 impl SceneFeature<'_> {
+    fn begin_colour(&self, slot: PassSlot) {
+        if slot == PassSlot::Opaque {
+            self.opaque_drawn.set(true);
+            self.gpu.reset_pass_statistics();
+        }
+    }
+
     fn draw_metadata(&self, slot: PassSlot, pass: &mut wgpu::RenderPass<'_>) -> bool {
         let Some(screen) = &self.screen else {
             return false;
@@ -339,6 +351,7 @@ fn encode_scene_passes(
             .gbuffer
             .as_ref()
             .is_some_and(crate::gbuffer::Gbuffer::renders),
+        opaque_drawn: std::cell::Cell::new(false),
     };
     renderer.encode_frame(
         device,

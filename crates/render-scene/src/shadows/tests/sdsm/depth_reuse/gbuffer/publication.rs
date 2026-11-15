@@ -4,7 +4,7 @@ use crate::draw::{DrawCount, ViewStats};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime, TargetSignature};
 
-fn admit_empty_programs(
+pub(super) fn admit_empty_programs(
     context: &GpuContext,
     renderer: &mut ShadowedScene,
 ) -> (ProgramRuntime, ProgramArena) {
@@ -66,7 +66,7 @@ fn assert_selection(renderer: &ShadowedScene, visible: usize) {
     );
 }
 
-fn assert_pass_count(slot: worldrunner_render_post::PassSlot, expected: usize) {
+pub(super) fn assert_pass_count(slot: worldrunner_render_post::PassSlot, expected: usize) {
     crate::scene_metadata::EXECUTED_PASSES.with_borrow(|passes| {
         assert_eq!(
             passes.iter().filter(|&&pass| pass == slot).count(),
@@ -76,7 +76,7 @@ fn assert_pass_count(slot: worldrunner_render_post::PassSlot, expected: usize) {
     });
 }
 
-fn completed_color(
+pub(super) fn completed_color(
     context: &GpuContext,
     frame: &mut FrameRenderer,
     renderer: &mut ShadowedScene,
@@ -96,12 +96,19 @@ fn completed_color(
     read(context, color.texture())
 }
 
-fn refuse_suffix(context: &GpuContext, frame: &mut FrameRenderer, renderer: &mut ShadowedScene) {
+pub(super) fn refuse_suffix(
+    context: &GpuContext,
+    frame: &mut FrameRenderer,
+    renderer: &mut ShadowedScene,
+    source_frame: u64,
+) {
     let (color, depth) = attachments(frame);
     let before = renderer.gpu.statistics();
+    let before_selection = renderer.view_stats();
     let serial = context.submission().submitted_serial();
     crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
-    let refused = renderer.render_depth_fitted_with(context, &view(), (&color, &depth), 0, frame);
+    let refused =
+        renderer.render_depth_fitted_with(context, &view(), (&color, &depth), source_frame, frame);
     assert!(
         matches!(
             refused,
@@ -116,9 +123,9 @@ fn refuse_suffix(context: &GpuContext, frame: &mut FrameRenderer, renderer: &mut
     );
     assert_pass_count(PassSlot::DepthNormalPrepass, 1);
     assert_pass_count(PassSlot::Opaque, 0);
-    assert_eq!(renderer.gpu.statistics().meshes, DrawCount::default());
+    assert_eq!(renderer.gpu.statistics().meshes, before.meshes);
     assert_eq!(renderer.gpu.statistics().passes, before.passes);
-    assert_eq!(renderer.view_stats(), ViewStats::default());
+    assert_eq!(renderer.view_stats(), before_selection);
     assert!(
         renderer.gpu.has_programs(),
         "suffix refusal must retain admitted work"
@@ -137,7 +144,9 @@ fn gpu_same_frame_gbuffer_suffix_refusal_preserves_admission_and_next_color_publ
     let source = render_source();
     let (mut frame, mut renderer) = fitted_frame(&context, &source);
     let (_runtime, mut arena) = admit_empty_programs(&context, &mut renderer);
-    refuse_suffix(&context, &mut frame, &mut renderer);
+    refuse_suffix(&context, &mut frame, &mut renderer, 0);
+    assert_eq!(renderer.gpu.statistics().meshes, DrawCount::default());
+    assert_eq!(renderer.view_stats(), ViewStats::default());
     arena.retire().unwrap();
     hide_last_caster(&mut renderer);
     let recovered = completed_color(&context, &mut frame, &mut renderer, 1);
@@ -164,5 +173,31 @@ fn gpu_same_frame_gbuffer_suffix_refusal_preserves_admission_and_next_color_publ
         baseline_renderer.gpu.statistics()
     );
     assert_eq!(renderer.view_stats(), baseline_renderer.view_stats());
+    assert!(pollster::block_on(scope.pop()).is_none());
+}
+
+#[test]
+fn gpu_same_frame_gbuffer_suffix_refusal_preserves_completed_pass_counts() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let scope = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let source = render_source();
+    let (mut frame, mut renderer) = fitted_frame(&context, &source);
+    let completed = completed_color(&context, &mut frame, &mut renderer, 0);
+    assert_selection(&renderer, 3);
+    let counts = renderer.gpu.statistics();
+    let (_runtime, mut arena) = admit_empty_programs(&context, &mut renderer);
+    refuse_suffix(&context, &mut frame, &mut renderer, 1);
+    assert_eq!(renderer.gpu.statistics(), counts);
+    assert_selection(&renderer, 3);
+    arena.retire().unwrap();
+    assert_eq!(
+        completed_color(&context, &mut frame, &mut renderer, 1),
+        completed
+    );
+    assert_eq!(renderer.gpu.statistics(), counts);
+    assert_selection(&renderer, 3);
     assert!(pollster::block_on(scope.pop()).is_none());
 }

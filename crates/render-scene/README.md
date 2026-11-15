@@ -1049,9 +1049,10 @@ retain their existing checked-attachment rules. The frame is:
 2. The depth pyramid and SSAO consume those metadata targets. Same-frame depth fitting
    submits this producer and the first depth level before adopting its fit and drawing
    fitted shadow casters. The continuation retains the producer's physical resources,
-   velocity attachment and pending colour-draw publication. Camera selection and colour
-   draw counters publish only after the suffix succeeds. A refused suffix leaves admitted
-   player work unconsumed; the next frame starts a fresh producer publication.
+   velocity attachment and pending colour-draw publication. Camera selection, colour draw
+   counters and effect bindings publish only after the suffix succeeds. A refused suffix
+   preserves the previous completed frame's draw statistics and leaves admitted player work
+   unconsumed; the next frame starts a fresh producer publication.
 3. `OpaqueLighting` takes Opaque's colour target and, with reflections, its environment
    and factor products, including their clears. No diagnostic lighting targets are
    allocated and Render has no separate `OpaqueGbuffer` geometry walk.

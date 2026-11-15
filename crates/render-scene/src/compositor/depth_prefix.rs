@@ -103,6 +103,7 @@ impl FrameRenderer {
                 .gbuffer
                 .as_ref()
                 .is_some_and(crate::gbuffer::Gbuffer::renders),
+            opaque_drawn: std::cell::Cell::new(false),
         })
     }
 

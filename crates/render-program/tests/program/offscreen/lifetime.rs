@@ -181,10 +181,14 @@ fn the_storage_a_frames_render_textures_would_add_is_counted_before_they_are_mad
     assert_eq!(would_add(&rig, &frame), color);
     rig.build(&frame).unwrap();
     assert_eq!(would_add(&rig, &frame), 0, "the texture exists");
-    // A 24-bit depth buffer takes 4 bytes a texel, and 4 levels take 64 + 16 + 4 + 1 texels.
+    // Under a color texture a 24-bit depth buffer has 8 bits of stencil and takes 8 bytes a
+    // texel, in one level; the color's 4 levels take 64 + 16 + 4 + 1 texels.
     frame.render_textures[0].depth_bits = 24;
     frame.render_textures[0].mips = 4;
-    assert_eq!(would_add(&rig, &frame), (64 + 16 + 4 + 1) * 4 + 8 * 8 * 4);
+    assert_eq!(would_add(&rig, &frame), (64 + 16 + 4 + 1) * 4 + 8 * 8 * 8);
+    // A 16-bit depth buffer has no stencil and takes 2.
+    frame.render_textures[0].depth_bits = 16;
+    assert_eq!(would_add(&rig, &frame), (64 + 16 + 4 + 1) * 4 + 8 * 8 * 2);
 }
 
 #[test]

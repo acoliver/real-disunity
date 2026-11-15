@@ -20,6 +20,7 @@ mod probe;
 mod procedural;
 mod readback;
 mod resample;
+mod sampling;
 mod steps;
 mod textures;
 mod tracker;
@@ -239,8 +240,9 @@ impl OffscreenState {
     }
 
     /// The dimension of the view a draw or a kernel samples the texture through: the one its
-    /// spec names, 2D for an uploaded source. `None` for an id that names no texture the state
-    /// holds.
+    /// spec names, and for an uploaded source 2D or cube by its
+    /// [`SourceDimension`](frame::SourceDimension). `None` for an id that names no texture the
+    /// state holds.
     #[must_use]
     pub fn texture_view_dimension(&self, id: TextureId) -> Option<wgpu::TextureViewDimension> {
         let info = self.textures.get(id).ok()?;
@@ -323,6 +325,7 @@ impl OffscreenState {
                 resample: &mut self.resample,
                 textures: &self.textures,
                 meshes: &self.meshes,
+                undeclared_textures: frame.undeclared_textures,
                 defaults,
                 tracker: &mut tracker,
                 constants: &mut constants,
@@ -620,6 +623,14 @@ pub struct CameraPassReport {
     pub programs: Vec<ProgramProbe>,
 }
 
+/// Draws that read one of the frame's `undeclared_textures` because no layer set a texture
+/// property the shader does not declare, counted for one texture property.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UndeclaredDefaultDraws {
+    pub texture: String,
+    pub draws: usize,
+}
+
 /// Camera draws that read a shader input their mesh has no channel for and got a constant instead,
 /// counted for one source channel, the shader input it feeds and the format the input was given.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -670,6 +681,21 @@ impl OffscreenOperations {
             .missing_textures
             .iter()
             .map(|(texture, draws)| MissingTextureDraws {
+                texture: texture.clone(),
+                draws: *draws,
+            })
+            .collect()
+    }
+
+    /// The draws that read one of the frame's `undeclared_textures` for a texture property no
+    /// layer set and the shader does not declare, by the texture property, sorted by name. They
+    /// are drawn; none is counted as missing a texture.
+    #[must_use]
+    pub fn undeclared_default_draws(&self) -> Vec<UndeclaredDefaultDraws> {
+        self.counts
+            .undeclared_defaults
+            .iter()
+            .map(|(texture, draws)| UndeclaredDefaultDraws {
                 texture: texture.clone(),
                 draws: *draws,
             })

@@ -10,6 +10,7 @@ use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, 
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
+    UndeclaredTextures,
 };
 use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
@@ -27,7 +28,7 @@ use super::builtins::{
 use super::defaults::{DefaultTexture, ShaderFill};
 use super::ids;
 use super::pixels::{self, Wanted};
-use super::properties::{Textures, fallback_layer, layer, layer_with_defaults};
+use super::properties::{Textures, Undeclared, fallback_layer, layer, layer_with_defaults};
 use super::script::{Script, kind};
 
 pub use super::report::{Reclaimed, Report};
@@ -372,7 +373,22 @@ impl<'a> Mapper<'a> {
         settings: &'a Settings,
     ) -> Self {
         let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
-        let mut frame = OffscreenFrame::default();
+        let mut frame = OffscreenFrame {
+            // Unity binds its grey default to a texture nothing sets and the shader does not
+            // declare, command-buffer records included: a 2D one to a 2D slot, a cube to a cube
+            // slot.
+            undeclared_textures: UndeclaredTextures {
+                d2: available
+                    .default_textures
+                    .contains(&DefaultTexture::Grey)
+                    .then(|| DefaultTexture::Grey.id()),
+                cube: available
+                    .default_textures
+                    .contains(&DefaultTexture::GreyCube)
+                    .then(|| DefaultTexture::GreyCube.id()),
+            },
+            ..OffscreenFrame::default()
+        };
         if let Some(global) = &snapshot.global {
             frame.globals = layer(&global.properties, &mut textures);
             frame.global_keywords.clone_from(&global.keywords);
@@ -781,8 +797,20 @@ impl<'a> Mapper<'a> {
                 .filter(|(_, texture)| self.available.default_textures.contains(texture))
                 .map(|(name, texture)| (name.clone(), texture.id()))
                 .collect();
-            let properties =
-                layer_with_defaults(&material.properties, &mut self.textures, &defaults);
+            let undeclared = self
+                .available
+                .default_textures
+                .contains(&DefaultTexture::Grey)
+                .then(|| Undeclared {
+                    texture: DefaultTexture::Grey.id(),
+                    declared: &info.fill.declared_textures,
+                });
+            let properties = layer_with_defaults(
+                &material.properties,
+                &mut self.textures,
+                &defaults,
+                undeclared,
+            );
             let fallback = fallback_layer(&material.properties, &info.fill, &mut self.textures);
             self.frame.materials.insert(
                 named,

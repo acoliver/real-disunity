@@ -19,7 +19,7 @@ use worldrunner_render_program::unity::offscreen::{
 };
 use worldrunner_render_program::unity::shader::ProgramShader;
 use worldrunner_render_program::unity::synthetic::shaders::{
-    BLIT, blit_parameters, blit_passes, camera_passes, no_cull, variant,
+    BLIT, blit_parameters, blit_passes, camera_passes, cube_blit, no_cull, variant,
 };
 use worldrunner_render_program::unity::synthetic::{
     PassSpec, SyntheticShader, shader as synthetic_shader,
@@ -66,6 +66,8 @@ impl ShaderSupply for Synthetic {
             "blit" => blit_passes("_MainTex"),
             "gradient" => gradient_passes(),
             "cubeblit" => super::shapes::cube_blit_passes(),
+            // A pass that reads the cube slot `_BlitCubeTexture` that nothing sets.
+            "cubeslot" => cube_blit("_BlitCubeTexture"),
             "arrays" => super::global_arrays::arrays_blit_passes(),
             "procedural" => super::procedural::procedural_passes(),
             "procedural_inputs" => super::procedural::input_reading_passes(),

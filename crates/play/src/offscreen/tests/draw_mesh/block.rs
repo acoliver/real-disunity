@@ -2,6 +2,8 @@
 //! material, so they override the material for that draw only. The next draw of the same material
 //! without a block reads the material again, and a texture only the block names is sampled.
 
+use std::collections::BTreeMap;
+
 use worldrunner_render_program::unity::synthetic::shaders::{POSITION_AND_UV, no_cull, variant};
 use worldrunner_render_program::unity::synthetic::{
     FRAGMENT, PassSpec, SyntheticShader, binding, shader as synthetic_shader, slot,
@@ -12,8 +14,9 @@ use worldrunner_world_simulation::graphics::{
 };
 
 use super::{
-    ARGB32, BLUE, GREEN, MESH, Mat4, MaterialId, OffscreenWork, RED, Vec3, World, bind_and_clear,
-    flat, flush, identity_view, left_half, record, scene, shader, stored, target, world,
+    ARGB32, BLUE, DefaultTexture, GREEN, MESH, Mat4, MaterialId, OffscreenWork, RED, Vec3, World,
+    bind_and_clear, flat, flush, flush_without_grey, identity_view, left_half, record, scene,
+    shader, stored, target, world,
 };
 
 fn tinted(tint: [f32; 4]) -> ShaderProperties {
@@ -144,8 +147,9 @@ fn sampling(source: RenderTextureId) -> ShaderProperties {
     block
 }
 
-#[test]
-fn a_render_texture_named_only_by_the_block_is_sampled_by_that_draw() {
+/// The scene of the two block tests: a blue render texture, a target cleared to green, and the
+/// `sampled` shader's material.
+fn sampling_scene() -> (World, RenderTextureId, RenderTextureId, MaterialId) {
     let mut world = world();
     let source = target(&mut world, ARGB32);
     let drawn = target(&mut world, ARGB32);
@@ -165,12 +169,21 @@ fn a_render_texture_named_only_by_the_block_is_sampled_by_that_draw() {
     identity_view(&mut world);
     let shader = shader(&mut world, "sampled");
     let sampled = world.create_material(shader).unwrap();
+    (world, source, drawn, sampled)
+}
+
+/// On a host without the grey default, the draw without the block has nothing to read for
+/// `_MainTex`, so it is left out and counted, and the block's draw is not affected by it.
+#[test]
+fn a_render_texture_named_only_by_the_block_is_sampled_by_that_draw() {
+    let (mut world, source, drawn, sampled) = sampling_scene();
     draw_with(&mut world, Mat4::IDENTITY, sampled, Some(sampling(source)));
-    // The same material without the block has no `_MainTex`, so this draw is left out. The pass
-    // ignores the matrix, so the pixels cannot show that; the report's count of the cause does.
+    // The same material without the block has no `_MainTex`, so with no grey default to read this
+    // draw is left out. The pass ignores the matrix, so the pixels cannot show that; the report's
+    // count of the cause does.
     draw_with(&mut world, Mat4::IDENTITY, sampled, None);
 
-    let run = flush(&mut world, drawn, &stored([(MESH, left_half())]));
+    let run = flush_without_grey(&mut world, drawn, &stored([(MESH, left_half())]));
 
     assert_eq!(run.columns(), [BLUE, BLUE, GREEN, GREEN]);
     assert_eq!(run.outcome.report.built_by_kind["DrawMesh"], 2);
@@ -184,5 +197,36 @@ fn a_render_texture_named_only_by_the_block_is_sampled_by_that_draw() {
     assert!(
         failures.len() == 1 && failures[0].0.ends_with(":MissingTexture") && failures[0].1 == 1,
         "only the blockless draw is left out, for its missing texture: {failures:?}"
+    );
+    assert_eq!(run.outcome.report.undeclared_defaults, BTreeMap::new());
+}
+
+/// With the grey default registered, the draw without the block reads it for `_MainTex`, which no
+/// layer names and the shader does not declare, instead of being left out. It does not read the
+/// block of the draw before it: it paints grey over that draw's blue, and only it is counted as a
+/// grey read.
+#[test]
+fn a_draw_without_the_block_reads_the_grey_default_and_not_the_blocks_render_texture() {
+    let (mut world, source, drawn, sampled) = sampling_scene();
+    draw_with(&mut world, Mat4::IDENTITY, sampled, Some(sampling(source)));
+    draw_with(&mut world, Mat4::IDENTITY, sampled, None);
+
+    let run = flush(&mut world, drawn, &stored([(MESH, left_half())]));
+
+    let [red, green, blue, alpha] = DefaultTexture::Grey.texture().bytes[..] else {
+        panic!("the grey default is one RGBA8 texel");
+    };
+    let grey = [red, green, blue, alpha];
+    assert_ne!(grey, BLUE);
+    assert_eq!(run.columns(), [grey, grey, GREEN, GREEN]);
+    assert_eq!(run.outcome.report.built_by_kind["DrawMesh"], 2);
+    assert!(
+        run.outcome.report.failures.is_empty(),
+        "{:?}",
+        run.outcome.report.failures
+    );
+    assert_eq!(
+        run.outcome.report.undeclared_defaults,
+        BTreeMap::from([("_MainTex".to_owned(), 1)])
     );
 }

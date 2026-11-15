@@ -76,6 +76,15 @@ pub enum OffscreenError {
     NotRenderTexture(TextureId),
     #[error("no layer names the texture {name}")]
     MissingTexture { name: String },
+    #[error("no layer names the structured buffer {name}")]
+    MissingBuffer { name: String },
+    #[error("the structured buffer {name} at set {set} binding {binding} {why}")]
+    UnsupportedBuffer {
+        name: String,
+        set: u32,
+        binding: u32,
+        why: String,
+    },
     #[error(
         "mesh {mesh:?} has no channel {channel} for the shader input {input}, which the shader \
          reads"

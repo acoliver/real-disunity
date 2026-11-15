@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 
 use worldrunner_render_post::contracts::{
-    AllocationKey, BufferBinding, BufferBindingKind, BufferUse, BufferUseKind, CheckedBindings,
-    CheckedDraw, ContractError, FullscreenVertices, RasterPass, TypedOperation, TypedWork,
-    VertexStream,
+    AccessMode, AllocationKey, BufferBinding, BufferBindingKind, BufferUse, BufferUseKind,
+    CheckedBindings, CheckedDraw, ContractError, FullscreenVertices, RasterPass, TypedOperation,
+    TypedWork, VertexStream,
 };
 
 use crate::draw::VertexInput;
@@ -76,8 +76,8 @@ impl Finish<'_> {
         Ok(operation)
     }
 
-    /// The bind group of each descriptor set of the plan's program, and the uniform reads they
-    /// make of the constants buffers.
+    /// The bind group of each descriptor set of the plan's program, and the reads they make of
+    /// the constants buffers and of the structured buffers.
     fn bind(
         &mut self,
         plan: &DrawPlan,
@@ -117,6 +117,19 @@ impl Finish<'_> {
                     visibility: constant.visibility,
                     view,
                     kind: BufferBindingKind::Uniform,
+                    dynamic_offset: None,
+                });
+            }
+            for storage in plan.storage.iter().filter(|s| s.set == set) {
+                uses.push(BufferUse::read(
+                    storage.view.clone(),
+                    BufferUseKind::Storage,
+                ));
+                buffers.push(BufferBinding {
+                    binding: storage.binding,
+                    visibility: storage.visibility,
+                    view: storage.view.clone(),
+                    kind: BufferBindingKind::Storage(AccessMode::Read),
                     dynamic_offset: None,
                 });
             }

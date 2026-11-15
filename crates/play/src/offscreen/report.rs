@@ -66,6 +66,9 @@ pub struct Report {
     /// The camera draws left out because no layer names a texture the pass samples, by the
     /// texture property.
     pub missing_textures: BTreeMap<String, usize>,
+    /// The draws left out because no layer names a structured buffer the pass reads, by the
+    /// buffer property.
+    pub missing_buffers: BTreeMap<String, usize>,
     /// The camera draws left out because the mesh lacks a vertex channel the pass reads, by
     /// `channel C for input I`.
     pub missing_channels: BTreeMap<String, usize>,
@@ -172,6 +175,9 @@ impl Report {
         }
         for entry in operations.missing_texture_draws() {
             *self.missing_textures.entry(entry.texture).or_default() += entry.draws;
+        }
+        for entry in operations.missing_buffer_draws() {
+            *self.missing_buffers.entry(entry.buffer).or_default() += entry.draws;
         }
         for entry in operations.undeclared_default_draws() {
             *self.undeclared_defaults.entry(entry.texture).or_default() += entry.draws;
@@ -285,6 +291,9 @@ impl Report {
         }
         for (name, count) in other.missing_textures {
             *self.missing_textures.entry(name).or_default() += count;
+        }
+        for (name, count) in other.missing_buffers {
+            *self.missing_buffers.entry(name).or_default() += count;
         }
         for (name, count) in other.missing_channels {
             *self.missing_channels.entry(name).or_default() += count;

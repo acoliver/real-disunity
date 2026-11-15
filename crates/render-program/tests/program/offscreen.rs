@@ -3,6 +3,7 @@
 
 mod blit;
 mod block_sources;
+mod buffers;
 mod camera;
 mod camera_probe;
 mod camera_report;

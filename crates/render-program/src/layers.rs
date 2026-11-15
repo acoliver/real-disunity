@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::ids::TextureId;
 use crate::properties::PropertySet;
+use crate::resources::BufferHandle;
 use crate::sampler::SamplerState;
 
 /// A texture a property names, and the sampler state it is read with.
@@ -15,11 +16,15 @@ pub struct TextureInput {
     pub sampler: Option<SamplerState>,
 }
 
-/// The values and textures one source of properties supplies, by name.
+/// The values, textures and structured buffers one source of properties supplies, by name.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PropertyLayer {
     pub values: PropertySet,
     pub textures: BTreeMap<String, TextureInput>,
+    /// The runtime buffers a read-only structured buffer slot of a graphics program reads, by the
+    /// property name the shader declares. The handle is the one a compute dispatch binds, made
+    /// with [`ProgramRuntime::create_buffer`](crate::runtime::ProgramRuntime::create_buffer).
+    pub buffers: BTreeMap<String, BufferHandle>,
 }
 
 /// The layers a draw reads, highest first. A draw reads the caller's per-draw values, the
@@ -52,5 +57,13 @@ impl<'a> Layers<'a> {
         self.highest_first
             .iter()
             .find_map(|layer| layer.textures.get(name))
+    }
+
+    /// The buffer of the first layer that names `name`.
+    #[must_use]
+    pub fn buffer(&self, name: &str) -> Option<BufferHandle> {
+        self.highest_first
+            .iter()
+            .find_map(|layer| layer.buffers.get(name).copied())
     }
 }

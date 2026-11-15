@@ -64,6 +64,13 @@ fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) ->
     })
 }
 
+/// Adds each count of `from` to the count of its name in `into`.
+fn add_counts(into: &mut BTreeMap<String, usize>, from: &BTreeMap<String, usize>) {
+    for (name, count) in from {
+        *into.entry(name.clone()).or_default() += count;
+    }
+}
+
 /// The textures the world's globals held when one piece of work was mapped, as `name: kind`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GlobalListing {
@@ -147,6 +154,8 @@ pub struct GpuWorkReport {
     pub partial_reads: BTreeMap<String, usize>,
     /// The draws left out because no layer names a texture the pass samples, by the property.
     pub missing_textures: BTreeMap<String, usize>,
+    /// The draws left out because no layer names a structured buffer the pass reads, by the property.
+    pub missing_buffers: BTreeMap<String, usize>,
     /// The draws left out because the mesh lacks a vertex channel the pass reads.
     pub missing_channels: BTreeMap<String, usize>,
     /// The draws that read a constant for a vertex channel their mesh lacks, which are recorded.
@@ -224,12 +233,9 @@ impl GpuWorkReport {
             .iter()
             .map(|c| c.unmatched)
             .sum::<usize>();
-        for (name, count) in &report.missing_textures {
-            *self.missing_textures.entry(name.clone()).or_default() += count;
-        }
-        for (name, count) in &report.missing_channels {
-            *self.missing_channels.entry(name.clone()).or_default() += count;
-        }
+        add_counts(&mut self.missing_textures, &report.missing_textures);
+        add_counts(&mut self.missing_buffers, &report.missing_buffers);
+        add_counts(&mut self.missing_channels, &report.missing_channels);
         for (name, count) in &report.defaulted_channels {
             *self.defaulted_channels.entry(name.clone()).or_default() += count;
         }
@@ -327,6 +333,7 @@ impl GpuWorkReport {
         for (title, counts) in [
             ("draws without a pass", &self.unmatched_passes),
             ("partial texture reads", &self.partial_reads),
+            ("draw:MissingBuffer by buffer", &self.missing_buffers),
             ("draws without a mesh channel", &self.missing_channels),
             ("draw:DefaultedChannel", &self.defaulted_channels),
             ("draw:UndeclaredTextureGrey", &self.undeclared_defaults),

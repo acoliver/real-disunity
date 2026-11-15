@@ -3,7 +3,7 @@
 use std::cell::RefMut;
 
 use glam::Vec3;
-use worldrunner_render_plan::SceneTransform;
+use worldrunner_render_plan::{SceneObject, SceneTransform};
 
 use super::{Bounds, MeshSelection};
 use crate::geometry::model_matrix;
@@ -58,8 +58,10 @@ impl<'a> BatchBounds<'a> {
         }
     }
 
-    /// World bounds of the placement in `slot` for a view with this relief ray stretch.
-    pub fn placement(&mut self, slot: usize, transform: &SceneTransform, stretch: f32) -> Bounds {
+    /// World bounds of the placement in `slot` for a view with this relief ray stretch. A skinned
+    /// placement is bounded where its pose can carry its vertices, not where its bind geometry
+    /// lies. The slot's cached boxes are cleared whenever its object, and so its pose, is set.
+    pub fn placement(&mut self, slot: usize, object: &SceneObject, stretch: f32) -> Bounds {
         let Self {
             mesh,
             instances,
@@ -67,6 +69,8 @@ impl<'a> BatchBounds<'a> {
             reliefs,
             cache,
         } = self;
+        let transform = object.transform();
+        let reach = instances.skin.reach(object, mesh.radius());
         let boxes = cache.get_or_fill(slot, reliefs.len(), |boxes| {
             for (stored, &relief) in boxes.iter_mut().zip(reliefs.iter()) {
                 let group = materials
@@ -74,7 +78,7 @@ impl<'a> BatchBounds<'a> {
                     .filter(|&&material| {
                         instances.impostor_extents[material][1].to_bits() == relief
                     })
-                    .map(|&material| view_independent(mesh, instances, transform, material))
+                    .map(|&material| view_independent(mesh, instances, transform, reach, material))
                     .reduce(union)
                     .expect("every relief group has a material");
                 *stored = [group.min, group.max];
@@ -96,6 +100,7 @@ fn view_independent(
     mesh: &MeshSelection,
     instances: &Instances,
     transform: &SceneTransform,
+    reach: f32,
     material: usize,
 ) -> Bounds {
     let impostor = instances.impostor_extents[material];
@@ -104,6 +109,7 @@ fn view_independent(
         instances.wind_extents[material],
         instances.curved_wind[material],
         [impostor[0], impostor[2]],
+        reach,
     )
     .expanded(Vec3::splat(
         impostor[2] * model_matrix(transform).x_axis.truncate().length(),

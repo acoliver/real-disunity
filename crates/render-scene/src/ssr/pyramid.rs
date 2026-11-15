@@ -1,3 +1,4 @@
+use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_plan::{SceneDownsampleRounding, SceneSsr, SceneSsrPyramid};
 use worldrunner_render_post::{FrameConfig, FrameError};
 
@@ -150,10 +151,10 @@ pub(super) fn trace_source(source: String, samples: u32, settings: &SceneSsr) ->
         return source;
     }
     let columns = lane_grid(samples)[0];
-    source.replace(
+    source.anchored("ssr::pyramid::trace_source", 1,
         "let sample = u32(pixel.x / trace_size.x);",
         &format!("let lane = vec2<u32>(pixel.xy / trace_size);\n    let sample = lane.x + lane.y * {columns}u;"),
-    ).replace(
+    ).anchored("ssr::pyramid::trace_source", 1,
         "vec2<f32>(pixel.x - f32(sample) * trace_size.x, pixel.y) / trace_size",
         "(pixel.xy - vec2<f32>(lane) * trace_size) / trace_size",
     )
@@ -164,47 +165,52 @@ pub(super) fn reduction_source(samples: u32, settings: &SceneSsr, dual_output: b
     let source = if shared(settings) {
         let columns = lane_grid(samples)[0];
         format!("@group(0) @binding(0) var<uniform> logical_size: vec4<u32>;\n{source}")
-            .replace(&format!("vec2<i32>(textureDimensions(source)) / vec2<i32>({samples}, 1)"), "vec2<i32>(logical_size.xy)")
-            .replace("let sample = i32(pixel.x) / target_width;", &format!("let target_size = vec2<i32>(target_width, TARGET_HEIGHT);\n    let lane = vec2<i32>(pixel.xy) / target_size;\n    let sample = lane.x + lane.y * {columns};"))
-            .replace("TARGET_HEIGHT", if settings.radiance_rounding == SceneDownsampleRounding::Ceil { "(size.y + 1) / 2" } else { "max(size.y / 2, 1)" })
-            .replace("vec2<i32>(i32(pixel.x) - sample * target_width, i32(pixel.y))", "(vec2<i32>(pixel.xy) - lane * target_size)")
-            .replace("vec2<i32>(sample * size.x, 0)", "lane * size")
+            .anchored("ssr::pyramid::reduction_source", 1, &format!("vec2<i32>(textureDimensions(source)) / vec2<i32>({samples}, 1)"), "vec2<i32>(logical_size.xy)")
+            .anchored("ssr::pyramid::reduction_source", 1, "let sample = i32(pixel.x) / target_width;", &format!("let target_size = vec2<i32>(target_width, TARGET_HEIGHT);\n    let lane = vec2<i32>(pixel.xy) / target_size;\n    let sample = lane.x + lane.y * {columns};"))
+            .anchored("ssr::pyramid::reduction_source", 1, "TARGET_HEIGHT", if settings.radiance_rounding == SceneDownsampleRounding::Ceil { "(size.y + 1) / 2" } else { "max(size.y / 2, 1)" })
+            .anchored("ssr::pyramid::reduction_source", 1, "vec2<i32>(i32(pixel.x) - sample * target_width, i32(pixel.y))", "(vec2<i32>(pixel.xy) - lane * target_size)")
+            .anchored("ssr::pyramid::reduction_source", 1, "vec2<i32>(sample * size.x, 0)", "lane * size")
     } else {
         source
+    };
+    // The shared reduction reads its lane at `lane * size`, the stock one at a column offset.
+    let offset = if shared(settings) {
+        "lane * size"
+    } else {
+        "vec2<i32>(sample * size.x, 0)"
     };
     if !banked(settings) {
         source
     } else if dual_output {
-        banked_reduction_source(&source)
+        banked_reduction_source(&source, offset)
     } else {
-        banked_single_reduction_source(&source)
+        banked_single_reduction_source(&source, offset)
     }
 }
 
-fn banked_single_reduction_source(source: &str) -> String {
+fn banked_single_reduction_source(source: &str, offset: &str) -> String {
     source
-        .replace(
+        .anchored(
+            "ssr::pyramid::banked_single_reduction_source",
+            1,
             "var source: texture_2d<f32>;",
             "var source: texture_2d_array<f32>;",
         )
-        .replace(
-            "textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0)",
-            "textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0, 0)",
-        )
-        .replace(
-            "textureLoad(source, p + lane * size, 0)",
-            "textureLoad(source, p + lane * size, 0, 0)",
+        .anchored(
+            "ssr::pyramid::banked_single_reduction_source",
+            1,
+            &format!("textureLoad(source, p + {offset}, 0)"),
+            &format!("textureLoad(source, p + {offset}, 0, 0)"),
         )
 }
 
-fn banked_reduction_source(source: &str) -> String {
+fn banked_reduction_source(source: &str, offset: &str) -> String {
     let source = source
-        .replace("var source: texture_2d<f32>;", "var source: texture_2d_array<f32>;")
-        .replace("@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {", "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> ReductionBanks {")
-        .replace("var sum = vec4<f32>(0.0);", "var opaque_sum = vec4<f32>(0.0);\n    var water_sum = vec4<f32>(0.0);")
-        .replace("sum += textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0);", "opaque_sum += textureLoad(source, p + vec2<i32>(sample * size.x, 0), 0, 0);\n                water_sum += textureLoad(source, p + vec2<i32>(sample * size.x, 0), 1, 0);")
-        .replace("sum += textureLoad(source, p + lane * size, 0);", "opaque_sum += textureLoad(source, p + lane * size, 0, 0);\n                water_sum += textureLoad(source, p + lane * size, 1, 0);")
-        .replace("return sum/count;", "return ReductionBanks(opaque_sum/count, water_sum/count);");
+        .anchored("ssr::pyramid::banked_reduction_source", 1, "var source: texture_2d<f32>;", "var source: texture_2d_array<f32>;")
+        .anchored("ssr::pyramid::banked_reduction_source", 1, "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {", "@fragment fn fs_screen(@builtin(position) pixel: vec4<f32>) -> ReductionBanks {")
+        .anchored("ssr::pyramid::banked_reduction_source", 1, "var sum = vec4<f32>(0.0);", "var opaque_sum = vec4<f32>(0.0);\n    var water_sum = vec4<f32>(0.0);")
+        .anchored("ssr::pyramid::banked_reduction_source", 1, &format!("sum += textureLoad(source, p + {offset}, 0);"), &format!("opaque_sum += textureLoad(source, p + {offset}, 0, 0);\n                water_sum += textureLoad(source, p + {offset}, 1, 0);"))
+        .anchored("ssr::pyramid::banked_reduction_source", 1, "return sum/count;", "return ReductionBanks(opaque_sum/count, water_sum/count);");
     format!(
         "struct ReductionBanks {{ @location(0) opaque_bank: vec4<f32>, @location(1) water_bank: vec4<f32>, }}\n{source}"
     )
@@ -235,16 +241,25 @@ pub(super) fn uniforms(
         .collect()
 }
 
+/// The resolve over `extents` of a `source` built for as many levels, counting the bindings
+/// after its reflection levels from the source.
 #[cfg(test)]
 pub(super) fn resolve_source(source: String, extents: &[[u32; 2]], samples: u32) -> String {
-    resolve_source_variant(source, extents, samples, false)
+    let first = extents.len() + 5;
+    let trailing = (first..first + super::gpu::trailing_bindings(true, true))
+        .take_while(|binding| source.contains(&format!("@binding({binding})")))
+        .count();
+    resolve_source_variant(source, extents, samples, false, trailing)
 }
 
+/// The shared-pyramid resolve over `extents`. `trailing` is the number of bindings `source`
+/// declares after its reflection levels ([`super::gpu::trailing_bindings`]).
 pub(super) fn resolve_source_variant(
     mut source: String,
     extents: &[[u32; 2]],
     samples: u32,
     banked: bool,
+    trailing: usize,
 ) -> String {
     let levels = extents.len();
     let texture_type = if banked {
@@ -253,7 +268,9 @@ pub(super) fn resolve_source_variant(
         "texture_2d<f32>"
     };
     for index in 1..levels {
-        source = source.replace(
+        source = source.anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
             &format!(
                 "@group(0) @binding({}) var reflection_{index}: {texture_type};",
                 index + 5
@@ -261,13 +278,17 @@ pub(super) fn resolve_source_variant(
             "",
         );
     }
-    for binding in levels + 5..levels + 12 {
-        source = source.replace(
+    for binding in levels + 5..levels + 5 + trailing {
+        source = source.anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
             &format!("@binding({binding})"),
             &format!("@binding({})", binding - levels + 1),
         );
     }
-    source = source.replace(
+    source = source.anchored(
+        "ssr::pyramid::resolve_source_variant",
+        3,
         "textureDimensions(reflection_0)",
         &format!("vec2<u32>({}, {})", extents[0][0] * samples, extents[0][1]),
     );
@@ -286,25 +307,48 @@ pub(super) fn resolve_source_variant(
         .collect::<Vec<_>>()
         .join(",");
     let helper = include_str!("pyramid.wgsl")
-        .replace("LEVEL_COUNT", &levels.to_string())
-        .replace("LOGICAL_SIZES", &sizes)
-        .replace("LANE_COLUMNS", &lane_grid(samples)[0].to_string());
+        .anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
+            "LEVEL_COUNT",
+            &levels.to_string(),
+        )
+        .anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
+            "LOGICAL_SIZES",
+            &sizes,
+        )
+        .anchored(
+            "ssr::pyramid::resolve_source_variant",
+            2,
+            "LANE_COLUMNS",
+            &lane_grid(samples)[0].to_string(),
+        );
     source.replace_range(start..end, &helper);
     super::reconstruction::shared(&mut source, lane_grid(samples)[0]);
     if banked {
-        source = source.replace(
+        source = source.anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
             "textureLoad(reflection_0, a, lod)",
             "textureLoad(reflection_0, a, reflection_bank_index, lod)",
         );
-        source = source.replace(
+        source = source.anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
             "textureLoad(reflection_0, vec2<i32>(b.x, a.y), lod)",
             "textureLoad(reflection_0, vec2<i32>(b.x, a.y), reflection_bank_index, lod)",
         );
-        source = source.replace(
+        source = source.anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
             "textureLoad(reflection_0, vec2<i32>(a.x, b.y), lod)",
             "textureLoad(reflection_0, vec2<i32>(a.x, b.y), reflection_bank_index, lod)",
         );
-        source = source.replace(
+        source = source.anchored(
+            "ssr::pyramid::resolve_source_variant",
+            1,
             "textureLoad(reflection_0, b, lod)",
             "textureLoad(reflection_0, b, reflection_bank_index, lod)",
         );

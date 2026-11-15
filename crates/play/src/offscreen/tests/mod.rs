@@ -32,4 +32,6 @@ mod shapes;
 mod storage;
 mod support;
 mod texture_cache;
+mod texture_properties;
+mod undeclared_cube;
 mod volumes;

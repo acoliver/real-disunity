@@ -4,7 +4,7 @@ use worldrunner_render_plan::SceneSsrGridDomain;
 #[test]
 fn gpu_grid_sixteen_texture_boundaries_precede_allocation() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();

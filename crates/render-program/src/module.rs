@@ -83,6 +83,12 @@ pub enum ModuleError {
     Parse(String),
     #[error("naga rejects the module: {0}")]
     Validate(String),
+    #[error("texel buffer at set {set} binding {binding}: {what}")]
+    TexelBuffer {
+        set: u32,
+        binding: u32,
+        what: String,
+    },
     #[error("naga panicked on the module: {0}")]
     Panicked(String),
     #[error("the module has no {kind:?} entry point named {name}")]
@@ -290,6 +296,40 @@ impl StageProgram {
         &self.resources
     }
 
+    /// The colour locations a fragment entry point writes, ascending and without repeats, so a
+    /// dual-source blend's second output at location 0 counts once. Built-in outputs such as
+    /// fragment depth are not colours. Empty for a vertex or compute stage.
+    pub(crate) fn color_outputs(&self) -> Vec<u32> {
+        if self.module.kind != StageKind::Fragment {
+            return Vec::new();
+        }
+        let Ok(entry) = entry_index(&self.parsed, &self.module.entry_point, self.module.kind)
+        else {
+            return Vec::new();
+        };
+        let module = &self.parsed.module;
+        let Some(result) = &module.entry_points[entry].function.result else {
+            return Vec::new();
+        };
+        let mut locations: Vec<u32> = match &result.binding {
+            Some(naga::Binding::Location { location, .. }) => vec![*location],
+            Some(naga::Binding::BuiltIn(_)) => Vec::new(),
+            None => match &module.types[result.ty].inner {
+                naga::TypeInner::Struct { members, .. } => members
+                    .iter()
+                    .filter_map(|member| match member.binding {
+                        Some(naga::Binding::Location { location, .. }) => Some(location),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            },
+        };
+        locations.sort_unstable();
+        locations.dedup();
+        locations
+    }
+
     /// The textures and samplers the entry point samples together, by address.
     pub(crate) fn sampling_pairs(&self) -> Vec<SamplingPair> {
         entry_index(&self.parsed, &self.module.entry_point, self.module.kind)
@@ -483,6 +523,7 @@ fn stage_key(
 }
 
 fn parse_spirv(words: &[u32]) -> Result<naga::Module, ModuleError> {
+    let words = crate::texel_buffer::lower(words)?;
     let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
     // The default options flip the vertex position's Y, which turns the SPIR-V clip space
     // (Y down) into the one wgpu draws with; the crate's convention tests pin the result.

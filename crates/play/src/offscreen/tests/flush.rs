@@ -20,6 +20,7 @@ use worldrunner_world_simulation::{MeshRenderer, World};
 
 use super::super::adapter::OffscreenAdapter;
 use super::super::compute::ComputeAdapter;
+use super::super::defaults::DefaultTexture;
 use super::super::flush::{FlushOutcome, OffscreenHost};
 use super::super::frame::Settings;
 use super::super::kernels::PlayerKernels;
@@ -63,10 +64,31 @@ fn host_with(directory: &Path, settings: Settings) -> OffscreenHost {
 }
 
 fn host_on(directory: &Path, settings: Settings, gpu: super::gpu::Gpu) -> OffscreenHost {
+    host_over(
+        directory,
+        OffscreenAdapter::with_supply(Synthetic, settings),
+        gpu,
+    )
+}
+
+/// A host that registers only `defaults` of the default textures, as one without the grey does.
+fn host_holding(
+    directory: &Path,
+    settings: Settings,
+    defaults: &[DefaultTexture],
+) -> OffscreenHost {
+    host_over(
+        directory,
+        OffscreenAdapter::with_supply(Synthetic, settings).with_default_textures(defaults),
+        gpu(),
+    )
+}
+
+fn host_over(directory: &Path, adapter: OffscreenAdapter, gpu: super::gpu::Gpu) -> OffscreenHost {
     OffscreenHost::new(
         gpu.runtime,
         gpu.arena,
-        OffscreenAdapter::with_supply(Synthetic, settings),
+        adapter,
         ComputeAdapter::new(PlayerKernels::new(directory)),
     )
 }
@@ -504,17 +526,16 @@ fn a_camera_draws_a_shader_without_a_light_mode_only_when_untagged_passes_count_
     assert_eq!(outcome.report.traces[0].textures[0].camera_unmatched, 1);
 }
 
-/// A camera whose only draw samples `_Albedo`, which no layer names, leaves that draw out and
-/// names the texture, and the dispatch trace says how many draws the height map missed.
-#[test]
-fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_by_the_record() {
+/// What the camera render of `camera_render`, flushed with the compute pass that reads its
+/// heights back, produced on a host with `defaults` of the default textures.
+fn camera_flush(defaults: &[DefaultTexture]) -> (FlushOutcome, Vec<f32>) {
     let directory = tempfile::tempdir().unwrap();
     write_compute(directory.path(), "heights", vec![(1, copy_object())]);
     let settings = Settings {
         light_modes: vec!["Gamma".to_owned()],
         ..Settings::default()
     };
-    let mut host = host_with(directory.path(), settings);
+    let mut host = host_holding(directory.path(), settings, defaults);
     let mut world = world();
     let heights = target(&mut world, HEIGHT);
     camera_render(&mut world, heights);
@@ -522,8 +543,17 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
     let buffer = compute_buffer(&mut world, SIDE * SIDE);
     dispatch(&mut world, shader, (heights, buffer), [2, 2, 1]);
     let snapshot = snapshot(&mut world);
-
     let outcome = host.flush(&snapshot, &Quad).unwrap();
+    outcome.apply(&mut world).unwrap();
+    (outcome, floats(&world, buffer))
+}
+
+/// On a host without the grey default, a camera whose only draw samples `_Albedo`, which no layer
+/// names and its shader does not declare, leaves that draw out and names the texture, and the
+/// dispatch trace says how many draws the height map missed.
+#[test]
+fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_by_the_record() {
+    let (outcome, heights) = camera_flush(&[DefaultTexture::White, DefaultTexture::Black]);
     let report = &outcome.report;
     assert_eq!(report.failures.get("draw:MissingTexture"), Some(&1));
     assert_eq!(report.failures.get("record:MissingTexture"), None);
@@ -531,6 +561,7 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
         report.missing_textures,
         BTreeMap::from([("_Albedo".to_owned(), 1)])
     );
+    assert_eq!(report.undeclared_defaults, BTreeMap::new());
     assert_eq!(report.built, 1, "the camera render is kept");
     let texture = &report.traces[0].textures[0];
     assert_eq!(
@@ -542,6 +573,59 @@ fn a_camera_draw_whose_texture_nothing_names_is_counted_by_the_texture_and_not_b
         (1, 0, 1)
     );
     assert_eq!(texture.camera_unmatched, 0);
+    assert_eq!(
+        heights,
+        vec![CLEAR * SCALE; 16],
+        "no draw: every texel is the clear color, scaled"
+    );
+}
+
+/// With the grey default registered, the same draw reads Unity's default 2D texture: it is kept,
+/// no failure names it, and the report counts it by the texture property.
+#[test]
+fn a_camera_draw_whose_texture_nothing_names_reads_the_grey_default_and_is_counted_so() {
+    let (outcome, heights) = camera_flush(&DefaultTexture::ALL);
+    let report = &outcome.report;
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    assert_eq!(report.missing_textures, BTreeMap::new());
+    assert_eq!(
+        report.undeclared_defaults,
+        BTreeMap::from([("_Albedo".to_owned(), 1)])
+    );
+    assert_eq!(report.built, 1, "the camera render is kept");
+    let texture = &report.traces[0].textures[0];
+    assert_eq!(
+        (
+            texture.camera_renders,
+            texture.camera_draws,
+            texture.camera_missing_texture
+        ),
+        (1, 1, 0)
+    );
+    // The Gamma pass paints the albedo times the tint over the left half. The grey texel is one
+    // unorm byte, and the height map holds 16-bit floats, so the value is exact to one step of
+    // those near 0.25, which is 2^-12.
+    let grey = f32::from(DefaultTexture::Grey.texture().bytes[0]) / 255.0;
+    let step = SCALE / 4096.0;
+    let predicted: Vec<f32> = (0..SIDE * SIDE)
+        .map(|index| {
+            if index % SIDE < SIDE / 2 {
+                grey * DRAWN * SCALE
+            } else {
+                CLEAR * SCALE
+            }
+        })
+        .collect();
+    for (index, (got, want)) in heights.iter().zip(&predicted).enumerate() {
+        assert!(
+            (got - want).abs() <= step,
+            "texel {index}: {got} against {want}, within {step}"
+        );
+    }
+    assert!(
+        (heights[0] - DRAWN * SCALE).abs() > 0.1,
+        "the draw reads grey, not white: {heights:?}"
+    );
 }
 
 /// The heights a camera draws with `_Albedo` at the default its shader declares, which the

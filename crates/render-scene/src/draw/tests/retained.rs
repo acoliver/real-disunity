@@ -324,7 +324,7 @@ fn gpu_encoder_growth_preserves_unchanged_instances_and_new_edits() {
         [0..1, 2..10]
     );
     let batch = gpu.instances.batches.values().next().unwrap();
-    let buffer = batch.buffer.as_ref().unwrap();
+    let buffer = batch.buffer.as_deref().unwrap();
     assert!(buffer.size() > old_size);
     let mut readback =
         BufferReadback::new(context.device(), batch.bytes.len() as u64, 4096).unwrap();

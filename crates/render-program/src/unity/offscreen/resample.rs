@@ -26,7 +26,8 @@ use crate::module::{StageDeclarations, StageKind, StageModule, StageProgram, Sta
 use crate::program::GraphicsProgram;
 
 use super::error::OffscreenError;
-use super::plan::{Services, read_unfilterable};
+use super::plan::Services;
+use super::sampling::read_unfilterable;
 use super::steps::{Step, raster_id};
 
 const SHADER: &str = "

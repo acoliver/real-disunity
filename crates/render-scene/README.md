@@ -961,11 +961,12 @@ check the quantisation through a Rust mirror of the WGSL and validate the module
 with naga; the GPU tests draw a small terrain scene with and without the path,
 and a producer that writes known surfaces through `scene_gbuffer_encode`.
 
-The scene itself is a producer. When the frame observes the G-buffer and has the
-depth prepass, the prepass metadata carries G-buffer pipelines (four targets,
-`DepthMode::Reuse`), and the scene feature draws the camera's selection into the
-slot through the same walk as the colour pass, in the unshadowed and the shadowed
-scene. Each fragment entry stores the material its forward entry would light,
+The scene itself is a producer. When the frame observes the G-buffer and Opaque
+loads the completed prepass depth (`DepthMode::Reuse`), the prepass metadata carries
+G-buffer pipelines (four targets), and the scene feature draws the camera's selection
+into the slot through the same walk as the colour pass, in the unshadowed and the
+shadowed scene. Other depth modes declare no producer and leave the cleared targets
+untouched. Each fragment entry stores the material its forward entry would light,
 before any lighting: terrain stores `terrain_material`, objects `shade_material`,
 and impostor cards `scene_card_gbuffer_material`, which is derived from the frozen
 `scene_card_shade` by counted rewrites. Scattering materials set flag bit 0 and

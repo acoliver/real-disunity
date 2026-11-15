@@ -16,6 +16,7 @@ mod frame;
 mod global_arrays;
 mod gpu;
 mod kernels;
+mod lights_gpu;
 mod lists;
 mod lists_gpu;
 mod mesh_cache;

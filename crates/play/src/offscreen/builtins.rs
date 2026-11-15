@@ -53,6 +53,8 @@
 //!   vector, so the direction is a unit vector from the surface toward the light; it multiplies
 //!   the diffuse and specular terms by `color.xyz` with no other intensity, so the colour holds the
 //!   light's colour times its intensity. No stage reads either fourth component, which is 0 here.
+//!   They are the fallback in the frame's starting globals: a value the world's globals hold, or
+//!   that a command buffer sets later with `SetGlobalVector`, replaces them from that place on.
 //!   The light's colour temperature is not applied: nothing here says how the player converts it.
 //! * `unity_OrthoParams` (2,766 variants) carries 1 in its fourth component for a view whose
 //!   projection has no perspective divide and 0 for one that has it ([`view_layer`]). In the same
@@ -207,11 +209,15 @@ pub fn view_layer(world_to_camera: &Mat4, projection: &Mat4, depth: DepthRange) 
 /// A light's forward axis shorter than this points in no direction.
 const SHORTEST_AXIS: f32 = 1.0e-6;
 
-/// Adds the main light of `lights` to a camera's values: `_MainLightPosition` is the unit
+/// Adds the main light of `lights` to a layer as its fallback: `_MainLightPosition` is the unit
 /// direction from a surface toward the light and `_MainLightColor` the light's colour times its
 /// intensity, each with 0 in the fourth component. The main light is the one the retained scene
 /// follows ([`main_light_index`]). With no directional light, or one whose forward axis has no
-/// length, both stay missing.
+/// length, both stay missing. A name the layer already holds keeps its value.
+///
+/// A frame adds its light to the globals the script starts from, below every global the world or
+/// the script sets, so a light the game's own pipeline sets as a global replaces the host's at
+/// the place in the frame where it sets it (see `Mapper::new`).
 pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
     let Some(index) = main_light_index(lights.iter().map(|light| &light.settings)) else {
         return;
@@ -225,14 +231,18 @@ pub fn add_main_light(layer: &mut PropertyLayer, lights: &[WorldLight]) {
     let toward = -forward / length;
     let [r, g, b, _] = light.settings.color;
     let intensity = light.settings.intensity;
-    layer.values.set(
-        MAIN_LIGHT_POSITION,
-        PropertyValue::Vector([toward.x, toward.y, toward.z, 0.0]),
-    );
-    layer.values.set(
-        MAIN_LIGHT_COLOR,
-        PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
-    );
+    if layer.values.get(MAIN_LIGHT_POSITION).is_none() {
+        layer.values.set(
+            MAIN_LIGHT_POSITION,
+            PropertyValue::Vector([toward.x, toward.y, toward.z, 0.0]),
+        );
+    }
+    if layer.values.get(MAIN_LIGHT_COLOR).is_none() {
+        layer.values.set(
+            MAIN_LIGHT_COLOR,
+            PropertyValue::Vector([r * intensity, g * intensity, b * intensity, 0.0]),
+        );
+    }
 }
 
 /// Adds the size in pixels of the target a view draws into: `_ScreenParams` holds the width and

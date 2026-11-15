@@ -166,7 +166,7 @@ fn without_a_directional_light_with_a_direction_the_pair_stays_missing() {
 }
 
 #[test]
-fn a_camera_render_of_a_world_with_a_sun_carries_the_main_light() {
+fn a_frame_of_a_world_with_a_sun_starts_its_globals_with_the_main_light() {
     let mut world = world();
     let target = render_texture(&mut world, [4, 4]);
     let camera = camera(&mut world, Camera::default(), Vec3::ZERO, Quat::IDENTITY);
@@ -180,9 +180,14 @@ fn a_camera_render_of_a_world_with_a_sun_carries_the_main_light() {
         &available(&snapshot, 1, &[]),
         &Settings::default(),
     );
-    let values = &adapted.frame.cameras[&CameraId(0)].values;
-    assert_close(&vector(values, MAIN_LIGHT_POSITION), &[0.0, 1.0, 0.0, 0.0]);
-    assert_close(&vector(values, MAIN_LIGHT_COLOR), &[1.0, 1.0, 1.0, 0.0]);
+    // The host's light is the fallback below every global a script sets, so it is in the
+    // globals the frame starts from and not in the camera's own values.
+    let globals = &adapted.frame.globals;
+    assert_close(&vector(globals, MAIN_LIGHT_POSITION), &[0.0, 1.0, 0.0, 0.0]);
+    assert_close(&vector(globals, MAIN_LIGHT_COLOR), &[1.0, 1.0, 1.0, 0.0]);
+    let camera = &adapted.frame.cameras[&CameraId(0)].values;
+    assert!(camera.values.get(MAIN_LIGHT_POSITION).is_none());
+    assert!(camera.values.get(MAIN_LIGHT_COLOR).is_none());
 }
 
 #[test]

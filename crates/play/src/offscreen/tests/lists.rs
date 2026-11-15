@@ -539,7 +539,7 @@ fn a_shadow_split_leaves_out_the_casters_wholly_outside_its_planes() {
 }
 
 #[test]
-fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_bound() {
+fn a_draw_carries_the_view_the_script_set_up_and_the_targets_it_bound() {
     let mut world = world();
     let [lit, ..] = shaders(&mut world);
     placed(&mut world, (0, 0, Vec3::ZERO), &[lit], None);
@@ -554,11 +554,13 @@ fn a_draw_carries_the_view_and_main_light_the_script_set_up_and_the_targets_it_b
     let listed = lists(&adapted);
     let first = listed[0];
     let values = &first.values.values;
-    // The light shines along +Z, so the direction toward it is -Z.
+    // The light shines along +Z, so the direction toward it is -Z. It is the host's fallback in
+    // the frame's starting globals, below whatever the script sets, and not in the view.
     assert_eq!(
-        values.get("_MainLightPosition"),
+        adapted.frame.globals.values.get("_MainLightPosition"),
         Some(&PropertyValue::Vector([0.0, 0.0, -1.0, 0.0]))
     );
+    assert_eq!(values.get("_MainLightPosition"), None);
     // The script's projection is the identity, which has no perspective divide and puts the
     // near plane at 1.
     assert_eq!(

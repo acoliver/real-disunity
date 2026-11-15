@@ -408,6 +408,9 @@ impl<'a> Mapper<'a> {
             frame.globals = layer(&global.properties, &mut textures);
             frame.global_keywords.clone_from(&global.keywords);
         }
+        // The host's light stands in for one the world and the script never set: it sits in the
+        // globals the script starts from, so a later `SetGlobalVector` of either name replaces it.
+        add_main_light(&mut frame.globals, &snapshot.lights);
         let script = Script::new(frame.globals.clone(), &frame.global_keywords);
         Self {
             snapshot,
@@ -691,7 +694,6 @@ impl<'a> Mapper<'a> {
             CameraClear::Nothing => (None, false),
         };
         let mut values = camera_layer(view, texels(size[0]) / texels(size[1]), self.settings.depth);
-        add_main_light(&mut values, &self.snapshot.lights);
         add_screen_size(&mut values, size);
         Camera {
             culling_mask: view.settings.culling_mask,

@@ -48,6 +48,9 @@ pub(super) trait Content {
     fn window_mode(&self) -> crate::WindowMode {
         crate::WindowMode::default()
     }
+    fn window_on_top(&self) -> bool {
+        false
+    }
     fn interval(&self) -> Duration {
         Duration::from_millis(16)
     }
@@ -108,6 +111,20 @@ pub(super) fn run_retained(
     driver: &mut dyn crate::RetainedDriver,
 ) -> Result<(), ViewerError> {
     run_content(Box::new(crate::retained::Session::new(host, driver)))
+}
+
+pub(crate) fn window_attributes(content: &dyn Content) -> winit::window::WindowAttributes {
+    let attributes = content.window_mode().attributes(
+        Window::default_attributes()
+            .with_title(content.title())
+            .with_inner_size(content.window_size_unit().creation_size(content.size()))
+            .with_visible(false),
+    );
+    if content.window_on_top() {
+        attributes.with_window_level(winit::window::WindowLevel::AlwaysOnTop)
+    } else {
+        attributes
+    }
 }
 
 fn run_content(content: Box<dyn Content + '_>) -> Result<(), ViewerError> {

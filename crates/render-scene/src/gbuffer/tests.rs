@@ -39,6 +39,7 @@ fn surface(shading_normal: Vec3, geometric_normal: Vec3) -> Surface {
         emission: 0.25,
         ao: 0.8,
         flags: 2,
+        lighting_record: 0,
     }
 }
 
@@ -135,8 +136,9 @@ fn gbuffer_scalars_and_base_colour_round_trip_within_one_code() {
         values.metal = 1.0 - value;
         values.emission = value;
         values.ao = value;
+        values.lighting_record = step.wrapping_mul(37);
         let codes = reference::encode(&values, Mat3::IDENTITY);
-        assert_eq!(codes.g1[3], 0);
+        assert_eq!(codes.g1[3], values.lighting_record);
         assert_eq!(codes.g0[2..], [0, 0]);
         let decoded = reference::decode(&codes, Mat3::IDENTITY);
         let half_code = 0.5 / 255.0 + 1e-6;
@@ -157,6 +159,7 @@ fn gbuffer_scalars_and_base_colour_round_trip_within_one_code() {
                 <= 0.0045
         );
         assert_eq!(decoded.flags, values.flags);
+        assert_eq!(decoded.lighting_record, values.lighting_record);
     }
 }
 
@@ -227,7 +230,8 @@ fn gbuffer_wgsl_validates_with_no_bindings_and_the_agreed_interface() {
             "metal",
             "emission",
             "ao",
-            "flags"
+            "flags",
+            "lighting_record"
         ]
     );
     let targets = members("SceneGbufferTargets");
@@ -248,7 +252,7 @@ fn gbuffer_wgsl_writes_all_four_targets_from_a_fragment_entry_point() {
 @fragment
 fn fs_gbuffer_probe(@builtin(position) position: vec4<f32>) -> SceneGbufferTargets {{
     let n = normalize(vec3<f32>(position.xy, 1.0));
-    let surface = SceneGbufferSurface(n, n, vec3<f32>(0.5), 0.5, 0.0, 0.0, 1.0, 1u);
+    let surface = SceneGbufferSurface(n, n, vec3<f32>(0.5), 0.5, 0.0, 0.0, 1.0, 1u, 7u);
     let targets = scene_gbuffer_encode(surface, mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0),
         vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0)));
     let decoded = scene_gbuffer_decode(targets.g0, targets.g1, targets.g2, targets.g3,
@@ -399,10 +403,27 @@ fn gbuffer_targets_are_allocated_only_for_the_observation_path() {
     let forward = settings.allocations().validate(&limits).unwrap();
     settings.opaque_path = worldrunner_render_plan::SceneOpaquePath::GBUFFER_OBSERVATION;
     let observed = settings.allocations().validate(&limits).unwrap();
-    assert_eq!(observed - forward, 64 * 32 * 14);
+    // Fourteen G-buffer bytes and the lighting colour target in the frame's own format.
+    let colour = settings.frame.format.block_copy_size(None).unwrap();
+    assert_eq!(colour, 4);
+    assert_eq!(observed - forward, 64 * 32 * (14 + u64::from(colour)));
     // A refused multisampled observation allocates nothing extra; `validate` reports it.
     settings.frame.samples = 4;
     let refused = settings.allocations().validate(&limits).unwrap();
     settings.opaque_path = worldrunner_render_plan::SceneOpaquePath::Forward;
     assert_eq!(refused, settings.allocations().validate(&limits).unwrap());
+}
+
+#[test]
+fn scene_producer_requires_opaque_to_load_completed_prepass_depth() {
+    use crate::renderer::depth::DepthMode;
+
+    assert!(super::producer_depth_available(DepthMode::Reuse));
+    for depth in [
+        DepthMode::Independent,
+        DepthMode::Shared,
+        DepthMode::Prepass,
+    ] {
+        assert!(!super::producer_depth_available(depth), "{depth:?}");
+    }
 }

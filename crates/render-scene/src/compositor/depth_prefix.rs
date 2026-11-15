@@ -11,13 +11,15 @@ use worldrunner_render_post::{
 /// [`plan`](Self::plan) is exactly what the prefix completes: the prepass entry
 /// (`PassEntry::new(PassSlot::DepthNormalPrepass)`) and the first depth level
 /// (`PassEntry::new(PassSlot::DepthPyramid(0))`), both occurrence 0, with the views they attach.
-/// The prepass depth attachment holds the device depth the frame's opaque pass reuses. A caller
-/// feature that reads it declares that resource in a later entry and finds the view through
-/// `PrepareContext::resource`. The suffix frame must list the same passes and attachments for the
-/// entries to count as completed; one that does not is refused.
+/// The prepass depth attachment holds the device depth the frame's opaque pass reuses. A renderer
+/// with a G-buffer path that renders from it fuses the G-buffer producer into the prepass: the
+/// same entry then also attaches the G-buffer targets and any velocity target, and the plan lists
+/// their views. A caller feature that reads one of these declares that resource in a later entry
+/// and finds the view through `PrepareContext::resource`. The suffix frame must list the same
+/// passes and attachments for the entries to count as completed; one that does not is refused.
 ///
-/// The prefix keeps no borrow of the renderer or the scene. It describes the metadata the
-/// renderer held when it was made and is for one frame.
+/// The prefix keeps no borrow of the renderer or the scene. It describes the metadata and the
+/// G-buffer path the renderer held when it was made and is for one frame.
 #[derive(Debug)]
 pub struct StockDepthPrefix {
     source: crate::scene_metadata::SceneMetadata,
@@ -27,37 +29,26 @@ pub struct StockDepthPrefix {
     prepass: FeaturePass,
     screen: FeatureDeclaration,
     depth_mode: crate::renderer::depth::DepthMode,
+    renders: bool,
 }
 impl StockDepthPrefix {
     fn new(
+        renderer: &FrameRenderer,
         source: crate::scene_metadata::SceneMetadata,
-        material: Option<wgpu::Texture>,
         relief: bool,
     ) -> Result<Self, FrameError> {
         let mut passes = Vec::new();
         let mut views = Vec::new();
-        crate::ssao::passes::prepass(&source, material.as_ref(), &mut passes, &mut views)?;
-        let screen = source.passes.schedule_metadata(&mut passes, &mut views)?;
-        let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
-        prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-        prepass.depth_format = Some(source.depth.format());
-        prepass.additional_color_formats = passes
-            .iter()
-            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-            .expect("prepass declaration")
-            .additional_colors
-            .iter()
-            .map(|attachment| attachment.format)
-            .collect();
-        let depth_mode = if source.depth.format().has_stencil_aspect() {
-            if relief && source.receiver.is_none() {
-                crate::renderer::depth::DepthMode::Shared
-            } else {
-                crate::renderer::depth::DepthMode::Reuse
-            }
-        } else {
-            crate::renderer::depth::DepthMode::Independent
-        };
+        let (prepass, screen) = renderer.prefix_declarations(&source, &mut passes, &mut views)?;
+        let depth_mode = prefix_depth(relief, &source);
+        let material = renderer
+            .ssr
+            .as_ref()
+            .map(|ssr| ssr.material_target().clone());
+        let renders = renderer
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders);
         Ok(Self {
             source,
             material,
@@ -66,6 +57,7 @@ impl StockDepthPrefix {
             prepass,
             screen,
             depth_mode,
+            renders,
         })
     }
 
@@ -103,6 +95,20 @@ impl StockDepthPrefix {
     }
 }
 
+fn prefix_depth(
+    relief: bool,
+    source: &crate::scene_metadata::SceneMetadata,
+) -> crate::renderer::depth::DepthMode {
+    use crate::renderer::depth::DepthMode;
+    if !source.depth.format().has_stencil_aspect() {
+        DepthMode::Independent
+    } else if relief && source.receiver.is_none() {
+        DepthMode::Shared
+    } else {
+        DepthMode::Reuse
+    }
+}
+
 impl FrameRenderer {
     /// The write keys of `textures` in this renderer's capture registry, for a capture's write
     /// contract.
@@ -121,10 +127,14 @@ impl FrameRenderer {
         self.chain.clear_capture_resources();
     }
 
+    pub(crate) fn draw_publications(&self) -> crate::draw::DrawPublications {
+        crate::draw::DrawPublications::with_producer(self.producer_draw.clone())
+    }
+
     /// The stock depth prefix of the frame `gpu` is drawn in. It prepares the renderer's inputs
     /// from the scene first, as [`prepare_stock_scene`](super::prepare_stock_scene) does, then
-    /// plans the prefix from the screen-space metadata the renderer holds and from whether the
-    /// scene draws relief.
+    /// plans the prefix from the screen-space metadata and the G-buffer path the renderer holds
+    /// and from whether the scene draws relief.
     ///
     /// # Errors
     /// `FrameError::UnsupportedEffect("stock depth prefix needs screen-space metadata")` when the
@@ -140,12 +150,8 @@ impl FrameRenderer {
             ));
         }
         self.prepare_scene_inputs(device, gpu);
-        let source = self.ssao.as_ref().expect("metadata checked");
-        StockDepthPrefix::new(
-            source.clone(),
-            self.ssr.as_ref().map(|ssr| ssr.material_target().clone()),
-            gpu.has_relief(),
-        )
+        let source = self.ssao.as_ref().expect("metadata checked").clone();
+        StockDepthPrefix::new(self, source, gpu.has_relief())
     }
 
     pub(crate) fn encode_depth_prefix(
@@ -156,8 +162,7 @@ impl FrameRenderer {
         frame: &crate::frame::FrameUniform,
         source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
-        let material = self.ssr.as_ref().map(|ssr| ssr.material_target().clone());
-        let prefix = StockDepthPrefix::new(source.clone(), material, scene.0.has_relief())?;
+        let prefix = StockDepthPrefix::new(self, source.clone(), scene.0.has_relief())?;
         self.encode_prefix(device, encoder, scene, frame, (&prefix, None))
     }
 
@@ -174,6 +179,7 @@ impl FrameRenderer {
     ) -> Result<(), FrameError> {
         let (prefix, contribution) = planned;
         let (gpu, pipelines) = scene;
+        gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, prefix.source.size)?;
         gpu.prepare_depth_prefix_pages(device, encoder, frame, prefix.source.size)?;
         let mut passes = prefix.passes.clone();
@@ -186,14 +192,7 @@ impl FrameRenderer {
             requested.extend_from_slice(plan.requested);
             extra = Some(features);
         }
-        let mut geometry = super::SceneFeature {
-            publications: crate::draw::DrawPublications::default(),
-            gpu,
-            pipelines: Cow::Borrowed(pipelines),
-            frame: *frame,
-            screen: Some(prefix.source.geometry_for_depth(prefix.depth_mode)),
-            programs: None,
-        };
+        let mut geometry = self.prefix_geometry(gpu, pipelines, frame, prefix)?;
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: &prefix.source,
             material: prefix.material.as_ref(),
@@ -225,6 +224,63 @@ impl FrameRenderer {
             },
             &mut features,
         )
+    }
+
+    fn prefix_geometry<'a>(
+        &self,
+        gpu: &'a mut crate::draw::SceneGpu,
+        pipelines: &'a crate::renderer::ScenePipelines,
+        frame: &crate::frame::FrameUniform,
+        prefix: &StockDepthPrefix,
+    ) -> Result<super::SceneFeature<'a>, FrameError> {
+        let screen = prefix.source.geometry_for_depth(prefix.depth_mode);
+        super::scene::prepare_terrain(gpu, frame, pipelines, Some(&screen))?;
+        Ok(super::SceneFeature {
+            publications: self.draw_publications(),
+            gpu,
+            pipelines: Cow::Borrowed(pipelines),
+            frame: *frame,
+            screen: Some(screen),
+            programs: None,
+            deferred: None,
+            renders: prefix.renders,
+            opaque_drawn: std::cell::Cell::new(false),
+        })
+    }
+
+    /// Declares the prefix passes of `source` into `passes` and `views`. With a G-buffer path
+    /// that renders, the producer is fused into the prepass: the prepass declaration then
+    /// attaches the G-buffer targets and the feature's pass is the producer's.
+    fn prefix_declarations(
+        &self,
+        source: &crate::scene_metadata::SceneMetadata,
+        passes: &mut Vec<PassDeclaration>,
+        views: &mut Vec<AttachmentView>,
+    ) -> Result<(FeaturePass, FeatureDeclaration), FrameError> {
+        let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
+        crate::ssao::passes::prepass(source, material, passes, views)?;
+        let screen = source.passes.schedule_metadata(passes, views)?;
+        if let Some(gbuffer) = self.gbuffer.as_ref().filter(|gbuffer| gbuffer.renders()) {
+            let (producer, _) = source.geometry.gbuffer.as_ref().expect("early producer");
+            let velocity = self.velocity_attachment(producer.writes_velocity())?;
+            gbuffer.fuse_prepass(passes, views, velocity.as_ref())?;
+            return Ok((
+                crate::gbuffer::producer_pass(producer, source.depth.format()),
+                screen,
+            ));
+        }
+        let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
+        prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
+        prepass.depth_format = Some(source.depth.format());
+        prepass.additional_color_formats = passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
+            .expect("prepass declaration")
+            .additional_colors
+            .iter()
+            .map(|attachment| attachment.format)
+            .collect();
+        Ok((prepass, screen))
     }
 
     /// The writes of the screen-space and snapshot targets a frame's suffix produces, for a
@@ -261,8 +317,7 @@ impl FrameRenderer {
             textures.extend(ssr.textures());
         }
         if let Some(gbuffer) = &self.gbuffer {
-            textures
-                .extend(crate::gbuffer::GbufferTarget::ALL.map(|target| gbuffer.texture(target)));
+            textures.extend(gbuffer.written_textures());
         }
         if let Some(snapshots) = &self.snapshots {
             let snapshot = &snapshots[self.frame_slot];

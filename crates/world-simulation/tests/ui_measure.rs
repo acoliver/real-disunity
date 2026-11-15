@@ -32,7 +32,7 @@ fn fixture(text: &str) -> (FontBook, TextRun) {
 }
 
 #[test]
-fn distance_raster_requests_fail_explicitly() {
+fn distance_raster_requires_positive_spread() {
     let (fonts, run) = fixture("A");
     assert_eq!(
         fonts.layout_with_raster(
@@ -40,10 +40,10 @@ fn distance_raster_requests_fail_explicitly() {
             Vec2::splat(100.),
             GlyphRaster {
                 mode: RenderMode::Sdf,
-                padding: 2,
+                padding: 0,
             },
         ),
-        Err(UiError::UnsupportedRaster)
+        Err(UiError::DistanceFieldLimit)
     );
 }
 

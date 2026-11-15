@@ -4,7 +4,7 @@
 //! these orders when the suffix was sorted by the `PassSlot` enum, and must still.
 use super::*;
 use crate::compositor::FrameRenderer;
-use crate::gbuffer::{GBUFFER_FORMATS, Gbuffer};
+use crate::gbuffer::{GBUFFER_FORMATS, Gbuffer, GbufferUse};
 use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
 use worldrunner_render_gpu::submission::PrepareError;
 use worldrunner_render_post::{
@@ -71,9 +71,12 @@ impl PreparedFeature for GbufferRecorderDraw {
 fn observing_renderers(context: &GpuContext) -> (FrameRenderer, ShadowedScene) {
     let (mut frame, resident) = super::sdsm::screen_renderers(context);
     let viewport = view().viewport();
+    let format = frame.targets().config().format;
     frame.gbuffer = Some(Gbuffer::new(
         context.device(),
         [viewport.width, viewport.height],
+        (format, false),
+        GbufferUse::Observe,
     ));
     frame
         .register(context.device(), Box::new(GbufferRecorder))

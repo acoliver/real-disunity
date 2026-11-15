@@ -140,7 +140,7 @@ impl FontBook {
         let font = self.validate_run(run, Vec2::new(width, 0.))?;
         super::text_metrics::fit_prefix(font, run, width)
     }
-    /// Coverage rasterization with explicit padding. Distance layout is not supported.
+    /// Coverage or bounded signed-distance rasterization with explicit padding.
     pub fn layout_with_raster(
         &self,
         run: &TextRun,
@@ -148,8 +148,8 @@ impl FontBook {
         raster: GlyphRaster,
     ) -> Result<Arc<TextLayout>, UiError> {
         let font = self.validate_run(run, size)?;
-        if raster.mode != RenderMode::Coverage {
-            return Err(UiError::UnsupportedRaster);
+        if raster.mode == RenderMode::Sdf && (raster.padding == 0 || raster.padding > 127) {
+            return Err(UiError::DistanceFieldLimit);
         }
         if raster.padding >= self.limits.max_atlas_side {
             return Err(UiError::AtlasLimit);

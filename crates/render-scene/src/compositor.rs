@@ -8,10 +8,12 @@ pub mod terms;
 pub use capture::{FeatureCapture, FeatureTarget};
 mod clock;
 mod configuration;
+mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
 pub(crate) mod forward_order;
+mod hdr;
 mod offscreen;
 mod output;
 mod overlay;
@@ -27,12 +29,12 @@ pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 use output::FrameOutput;
 pub use output::FrameProfile;
-use validation::{validate_clear, validate_hdr_effects, validate_reflection_extent};
+use validation::{validate_clear, validate_reflection_extent};
 
 use worldrunner_render_post::{
     AntiAliasing, AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature,
     CopyOutput, FrameConfig, FrameError, MsaaSamples, PassDeclaration, PostChain, PostError,
-    PostResolve, Resources, ToneMapOutput,
+    PostResolve, Resources,
 };
 
 /// Retained executor for transaction-bound composition. Submission belongs to the host.
@@ -66,6 +68,7 @@ pub struct FrameRenderer {
     ssr_requested: Option<worldrunner_render_plan::SceneSsr>,
     /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
     pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
+    producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -115,6 +118,7 @@ impl FrameRenderer {
             ssao_requested: None,
             ssr_requested: None,
             gbuffer: None,
+            producer_draw: std::rc::Rc::default(),
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -181,86 +185,14 @@ impl FrameRenderer {
         tone_map: worldrunner_render_post::ToneMap,
         effects: Option<&worldrunner_render_plan::SceneEffects>,
     ) -> Result<Self, PostError> {
-        antialiasing.validate()?;
-        let post = crate::post::settings_with_antialiasing(effects, antialiasing)?;
-        validate_hdr_effects(effects)?;
-        let config = antialiasing.frame_config(size, wgpu::TextureFormat::Rgba16Float);
-        config.validate_adapter(context.adapter())?;
-        validate_reflection_extent(
-            context.device(),
-            config,
-            effects.and_then(|effects| effects.ssr()),
-        )?;
-        let exposure = effects.map_or(1.0, |effects| {
-            f64::from(effects.grading().exposure_micro) / 1_000_000.0
-        });
-        post.validate_frame_with_jitter(config, antialiasing.jitter)?;
-        let factory = ToneMapOutput::new(output_format, exposure, tone_map)?
-            .with_effects(context.device(), post)?;
-        let ssao_requested = effects.and_then(|effects| effects.ssao()).copied();
-        let ssr_requested = effects.and_then(|effects| effects.ssr()).copied();
-        let metadata = depth_reuse::prepass_metadata(
-            ssao_requested,
-            ssr_requested.as_ref(),
-            effects.is_some_and(|effects| effects.depth_fitting().is_some()),
-        );
-        let gbuffer = opaque::allocate_path(
-            context.device(),
-            effects.map_or_else(
-                Default::default,
-                worldrunner_render_plan::SceneEffects::opaque_path,
-            ),
-            config,
-        )?;
-        let mut renderer = Self {
-            overlay: overlay::OverlayStage::default(),
+        hdr::build(
+            context,
+            size,
             output_format,
-            environment_conventions: [None; 2],
-            ssao_requested,
-            ssr_requested,
-            gbuffer,
-            ssr: None,
-            water: None,
-            water_state: std::rc::Rc::default(),
-            snapshots: None,
-            snapshot_ready: std::rc::Rc::default(),
-            frame_slot: 0,
-            clear_color: wgpu::Color::BLACK,
-            post_requested: post,
-            elapsed_seconds: 0.0,
-            selected_time: None,
-            receiver_gradients: ReceiverGradientReservation::Opposing,
-            #[cfg(test)]
-            receiver_reference: None,
-            animation_time: None,
-            frame_delta: 0.0,
-            post_time: std::rc::Rc::new(std::cell::Cell::new(0.0)),
-            exposure_reset: std::rc::Rc::new(std::cell::Cell::new(false)),
-            temporal: std::rc::Rc::default(),
-            ssao: metadata
-                .map(|settings| {
-                    crate::scene_metadata::SceneMetadata::new(context.device(), size, settings)
-                })
-                .transpose()?,
-            chain: PostChain::with_scene_depth(
-                context.device(),
-                config,
-                Resources::default(),
-                FrameOutput::Hdr(factory),
-                depth_reuse::allocation(context.device().features(), config, metadata.is_some()),
-            )?,
-        };
-        renderer.install_reflections(context.device())?;
-        renderer.share_metadata_depth(context.device());
-        renderer.set_projection_jitter(crate::post::jitter(&post, config, antialiasing.jitter)?)?;
-        if let Some(effects) = effects {
-            renderer.install_water_bodies(
-                context.device(),
-                context.submission(),
-                effects.water_bodies().to_vec(),
-            )?;
-        }
-        Ok(renderer)
+            antialiasing,
+            tone_map,
+            effects,
+        )
     }
 
     fn install_reflections(&mut self, device: &wgpu::Device) -> Result<(), FrameError> {
@@ -465,13 +397,14 @@ impl FrameRenderer {
         }
         if let Some(replacement) = replacement {
             self.ssao = Some(replacement);
+            self.install_gbuffer_producer(device);
         }
         if let Some(gbuffer) = self
             .gbuffer
             .as_mut()
             .filter(|gbuffer| gbuffer.size() != size)
         {
-            *gbuffer = crate::gbuffer::Gbuffer::new(device, size);
+            *gbuffer = gbuffer.resized(device, size);
         }
         self.share_metadata_depth(device);
         Ok(changed)

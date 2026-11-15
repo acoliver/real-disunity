@@ -25,14 +25,19 @@ internal sealed class CallbackCache(string directory, Action<string>? log)
             return cached;
         }
         var rewrite = PlayerCallbackRewriter.Rewrite(original, Path.GetDirectoryName(path));
-        if (rewrite.Failure is not null) log?.Invoke($"native callbacks not kept: {name} ({rewrite.Sites} sites): {rewrite.Failure}");
+        if (rewrite.Failure is not null) log?.Invoke(FailureLine(name, rewrite));
         if (rewrite.Image is null) return path;
         Directory.CreateDirectory(folder);
         CopySymbols(path, folder);
         Publish(cached, rewrite.Image);
-        log?.Invoke($"native callbacks kept: {name} ({rewrite.Sites} sites)");
+        if (rewrite.Sites > 0) log?.Invoke($"native callbacks kept: {name} ({rewrite.Sites} sites)");
+        if (rewrite.SelfAccess) log?.Invoke($"ignores access checks to itself: {name}");
         return cached;
     }
+
+    private static string FailureLine(string name, CallbackRewrite rewrite) => rewrite.Sites > 0
+        ? $"native callbacks not kept: {name} ({rewrite.Sites} sites): {rewrite.Failure}"
+        : $"ignores access checks to itself not added: {name}: {rewrite.Failure}";
 
     private static void CopySymbols(string path, string folder)
     {

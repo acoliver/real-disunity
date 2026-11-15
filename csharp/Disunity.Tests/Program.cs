@@ -417,6 +417,7 @@ DeferredDestroyTests.Run();
 ComponentDestroyTests.Run();
 PlayerAssemblyTests.Run();
 NativeCallbackTests.Run();
+JobRegistrationTests.Run();
 PlayerNativePluginTests.Run();
 PlayerNativePluginTests.RunImport();
 RuntimeHookTests.Run();

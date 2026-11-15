@@ -1,4 +1,5 @@
 //! Endpoint seeds are relative to the integer domain before float narrowing.
+use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_plan::{SceneWaterBody, SceneWaterSeedCoordinates, SceneWaterSurface};
 
 pub(super) const SPECIALIZATION: u32 = 256;
@@ -104,9 +105,9 @@ pub(super) fn layout() -> wgpu::VertexBufferLayout<'static> {
 }
 
 pub(super) fn source(source: &str) -> String {
-    source.replace("@location(1) wind: vec2<f32>,", "@location(1) wind: vec2<f32>, @location(2) @interpolate(perspective, sample) seed: vec2<f32>,")
-        .replace("world: vec3<f32>) -> WaterVertex", "world: vec3<f32>, @location(1) seed: vec2<f32>) -> WaterVertex")
-        .replace("output.world = world;", "output.world = world;\n    output.seed = seed;")
-        .replace("if (WATER_TERMS & 64u) != 0u && water.composition.z != 0.0 {\n        flow_uv = (input.world.xy - water.flow_coordinates.xy) * water.flow_coordinates.zw;\n    }",
+    source.anchored("water::endpoint::source", 1, "@location(1) wind: vec2<f32>,", "@location(1) wind: vec2<f32>, @location(2) @interpolate(perspective, sample) seed: vec2<f32>,")
+        .anchored("water::endpoint::source", 1, "world: vec3<f32>) -> WaterVertex", "world: vec3<f32>, @location(1) seed: vec2<f32>) -> WaterVertex")
+        .anchored("water::endpoint::source", 1, "output.world = world;", "output.world = world;\n    output.seed = seed;")
+        .anchored("water::endpoint::source", 1, "if (WATER_TERMS & 64u) != 0u && water.composition.z != 0.0 {\n        flow_uv = (input.world.xy - water.flow_coordinates.xy) * water.flow_coordinates.zw;\n    }",
             "flow_uv = input.seed;")
 }

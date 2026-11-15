@@ -1,17 +1,17 @@
 pub(super) fn filter_target(
     source: String,
-    scalable: bool,
+    filter: SceneSsaoFilter,
     gather: bool,
 ) -> (String, wgpu::TextureFormat) {
     if gather {
         (
-            filter_source(&source, scalable),
+            filter_source(&source, filter),
             wgpu::TextureFormat::Rg32Float,
         )
     } else {
         (
             source,
-            if scalable {
+            if matches!(filter, SceneSsaoFilter::ScalableBilateral { .. }) {
                 wgpu::TextureFormat::Rg16Float
             } else {
                 wgpu::TextureFormat::R32Float
@@ -20,7 +20,8 @@ pub(super) fn filter_target(
     }
 }
 
-use worldrunner_render_plan::SceneSsaoReceiver;
+use crate::shader::rewrite::ShaderRewrite;
+use worldrunner_render_plan::{SceneSsaoFilter, SceneSsaoReceiver};
 
 pub(crate) const fn gathers(receiver: SceneSsaoReceiver) -> bool {
     matches!(receiver, SceneSsaoReceiver::DepthAwareGather)
@@ -40,14 +41,17 @@ pub(crate) fn source(source: &str, receiver: SceneSsaoReceiver) -> String {
     let uv = clip.xy / clip.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
     return receiver_gather(uv, -(ao_receiver.view * vec4<f32>(world, 1.0)).z);
 }";
-    assert!(source.contains(function), "nearest receiver source");
     let source = source
-        .replace(function, replacement)
-        .replace(
+        .anchored("ssao::receiver::source", 1, function, replacement)
+        .anchored(
+            "ssao::receiver::source",
+            1,
             "return material_ao * screen;",
             "return min(1.01 * screen, material_ao);",
         )
-        .replace(
+        .anchored(
+            "ssao::receiver::source",
+            1,
             "ambient_occlusion * scene_screen_ao(world_position)",
             "min(1.01 * scene_screen_ao(world_position), ambient_occlusion)",
         );
@@ -116,31 +120,53 @@ pub(crate) fn group(
     })
 }
 
-pub(super) fn filter_source(source: &str, scalable: bool) -> String {
-    if scalable {
-        source.replace("centre.y);", "textureLoad(depths, pixel, 0).r);")
-    } else {
-        source
-            .replace("-> @location(0) f32", "-> @location(0) vec2<f32>")
-            .replace(
-                "return sum / weights;",
-                "return vec2<f32>(sum / weights, textureLoad(depths, pixel, 0).r);",
-            )
-            .replace(
-                "return sum / total;",
-                "return vec2<f32>(sum / total, textureLoad(depths, pixel, 0).r);",
-            )
-    }
+/// The final filter of `filter` with the consumed depth beside the occlusion: the box filter
+/// (`blur.wgsl`) returns `sum / weights`, the separable bilateral `sum / total`.
+pub(super) fn filter_source(source: &str, filter: SceneSsaoFilter) -> String {
+    let result = match filter {
+        SceneSsaoFilter::ScalableBilateral { .. } => {
+            return source.anchored(
+                "ssao::receiver::filter_source",
+                1,
+                "centre.y);",
+                "textureLoad(depths, pixel, 0).r);",
+            );
+        }
+        SceneSsaoFilter::DepthAwareBox => "sum / weights",
+        SceneSsaoFilter::SeparableBilateral => "sum / total",
+    };
+    source
+        .anchored(
+            "ssao::receiver::filter_source",
+            1,
+            "-> @location(0) f32",
+            "-> @location(0) vec2<f32>",
+        )
+        .anchored(
+            "ssao::receiver::filter_source",
+            1,
+            &format!("return {result};"),
+            &format!("return vec2<f32>({result}, textureLoad(depths, pixel, 0).r);"),
+        )
 }
 
-pub(super) fn filter_depth(source: String, metadata: bool) -> String {
+/// Reads the depth of an RGBA metadata target: the filter's centre load, the gathered
+/// filter's depth output when `gather`, and every tap.
+pub(super) fn filter_depth(source: String, metadata: bool, gather: bool) -> String {
     if !metadata {
         return source;
     }
     source
-        .replace(
+        .anchored(
+            "ssao::receiver::filter_depth",
+            1 + usize::from(gather),
             "textureLoad(depths, pixel, 0).r",
             "textureLoad(depths, pixel, 0).a",
         )
-        .replace("textureLoad(depths, p, 0).r", "textureLoad(depths, p, 0).a")
+        .anchored(
+            "ssao::receiver::filter_depth",
+            1,
+            "textureLoad(depths, p, 0).r",
+            "textureLoad(depths, p, 0).a",
+        )
 }

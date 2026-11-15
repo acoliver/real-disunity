@@ -14,6 +14,19 @@ use worldrunner_render_plan::{
 /// How far right of the camera's view the placement stands, and how far pose 1 carries it back.
 const OFFSET_MM: i64 = 30_000;
 
+/// A quarter-turn about +z with no translation (pose 2).
+const QUARTER_TURN: SceneAffineMatrix = SceneAffineMatrix {
+    linear_micro: [[0, -1_000_000, 0], [1_000_000, 0, 0], [0, 0, 1_000_000]],
+    translation_millimeters: [0; 3],
+};
+/// Twice the length along x with no translation (pose 3).
+const X_SCALE_TWO: SceneAffineMatrix = SceneAffineMatrix {
+    linear_micro: [[2_000_000, 0, 0], [0, 1_000_000, 0], [0, 0, 1_000_000]],
+    translation_millimeters: [0; 3],
+};
+/// The triangle's vertices, in metres of the mesh's own space.
+const TRIANGLE_METRES: [[f32; 3]; 3] = [[-0.2, -0.3, 0.5], [0.2, -0.3, 0.5], [0.0, 0.3, 0.5]];
+
 fn triangle() -> SceneMesh {
     let vertices = vec![
         vertex([-200, -300, 500], [0, 0]),
@@ -62,6 +75,8 @@ fn scene() -> RenderScene {
                 )
                 .expect("one joint"),
                 SceneSkinPose::new(back.clone(), back).expect("one joint"),
+                SceneSkinPose::new(vec![QUARTER_TURN], vec![QUARTER_TURN]).expect("one joint"),
+                SceneSkinPose::new(vec![X_SCALE_TWO], vec![X_SCALE_TWO]).expect("one joint"),
             ],
         )
         .expect("the fixture geometry validates"),
@@ -109,5 +124,40 @@ fn a_pose_that_carries_the_mesh_into_view_selects_and_draws_the_placement() {
             0,
             "ranged_only {ranged_only}: switching back leaves the view"
         );
+    }
+}
+
+/// A pose without translation still moves vertices through its linear part (review 2890): a
+/// quarter-turn carries (0, 0.3) to (-0.3, 0) and doubling x carries 0.2 to 0.4. The caster
+/// bounds hold every posed vertex for both poses.
+#[test]
+fn linear_poses_without_translation_stay_inside_their_bounds() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut rig = Rig::over(&scene(), true);
+    let handle = rig.handles()[0];
+    let offset = OFFSET_MM as f32 / 1000.0;
+    for (pose, joint) in [(2, QUARTER_TURN), (3, X_SCALE_TWO)] {
+        rig.gpu
+            .set_instance_object(handle, placed(pose))
+            .expect("the pose belongs to the scene");
+        let bounds = rig
+            .gpu
+            .caster_bounds(handle)
+            .expect("it casts a shadow")
+            .bounds;
+        for vertex in TRIANGLE_METRES {
+            let posed: [f32; 3] = std::array::from_fn(|row| {
+                (0..3)
+                    .map(|column| joint.linear_micro[row][column] as f32 / 1e6 * vertex[column])
+                    .sum()
+            });
+            let world = glam::Vec3::new(posed[0] + offset, posed[1], posed[2]);
+            assert!(
+                world.cmpge(bounds.min).all() && world.cmple(bounds.max).all(),
+                "pose {pose}: {world} lies outside {:?}..{:?}",
+                bounds.min,
+                bounds.max
+            );
+        }
     }
 }

@@ -12,13 +12,13 @@ use worldrunner_render_post::{
 const TOLERANCE_UV: f32 = 1e-3;
 
 #[derive(Clone, Default)]
-struct CallerPreparation {
+pub(super) struct CallerPreparation {
     armed: Rc<Cell<bool>>,
     preparations: Rc<Cell<u32>>,
 }
 
 impl CallerPreparation {
-    fn refusing() -> Self {
+    pub(super) fn refusing() -> Self {
         Self {
             armed: Rc::new(Cell::new(true)),
             preparations: Rc::default(),
@@ -30,7 +30,7 @@ impl CallerPreparation {
     }
 }
 
-struct CallerRegistration(CallerPreparation);
+pub(super) struct CallerRegistration(pub(super) CallerPreparation);
 
 impl FrameFeature for CallerRegistration {
     fn declare(&self) -> FeatureDeclaration {
@@ -260,13 +260,13 @@ fn register_caller(
     Some(caller)
 }
 
-fn assert_preparations(caller: Option<&CallerPreparation>, expected: u32) {
+pub(super) fn assert_preparations(caller: Option<&CallerPreparation>, expected: u32) {
     if let Some(caller) = caller {
         assert_eq!(caller.preparations(), expected);
     }
 }
 
-fn refuse_caller_suffix(
+pub(super) fn refuse_caller_suffix(
     context: &GpuContext,
     frame: &mut FrameRenderer,
     renderer: &mut ShadowedScene,

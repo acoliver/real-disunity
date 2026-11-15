@@ -1149,6 +1149,12 @@ covers program-admission and caller-preparation refusal after a physical prefix.
 checks one submission on refusal and two on success before reading products, preserves
 completed statistics and temporal state, and compares retry and settling with a control.
 
+[The mixed rigid/skinned fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/skinned_retry.rs)
+checks a resident pose-descriptor switch and root movement across a submitted prefix
+and refused colour suffix. Its non-velocity path compares colour and G3 with an
+uninterrupted control and an unchanged completion, with separately visible changes
+for rigid and weighted geometry.
+
 The ordered producer outputs are G0-G3, optional `Rg16Float` velocity,
 `Rgba16Float` canonical normals, and optional `Rgba16Float` SSR material. Their
 aligned attachment charge is 34, 38, 42 or 46 bytes with five to seven attachments.

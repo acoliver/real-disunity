@@ -5,27 +5,44 @@
 //! on large retained scenes. Compaction gathers the selected records, ordered by (batch, LOD, slot),
 //! into a buffer owned by the view, so each (batch, LOD) group becomes one instanced draw.
 //!
-//! The gather is a GPU buffer copy per range, staged only when the compaction key changes.
-//! Preparation overwrites the view buffer in place and a cancelled frame discards its encoder,
-//! so the committed state stays exact. Within one transaction a draw may use the compacted
+//! The gather is one compute dispatch per view, staged only when the compaction key changes. It
+//! reads a scene-wide mirror of the gathered batches (see [`mirror`]) through a list of runs
+//! uploaded into a buffer the view reuses, so recording a moved view costs one upload and one
+//! dispatch however fragmented its selection is. Preparation overwrites the view buffer in place
+//! and a cancelled frame discards its encoder, so the committed state stays exact. Within one transaction a draw may use the compacted
 //! groups only when that transaction prepared the view with the draw's key, or prepared nothing
 //! for the view and the committed key equals the draw's key.
+//!
+//! Skinned batches gather like rigid ones: the mirror and the view buffers have a skin half with
+//! one 16-byte descriptor per record at the record's index, and the same runs copy it, so a
+//! gathered record and the descriptor its skinned vertex stage reads share one compacted index.
+//! Records of rigid batches leave their descriptors unwritten; nothing reads them.
+//!
+//! The view buffers, the mirror and the run lists count as instance bytes in the scene's memory
+//! census, like the batch buffers they gather from.
 use std::{cell::RefCell, rc::Rc};
 
 use glam::Mat4;
 use wgpu::Buffer;
+use worldrunner_render_gpu::census::{MemoryCensus, ResourceClass, Tracked};
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::PrepareContext;
 
 use super::selection_reuse::{self, Key as SelectionKey};
 use super::visibility::SelectedRange;
-use super::{DrawCount, FrameUniform, SceneGpu};
+use super::{FrameUniform, ObjectDraws, ObjectRecording, SceneGpu};
 use crate::geometry::INSTANCE_BYTES;
+use crate::instances::BatchKey;
+use crate::skinning::SKIN_INSTANCE_BYTES;
 
+mod gather;
+mod mirror;
 mod plan;
+pub(super) use gather::Shared;
 use plan::Plan;
 
 const STRIDE: u64 = INSTANCE_BYTES as u64;
+const SKIN_STRIDE: u64 = SKIN_INSTANCE_BYTES as u64;
 
 /// Everything the gathered bytes depend on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,42 +52,78 @@ pub(super) struct Key {
     content: u64,
     /// Whether the previous-transform records are gathered too.
     previous: bool,
+    /// Whether the scene has skinned batches, whose skin descriptors are gathered too.
+    skin: bool,
 }
+
+/// A view buffer; the committed and in-transaction states share it, and it stays counted until
+/// the last of them drops.
+type ViewBuffer = Rc<Tracked<Buffer>>;
 
 #[derive(Clone, Debug)]
 struct Buffers {
-    current: Buffer,
-    previous: Option<Buffer>,
+    current: ViewBuffer,
+    previous: Option<ViewBuffer>,
+    /// One skin descriptor per record, at the record's index.
+    skin: Option<ViewBuffer>,
+}
+
+/// What a gather needs of its destination buffers.
+#[derive(Clone, Copy)]
+struct Needs {
+    records: u32,
+    previous: bool,
+    skin: bool,
 }
 
 impl Buffers {
-    fn holds(&self, bytes: u64, previous: bool) -> bool {
+    fn holds(&self, needs: Needs) -> bool {
+        let big_enough = |buffer: &Option<ViewBuffer>, bytes: u64| {
+            buffer.as_ref().is_some_and(|buffer| buffer.size() >= bytes)
+        };
+        let bytes = u64::from(needs.records) * STRIDE;
         self.current.size() >= bytes
-            && (!previous
-                || self
-                    .previous
-                    .as_ref()
-                    .is_some_and(|buffer| buffer.size() >= bytes))
+            && (!needs.previous || big_enough(&self.previous, bytes))
+            && (!needs.skin || big_enough(&self.skin, u64::from(needs.records) * SKIN_STRIDE))
     }
 
-    fn allocate(device: &wgpu::Device, bytes: u64, previous: bool) -> Option<Self> {
-        let capacity = bytes.checked_next_power_of_two()?;
-        if capacity > device.limits().max_buffer_size {
+    fn allocate(device: &wgpu::Device, census: &MemoryCensus, needs: Needs) -> Option<Self> {
+        let capacity = (u64::from(needs.records) * STRIDE).checked_next_power_of_two()?;
+        let limits = device.limits();
+        if capacity > limits.max_buffer_size {
             return None;
         }
-        let create = |label| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: capacity,
-                usage: wgpu::BufferUsages::VERTEX
-                    | wgpu::BufferUsages::COPY_DST
-                    | wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: false,
-            })
+        assert!(
+            capacity <= limits.max_storage_buffer_binding_size,
+            "view instance buffer of {capacity} bytes exceeds the device's storage binding limit"
+        );
+        let create = |label, size| {
+            Rc::new(census.create_buffer(
+                device,
+                ResourceClass::Instance,
+                &wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size,
+                    usage: wgpu::BufferUsages::VERTEX
+                        | wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST
+                        | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                },
+            ))
         };
         Some(Self {
-            current: create("view instances"),
-            previous: previous.then(|| create("view previous instances")),
+            current: create("view instances", capacity),
+            previous: needs
+                .previous
+                .then(|| create("view previous instances", capacity)),
+            skin: needs.skin.then(|| {
+                let slots = capacity / STRIDE;
+                create(
+                    "view skin instances",
+                    (slots * SKIN_STRIDE).max(wgpu::COPY_BUFFER_ALIGNMENT),
+                )
+            }),
         })
     }
 }
@@ -95,6 +148,7 @@ struct Prepared {
 pub(super) struct Compaction {
     pub committed: Rc<RefCell<Resident>>,
     drawing: RefCell<Option<Prepared>>,
+    scratch: RefCell<gather::Scratch>,
     #[cfg(test)]
     pub observed: Observed,
 }
@@ -103,7 +157,7 @@ pub(super) struct Compaction {
 #[cfg(test)]
 #[derive(Debug, Default)]
 pub(super) struct Observed {
-    /// Gather copies staged so far.
+    /// Selected ranges gathered so far.
     pub staged: std::cell::Cell<usize>,
     /// Draws of the view that used the compacted groups.
     pub compacted_draws: std::cell::Cell<usize>,
@@ -145,19 +199,35 @@ impl Compaction {
     }
 }
 
-/// The batch buffers one gather copy reads.
-struct Source<'a> {
-    current: &'a Buffer,
-    previous: Option<&'a Buffer>,
-}
-
 impl SceneGpu {
     fn compaction_key(&self, shadow_matrix: Option<(u32, Mat4)>, frame: &FrameUniform) -> Key {
         Key {
             selection: self.selection_key(shadow_matrix, frame),
             content: self.instances.content_generation(),
             previous: self.instances.track_previous,
+            skin: self.instances.has_skinned_batches(),
         }
+    }
+
+    /// Selects together every view in `views` whose gathered instances `context`'s transaction
+    /// must restage, so `prepare_view_compaction` then finds each selection built.
+    pub(crate) fn select_stale_views(
+        &self,
+        context: &PrepareContext<'_>,
+        views: &[Option<(u32, Mat4)>],
+        frame: &FrameUniform,
+    ) {
+        let owner = context.publications();
+        let stale: Vec<_> = views
+            .iter()
+            .copied()
+            .filter(|&shadow_matrix| {
+                let compaction = &self.views[selection_reuse::view_index(shadow_matrix)].compaction;
+                compaction.state_in(Some(&owner)).key
+                    != Some(self.compaction_key(shadow_matrix, frame))
+            })
+            .collect();
+        self.select_views(&stale, frame);
     }
 
     /// Gathers a view's selected instances for the draws of the transaction that `context`
@@ -180,15 +250,22 @@ impl SceneGpu {
         let Some(plan) = Plan::new(&selection.ranges) else {
             return;
         };
-        let Some(sources) = self.gather_sources(&plan, key.previous) else {
+        let Some(keys) = self.gather_sources(&plan, key.previous) else {
             return;
+        };
+        // A rigid scene that gains a skinned batch changes the key, so the mirror and the view
+        // buffers gain their skin halves before a skinned record is gathered.
+        let needs = Needs {
+            records: plan.total,
+            previous: key.previous,
+            skin: key.skin,
         };
         let buffers = if plan.total == 0 {
             latest.buffers.clone()
         } else if let Some(buffers) =
-            Self::gather_buffers(context.device(), &latest, plan.total, key.previous)
+            Self::gather_buffers((context.device(), &self.instances.census), &latest, needs)
         {
-            Self::stage_gather(context, &plan, &sources, &buffers);
+            self.stage_gather(context, (compaction, &plan, &keys), (&buffers, needs));
             #[cfg(test)]
             compaction
                 .observed
@@ -213,107 +290,269 @@ impl SceneGpu {
         });
     }
 
-    /// The batch buffers of each copy, or `None` when a selected batch has no flushed buffer.
-    fn gather_sources(&self, plan: &Plan, previous: bool) -> Option<Vec<Source<'_>>> {
-        plan.copies
-            .iter()
-            .map(|copy| {
-                let batch = self.instances.batches.get(&copy.key)?;
-                let current = batch.buffer.as_deref()?;
-                Some(Source {
-                    current,
-                    previous: if previous {
-                        Some(batch.previous.as_deref()?)
-                    } else {
-                        None
-                    },
-                })
-            })
-            .collect()
+    /// The batches the plan gathers from, once each in key order, or `None` when a selected
+    /// batch has no flushed buffer (or no previous buffer when `previous`, or a skinned batch
+    /// no flushed skin stream).
+    fn gather_sources(&self, plan: &Plan, previous: bool) -> Option<Vec<BatchKey>> {
+        let mut keys: Vec<BatchKey> = Vec::new();
+        for copy in &plan.copies {
+            if keys.last() == Some(&copy.key) {
+                continue;
+            }
+            let batch = self.instances.batches.get(&copy.key)?;
+            batch.buffer.as_ref()?;
+            if previous {
+                batch.previous.as_ref()?;
+            }
+            if let Some(stream) = &batch.skin {
+                stream.buffer.as_ref()?;
+            }
+            keys.push(copy.key);
+        }
+        Some(keys)
     }
 
-    /// Reuses the latest buffers while they hold `total` records, otherwise allocates new
+    /// Reuses the latest buffers while they hold what `needs` asks, otherwise allocates new
     /// ones; a grown buffer is never an in-place copy target.
     fn gather_buffers(
-        device: &wgpu::Device,
+        (device, census): (&wgpu::Device, &MemoryCensus),
         latest: &Resident,
-        total: u32,
-        previous: bool,
+        needs: Needs,
     ) -> Option<Buffers> {
-        let bytes = u64::from(total) * STRIDE;
-        match latest.buffers.as_ref().filter(|b| b.holds(bytes, previous)) {
+        match latest.buffers.as_ref().filter(|b| b.holds(needs)) {
             Some(existing) => Some(existing.clone()),
-            None => Buffers::allocate(device, bytes, previous),
+            None => Buffers::allocate(device, census, needs),
         }
     }
 
+    /// Brings the mirror up to date for the plan's batches, then stages the view's dispatch.
     fn stage_gather(
+        &self,
         context: &mut PrepareContext<'_>,
-        plan: &Plan,
-        sources: &[Source<'_>],
-        buffers: &Buffers,
+        (compaction, plan, keys): (&Compaction, &Plan, &[BatchKey]),
+        (buffers, needs): (&Buffers, Needs),
     ) {
-        for (copy, buffer) in plan.copies.iter().zip(sources) {
-            let bytes = u64::from(copy.source.end - copy.source.start) * STRIDE;
-            let source = u64::from(copy.source.start) * STRIDE;
-            let destination = u64::from(copy.destination) * STRIDE;
-            context.copy_buffer_region(
-                (buffer.current, source),
-                (&buffers.current, destination),
-                bytes,
-            );
-            if let (Some(previous), Some(target)) = (buffer.previous, &buffers.previous) {
-                context.copy_buffer_region((previous, source), (target, destination), bytes);
-            }
-        }
+        let halves = mirror::Halves {
+            previous: needs.previous,
+            skin: needs.skin,
+        };
+        let mirror = self
+            .gather
+            .mirror
+            .prepare(context, &self.instances, keys, halves);
+        let runs = plan.runs(|key| mirror.layout.base(key));
+        let bindings = gather::Bindings {
+            mirror: mirror.buffers.as_ref().expect("allocated gather mirror"),
+            current: &buffers.current,
+            previous: buffers
+                .previous
+                .as_deref()
+                .map(|b| &**b)
+                .filter(|_| needs.previous),
+            skin: buffers.skin.as_deref().map(|b| &**b).filter(|_| needs.skin),
+        };
+        self.gather.dispatch(
+            context,
+            (&compaction.scratch, &self.instances.census),
+            &runs,
+            &bindings,
+        );
     }
 
     /// Records a view's selection: one draw per (batch, LOD) group from the view buffer when
-    /// it holds exactly this selection, otherwise one draw per selected range.
+    /// it holds exactly this selection, otherwise one draw per selected range. Returns the
+    /// draws recorded and which of the two ways recorded them.
     pub(super) fn record_selection(
         &self,
         sink: &mut impl super::lod_material::DrawSink,
         view: (Option<(u32, Mat4)>, &FrameUniform),
         ranges: &[SelectedRange],
-    ) -> DrawCount {
+    ) -> ObjectDraws {
         let (shadow_matrix, frame) = view;
         let key = self.compaction_key(shadow_matrix, frame);
         let compaction = &self.views[selection_reuse::view_index(shadow_matrix)].compaction;
-        let mut count = DrawCount::default();
         let Some(resident) = compaction.usable(key) else {
+            let mut drawn = ObjectDraws::new(ObjectRecording::Ranged);
             for range in ranges {
-                count.add(self.record_lod_range(sink, range));
+                self.record_lod_range(sink, range, &mut drawn);
             }
-            return count;
+            return drawn;
         };
         #[cfg(test)]
         compaction
             .observed
             .compacted_draws
             .set(compaction.observed.compacted_draws.get() + 1);
+        let mut drawn = ObjectDraws::new(ObjectRecording::Compacted);
         let Some(buffers) = resident
             .buffers
             .as_ref()
             .filter(|_| !resident.groups.is_empty())
         else {
-            return count;
+            return drawn;
         };
-        sink.instances(&buffers.current, buffers.previous.as_ref());
+        sink.instances(
+            &buffers.current,
+            buffers.previous.as_deref().map(|b| &**b),
+            buffers.skin.as_deref().map(|b| &**b),
+        );
         for group in resident.groups.iter() {
-            count.add(self.record_lod_draws(sink, group));
+            self.record_lod_draws(sink, group, &mut drawn);
         }
-        count
+        drawn
+    }
+}
+
+/// Bytes of the committed buffers compaction holds, by kind.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CompactionBytes {
+    /// The mirror and its previous-transform half.
+    pub mirror: u64,
+    /// Every view's gathered records and previous transforms.
+    pub views: u64,
+    /// Every view's run list.
+    pub runs: u64,
+    /// The skin halves of the mirror and of every view's buffers.
+    pub skin: u64,
+}
+
+#[cfg(test)]
+impl CompactionBytes {
+    pub fn total(self) -> u64 {
+        self.mirror + self.views + self.runs + self.skin
     }
 }
 
 #[cfg(test)]
 impl SceneGpu {
+    /// Sizes of the committed mirror, view buffers and run lists.
+    pub(crate) fn compaction_bytes(&self) -> CompactionBytes {
+        let pair = |current: &Buffer, previous: Option<&Buffer>| {
+            current.size() + previous.map_or(0, Buffer::size)
+        };
+        let size = |buffer: &Option<Rc<Tracked<Buffer>>>| buffer.as_deref().map_or(0, |b| b.size());
+        let committed = self.gather.mirror.committed.borrow();
+        let mirror = committed.buffers.as_ref().map_or(0, |buffers| {
+            pair(&buffers.current, buffers.previous.as_deref().map(|b| &**b))
+        });
+        let mut skin = committed
+            .buffers
+            .as_ref()
+            .map_or(0, |buffers| size(&buffers.skin));
+        let mut views = 0;
+        for view in &self.views {
+            let resident = view.compaction.committed.borrow();
+            if let Some(buffers) = resident.buffers.as_ref() {
+                views += pair(&buffers.current, buffers.previous.as_deref().map(|b| &**b));
+                skin += size(&buffers.skin);
+            }
+        }
+        let runs = self
+            .views
+            .iter()
+            .map(|view| view.compaction.scratch.borrow().bytes())
+            .sum();
+        CompactionBytes {
+            mirror,
+            views,
+            runs,
+            skin,
+        }
+    }
+
     /// Selected ranges and (batch, LOD) groups of the view's last published selection.
     pub(crate) fn published_ranges_and_groups(&self, view: usize) -> (usize, usize) {
         let selection = self.views[view].published.borrow();
         let groups = Plan::new(&selection.ranges).map_or(0, |plan| plan.groups.len());
         (selection.ranges.len(), groups)
     }
+
+    /// The committed view buffers of `view` and, for each range of its last published
+    /// selection, the batch buffers and offsets a plain buffer copy of that range would use.
+    pub(crate) fn committed_gather(&self, view: usize) -> CommittedGather {
+        let resident = self.views[view].compaction.committed.borrow().clone();
+        let buffers = resident.buffers.expect("committed view buffers");
+        let plan = Plan::new(&self.views[view].published.borrow().ranges).expect("compactable");
+        let copies = plan
+            .copies
+            .iter()
+            .map(|copy| {
+                let batch = &self.instances.batches[&copy.key];
+                GatherCopy {
+                    current: batch
+                        .buffer
+                        .as_deref()
+                        .cloned()
+                        .expect("flushed instance buffer"),
+                    previous: batch.previous.as_deref().cloned(),
+                    source: u64::from(copy.source.start) * STRIDE,
+                    destination: u64::from(copy.destination) * STRIDE,
+                    bytes: u64::from(copy.source.end - copy.source.start) * STRIDE,
+                    skin: batch.skin.as_ref().map(|stream| SkinCopy {
+                        buffer: stream
+                            .buffer
+                            .as_deref()
+                            .cloned()
+                            .expect("flushed skin stream"),
+                        source: u64::from(copy.source.start) * SKIN_STRIDE,
+                        destination: u64::from(copy.destination) * SKIN_STRIDE,
+                        bytes: u64::from(copy.source.end - copy.source.start) * SKIN_STRIDE,
+                    }),
+                }
+            })
+            .collect();
+        CommittedGather {
+            current: Buffer::clone(&buffers.current),
+            previous: buffers.previous.as_deref().map(|b| Buffer::clone(b)),
+            skin: buffers.skin.as_deref().map(|b| Buffer::clone(b)),
+            bytes: u64::from(plan.total) * STRIDE,
+            skin_bytes: u64::from(plan.total) * SKIN_STRIDE,
+            keys: plan
+                .groups
+                .iter()
+                .map(|group| (group.key, group.lod))
+                .collect(),
+            copies,
+        }
+    }
+}
+
+/// What a test needs to rebuild a view's gather with plain buffer copies.
+#[cfg(test)]
+pub(crate) struct CommittedGather {
+    pub current: Buffer,
+    pub previous: Option<Buffer>,
+    /// The view's skin descriptors, present while the scene has skinned batches.
+    pub skin: Option<Buffer>,
+    /// Bytes of the view buffer the gather wrote.
+    pub bytes: u64,
+    /// Bytes of the view's skin buffer the gather wrote.
+    pub skin_bytes: u64,
+    /// (batch, LOD) of every group, in view buffer order.
+    pub keys: Vec<(BatchKey, usize)>,
+    pub copies: Vec<GatherCopy>,
+}
+
+/// One selected range as a buffer copy from its batch buffers.
+#[cfg(test)]
+pub(crate) struct GatherCopy {
+    pub current: Buffer,
+    pub previous: Option<Buffer>,
+    pub source: u64,
+    pub destination: u64,
+    pub bytes: u64,
+    /// The same range of the batch's skin stream, for a skinned batch.
+    pub skin: Option<SkinCopy>,
+}
+
+/// One selected range as a buffer copy from its batch's skin stream.
+#[cfg(test)]
+pub(crate) struct SkinCopy {
+    pub buffer: Buffer,
+    pub source: u64,
+    pub destination: u64,
+    pub bytes: u64,
 }
 
 #[cfg(test)]

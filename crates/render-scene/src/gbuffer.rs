@@ -126,6 +126,29 @@ impl Gbuffer {
     }
 }
 
+/// Whether Opaque loads the completed prepass depth that the producer tests.
+pub(crate) const fn producer_depth_available(depth: crate::renderer::depth::DepthMode) -> bool {
+    matches!(depth, crate::renderer::depth::DepthMode::Reuse)
+}
+
+/// Declares the scene's G-buffer producer pass when the prepass metadata carries G-buffer
+/// pipelines: the four targets in location order, and the finished scene depth to test
+/// against, which [`attach_producer_depth`] gives the slot read-only.
+pub(crate) fn declare_producer(
+    declaration: &mut FeatureDeclaration,
+    screen: &crate::scene_metadata::SceneMetadata,
+    depth: crate::renderer::depth::DepthMode,
+) {
+    if !producer_depth_available(depth) || screen.geometry.gbuffer.is_none() {
+        return;
+    }
+    let mut pass = worldrunner_render_post::FeaturePass::new(PassSlot::OpaqueGbuffer);
+    pass.color_format = Some(GBUFFER_FORMATS[0]);
+    pass.additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
+    pass.depth_format = Some(screen.depth.format());
+    declaration.passes.push(pass);
+}
+
 /// Gives the slot the scene depth when a producer declares a depth format there.
 ///
 /// In observation the slot does not own depth. When the scene depth is complete before

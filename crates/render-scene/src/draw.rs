@@ -51,10 +51,10 @@ pub use effect_statistics::{
 pub use geometry_statistics::{
     TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
 };
-pub use pass_statistics::PassDrawStatistics;
+pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
 mod terrain_runtime;
-pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
+pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
@@ -63,6 +63,7 @@ pub(crate) use streaming::await_builds;
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
 use crate::instances::Instances;
+pub use crate::instances::skin::SkinMeshError;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
@@ -77,6 +78,8 @@ enum Route {
     Prepass,
     /// The capture terms: objects and terrain only.
     Capture,
+    /// The G-buffer slot: objects and terrain only.
+    Gbuffer,
 }
 
 #[cfg(test)]
@@ -127,6 +130,24 @@ pub enum DrawError {
         /// Smaller of the buffer and storage binding limits.
         limit: u64,
     },
+    /// The scene's skin palettes need more entries than the shader indexes with 32 bits.
+    #[error("skin palettes need {entries} entries, beyond the 32-bit palette index")]
+    SkinPalette {
+        /// Entries the palettes of every pose need.
+        entries: u64,
+    },
+    /// A mesh's skin references do not fit the resident skeleton and pose tables.
+    #[error("mesh {mesh} does not fit the resident skin tables: {source}")]
+    SkinReference {
+        /// Table index of the mesh.
+        mesh: usize,
+        /// What does not fit.
+        #[source]
+        source: SkinMeshError,
+    },
+    /// The device cannot hold the skin palette or read it from the vertex stage.
+    #[error(transparent)]
+    SkinAdmission(#[from] crate::skinning::admission::SkinAdmissionError),
     #[error(transparent)]
     Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// The environmental profile requests an unsupported stock effect.
@@ -197,6 +218,8 @@ pub enum DrawError {
 /// One mesh level held as the buffer pair a draw needs.
 #[derive(Clone, Debug)]
 struct GpuLod {
+    /// The vertex format of `vertices` and `transition`.
+    layout: crate::object::layout::GeometryLayout,
     transition: Option<Buffer>,
     vertices: Buffer,
     indices: Buffer,
@@ -284,6 +307,8 @@ pub struct SceneGpu {
     >,
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
+    /// The instance mirror and pipelines every view's compaction gathers with.
+    gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
@@ -354,8 +379,20 @@ impl SceneGpu {
             &contact_heights,
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
-        let objects =
-            crate::object::prepared::PreparedObjects::new(authority.clone(), material_imports);
+        let palette = (!prepared.palette.is_empty()).then(|| {
+            upload_buffer(
+                device,
+                queue,
+                "scene skin palette",
+                BufferUsages::STORAGE,
+                prepared.palette.bytes(),
+            )
+        });
+        let objects = crate::object::prepared::PreparedObjects::new(
+            authority.clone(),
+            material_imports,
+            palette,
+        );
         objects.warm(pipelines.object_context());
         let terrain = resources::upload_terrain(
             device,
@@ -395,6 +432,7 @@ impl SceneGpu {
             drawing_frame: RefCell::new(None),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
+            gather: compaction::Shared::default(),
             terrain,
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
@@ -472,12 +510,25 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         group: &BindGroup,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         // Both passes consume the same camera selection, compacted instances and terrain stream.
         // The forward-only draws are appended after that paired prefix.
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, Route::Prepass)
-            .selection
+            .drawn
+    }
+
+    /// Records the terrain and objects the camera selected into the G-buffer slot with
+    /// `pipelines`, the producer pipelines that test the finished scene depth. The selection is
+    /// the one the prepass and the colour pass draw; nothing is published for it.
+    pub(crate) fn draw_gbuffer(
+        &self,
+        pass: &mut RenderPass<'_>,
+        pipelines: &ScenePipelines,
+        group: &BindGroup,
+    ) {
+        pass.set_bind_group(3, group, &[]);
+        self.draw_color_pass(pass, pipelines, None, Route::Gbuffer);
     }
 
     pub(crate) fn draw_shadowed(
@@ -553,7 +604,7 @@ impl SceneGpu {
         let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
-        let selection = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
+        let drawn = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if route == Route::Forward {
@@ -571,7 +622,7 @@ impl SceneGpu {
                 .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
-            selection,
+            drawn,
             terrain,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),

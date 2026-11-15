@@ -1,4 +1,4 @@
-use super::placement::BatchBounds;
+use super::placement;
 use super::tests::{level, mesh, scene, transform};
 use super::*;
 use worldrunner_render_plan::*;
@@ -62,13 +62,19 @@ fn assert_matches_reference(mesh: &SceneMesh, materials: &[Material]) {
     let selection = MeshSelection::new(mesh);
     let mut instances = instances(materials);
     for placement in placements() {
-        let handle = instances.add(object(placement), true).unwrap();
+        let placed = object(placement);
+        let handle = instances.add(placed, true).unwrap();
         let (&key, batch) = instances.batches.iter().next().unwrap();
         let (slot, _, _) = batch.placements().next().unwrap();
-        let mut cached = BatchBounds::new(&selection, &instances, key.2, batch);
+        placement::refresh(&selection, &instances, key.2, batch);
+        let cached = batch.bounds.borrow();
         for stretch in [1.37, 0.0, 1.0, 1.37] {
             assert_eq!(
-                bits(cached.placement(slot, &placement, stretch)),
+                bits(placement::placement(
+                    cached.boxes(slot),
+                    cached.reliefs(),
+                    stretch
+                )),
                 bits(selection.placement_bounds(&instances, &placement, 0, stretch)),
                 "stretch {stretch}"
             );

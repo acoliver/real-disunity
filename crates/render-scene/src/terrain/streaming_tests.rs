@@ -1,9 +1,10 @@
 #[test]
 fn geometry_observations_retain_selected_fine_leaves_in_hysteresis_band() {
     let terrain = terrain(5);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let children = root(&terrain).children().unwrap();
     let matrix = ortho(90.0, [32.0, 32.0, 100.0]);
-    let plan = select(&terrain, &children, matrix, [128; 2]);
+    let plan = select(&terrain, &bounds, &children, matrix, [128; 2]);
     let stats =
         crate::draw::geometry_statistics::measure(&plan.leaves, &plan.leaves, plan.observation);
     let mut expected = children;
@@ -19,9 +20,10 @@ fn geometry_observations_retain_selected_fine_leaves_in_hysteresis_band() {
 #[test]
 fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     let terrain = terrain(5);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let children = root(&terrain).children().unwrap();
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
-    let blocked = select_with_retired(&terrain, &children, matrix, [128; 2], 1, &|_| true);
+    let blocked = select_with_retired(&terrain, &bounds, &children, matrix, [128; 2], 1, &|_| true);
     let before = crate::draw::geometry_statistics::measure(
         &blocked.leaves,
         &blocked.leaves,
@@ -34,7 +36,15 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
     assert_eq!(before.selected_leaves, 1);
     assert_eq!(before.unresolved_leaves, 1);
     assert!(!before.complete);
-    let admitted = select_with_retired(&terrain, &blocked.leaves, matrix, [128; 2], 0, &|_| true);
+    let admitted = select_with_retired(
+        &terrain,
+        &bounds,
+        &blocked.leaves,
+        matrix,
+        [128; 2],
+        0,
+        &|_| true,
+    );
     let after = crate::draw::geometry_statistics::measure(
         &admitted.leaves,
         &admitted.leaves,
@@ -51,8 +61,9 @@ fn geometry_observations_report_retirement_blocked_merge_until_admitted() {
 fn geometry_observations_distinguish_budget_coverage_from_threshold_completion() {
     use crate::draw::geometry_statistics::measure;
     let terrain = terrain(9);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let matrix = ortho(8.0, [32.0, 32.0, 100.0]);
-    let plan = select(&terrain, &[root(&terrain)], matrix, [128; 2]);
+    let plan = select(&terrain, &bounds, &[root(&terrain)], matrix, [128; 2]);
     let stats = measure(&plan.leaves, &plan.leaves, plan.observation);
     assert_eq!(stats.selected_leaves, 28);
     assert_eq!(stats.drawn_at_detail, 0);
@@ -66,12 +77,13 @@ fn geometry_observations_distinguish_budget_coverage_from_threshold_completion()
 fn geometry_observations_settle_and_identify_drawn_windows_independent_of_order() {
     use crate::draw::geometry_statistics::measure;
     let terrain = terrain(1000);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
     let mut leaves = vec![root(&terrain)];
     for _ in 0..8 {
-        leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
+        leaves = select(&terrain, &bounds, &leaves, matrix, [128; 2]).leaves;
     }
-    let observation = observe(&terrain, &leaves, matrix, [128; 2]);
+    let observation = observe(&terrain, &bounds, &leaves, matrix, [128; 2]);
     let stats = measure(&leaves, &leaves, observation);
     assert!(stats.complete);
     assert_eq!(stats.selected_leaves, stats.drawn_at_detail);
@@ -79,7 +91,7 @@ fn geometry_observations_settle_and_identify_drawn_windows_independent_of_order(
     leaves.reverse();
     assert_eq!(measure(&leaves, &leaves, observation), stats);
     let distant = ortho(10000.0, [32.0, 32.0, 100.0]);
-    let far = select(&terrain, &leaves, distant, [128; 2]);
+    let far = select(&terrain, &bounds, &leaves, distant, [128; 2]);
     assert_ne!(
         measure(&far.leaves, &far.leaves, far.observation).drawn,
         stats.drawn
@@ -90,8 +102,9 @@ fn geometry_observations_settle_and_identify_drawn_windows_independent_of_order(
 fn geometry_observations_respect_terminal_and_offscreen_leaves() {
     use crate::draw::geometry_statistics::measure;
     let terrain = terrain(1000);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let matrix = ortho(8.0, [-100.0, -100.0, 100.0]);
-    let plan = select(&terrain, &[root(&terrain)], matrix, [128; 2]);
+    let plan = select(&terrain, &bounds, &[root(&terrain)], matrix, [128; 2]);
     let stats = measure(&plan.leaves, &plan.leaves, plan.observation);
     assert!(stats.complete);
     assert_eq!(stats.selected_leaves, 1);
@@ -178,6 +191,7 @@ fn reference(node: TerrainChunk, pixels_per_meter: f64, leaves: &mut Vec<Terrain
 #[test]
 fn lod_matches_independent_orthographic_reference_at_several_cameras() {
     let terrain = terrain(1000);
+    let bounds = TerrainHeightBounds::new(&terrain);
     for (width, eye) in [
         (64.0, [32.0, 32.0, 100.0]),
         (256.0, [20.0, 40.0, 200.0]),
@@ -185,7 +199,7 @@ fn lod_matches_independent_orthographic_reference_at_several_cameras() {
     ] {
         let mut leaves = vec![root(&terrain)];
         for _ in 0..8 {
-            leaves = select(&terrain, &leaves, ortho(width, eye), [128; 2]).leaves;
+            leaves = select(&terrain, &bounds, &leaves, ortho(width, eye), [128; 2]).leaves;
         }
         let mut expected = Vec::new();
         reference(root(&terrain), 128.0 / f64::from(width), &mut expected);
@@ -197,9 +211,16 @@ fn lod_matches_independent_orthographic_reference_at_several_cameras() {
 #[test]
 fn budgets_hold_and_coarsening_evicts_children_without_holes() {
     let terrain = terrain(9);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let mut leaves = vec![root(&terrain)];
     for _ in 0..8 {
-        let plan = select(&terrain, &leaves, ortho(8.0, [32.0, 32.0, 100.0]), [128; 2]);
+        let plan = select(
+            &terrain,
+            &bounds,
+            &leaves,
+            ortho(8.0, [32.0, 32.0, 100.0]),
+            [128; 2],
+        );
         assert!(leaves.len() + plan.uploads.len() <= 9);
         assert!(plan.uploads.len() <= 64);
         assert_eq!(
@@ -215,6 +236,7 @@ fn budgets_hold_and_coarsening_evicts_children_without_holes() {
     assert!(leaves.len() > 1);
     let plan = select(
         &terrain,
+        &bounds,
         &leaves,
         ortho(10000.0, [32.0, 32.0, 100.0]),
         [128; 2],
@@ -340,8 +362,10 @@ fn upload_budget_and_hysteresis_preserve_complete_leaf_sets() {
     let terrain = terrain(1000).with_streaming_policy(Some(
         TerrainStreamingPolicy::new(8, 1000, 4, 12000).unwrap(),
     ));
+    let bounds = TerrainHeightBounds::new(&terrain);
     let first = select(
         &terrain,
+        &bounds,
         &[root(&terrain)],
         ortho(64.0, [32.0, 32.0, 100.0]),
         [128; 2],
@@ -349,6 +373,7 @@ fn upload_budget_and_hysteresis_preserve_complete_leaf_sets() {
     assert_eq!(first.uploads.len(), 4);
     let cached = select(
         &terrain,
+        &bounds,
         &first.leaves,
         ortho(90.0, [32.0, 32.0, 100.0]),
         [128; 2],
@@ -357,6 +382,7 @@ fn upload_budget_and_hysteresis_preserve_complete_leaf_sets() {
     assert!(cached.uploads.is_empty());
     let merged = select(
         &terrain,
+        &bounds,
         &cached.leaves,
         ortho(110.0, [32.0, 32.0, 100.0]),
         [128; 2],
@@ -365,7 +391,13 @@ fn upload_budget_and_hysteresis_preserve_complete_leaf_sets() {
     let mut leaves = merged.leaves;
     for x in [16.0, 48.0] {
         for _ in 0..12 {
-            let plan = select(&terrain, &leaves, ortho(16.0, [x, 32.0, 100.0]), [128; 2]);
+            let plan = select(
+                &terrain,
+                &bounds,
+                &leaves,
+                ortho(16.0, [x, 32.0, 100.0]),
+                [128; 2],
+            );
             assert!(plan.uploads.len() <= 4);
             assert!(leaves.len() + plan.uploads.len() <= 1000);
             assert_eq!(
@@ -390,10 +422,11 @@ fn budgeted(uploads: u32) -> SceneTerrain {
 #[test]
 fn unbuilt_children_keep_the_parent_and_are_requested_in_admission_order() {
     let terrain = budgeted(4);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let leaves = [root(&terrain)];
     let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
-    let built = select(&terrain, &leaves, matrix, [128; 2]);
-    let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| false);
+    let built = select(&terrain, &bounds, &leaves, matrix, [128; 2]);
+    let waiting = select_with_retired(&terrain, &bounds, &leaves, matrix, [128; 2], 0, &|_| false);
     assert_eq!(built.uploads.len(), 4);
     assert_eq!(waiting.leaves, leaves);
     assert!(waiting.uploads.is_empty());
@@ -406,12 +439,13 @@ fn unbuilt_children_keep_the_parent_and_are_requested_in_admission_order() {
 #[test]
 fn one_unbuilt_child_holds_back_the_whole_replacement() {
     let terrain = budgeted(4);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let leaves = [root(&terrain)];
     let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
-    let children = select(&terrain, &leaves, matrix, [128; 2]).uploads;
+    let children = select(&terrain, &bounds, &leaves, matrix, [128; 2]).uploads;
     let missing = children[3];
     let ready = |chunk: TerrainChunk| chunk != missing;
-    let plan = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &ready);
+    let plan = select_with_retired(&terrain, &bounds, &leaves, matrix, [128; 2], 0, &ready);
     assert_eq!(plan.leaves, leaves);
     assert!(plan.uploads.is_empty());
     assert_eq!(plan.unready, [missing]);
@@ -421,10 +455,11 @@ fn one_unbuilt_child_holds_back_the_whole_replacement() {
 #[test]
 fn built_children_are_admitted_as_before() {
     let terrain = budgeted(4);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let leaves = [root(&terrain)];
     let matrix = ortho(64.0, [32.0, 32.0, 100.0]);
-    let expected = select(&terrain, &leaves, matrix, [128; 2]);
-    let plan = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| true);
+    let expected = select(&terrain, &bounds, &leaves, matrix, [128; 2]);
+    let plan = select_with_retired(&terrain, &bounds, &leaves, matrix, [128; 2], 0, &|_| true);
     assert_eq!(plan.leaves, expected.leaves);
     assert_eq!(plan.uploads, expected.uploads);
     assert!(plan.unready.is_empty() && plan.held.is_empty());
@@ -433,15 +468,18 @@ fn built_children_are_admitted_as_before() {
 #[test]
 fn unbuilt_merge_keeps_the_children_until_the_parent_is_built() {
     let terrain = terrain(5);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let children = root(&terrain).children().unwrap();
     let matrix = ortho(110.0, [32.0, 32.0, 100.0]);
-    let waiting = select_with_retired(&terrain, &children, matrix, [128; 2], 0, &|_| false);
+    let waiting = select_with_retired(&terrain, &bounds, &children, matrix, [128; 2], 0, &|_| {
+        false
+    });
     let mut expected = children.clone();
     expected.sort();
     assert_eq!(waiting.leaves, expected);
     assert!(waiting.uploads.is_empty());
     assert_eq!(waiting.unready, [root(&terrain)]);
-    let built = select_with_retired(&terrain, &children, matrix, [128; 2], 0, &|_| true);
+    let built = select_with_retired(&terrain, &bounds, &children, matrix, [128; 2], 0, &|_| true);
     assert_eq!(built.leaves, [root(&terrain)]);
     assert_eq!(built.uploads, [root(&terrain)]);
 }
@@ -450,18 +488,37 @@ fn unbuilt_merge_keeps_the_children_until_the_parent_is_built() {
 fn requests_stay_within_the_budget_that_would_admit_the_uploads() {
     let matrix = ortho(16.0, [16.0, 32.0, 100.0]);
     let terrain = budgeted(4);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let mut leaves = vec![root(&terrain)];
     for _ in 0..3 {
-        leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
+        leaves = select(&terrain, &bounds, &leaves, matrix, [128; 2]).leaves;
     }
     for retired in [0, 995, 1000] {
-        let built = select_with_retired(&terrain, &leaves, matrix, [128; 2], retired, &|_| true);
-        let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], retired, &|_| false);
+        let built = select_with_retired(
+            &terrain,
+            &bounds,
+            &leaves,
+            matrix,
+            [128; 2],
+            retired,
+            &|_| true,
+        );
+        let waiting = select_with_retired(
+            &terrain,
+            &bounds,
+            &leaves,
+            matrix,
+            [128; 2],
+            retired,
+            &|_| false,
+        );
         assert!(waiting.unready.len() <= 4, "{}", waiting.unready.len());
         assert_eq!(waiting.unready, built.uploads);
         assert_eq!(waiting.leaves, leaves);
     }
-    let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
+    let blocked = select_with_retired(&terrain, &bounds, &leaves, matrix, [128; 2], 1000, &|_| {
+        false
+    });
     assert!(blocked.unready.is_empty());
 }
 
@@ -469,11 +526,12 @@ fn requests_stay_within_the_budget_that_would_admit_the_uploads() {
 fn replacements_past_the_upload_budget_are_prefetched_without_being_admitted() {
     let matrix = ortho(16.0, [16.0, 32.0, 100.0]);
     let terrain = budgeted(4);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let mut leaves = vec![root(&terrain)];
     for _ in 0..3 {
-        leaves = select(&terrain, &leaves, matrix, [128; 2]).leaves;
+        leaves = select(&terrain, &bounds, &leaves, matrix, [128; 2]).leaves;
     }
-    let waiting = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &|_| false);
+    let waiting = select_with_retired(&terrain, &bounds, &leaves, matrix, [128; 2], 0, &|_| false);
     assert_eq!(waiting.unready.len(), 4);
     assert_eq!(waiting.prefetch.len(), 4);
     assert!(
@@ -485,12 +543,14 @@ fn replacements_past_the_upload_budget_are_prefetched_without_being_admitted() {
     assert_eq!(waiting.leaves, leaves);
     let prefetched = waiting.prefetch.clone();
     let ready = |chunk: TerrainChunk| prefetched.contains(&chunk);
-    let deferred = select_with_retired(&terrain, &leaves, matrix, [128; 2], 0, &ready);
+    let deferred = select_with_retired(&terrain, &bounds, &leaves, matrix, [128; 2], 0, &ready);
     assert_eq!(deferred.unready, waiting.unready);
     assert!(deferred.prefetch.is_empty());
     assert_eq!(deferred.held, prefetched);
     assert!(deferred.uploads.is_empty());
-    let blocked = select_with_retired(&terrain, &leaves, matrix, [128; 2], 1000, &|_| false);
+    let blocked = select_with_retired(&terrain, &bounds, &leaves, matrix, [128; 2], 1000, &|_| {
+        false
+    });
     assert!(blocked.prefetch.is_empty());
 }
 
@@ -509,6 +569,7 @@ fn nodes(node: TerrainChunk, depth: u32, out: &mut Vec<TerrainChunk>) {
 #[test]
 fn nested_lookup_agrees_with_scanning_every_chunk() {
     let terrain = terrain(1000);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let mut queries = Vec::new();
     nodes(root(&terrain), 4, &mut queries);
     queries.extend((0..40u32).map(|i| TerrainChunk {
@@ -520,7 +581,7 @@ fn nested_lookup_agrees_with_scanning_every_chunk() {
     for (width, eye) in [(16.0, [16.0, 32.0, 100.0]), (64.0, [4.0, 60.0, 100.0])] {
         let mut leaves = vec![root(&terrain)];
         for _ in 0..4 {
-            leaves = select(&terrain, &leaves, ortho(width, eye), [128; 2]).leaves;
+            leaves = select(&terrain, &bounds, &leaves, ortho(width, eye), [128; 2]).leaves;
             sets.push(leaves.clone());
         }
     }
@@ -589,10 +650,11 @@ fn caster_leaves_tile_the_grid_and_coarsen_with_a_smaller_map() {
 #[test]
 fn caster_leaves_match_a_camera_selection_converged_at_the_same_size() {
     let terrain = terrain(1000);
+    let bounds = TerrainHeightBounds::new(&terrain);
     let light = ortho(48.0, [16.0, 16.0, 100.0]);
     let mut leaves = vec![root(&terrain)];
     for _ in 0..64 {
-        let next = select(&terrain, &leaves, light, [512, 512]);
+        let next = select(&terrain, &bounds, &leaves, light, [512, 512]);
         if next.uploads.is_empty() {
             break;
         }
@@ -606,9 +668,10 @@ fn caster_leaves_match_a_camera_selection_converged_at_the_same_size() {
 
 /// The camera leaves a selection converges to from the root at `size` pixels square.
 fn converged(terrain: &SceneTerrain, matrix: Mat4, size: u32) -> Vec<TerrainChunk> {
+    let bounds = TerrainHeightBounds::new(terrain);
     let mut leaves = vec![root(terrain)];
     for _ in 0..64 {
-        let next = select(terrain, &leaves, matrix, [size, size]);
+        let next = select(terrain, &bounds, &leaves, matrix, [size, size]);
         if next.uploads.is_empty() {
             break;
         }

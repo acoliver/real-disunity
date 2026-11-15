@@ -140,3 +140,52 @@ fn corner_decode_rejects_invalid_channels_presence_and_non_overlay_metadata() {
         Err(HostError::Managed(message)) if message.contains("non-overlay quad"))
     );
 }
+
+#[test]
+fn distance_metadata_decodes_all_modes_and_rejects_invalid_records() {
+    use worldrunner_world_simulation::ui::presentation::UiDistanceMode;
+    let quad = native::DisunityQuad {
+        overlay: 1,
+        textured: 1,
+        texture: 7,
+        p1_x: 16.,
+        p2_x: 16.,
+        p2_y: 16.,
+        p3_y: 16.,
+        u1: 1.,
+        v1: 1.,
+        ..Default::default()
+    };
+    let mut meta = native::DisunityUiDraw {
+        kind: 1,
+        distance_spread: 8.,
+        distance_radius: 2.,
+        effect_r: 0.25,
+        effect_g: 0.5,
+        effect_b: 0.75,
+        effect_a: 1.,
+        ..Default::default()
+    };
+    for (code, mode) in [
+        (1, UiDistanceMode::Fill),
+        (2, UiDistanceMode::Outline),
+        (3, UiDistanceMode::Glow),
+    ] {
+        meta.distance_mode = code;
+        let style = decode(meta, quad).unwrap().distance_field.unwrap();
+        assert_eq!(style.mode, mode);
+        assert_eq!([style.spread_px, style.radius_px], [8., 2.]);
+        assert_eq!(style.effect_color, [0.25, 0.5, 0.75, 1.]);
+    }
+    meta.distance_mode = 4;
+    assert!(decode(meta, quad).is_err());
+    meta.distance_mode = 2;
+    meta.distance_spread = 0.;
+    assert!(decode(meta, quad).is_err());
+    meta.distance_spread = 8.;
+    meta.kind = 0;
+    assert!(decode(meta, quad).is_err());
+    meta.kind = 1;
+    meta.distance_radius = -1.;
+    assert!(decode(meta, quad).is_err());
+}

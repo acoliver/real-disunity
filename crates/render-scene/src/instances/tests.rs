@@ -121,3 +121,27 @@ fn assert_rejected_objects_preserve_placement(
     ));
     assert_eq!(instances.get(handle).unwrap(), (replacement, false));
 }
+
+#[test]
+fn a_pose_change_alone_makes_a_skinned_slot_pending_and_a_commit_settles_it() {
+    let object = SceneObject::new(
+        SceneTransform {
+            position_millimeters: [0; 3],
+            rotation: SceneRotation::IDENTITY,
+            scale_millionths: 1_000_000,
+        },
+        MeshHandle::from_raw(0),
+        MaterialHandle::from_raw(0),
+    );
+    let mut batch = batch::InstanceBatch::skinned();
+    let slot = batch.add(object, true);
+    batch.set_skin(slot, [0, 0, 2, 0]);
+    assert_eq!(batch.pending_ranges(), vec![0..1]);
+    batch.commit(&batch.pending_ranges());
+    assert!(batch.pending_ranges().is_empty());
+    // The 80-byte placement is unchanged; only the descriptor names another pose.
+    batch.set_skin(slot, [4, 4, 2, 0]);
+    assert_eq!(batch.pending_ranges(), vec![0..1]);
+    batch.commit(&batch.pending_ranges());
+    assert!(batch.pending_ranges().is_empty());
+}

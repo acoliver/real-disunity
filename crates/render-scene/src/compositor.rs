@@ -780,6 +780,10 @@ mod scene;
 #[path = "compositor_post_tests.rs"]
 mod post_tests;
 
+#[cfg(test)]
+#[path = "compositor_repeated_opaque_tests.rs"]
+mod repeated_opaque_tests;
+
 fn encode_planned(
     chain: &mut PostChain<FrameOutput>,
     device: &wgpu::Device,

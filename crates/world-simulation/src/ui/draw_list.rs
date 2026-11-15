@@ -189,6 +189,7 @@ impl<'fonts> UiDrawList<'fonts> {
             uv_rect,
             color: self.effective(color),
             corner_colors: None,
+            distance_field: None,
             texture,
             sorting_layer: self.order.layer,
             sorting_order: self.order.order,

@@ -7,9 +7,14 @@ pub(crate) fn build(
 ) -> wgpu::RenderPipeline {
     let depth_layout = depth.then(|| depth_layout(device));
     let module = super::scene_shader(device, "native UI overlay", &source(depth));
+    let distance_layout = crate::dynamic::distance::layout(device);
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("native UI overlay"),
-        bind_group_layouts: &[depth_layout.as_ref(), Some(material)],
+        bind_group_layouts: &[
+            depth_layout.as_ref(),
+            Some(material),
+            Some(&distance_layout),
+        ],
         immediate_size: 0,
     });
     let vertices = crate::geometry::vertex_attributes();

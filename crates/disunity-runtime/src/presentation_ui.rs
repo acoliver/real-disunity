@@ -59,10 +59,11 @@ fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<Ui
     }
     let corner_colors = decode_corner_colors(&meta)?;
     let quad = decode_quad(quad);
-    Ok(UiDraw {
+    let draw = UiDraw {
         kind,
         depth_test: meta.kind & 4 != 0,
         corner_colors,
+        distance_field: decode_distance(&meta)?,
         triangle_uv: (meta.kind & !4 == 2).then_some([
             [meta.triangle_u0, meta.triangle_v0],
             [meta.triangle_u1, meta.triangle_v1],
@@ -77,7 +78,10 @@ fn decode(meta: native::DisunityUiDraw, quad: native::DisunityQuad) -> Result<Ui
         hierarchy_order: usize::try_from(meta.hierarchy_order)
             .map_err(|_| HostError::Managed("UI hierarchy order overflow".into()))?,
         clip_rect: [meta.clip_x, meta.clip_y, meta.clip_width, meta.clip_height],
-    })
+    };
+    draw.validate_distance()
+        .map_err(|e| HostError::Managed(e.to_string()))?;
+    Ok(draw)
 }
 
 fn decode_corner_colors(meta: &native::DisunityUiDraw) -> Result<Option<[[f32; 4]; 4]>, HostError> {
@@ -116,4 +120,23 @@ fn decode_corner_colors(meta: &native::DisunityUiDraw) -> Result<Option<[[f32; 4
         return Err(HostError::Managed("invalid UI corner_colors".into()));
     }
     Ok((meta.corner_colors_present == 1).then_some(colors))
+}
+
+fn decode_distance(
+    meta: &native::DisunityUiDraw,
+) -> Result<Option<worldrunner_world_simulation::ui::presentation::UiDistanceStyle>, HostError> {
+    use worldrunner_world_simulation::ui::presentation::{UiDistanceMode, UiDistanceStyle};
+    let mode = match meta.distance_mode {
+        0 => return Ok(None),
+        1 => UiDistanceMode::Fill,
+        2 => UiDistanceMode::Outline,
+        3 => UiDistanceMode::Glow,
+        _ => return Err(HostError::Managed("invalid UI distance mode".into())),
+    };
+    Ok(Some(UiDistanceStyle {
+        spread_px: meta.distance_spread,
+        radius_px: meta.distance_radius,
+        mode,
+        effect_color: [meta.effect_r, meta.effect_g, meta.effect_b, meta.effect_a],
+    }))
 }

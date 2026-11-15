@@ -4,6 +4,8 @@ use super::{
     prepare_texture, resources, visibility,
 };
 
+use crate::object::layout::GeometryLayout;
+
 /// Owned CPU upload data. Preparing this value requires no device or GPU access.
 #[derive(Debug)]
 pub struct PreparedScene {
@@ -13,6 +15,8 @@ pub struct PreparedScene {
     pub(super) selection: Vec<MeshSelection>,
     pub(super) terrain: Option<PreparedTerrain>,
     pub(super) contact: Vec<u8>,
+    /// Every pose's palettes, laid out for the one scene palette buffer.
+    pub(super) palette: crate::skinning::ScenePalette,
 }
 
 #[derive(Debug)]
@@ -21,6 +25,8 @@ pub(super) struct PreparedMesh {
 }
 #[derive(Debug)]
 pub(super) struct PreparedLod {
+    /// The vertex format of `vertices`, and of `transition`, which repacks the preceding level.
+    pub layout: crate::object::layout::GeometryLayout,
     pub vertices: Vec<u8>,
     pub indices: Vec<u8>,
     pub transition: Option<Vec<u8>>,
@@ -43,6 +49,11 @@ impl PreparedScene {
     /// Returns the same CPU preparation failures as [`SceneGpu::upload`].
     pub fn new(scene: &RenderScene) -> Result<Self, DrawError> {
         descriptors::validate(scene)?;
+        let palette = crate::skinning::ScenePalette::new(scene.geometry().skin_poses()).map_err(
+            |overflow| DrawError::SkinPalette {
+                entries: overflow.entries,
+            },
+        )?;
         crate::water::surface::validate(scene)?;
         let textures = scene
             .resources()
@@ -99,6 +110,7 @@ impl PreparedScene {
             terrain,
             selection: mesh_selections(scene),
             contact: contact::prepare(scene)?,
+            palette,
         })
     }
 
@@ -118,6 +130,7 @@ impl PreparedScene {
         {
             crate::terrain::pages::residency::validate_layers(&device.limits(), policy.slots(), 3)?;
         }
+        crate::skinning::admission::validate(&self.palette, &device.limits())?;
         // Six material maps, one shadow array and three screen-space inputs.
         if device.limits().max_sampled_textures_per_shader_stage < 10 {
             return Err(crate::frame::FrameError::UnsupportedEffect(
@@ -206,32 +219,50 @@ pub(super) fn prepare_mesh(
         .lods()
         .iter()
         .enumerate()
-        .map(|(level, lod)| {
-            let error = |source| DrawError::Geometry {
-                mesh,
-                level,
-                source,
-            };
-            let transition = lod
-                .card()
-                .filter(|_| level > 0)
-                .map(|card| {
-                    crate::geometry::pack_transition(
-                        &source.lods()[level - 1],
-                        card.coverage_micro(),
-                    )
-                })
-                .transpose()
-                .map_err(error)?;
-            Ok(PreparedLod {
-                vertices: pack_vertices(lod).map_err(error)?,
-                indices: pack_indices(lod),
-                transition,
-                index_count: u32::try_from(lod.indices().len()).expect("validated index count"),
-            })
-        })
+        .map(|(level, lod)| prepare_lod(mesh, source, level, lod))
         .collect::<Result<Vec<_>, DrawError>>()?;
     Ok(PreparedMesh { lods })
+}
+
+/// Packs one level: its vertices, indices and the card complement of the level before it.
+fn prepare_lod(
+    mesh: usize,
+    source: &worldrunner_render_plan::SceneMesh,
+    level: usize,
+    lod: &worldrunner_render_plan::SceneMeshLod,
+) -> Result<PreparedLod, DrawError> {
+    let error = |source| DrawError::Geometry {
+        mesh,
+        level,
+        source,
+    };
+    let transition = lod
+        .card()
+        .filter(|_| level > 0)
+        .map(|card| {
+            let preceding = &source.lods()[level - 1];
+            let bytes = crate::geometry::pack_transition(preceding, card.coverage_micro())?;
+            // The complement draws the preceding level, so it carries that level's influences.
+            Ok(match preceding.skin_influences() {
+                Some(influences) => crate::skinning::append_skin_words(&bytes, influences),
+                None => bytes,
+            })
+        })
+        .transpose()
+        .map_err(error)?;
+    let skinned = crate::skinning::pack_skinned_vertices(lod).map_err(error)?;
+    let layout = GeometryLayout::of(skinned.is_some());
+    let vertices = match skinned {
+        Some(bytes) => bytes,
+        None => pack_vertices(lod).map_err(error)?,
+    };
+    Ok(PreparedLod {
+        layout,
+        vertices,
+        indices: pack_indices(lod),
+        transition,
+        index_count: u32::try_from(lod.indices().len()).expect("validated index count"),
+    })
 }
 
 fn terrain_bounds(

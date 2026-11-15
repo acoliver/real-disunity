@@ -1,4 +1,5 @@
 use super::{FrameError, gpu};
+use crate::shader::rewrite::ShaderRewrite;
 use std::fmt::Write;
 use worldrunner_render_plan::{SceneSsr, SceneSsrGridDomain, SceneSsrTraversal};
 
@@ -79,53 +80,56 @@ pub(super) fn trace_source(
         }
         worldrunner_render_plan::SceneSsrHitFacing::ShadingNormal
         | worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers => source,
-        worldrunner_render_plan::SceneSsrHitFacing::Any => {
-            source.replace(" || dot(hit_normal.xyz, direction) >= 0.0", "")
-        }
+        worldrunner_render_plan::SceneSsrHitFacing::Any => source.anchored(
+            "ssr::grid::trace_source",
+            2,
+            " || dot(hit_normal.xyz, direction) >= 0.0",
+            "",
+        ),
     };
     let source = super::pyramid::trace_source(source, samples, settings);
     if settings.traversal != SceneSsrTraversal::Grid {
         return if banked {
-            super::water::banked_trace_source(&source)
+            super::water::banked_trace_source(&source, samples, false)
         } else {
             source
         };
     }
     let (base, count) = domain(settings, size);
-    let source = configure_levels(source, count, base > 0);
+    let source = configure_levels(source, count, base > 0, water);
     if base == 0 {
         return if banked {
-            super::water::banked_trace_source(&source)
+            super::water::banked_trace_source(&source, samples, false)
         } else {
             source
         };
     }
     // Refine half-resolution bounds in the same walk before returning a child contact.
     let source = source
-        .replace("const GRID_REFINEMENT: bool = false;", "const GRID_REFINEMENT: bool = true;")
-        .replace("fn grid_child_depth(pixel: vec2<f32>) -> f32 { return grid_depth(0, pixel, vec2<f32>(1.0)); }",
+        .anchored("ssr::grid::trace_source", 1, "const GRID_REFINEMENT: bool = false;", "const GRID_REFINEMENT: bool = true;")
+        .anchored("ssr::grid::trace_source", 1, "fn grid_child_depth(pixel: vec2<f32>) -> f32 { return grid_depth(0, pixel, vec2<f32>(1.0)); }",
             &format!("fn grid_child_depth(pixel: vec2<f32>) -> f32 {{ return textureLoad(grid_depth_{count}, vec2<i32>(pixel*2.0), 0).r; }}"))
-        .replace(
+        .anchored("ssr::grid::trace_source", 1,
             "let grid_size = camera.size.xy;",
             "let grid_size = camera.size.xy / 2.0;",
         )
-        .replace(
+        .anchored("ssr::grid::trace_source", 1,
             "let hit_pixel = vec2<i32>(intersection.pixel);",
             "let full_pixel = intersection.pixel * 2.0;
     if any(full_pixel < vec2<f32>(0.0)) || any(full_pixel >= camera.size.xy) { return vec4<f32>(0.0); }
     let hit_pixel = vec2<i32>(full_pixel);",
         )
-        .replace(
+        .anchored("ssr::grid::trace_source", 1,
             "if !matches_receiver_depth(intersection.depth, metadata_depth, hit_normal.xyz, hit_pixel)",
             &format!("if intersection.depth != textureLoad(grid_depth_{count}, hit_pixel, 0).r || !matches_receiver_depth(intersection.depth, metadata_depth, hit_normal.xyz, hit_pixel)"),
         );
     if banked {
-        super::water::banked_trace_source(&source)
+        super::water::banked_trace_source(&source, samples, true)
     } else {
         source
     }
 }
-fn configure_levels(mut source: String, count: usize, ownership: bool) -> String {
+fn configure_levels(mut source: String, count: usize, ownership: bool, water: bool) -> String {
     let first = source
         .find("@group(0) @binding(4)")
         .expect("depth bindings");
@@ -141,21 +145,29 @@ fn configure_levels(mut source: String, count: usize, ownership: bool) -> String
     }
     declarations.push_str("@group(0) @binding(8) var receiver_depth: texture_2d<f32>;\n@group(0) @binding(9) var opaque_forward_depth: texture_2d<f32>;\nfn depth_at(level: u32, uv: vec2<f32>) -> f32 { return grid_depth(i32(level), uv*camera.size.xy, camera.size.xy); }\n");
     source.replace_range(first..last, &declarations);
-    // Shift existing receiver and water bindings before adding generated depth bindings.
-    for binding in (8..=12).rev() {
-        source = source.replace(
+    // Shift existing receiver and water bindings before adding generated depth bindings. The
+    // water trace declares its receiver normals, material and depth at bindings 10 to 12.
+    let shifted = if water { 8..=12 } else { 8..=9 };
+    for binding in shifted.clone().rev() {
+        source = source.anchored(
+            "ssr::grid::configure_levels",
+            1,
             &format!("@binding({binding})"),
             &format!("@binding(SHIFT_{binding})"),
         );
     }
-    for binding in 8..=12 {
-        source = source.replace(
+    for binding in shifted {
+        source = source.anchored(
+            "ssr::grid::configure_levels",
+            1,
             &format!("@binding(SHIFT_{binding})"),
             &format!("@binding({})", binding + bindings - 4),
         );
     }
     for index in 0..bindings {
-        source = source.replace(
+        source = source.anchored(
+            "ssr::grid::configure_levels",
+            1,
             &format!("@binding(GRID_{index})"),
             &format!("@binding({})", index + 4),
         );
@@ -178,7 +190,9 @@ fn configure_fetch(mut source: String, count: usize) -> String {
     }
     fetch.push_str("} }\n");
     source.replace_range(start..end, &fetch);
-    source.replace(
+    source.anchored(
+        "ssr::grid::configure_fetch",
+        1,
         "min(3, i32(ceil(log2(max(size.x, size.y)))))",
         &format!("{}", count - 1),
     )

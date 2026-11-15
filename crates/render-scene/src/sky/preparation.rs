@@ -2,6 +2,7 @@
 //! No resource becomes observable until its transaction submits; cancellation drops the work.
 pub mod authored;
 mod uploaded;
+use crate::shader::rewrite::ShaderRewrite;
 use wgpu::util::DeviceExt;
 use worldrunner_render_gpu::{
     configuration::{AllocationBudget, AllocationSet},
@@ -17,12 +18,9 @@ fn integration_source(intensity: u32) -> std::borrow::Cow<'static, str> {
         return SOURCE.into();
     }
     let old = "value=vec4(brdf(uv.x,uv.y),0.0,1.0);";
-    assert_eq!(
-        SOURCE.matches(old).count(),
+    let source = SOURCE.anchored(
+        "sky::preparation::integration_source",
         1,
-        "environment integration source contract"
-    );
-    let source = SOURCE.replace(
         old,
         "value=vec4(brdf(uv.x,uv.y)*PREPARED_SPECULAR_INTENSITY,0.0,1.0);",
     );

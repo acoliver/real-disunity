@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
-use worldrunner_render_program::unity::offscreen::frame::Record;
+use worldrunner_render_program::unity::offscreen::frame::{Record, UndeclaredTextures};
 use worldrunner_world_simulation::graphics::{
     PropertyValue as WorldValue, TextureRef, WorldRenderTexture, WorldSampler,
 };
@@ -117,7 +117,7 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     assert_eq!(textures["_UserLut"].texture, DefaultTexture::Grey.id());
     assert!(!textures.contains_key("_Declared"));
     assert_eq!(
-        adapted.frame.undeclared_texture,
+        adapted.frame.undeclared_textures.d2,
         Some(DefaultTexture::Grey.id()),
         "records read the grey default for what no layer names"
     );
@@ -133,12 +133,47 @@ fn an_unset_texture_the_shader_does_not_declare_reads_grey() {
     );
     available.default_textures.clear();
     let adapted = adapt(&snapshot, &available, &settings());
-    assert_eq!(adapted.frame.undeclared_texture, None);
+    assert_eq!(adapted.frame.undeclared_textures.d2, None);
     assert!(
         !adapted.frame.materials[&ids::material(material)]
             .properties
             .textures
             .contains_key("_UserLut")
+    );
+}
+
+/// A cube slot nothing sets and no shader declares, as the URP blit program's `_BlitCubeTexture`
+/// is, reads the grey cube when the host registered it and stays missing when it did not.
+#[test]
+fn the_frame_carries_the_grey_cube_for_a_cube_slot_only_when_the_host_registered_it() {
+    let mut world = world();
+    let target = render_texture(&mut world, [8, 8]);
+    blit(&mut world, TextureRef::Render(target), target, None, 0);
+    let snapshot = snapshot(&mut world);
+    let mut available = available(&snapshot, 1, &[]);
+    let adapted = adapt(&snapshot, &available, &settings());
+    assert_eq!(
+        adapted.frame.undeclared_textures,
+        UndeclaredTextures {
+            d2: Some(DefaultTexture::Grey.id()),
+            cube: Some(DefaultTexture::GreyCube.id()),
+        }
+    );
+    assert_ne!(DefaultTexture::Grey.id(), DefaultTexture::GreyCube.id());
+    available.default_textures.remove(&DefaultTexture::GreyCube);
+    let adapted = adapt(&snapshot, &available, &settings());
+    assert_eq!(
+        adapted.frame.undeclared_textures,
+        UndeclaredTextures {
+            d2: Some(DefaultTexture::Grey.id()),
+            cube: None,
+        }
+    );
+    available.default_textures.clear();
+    let adapted = adapt(&snapshot, &available, &settings());
+    assert_eq!(
+        adapted.frame.undeclared_textures,
+        UndeclaredTextures::default()
     );
 }
 

@@ -8,11 +8,17 @@
 //! which is an assumption: nothing in the player's data or our runs shows the alpha of `black`.
 //! `grey`, `linearGrey` and `bump` name colours and colour spaces that the player's data does not
 //! give either, so they are not supplied and a draw that reads one is left out and counted.
-//! Only 2D properties get a default; the player also has array and cube properties, which would
-//! need a texture of their own dimension.
+//! Only 2D properties get a default that a shader names; the player also has array and cube
+//! properties, which would need a texture of their own dimension.
+//!
+//! One default no shader names is the grey cube. A shader program can reflect a cube slot that
+//! nothing sets and the shader does not declare, such as the `_BlitCubeTexture` beside the 2D
+//! source of the URP blit program (Old World, 180 draws a run). Unity binds its default cube
+//! there. The player's data does not give that cube's colour, so it is assumed to be the 2D
+//! grey: RGBA (0.5, 0.5, 0.5, 1) in every texel of all six faces.
 
 use worldrunner_render_program::properties::PropertyValue;
-use worldrunner_render_program::unity::offscreen::frame::SourceTexture;
+use worldrunner_render_program::unity::offscreen::frame::{SourceDimension, SourceTexture};
 use worldrunner_unity_serialized::shader::Shader;
 
 use super::ids;
@@ -42,10 +48,13 @@ pub enum DefaultTexture {
     Black,
     /// Unity's default 2D texture, RGBA (0.5, 0.5, 0.5, 1).
     Grey,
+    /// The cube a slot reads that nothing sets and no shader declares: assumed to be the grey of
+    /// the 2D default on every face. No shader names it.
+    GreyCube,
 }
 
 impl DefaultTexture {
-    pub const ALL: [Self; 3] = [Self::White, Self::Black, Self::Grey];
+    pub const ALL: [Self; 4] = [Self::White, Self::Black, Self::Grey, Self::GreyCube];
 
     /// The default a shader names, or `None` for a name this host does not supply.
     #[must_use]
@@ -58,29 +67,36 @@ impl DefaultTexture {
         }
     }
 
-    /// The name the shader declares it by.
+    /// The name the shader declares it by, empty for a default no shader names.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::White => "white",
             Self::Black => "black",
             Self::Grey => "gray",
+            Self::GreyCube => "",
         }
     }
 
     /// The texture to register under [`ids::default_texture`].
     #[must_use]
     pub fn texture(self) -> SourceTexture {
-        let texel = match self {
-            Self::White => [255; 4],
-            Self::Black => [0, 0, 0, 255],
-            Self::Grey => [128, 128, 128, 255],
+        let (dimension, texel) = match self {
+            Self::White => (SourceDimension::D2, [255; 4]),
+            Self::Black => (SourceDimension::D2, [0, 0, 0, 255]),
+            Self::Grey => (SourceDimension::D2, [128, 128, 128, 255]),
+            Self::GreyCube => (SourceDimension::Cube, [128, 128, 128, 255]),
+        };
+        let faces = match dimension {
+            SourceDimension::D2 => 1,
+            SourceDimension::Cube => 6,
         };
         SourceTexture {
             id: ids::default_texture(self.index()),
+            dimension,
             size: [1, 1],
             graphics_format: RGBA8_LINEAR,
-            bytes: texel.to_vec(),
+            bytes: texel.repeat(faces),
             sampler: None,
         }
     }
@@ -90,6 +106,7 @@ impl DefaultTexture {
             Self::White => 0,
             Self::Black => 1,
             Self::Grey => 2,
+            Self::GreyCube => 3,
         }
     }
 

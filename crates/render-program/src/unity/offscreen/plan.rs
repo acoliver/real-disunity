@@ -31,6 +31,7 @@ use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::error::OffscreenError;
+use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
 use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
 use super::sampling::{self, Sampled, read_unfilterable};
@@ -81,7 +82,7 @@ pub(super) struct DrawPlan {
     /// What a probed camera render's look needs, noted only while the services are probing.
     pub(super) facts: Option<DrawFacts>,
     /// The texture properties that no layer set and the shader does not declare, which the draw
-    /// reads from the frame's `undeclared_texture`.
+    /// reads from the frame's `undeclared_textures`.
     pub(super) undeclared: Vec<String>,
 }
 
@@ -151,8 +152,8 @@ pub(super) struct DrawCounts {
     /// texture property.
     pub(super) missing_texture: usize,
     pub(super) missing_textures: std::collections::BTreeMap<String, usize>,
-    /// Draws that read the frame's `undeclared_texture` for a texture property no layer set and
-    /// the shader does not declare, by the texture property.
+    /// Draws that read one of the frame's `undeclared_textures` for a texture property no layer
+    /// set and the shader does not declare, by the texture property.
     pub(super) undeclared_defaults: std::collections::BTreeMap<String, usize>,
     /// Camera draws left out because the mesh lacks a vertex channel the pass reads, in all and
     /// by (source channel, shader input).
@@ -230,8 +231,8 @@ pub(super) struct Services<'a> {
     pub(super) resample: &'a mut Option<GraphicsProgram>,
     pub(super) textures: &'a TextureTable,
     pub(super) meshes: &'a MeshTable,
-    /// The frame's texture for a slot no layer sets and the shader does not declare.
-    pub(super) undeclared_texture: Option<TextureId>,
+    /// The frame's textures for a slot no layer sets and the shader does not declare.
+    pub(super) undeclared_textures: UndeclaredTextures,
     pub(super) defaults: DefaultBuffers,
     pub(super) tracker: &'a mut Tracker,
     pub(super) constants: &'a mut ConstantsPlan,
@@ -328,10 +329,11 @@ impl Services<'_> {
     /// The texture a slot of property `name` reads, and whether it is the frame's default for an
     /// undeclared property.
     ///
-    /// A layer's texture wins. With none, Unity binds its grey default 2D texture when the shader
-    /// does not declare the property, so the frame's `undeclared_texture` stands in, for a slot
-    /// that samples a 2D float texture. A declared property, a slot of another kind and a frame
-    /// without the texture leave the property missing.
+    /// A layer's texture wins. With none, Unity binds its grey default texture of the slot's
+    /// dimension when the shader does not declare the property, so the frame's
+    /// `undeclared_textures` stand in, for a slot that samples a single-sampled float texture of
+    /// a dimension with a default. A declared property, a slot of another kind or dimension and a
+    /// frame without the texture leave the property missing.
     fn texture_input(
         &self,
         spec: &DrawSpec<'_>,
@@ -341,20 +343,20 @@ impl Services<'_> {
         if let Some(input) = spec.layers.texture(name) {
             return Ok((*input, false));
         }
-        let takes_color_2d = matches!(
-            slot.ty,
+        let default = match slot.ty {
             wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { .. },
-                view_dimension: wgpu::TextureViewDimension::D2,
+                view_dimension,
                 multisampled: false,
-            }
-        );
+            } => self.undeclared_textures.for_view(view_dimension),
+            _ => None,
+        };
         let declared = self
             .shaders
             .get(&spec.shader)
             .is_some_and(|shader| shader.declares_texture(name));
-        match self.undeclared_texture {
-            Some(texture) if takes_color_2d && !declared => Ok((
+        match default {
+            Some(texture) if !declared => Ok((
                 TextureInput {
                     texture,
                     sampler: None,

@@ -25,5 +25,6 @@ mod shapes;
 mod stencil;
 mod storage;
 mod undeclared;
+mod undeclared_cube;
 mod unfilterable;
 mod volume;

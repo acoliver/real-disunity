@@ -207,6 +207,22 @@ struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>
     return textureSample(layers, layers_sampler, in.uv, 2);
 }";
 
+/// A blit pass that returns the texel of a cube texture in the direction of +Z, whatever the
+/// source: the shape of a URP blit program, which reflects a cube slot beside the 2D one.
+pub const CUBE_BLIT: &str = "
+@group(0) @binding(0) var cube_tex: texture_cube<f32>;
+@group(0) @binding(1) var cube_sampler: sampler;
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+@vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
+    var out: VOut;
+    out.position = vec4<f32>(position.xy, 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+@fragment fn fs_cube(in: VOut) -> @location(0) vec4<f32> {
+    return textureSample(cube_tex, cube_sampler, vec3<f32>(0.0, 0.0, 1.0));
+}";
+
 /// Position (source channel 0) feeds input 0 and the first texture coordinate (source channel
 /// 4) feeds input 1.
 pub const POSITION_AND_UV: [[i8; 2]; 2] = [[0, 0], [4, 1]];
@@ -318,6 +334,24 @@ pub fn array_patch_parameters() -> VariantParameters {
                 ResourceKind::Texture {
                     sampler: Some(slot(0, 1, FRAGMENT)),
                     dimension: 10,
+                },
+            ),
+            binding("", slot(0, 1, FRAGMENT), ResourceKind::Sampler { state: 0 }),
+        ],
+    }
+}
+
+/// The cube texture of [`CUBE_BLIT`] under the property `name`, with its sampler.
+pub fn cube_blit_parameters(name: &str) -> VariantParameters {
+    VariantParameters {
+        constant_buffers: Vec::new(),
+        bindings: vec![
+            binding(
+                name,
+                slot(0, 0, FRAGMENT),
+                ResourceKind::Texture {
+                    sampler: Some(slot(0, 1, FRAGMENT)),
+                    dimension: 8,
                 },
             ),
             binding("", slot(0, 1, FRAGMENT), ResourceKind::Sampler { state: 0 }),
@@ -492,6 +526,22 @@ pub fn blit_passes(main: &str) -> SyntheticShader {
             tags: Vec::new(),
             variants: vec![variant(&[], BLIT, fragment, blit_parameters(main))],
         }),
+    ))
+}
+
+/// One blit pass that reads the cube texture property `name` and returns what it holds.
+pub fn cube_blit(name: &str) -> SyntheticShader {
+    no_cull(shader(
+        &[],
+        &[PassSpec {
+            tags: Vec::new(),
+            variants: vec![variant(
+                &[],
+                CUBE_BLIT,
+                "fs_cube",
+                cube_blit_parameters(name),
+            )],
+        }],
     ))
 }
 

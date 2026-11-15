@@ -10,6 +10,7 @@ use worldrunner_render_program::ids::{CameraId, MaterialId, MeshId, RendererId, 
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::unity::offscreen::frame::{
     Camera, Material, OffscreenFrame, Record, RenderDimension, RenderTextureSpec, Renderer,
+    UndeclaredTextures,
 };
 use worldrunner_render_program::unity::offscreen::{CameraProbe, StateVariant};
 use worldrunner_render_program::unity::shader::PassSelector;
@@ -381,11 +382,18 @@ impl<'a> Mapper<'a> {
         let mut textures = Textures::new(&snapshot.render_textures, &available.textures);
         let mut frame = OffscreenFrame {
             // Unity binds its grey default to a texture nothing sets and the shader does not
-            // declare, command-buffer records included.
-            undeclared_texture: available
-                .default_textures
-                .contains(&DefaultTexture::Grey)
-                .then(|| DefaultTexture::Grey.id()),
+            // declare, command-buffer records included: a 2D one to a 2D slot, a cube to a cube
+            // slot.
+            undeclared_textures: UndeclaredTextures {
+                d2: available
+                    .default_textures
+                    .contains(&DefaultTexture::Grey)
+                    .then(|| DefaultTexture::Grey.id()),
+                cube: available
+                    .default_textures
+                    .contains(&DefaultTexture::GreyCube)
+                    .then(|| DefaultTexture::GreyCube.id()),
+            },
             ..OffscreenFrame::default()
         };
         if let Some(global) = &snapshot.global {

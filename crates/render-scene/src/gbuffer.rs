@@ -1,19 +1,19 @@
 //! The compact deferred G-buffer selected by `SceneOpaquePath::GBUFFER_OBSERVATION` and
 //! `SceneOpaquePath::GBUFFER_RENDER`.
 //!
-//! The renderer owns four single-sample targets at the scene extent and clears them in
-//! the [`PassSlot::OpaqueGbuffer`] slot, which runs before Opaque, every frame. Producers
-//! draw into that slot through the ordinary feature boundary; the shared encoding lives in
-//! [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote, after the G-buffer and
-//! before Opaque, with the lighting records of [`records`].
+//! The renderer owns four single-sample targets at the scene extent. Observation clears them
+//! in [`PassSlot::OpaqueGbuffer`] before Opaque; Render fuses their clear and production into
+//! [`PassSlot::DepthNormalPrepass`]. Producers use the ordinary feature boundary and the shared
+//! encoding in [`GBUFFER_WGSL`]. The [`lighting`] pass lights what they wrote before Opaque,
+//! with the lighting records of [`records`].
 //!
 //! In observation the lighting pass writes diagnostic targets and nothing reads them except
 //! captures, so the visible frame and every other pass are unchanged. When the frame renders
 //! from the G-buffer ([`GbufferUse::Render`]), the lighting pass takes over Opaque's colour
 //! targets and their clears, so it writes the scene colour and the reflection products SSR
 //! reads, and Opaque loads them and draws only the surfaces without a producer. With
-//! velocity, the producers write the object-motion residual and the G-buffer slot clears the
-//! velocity target in Opaque's place.
+//! velocity, the early producers write the object-motion residual and clear the velocity target
+//! in Opaque's place.
 mod early;
 pub(crate) use early::producer_pass;
 use worldrunner_render_gpu::configuration::AllocationSet;
@@ -206,17 +206,26 @@ impl Gbuffer {
     }
 }
 
-/// Declares the scene's G-buffer producer pass when the prepass metadata carries G-buffer
-/// pipelines: the four targets in location order, and the finished scene depth to test
-/// against, which [`attach_producer_depth`] gives the slot read-only.
+/// Whether Opaque loads the completed prepass depth that the producer tests.
+pub(crate) const fn producer_depth_available(depth: crate::renderer::depth::DepthMode) -> bool {
+    matches!(depth, crate::renderer::depth::DepthMode::Reuse)
+}
+
+/// Declares the producer carried by the metadata. Observation tests completed `Reuse` depth
+/// read-only in `OpaqueGbuffer`; Render writes depth and its fused outputs in the early prepass.
+/// Replacing a declaration for the same slot keeps a single geometry walk.
 pub(crate) fn declare_producer(
     declaration: &mut FeatureDeclaration,
     screen: &crate::scene_metadata::SceneMetadata,
+    depth: crate::renderer::depth::DepthMode,
 ) {
     let Some((pipelines, _)) = &screen.geometry.gbuffer else {
         return;
     };
     let pass = producer_pass(pipelines, screen.depth.format());
+    if pass.slot == PassSlot::OpaqueGbuffer && !producer_depth_available(depth) {
+        return;
+    }
     if let Some(existing) = declaration
         .passes
         .iter_mut()
@@ -234,8 +243,8 @@ pub(crate) fn declare_producer(
 /// Opaque (the depth prepass ran, so Opaque loads it), the slot attaches that same depth
 /// read-only: producers test against it (`Equal`, like forward reuse) and write none, so
 /// depth ownership and the visible frame are unchanged. Without a completed depth the
-/// request is refused with [`FrameError::AttachmentContract`]. Making this slot clear and
-/// write the scene depth is the switch that admits rendering from the G-buffer.
+/// request is refused with [`FrameError::AttachmentContract`]. Render owns depth in the fused
+/// early prepass and does not schedule this observation slot.
 pub(crate) fn attach_producer_depth<'a>(
     passes: &mut [PassDeclaration],
     features: impl IntoIterator<Item = &'a FeatureDeclaration>,

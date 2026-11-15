@@ -978,18 +978,21 @@ check the quantisation through a Rust mirror of the WGSL and validate the module
 with naga; the GPU tests draw a small terrain scene with and without the path,
 and a producer that writes known surfaces through `scene_gbuffer_encode`.
 
-The scene itself is a producer. When the frame uses the G-buffer and has the
-depth prepass, the prepass metadata carries G-buffer pipelines (four targets,
-`DepthMode::Reuse`), and the scene feature draws the camera's selection into the
-slot through the same walk as the colour pass, in the unshadowed and the shadowed
-scene. Each fragment entry stores the material its forward entry would light,
-before any lighting: terrain stores `terrain_material`, objects `shade_material`,
-and impostor cards `scene_card_gbuffer_material`, which is derived from the frozen
-`scene_card_shade` by counted rewrites. Scattering materials set flag bit 0 and
-store their per-pixel amount in G2.y with metal 0. For scattering materials whose
-mask is not packed, forward lights both the metalness and the amount that
+The scene itself is a producer. When the frame observes the G-buffer and Opaque
+loads the completed prepass depth (`DepthMode::Reuse`), the prepass metadata carries
+G-buffer pipelines (four targets), and the scene feature draws the camera's selection
+into the slot through the same walk as the colour pass, in the unshadowed and the
+shadowed scene. Other observation depth modes declare no stock producer; the stock
+scene leaves the cleared targets untouched. Each fragment entry stores the material its forward
+entry would light, before any lighting: terrain stores `terrain_material`, objects
+`shade_material`, and impostor cards `scene_card_gbuffer_material`, which is derived
+from the frozen `scene_card_shade` by counted rewrites. Scattering materials set flag
+bit 0 and store their per-pixel amount in G2.y with metal 0. Every object entry stores
+its material's lighting record in G1.a; terrain stores record 0. For scattering
+materials whose mask is not packed, forward lights both the metalness and the amount that
 `scene_mask_response` returns, and the G-buffer keeps only the amount. Frames
-without the depth prepass store nothing.
+without the depth prepass have no stock producer and store nothing unless a
+registered synthetic producer writes texels.
 
 ### Lighting records
 
@@ -1072,6 +1075,12 @@ retain their existing checked-attachment rules. The frame is:
    and dynamic meshes. It does not draw terrain or stored objects again.
 5. Water, transparency, SSR and post use the existing suffix. The after-opaque snapshot
    copies lit colour; post-water final SSR depth remains a separate product.
+
+Instance-buffer uploads acknowledge current and skin bytes independently of the CPU
+last-colour transform records. Sparse history candidates publish through a suffix-only CPU
+write key after final colour succeeds. A refused suffix retains their previous baseline and
+reset obligations. Previous-only settling changes physical content before mirror refresh and
+gather; CPU history publication changes neither physical content nor sparse current-write counts.
 
 The ordered producer outputs are G0-G3, optional `Rg16Float` velocity,
 `Rgba16Float` canonical normals, and optional `Rgba16Float` SSR material. Their

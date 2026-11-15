@@ -1,7 +1,7 @@
-//! The forward reference of the deferred lighting test: `scene_finish_shading`, the forward
-//! mesh shading after decals, evaluated per block with the block material's own uniform at the
-//! pixel's scene position, from the same forward object source, constants and engine sets the
-//! frame's colour draws use.
+//! The forward reference of the deferred lighting test: `scene_object_material` (the decals)
+//! then `scene_finish_shading`, the forward mesh shading after decals, evaluated per block with
+//! the block material's own uniform at the pixel's scene position, from the same forward object
+//! source, constants and engine sets the frame's colour draws use.
 use wgpu::util::DeviceExt;
 use worldrunner_render_plan::SceneMaterial;
 
@@ -31,8 +31,8 @@ fn fs_reference(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     let scattering = (u32(d.y) & 1u) != 0u;
     let surface = SceneShadingSurface(vec4<f32>(c.xyz, 1.0), a.xyz,
         vec3<f32>(a.w, select(b.w, 0.0, scattering), d.x));
-    let shaded = scene_finish_shading(input,
-        SceneObjectMaterial(b.xyz, surface, select(0.0, b.w, scattering), c.w));
+    let material = scene_object_material(input, b.xyz, surface, select(0.0, b.w, scattering), c.w);
+    let shaded = scene_finish_shading(input, material);
     return vec4<f32>(shaded.rgb, 1.0);
 }
 ";
@@ -63,6 +63,39 @@ fn buffer(ty: wgpu::BufferBindingType) -> wgpu::BindingType {
     }
 }
 
+fn reference_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("deferred reference"),
+        entries: &[
+            entry(0, buffer(wgpu::BufferBindingType::Uniform)),
+            entry(
+                20,
+                wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            ),
+            entry(22, buffer(wgpu::BufferBindingType::Uniform)),
+            entry(
+                23,
+                buffer(wgpu::BufferBindingType::Storage { read_only: true }),
+            ),
+        ],
+    })
+}
+
+fn reference_camera(device: &wgpu::Device, drawn: &Drawn) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("deferred reference camera"),
+        contents: &crate::gbuffer::lighting::camera_bytes(
+            drawn.frame.view_projection,
+            drawn.frame.view,
+        ),
+        usage: wgpu::BufferUsages::UNIFORM,
+    })
+}
+
 impl ReferencePass {
     pub(super) fn new(
         context: &GpuContext,
@@ -89,25 +122,7 @@ impl ReferencePass {
                 .replace("BLOCK_SIZE", &BLOCK.to_string())
                 .replace("BLOCK_COLUMNS", &COLUMNS.to_string())
         );
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("deferred reference"),
-            entries: &[
-                entry(0, buffer(wgpu::BufferBindingType::Uniform)),
-                entry(
-                    20,
-                    wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                ),
-                entry(22, buffer(wgpu::BufferBindingType::Uniform)),
-                entry(
-                    23,
-                    buffer(wgpu::BufferBindingType::Storage { read_only: true }),
-                ),
-            ],
-        });
+        let layout = reference_layout(device);
         let screen_layout = forward
             .as_ref()
             .map(|_| crate::ssr::forward::layout(device));
@@ -126,14 +141,7 @@ impl ReferencePass {
                 })
             })
             .collect();
-        let camera = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("deferred reference camera"),
-            contents: &crate::gbuffer::lighting::camera_bytes(
-                drawn.frame.view_projection,
-                drawn.frame.view,
-            ),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        let camera = reference_camera(device, drawn);
         Self {
             pipeline,
             layout,
@@ -142,6 +150,53 @@ impl ReferencePass {
             camera,
             screen: forward.map(|(_, group)| group),
         }
+    }
+
+    fn groups(
+        &self,
+        device: &wgpu::Device,
+        blocks: &[Block],
+        (depth, values): (&wgpu::TextureView, &wgpu::Buffer),
+    ) -> Vec<wgpu::BindGroup> {
+        blocks
+            .iter()
+            .map(|block| {
+                let emissive = block.emissive.then(|| {
+                    let mut bytes = self.bytes[block.material];
+                    let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap())
+                        | crate::shader::FLAG_SELF_ILLUMINATION;
+                    bytes[12..16].copy_from_slice(&flags.to_le_bytes());
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("deferred reference emissive material"),
+                        contents: &bytes,
+                        usage: wgpu::BufferUsages::UNIFORM,
+                    })
+                });
+                let uniform = emissive.as_ref().unwrap_or(&self.uniforms[block.material]);
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("deferred reference"),
+                    layout: &self.layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: uniform.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 20,
+                            resource: wgpu::BindingResource::TextureView(depth),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 22,
+                            resource: self.camera.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 23,
+                            resource: values.as_entire_binding(),
+                        },
+                    ],
+                })
+            })
+            .collect()
     }
 
     /// The forward shading of `blocks`, each lit with its material's uniform; an emissive
@@ -163,51 +218,7 @@ impl ReferencePass {
                     aspect: wgpu::TextureAspect::DepthOnly,
                     ..Default::default()
                 });
-        let emissive_uniforms: Vec<_> = blocks
-            .iter()
-            .map(|block| {
-                block.emissive.then(|| {
-                    let mut bytes = self.bytes[block.material];
-                    let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap())
-                        | crate::shader::FLAG_SELF_ILLUMINATION;
-                    bytes[12..16].copy_from_slice(&flags.to_le_bytes());
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("deferred reference emissive material"),
-                        contents: &bytes,
-                        usage: wgpu::BufferUsages::UNIFORM,
-                    })
-                })
-            })
-            .collect();
-        let groups: Vec<_> = blocks
-            .iter()
-            .zip(&emissive_uniforms)
-            .map(|(block, emissive)| {
-                let uniform = emissive.as_ref().unwrap_or(&self.uniforms[block.material]);
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("deferred reference"),
-                    layout: &self.layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: uniform.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 20,
-                            resource: wgpu::BindingResource::TextureView(&depth),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 22,
-                            resource: self.camera.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 23,
-                            resource: values.as_entire_binding(),
-                        },
-                    ],
-                })
-            })
-            .collect();
+        let groups = self.groups(device, blocks, (&depth, &values));
         let target =
             worldrunner_render_post::color_texture(device, "deferred reference", [SIZE; 2], HDR);
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());

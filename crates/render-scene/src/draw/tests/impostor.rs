@@ -295,7 +295,7 @@ fn octahedral_texture() -> SceneTexture {
     }
 }
 
-pub(super) fn relief_scene() -> RenderScene {
+pub(crate) fn relief_scene() -> RenderScene {
     let base = scene(true, SceneRotation::IDENTITY);
     let mut textures = base.resources().textures().to_vec();
     let data = |value: [u8; 4]| SceneTexture::Texels {

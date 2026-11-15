@@ -73,7 +73,7 @@ impl ShaderSupply for Synthetic {
             "procedural_inputs" => super::procedural::input_reading_passes(),
             // The camera shader with `_Albedo` declared a 2D texture property of the default
             // named after the file.
-            "default_white" | "default_black" | "default_bump" => {
+            "default_white" | "default_black" | "default_bump" | "default_mystery" => {
                 let mut synthetic = camera_passes();
                 let name = source.file.trim_start_matches("default_");
                 synthetic.shader.parsed.properties = vec![ShaderProperty {

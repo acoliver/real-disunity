@@ -1,20 +1,56 @@
 //! The textures a shader names as the default of a texture property.
 //!
-//! A shader declares each texture property with the name of a default, and a material that sets
-//! no texture for the property reads that default. In the Old World player (Unity 6000.3.15f1)
-//! the declared names are `white` (221 properties), `black` (23), `bump` (18), `grey` (12),
-//! `linearGrey` (1) and the empty name (43). Two have a colour their name fixes: `white` is every
-//! channel at 1, and `black` has every colour channel at 0. Both are 1x1 here, with alpha at 1,
-//! which is an assumption: nothing in the player's data or our runs shows the alpha of `black`.
-//! `grey`, `linearGrey` and `bump` name colours and colour spaces that the player's data does not
-//! give either, so they are not supplied and a draw that reads one is left out and counted.
-//! Only 2D properties get a default that a shader names; the player also has array and cube
-//! properties, which would need a texture of their own dimension.
+//! A shader declares each texture property with the name of a default and a dimension, and a
+//! material that sets no texture for the property reads that default, in the property's
+//! dimension. In the Old World player (Unity 6000.3.15f1, Steam build 25778466) the declared
+//! names by dimension are, from the serialized shaders' property records:
 //!
-//! One default no shader names is the grey cube. A shader program can reflect a cube slot that
-//! nothing sets and the shader does not declare, such as the `_BlitCubeTexture` beside the 2D
-//! source of the URP blit program (Old World, 180 draws a run). Unity binds its default cube
-//! there. The player's data does not give that cube's colour, so it is assumed to be the 2D
+//! | name | 2D | 2D array | cube | 3D |
+//! | --- | --- | --- | --- | --- |
+//! | `white` | 217 | 3 | 1 | 0 |
+//! | `black` | 14 | 0 | 4 | 5 |
+//! | `bump` | 17 | 1 | 0 | 0 |
+//! | `grey` | 10 | 0 | 2 | 0 |
+//! | `linearGrey` | 1 | 0 | 0 | 0 |
+//!
+//! and the empty name 43 times. The unset properties of the 46,095 `MissingTexture` draws of the
+//! `RomeTurn42` run were `_Alphamap` (the terrain array shader's `white` 2D array), `_Normalmap`
+//! (`bump`, 2D) and `_SkyCubemap` (`grey`, a cube).
+//!
+//! Unity's built-in names are `white`, `black`, `gray` and `grey`, `linearGray` and `linearGrey`,
+//! `bump` and `red`. `UnityPlayer.so` holds `white`, `black`, `gray`, `grey`, `linearGray`,
+//! `linearGrey` and `bump` as separate literals with exactly these spellings, so a name is matched
+//! here exactly as written (`White` is not a default). `red` is Unity's documented name. The
+//! colours:
+//!
+//! * `white` is every channel at 1 and `black` has every colour channel at 0, alpha 1 for both
+//!   (an assumption: nothing in the player's data or our runs shows the alpha of `black`).
+//! * `gray`, `grey`, `linearGray` and `linearGrey` are one texel, RGBA (0.5, 0.5, 0.5, 1), as
+//!   bytes (128, 128, 128, 255). Unity has a plain and a linear variant of its grey, which may
+//!   sample differently in a linear colour space; that is not measured. The host uploads every
+//!   default as 8-bit linear (`GraphicsFormat` 8), so a sampled grey is 0.5 either way, which is
+//!   what `gray` gave before. If the colour space ever matters, `linearGray` gets a colour of its
+//!   own in [`Colour`] and nothing else changes.
+//! * `bump` is the neutral tangent-space normal, RGBA (0.5, 0.5, 1, 0.5), as bytes
+//!   (128, 128, 255, 128). A plain normal map decodes as `2 rgb - 1`, which gives (0, 0, 1)
+//!   from (0.5, 0.5, 1). A packed one (`DXT5nm`, Unity's `UnpackNormal`) reads x from alpha and y
+//!   from green, which are 0.5 and 0.5, and rebuilds z, which gives (0, 0, 1) too. 0.5 is stored
+//!   as 128, the nearest byte (127.5 rounds up).
+//! * `red` is (1, 0, 0, 1).
+//!
+//! The empty name is not a default this host supplies: a property declared with it stays
+//! missing, as it did before, and the draw is left out and counted. The same holds for a name
+//! Unity does not know. Unity's own reading of the empty name is not measured.
+//!
+//! A default exists in the three dimensions a draw can sample: 2D, cube (the texel on all six
+//! faces) and 2D array (one layer). A 3D or cube-array property gets none: the offscreen state
+//! uploads no 3D or cube-array source, so a declared 3D default (`black`, 5 shaders) stays
+//! missing.
+//!
+//! One default the grey cube serves beyond the declared ones: a shader program can reflect a cube
+//! slot that nothing sets and the shader does not declare, such as the `_BlitCubeTexture` beside
+//! the 2D source of the URP blit program (Old World, 180 draws a run). Unity binds its default
+//! cube there. The player's data does not give that cube's colour, so it is assumed to be the 2D
 //! grey: RGBA (0.5, 0.5, 0.5, 1) in every texel of all six faces.
 
 use worldrunner_render_program::properties::PropertyValue;
@@ -26,8 +62,10 @@ use super::ids;
 /// `GraphicsFormat` of 8-bit RGBA in linear colour.
 const RGBA8_LINEAR: u32 = 8;
 
-/// `TextureDimension` of a 2D texture.
+/// Unity's `TextureDimension` of a 2D texture, a cube and a 2D array.
 const TEXTURE_2D: i32 = 2;
+const TEXTURE_CUBE: i32 = 4;
+const TEXTURE_2D_ARRAY: i32 = 5;
 
 /// `ShaderPropertyType` of a texture property.
 const TEXTURE_PROPERTY: i32 = 4;
@@ -41,79 +79,198 @@ const FLOAT_PROPERTY: i32 = 2;
 const RANGE_PROPERTY: i32 = 3;
 const INT_PROPERTY: i32 = 5;
 
-/// A default texture the host supplies.
+/// What a default texture holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Colour {
+    White,
+    Black,
+    Grey,
+    Bump,
+    Red,
+}
+
+impl Colour {
+    /// The colour a shader's default name stands for.
+    fn named(name: &str) -> Option<Self> {
+        match name {
+            "white" => Some(Self::White),
+            "black" => Some(Self::Black),
+            "gray" | "grey" | "linearGray" | "linearGrey" => Some(Self::Grey),
+            "bump" => Some(Self::Bump),
+            "red" => Some(Self::Red),
+            _ => None,
+        }
+    }
+
+    /// The name the shader declares it by, the first of its spellings.
+    fn name(self) -> &'static str {
+        match self {
+            Self::White => "white",
+            Self::Black => "black",
+            Self::Grey => "gray",
+            Self::Bump => "bump",
+            Self::Red => "red",
+        }
+    }
+
+    /// The texel, in 8-bit RGBA.
+    fn texel(self) -> [u8; 4] {
+        match self {
+            Self::White => [255; 4],
+            Self::Black => [0, 0, 0, 255],
+            Self::Grey => [128, 128, 128, 255],
+            Self::Bump => [128, 128, 255, 128],
+            Self::Red => [255, 0, 0, 255],
+        }
+    }
+}
+
+/// The dimension of a default texture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Shape {
+    D2,
+    Cube,
+    D2Array,
+}
+
+impl Shape {
+    /// The shape of a property declared with Unity's `TextureDimension` `code`, if a draw can
+    /// sample a default of it.
+    fn of_dimension(code: i32) -> Option<Self> {
+        match code {
+            TEXTURE_2D => Some(Self::D2),
+            TEXTURE_CUBE => Some(Self::Cube),
+            TEXTURE_2D_ARRAY => Some(Self::D2Array),
+            _ => None,
+        }
+    }
+
+    /// Unity's `TextureDimension` of the shape.
+    fn dimension(self) -> i32 {
+        match self {
+            Self::D2 => TEXTURE_2D,
+            Self::Cube => TEXTURE_CUBE,
+            Self::D2Array => TEXTURE_2D_ARRAY,
+        }
+    }
+
+    /// The upload of the shape and the number of texels it holds: six faces, or one layer.
+    fn source(self) -> (SourceDimension, usize) {
+        match self {
+            Self::D2 => (SourceDimension::D2, 1),
+            Self::Cube => (SourceDimension::Cube, 6),
+            Self::D2Array => (SourceDimension::D2Array(1), 1),
+        }
+    }
+}
+
+/// A default texture the host supplies: one colour in one shape.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DefaultTexture {
     White,
     Black,
     /// Unity's default 2D texture, RGBA (0.5, 0.5, 0.5, 1).
     Grey,
-    /// The cube a slot reads that nothing sets and no shader declares: assumed to be the grey of
-    /// the 2D default on every face. No shader names it.
+    /// The grey on each of six faces: the default of a declared cube named `grey`, and the one a
+    /// cube slot reads that nothing sets and no shader declares.
     GreyCube,
+    Bump,
+    Red,
+    WhiteCube,
+    BlackCube,
+    BumpCube,
+    RedCube,
+    WhiteArray,
+    BlackArray,
+    GreyArray,
+    BumpArray,
+    RedArray,
 }
 
 impl DefaultTexture {
-    pub const ALL: [Self; 4] = [Self::White, Self::Black, Self::Grey, Self::GreyCube];
+    /// Every default, in the order the variants are declared, which numbers them: a texture is
+    /// registered under [`ids::default_texture`] of its place here, which has room for sixteen.
+    pub const ALL: [Self; 15] = [
+        Self::White,
+        Self::Black,
+        Self::Grey,
+        Self::GreyCube,
+        Self::Bump,
+        Self::Red,
+        Self::WhiteCube,
+        Self::BlackCube,
+        Self::BumpCube,
+        Self::RedCube,
+        Self::WhiteArray,
+        Self::BlackArray,
+        Self::GreyArray,
+        Self::BumpArray,
+        Self::RedArray,
+    ];
 
-    /// The default a shader names, or `None` for a name this host does not supply.
-    #[must_use]
-    pub fn named(name: &str) -> Option<Self> {
-        match name {
-            "white" => Some(Self::White),
-            "black" => Some(Self::Black),
-            "gray" => Some(Self::Grey),
-            _ => None,
+    /// The one table: what each default holds and in which shape.
+    fn parts(self) -> (Colour, Shape) {
+        match self {
+            Self::White => (Colour::White, Shape::D2),
+            Self::Black => (Colour::Black, Shape::D2),
+            Self::Grey => (Colour::Grey, Shape::D2),
+            Self::Bump => (Colour::Bump, Shape::D2),
+            Self::Red => (Colour::Red, Shape::D2),
+            Self::WhiteCube => (Colour::White, Shape::Cube),
+            Self::BlackCube => (Colour::Black, Shape::Cube),
+            Self::GreyCube => (Colour::Grey, Shape::Cube),
+            Self::BumpCube => (Colour::Bump, Shape::Cube),
+            Self::RedCube => (Colour::Red, Shape::Cube),
+            Self::WhiteArray => (Colour::White, Shape::D2Array),
+            Self::BlackArray => (Colour::Black, Shape::D2Array),
+            Self::GreyArray => (Colour::Grey, Shape::D2Array),
+            Self::BumpArray => (Colour::Bump, Shape::D2Array),
+            Self::RedArray => (Colour::Red, Shape::D2Array),
         }
     }
 
-    /// The name the shader declares it by, empty for a default no shader names.
+    /// The default a shader names for a property of Unity's `TextureDimension` `dimension`, or
+    /// `None` for a name or a dimension this host does not supply.
+    #[must_use]
+    pub fn named(name: &str, dimension: i32) -> Option<Self> {
+        let wanted = (Colour::named(name)?, Shape::of_dimension(dimension)?);
+        Self::ALL
+            .into_iter()
+            .find(|texture| texture.parts() == wanted)
+    }
+
+    /// The name the shader declares it by.
     #[must_use]
     pub fn name(self) -> &'static str {
-        match self {
-            Self::White => "white",
-            Self::Black => "black",
-            Self::Grey => "gray",
-            Self::GreyCube => "",
-        }
+        self.parts().0.name()
+    }
+
+    /// Unity's `TextureDimension` of the default.
+    #[must_use]
+    pub fn dimension(self) -> i32 {
+        self.parts().1.dimension()
     }
 
     /// The texture to register under [`ids::default_texture`].
     #[must_use]
     pub fn texture(self) -> SourceTexture {
-        let (dimension, texel) = match self {
-            Self::White => (SourceDimension::D2, [255; 4]),
-            Self::Black => (SourceDimension::D2, [0, 0, 0, 255]),
-            Self::Grey => (SourceDimension::D2, [128, 128, 128, 255]),
-            Self::GreyCube => (SourceDimension::Cube, [128, 128, 128, 255]),
-        };
-        let faces = match dimension {
-            SourceDimension::D2 => 1,
-            SourceDimension::Cube => 6,
-        };
+        let (colour, shape) = self.parts();
+        let (dimension, texels) = shape.source();
         SourceTexture {
-            id: ids::default_texture(self.index()),
+            id: self.id(),
             dimension,
             size: [1, 1],
             graphics_format: RGBA8_LINEAR,
-            bytes: texel.repeat(faces),
+            bytes: colour.texel().repeat(texels),
             sampler: None,
-        }
-    }
-
-    fn index(self) -> u64 {
-        match self {
-            Self::White => 0,
-            Self::Black => 1,
-            Self::Grey => 2,
-            Self::GreyCube => 3,
         }
     }
 
     /// The name the frame gives this texture.
     #[must_use]
     pub fn id(self) -> worldrunner_render_program::ids::TextureId {
-        ids::default_texture(self.index())
+        // The variants are declared in the order of `ALL`, so the discriminant is the place.
+        ids::default_texture(self as u64)
     }
 }
 
@@ -132,14 +289,18 @@ pub fn declared_names(shader: &Shader) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The 2D texture properties of `shader` whose declared default is one the host supplies, by
-/// property name.
+/// The texture properties of `shader`, of any dimension, whose declared default is one the host
+/// supplies in the dimension the property declares, by property name.
 #[must_use]
 pub fn declared(shader: &Shader) -> Vec<(String, DefaultTexture)> {
-    declared_names(shader)
-        .into_iter()
-        .filter_map(|(name, default)| {
-            DefaultTexture::named(&default).map(|texture| (name, texture))
+    shader
+        .parsed
+        .properties
+        .iter()
+        .filter(|property| property.kind == TEXTURE_PROPERTY)
+        .filter_map(|property| {
+            DefaultTexture::named(&property.default_texture, property.texture_dimension)
+                .map(|texture| (property.name.clone(), texture))
         })
         .collect()
 }

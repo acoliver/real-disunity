@@ -240,7 +240,7 @@ impl OffscreenState {
     }
 
     /// The dimension of the view a draw or a kernel samples the texture through: the one its
-    /// spec names, and for an uploaded source 2D or cube by its
+    /// spec names, and for an uploaded source 2D, cube or 2D array by its
     /// [`SourceDimension`](frame::SourceDimension). `None` for an id that names no texture the
     /// state holds.
     #[must_use]

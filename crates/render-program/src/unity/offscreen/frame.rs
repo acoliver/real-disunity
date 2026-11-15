@@ -354,6 +354,9 @@ pub enum SourceDimension {
     /// square, and `bytes` holds the six faces one after the other in the order +X, -X, +Y, -Y,
     /// +Z, -Z, each as a 2D level is.
     Cube,
+    /// A 2D array of this many layers, which may be one, sampled through an array view. `size` is
+    /// one layer and `bytes` holds the layers one after the other, each as a 2D level is.
+    D2Array(u32),
 }
 
 /// A texture the host uploads once: uncompressed, one mip.

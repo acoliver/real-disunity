@@ -692,8 +692,38 @@ fn an_unset_texture_reads_the_black_its_shader_declares() {
 }
 
 #[test]
-fn an_unset_texture_whose_default_the_host_does_not_supply_leaves_the_draw_out() {
+fn an_unset_texture_reads_the_bump_its_shader_declares() {
     let (outcome, heights) = heights_with_default("default_bump");
+    assert!(
+        outcome.report.failures.is_empty(),
+        "{:?}",
+        outcome.report.failures
+    );
+    // The pass paints the albedo times the red tint, so the red of the bump texel, 128 of 255,
+    // shows. The height map holds 16-bit floats, so the value is exact to one step of those.
+    let bump_red = f32::from(DefaultTexture::Bump.texture().bytes[0]) / 255.0;
+    let step = SCALE / 4096.0;
+    let predicted: Vec<f32> = (0..SIDE * SIDE)
+        .map(|index| {
+            if index % SIDE < SIDE / 2 {
+                bump_red * DRAWN * SCALE
+            } else {
+                CLEAR * SCALE
+            }
+        })
+        .collect();
+    for (index, (got, want)) in heights.iter().zip(&predicted).enumerate() {
+        assert!(
+            (got - want).abs() <= step,
+            "texel {index}: {got} against {want}, within {step}"
+        );
+    }
+    assert_eq!(outcome.report.traces[0].textures[0].camera_draws, 1);
+}
+
+#[test]
+fn an_unset_texture_whose_declared_default_unity_does_not_know_leaves_the_draw_out() {
+    let (outcome, heights) = heights_with_default("default_mystery");
     assert_eq!(outcome.report.failures.get("draw:MissingTexture"), Some(&1));
     assert_eq!(
         outcome.report.missing_textures,

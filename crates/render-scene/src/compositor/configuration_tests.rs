@@ -124,7 +124,7 @@ use worldrunner_render_post::{AdaptiveExposure, BufferReadback, Readback};
 fn initial_allocation_reports_loss_before_success_or_validation_failure() {
     let _session = crate::test_support::SceneTestSession::acquire();
     for fail in [false, true] {
-        let context = pollster::block_on(GpuContext::request()).unwrap();
+        let context = pollster::block_on(GpuContext::request_for_test()).unwrap();
         let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
         let result = ConfiguredFrameRenderer::new_with(
             &context,
@@ -160,8 +160,8 @@ fn initial_allocation_reports_loss_before_success_or_validation_failure() {
 #[test]
 fn foreign_device_is_rejected_before_validation_or_allocation() {
     let _session = crate::test_support::SceneTestSession::acquire();
-    let owner = pollster::block_on(GpuContext::request()).unwrap();
-    let foreign = pollster::block_on(GpuContext::request()).unwrap();
+    let owner = pollster::block_on(GpuContext::request_for_test()).unwrap();
+    let foreign = pollster::block_on(GpuContext::request_for_test()).unwrap();
     let settings = RendererConfiguration::legacy([5, 3], wgpu::TextureFormat::Rgba8UnormSrgb);
     let mut renderer =
         ConfiguredFrameRenderer::new(&owner, settings.clone(), AllocationBudget(4096)).unwrap();

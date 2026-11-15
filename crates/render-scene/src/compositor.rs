@@ -23,14 +23,16 @@ pub(crate) mod plan_trace;
 mod programs;
 pub(crate) mod publication;
 mod snapshots;
+mod stock_plan;
 mod temporal;
 mod validation;
 pub use crate::scene_metadata::receiver::ReceiverGradientReservation;
-use crate::ssao::passes::ScreenFeature;
 pub use adapters::encode_resident;
 pub use configuration::{ConfiguredFrameRenderer, FrameEncoding, RendererConfiguration};
 use output::FrameOutput;
 pub use output::FrameProfile;
+pub use stock_plan::StockPlanStatistics;
+pub(crate) use stock_plan::{SceneInputs, ShadowSchedule, unshadowed};
 use validation::{validate_clear, validate_reflection_extent};
 
 use worldrunner_render_post::{
@@ -71,6 +73,8 @@ pub struct FrameRenderer {
     /// The deferred G-buffer, present only for `SceneOpaquePath::GBUFFER_OBSERVATION`.
     pub(crate) gbuffer: Option<crate::gbuffer::Gbuffer>,
     producer_draw: std::rc::Rc<std::cell::RefCell<Option<crate::draw::ColorDraw>>>,
+    /// The stock plans of this renderer and the ones it replaces on reconfiguration.
+    plan_cache: std::rc::Rc<std::cell::RefCell<stock_plan::PlanCache>>,
 }
 impl std::fmt::Debug for FrameRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -91,6 +95,11 @@ impl FrameRenderer {
         let mut declaration = attachment(resource, view, false);
         declaration.load = AttachmentLoad::ClearColor(self.clear_color);
         declaration
+    }
+    /// What the stock frame plan cache did: schedules rebuilt, binding tables resolved and
+    /// frames that reused both.
+    pub fn stock_plan_statistics(&self) -> StockPlanStatistics {
+        self.plan_cache.borrow().statistics()
     }
     /// Select the host's admitted frame slot before preparing any features.
     pub fn select_frame_slot(&mut self, slot: usize) {
@@ -121,6 +130,7 @@ impl FrameRenderer {
             ssr_requested: None,
             gbuffer: None,
             producer_draw: std::rc::Rc::default(),
+            plan_cache: std::rc::Rc::default(),
             water: None,
             water_state: std::rc::Rc::default(),
             snapshots: None,
@@ -547,8 +557,6 @@ impl FrameRenderer {
         let (frame, shadow) = *input;
         self.validate_environment_conventions(frame.specular_convention)?;
         let (passes, views) = plan;
-        let mut passes = passes.to_vec();
-        let mut views = views.to_vec();
         worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
         let depth_mode = if passes
             .iter()
@@ -561,83 +569,54 @@ impl FrameRenderer {
             crate::renderer::depth::DepthMode::Independent
         };
         self.set_water_input(device, &frame, shadow, encoder, depth_mode)?;
-        let mut combined = reborrow_features(features);
-        let mut screen = ScreenFeature::installed(self.ssao.as_ref(), self.ssr.as_ref(), &frame);
-        if let Some(screen) = &mut screen {
-            let declaration = screen.schedule(&mut passes, &mut views)?;
-            combined.push(BorrowedFeature {
-                declaration,
-                prepared: screen,
-            });
-        }
-        let water = self
-            .water
-            .as_ref()
-            .map(|water| crate::ssr::water::Inputs::new(water, self.frame_slot));
-        let mut reflection = self
-            .ssr
-            .as_ref()
-            .map(|ssr| ssr.feature(&frame, (&passes, &views), config, water))
-            .transpose()?;
-        if let Some(reflection) = &mut reflection {
-            let declaration = reflection.schedule(&mut passes, &mut views)?;
-            combined.push(BorrowedFeature {
-                declaration,
-                prepared: reflection,
-            });
-        }
-        let retained = self.chain.plan_features(&mut passes, &mut views)?;
-        let (request, mut snapshot_feature) = snapshots::plan(
-            device,
-            (&mut self.snapshots, &mut self.overlay),
-            &(config, frame, self.frame_slot, self.water.is_some()),
-            (&mut passes, &mut views),
-            (&combined, &retained),
-        )?;
-        if let Some((declaration, feature)) = &mut snapshot_feature {
-            combined.push(BorrowedFeature {
-                declaration: declaration.clone(),
-                prepared: feature,
-            });
-        }
-        if let Some(gbuffer) = &self.gbuffer {
-            let declared = combined.iter().map(|feature| &feature.declaration);
-            gbuffer.schedule(&mut passes, &mut views, declared.chain(&retained))?;
-        }
-        // An Opaque entry may repeat with its own colour layout, so each feature pass takes the
-        // formats of the planned pass for its own entry. A pass with no planned entry is left
-        // for frame validation to report.
-        for feature in &mut combined {
-            for pass in &mut feature.declaration.passes {
-                if pass.slot != worldrunner_render_post::PassSlot::Opaque {
-                    continue;
-                }
-                if let Some(planned) = passes
-                    .iter()
-                    .find(|planned| planned.entry() == pass.entry())
-                {
-                    pass.additional_color_formats = planned
-                        .additional_colors
-                        .iter()
-                        .map(|attachment| attachment.format)
-                        .collect();
-                }
-            }
-        }
-        forward_order::forward_order(&mut passes);
+        let declarations: Vec<_> = features
+            .iter()
+            .map(|feature| feature.declaration.clone())
+            .collect();
+        let environment = stock_plan::Environment {
+            config,
+            frame,
+            slot: self.frame_slot,
+            ssao: self.ssao.as_ref(),
+            ssr: self.ssr.as_ref(),
+            water: self.water.as_ref(),
+            gbuffer: self.gbuffer.as_ref(),
+            velocity: self.chain.targets().velocity_texture().cloned(),
+            temporal_mask: self.chain.targets().temporal_mask_texture().cloned(),
+            requested: (self.ssao_requested, self.ssr_requested),
+            overlay_depth: self.overlay.needs_depth(),
+            shadow: shadow.is_some(),
+        };
+        let authored = stock_plan::Authored {
+            passes,
+            views,
+            features: &declarations,
+        };
+        let parts = stock_plan::Parts {
+            cache: &self.plan_cache,
+            chain: &mut self.chain,
+            snapshots: &mut self.snapshots,
+            overlay: &mut self.overlay,
+        };
+        let mut planned = stock_plan::plan_frame(device, parts, &environment, &authored)?;
+        let (schedule, views) = (planned.schedule.clone(), planned.views.clone());
+        let views = views.as_slice();
         let head = head.map(|work| worldrunner_render_post::OperationsGroup {
-            before: passes.first().map(PassDeclaration::entry),
+            before: schedule.first,
             work,
         });
-        encode_planned(
-            &mut self.chain,
-            device,
-            encoder,
-            (&passes, &views),
-            head.as_slice(),
-            &mut combined,
-        )?;
-        self.publish_snapshots(encoder, request);
+        {
+            let mut combined = planned.features(features);
+            encode_planned(
+                &mut self.chain,
+                device,
+                encoder,
+                (&schedule.passes, views),
+                head.as_slice(),
+                &mut combined,
+            )?;
+        }
+        self.publish_snapshots(encoder, schedule.request);
         self.stage_temporal_history(encoder, &frame)
     }
     fn publish_snapshots(
@@ -685,16 +664,6 @@ impl FrameRenderer {
             features,
         )
     }
-}
-
-fn reborrow_features<'a>(features: &'a mut [BorrowedFeature<'_>]) -> Vec<BorrowedFeature<'a>> {
-    features
-        .iter_mut()
-        .map(|feature| BorrowedFeature {
-            declaration: feature.declaration.clone(),
-            prepared: &mut *feature.prepared,
-        })
-        .collect()
 }
 
 pub(crate) fn attachment_resource(

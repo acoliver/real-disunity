@@ -499,6 +499,16 @@ impl<F: StageFactory> PostChain<F> {
         Ok(declarations)
     }
 
+    /// Records the declarations that [`Self::plan_features`] returned for an earlier frame, for a
+    /// frame that reuses that plan: validation reads the retained declarations, and a reused plan
+    /// does not plan the features again.
+    pub fn adopt_planned_features(&mut self, declarations: &[crate::FeatureDeclaration]) {
+        debug_assert_eq!(self.features.len(), declarations.len());
+        for (feature, declaration) in self.features.iter_mut().zip(declarations) {
+            feature.declaration = declaration.clone();
+        }
+    }
+
     fn prepare_features(
         &mut self,
         device: &wgpu::Device,

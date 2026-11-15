@@ -249,71 +249,24 @@ struct SceneDraw<'a> {
     depth_mode: crate::renderer::depth::DepthMode,
 }
 
-struct ScenePassPlan<'a> {
-    depth_id: worldrunner_render_post::ResourceRef,
-    depth_texture: &'a wgpu::Texture,
-    declaration: FeatureDeclaration,
-    passes: Vec<PassDeclaration>,
-    views: Vec<AttachmentView>,
-}
-
-fn declare_scene_passes<'a>(
-    renderer: &mut FrameRenderer,
-    device: &wgpu::Device,
-    scene: &mut SceneDraw<'a>,
-) -> Result<ScenePassPlan<'a>, FrameError> {
-    let SceneDraw {
-        gpu,
-        pipelines,
-        color,
-        depth,
-        velocity,
-        depth_mode,
-        ..
-    } = scene;
-    let color_id = attachment_resource("scene color", color);
-    let depth_id = renderer.scene_depth_resource(depth);
-    let mut opaque = PassDeclaration::new(PassSlot::Opaque);
-    opaque.color = Some(renderer.color_attachment(color_id, color));
-    opaque.depth = Some(attachment(depth_id, depth, true));
-    if *depth_mode == crate::renderer::depth::DepthMode::Reuse {
-        opaque.depth.as_mut().expect("scene depth").load =
-            worldrunner_render_post::AttachmentLoad::Load;
-    }
-    let mut declaration = SceneFeature::declaration(pipelines);
-    if let Some(screen) = &renderer.ssao {
-        crate::ssao::passes::geometry_declaration(&mut declaration, screen);
-        crate::gbuffer::declare_producer(&mut declaration, screen, *depth_mode);
-    }
-    let mut views = vec![
-        color.with_resource(color_id)?,
-        depth.with_resource(depth_id)?,
-    ];
-    declare_velocity(&mut opaque, &mut views, velocity.as_ref())?;
-    let mut passes = vec![opaque];
-    gpu.plan_celestial(
-        device,
-        color.size(),
-        &mut passes,
-        &mut views,
-        &mut declaration,
-    );
-    Ok(ScenePassPlan {
-        depth_id,
-        depth_texture: depth.texture(),
-        declaration,
-        passes,
-        views,
-    })
-}
-
 fn encode_scene_passes(
     renderer: &mut FrameRenderer,
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    mut scene: SceneDraw<'_>,
+    scene: SceneDraw<'_>,
 ) -> Result<(), FrameError> {
-    let plan = declare_scene_passes(renderer, device, &mut scene)?;
+    let plan = super::unshadowed(
+        renderer,
+        device,
+        &super::SceneInputs {
+            gpu: &*scene.gpu,
+            pipelines: scene.pipelines,
+            color: scene.color,
+            depth: scene.depth,
+            velocity: scene.velocity.as_ref(),
+            depth_mode: scene.depth_mode,
+        },
+    )?;
     let SceneDraw {
         gpu,
         pipelines,
@@ -324,7 +277,7 @@ fn encode_scene_passes(
         depth_mode,
         ..
     } = scene;
-    let ScenePassPlan {
+    let super::stock_plan::Base {
         depth_id,
         depth_texture,
         mut declaration,
@@ -336,7 +289,7 @@ fn encode_scene_passes(
         (gpu, colour_pipelines(pipelines, screen.as_ref())),
         (
             depth_id,
-            depth_texture,
+            &depth_texture,
             depth_mode == crate::renderer::depth::DepthMode::Reuse,
         ),
         &frame,

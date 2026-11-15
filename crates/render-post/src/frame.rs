@@ -113,7 +113,7 @@ pub struct AttachmentDeclaration {
     pub read_only: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PassDeclaration {
     /// The role: timing label, capture label and the `DrawContext` a feature sees.
     pub slot: PassSlot,
@@ -142,7 +142,7 @@ impl PassDeclaration {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeaturePass {
     /// The role of the entry this feature draws in.
     pub slot: PassSlot,
@@ -173,7 +173,7 @@ impl FeaturePass {
         PassEntry::nth(self.slot, self.occurrence)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct FeatureDeclaration {
     pub passes: Vec<FeaturePass>,
     pub effects: Vec<&'static str>,

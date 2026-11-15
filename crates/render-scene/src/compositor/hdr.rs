@@ -113,6 +113,7 @@ fn construct_renderer(
         ssr_requested: setup.ssr_requested,
         gbuffer: setup.gbuffer,
         producer_draw: std::rc::Rc::default(),
+        plan_cache: std::rc::Rc::default(),
         ssr: None,
         water: None,
         water_state: std::rc::Rc::default(),

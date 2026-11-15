@@ -1,7 +1,5 @@
 use super::FrameRenderer;
-use worldrunner_render_post::{
-    BorrowedFeature, FeatureDeclaration, FeaturePass, FrameError, PassSlot,
-};
+use worldrunner_render_post::{BorrowedFeature, FeatureDeclaration, FrameError};
 
 fn prefix_depth(
     gpu: &crate::draw::SceneGpu,
@@ -46,11 +44,11 @@ impl FrameRenderer {
         gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, source.size)?;
         gpu.prepare_depth_prefix_pages(device, encoder, frame, source.size)?;
-        let mut passes = Vec::new();
-        let mut views = Vec::new();
         let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
+        let plan = self.plan_prefix(source, frame)?;
+        let (passes, views) = (&plan.schedule.passes, plan.views.as_slice());
         let (prepass, screen_declaration) =
-            self.prefix_declarations(source, &mut passes, &mut views)?;
+            (plan.schedule.prepass.clone(), plan.schedule.screen.clone());
         let mut geometry = self.prefix_geometry(gpu, pipelines, frame, source)?;
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: source,
@@ -71,13 +69,13 @@ impl FrameRenderer {
             },
         ];
         #[cfg(test)]
-        super::plan_trace::record(true, &passes, &features, &[]);
+        super::plan_trace::record(true, passes, &features, &[]);
         self.chain.encode_geometry_prefix(
             device,
             encoder,
             &worldrunner_render_post::FramePlan {
-                passes: &passes,
-                views: &views,
+                passes,
+                views,
                 requested: &[],
                 operations: &[],
             },
@@ -109,38 +107,6 @@ impl FrameRenderer {
                 .is_some_and(crate::gbuffer::Gbuffer::renders),
             opaque_drawn: std::cell::Cell::new(false),
         })
-    }
-
-    fn prefix_declarations(
-        &self,
-        source: &crate::scene_metadata::SceneMetadata,
-        passes: &mut Vec<worldrunner_render_post::PassDeclaration>,
-        views: &mut Vec<worldrunner_render_post::AttachmentView>,
-    ) -> Result<(FeaturePass, FeatureDeclaration), FrameError> {
-        let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
-        crate::ssao::passes::prepass(source, material, passes, views)?;
-        let screen = source.passes.schedule_metadata(passes, views)?;
-        if let Some(gbuffer) = self.gbuffer.as_ref().filter(|gbuffer| gbuffer.renders()) {
-            let (producer, _) = source.geometry.gbuffer.as_ref().expect("early producer");
-            let velocity = self.velocity_attachment(producer.writes_velocity())?;
-            gbuffer.fuse_prepass(passes, views, velocity.as_ref())?;
-            return Ok((
-                crate::gbuffer::producer_pass(producer, source.depth.format()),
-                screen,
-            ));
-        }
-        let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
-        prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-        prepass.depth_format = Some(source.depth.format());
-        prepass.additional_color_formats = passes
-            .iter()
-            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-            .expect("prepass declaration")
-            .additional_colors
-            .iter()
-            .map(|attachment| attachment.format)
-            .collect();
-        Ok((prepass, screen))
     }
 
     pub(crate) fn capture_effect_keys(

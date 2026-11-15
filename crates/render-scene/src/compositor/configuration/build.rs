@@ -48,6 +48,7 @@ fn new_renderer(
         overlay: super::super::overlay::OverlayStage::default(),
         output_format: settings.output_format,
         producer_draw: std::rc::Rc::default(),
+        plan_cache: std::rc::Rc::default(),
         chain: PostChain::with_scene_depth(
             device,
             settings.frame,

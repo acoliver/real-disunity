@@ -146,6 +146,14 @@ impl ScreenPasses {
         self.stages.iter().map(|stage| &stage.target).collect()
     }
 
+    /// The roles of the stages and what each reads, which decide the passes they schedule.
+    pub(crate) fn schedule_shape(&self) -> Vec<(PassSlot, Vec<ResourceRef>)> {
+        self.stages
+            .iter()
+            .map(|stage| (stage.slot, stage.reads.clone()))
+            .collect()
+    }
+
     pub(crate) fn schedule_metadata(
         &self,
         passes: &mut Vec<PassDeclaration>,

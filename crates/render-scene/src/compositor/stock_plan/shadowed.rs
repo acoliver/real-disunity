@@ -1,11 +1,14 @@
+//! The base passes of a shadowed scene frame: the shadow casters of the cascades being refreshed,
+//! the opaque pass with its velocity attachment, the screen-space passes the frame adds and the
+//! celestial pass, with the declaration of the feature that draws in them.
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, PassDeclaration, PassSlot, ResourceRef,
 };
 use worldrunner_render_shadow::DepthMap;
 
-use super::ShadowError;
+use crate::shadows::ShadowError;
 
-pub(super) struct ShadowSchedule {
+pub(crate) struct ShadowSchedule {
     pub passes: Vec<PassDeclaration>,
     pub views: Vec<AttachmentView>,
     pub declaration: FeatureDeclaration,

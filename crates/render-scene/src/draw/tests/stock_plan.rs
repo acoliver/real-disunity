@@ -1,5 +1,6 @@
 //! The stock frame plan of a scene frame: the passes it submits, how often it is rebuilt and
 //! which allocations its attachments are bound to.
+mod cache;
 mod pins;
 
 use super::*;
@@ -168,6 +169,11 @@ impl<'a> Rig<'a> {
             .expect("the reflections read the opaque colour snapshot")[slot]
             .color
             .clone()
+    }
+
+    fn read_snapshot(&mut self, slot: usize) -> Vec<u8> {
+        let texture = self.snapshot(slot);
+        self.read(&texture)
     }
 
     fn read(&self, texture: &wgpu::Texture) -> Vec<u8> {

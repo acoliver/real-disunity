@@ -663,6 +663,7 @@ impl PlayerGpu {
             .encode(None, &mut frame)
             .map_err(|error| error.to_string())?;
         let submission = frame.finish().submit().map_err(|error| error.to_string())?;
+        self.offscreen.borrow_mut().frame_submitted();
         self.device
             .poll(wgpu::PollType::Wait {
                 submission_index: Some(submission),

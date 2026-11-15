@@ -23,9 +23,8 @@
 use std::path::Path;
 
 use worldrunner_render_program::runtime::TargetImage;
-use worldrunner_render_program::unity::offscreen::frame::Record;
+use worldrunner_render_program::unity::offscreen::frame::{Attachments, Record};
 
-use super::frame::textures_of;
 use super::ids;
 use crate::{PlayError, driver::write_rgb_png};
 
@@ -90,12 +89,25 @@ impl ScreenImage {
     }
 }
 
-/// Whether any of `records` draws into or clears the screen's colour.
-pub(super) fn touches_screen(records: &[Record]) -> bool {
-    records
-        .iter()
-        .flat_map(textures_of)
-        .any(|texture| texture == ids::screen_color())
+/// Whether any of `records` writes the screen's colour: a clear of the colour, a draw whose colour
+/// target is the screen, or a render, blit or copy into it. A record that only uses the screen's
+/// depth buffer, or reads the screen, leaves its colour as it was.
+pub(super) fn writes_screen(records: &[Record]) -> bool {
+    records.iter().any(writes_screen_colour)
+}
+
+fn writes_screen_colour(record: &Record) -> bool {
+    let screen = ids::screen_color();
+    let colour_is_screen =
+        |target: &Attachments| target.color.is_some_and(|colour| colour.texture == screen);
+    match record {
+        Record::CameraRender { target, .. }
+        | Record::Blit { target, .. }
+        | Record::CopyTexture { target, .. } => *target == screen,
+        Record::Clear { target, clear } => clear.color.is_some() && colour_is_screen(target),
+        Record::Draws(list) => colour_is_screen(&list.target),
+        Record::Globals(_) => false,
+    }
 }
 
 #[cfg(test)]

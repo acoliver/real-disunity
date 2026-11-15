@@ -171,6 +171,29 @@ fn without_a_screen_the_clear_is_left_out_and_no_image_exists() {
 }
 
 #[test]
+fn a_screen_taken_away_after_a_flush_wrote_it_gives_no_image_to_the_next_frame() {
+    let _turn = fixture_turn();
+    let data = tempfile::tempdir().unwrap();
+    let gpu = PlayerGpu::headless(data.path()).unwrap();
+    gpu.set_screen(Some([8, 4]));
+    let mut host = booted_fixture_host();
+    gpu.install(&mut host).unwrap();
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    host.run_slice(&root.join("csharp/PortableFixture/screen.fixture"))
+        .unwrap();
+    // A flush in the middle of an update draws the screen before the frame reads it.
+    let snapshot = host.graphics_snapshot().unwrap();
+    gpu.offscreen.borrow_mut().flush(&snapshot, &host).unwrap();
+    assert!(gpu.offscreen.borrow().screen_written());
+
+    gpu.set_screen(None);
+    gpu.frame(&mut host).unwrap();
+
+    assert!(gpu.screen().is_none());
+    assert_eq!(gpu.report().screen_reads, 0);
+}
+
+#[test]
 fn a_screen_readback_that_was_refused_is_counted_by_its_reason() {
     let report = GpuWorkReport {
         screen_reads: 3,

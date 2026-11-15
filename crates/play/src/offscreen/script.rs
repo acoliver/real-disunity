@@ -457,13 +457,18 @@ impl Mapper<'_> {
             projection: Mat4::from_cols_array(projection),
             viewport,
         });
-        if let Ok(Some(texture)) = self.resolve_target(&target) {
-            let whole = Some(Attachment { texture, mip: 0 });
-            self.script.target = Some(Attachments {
-                color: whole,
-                depth: whole,
-            });
-        }
+        // A target that cannot be named leaves nothing bound, so the next clear or draw is refused
+        // instead of reaching the target an earlier command bound.
+        self.script.target = match self.resolve_target(&target) {
+            Ok(Some(texture)) => {
+                let whole = Some(Attachment { texture, mip: 0 });
+                Some(Attachments {
+                    color: whole,
+                    depth: whole,
+                })
+            }
+            Ok(None) | Err(_) => None,
+        };
     }
 
     /// Replaces the view and projection of the camera set up, keeping its target and viewport.

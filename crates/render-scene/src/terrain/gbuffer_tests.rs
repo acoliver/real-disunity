@@ -287,6 +287,26 @@ fn surfaces(rotation: Mat3) -> Vec<Surface> {
         .collect()
 }
 
+/// The worst shading error of any G0 code within one code of `mirrored`, the codes the CPU
+/// mirror stores. A GPU may round a unorm store either way (lavapipe and RADV do, Metal stays on
+/// the mirror), so its stored codes are only held to that neighbourhood, which the code check
+/// above already requires; the band bounds are the mirror's own maxima.
+fn one_code_bound(mirrored: &Codes, expected: Vec3, rotation: Mat3) -> f32 {
+    let mut worst = 0.0_f32;
+    for dx in -1_i32..=1 {
+        for dy in -1_i32..=1 {
+            let mut codes = *mirrored;
+            for (channel, step) in [(0, dx), (1, dy)] {
+                let code = i32::from(codes.g0[channel]) + step;
+                codes.g0[channel] = u16::try_from(code.clamp(0, 1023)).expect("a ten-bit code");
+            }
+            let decoded = reference::decode(&codes, rotation.transpose());
+            worst = worst.max(angle_degrees(decoded.shading_normal, expected));
+        }
+    }
+    worst
+}
+
 fn rotation() -> Mat3 {
     Mat3::from_euler(glam::EulerRot::ZXY, 0.7, -1.1, 0.3)
 }
@@ -456,7 +476,8 @@ fn check_decoded(targets: &[Vec<u8>; 4]) {
         }
         let decoded = reference::decode(&codes, rotation.transpose());
         let view_z = (rotation * expected.shading_normal).z;
-        let bound = shading_bound(view_z);
+        let bound =
+            shading_bound(view_z).max(one_code_bound(&mirrored, expected.shading_normal, rotation));
         let shading = angle_degrees(decoded.shading_normal, expected.shading_normal);
         assert!(
             shading <= bound,

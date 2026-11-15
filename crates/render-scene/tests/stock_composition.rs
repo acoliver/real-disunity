@@ -513,11 +513,11 @@ fn gpu_refused_suffix_leaves_the_completed_frame_and_a_fresh_frame_succeeds() {
         "only the prefix submitted"
     );
     frame.settle();
-    // The refused frame's published statistics are left unasserted. On this tree a prefix
-    // publishes its draw statistics when it submits, so the refused suffix leaves the completed
-    // frame's opaque-object counters reset. mini-branch-1's 3a2d7cf70 on
-    // feat/early-gbuffer-producer ("Keep completed draw statistics through refused prefixes")
-    // fixes that; assert `frame.gpu.statistics() == completed` here once it is on this branch.
+    assert_eq!(
+        frame.gpu.statistics(),
+        completed,
+        "a refused suffix leaves the completed frame's statistics"
+    );
     assert_eq!(
         colour(&frame),
         completed_colour,

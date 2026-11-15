@@ -60,6 +60,7 @@ impl Streaming {
         old.frozen.set(true);
         Some(Self {
             plane_chunks: crate::terrain::planes::chunk_indices(terrain),
+            height_bounds: super::TerrainHeightBounds::new(terrain),
             scene,
             identity: Rc::new(()),
             committed: Rc::new(RefCell::new(reused)),

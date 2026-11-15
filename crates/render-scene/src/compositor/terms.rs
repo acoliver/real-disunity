@@ -1,4 +1,5 @@
 //! Request-owned pixel-centre opaque replay products, before exposure and fog.
+use crate::shader::rewrite::ShaderRewrite;
 use crate::{draw::SceneGpu, renderer::ScenePipelines};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,6 +184,25 @@ pub(crate) fn pipelines_for(
 }
 
 pub(crate) fn term_sources(stock: (&str, &str), term: CaptureTerm) -> (String, String) {
+    let card = stock
+        .0
+        .find("fn scene_card_finish_shading(")
+        .expect("card shading body");
+    split_term_sources(stock, term, Some(card))
+}
+
+/// The term sources of a frozen forward source, which has only the ordinary shading body.
+#[cfg(test)]
+pub(crate) fn frozen_term_sources(stock: (&str, &str), term: CaptureTerm) -> (String, String) {
+    split_term_sources(stock, term, None)
+}
+
+/// Term sources over an object source whose card shading body starts at `card`.
+fn split_term_sources(
+    stock: (&str, &str),
+    term: CaptureTerm,
+    card: Option<usize>,
+) -> (String, String) {
     let (mesh_value, terrain_value) = values(term);
     // Card shadow coordinates and gradients were prepared before coverage rejection.
     let card_value = if term == CaptureTerm::SunVisibility {
@@ -190,25 +210,28 @@ pub(crate) fn term_sources(stock: (&str, &str), term: CaptureTerm) -> (String, S
     } else {
         mesh_value
     };
-    // Frozen forward sources have only the ordinary shading body.
-    let card_start = stock
-        .0
-        .find("fn scene_card_finish_shading(")
-        .unwrap_or(stock.0.len());
-    let (ordinary, card) = stock.0.split_at(card_start);
+    let (ordinary, card) = stock.0.split_at(card.unwrap_or(stock.0.len()));
     let target = "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);";
-    let object = format!(
-        "{}{}",
-        ordinary.replace(
-            target,
-            &format!("return vec4<f32>({mesh_value}, albedo_sample.a);")
-        ),
-        card.replace(
-            target,
-            &format!("return vec4<f32>({card_value}, albedo_sample.a);")
-        ),
+    let ordinary = ordinary.anchored(
+        "compositor::terms::term_sources",
+        1,
+        target,
+        &format!("return vec4<f32>({mesh_value}, albedo_sample.a);"),
     );
-    let terrain = stock.1.replace(
+    let object = if card.is_empty() {
+        ordinary
+    } else {
+        ordinary
+            + &card.anchored(
+                "compositor::terms::term_sources",
+                1,
+                target,
+                &format!("return vec4<f32>({card_value}, albedo_sample.a);"),
+            )
+    };
+    let terrain = stock.1.anchored(
+        "compositor::terms::term_sources",
+        1,
         "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), 1.0);",
         &format!("return vec4<f32>({terrain_value}, 1.0);"),
     );

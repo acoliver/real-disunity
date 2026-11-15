@@ -88,6 +88,26 @@ page lookup, so it has identical semantics for live and cached materials.
 
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
+
+`texture::release_texture_sources` converts a `SceneResources` table into a new
+table whose textures are `SceneTexture::Released` descriptors. It reads each source
+through the preparation parser, including texel colour spaces, `DDS` headers,
+`DXGI` formats, colour-space declarations and complete mip chains. Descriptor
+admission also requires a valid single-layer, two-dimensional, non-cube DX10
+header. Header inspection borrows the bytes and permits trailing container bytes,
+which remain part of the logical source length. Descriptor lengths include the
+148-byte DDS header and must fit an addressable source allocation. It copies no
+payload. The first failing texture stops the conversion
+with `TextureReleaseError::Texture` naming its table index and the underlying
+`TextureError`; the input is never modified. KTX and opaque encodings cannot be
+uploaded and are rejected the same way. `texture::describe_texture` returns the
+descriptor of one texture. A released texture fails `prepare_texture`, and so
+`PreparedScene::new`, with `TextureError::SourceReleased`. Converting a table that
+is already released returns an equal table. The input table and its clones keep
+their bytes, so a clone can still be prepared and drawn. The conversion makes no
+claim about process memory: reclaiming memory needs every holder of the sources to
+drop them. Retained-host release, upload staging and material bind groups do not
+use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. The HDR
 profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through
@@ -840,19 +860,31 @@ Device acquisition, encoding and readback errors still fail the probe.
 
 ## Submitted geometry statistics
 
-`SceneGpu::statistics()` reads the last submitted main-camera mesh/impostor draw
-selection and decal counts without allocating or polling. The transactional
-compositor publishes both at submission; cancelled encoders do not publish them.
-The immediate `set_frame` API updates decal counts with its CPU frame state.
-Counts include each material slot and
-LOD transition complement, with instance counts summed across those draws.
-These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
+`SceneGpu::statistics()` reads the last submitted pass draws and decal counts
+without allocating or polling. The transactional compositor publishes both at
+submission; cancelled encoders do not publish them. The immediate `set_frame` API
+updates decal counts with its CPU frame state.
 
 `passes` counts CPU-encoded calls and instances for main terrain, transparent
 water, background sky (including discs), native screen-space text (`passes.ui`),
-and each of four directional shadow cascades. Counts are recorded alongside the draw commands and published only on
-submission. A skipped cascade reports zero draws, even when its cached map is
-reused. Metadata, water masks and separate celestial mesh passes are excluded.
+the main camera's objects in the depth/normal prepass (`passes.prepass_objects`)
+and the colour pass (`passes.opaque_objects`), and each of four directional
+shadow cascades. Counts are recorded by the code that issues the draw commands
+and published only on submission. A skipped cascade reports zero draws, even when
+its cached map is reused. Water masks, capture-term replays and separate celestial
+mesh passes are excluded.
+
+Object counts are the indexed draws the recorder issued: one per material slot of
+each drawn level, plus the preceding level's slots for an LOD transition
+complement, with instance counts summed across those draws. A draw counts under
+`impostors` when its material is an impostor, otherwise under `meshes`.
+`ObjectDraws::recording` says how the pass recorded its selection: `Compacted`
+draws each (batch, LOD) group once from the view's gathered instances, `Ranged`
+draws each selected instance range because the view's gathered instances did not
+hold this selection (the resident path never gathers), and `NotRecorded` means the
+pass did not run in that frame. Compaction merges ranges but keeps every material
+slot and transition complement, so a compacted count never exceeds the ranged
+count of the same selection.
 Submitted `SceneStatistics::effects` records directional-shadow installation,
 SSAO installation and enablement, prepass execution, and typed mesh/terrain
 receiver bindings. These follow the installed features and encoded binding

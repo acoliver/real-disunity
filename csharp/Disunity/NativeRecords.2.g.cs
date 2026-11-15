@@ -565,6 +565,16 @@ namespace Disunity.Native
         public float corner_3_g;
         public float corner_3_b;
         public float corner_3_a;
+        /// <summary>
+        ///  0 ordinary coverage; 1 distance fill, 2 outline, 3 glow.
+        /// </summary>
+        public uint distance_mode;
+        public float distance_spread;
+        public float distance_radius;
+        public float effect_r;
+        public float effect_g;
+        public float effect_b;
+        public float effect_a;
     }
 
 }

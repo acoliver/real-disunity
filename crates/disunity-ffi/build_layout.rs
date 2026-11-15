@@ -19,7 +19,7 @@ pub fn generate(out: &Path) {
         }
     }
     managed.push_str(&format!(
-        "    }}\n}}\n/// The native ABI revision this assembly was built against.\ninternal static class NativeAbi\n{{\n    internal const uint Version = {};\n}}\n",
+        "    }}\n}}\n/// The native ABI revision this assembly was built against.\ninternal static class NativeAbi\n{{\n    internal const uint Version = {};\n    internal static void VerifyRevision(uint actual)\n    {{\n        if (actual != Version) throw new Disunity.Hosting.DisunityAbiRevisionException(Version, actual);\n    }}\n}}\n",
         crate::abi_version()
     ));
     std::fs::write(out.join("NativeLayouts.g.cs"), &managed).expect("managed layout expectations");

@@ -5,8 +5,10 @@
 //! of each), the metadata prepass, the capture term replays and the shadow casters.
 //! Celestial meshes (`sky::meshes`) still draw with fixed pipelines of their own.
 
+pub(crate) mod layout;
 pub(crate) mod prepared;
 pub(crate) mod program;
+pub(crate) mod skin_source;
 
 #[cfg(test)]
 mod capture_tests;

@@ -12,6 +12,7 @@ mod deferred;
 mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
+pub(crate) mod forward_order;
 mod hdr;
 mod offscreen;
 mod output;
@@ -588,24 +589,27 @@ impl FrameRenderer {
             let declared = combined.iter().map(|feature| &feature.declaration);
             gbuffer.schedule(&mut passes, &mut views, declared.chain(&retained))?;
         }
-        if let Some(opaque) = passes
-            .iter()
-            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
-        {
-            let opaque_formats = opaque
-                .additional_colors
-                .iter()
-                .map(|attachment| attachment.format)
-                .collect::<Vec<_>>();
-            for feature in &mut combined {
-                for pass in &mut feature.declaration.passes {
-                    if pass.slot == worldrunner_render_post::PassSlot::Opaque {
-                        pass.additional_color_formats.clone_from(&opaque_formats);
-                    }
+        // An Opaque entry may repeat with its own colour layout, so each feature pass takes the
+        // formats of the planned pass for its own entry. A pass with no planned entry is left
+        // for frame validation to report.
+        for feature in &mut combined {
+            for pass in &mut feature.declaration.passes {
+                if pass.slot != worldrunner_render_post::PassSlot::Opaque {
+                    continue;
+                }
+                if let Some(planned) = passes
+                    .iter()
+                    .find(|planned| planned.entry() == pass.entry())
+                {
+                    pass.additional_color_formats = planned
+                        .additional_colors
+                        .iter()
+                        .map(|attachment| attachment.format)
+                        .collect();
                 }
             }
         }
-        passes.sort_by_key(|pass| pass.slot);
+        forward_order::forward_order(&mut passes);
         encode_planned(
             &mut self.chain,
             device,
@@ -711,6 +715,10 @@ mod scene;
 #[cfg(test)]
 #[path = "compositor_post_tests.rs"]
 mod post_tests;
+
+#[cfg(test)]
+#[path = "compositor_repeated_opaque_tests.rs"]
+mod repeated_opaque_tests;
 
 fn encode_planned(
     chain: &mut PostChain<FrameOutput>,

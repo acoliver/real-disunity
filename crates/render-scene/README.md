@@ -1001,7 +1001,7 @@ producer that declares a `depth_format` in the slot gets the scene depth attache
 read-only when it is complete before Opaque (the depth prepass ran and Opaque
 loads it); it tests against it, `Equal` for exact forward winners, and writes
 nothing. Without a completed depth the request fails with
-`FrameError::AttachmentContract(OpaqueGbuffer)`. The stock producers
+`FrameError::AttachmentContract` naming the `OpaqueGbuffer` entry. The stock producers
 (`gbuffer_writes`: terrain, opaque, masked and relief meshes, impostor cards) are
 the scene's own terrain and object programs with their fragment entries replaced,
 drawn over the camera selection the prepass and Opaque draw.

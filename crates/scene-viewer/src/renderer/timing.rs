@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn unusable_counter_pairs_are_typed_unavailable_instead_of_completed_measurements() {
-        let pass_id = crate::PassId::Geometry(crate::PassSlot::Opaque);
+        let pass_id = crate::PassId::Geometry(crate::PassEntry::new(crate::PassSlot::Opaque));
         let result = observation(crate::FrameTiming {
             frame_id: 7,
             passes: vec![crate::PassTiming {

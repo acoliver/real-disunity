@@ -2,7 +2,7 @@ use std::{cell::Cell, rc::Rc};
 use worldrunner_render_scene::{
     executor::{
         AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameError, FrameFeature,
-        PassDeclaration, PassSlot, PrepareContext, PreparedFeature,
+        PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature,
     },
     wgpu,
 };
@@ -40,10 +40,11 @@ impl FrameFeature for Refusal {
         passes: &mut Vec<PassDeclaration>,
         _: &mut Vec<AttachmentView>,
     ) -> Result<FeatureDeclaration, FrameError> {
+        let entry = PassEntry::new(PassSlot::Opaque);
         let opaque = passes
             .iter()
-            .find(|pass| pass.slot == PassSlot::Opaque)
-            .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+            .find(|pass| pass.entry() == entry)
+            .ok_or(FrameError::AttachmentContract(entry))?;
         let mut declaration = self.declare();
         let pass = &mut declaration.passes[0];
         pass.color_format = opaque.color.as_ref().map(|color| color.format);

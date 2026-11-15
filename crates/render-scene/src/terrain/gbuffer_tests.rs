@@ -8,7 +8,8 @@ use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_plan::{RenderScene, SceneOpaquePath, SceneSsr};
 use worldrunner_render_post::{
     AttachmentView, BuildContext, DrawContext, FeatureDeclaration, FrameConfig, FrameError,
-    FrameFeature, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef, ToneMap,
+    FrameFeature, PassEntry, PassSlot, PrepareContext, PreparedFeature, Readback, ResourceRef,
+    ToneMap,
 };
 
 use super::capture_tests::scenes;
@@ -566,7 +567,9 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
             // Opaque, so the slot has no depth to lend and says so.
             assert_eq!(
                 rendered.err(),
-                Some(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))
+                Some(FrameError::AttachmentContract(PassEntry::new(
+                    PassSlot::OpaqueGbuffer
+                )))
             );
             continue;
         }

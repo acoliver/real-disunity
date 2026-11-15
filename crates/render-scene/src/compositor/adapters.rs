@@ -1,6 +1,6 @@
 //! Encoder-only adapter for hosts that already uploaded their frame uniforms.
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, DrawContext, FrameError, PassDeclaration, PassSlot,
+    AttachmentView, BorrowedFeature, DrawContext, FrameError, PassDeclaration, PassEntry, PassSlot,
     PrepareContext, PreparedFeature,
 };
 
@@ -18,8 +18,9 @@ impl PreparedFeature for Resident<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut PrepareContext<'_>) {
-        self.scene
-            .reset_pass_statistics(context.completed_in_prefix(PassSlot::DepthNormalPrepass));
+        self.scene.reset_pass_statistics(
+            context.completed_in_prefix(PassEntry::new(PassSlot::DepthNormalPrepass)),
+        );
     }
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
         self.publications.publish(context, self.scene);

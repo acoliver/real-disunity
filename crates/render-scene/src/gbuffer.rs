@@ -19,7 +19,7 @@ pub(crate) use early::producer_pass;
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError,
-    PassDeclaration, PassSlot, ResourceRef,
+    PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 /// The shared WGSL encode and decode module. It declares no bindings; producers and the
@@ -213,7 +213,7 @@ pub(crate) const fn producer_depth_available(depth: crate::renderer::depth::Dept
 
 /// Declares the producer carried by the metadata. Observation tests completed `Reuse` depth
 /// read-only in `OpaqueGbuffer`; Render writes depth and its fused outputs in the early prepass.
-/// Replacing a declaration for the same slot keeps a single geometry walk.
+/// Replacing a declaration for the same entry keeps a single geometry walk.
 pub(crate) fn declare_producer(
     declaration: &mut FeatureDeclaration,
     screen: &crate::scene_metadata::SceneMetadata,
@@ -229,7 +229,7 @@ pub(crate) fn declare_producer(
     if let Some(existing) = declaration
         .passes
         .iter_mut()
-        .find(|existing| existing.slot == pass.slot)
+        .find(|existing| existing.entry() == pass.entry())
     {
         *existing = pass;
     } else {
@@ -262,11 +262,15 @@ pub(crate) fn attach_producer_depth<'a>(
         .and_then(|pass| pass.depth.as_ref())
         .filter(|depth| depth.load == AttachmentLoad::Load)
         .cloned()
-        .ok_or(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))?;
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::OpaqueGbuffer,
+        )))?;
     passes
         .iter_mut()
         .find(|pass| pass.slot == PassSlot::OpaqueGbuffer)
-        .ok_or(FrameError::MissingSlot(PassSlot::OpaqueGbuffer))?
+        .ok_or(FrameError::MissingPass(PassEntry::new(
+            PassSlot::OpaqueGbuffer,
+        )))?
         .depth = Some(AttachmentDeclaration {
         read_only: true,
         ..depth

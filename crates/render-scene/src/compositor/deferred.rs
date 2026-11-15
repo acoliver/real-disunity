@@ -1,6 +1,6 @@
 //! The stock scene features' part in the G-buffer observation's lighting pass.
 use super::FrameRenderer;
-use worldrunner_render_post::{FeatureDeclaration, FrameError, PassSlot, ResourceRef};
+use worldrunner_render_post::{FeatureDeclaration, FrameError, PassEntry, PassSlot, ResourceRef};
 
 use crate::gbuffer::lighting::LightingInputs;
 
@@ -45,7 +45,9 @@ impl FrameRenderer {
             .reflections()
             != reflections
         {
-            return Err(FrameError::AttachmentContract(PassSlot::OpaqueLighting));
+            return Err(FrameError::AttachmentContract(PassEntry::new(
+                PassSlot::OpaqueLighting,
+            )));
         }
         declaration
             .passes

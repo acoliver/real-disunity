@@ -3,7 +3,7 @@ use super::{GBUFFER_FORMATS, Gbuffer, GbufferTarget};
 use crate::gbuffer_writes::EarlyOutputs;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeaturePass, FrameError,
-    PassDeclaration, PassSlot, ResourceRef,
+    PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 impl Gbuffer {
@@ -16,7 +16,9 @@ impl Gbuffer {
         let pass = passes
             .iter_mut()
             .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-            .ok_or(FrameError::MissingSlot(PassSlot::DepthNormalPrepass))?;
+            .ok_or(FrameError::MissingPass(PassEntry::new(
+                PassSlot::DepthNormalPrepass,
+            )))?;
         let normal = pass.color.take().expect("canonical normal target");
         let material = pass
             .additional_colors
@@ -84,11 +86,13 @@ pub(crate) fn move_early_velocity(
     let opaque = passes
         .iter_mut()
         .find(|pass| pass.slot == PassSlot::Opaque)
-        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
+        .ok_or(FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)))?;
     opaque
         .depth
         .as_mut()
-        .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque,
+        )))?
         .load = AttachmentLoad::Load;
     let Some(attachment) = opaque
         .additional_colors
@@ -103,5 +107,7 @@ pub(crate) fn move_early_velocity(
         .find(|view| view.resource() == attachment.resource)
         .cloned()
         .map(Some)
-        .ok_or(FrameError::AttachmentContract(PassSlot::DepthNormalPrepass))
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::DepthNormalPrepass,
+        )))
 }

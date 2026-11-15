@@ -7,6 +7,7 @@ mod deferred;
 mod depth_reuse;
 mod fade;
 mod fixture;
+mod forward_split;
 mod geometry;
 mod hdr;
 mod independent;
@@ -36,7 +37,7 @@ mod water_response;
 
 use glam::{Vec3, Vec4};
 use worldrunner_render_plan::*;
-use worldrunner_render_post::{PassSlot, ResourceRef};
+use worldrunner_render_post::{PassEntry, PassSlot, ResourceRef};
 
 use super::*;
 use crate::lit_model_tests;

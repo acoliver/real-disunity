@@ -153,7 +153,8 @@ fn durations(timing: &FrameTiming) -> Result<(f64, f64), PassId> {
     for pass in &timing.passes {
         let ns = pass.duration_ns.ok_or(pass.pass_id)?;
         total += ns;
-        if matches!(pass.pass_id, PassId::Geometry(PassSlot::ShadowCasters(_))) {
+        if matches!(pass.pass_id, PassId::Geometry(entry) if matches!(entry.slot(), PassSlot::ShadowCasters(_)))
+        {
             caster += ns;
         }
     }
@@ -181,9 +182,15 @@ fn sample_timing() -> FrameTiming {
     FrameTiming {
         frame_id: 8,
         passes: [
-            (PassId::Geometry(PassSlot::ShadowCasters(0)), 3.0),
-            (PassId::Geometry(PassSlot::ShadowCasters(1)), 5.0),
-            (PassId::Geometry(PassSlot::Opaque), 7.0),
+            (
+                PassId::Geometry(PassEntry::new(PassSlot::ShadowCasters(0))),
+                3.0,
+            ),
+            (
+                PassId::Geometry(PassEntry::new(PassSlot::ShadowCasters(1))),
+                5.0,
+            ),
+            (PassId::Geometry(PassEntry::new(PassSlot::Opaque)), 7.0),
             (PassId::Resolve, 0.0),
         ]
         .map(|(pass_id, duration)| worldrunner_render_post::PassTiming {

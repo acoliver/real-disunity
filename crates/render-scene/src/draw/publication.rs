@@ -113,7 +113,9 @@ impl DrawPublications {
     ) {
         let mut effects = super::EffectStatistics::default();
         effects.shadows.installation = shadows;
-        if context.completed_in_prefix(worldrunner_render_post::PassSlot::DepthNormalPrepass) {
+        if context.completed_in_prefix(worldrunner_render_post::PassEntry::new(
+            worldrunner_render_post::PassSlot::DepthNormalPrepass,
+        )) {
             effects.ssao.prepass = super::PassExecution::Ran;
         } else {
             self.gbuffer.borrow_mut().take();

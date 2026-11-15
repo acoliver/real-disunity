@@ -83,7 +83,9 @@ fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
                 },
                 &mut []
             ),
-            Err(FrameError::AttachmentContract(PassSlot::Opaque))
+            Err(FrameError::AttachmentContract(PassEntry::new(
+                PassSlot::Opaque
+            )))
         );
         assert_eq!(counts.get(), [0; 3]);
     }

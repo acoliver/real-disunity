@@ -281,9 +281,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
     }
 
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics(
-            context.completed_in_prefix(worldrunner_render_post::PassSlot::DepthNormalPrepass),
-        );
+        self.gpu.reset_pass_statistics(context.completed_in_prefix(
+            worldrunner_render_post::PassEntry::new(
+                worldrunner_render_post::PassSlot::DepthNormalPrepass,
+            ),
+        ));
         self.publications.install(
             context,
             crate::draw::PassInstallation::Installed,

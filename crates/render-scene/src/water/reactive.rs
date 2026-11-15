@@ -22,7 +22,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use worldrunner_render_post::{
-    AttachmentLoad, AttachmentView, FeaturePass, FrameError, PassDeclaration, PassSlot,
+    AttachmentLoad, AttachmentView, FeaturePass, FrameError, PassDeclaration, PassEntry, PassSlot,
     ResourceRef, TEMPORAL_MASK_FORMAT,
 };
 
@@ -178,10 +178,9 @@ impl WaterFeature {
         };
         let view = AttachmentView::new(ResourceRef::new("temporal reactive mask"), &mask.texture)?
             .with_retained_contents();
-        let depth = passes
-            .last()
-            .and_then(|water| water.depth.clone())
-            .ok_or(FrameError::AttachmentContract(PassSlot::TransparentWater))?;
+        let depth = passes.last().and_then(|water| water.depth.clone()).ok_or(
+            FrameError::AttachmentContract(PassEntry::new(PassSlot::TransparentWater)),
+        )?;
         let mut pass = PassDeclaration::new(PassSlot::TransparentWaterMask);
         let mut color = crate::compositor::attachment(view.resource(), &view, false);
         color.load = AttachmentLoad::Load;

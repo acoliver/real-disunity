@@ -35,6 +35,41 @@ pub enum PassSlot {
     ScreenSpaceAfterTransparent,
 }
 
+/// Identity of one entry in an authored pass list: a role plus which appearance of
+/// that role it is. A role may appear in a frame more than once, so a role alone does
+/// not name an entry. `new(slot)` is the first appearance, which is what every
+/// single-appearance declaration means.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PassEntry {
+    slot: PassSlot,
+    occurrence: u32,
+}
+impl PassEntry {
+    pub const fn new(slot: PassSlot) -> Self {
+        Self::nth(slot, 0)
+    }
+    pub const fn nth(slot: PassSlot, occurrence: u32) -> Self {
+        Self { slot, occurrence }
+    }
+    pub const fn slot(self) -> PassSlot {
+        self.slot
+    }
+    pub const fn occurrence(self) -> u32 {
+        self.occurrence
+    }
+}
+/// The role's name for the first appearance and `role#n` for the nth after it, so a
+/// single-appearance entry reads exactly as its role always has.
+impl std::fmt::Display for PassEntry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{:?}", self.slot)?;
+        match self.occurrence {
+            0 => Ok(()),
+            occurrence => write!(formatter, "#{occurrence}"),
+        }
+    }
+}
+
 /// A specific texture version and subresource, never an implicit latest value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ResourceRef {
@@ -76,7 +111,10 @@ pub struct AttachmentDeclaration {
 
 #[derive(Clone, Debug)]
 pub struct PassDeclaration {
+    /// The role: timing label, capture label and the `DrawContext` a feature sees.
     pub slot: PassSlot,
+    /// Which appearance of `slot` this is; `slot` and `occurrence` together are the entry.
+    pub occurrence: u32,
     pub color: Option<AttachmentDeclaration>,
     /// Additional indexed color outputs after location zero.
     pub additional_colors: Vec<AttachmentDeclaration>,
@@ -84,18 +122,28 @@ pub struct PassDeclaration {
 }
 impl PassDeclaration {
     pub const fn new(slot: PassSlot) -> Self {
+        Self::nth(slot, 0)
+    }
+    pub const fn nth(slot: PassSlot, occurrence: u32) -> Self {
         Self {
             slot,
+            occurrence,
             color: None,
             additional_colors: Vec::new(),
             depth: None,
         }
     }
+    pub const fn entry(&self) -> PassEntry {
+        PassEntry::nth(self.slot, self.occurrence)
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct FeaturePass {
+    /// The role of the entry this feature draws in.
     pub slot: PassSlot,
+    /// Which appearance of `slot` it draws in; `slot` and `occurrence` together name the entry.
+    pub occurrence: u32,
     pub reads: Vec<ResourceRef>,
     pub color_format: Option<wgpu::TextureFormat>,
     pub additional_color_formats: Vec<wgpu::TextureFormat>,
@@ -104,14 +152,21 @@ pub struct FeaturePass {
 }
 impl FeaturePass {
     pub const fn new(slot: PassSlot) -> Self {
+        Self::nth(slot, 0)
+    }
+    pub const fn nth(slot: PassSlot, occurrence: u32) -> Self {
         Self {
             slot,
+            occurrence,
             reads: Vec::new(),
             color_format: None,
             additional_color_formats: Vec::new(),
             depth_format: None,
             samples: 1,
         }
+    }
+    pub const fn entry(&self) -> PassEntry {
+        PassEntry::nth(self.slot, self.occurrence)
     }
 }
 #[derive(Clone, Debug)]
@@ -149,20 +204,21 @@ pub enum FrameError {
     FixedExposureMismatch,
     #[error("invalid or unsupported SSAO setting: {0}")]
     SsaoSettings(&'static str),
-    #[error("frame slots must be unique; execution follows authored order")]
-    SlotOrder,
+    /// The list names one entry twice. A role may repeat; an entry (role and occurrence) may not.
+    #[error("pass entry appears more than once in the frame: {0}")]
+    DuplicatePass(PassEntry),
     #[error(transparent)]
     ResourceContract(#[from] crate::contracts::ContractError),
-    #[error("feature requests an undeclared slot {0:?}")]
-    MissingSlot(PassSlot),
+    #[error("feature requests an undeclared pass entry {0}")]
+    MissingPass(PassEntry),
     #[error("resource has no preceding producer: {0:?}")]
     MissingProducer(ResourceRef),
     #[error("resource is loaded or sampled after discard: {0:?}")]
     LoadAfterDiscard(ResourceRef),
     #[error("resource is sampled while attached or written ambiguously: {0:?}")]
     AttachmentHazard(ResourceRef),
-    #[error("attachment or pipeline contract is incompatible in slot {0:?}")]
-    AttachmentContract(PassSlot),
+    #[error("attachment or pipeline contract is incompatible in slot {0}")]
+    AttachmentContract(PassEntry),
     #[error("frame does not support requested effect {0}")]
     UnsupportedEffect(&'static str),
     #[error("attachment view does not match its declared subresource: {0:?}")]
@@ -185,12 +241,14 @@ pub(crate) fn validate_frame_inputs(
     views: &[AttachmentView],
 ) -> Result<(), FrameError> {
     validate_transparency(features)?;
-    if passes.iter().enumerate().any(|(index, pass)| {
+    let repeated = passes.iter().enumerate().find_map(|(index, pass)| {
         passes[..index]
             .iter()
-            .any(|previous| previous.slot == pass.slot)
-    }) {
-        return Err(FrameError::SlotOrder);
+            .any(|previous| previous.entry() == pass.entry())
+            .then(|| pass.entry())
+    });
+    if let Some(entry) = repeated {
+        return Err(FrameError::DuplicatePass(entry));
     }
     for effect in requested {
         if !features
@@ -202,8 +260,11 @@ pub(crate) fn validate_frame_inputs(
     }
     for feature in features {
         for feature_pass in &feature.passes {
-            if !passes.iter().any(|pass| pass.slot == feature_pass.slot) {
-                return Err(FrameError::MissingSlot(feature_pass.slot));
+            if !passes
+                .iter()
+                .any(|pass| pass.entry() == feature_pass.entry())
+            {
+                return Err(FrameError::MissingPass(feature_pass.entry()));
             }
         }
     }
@@ -236,7 +297,7 @@ pub(crate) fn validate_frame_inputs(
         for feature in features
             .iter()
             .flat_map(|feature| &feature.passes)
-            .filter(|feature| feature.slot == pass.slot)
+            .filter(|feature| feature.entry() == pass.entry())
         {
             validate_feature(pass, feature, &attachments, &produced)?;
         }
@@ -297,7 +358,7 @@ fn validate_attachments(
         .chain(&pass.depth)
         .collect();
     if attachments.is_empty() {
-        return Err(FrameError::AttachmentContract(pass.slot));
+        return Err(FrameError::AttachmentContract(pass.entry()));
     }
     validate_attachment_shapes(pass, &attachments)?;
     for attachment in &attachments {
@@ -320,7 +381,7 @@ fn validate_attachments(
                 (true, AttachmentLoad::ClearColor(_)) | (false, AttachmentLoad::ClearDepth(_))
             )
         {
-            return Err(FrameError::AttachmentContract(pass.slot));
+            return Err(FrameError::AttachmentContract(pass.entry()));
         }
         if produced.contains_key(&attachment.resource)
             && matches!(
@@ -336,7 +397,7 @@ fn validate_attachments(
                 || previous.size != attachment.size
                 || previous.samples != attachment.samples
             {
-                return Err(FrameError::AttachmentContract(pass.slot));
+                return Err(FrameError::AttachmentContract(pass.entry()));
             }
         } else if produced.contains_key(&attachment.resource) {
             return Err(FrameError::AttachmentHazard(attachment.resource));
@@ -356,7 +417,7 @@ fn validate_attachment_shapes(
             return Err(FrameError::AttachmentHazard(attachment.resource));
         }
         if attachment.size != attachments[0].size || attachment.samples != attachments[0].samples {
-            return Err(FrameError::AttachmentContract(pass.slot));
+            return Err(FrameError::AttachmentContract(pass.entry()));
         }
     }
     Ok(())
@@ -384,7 +445,7 @@ fn validate_feature(
             .depth_format
             .is_some_and(|format| pass.depth.as_ref().is_none_or(|a| a.format != format))
     {
-        return Err(FrameError::AttachmentContract(pass.slot));
+        return Err(FrameError::AttachmentContract(pass.entry()));
     }
     for resource in &feature.reads {
         let sampled_depth = pass.depth.as_ref().is_some_and(|depth| {
@@ -435,7 +496,7 @@ pub struct PrepareContext<'a> {
     publications: worldrunner_render_gpu::submission::Publications,
     staged: Vec<Staged>,
     views: Vec<AttachmentView>,
-    completed: Vec<PassSlot>,
+    completed: Vec<PassEntry>,
 }
 impl<'a> PrepareContext<'a> {
     pub fn new(
@@ -452,11 +513,11 @@ impl<'a> PrepareContext<'a> {
             completed: Vec::new(),
         })
     }
-    /// Whether a validated geometry prefix already encoded this slot in the same frame.
-    pub fn completed_in_prefix(&self, slot: PassSlot) -> bool {
-        self.completed.contains(&slot)
+    /// Whether a validated geometry prefix already encoded this entry in the same frame.
+    pub fn completed_in_prefix(&self, entry: PassEntry) -> bool {
+        self.completed.contains(&entry)
     }
-    pub(crate) fn set_completed_prefix(&mut self, completed: &[PassSlot]) {
+    pub(crate) fn set_completed_prefix(&mut self, completed: &[PassEntry]) {
         self.completed = completed.to_vec();
     }
     pub fn publications(&self) -> worldrunner_render_gpu::submission::Publications {
@@ -572,7 +633,19 @@ impl<'a> PrepareContext<'a> {
 /// inter-slot compute, copy and fullscreen operations. Those operations are not
 /// part of this geometry-only interface; stock effect validation remains separate.
 pub struct DrawContext {
+    /// The role of the entry being drawn, which is `entry.slot()`.
     pub slot: PassSlot,
+    /// The entry being drawn. A feature declared in two entries of one role tells them
+    /// apart by `entry.occurrence()`.
+    pub entry: PassEntry,
+}
+impl DrawContext {
+    pub const fn new(entry: PassEntry) -> Self {
+        Self {
+            slot: entry.slot(),
+            entry,
+        }
+    }
 }
 
 /// Features receive neither a queue nor authority to open or replace attachments.

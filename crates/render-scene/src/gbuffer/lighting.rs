@@ -18,7 +18,7 @@ use std::rc::Rc;
 use wgpu::util::DeviceExt;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeaturePass, FrameError,
-    PassDeclaration, PassSlot, ResourceRef,
+    PassDeclaration, PassEntry, PassSlot, ResourceRef,
 };
 
 use super::records::{LIGHTING_RECORD_BYTES, LightingRecordTable};
@@ -162,11 +162,13 @@ pub(crate) fn schedule_render(passes: &mut Vec<PassDeclaration>) -> Result<(), F
     let opaque = passes
         .iter_mut()
         .find(|pass| pass.slot == PassSlot::Opaque)
-        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
+        .ok_or(FrameError::MissingPass(PassEntry::new(PassSlot::Opaque)))?;
     let colour = opaque
         .color
         .as_mut()
-        .ok_or(FrameError::AttachmentContract(PassSlot::Opaque))?;
+        .ok_or(FrameError::AttachmentContract(PassEntry::new(
+            PassSlot::Opaque,
+        )))?;
     let mut pass = PassDeclaration::new(PassSlot::OpaqueLighting);
     pass.color = Some(colour.clone());
     colour.load = AttachmentLoad::Load;

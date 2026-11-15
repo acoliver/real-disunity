@@ -49,10 +49,16 @@ fn selected_adapter_identity_matches_actual_device() {
     }
     if info.name.to_lowercase().contains("llvmpipe") {
         assert_eq!(identity.class, super::AdapterClass::Software);
+        // A software rasterizer has no PCI device, so nothing names its memory.
+        assert_eq!(identity.memory, None);
     }
+    assert_eq!(
+        identity.memory,
+        worldrunner_render_gpu::adapter_memory::AdapterMemory::probe(&info)
+    );
     eprintln!(
-        "adapter {}: {:?} via {:?}",
-        identity.name, identity.class, info.backend
+        "adapter {}: {:?} via {:?}, memory {:?}",
+        identity.name, identity.class, info.backend, identity.memory
     );
 }
 

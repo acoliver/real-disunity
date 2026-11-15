@@ -1135,6 +1135,11 @@ write key after final colour succeeds. A refused suffix retains their previous b
 reset obligations. Previous-only settling changes physical content before mirror refresh and
 gather; CPU history publication changes neither physical content nor sparse current-write counts.
 
+[The public retained-motion fixture](tests/stock_scene_retry.rs) exercises compacted
+instances with TAA and SSR. Its caller-preparation refusal submits nothing, preserves
+completed raw and resolved colour, metadata, statistics and temporal state, and compares
+retry and settling products with an uninterrupted control.
+
 The ordered producer outputs are G0-G3, optional `Rg16Float` velocity,
 `Rgba16Float` canonical normals, and optional `Rgba16Float` SSR material. Their
 aligned attachment charge is 34, 38, 42 or 46 bytes with five to seven attachments.

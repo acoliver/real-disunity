@@ -1,5 +1,5 @@
 //! Bounded resource reuse owned by the font book, independent of world mutations.
-use super::{TextLayout, TextRun, UiError, UiLimits};
+use super::{GlyphRaster, TextLayout, TextRun, UiError, UiLimits};
 use glam::Vec2;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -15,6 +15,7 @@ pub struct TextCacheStats {
 struct Entry {
     run: TextRun,
     size: Vec2,
+    raster: GlyphRaster,
     layout: Arc<TextLayout>,
     characters: usize,
 }
@@ -30,13 +31,14 @@ impl TextCache {
         &mut self,
         run: &TextRun,
         size: Vec2,
+        raster: GlyphRaster,
         limits: UiLimits,
         build: impl FnOnce() -> Result<TextLayout, UiError>,
     ) -> Result<Arc<TextLayout>, UiError> {
         if let Some(entry) = self
             .entries
             .iter()
-            .find(|e| e.run == *run && e.size == size)
+            .find(|e| e.run == *run && e.size == size && e.raster == raster)
         {
             return Ok(entry.layout.clone());
         }
@@ -57,6 +59,7 @@ impl TextCache {
         self.entries.push_back(Entry {
             run: run.clone(),
             size,
+            raster,
             layout: layout.clone(),
             characters,
         });

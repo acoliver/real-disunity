@@ -57,12 +57,20 @@ constrained budgets, independent of resident storage and upload-completion histo
 Selected leaves are returned in derived-key order. Relative to history-based tie
 admission, only exact-error ties can change which geometry becomes resident.
 
+Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
+and streaming policy. Terminal ranges scan all inclusive source samples; parents
+union their children's ranges. Camera selection projects each node's own surface
+height range. CPU selector callers construct and reuse the cache with the same
+terrain source and policy they pass to `select` and `error`.
+
 Camera terrain submissions use the shared mesh frustum plane test against each
-resident leaf's full terrain-wide height range and skirt bottom. Culling only
-filters recorded draws: selection, residency, mesh builds and uploads still cover
-the whole grid. Each camera pass uses its own raster matrix, including projection
-jitter. Shadow cascades retain their own light-frustum and slice-hull selection;
-they never use the camera's culled subset. Nonstreaming terrain stays unculled.
+resident leaf's cached height range and the terrain-wide skirt bottom, padded
+outward for floating-point rounding. Culling only filters recorded draws:
+selection, residency, mesh builds and uploads still cover the whole grid. Each
+camera pass uses its own raster matrix, including projection jitter. Shadow
+cascades use terrain-wide height ranges for their footprint and geometry bounds,
+with their own light-frustum and slice-hull selection; they never use the camera's
+culled subset. Nonstreaming terrain stays unculled.
 
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies
@@ -80,6 +88,26 @@ page lookup, so it has identical semantics for live and cached materials.
 
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
+
+`texture::release_texture_sources` converts a `SceneResources` table into a new
+table whose textures are `SceneTexture::Released` descriptors. It reads each source
+through the preparation parser, including texel colour spaces, `DDS` headers,
+`DXGI` formats, colour-space declarations and complete mip chains. Descriptor
+admission also requires a valid single-layer, two-dimensional, non-cube DX10
+header. Header inspection borrows the bytes and permits trailing container bytes,
+which remain part of the logical source length. Descriptor lengths include the
+148-byte DDS header and must fit an addressable source allocation. It copies no
+payload. The first failing texture stops the conversion
+with `TextureReleaseError::Texture` naming its table index and the underlying
+`TextureError`; the input is never modified. KTX and opaque encodings cannot be
+uploaded and are rejected the same way. `texture::describe_texture` returns the
+descriptor of one texture. A released texture fails `prepare_texture`, and so
+`PreparedScene::new`, with `TextureError::SourceReleased`. Converting a table that
+is already released returns an equal table. The input table and its clones keep
+their bytes, so a clone can still be prepared and drawn. The conversion makes no
+claim about process memory: reclaiming memory needs every holder of the sources to
+drop them. Retained-host release, upload staging and material bind groups do not
+use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. The HDR
 profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through

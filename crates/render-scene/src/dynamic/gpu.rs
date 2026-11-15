@@ -66,6 +66,7 @@ struct QuadDraw {
     instance_count: u32,
     clip_rect: Option<[u32; 4]>,
     material: Option<BindGroup>,
+    distance: Option<BindGroup>,
     depth_test: bool,
 }
 
@@ -356,6 +357,11 @@ impl DynamicGpu {
                 .as_ref()
                 .expect("overlay quads carry a material group");
             pass.set_bind_group(MATERIAL_GROUP, material, &[]);
+            pass.set_bind_group(
+                2,
+                draw.distance.as_ref().expect("overlay distance group"),
+                &[],
+            );
             pass.set_vertex_buffer(0, draw.resources.vertices.slice(..));
             pass.set_vertex_buffer(1, draw.resources.instance.slice(..));
             pass.set_vertex_buffer(2, draw.resources.tint.slice(..));
@@ -502,6 +508,9 @@ impl QuadDraw {
             instance_count: u32::try_from(group.len()).expect("quad count was validated"),
             clip_rect: quad.clip_rect,
             material,
+            distance: bindings
+                .overlay_layout
+                .map(|_| super::distance::upload(device, queue, quad.distance_field)),
             depth_test: quad.depth_test,
         }
     }
@@ -595,6 +604,7 @@ fn compatible(a: &DynamicQuad, b: &DynamicQuad) -> bool {
         && a.corners == b.corners
         && a.triangle_uv == b.triangle_uv
         && a.corner_colors == b.corner_colors
+        && a.distance_field == b.distance_field
         && a.rect.map(f32::to_bits) == b.rect.map(f32::to_bits)
         && a.uv_rect.map(f32::to_bits) == b.uv_rect.map(f32::to_bits)
 }

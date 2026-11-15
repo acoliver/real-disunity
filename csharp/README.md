@@ -44,7 +44,11 @@ After an intentional ABI change:
    The record also carries optional BL/BR/TR/TL linear RGBA corner multipliers in
    `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
    and all channels must be finite and in 0..=1. Native and managed hosts reject
-   mismatched revisions. Rebuild all peers.
+   mismatched revisions before creating a world or accessing versioned records.
+   Managed startup reads `disunity_abi_version` and uses the generated
+   `NativeAbi.VerifyRevision` check. It throws `DisunityAbiRevisionException`,
+   whose message and `Expected`/`Actual` properties identify both revisions;
+   no world-associated diagnostic is needed. Rebuild all peers.
 
 4. Rerun the native build and
    `cargo test --locked --jobs 2 --package worldrunner-disunity-ffi`.

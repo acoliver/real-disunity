@@ -79,10 +79,28 @@ pub fn validate_distance_mapping(corners: [[f32; 3]; 4], uv: [f32; 4]) -> Result
     let a = p[1] - p[0];
     let b = p[3] - p[0];
     let determinant = a.perp_dot(b);
-    if determinant == 0. || (p[2] - p[0] - a - b).length() > 0.001 {
+    // Closure uses four rounded coordinates per axis. Add their half-ULP errors
+    // to the existing subpixel transform-arithmetic tolerance, not to the edges.
+    let rounding = corners.into_iter().fold(DVec2::ZERO, |error, corner| {
+        error
+            + DVec2::new(
+                coordinate_rounding(corner[0]),
+                coordinate_rounding(corner[1]),
+            )
+    });
+    let residual = ((p[2] - p[0] - a - b).abs() - rounding).max(DVec2::ZERO);
+    if determinant == 0. || residual.length() > 0.001 {
         return Err(UiError::InvalidDistanceMapping);
     }
     Ok(())
+}
+
+fn coordinate_rounding(value: f32) -> f64 {
+    let magnitude = value.abs();
+    let value = f64::from(magnitude);
+    let below = value - f64::from(magnitude.next_down());
+    let above = f64::from(magnitude.next_up().min(f32::MAX)) - value;
+    below.max(above) * 0.5
 }
 
 pub(super) fn effect_raster(radius: f32, scale: Vec2) -> Result<super::GlyphRaster, UiError> {

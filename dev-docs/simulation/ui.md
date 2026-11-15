@@ -578,9 +578,13 @@ quads reject this overlay-only metadata. Scene vertex layouts remain unchanged.
 pixels, radius in physical screen pixels, Fill/Outline/Glow mode and the fully
 modulated effect colour. None keeps ordinary texture sampling. Shared validation
 rejects invalid styles, non-Text or untextured distance draws, triangles, singular
-UVs and non-affine or collapsed pixel quads. Overlay conversion checks spread
-against radius and the atlas-to-screen mapping, even when another draw already
-resolved the atlas. Scene setters reject this overlay-only metadata.
+UVs and non-affine or collapsed pixel quads. Affine closure accounts for each
+input coordinate's f32 rounding interval (half the larger adjacent ULP), summed
+per axis, in addition to the 0.001-pixel transform-arithmetic tolerance. This
+admits rounded rotated placements without treating visible quad warping as affine.
+Overlay conversion checks spread against radius and the atlas-to-screen mapping,
+even when another draw already resolved the atlas. Scene setters reject this
+overlay-only metadata.
 The overlay binds a 32-byte style uniform at group 2/binding 0 for every group,
 including an explicit ordinary record. Compatibility includes the whole style;
 mode or colour transitions cannot inherit the preceding draw's values. Both
@@ -591,8 +595,10 @@ sampled-distance derivatives, provide the minimum singular scale. Distance is
 ABI revision 11 carries scalar distance mode/spread/radius and effect RGBA in the
 152-byte `DisunityUiDraw`. Mode 0 means coverage, 1 fill, 2 outline and 3 glow.
 Copy-out/decode validate style and geometry. Managed records and native host
-records/layout assertions are generated from those same fields; mismatched
-revisions are rejected.
+records/layout assertions are generated from those same fields. Before creating
+a world or accessing versioned records, managed startup compares the native
+revision with its generated revision. A mismatch throws
+`DisunityAbiRevisionException` with both expected and actual revisions.
 
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes

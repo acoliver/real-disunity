@@ -18,6 +18,7 @@ fn setup(camera: ComponentHandle, target: RenderTextureId) -> OffscreenWork {
         view: std::array::from_fn(|index| if index % 5 == 0 { 1.0 } else { 0.0 }),
         projection: std::array::from_fn(|index| if index % 5 == 0 { 1.0 } else { 0.0 }),
         target: TargetRef::Render(target),
+        buffers: None,
     }
 }
 

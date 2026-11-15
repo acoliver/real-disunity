@@ -124,7 +124,7 @@ pub(super) fn plan_steps(
             )?,
             Record::CopyTexture { .. } => Step::Ready(copy_step(svc, index, record)?),
             Record::Clear { target, clear } => {
-                match list_steps::clear_step(svc, index, *target, clear)? {
+                match list_steps::clear_step(svc, index, target.clone(), clear)? {
                     Some(step) => step,
                     None => continue,
                 }
@@ -618,16 +618,7 @@ fn camera_pass(
         color: camera.clear_color,
         depth: camera.clear_depth.then_some(DEPTH_CLEAR),
     };
-    list_steps::attachments_pass(
-        svc,
-        id,
-        Attachments {
-            color: whole,
-            depth: whole,
-        },
-        &loads,
-        draws,
-    )
+    list_steps::attachments_pass(svc, id, &Attachments::single(whole, whole), &loads, draws)
 }
 
 pub(super) fn push_use(uses: &mut Vec<ResourceUse>, usage: ResourceUse) {

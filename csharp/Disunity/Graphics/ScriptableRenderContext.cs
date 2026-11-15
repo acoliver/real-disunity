@@ -65,7 +65,8 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
         lock (Pending) Pending.Add(() => WorldGraphics.RecordCull(id, copy));
         return new CullingResults { Handle = id };
     }
-    /// <summary>Queues a record that draws after it use the camera's view and projection matrices and target, read now. The
+    /// <summary>Queues a record that draws after it use the camera's view and projection matrices and target (its target texture, or the
+    /// color and depth buffers <see cref="Camera.SetTargetBuffers(RenderBuffer, RenderBuffer)"/> set), read now. The
     /// record reaches the world's offscreen list at <see cref="Submit"/>. A null camera throws <see cref="ArgumentNullException"/>, a
     /// destroyed one <see cref="InvalidOperationException"/>, and <paramref name="stereoSetup"/> <see cref="NotSupportedException"/>
     /// because the engine has no stereo rendering.</summary>
@@ -73,9 +74,9 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     {
         ArgumentNullException.ThrowIfNull(camera);
         if (stereoSetup) throw new NotSupportedException("ScriptableRenderContext.SetupCameraProperties: stereo setup is not supported, the engine has no stereo rendering");
-        var (view, projection, target) = camera.SetupValues();
+        var (view, projection, target, buffers) = camera.SetupValues();
         var handle = camera.Handle;
-        lock (Pending) Pending.Add(() => WorldGraphics.RecordSetupCamera(handle, view, projection, target));
+        lock (Pending) Pending.Add(() => WorldGraphics.RecordSetupCamera(handle, view, projection, target, buffers));
     }
     /// <summary>Does nothing: it makes canvas geometry available to the camera's culling, and the engine draws canvases
     /// itself from the world's canvas renderers, so the pipeline has no geometry to ask for (the engine's choice).</summary>

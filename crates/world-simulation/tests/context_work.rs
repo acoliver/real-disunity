@@ -50,6 +50,7 @@ fn setup(camera: ComponentHandle, target: TargetRef) -> OffscreenWork {
         view: matrix(-1.0),
         projection: matrix(0.5),
         target,
+        buffers: None,
     }
 }
 
@@ -318,6 +319,7 @@ fn camera_setup_keeps_the_bits_of_its_matrices() {
         view: odd,
         projection: odd.map(|v| -v),
         target: TargetRef::CameraTarget,
+        buffers: None,
     };
     let back = decode_work(&encode_work(&record).unwrap()).unwrap();
     let OffscreenWork::SetupCamera {

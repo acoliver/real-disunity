@@ -181,6 +181,27 @@ internal static unsafe partial class WorldGraphics
 
     internal static void DestroyRenderTexture(Link texture) => Check(NativeBindings.disunity_render_texture_destroy(texture.World, texture.Id));
 
+    /// <summary>The render textures a camera draws into when its buffers were set: the world ids of the color textures in output
+    /// order and of the depth texture (0 for none).</summary>
+    internal readonly record struct CameraBuffers(ulong[] Colors, ulong Depth);
+
+    /// <summary>Sets the camera's target buffers, which replace its target texture, or removes them when there are no colors.</summary>
+    internal static void WriteCameraBuffers(ulong camera, ulong[] colors, ulong depth)
+    {
+        fixed (ulong* list = colors)
+            Check(NativeBindings.disunity_camera_target_buffers_write(DisunityHost.WorldHandle, camera, colors.Length == 0 ? null : list, (uint)colors.Length, depth));
+    }
+
+    /// <summary>The camera's target buffers, or null when it has none.</summary>
+    internal static CameraBuffers? ReadCameraBuffers(ulong camera)
+    {
+        var colors = stackalloc ulong[8];
+        uint count;
+        ulong depth = 0;
+        Check(NativeBindings.disunity_camera_target_buffers_read(DisunityHost.WorldHandle, camera, colors, &count, &depth));
+        return count == 0 ? null : new CameraBuffers(new Span<ulong>(colors, (int)count).ToArray(), depth);
+    }
+
     /// <summary>Records a camera's render into a render texture.</summary>
     internal static void RecordCameraRender(ulong camera, ulong target)
     {

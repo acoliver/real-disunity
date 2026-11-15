@@ -198,8 +198,8 @@ fn gbuffer_observation_keeps_the_forward_frame_and_stores_the_prepassed_scene() 
     }
 }
 
-/// Level terrain stores its up normal (+Z, the heightfield axis) in G3 at every covered texel, with terrain's AO of 1, no
-/// emission, no flags and the reserved channels zero.
+/// Level terrain stores its up normal (+Z, the heightfield axis) in G3 at every covered texel,
+/// with terrain's AO of 1, no emission, no flags and the reserved channels zero.
 #[test]
 fn gbuffer_observation_stores_level_terrain_facing_up() {
     let _session = crate::test_support::SceneTestSession::acquire();

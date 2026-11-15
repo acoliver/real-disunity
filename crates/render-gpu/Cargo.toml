@@ -17,6 +17,7 @@ pollster.workspace = true
 test-support = []
 
 [dev-dependencies]
+tempfile.workspace = true
 worldrunner-render-gpu = { path = ".", features = ["test-support"] }
 
 [lints]

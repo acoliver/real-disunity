@@ -92,8 +92,9 @@ fn water_bank_sources_keep_the_opaque_bank_fixed() {
     assert!(trace.contains("@location(0) opaque_bank"));
     assert!(trace.contains("@location(1) water_bank"));
     assert!(trace.contains("receiver_is_water"));
+    let extents = settings.radiance_extents([65, 65]);
     let resolve = gpu::configured_resolve_source_variant(
-        7,
+        extents.len(),
         1,
         true,
         true,
@@ -103,8 +104,13 @@ fn water_bank_sources_keep_the_opaque_bank_fixed() {
         ),
         true,
     );
-    let resolve =
-        pyramid::resolve_source_variant(resolve, &settings.radiance_extents([65, 65]), 1, true);
+    let resolve = pyramid::resolve_source_variant(
+        resolve,
+        &extents,
+        1,
+        true,
+        gpu::trailing_bindings(true, true),
+    );
     assert!(resolve.contains("texture_2d_array<f32>"));
     assert!(resolve.contains(
         "reflection_bank_index = select(0, 1, receiver.owner == 2u && camera.policy.x != 0.0)"

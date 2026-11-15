@@ -393,7 +393,7 @@ pub(crate) fn millimeter_to_meter(value: i64) -> f32 {
     clippy::cast_precision_loss,
     reason = "micro-unit ratios are far below the magnitude where f64 loses integers"
 )]
-fn micro_to_unit(value: i64) -> f32 {
+pub(crate) fn micro_to_unit(value: i64) -> f32 {
     narrow(value as f64 / MICRO_SCALE)
 }
 

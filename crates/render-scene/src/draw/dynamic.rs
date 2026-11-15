@@ -156,5 +156,11 @@ fn validate_scene_quads(
     if let Some(index) = quads.iter().position(|quad| quad.corner_colors.is_some()) {
         return Err(crate::dynamic::DynamicError::CornerColorsRequireRetainedUi { index });
     }
+    if let Some(index) = quads.iter().position(|quad| quad.distance_field.is_some()) {
+        return Err(crate::dynamic::DynamicError::InvalidQuad {
+            index,
+            field: "distance effects require retained UI",
+        });
+    }
     Ok(())
 }

@@ -722,7 +722,7 @@ fn an_unset_texture_reads_the_bump_its_shader_declares() {
 }
 
 #[test]
-fn an_unset_texture_whose_declared_default_unity_does_not_know_leaves_the_draw_out() {
+fn an_unset_texture_whose_declared_default_the_table_does_not_list_leaves_the_draw_out() {
     let (outcome, heights) = heights_with_default("default_mystery");
     assert_eq!(outcome.report.failures.get("draw:MissingTexture"), Some(&1));
     assert_eq!(

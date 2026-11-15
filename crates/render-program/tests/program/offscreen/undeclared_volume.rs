@@ -1,6 +1,6 @@
 //! A 3D slot no layer sets: an Old World program reflects `_3DNoiseTexture` beside its 2D source,
-//! nothing sets it and the shader does not declare it. Unity binds its grey default there, which
-//! the frame names as `undeclared_textures.d3`.
+//! nothing sets it and the shader does not declare it. The slot reads the frame's grey default,
+//! which the frame names as `undeclared_textures.d3`.
 
 use std::collections::BTreeMap;
 

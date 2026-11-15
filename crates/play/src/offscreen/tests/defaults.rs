@@ -99,21 +99,18 @@ fn the_grey_volume_is_one_grey_texel_one_slice_deep_and_a_volume_named_grey_gets
     );
 }
 
-/// The texel of each name, as bytes: Unity's colours (1, 1, 1, 1), (0, 0, 0, 1), (0.5, 0.5, 0.5, 1),
-/// the neutral normal (0.5, 0.5, 1, 0.5) and (1, 0, 0, 1), with 0.5 as the byte 128.
-const COLOURS: [(&str, [u8; 4]); 8] = [
+/// The texel of each name, as bytes, with 0.5 as the byte 128.
+const COLOURS: [(&str, [u8; 4]); 6] = [
     ("white", [255, 255, 255, 255]),
     ("black", [0, 0, 0, 255]),
     ("gray", [128, 128, 128, 255]),
     ("grey", [128, 128, 128, 255]),
-    ("linearGray", [128, 128, 128, 255]),
     ("linearGrey", [128, 128, 128, 255]),
     ("bump", [128, 128, 255, 128]),
-    ("red", [255, 0, 0, 255]),
 ];
 
 #[test]
-fn every_name_unity_knows_gives_its_texel_in_each_dimension_a_draw_can_sample() {
+fn every_recognised_name_gives_its_texel_in_each_dimension_a_draw_can_sample() {
     for (name, texel) in COLOURS {
         for (dimension, shape, faces) in [
             (2, SourceDimension::D2, 1),
@@ -134,18 +131,13 @@ fn every_name_unity_knows_gives_its_texel_in_each_dimension_a_draw_can_sample() 
 }
 
 #[test]
-fn the_bump_texel_decodes_to_the_neutral_normal_by_both_unpack_paths() {
-    let [red, green, blue, alpha] = DefaultTexture::Bump.texture().bytes[..] else {
+fn the_bump_rgb_decodes_to_the_flat_normal_under_two_rgb_minus_one() {
+    let [x, y, z, _alpha] = DefaultTexture::Bump.texture().bytes[..] else {
         panic!("the bump default is one RGBA8 texel");
     };
     let unit = |byte: u8| f32::from(byte) / 255.0;
-    // A plain map: 2 rgb - 1.
-    let plain = [unit(red), unit(green), unit(blue)].map(|channel| 2.0 * channel - 1.0);
-    // A packed map reads x from alpha and y from green, and rebuilds z.
-    let [x, y] = [unit(alpha), unit(green)].map(|channel| 2.0 * channel - 1.0);
-    let rebuilt = (1.0 - x * x - y * y).max(0.0).sqrt();
-    let decoded = [plain[0], plain[1], plain[2], x, y, rebuilt];
-    for (found, wanted) in decoded.into_iter().zip([0.0, 0.0, 1.0, 0.0, 0.0, 1.0]) {
+    let decoded = [unit(x), unit(y), unit(z)].map(|channel| 2.0 * channel - 1.0);
+    for (found, wanted) in decoded.into_iter().zip([0.0, 0.0, 1.0]) {
         assert!((found - wanted).abs() < 0.01, "{decoded:?}");
     }
 }
@@ -160,7 +152,7 @@ fn the_spellings_of_grey_are_one_texture_and_a_name_is_matched_as_written() {
         DefaultTexture::named("black", 2),
         Some(DefaultTexture::Black)
     );
-    for name in ["gray", "grey", "linearGray", "linearGrey"] {
+    for name in ["gray", "grey", "linearGrey"] {
         assert_eq!(DefaultTexture::named(name, 2), Some(DefaultTexture::Grey));
         assert_eq!(
             DefaultTexture::named(name, 4),
@@ -181,7 +173,7 @@ fn the_spellings_of_grey_are_one_texture_and_a_name_is_matched_as_written() {
 
 #[test]
 fn a_dimension_a_draw_cannot_sample_gets_no_default() {
-    // Unity's TextureDimension: 0 none, 1 any, 6 cube array, and one it does not have.
+    // Dimension codes 0 and 1 are not a texture shape, 6 is a cube array, 7 and -1 are unknown.
     for dimension in [0, 1, 6, 7, -1] {
         assert_eq!(
             DefaultTexture::named("white", dimension),
@@ -203,7 +195,7 @@ fn the_table_has_one_default_for_each_colour_and_shape_and_each_names_itself() {
         assert!(!seen.contains(&key), "{key:?} twice");
         seen.push(key);
     }
-    assert_eq!(seen.len(), 5 * 4);
+    assert_eq!(seen.len(), 4 * 4);
 }
 
 #[test]

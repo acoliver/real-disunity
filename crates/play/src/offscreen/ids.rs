@@ -11,11 +11,9 @@ use worldrunner_world_simulation::graphics::{
 
 /// Set in the id of every render texture, never in a stored texture's.
 const RENDER_TEXTURE: u64 = 1 << 63;
-/// How many default textures have a name: the 20 of five colours in four shapes, with room.
-const DEFAULT_TEXTURE_NAMES: u64 = 32;
-/// The names of the default textures: the last [`DEFAULT_TEXTURE_NAMES`] below the render texture
-/// bit, which no stored texture takes.
-const DEFAULT_TEXTURES: u64 = RENDER_TEXTURE - DEFAULT_TEXTURE_NAMES;
+/// The names of the default textures: the last sixteen below the render texture bit, which no
+/// stored texture takes.
+const DEFAULT_TEXTURES: u64 = RENDER_TEXTURE - 16;
 /// Set, with the render texture bit, in the id of a temporary render texture: one that a command
 /// buffer allocates under a property name id.
 const TEMPORARY: u64 = 1 << 61;
@@ -97,10 +95,10 @@ pub fn stored_texture(identity: u64) -> Option<TextureId> {
     (identity < DEFAULT_TEXTURES).then_some(TextureId(identity))
 }
 
-/// The name of the `index`-th default texture, below 32.
+/// The name of the `index`-th default texture, below 16.
 #[must_use]
 pub fn default_texture(index: u64) -> TextureId {
-    TextureId(DEFAULT_TEXTURES + index.min(DEFAULT_TEXTURE_NAMES - 1))
+    TextureId(DEFAULT_TEXTURES + index.min(15))
 }
 
 /// The renderer a mesh draw of the frame makes for itself, counted from 0. The renderers of the

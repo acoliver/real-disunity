@@ -1,7 +1,6 @@
 //! A texture property the shader declares and no layer sets reads the default texture the shader
 //! names, in the dimension the property declares. A one-pass shader writes the texel its `_MainTex`
-//! slot reads, so every expected pixel is the default's texel, computed here from Unity's colour
-//! for the name.
+//! slot reads, so every expected pixel is the default's texel, written out here for each name.
 
 use worldrunner_render_program::unity::synthetic::shaders::{POSITION_AND_UV, no_cull, variant};
 use worldrunner_render_program::unity::synthetic::{
@@ -54,7 +53,7 @@ const SAMPLE_ARRAY: &str = "
 }";
 
 /// The shader of the file `declared_<default>_<dimension>`: one pass that samples `_MainTex`, a
-/// property declared as a texture of Unity's `TextureDimension` `<dimension>` whose default is
+/// property declared as a texture of dimension code `<dimension>` whose default is
 /// `<default>`, with `none` for the empty name.
 pub(super) fn passes(file: &str) -> SyntheticShader {
     let (default, dimension) = file
@@ -179,22 +178,16 @@ fn assert_missing(default: &str, dimension: i32) {
     assert_eq!(run.columns(), [GREEN; 4], "the draw is left out");
 }
 
-/// Unity's `bump` is the neutral tangent-space normal: (0.5, 0.5, 1) decodes to (0, 0, 1) as
-/// `2 * rgb - 1`, and the packed `.ag` form of a `DXT5nm` map reads 0.5 for x from alpha and 0.5 for y
-/// from green, so the one texel (0.5, 0.5, 1, 0.5) is neutral for both.
+/// The `bump` texel is (0.5, 0.5, 1, 0.5): its RGB is the flat normal under `2 * rgb - 1`. Its
+/// alpha is this engine's choice and is not established.
 #[test]
 fn an_unset_declared_normal_map_reads_the_bump_texel() {
     assert_reads("bump", 2, [0.5, 0.5, 1.0, 0.5]);
 }
 
 #[test]
-fn an_unset_declared_property_reads_the_red_texel() {
-    assert_reads("red", 2, [1.0, 0.0, 0.0, 1.0]);
-}
-
-#[test]
-fn both_spellings_of_grey_and_of_linear_grey_read_the_grey_texel() {
-    for name in ["gray", "grey", "linearGray", "linearGrey"] {
+fn the_spellings_of_grey_read_the_grey_texel() {
+    for name in ["gray", "grey", "linearGrey"] {
         assert_reads(name, 2, [0.5, 0.5, 0.5, 1.0]);
     }
 }
@@ -213,7 +206,7 @@ fn an_unset_declared_texture_array_reads_a_layer_of_the_named_default() {
 }
 
 #[test]
-fn a_default_name_unity_does_not_know_stays_missing() {
+fn a_default_name_the_table_does_not_list_stays_missing() {
     assert_missing("mystery", 2);
     assert_missing("White", 2);
 }

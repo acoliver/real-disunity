@@ -192,17 +192,48 @@ fn card_gbuffer_material_is_the_frozen_card_shading_without_its_lighting() {
         assert!(frozen.contains(removed));
         assert!(!card.contains(removed), "{removed}");
     }
-    // Every card statement but the signature and the material return is a frozen statement, in
-    // the frozen order: nothing is added to or reordered in the card material.
+    // The card material is the frozen body line for line, without the card shadow preparation
+    // and the lighting, with its own signature and a material return: every other frozen
+    // statement (the fade and visibility discards included) is kept, in order.
+    let dropped = [
+        "let front_shadow = scene_prepare_card_shadow(input.world_position, projected.normal);",
+        "var back_shadow: SceneCardShadow;",
+        "if bitcast<f32>(material.geometry_flags.y) != 0.0 && frame.grading.y == 0.0 {",
+        "back_shadow = scene_prepare_card_shadow(input.world_position, -projected.normal);",
+        "let shaded = scene_card_finish_shading(input, surface_material, scattering.y, \
+         auxiliary.y, front_shadow, back_shadow);",
+    ];
+    let frozen_lines: Vec<&str> = frozen.lines().map(str::trim).collect();
+    let back_close = frozen_lines
+        .iter()
+        .position(|line| *line == dropped[3])
+        .expect("the back-face shadow preparation")
+        + 1;
+    assert_eq!(
+        frozen_lines[back_close], "}",
+        "the back-face shadow block closes"
+    );
+    let mut expected: Vec<&str> = frozen_lines
+        .iter()
+        .enumerate()
+        .filter(|(index, line)| !dropped.contains(line) && *index != back_close)
+        .map(|(_, line)| *line)
+        .collect();
+    assert_eq!(
+        frozen_lines.len() - expected.len(),
+        dropped.len() + 1,
+        "every dropped frozen line is present once"
+    );
+    expected[0] = "fn scene_card_gbuffer_material(original: VertexOutput, front_facing: bool, \
+                   position: vec3<f32>, masked: bool, visible: bool) -> SceneObjectMaterial {";
+    let frozen_return = expected.len() - 2;
+    assert_eq!(
+        expected[frozen_return],
+        "return vec4<f32>(shaded.rgb, select(1.0, coverage_alpha, masked));"
+    );
+    expected[frozen_return] = "return SceneObjectMaterial(geometric_normal, surface_material, scattering.y, auxiliary.y);";
     let lines: Vec<&str> = card.lines().map(str::trim).collect();
-    let mut rest = frozen.lines().map(str::trim);
-    for line in &lines[1..lines.len() - 2] {
-        assert!(
-            rest.any(|candidate| candidate == *line),
-            "{line} is not a frozen statement in order"
-        );
-    }
-    assert!(lines[lines.len() - 2].starts_with("return SceneObjectMaterial("));
+    assert_eq!(lines, expected);
 }
 
 #[test]
@@ -269,4 +300,13 @@ fn velocity_producers_write_the_four_targets_and_the_residual() {
         );
     }
     assert!(terrain.contains("SceneVelocityOutput(t.g0, t.g1, t.g2, t.g3, vec2<f32>(0.0))"));
+}
+
+#[test]
+fn object_gbuffer_normalizes_the_folded_normal_at_storage() {
+    let source = include_str!("objects.wgsl");
+    assert!(
+        source.contains("select(evaluated.geometric_normal, normalize(evaluated.surface.normal),")
+    );
+    assert!(source.contains("length(evaluated.surface.normal) > 0.000001"));
 }

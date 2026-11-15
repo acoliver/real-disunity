@@ -105,6 +105,9 @@ impl SceneMetadata {
         } else {
             DepthMode::Independent
         };
+        if !crate::gbuffer::producer_depth_available(depth) {
+            geometry.gbuffer = None;
+        }
         geometry.pipelines = geometry.pipelines.for_depth(metadata);
         geometry.merged = geometry
             .merged

@@ -1,7 +1,7 @@
-//! The forward reference of the deferred lighting test: `scene_finish_shading`, the forward
-//! mesh shading after decals, evaluated per block with the block material's own uniform at the
-//! pixel's scene position, from the same forward object source, constants and engine sets the
-//! frame's colour draws use.
+//! The forward reference of the deferred lighting test: `scene_object_material` (the decals)
+//! then `scene_finish_shading`, the forward mesh shading after decals, evaluated per block with
+//! the block material's own uniform at the pixel's scene position, from the same forward object
+//! source, constants and engine sets the frame's colour draws use.
 use wgpu::util::DeviceExt;
 use worldrunner_render_plan::SceneMaterial;
 
@@ -31,8 +31,8 @@ fn fs_reference(@builtin(position) pixel: vec4<f32>) -> @location(0) vec4<f32> {
     let scattering = (u32(d.y) & 1u) != 0u;
     let surface = SceneShadingSurface(vec4<f32>(c.xyz, 1.0), a.xyz,
         vec3<f32>(a.w, select(b.w, 0.0, scattering), d.x));
-    let shaded = scene_finish_shading(input,
-        SceneObjectMaterial(b.xyz, surface, select(0.0, b.w, scattering), c.w));
+    let material = scene_object_material(input, b.xyz, surface, select(0.0, b.w, scattering), c.w);
+    let shaded = scene_finish_shading(input, material);
     return vec4<f32>(shaded.rgb, 1.0);
 }
 ";

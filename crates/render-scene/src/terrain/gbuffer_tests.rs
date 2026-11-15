@@ -101,20 +101,26 @@ pub(super) fn prepare_scene(
 ) -> Drawn {
     let scene = scene.clone();
     let uniform = frame.uniform(&scene);
+    prepare_with(context, &scene, &uniform, frame.configuration(opaque_path))
+}
+
+/// Uploads `scene`, sets `uniform` and builds a renderer with `configuration`.
+pub(super) fn prepare_with(
+    context: &GpuContext,
+    scene: &RenderScene,
+    uniform: &FrameUniform,
+    configuration: RendererConfiguration,
+) -> Drawn {
     let pipelines = ScenePipelines::new(context.device(), HDR);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
-    gpu.set_frame(context.queue(), uniform);
-    let renderer = ConfiguredFrameRenderer::new(
-        context,
-        frame.configuration(opaque_path),
-        AllocationBudget(1 << 28),
-    )
-    .unwrap();
+    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+    gpu.set_frame(context.queue(), *uniform);
+    let renderer =
+        ConfiguredFrameRenderer::new(context, configuration, AllocationBudget(1 << 28)).unwrap();
     Drawn {
         renderer,
         gpu,
         pipelines,
-        frame: uniform,
+        frame: *uniform,
     }
 }
 
@@ -159,7 +165,7 @@ pub(super) fn read(
     .unwrap()
 }
 
-fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
+pub(super) fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
     GbufferTarget::ALL.map(|target| {
         let texture = renderer
             .feature_target(FeatureTarget::Gbuffer(target))
@@ -221,8 +227,8 @@ fn gbuffer_observation_keeps_the_forward_frame_and_stores_the_prepassed_scene() 
     }
 }
 
-/// Level terrain stores its up normal (+Z, the heightfield axis) in G3 at every covered texel, with terrain's AO of 1, no
-/// emission, no flags and the reserved channels zero.
+/// Level terrain stores its up normal (+Z, the heightfield axis) in G3 at every covered texel,
+/// with terrain's AO of 1, no emission, no flags and the reserved channels zero.
 #[test]
 fn gbuffer_observation_stores_level_terrain_facing_up() {
     let _session = crate::test_support::SceneTestSession::acquire();
@@ -570,3 +576,6 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
         check_decoded(&gbuffer(&context, &drawn.renderer));
     }
 }
+
+#[path = "gbuffer_object_tests.rs"]
+mod object_tests;

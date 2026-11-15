@@ -15,13 +15,13 @@ use crate::budget::Reservation;
 use crate::draw::VertexInput;
 use crate::error::ProgramError;
 use crate::ids::{MeshId, ShaderId, TextureId};
-use crate::layers::Layers;
+use crate::layers::{Layers, TextureInput};
 use crate::layout::Slot;
 use crate::packet::TargetSignature;
 use crate::program::GraphicsProgram;
 use crate::resources::BufferHandle;
 use crate::runtime::ProgramRuntime;
-use crate::sampler::{Filter, SamplerCache, SamplerState, Wrap};
+use crate::sampler::{SamplerCache, SamplerState};
 use crate::unity::constants::pack_layout;
 use crate::unity::shader::{PassSelector, ProgramShader, Variant};
 use crate::unity::state::{RenderState, resolve_state};
@@ -31,8 +31,10 @@ use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
 use super::error::OffscreenError;
+use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
 use super::probe::{CONSTANT_ENTRY, CONSTANT_FRAGMENT, DrawFacts};
+use super::sampling::{self, Sampled, read_unfilterable};
 use super::textures::TextureTable;
 use super::tracker::Tracker;
 
@@ -77,6 +79,9 @@ pub(super) struct DrawPlan {
     pub(super) texture_uses: Vec<ResourceUse>,
     /// What a probed camera render's look needs, noted only while the services are probing.
     pub(super) facts: Option<DrawFacts>,
+    /// The texture properties that no layer set and the shader does not declare, which the draw
+    /// reads from the frame's `undeclared_textures`.
+    pub(super) undeclared: Vec<String>,
 }
 
 /// Set in the blob number of the key of a program whose fragment stage writes a constant colour,
@@ -145,6 +150,9 @@ pub(super) struct DrawCounts {
     /// texture property.
     pub(super) missing_texture: usize,
     pub(super) missing_textures: std::collections::BTreeMap<String, usize>,
+    /// Draws that read one of the frame's `undeclared_textures` for a texture property no layer
+    /// set and the shader does not declare, by the texture property.
+    pub(super) undeclared_defaults: std::collections::BTreeMap<String, usize>,
     /// Camera draws left out because the mesh lacks a vertex channel the pass reads, in all and
     /// by (source channel, shader input).
     pub(super) missing_channel: usize,
@@ -184,6 +192,13 @@ impl DrawCounts {
         };
     }
 
+    /// Counts one draw that read the frame's undeclared-texture default for each of `names`.
+    pub(super) fn note_undeclared(&mut self, names: &[String]) {
+        for name in names {
+            *self.undeclared_defaults.entry(name.clone()).or_default() += 1;
+        }
+    }
+
     /// Counts one draw that read a constant for each of `defaulted`.
     pub(super) fn note_defaulted(&mut self, defaulted: &[(i8, i8, wgpu::VertexFormat)]) {
         for &(channel, input, format) in defaulted {
@@ -214,6 +229,8 @@ pub(super) struct Services<'a> {
     pub(super) resample: &'a mut Option<GraphicsProgram>,
     pub(super) textures: &'a TextureTable,
     pub(super) meshes: &'a MeshTable,
+    /// The frame's textures for a slot no layer sets and the shader does not declare.
+    pub(super) undeclared_textures: UndeclaredTextures,
     pub(super) defaults: DefaultBuffers,
     pub(super) tracker: &'a mut Tracker,
     pub(super) constants: &'a mut ConstantsPlan,
@@ -252,21 +269,25 @@ impl Services<'_> {
             samplers: Vec::new(),
             texture_uses: Vec::new(),
             facts: self.probing.then(DrawFacts::default),
+            undeclared: Vec::new(),
         };
         let entry = Arc::clone(&plan.entry);
         // Every texture is looked for before anything is bound, so a draw that lacks one changes
         // nothing in the frame.
-        Self::require_textures(spec, &entry, &slots)?;
+        self.require_textures(spec, &entry, &slots)?;
         let mut sampler_states = HashMap::new();
+        let mut any_unfiltered = false;
         for slot in &slots {
             match slot.ty {
                 wgpu::BindingType::Buffer { .. } => {
                     self.bind_constants(spec, &entry, slot, &mut plan)?;
                 }
                 wgpu::BindingType::Texture { .. } => {
-                    let state = self.bind_texture(spec, &entry, slot, &mut plan)?;
+                    let read = self.bind_texture(spec, &entry, slot, &mut plan)?;
+                    any_unfiltered |= read.unfiltered;
                     if let Some(sampler) = entry.samplers.get(&(slot.set, slot.binding)) {
-                        sampler_states.insert((slot.set, *sampler), state);
+                        let key = (slot.set, *sampler);
+                        sampler_states.insert(key, sampling::merge(sampler_states.get(&key), read));
                     }
                 }
                 _ => {}
@@ -274,14 +295,15 @@ impl Services<'_> {
         }
         for slot in &slots {
             if let wgpu::BindingType::Sampler(kind) = slot.ty {
-                self.bind_sampler(slot, kind, &sampler_states, &mut plan)?;
+                self.bind_sampler(slot, kind, (&sampler_states, any_unfiltered), &mut plan)?;
             }
         }
         Ok(plan)
     }
 
-    /// Checks that a layer names the texture of every texture slot.
+    /// Checks that every texture slot has a texture to read.
     fn require_textures(
+        &self,
         spec: &DrawSpec<'_>,
         entry: &ProgramEntry,
         slots: &[Slot],
@@ -297,14 +319,52 @@ impl Services<'_> {
             else {
                 continue;
             };
-            let name = target.name.resolve(&[])?;
-            if spec.layers.texture(name).is_none() {
-                return Err(OffscreenError::MissingTexture {
-                    name: name.to_owned(),
-                });
-            }
+            self.texture_input(spec, target.name.resolve(&[])?, slot)?;
         }
         Ok(())
+    }
+
+    /// The texture a slot of property `name` reads, and whether it is the frame's default for an
+    /// undeclared property.
+    ///
+    /// A layer's texture wins. With none, Unity binds its grey default texture of the slot's
+    /// dimension when the shader does not declare the property, so the frame's
+    /// `undeclared_textures` stand in, for a slot that samples a single-sampled float texture of
+    /// a dimension with a default. A declared property, a slot of another kind or dimension and a
+    /// frame without the texture leave the property missing.
+    fn texture_input(
+        &self,
+        spec: &DrawSpec<'_>,
+        name: &str,
+        slot: &Slot,
+    ) -> Result<(TextureInput, bool), OffscreenError> {
+        if let Some(input) = spec.layers.texture(name) {
+            return Ok((*input, false));
+        }
+        let default = match slot.ty {
+            wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { .. },
+                view_dimension,
+                multisampled: false,
+            } => self.undeclared_textures.for_view(view_dimension),
+            _ => None,
+        };
+        let declared = self
+            .shaders
+            .get(&spec.shader)
+            .is_some_and(|shader| shader.declares_texture(name));
+        match default {
+            Some(texture) if !declared => Ok((
+                TextureInput {
+                    texture,
+                    sampler: None,
+                },
+                true,
+            )),
+            _ => Err(OffscreenError::MissingTexture {
+                name: name.to_owned(),
+            }),
+        }
     }
 
     /// The program and render state of the pass and variant `spec` selects.
@@ -416,22 +476,22 @@ impl Services<'_> {
         Ok(())
     }
 
-    /// Binds the texture a layer names for the slot's parameter and returns the sampler state it
-    /// is read with.
+    /// Binds the texture a layer names for the slot's parameter, or the frame's default for an
+    /// undeclared one, and returns the sampler state it is read with.
     fn bind_texture(
         &mut self,
         spec: &DrawSpec<'_>,
         entry: &ProgramEntry,
         slot: &Slot,
         plan: &mut DrawPlan,
-    ) -> Result<Option<SamplerState>, OffscreenError> {
+    ) -> Result<Sampled, OffscreenError> {
         let wgpu::BindingType::Texture {
             sample_type,
             view_dimension,
             ..
         } = slot.ty
         else {
-            return Ok(None);
+            return Ok(Sampled::default());
         };
         let target = entry
             .textures
@@ -443,24 +503,23 @@ impl Services<'_> {
                 what: "a texture no parameter names",
             })?;
         let name = target.name.resolve(&[])?;
-        let input = spec
-            .layers
-            .texture(name)
-            .ok_or_else(|| OffscreenError::MissingTexture {
-                name: name.to_owned(),
-            })?;
+        let (input, undeclared) = self.texture_input(spec, name, slot)?;
+        if undeclared {
+            plan.undeclared.push(name.to_owned());
+        }
         if let Some(facts) = plan.facts.as_mut() {
             facts.textures.push((name.to_owned(), input.texture));
         }
         let (imported, own) = self.import(input.texture)?;
-        let (version, mips) = self.tracker.sampled_levels(input.texture, imported)?;
+        let versions = self.tracker.sampled_levels(input.texture, imported)?;
+        let mips = u32::try_from(versions.len()).unwrap_or(u32::MAX);
         if mips < imported.mips {
             self.counts.partial_mips += 1;
             self.note_partial_read(spec, entry, (name, mips, imported.mips));
         }
         let view = self
             .tracker
-            .whole_view(imported, mips, view_dimension, version)?;
+            .whole_view(imported, mips, view_dimension, versions[0])?;
         let features = self.runtime.device().features();
         let (sample_type, state) = read_unfilterable(
             sample_type,
@@ -468,8 +527,25 @@ impl Services<'_> {
             features,
             input.sampler.or(own),
         );
-        plan.texture_uses
-            .push(ResourceUse::read(view.clone(), UseKind::Sampled));
+        // One read per run of levels written at the same point; a single run is the view itself.
+        let mut start = 0;
+        while start < versions.len() {
+            let end = versions[start..]
+                .iter()
+                .position(|&version| version != versions[start])
+                .map_or(versions.len(), |offset| start + offset);
+            let used = if start == 0 && end == versions.len() {
+                view.clone()
+            } else {
+                let levels = u32::try_from(start).unwrap_or(u32::MAX)
+                    ..u32::try_from(end).unwrap_or(u32::MAX);
+                self.tracker
+                    .levels_view(imported, levels, view_dimension, versions[start])?
+            };
+            plan.texture_uses
+                .push(ResourceUse::read(used, UseKind::Sampled));
+            start = end;
+        }
         plan.textures.push((
             slot.set,
             TextureBinding {
@@ -481,7 +557,10 @@ impl Services<'_> {
                 kind: TextureBindingKind::Sampled(sample_type),
             },
         ));
-        Ok(state)
+        Ok(Sampled {
+            state,
+            unfiltered: sample_type == wgpu::TextureSampleType::Float { filterable: false },
+        })
     }
 
     /// Counts a read of `texture` (property, levels bound, levels it has) by the pass that made it.
@@ -524,7 +603,7 @@ impl Services<'_> {
         &mut self,
         slot: &Slot,
         kind: wgpu::SamplerBindingType,
-        states: &HashMap<(u32, u32), Option<SamplerState>>,
+        (states, any_unfiltered): (&HashMap<(u32, u32), Sampled>, bool),
         plan: &mut DrawPlan,
     ) -> Result<(), OffscreenError> {
         if kind == wgpu::SamplerBindingType::Comparison {
@@ -534,7 +613,8 @@ impl Services<'_> {
                 what: "a comparison sampler",
             });
         }
-        let state = states.get(&(slot.set, slot.binding)).copied().flatten();
+        let state =
+            sampling::sampler_state(kind, states.get(&(slot.set, slot.binding)), any_unfiltered);
         plan.samplers.push((
             slot.set,
             SamplerBinding {
@@ -656,39 +736,14 @@ impl Services<'_> {
             return Ok(TargetSignature::new(&[info.format], None, 1)?);
         };
         if info.color.is_none() {
-            return Ok(TargetSignature::depth_only(depth, 1)?);
+            return Ok(TargetSignature::depth_attachment(depth, 1)?);
         }
-        Ok(TargetSignature::new(&[info.format], Some(depth), 1)?)
+        Ok(TargetSignature::attachments(
+            &[info.format],
+            Some(depth),
+            1,
+        )?)
     }
-}
-
-/// How a texture the device cannot filter is read by a pass written for a filtered one.
-///
-/// A pass declares its textures as filterable floats. A format the device cannot filter (32-bit
-/// floats without `FLOAT32_FILTERABLE`, and depth) is bound as a non-filterable float instead and
-/// its sampler reads the nearest texel, since a filtering sampler cannot read it. The wrap modes
-/// are kept; a texture with no sampler state gets the fixed sampler's clamp to the edge.
-pub(super) fn read_unfilterable(
-    declared: wgpu::TextureSampleType,
-    format: wgpu::TextureFormat,
-    features: wgpu::Features,
-    state: Option<SamplerState>,
-) -> (wgpu::TextureSampleType, Option<SamplerState>) {
-    use wgpu::TextureSampleType as Type;
-    let filterable = Type::Float { filterable: true };
-    let actual = format.sample_type(Some(wgpu::TextureAspect::All), Some(features));
-    if declared != filterable || actual.is_none() || actual == Some(filterable) {
-        return (declared, state);
-    }
-    let point = SamplerState {
-        filter: Filter::Point,
-        ..state.unwrap_or(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Clamp,
-            filter: Filter::Point,
-        })
-    };
-    (Type::Float { filterable: false }, Some(point))
 }
 
 /// The prepared sampler binding each prepared texture binding is read with: the binding the

@@ -1,5 +1,6 @@
 // The terrain G-buffer write: the material terrain_material evaluates for the forward path,
-// stored instead of lit. Terrain has no emission and no material AO map.
+// stored instead of lit. Terrain has no emission, no material AO map and no flags, and it stores
+// lighting record 0, the neutral standard model.
 @fragment
 fn fs_terrain(input: TerrainVertexOutput) -> SceneGbufferTargets {
     let material = terrain_material(input);

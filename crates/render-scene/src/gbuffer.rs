@@ -242,13 +242,24 @@ fn move_velocity<'a>(
     Ok(())
 }
 
-/// Declares the scene's G-buffer producer pass when the prepass metadata carries G-buffer
-/// pipelines: the four targets in location order, and the finished scene depth to test
-/// against, which [`attach_producer_depth`] gives the slot read-only.
+/// Whether Opaque loads the completed prepass depth that the producer tests.
+pub(crate) const fn producer_depth_available(depth: crate::renderer::depth::DepthMode) -> bool {
+    matches!(depth, crate::renderer::depth::DepthMode::Reuse)
+}
+
+/// Declares the scene's G-buffer producer pass when Opaque reuses the completed prepass depth
+/// and the prepass metadata carries G-buffer pipelines: the four targets in location order,
+/// and the finished scene depth to test against, which [`attach_producer_depth`] gives the
+/// slot read-only. Under any other depth mode nothing is declared; rendering from the
+/// G-buffer is then refused by the lighting pass's preparation.
 pub(crate) fn declare_producer(
     declaration: &mut FeatureDeclaration,
     screen: &crate::scene_metadata::SceneMetadata,
+    depth: crate::renderer::depth::DepthMode,
 ) {
+    if !producer_depth_available(depth) {
+        return;
+    }
     let Some((pipelines, _)) = &screen.geometry.gbuffer else {
         return;
     };

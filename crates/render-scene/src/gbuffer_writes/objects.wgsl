@@ -16,7 +16,8 @@ fn scene_gbuffer_object(input: VertexOutput, evaluated: SceneObjectMaterial) -> 
     let scattering = material.scattering_mode.y != 0.0;
     let emits = (material.texture_flags & FLAG_SELF_ILLUMINATION) != 0u || scene_packed_atlas(input);
     let surface = SceneGbufferSurface(
-        evaluated.surface.normal,
+        select(evaluated.geometric_normal, normalize(evaluated.surface.normal),
+            length(evaluated.surface.normal) > 0.000001),
         evaluated.geometric_normal,
         evaluated.surface.albedo.rgb,
         evaluated.surface.properties.x,

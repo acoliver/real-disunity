@@ -26,6 +26,11 @@ const X_SCALE_TWO: SceneAffineMatrix = SceneAffineMatrix {
 };
 /// The triangle's vertices, in metres of the mesh's own space.
 const TRIANGLE_METRES: [[f32; 3]; 3] = [[-0.2, -0.3, 0.5], [0.2, -0.3, 0.5], [0.0, 0.3, 0.5]];
+/// `OFFSET_MM` in metres.
+const OFFSET_METRES: f32 = 30.0;
+/// The linear parts of poses 2 and 3, as the matrices the palette rows hold.
+const QUARTER_TURN_LINEAR: [[f32; 3]; 3] = [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
+const X_SCALE_TWO_LINEAR: [[f32; 3]; 3] = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 fn triangle() -> SceneMesh {
     let vertices = vec![
@@ -135,8 +140,7 @@ fn linear_poses_without_translation_stay_inside_their_bounds() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let mut rig = Rig::over(&scene(), true);
     let handle = rig.handles()[0];
-    let offset = OFFSET_MM as f32 / 1000.0;
-    for (pose, joint) in [(2, QUARTER_TURN), (3, X_SCALE_TWO)] {
+    for (pose, linear) in [(2, QUARTER_TURN_LINEAR), (3, X_SCALE_TWO_LINEAR)] {
         rig.gpu
             .set_instance_object(handle, placed(pose))
             .expect("the pose belongs to the scene");
@@ -146,12 +150,9 @@ fn linear_poses_without_translation_stay_inside_their_bounds() {
             .expect("it casts a shadow")
             .bounds;
         for vertex in TRIANGLE_METRES {
-            let posed: [f32; 3] = std::array::from_fn(|row| {
-                (0..3)
-                    .map(|column| joint.linear_micro[row][column] as f32 / 1e6 * vertex[column])
-                    .sum()
-            });
-            let world = glam::Vec3::new(posed[0] + offset, posed[1], posed[2]);
+            let posed = glam::Mat3::from_cols_array_2d(&linear).transpose()
+                * glam::Vec3::from_array(vertex);
+            let world = posed + glam::Vec3::X * OFFSET_METRES;
             assert!(
                 world.cmpge(bounds.min).all() && world.cmple(bounds.max).all(),
                 "pose {pose}: {world} lies outside {:?}..{:?}",

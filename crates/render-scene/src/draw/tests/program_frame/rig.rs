@@ -265,6 +265,7 @@ impl Fixture {
             depth_write: true,
             color_write: wgpu::ColorWrites::ALL,
             blend: None,
+            stencil: None,
         };
         let packets: Vec<_> = self
             .patches

@@ -17,14 +17,15 @@ use worldrunner_render_post::{PassDeclaration, PassSlot};
 /// 4. occlusion metadata, by level
 /// 5. SSAO, its horizontal blur, its final blur
 /// 6. celestial radiance
-/// 7. opaque
-/// 8. the opaque colour and depth snapshots
-/// 9. water, then the water mask
-/// 10. transparent alpha (rejected by validation today)
-/// 11. the post-water depth
-/// 12. the reflection depth pyramid, by level
-/// 13. the reflection trace, then reflection mips by level
-/// 14. the screen-space pass after transparency
+/// 7. the opaque G-buffer (present only when the scene selects the G-buffer opaque path)
+/// 8. opaque
+/// 9. the opaque colour and depth snapshots
+/// 10. water, then the water mask
+/// 11. transparent alpha (rejected by validation today)
+/// 12. the post-water depth
+/// 13. the reflection depth pyramid, by level
+/// 14. the reflection trace, then reflection mips by level
+/// 15. the screen-space pass after transparency
 pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
     match slot {
         PassSlot::ShadowCasters(layer) => (0, layer),
@@ -35,17 +36,18 @@ pub(crate) const fn forward_position(slot: PassSlot) -> (u8, u32) {
         PassSlot::SsaoBlurHorizontal => (5, 0),
         PassSlot::SsaoBlur => (6, 0),
         PassSlot::Celestial => (7, 0),
-        PassSlot::Opaque => (8, 0),
-        PassSlot::AfterOpaqueSnapshot => (9, 0),
-        PassSlot::AfterOpaqueDepth => (10, 0),
-        PassSlot::TransparentWater => (11, 0),
-        PassSlot::TransparentWaterMask => (12, 0),
-        PassSlot::TransparentAlpha => (13, 0),
-        PassSlot::AfterWaterDepth => (14, 0),
-        PassSlot::ReflectionDepthPyramid(level) => (15, level),
-        PassSlot::ReflectionTrace => (16, 0),
-        PassSlot::ReflectionMip(level) => (17, level),
-        PassSlot::ScreenSpaceAfterTransparent => (18, 0),
+        PassSlot::OpaqueGbuffer => (8, 0),
+        PassSlot::Opaque => (9, 0),
+        PassSlot::AfterOpaqueSnapshot => (10, 0),
+        PassSlot::AfterOpaqueDepth => (11, 0),
+        PassSlot::TransparentWater => (12, 0),
+        PassSlot::TransparentWaterMask => (13, 0),
+        PassSlot::TransparentAlpha => (14, 0),
+        PassSlot::AfterWaterDepth => (15, 0),
+        PassSlot::ReflectionDepthPyramid(level) => (16, level),
+        PassSlot::ReflectionTrace => (17, 0),
+        PassSlot::ReflectionMip(level) => (18, level),
+        PassSlot::ScreenSpaceAfterTransparent => (19, 0),
     }
 }
 
@@ -71,6 +73,7 @@ mod tests {
             PassSlot::SsaoBlurHorizontal,
             PassSlot::SsaoBlur,
             PassSlot::Celestial,
+            PassSlot::OpaqueGbuffer,
             PassSlot::Opaque,
             PassSlot::AfterOpaqueSnapshot,
             PassSlot::AfterOpaqueDepth,
@@ -110,6 +113,7 @@ mod tests {
             SsaoBlurHorizontal,
             SsaoBlur,
             Celestial,
+            OpaqueGbuffer,
             Opaque,
             AfterOpaqueSnapshot,
             AfterOpaqueDepth,

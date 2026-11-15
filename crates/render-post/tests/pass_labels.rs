@@ -9,6 +9,7 @@ fn geometry_encoder_labels_match_timing_identities() {
         SsaoBlurHorizontal,
         SsaoBlur,
         Celestial,
+        OpaqueGbuffer,
         Opaque,
         AfterOpaqueSnapshot,
         AfterOpaqueDepth,

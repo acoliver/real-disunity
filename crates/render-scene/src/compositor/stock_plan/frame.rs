@@ -153,7 +153,7 @@ pub(crate) fn plan_frame<'s>(
         binding,
     } = lookup
     {
-        #[cfg(test)]
+        #[cfg(any(test, debug_assertions))]
         verify(
             device,
             chain,
@@ -378,8 +378,9 @@ fn executors<'s>(
 }
 
 /// A cached plan must be the plan a fresh build gives. The key and the identity are meant to
-/// cover everything that decides them, and this is how a test finds what they miss.
-#[cfg(test)]
+/// cover everything that decides them, and this is how a test or a debug build finds what they
+/// miss. A release build reuses a hit without rebuilding it.
+#[cfg(any(test, debug_assertions))]
 fn verify(
     device: &wgpu::Device,
     chain: &mut PostChain<FrameOutput>,

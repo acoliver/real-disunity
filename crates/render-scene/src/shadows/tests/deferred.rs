@@ -30,8 +30,13 @@ fn read(context: &GpuContext, texture: &wgpu::Texture) -> Vec<u8> {
 }
 
 /// A producer that writes a grey upward-facing surface over the first [`COVERED`] columns of
-/// blocks, encoded for `view` under `effects`.
-fn producer(view: &SceneView, effects: &SceneEffects) -> Producer {
+/// blocks, encoded for `view` under `effects`, declaring `depth` when the frame has the depth
+/// prepass.
+fn producer(
+    view: &SceneView,
+    effects: &SceneEffects,
+    depth: Option<wgpu::TextureFormat>,
+) -> Producer {
     let up = Surface {
         shading_normal: Vec3::Z,
         geometric_normal: Vec3::Z,
@@ -48,6 +53,7 @@ fn producer(view: &SceneView, effects: &SceneEffects) -> Producer {
         blocks: vec![up; usize::try_from(COLUMNS * COLUMNS).unwrap()],
         view: glam::Mat3::from_mat4(uniform.view),
         covered: COVERED,
+        depth,
     }
 }
 
@@ -82,7 +88,7 @@ fn capture(
     .unwrap();
     if produce {
         frame
-            .register(context.device(), Box::new(producer(&view, &effects)))
+            .register(context.device(), Box::new(producer(&view, &effects, None)))
             .unwrap();
     }
     let mut renderer = ShadowedScene::with_target(
@@ -211,12 +217,14 @@ fn reflecting(source: &RenderScene) -> RenderScene {
 }
 
 /// One shadowed frame of `source` with the observation and [`producer`], rendered through the
-/// same-frame depth fit, which records the frame as one capture.
+/// same-frame depth fit, which records the frame as one capture. The producer declares the scene
+/// depth `with_depth`, which it must exactly when the scene's own producer gives the slot one.
 fn depth_fitted_frame(
     context: &GpuContext,
     source: &RenderScene,
     view: &SceneView,
-) -> FrameRenderer {
+    with_depth: bool,
+) -> Result<FrameRenderer, String> {
     let size = [view.viewport().width, view.viewport().height];
     let effects = source
         .effects()
@@ -233,8 +241,12 @@ fn depth_fitted_frame(
         Some(&effects),
     )
     .unwrap();
+    let depth = frame.targets().depth().texture().format();
     frame
-        .register(context.device(), Box::new(producer(view, &effects)))
+        .register(
+            context.device(),
+            Box::new(producer(view, &effects, with_depth.then_some(depth))),
+        )
         .unwrap();
     let mut renderer = ShadowedScene::with_target(
         context,
@@ -265,42 +277,58 @@ fn depth_fitted_frame(
     .unwrap();
     let fit = renderer
         .render_depth_fitted_with(context, view, (&color, &depth), 0, &mut frame)
-        .unwrap_or_else(|error| panic!("the depth-fitted frame failed: {error:?}"))
+        .map_err(|error| format!("{error:?}"))?
         .expect("the same-frame fit adopts");
     assert_eq!((fit.source_frame, fit.adopted_frame), (0, 0));
-    frame
+    Ok(frame)
 }
 
-/// Every G-buffer target is zero outside the producer's columns; base colour and the
-/// geometric normal are set inside them.
-fn assert_gbuffer_written(context: &GpuContext, frame: &FrameRenderer, width: u32, label: &str) {
-    for target in GbufferTarget::ALL {
+/// Base colour and the geometric normal are set in the producer's columns. When Opaque reuses
+/// the prepass depth the scene's own producer also stores its surfaces outside them; a pixel no
+/// producer wrote (G3 is 0) is zero in every target. Returns which pixels were written.
+fn assert_gbuffer_written(
+    context: &GpuContext,
+    frame: &FrameRenderer,
+    width: u32,
+    label: &str,
+) -> Vec<bool> {
+    let targets = GbufferTarget::ALL.map(|target| {
         let texture = frame
             .feature_target(FeatureTarget::Gbuffer(target))
             .unwrap_or_else(|| panic!("{label}: {target:?} is not allocated"));
-        let bytes = read_as(context, texture, target.format());
         let texel = usize::try_from(target.format().block_copy_size(None).unwrap()).unwrap();
-        for (pixel, value) in bytes.chunks_exact(texel).enumerate() {
-            let written = value.iter().any(|&byte| byte != 0);
-            if !covered(pixel, width) {
+        (target, texel, read_as(context, texture, target.format()))
+    });
+    let written: Vec<bool> = targets[3]
+        .2
+        .chunks_exact(2)
+        .map(|code| u16::from_le_bytes([code[0], code[1]]) != 0)
+        .collect();
+    for (target, texel, bytes) in &targets {
+        for (pixel, value) in bytes.chunks_exact(*texel).enumerate() {
+            let set = value.iter().any(|&byte| byte != 0);
+            if covered(pixel, width) {
+                if matches!(target, GbufferTarget::G1 | GbufferTarget::G3) {
+                    assert!(set, "{label}: {target:?} pixel {pixel} was not written");
+                }
+            } else if !written[pixel] {
                 assert!(
-                    !written,
+                    !set,
                     "{label}: {target:?} pixel {pixel} is unwritten but set"
                 );
-            } else if matches!(target, GbufferTarget::G1 | GbufferTarget::G3) {
-                assert!(written, "{label}: {target:?} pixel {pixel} was not written");
             }
         }
     }
+    written
 }
 
-/// Every lighting target the frame allocates is zero outside the producer's columns, and the
+/// Every lighting target the frame allocates is zero where no producer wrote, and the
 /// lit colour covers and lights the pixels inside them. The reflection products exist exactly
 /// with `reflections`.
 fn assert_lighting_written(
     context: &GpuContext,
     frame: &FrameRenderer,
-    width: u32,
+    (width, written): (u32, &[bool]),
     reflections: bool,
 ) {
     for target in [
@@ -317,10 +345,12 @@ fn assert_lighting_written(
             texture.unwrap_or_else(|| panic!("reflections {reflections}: {target:?} is missing"));
         for (pixel, texel) in halves(&read(context, texture)).chunks_exact(4).enumerate() {
             if !covered(pixel, width) {
-                assert!(
-                    texel.iter().all(|value| value.to_bits() == 0),
-                    "reflections {reflections}: {target:?} pixel {pixel} is unwritten but lit"
-                );
+                if !written[pixel] {
+                    assert!(
+                        texel.iter().all(|value| value.to_bits() == 0),
+                        "reflections {reflections}: {target:?} pixel {pixel} is unwritten but lit"
+                    );
+                }
             } else if target == LightingTarget::Colour {
                 assert_eq!(
                     texel[3].to_bits(),
@@ -352,13 +382,16 @@ fn gpu_same_frame_depth_fit_captures_the_gbuffer_and_lighting_targets() {
         if reflections {
             source = reflecting(&source);
         }
-        let frame = depth_fitted_frame(&context, &source, &view);
-        assert_gbuffer_written(
+        // With reflections Opaque reuses the prepass depth, so the scene's own producer runs and
+        // the slot carries the scene depth; the depth fit alone keeps a separate depth.
+        let frame = depth_fitted_frame(&context, &source, &view, reflections)
+            .unwrap_or_else(|error| panic!("the depth-fitted frame failed: {error}"));
+        let written = assert_gbuffer_written(
             &context,
             &frame,
             width,
             &format!("reflections {reflections}"),
         );
-        assert_lighting_written(&context, &frame, width, reflections);
+        assert_lighting_written(&context, &frame, (width, &written), reflections);
     }
 }

@@ -1,8 +1,8 @@
 // The object G-buffer writes: the material shade_material evaluates for the forward path, stored
 // instead of lit. Flag bit 0 selects the scattering model (board 112 post 2768): G2.y then holds
 // the per-pixel scattering amount and metal is 0. The material's constant scattering shape and
-// colour and its translucency reach the lighting pass through the lighting record that restructure
-// step 3a adds; until then every object stores record 0. Impostor cards (SCENE_IMPOSTOR) store
+// colour and its translucency reach the lighting pass through the material's lighting record,
+// whose index each object stores. Impostor cards (SCENE_IMPOSTOR) store
 // scene_card_gbuffer_material, which gbuffer_writes derives from the frozen scene_card_shade.
 struct SceneGbufferReliefTargets {
     @location(0) g0: vec4<f32>,
@@ -25,6 +25,7 @@ fn scene_gbuffer_object(input: VertexOutput, evaluated: SceneObjectMaterial) -> 
         select(0.0, evaluated.emission, emits),
         evaluated.surface.properties.z,
         select(0u, 1u, scattering),
+        scene_material_lighting_record_index(),
     );
     let view_from_scene = mat3x3<f32>(screen.view[0].xyz, screen.view[1].xyz, screen.view[2].xyz);
     return scene_gbuffer_encode(surface, view_from_scene);

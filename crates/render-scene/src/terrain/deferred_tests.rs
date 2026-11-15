@@ -14,7 +14,7 @@ use worldrunner_render_post::{
     PrepareContext, PreparedFeature,
 };
 
-use super::gbuffer_tests::{Drawn, Frame, prepare_scene, read, render};
+use super::gbuffer_tests::{Drawn, Frame, gbuffer, prepare_scene, read, render};
 use crate::compositor::FeatureTarget;
 use crate::device::GpuContext;
 use crate::dynamic::capture_tests::{SIZE, context};
@@ -189,11 +189,14 @@ fn block_values(surfaces: impl Iterator<Item = Surface>) -> Vec<u8> {
 }
 
 /// A producer that writes each block's surface through `scene_gbuffer_encode` in the
-/// `covered` columns of blocks and leaves the rest unwritten.
+/// `covered` columns of blocks and leaves the rest unwritten. In a frame with the depth prepass
+/// the scene's own producer gives the slot the scene depth, so this one must declare that
+/// `depth` too; it tests and writes none.
 pub(crate) struct Producer {
     pub(crate) blocks: Vec<Surface>,
     pub(crate) view: Mat3,
     pub(crate) covered: u32,
+    pub(crate) depth: Option<wgpu::TextureFormat>,
 }
 
 struct ProducerDraw {
@@ -206,6 +209,7 @@ impl FrameFeature for Producer {
         let mut declaration = FeatureDeclaration::new(PassSlot::OpaqueGbuffer);
         declaration.passes[0].color_format = Some(GBUFFER_FORMATS[0]);
         declaration.passes[0].additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
+        declaration.passes[0].depth_format = self.depth;
         declaration
     }
 
@@ -270,7 +274,13 @@ fn fs_blocks(@builtin(position) position: vec4<f32>) -> SceneGbufferTargets {{
                 buffers: &[],
             },
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            depth_stencil: self.depth.map(|format| wgpu::DepthStencilState {
+                format,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &module,
@@ -324,18 +334,29 @@ fn lighting(context: &GpuContext, drawn: &Drawn, target: LightingTarget) -> Opti
         })
 }
 
-/// Registers a producer of `blocks` over the first `covered` columns of blocks.
-fn produce(context: &GpuContext, drawn: &mut Drawn, blocks: &[Block], covered: u32) {
+/// Registers a producer of `blocks` over the first `covered` columns of blocks, declaring the
+/// scene depth when `frame` has the depth prepass.
+fn produce(context: &GpuContext, drawn: &mut Drawn, frame: Frame, blocks: &[Block], covered: u32) {
+    let depth = drawn.renderer.targets().depth().texture().format();
     let producer = Producer {
         blocks: blocks.iter().map(|block| block.surface).collect(),
         view: Mat3::from_mat4(drawn.frame.view),
         covered,
+        depth: (!matches!(frame, Frame::Plain)).then_some(depth),
     };
     drawn
         .renderer
         .renderer_mut()
         .register(context.device(), Box::new(producer))
         .unwrap();
+}
+
+/// Whether a producer wrote each pixel of `drawn`'s G-buffer (G3 is never 0 where one did).
+fn written(context: &GpuContext, drawn: &Drawn) -> Vec<bool> {
+    gbuffer(context, &drawn.renderer)[3]
+        .chunks_exact(2)
+        .map(|code| u16::from_le_bytes([code[0], code[1]]) != 0)
+        .collect()
 }
 
 #[test]
@@ -371,10 +392,17 @@ fn deferred_lighting_keeps_the_forward_frame_and_lights_only_written_pixels() {
                 continue;
             }
             let output = output.unwrap_or_else(|| panic!("{frame:?}: {target:?} is missing"));
-            assert!(
-                output.iter().all(|value| value.to_bits() == 0),
-                "{frame:?}: {target:?} lit a pixel no producer wrote"
-            );
+            // With the depth prepass the scene itself stores its terrain (step 2), so only the
+            // pixels it did not store must stay unlit.
+            let written = written(&context, &idle);
+            for (pixel, texel) in output.chunks_exact(4).enumerate() {
+                if !written[pixel] {
+                    assert!(
+                        texel.iter().all(|value| value.to_bits() == 0),
+                        "{frame:?}: {target:?} lit pixel {pixel}, which no producer wrote"
+                    );
+                }
+            }
         }
 
         let mut drawn = prepare_scene(
@@ -385,18 +413,19 @@ fn deferred_lighting_keeps_the_forward_frame_and_lights_only_written_pixels() {
         );
         let table = drawn.gpu.lighting_record_table().records().to_vec();
         let blocks = blocks(&table, scene.resources().materials());
-        produce(&context, &mut drawn, &blocks, COLUMNS / 2);
+        produce(&context, &mut drawn, frame, &blocks, COLUMNS / 2);
         let colour = render(&context, &mut drawn, 3).unwrap();
         assert!(colour == expected, "{frame:?}: the lit frame differs");
         let lit = lighting(&context, &drawn, LightingTarget::Colour).unwrap();
+        let written = written(&context, &drawn);
         for (pixel, texel) in lit.chunks_exact(4).enumerate() {
             let x = u32::try_from(pixel).unwrap() % SIZE;
-            if x >= COLUMNS / 2 * BLOCK {
+            if x >= COLUMNS / 2 * BLOCK && !written[pixel] {
                 assert!(
                     texel.iter().all(|value| value.to_bits() == 0),
                     "{frame:?}: pixel {pixel} is unwritten but lit: {texel:?}"
                 );
-            } else {
+            } else if x < COLUMNS / 2 * BLOCK {
                 assert_eq!(
                     texel[3].to_bits(),
                     1.0_f32.to_bits(),
@@ -461,7 +490,7 @@ fn deferred_lighting_matches_the_forward_shading_of_the_same_surfaces() {
         let materials = scene.resources().materials();
         let table = drawn.gpu.lighting_record_table().records().to_vec();
         let blocks = blocks(&table, materials);
-        produce(&context, &mut drawn, &blocks, COLUMNS);
+        produce(&context, &mut drawn, frame, &blocks, COLUMNS);
         render(&context, &mut drawn, 1).unwrap();
         let deferred = lighting(&context, &drawn, LightingTarget::Colour).unwrap();
         // The values the G-buffer stores, decoded by the CPU mirror of the encoding.

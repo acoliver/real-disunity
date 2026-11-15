@@ -96,10 +96,11 @@ pub(super) fn prepare_scene(
 ) -> Drawn {
     let scene = scene.clone();
     let uniform = frame.uniform(&scene);
-    prepare_scene(context, &scene, &uniform, frame.configuration(opaque_path))
+    prepare_with(context, &scene, &uniform, frame.configuration(opaque_path))
 }
 
-fn prepare_scene(
+/// Uploads `scene`, sets `uniform` and builds a renderer with `configuration`.
+pub(super) fn prepare_with(
     context: &GpuContext,
     scene: &RenderScene,
     uniform: &FrameUniform,
@@ -159,7 +160,7 @@ pub(super) fn read(
     .unwrap()
 }
 
-fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
+pub(super) fn gbuffer(context: &GpuContext, renderer: &ConfiguredFrameRenderer) -> [Vec<u8>; 4] {
     GbufferTarget::ALL.map(|target| {
         let texture = renderer
             .feature_target(FeatureTarget::Gbuffer(target))

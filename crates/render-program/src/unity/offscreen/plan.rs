@@ -48,6 +48,8 @@ pub(super) struct ProgramEntry {
     textures: Vec<TextureTarget>,
     /// The sampler binding split from the texture at a set and binding.
     samplers: HashMap<(u32, u32), u32>,
+    /// The names the shader gives its comparison samplers, by set and binding.
+    comparison_names: HashMap<(u32, u32), String>,
     /// The vertex inputs the vertex stage declares, by location.
     inputs: DeclaredInputs,
 }
@@ -295,7 +297,8 @@ impl Services<'_> {
         }
         for slot in &slots {
             if let wgpu::BindingType::Sampler(kind) = slot.ty {
-                self.bind_sampler(slot, kind, (&sampler_states, any_unfiltered), &mut plan)?;
+                let states = (&sampler_states, any_unfiltered);
+                self.bind_sampler(&entry, slot, kind, states, &mut plan);
             }
         }
         Ok(plan)
@@ -419,6 +422,7 @@ impl Services<'_> {
         let mut textures = variant.vertex.texture_targets()?;
         textures.extend(variant.fragment.texture_targets()?);
         let samplers = sampler_pairs(variant);
+        let comparison_names = comparison_names(variant);
         Ok(ProgramEntry {
             program,
             variant: variant.clone(),
@@ -426,6 +430,7 @@ impl Services<'_> {
             constants,
             textures,
             samplers,
+            comparison_names,
             inputs: declared_inputs(&variant.vertex),
         })
     }
@@ -511,6 +516,18 @@ impl Services<'_> {
             facts.textures.push((name.to_owned(), input.texture));
         }
         let (imported, own) = self.import(input.texture)?;
+        // A depth slot is read through a comparison sampler, which takes the depth aspect alone:
+        // the depth of a depth-only render texture, whose format has no stencil. A colour texture,
+        // and the depth buffer under one, have none to give.
+        let depth_only =
+            imported.format.has_depth_aspect() && !imported.format.has_stencil_aspect();
+        if sample_type == wgpu::TextureSampleType::Depth && !depth_only {
+            return Err(OffscreenError::UnsupportedBinding {
+                set: slot.set,
+                binding: slot.binding,
+                what: "a depth texture slot over a texture with no depth-only storage",
+            });
+        }
         let versions = self.tracker.sampled_levels(input.texture, imported)?;
         let mips = u32::try_from(versions.len()).unwrap_or(u32::MAX);
         if mips < imported.mips {
@@ -601,17 +618,27 @@ impl Services<'_> {
 
     fn bind_sampler(
         &mut self,
+        entry: &ProgramEntry,
         slot: &Slot,
         kind: wgpu::SamplerBindingType,
         (states, any_unfiltered): (&HashMap<(u32, u32), Sampled>, bool),
         plan: &mut DrawPlan,
-    ) -> Result<(), OffscreenError> {
+    ) {
         if kind == wgpu::SamplerBindingType::Comparison {
-            return Err(OffscreenError::UnsupportedBinding {
-                set: slot.set,
-                binding: slot.binding,
-                what: "a comparison sampler",
-            });
+            // The runtime cannot create a comparison sampler for a program, so the draw lends
+            // one: the shadow-map read of the texture the sampler is paired with.
+            let at = (slot.set, slot.binding);
+            let name = entry.comparison_names.get(&at).map(String::as_str);
+            let state = sampling::comparison_state(name, states.get(&at));
+            plan.samplers.push((
+                slot.set,
+                SamplerBinding {
+                    binding: slot.binding,
+                    visibility: slot.visibility,
+                    sampler: self.samplers.comparison(state, sampling::SHADOW_COMPARE),
+                },
+            ));
+            return;
         }
         let state =
             sampling::sampler_state(kind, states.get(&(slot.set, slot.binding)), any_unfiltered);
@@ -623,7 +650,6 @@ impl Services<'_> {
                 sampler: self.samplers.get(state),
             },
         ));
-        Ok(())
     }
 
     /// Imports a texture of the frame and returns it with its own sampler state.
@@ -744,6 +770,21 @@ impl Services<'_> {
             1,
         )?)
     }
+}
+
+/// The names the variant's stages give their comparison samplers, by set and binding.
+fn comparison_names(variant: &Variant) -> HashMap<(u32, u32), String> {
+    [&variant.vertex, &variant.fragment]
+        .into_iter()
+        .flat_map(|stage| stage.resources().iter())
+        .filter(|resource| {
+            matches!(
+                resource.ty,
+                wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison)
+            ) && !resource.name.is_empty()
+        })
+        .map(|resource| ((resource.set, resource.binding), resource.name.clone()))
+        .collect()
 }
 
 /// The prepared sampler binding each prepared texture binding is read with: the binding the

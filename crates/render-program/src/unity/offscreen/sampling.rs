@@ -65,6 +65,64 @@ pub(super) fn merge(earlier: Option<&Sampled>, read: Sampled) -> Sampled {
     }
 }
 
+/// The function a comparison sampler compares a shader's reference depth with the stored depth by:
+/// the reference passes when it is less than or equal to the stored depth.
+///
+/// Offscreen depth is not reversed. A camera clears depth to 1 and a pass's `ZTest LEqual` is
+/// `LessEqual`, so nearer is smaller and a fragment at the stored depth or in front of it passes
+/// its depth test. URP's shadow lookups return 1 for a lit receiver, which is a receiver at the
+/// occluder's depth or in front of it, so the same function is the one that makes them read 1.
+/// Were the renderer's depth reversed (clear 0, `ZTest LEqual` as `GreaterEqual`), this would
+/// be `GreaterEqual`.
+pub(super) const SHADOW_COMPARE: wgpu::CompareFunction = wgpu::CompareFunction::LessEqual;
+
+/// The state of a comparison sampler: what its name says, else what the texture it is paired with
+/// is read with, else linear filtering clamped to the edge.
+///
+/// A name that Unity gives an inline sampler (`sampler_LinearClampCompare`) carries a filter
+/// (`Point`, `Linear` or `Trilinear`) and a wrap mode (`Clamp`, `Repeat` or `Mirror`), and a
+/// part it leaves out is the texture's. A sampler named after its texture, such as
+/// `sampler_MainLightShadowmapTexture`, says neither and reads as the texture does.
+pub(super) fn comparison_state(name: Option<&str>, paired: Option<&Sampled>) -> SamplerState {
+    let texture = paired
+        .and_then(|paired| paired.state)
+        .unwrap_or(SamplerState {
+            wrap_u: Wrap::Clamp,
+            wrap_v: Wrap::Clamp,
+            filter: Filter::Bilinear,
+        });
+    let Some(name) = name else { return texture };
+    let filter = named(
+        name,
+        &[
+            ("Point", Filter::Point),
+            ("Trilinear", Filter::Trilinear),
+            ("Linear", Filter::Bilinear),
+        ],
+    );
+    let wrap = named(
+        name,
+        &[
+            ("Clamp", Wrap::Clamp),
+            ("Repeat", Wrap::Repeat),
+            ("Mirror", Wrap::Mirror),
+        ],
+    );
+    SamplerState {
+        wrap_u: wrap.unwrap_or(texture.wrap_u),
+        wrap_v: wrap.unwrap_or(texture.wrap_v),
+        filter: filter.unwrap_or(texture.filter),
+    }
+}
+
+/// The value of the first of `words` that `name` contains.
+fn named<T: Copy>(name: &str, words: &[(&str, T)]) -> Option<T> {
+    words
+        .iter()
+        .find(|(word, _)| name.contains(word))
+        .map(|&(_, value)| value)
+}
+
 /// The state of the sampler a slot of `kind` binds.
 ///
 /// `paired` is what the texture the sampler is paired with reads, if the program names the pair.
@@ -248,5 +306,80 @@ mod tests {
             sampler_state(wgpu::SamplerBindingType::Filtering, Some(&paired), true),
             Some(bilinear(Wrap::Repeat))
         );
+    }
+
+    fn comparison(name: Option<&str>, paired: Option<Sampled>) -> SamplerState {
+        comparison_state(name, paired.as_ref())
+    }
+
+    #[test]
+    fn a_comparison_sampler_with_no_name_and_no_texture_state_filters_linearly_clamped() {
+        assert_eq!(
+            comparison(None, None),
+            SamplerState {
+                wrap_u: Wrap::Clamp,
+                wrap_v: Wrap::Clamp,
+                filter: Filter::Bilinear,
+            }
+        );
+    }
+
+    #[test]
+    fn a_comparison_sampler_named_for_its_texture_reads_as_the_texture_does() {
+        let paired = Sampled {
+            state: Some(point(Wrap::Repeat)),
+            unfiltered: false,
+        };
+        assert_eq!(
+            comparison(Some("sampler_MainLightShadowmapTexture"), Some(paired)),
+            point(Wrap::Repeat)
+        );
+        assert_eq!(comparison(None, Some(paired)), point(Wrap::Repeat));
+    }
+
+    #[test]
+    fn an_inline_comparison_sampler_name_gives_its_filter_and_wrap() {
+        let paired = Sampled {
+            state: Some(bilinear(Wrap::Repeat)),
+            unfiltered: false,
+        };
+        assert_eq!(
+            comparison(Some("sampler_LinearClampCompare"), Some(paired)),
+            bilinear(Wrap::Clamp)
+        );
+        assert_eq!(
+            comparison(Some("sampler_PointClampCompare"), Some(paired)),
+            point(Wrap::Clamp)
+        );
+        assert_eq!(
+            comparison(Some("sampler_PointRepeatCompare"), None),
+            point(Wrap::Repeat)
+        );
+        assert_eq!(
+            comparison(Some("sampler_TrilinearMirrorCompare"), None),
+            SamplerState {
+                wrap_u: Wrap::Mirror,
+                wrap_v: Wrap::Mirror,
+                filter: Filter::Trilinear,
+            }
+        );
+    }
+
+    #[test]
+    fn a_name_that_gives_only_a_wrap_keeps_the_texture_filter() {
+        let paired = Sampled {
+            state: Some(point(Wrap::Clamp)),
+            unfiltered: false,
+        };
+        assert_eq!(
+            comparison(Some("sampler_RepeatCompare"), Some(paired)),
+            point(Wrap::Repeat)
+        );
+    }
+
+    #[test]
+    fn a_stored_depth_passes_a_reference_at_it_or_in_front_of_it() {
+        // Depth is not reversed: the camera clears to 1 and a pass's LEqual is LessEqual.
+        assert_eq!(SHADOW_COMPARE, wgpu::CompareFunction::LessEqual);
     }
 }

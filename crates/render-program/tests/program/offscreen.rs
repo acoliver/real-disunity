@@ -6,6 +6,7 @@ mod block_sources;
 mod camera;
 mod camera_probe;
 mod camera_report;
+mod comparison;
 mod constants;
 mod copy;
 mod defaults;

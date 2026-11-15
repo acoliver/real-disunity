@@ -102,6 +102,11 @@ impl LightingTargets {
         }
     }
 
+    /// The allocated diagnostic targets; none when the frame renders from the G-buffer.
+    pub(crate) fn textures(&self) -> impl Iterator<Item = &wgpu::Texture> {
+        self.textures.iter().map(|(_, texture)| texture)
+    }
+
     pub(crate) fn texture(&self, target: LightingTarget) -> Option<&wgpu::Texture> {
         self.textures
             .iter()

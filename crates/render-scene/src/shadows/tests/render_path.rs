@@ -305,3 +305,98 @@ fn gpu_render_path_without_the_depth_prepass_is_refused_by_name() {
     // Forward draws the same scene.
     capture(&context, &source, &view(), SceneOpaquePath::Forward).unwrap();
 }
+
+/// A same-frame depth-fitted capture, the route the game's captures take, owns every write of
+/// the G-buffer slot and the lighting pass: both G-buffer paths render, and rendering from the
+/// G-buffer stays close to Forward under the fitted cascades.
+#[test]
+fn gpu_depth_fitted_capture_renders_both_gbuffer_paths() {
+    use crate::compositor::{FeatureTarget, FrameRenderer};
+    use crate::gbuffer::GbufferTarget;
+    use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let source = source(false, true);
+    let view = view();
+    let size = [view.viewport().width, view.viewport().height];
+    let mut captured = Vec::new();
+    for path in [
+        SceneOpaquePath::Forward,
+        SceneOpaquePath::GBUFFER_OBSERVATION,
+        SceneOpaquePath::GBUFFER_RENDER,
+    ] {
+        let effects = source
+            .effects()
+            .unwrap()
+            .clone()
+            .with_opaque_path(path)
+            .unwrap();
+        let mut frame = FrameRenderer::hdr(
+            &context,
+            size,
+            OffscreenTarget::COLOR_FORMAT,
+            1,
+            worldrunner_render_post::ToneMap::Reinhard,
+            Some(&effects),
+        )
+        .unwrap();
+        let mut renderer = ShadowedScene::with_target(
+            &context,
+            &source,
+            settings(),
+            wgpu::TextureFormat::Rgba16Float,
+            1,
+        )
+        .unwrap();
+        renderer
+            .set_depth_fitting(
+                &context,
+                Some(SdsmSettings {
+                    policy: AdoptionPolicy::SameFrameCapture,
+                    range: super::sdsm::policy(),
+                }),
+            )
+            .unwrap();
+        let color = AttachmentView::new(
+            ResourceRef::new("scene color"),
+            frame.targets().scene().texture(),
+        )
+        .unwrap();
+        let depth = AttachmentView::new(
+            ResourceRef::new("scene depth"),
+            frame.targets().depth().texture(),
+        )
+        .unwrap();
+        let fit = renderer
+            .render_depth_fitted_with(&context, &view, (&color, &depth), 10, &mut frame)
+            .unwrap_or_else(|error| panic!("{path:?}: {error:?}"));
+        assert_eq!(fit.map(|fit| fit.source_frame), Some(10), "{path:?}");
+        context
+            .device()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        captured.push(Captured {
+            colour: super::deferred::read(&context, frame.targets().texture()),
+            lit: None,
+            g3: frame
+                .feature_target(FeatureTarget::Gbuffer(GbufferTarget::G3))
+                .map(|texture| {
+                    super::deferred::read(&context, texture)
+                        .chunks_exact(2)
+                        .map(|code| u16::from_le_bytes([code[0], code[1]]))
+                        .collect()
+                }),
+        });
+    }
+    // The observation keeps the forward frame.
+    assert!(
+        captured[1].colour == captured[0].colour,
+        "the observed frame differs"
+    );
+    let (share, mean) = compare("depth-fitted", &captured[2], &captured[0]);
+    assert!(
+        share <= EDGE_SHARE,
+        "{share} of stored pixels over {RELATIVE}"
+    );
+    assert!(mean <= MEAN, "mean error {mean}");
+}

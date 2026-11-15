@@ -142,6 +142,13 @@ impl Gbuffer {
         &self.textures[target as usize]
     }
 
+    /// Every texture the G-buffer slot and the lighting pass write besides Opaque's own: the
+    /// four targets and, in observation, the diagnostic lighting targets. A capture segment
+    /// must own these writes.
+    pub(crate) fn written_textures(&self) -> impl Iterator<Item = &wgpu::Texture> {
+        self.textures.iter().chain(self.lighting.textures())
+    }
+
     /// One of the lighting pass's targets; the reflection products only with reflections.
     pub(crate) fn lighting_texture(
         &self,

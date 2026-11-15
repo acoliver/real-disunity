@@ -152,15 +152,46 @@ impl ProgramRuntime {
         format: wgpu::TextureFormat,
         bytes: &[u8],
     ) -> Result<TextureHandle, ProgramError> {
+        self.create_source_texture(label, TextureKind::D2, size, format, bytes)
+    }
+
+    /// Uploads the base level of a cube of six `edge` by `edge` faces, sampled through a cube
+    /// view. `bytes` holds the faces one after the other in the order +X, -X, +Y, -Y, +Z, -Z,
+    /// each as [`create_texture_2d`](Self::create_texture_2d) takes a level.
+    ///
+    /// # Errors
+    /// Fails when `bytes` is not exactly the six faces, or the upload plan or device refuses the
+    /// texture, as for a 2D texture.
+    pub fn create_texture_cube(
+        &mut self,
+        label: &str,
+        edge: u32,
+        format: wgpu::TextureFormat,
+        bytes: &[u8],
+    ) -> Result<TextureHandle, ProgramError> {
+        self.create_source_texture(label, TextureKind::Cube, [edge, edge], format, bytes)
+    }
+
+    /// The upload of a 2D texture (one layer) or a cube (six), `size` being one face.
+    fn create_source_texture(
+        &mut self,
+        label: &str,
+        kind: TextureKind,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+        bytes: &[u8],
+    ) -> Result<TextureHandle, ProgramError> {
         self.authority.check_device()?;
+        let faces: u32 = if kind == TextureKind::Cube { 6 } else { 1 };
         let block = format
             .block_copy_size(None)
             .filter(|_| !format.is_depth_stencil_format() && !format.is_multi_planar_format())
             .ok_or_else(|| ProgramError::Gpu(format!("{format:?} is not a color format")))?;
         let (block_width, block_height) = format.block_dimensions();
-        let needed = size[0].div_ceil(block_width) as usize
+        let face_len = size[0].div_ceil(block_width) as usize
             * size[1].div_ceil(block_height) as usize
             * block as usize;
+        let needed = face_len * faces as usize;
         if bytes.len() != needed {
             return Err(ProgramError::TextureData {
                 size,
@@ -169,18 +200,31 @@ impl ProgramRuntime {
                 given: bytes.len(),
             });
         }
-        let mips = packed_mips(format, size[0], size[1], 1, bytes)?;
-        let layer = TextureLayer {
-            format,
-            width: size[0],
-            height: size[1],
-            mips: &mips,
-        };
-        let upload = TextureUpload::new(&[layer], 0, TextureKind::D2)?;
+        let mips = (0..faces as usize)
+            .map(|face| {
+                packed_mips(
+                    format,
+                    size[0],
+                    size[1],
+                    1,
+                    &bytes[face * face_len..(face + 1) * face_len],
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let layers: Vec<TextureLayer<'_>> = mips
+            .iter()
+            .map(|mips| TextureLayer {
+                format,
+                width: size[0],
+                height: size[1],
+                mips,
+            })
+            .collect();
+        let upload = TextureUpload::new(&layers, 0, kind)?;
         let mut allocations = AllocationSet::default();
         allocations.texture(
             "render-program texture",
-            [size[0], size[1], 1],
+            [size[0], size[1], faces],
             format,
             [1, 1],
             1,
@@ -195,7 +239,12 @@ impl ProgramRuntime {
                 wgpu::TextureUsages::COPY_SRC,
             )
         })??;
-        Ok(self.store.add_texture(entry(texture), reservation))
+        let entry = if kind == TextureKind::Cube {
+            entry_viewed(texture, wgpu::TextureViewDimension::Cube)
+        } else {
+            entry(texture)
+        };
+        Ok(self.store.add_texture(entry, reservation))
     }
 
     /// Creates a render target with a color texture and, when `depth` is a depth format, a

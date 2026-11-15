@@ -5,7 +5,7 @@ use worldrunner_render_program::ids::{MeshId, TextureId};
 use worldrunner_render_program::layers::PropertyLayer;
 use worldrunner_render_program::properties::PropertyValue;
 use worldrunner_render_program::unity::offscreen::frame::{
-    OffscreenFrame, RenderDimension, RenderTextureSpec, SourceTexture,
+    OffscreenFrame, RenderDimension, RenderTextureSpec, SourceDimension, SourceTexture,
 };
 use worldrunner_render_program::unity::offscreen::{OffscreenError, OffscreenState};
 use worldrunner_render_program::unity::runtime::{ProgramArena, ProgramRuntime};
@@ -32,7 +32,11 @@ pub struct Rig {
 
 impl Rig {
     pub fn new() -> Self {
-        let gpu = Gpu::new();
+        Self::on(Gpu::new())
+    }
+
+    /// A rig on `gpu`.
+    pub fn on(gpu: Gpu) -> Self {
         let runtime = gpu.runtime_with(AllocationBudget(BUDGET));
         let limits = gpu.device.limits();
         let mut renderer = Configuration::new(
@@ -134,6 +138,7 @@ pub fn image(size: [u32; 2], color: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
 pub fn source(id: u64, size: [u32; 2], bytes: Vec<u8>) -> SourceTexture {
     SourceTexture {
         id: TextureId(id),
+        dimension: SourceDimension::D2,
         size,
         graphics_format: RGBA8,
         bytes,

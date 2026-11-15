@@ -4,6 +4,10 @@
 cadence controls when a frame is requested; surface present mode controls how the
 window system presents it.
 
+For measurement runs, call `host.with_window_on_top(true)` after either
+`RetainedHost` constructor to keep the desktop window above ordinary windows
+with `winit::window::WindowLevel::AlwaysOnTop`. This option is off by default.
+
 ## Short sounds
 
 `RetainedHost::audio()` and `RetainedEventHost::audio()` expose the same

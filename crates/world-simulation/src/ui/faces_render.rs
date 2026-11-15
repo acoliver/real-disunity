@@ -10,10 +10,10 @@
 use super::{
     UiError,
     faces::{FaceBook, FaceId, LoadedFace, glyph_id},
-    sdf::signed_distance,
+    raster::{MAX_SDF_SIDE, SDF_SCALE, distance_bytes, to_byte},
 };
 use ab_glyph::{Font, FontRef, Glyph, PxScale, point};
-use glam::{DVec2, Vec2};
+use glam::{UVec2, Vec2};
 
 /// What a glyph is drawn as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,15 +42,9 @@ pub struct GlyphJob {
 
 /// The longest side of a coverage rectangle, and of a distance rectangle (drawn 4 times larger).
 const MAX_SIDE: u32 = 1024;
-const MAX_SDF_SIDE: u32 = 256;
-const SDF_SCALE: u32 = 4;
 
 fn small(value: u32) -> f32 {
     f32::from(u16::try_from(value).expect("rectangles are at most 1024 pixels"))
-}
-
-fn to_byte(value: f64) -> u8 {
-    u8::try_from(DVec2::splat(value.clamp(0., 255.).round()).as_uvec2().x).unwrap_or(u8::MAX)
 }
 
 impl FaceBook {
@@ -75,13 +69,20 @@ impl FaceBook {
             RenderMode::Coverage => 1,
             RenderMode::Sdf => SDF_SCALE,
         };
+        if job.mode == RenderMode::Sdf {
+            super::raster::check_distance(UVec2::new(job.rect.width, job.rect.height), 256 * 256)?;
+        }
         let coverage = coverage_bitmap(stored, &job, scale)?;
         let bytes = match job.mode {
             RenderMode::Coverage => coverage
                 .iter()
                 .map(|&c| to_byte(f64::from(c) * 255.))
                 .collect(),
-            RenderMode::Sdf => distance_bytes(&coverage, &job),
+            RenderMode::Sdf => distance_bytes(
+                &coverage,
+                UVec2::new(job.rect.width, job.rect.height),
+                job.padding,
+            ),
         };
         store(atlas, width, &job.rect, &bytes);
         Ok(())
@@ -125,9 +126,9 @@ fn coverage_bitmap(face: &LoadedFace, job: &GlyphJob, scale: u32) -> Result<Vec<
     let units = face.point_size * small(scale) / f32::from(parsed.units_per_em());
     let id = glyph_id(&parsed, job.glyph)?;
     let (width, height) = (job.rect.width * scale, job.rect.height * scale);
-    let mut bitmap = vec![0.; usize::try_from(width * height).map_err(|_| UiError::AtlasLimit)?];
+    let count = usize::try_from(width * height).map_err(|_| UiError::AtlasLimit)?;
     let Some(bounds) = parsed.glyph_bounding_box(id) else {
-        return Ok(bitmap);
+        return Ok(vec![0.; count]);
     };
     // ab_glyph scales by the font's ascent-minus-descent height, so a scale of `height * units`
     // gives `units` pixels per font unit.
@@ -142,43 +143,13 @@ fn coverage_bitmap(face: &LoadedFace, job: &GlyphJob, scale: u32) -> Result<Vec<
         position: point(inner - left, inner + top),
     };
     let Some(outline) = font.outline_glyph(glyph) else {
-        return Ok(bitmap);
+        return Ok(vec![0.; count]);
     };
-    let origin = outline.px_bounds().min;
-    let origin = Vec2::new(origin.x.floor(), origin.y.floor()).as_ivec2();
-    let stride = usize::try_from(width).map_err(|_| UiError::AtlasLimit)?;
-    outline.draw(|x, y, c| {
-        let column = i64::from(origin.x) + i64::from(x);
-        let row = i64::from(origin.y) + i64::from(y);
-        if (0..i64::from(width)).contains(&column) && (0..i64::from(height)).contains(&row) {
-            let at =
-                usize::try_from(row).unwrap_or(0) * stride + usize::try_from(column).unwrap_or(0);
-            bitmap[at] = c;
-        }
-    });
-    Ok(bitmap)
-}
-
-/// The distance field of an oversampled coverage bitmap, one byte per final pixel, top row first.
-fn distance_bytes(coverage: &[f32], job: &GlyphJob) -> Vec<u8> {
-    let scale = usize::try_from(SDF_SCALE).expect("small scale");
-    let (width, height) = (
-        usize::try_from(job.rect.width).expect("small") * scale,
-        usize::try_from(job.rect.height).expect("small") * scale,
-    );
-    let inside: Vec<bool> = coverage.iter().map(|&c| c >= 0.5).collect();
-    let distance = signed_distance(&inside, width, height);
-    let spread = f64::from(job.padding.max(1));
-    let (columns, rows) = (width / scale, height / scale);
-    let mut bytes = Vec::with_capacity(columns * rows);
-    for row in 0..rows {
-        for column in 0..columns {
-            let cell = (row * scale + scale / 2) * width + column * scale + scale / 2;
-            let pixels = distance[cell] / f64::from(SDF_SCALE);
-            bytes.push(to_byte((0.5 + pixels / (2. * spread)) * 255.));
-        }
-    }
-    bytes
+    Ok(super::raster::coverage(
+        &outline,
+        UVec2::new(width, height),
+        Vec2::ZERO,
+    ))
 }
 
 /// Copies a rectangle's rows, top row first, into the atlas with the top row on the highest row.

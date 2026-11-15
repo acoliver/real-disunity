@@ -38,7 +38,10 @@ After an intentional ABI change:
    revision in `DISUNITY_ABI_VERSION`. The build generates that number into
    `native.g.rs` (and its numbered parts) and `NativeLayouts.g.cs` (`NativeAbi.Version`), so the runtime and
    managed checks never repeat it. If those files drift too, copy them the same way.
-   Revision 10 carries optional BL/BR/TR/TL linear RGBA corner multipliers in
+   Revision 11 carries distance mode (0 coverage, 1 fill, 2 outline, 3 glow),
+   atlas-pixel spread, physical-pixel effect radius and linear effect RGBA in the
+   152-byte `DisunityUiDraw`. Distance draws require textured affine text quads.
+   The record also carries optional BL/BR/TR/TL linear RGBA corner multipliers in
    `DisunityUiDraw`, independently of its common tint. Its presence flag is 0 or 1,
    and all channels must be finite and in 0..=1. Native and managed hosts reject
    mismatched revisions. Rebuild all peers.

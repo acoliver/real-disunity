@@ -431,7 +431,7 @@ layout-local Y-up text coordinates. `UiDrawList` converts once into the existing
 `UiDraw` BL/BR/TR/TL lower-left geometry. It borrows the existing `FontBook`;
 finished presentations retain only owned/shared resources. See the
 [user API and example](../../docs/immediate-ui.md) for shapes, images, frames,
-clip/modifier stacks, stretching and coverage shadows.
+clip/modifier stacks, stretching, shadows and distance effects.
 
 Every quad has a checked distinct hierarchy key, including frame patches and
 all shadow glyphs before the foreground glyphs. The fixed layer/order and
@@ -474,9 +474,28 @@ UTF-8 independently of the font shaping subset and perform no font substitution.
 `layout_with_raster` includes `GlyphRaster { mode, padding }` in the cache key.
 Coverage with zero padding is the `layout` entry point and preserves existing
 raster bytes. Coverage padding expands ink bounds without changing metrics.
-FontBook distance rasterization returns `UnsupportedRaster`; the independent
-caller-atlas FaceBook distance API remains available. The immediate list only
-publishes None and Shadow effects. Outline/glow have no public variants here.
+FontBook SDF layout and caller-atlas FaceBook rendering share bounded 4x coverage
+and `sdf::signed_distance` encoding. FontBook keeps top-row-first atlas bytes;
+FaceBook reverses rows when writing a caller's bottom-row-first atlas. FontBook SDF
+requires positive padding of at most 127; padded glyph sides are at most 256.
+Oversampled sides stay at most 1024. Scratch is checked before allocation as
+465 bytes per padded output pixel, capped at
+`465 * min(256*256, max_atlas_pixels)`; atlas storage is charged separately.
+One sampling-gutter pixel surrounds each drawable padded SDF rectangle.
+Coverage with no effect remains byte-identical.
+
+`UiTextEffect::Outline { color, size }` and `Glow { color, size }` use finite
+nonnegative sizes in final physical screen pixels. Zero emits ordinary coverage.
+A positive effect emits one padded Text quad per glyph, with fill/effect masks
+combined by the existing overlay shader before straight-alpha composition.
+There is no second text pass or atlas. Glyph order is unchanged, so later glyph
+halos paint over earlier glyphs. Effect RGB uses effect/global RGB, independently
+of run/span RGB; alpha inherits run/span/global alpha exactly once.
+Padding/spread is `ceil((size+2)/min_scale)+1`, independent of measurement.
+Excessive spread, side or scratch requests return `DistanceFieldLimit`; malformed
+sizes return `InvalidTextEffect`. Rotation is supported. Nonuniform stretching
+uses the smaller geometric scale, an approximation that can widen bands in the
+stretched direction. See the user guide for the masks and antialias definition.
 Glyph coverage identities are frame-local and deduplicated by shared atlas
 allocation. Only referenced atlases are retained; repeated submissions still
 charge their input characters. Images and glyphs use separate identity
@@ -485,7 +504,10 @@ namespaces, so equal numeric IDs are valid.
 The CPU `ui_draw_list` and `ui_measure` fixtures cover geometry, mirrored partial
 tiles, painter order, clipping, colour inheritance, limits, shared coverage,
 metric/ink differences, UTF-8 ranges and placement. No GPU is needed for these
-fixtures. The list adds no ABI transport fields or revision change.
+fixtures. `ui_distance` checks shared row conversion, cache/atlas identity,
+size/scratch/vertex/character limits, failure atomicity, tint and transform records.
+GPU fixtures live under the retained overlay draw-list tests and require a
+separate graphics run.
 
 ## Interactive paragraph links
 
@@ -551,6 +573,27 @@ not bilinear interpolation. Triangles use their first three colours. UV flips do
 not move destination colours. Every corner channel must be finite and in 0..=1;
 overlay conversion and ABI copy-out/decode reject invalid values. Dynamic scene
 quads reject this overlay-only metadata. Scene vertex layouts remain unchanged.
+
+`UiDraw::distance_field: Option<UiDistanceStyle>` carries encoded spread in atlas
+pixels, radius in physical screen pixels, Fill/Outline/Glow mode and the fully
+modulated effect colour. None keeps ordinary texture sampling. Shared validation
+rejects invalid styles, non-Text or untextured distance draws, triangles, singular
+UVs and non-affine or collapsed pixel quads. Overlay conversion checks spread
+against radius and the atlas-to-screen mapping, even when another draw already
+resolved the atlas. Scene setters reject this overlay-only metadata.
+The overlay binds a 32-byte style uniform at group 2/binding 0 for every group,
+including an explicit ordinary record. Compatibility includes the whole style;
+mode or colour transitions cannot inherit the preceding draw's values. Both
+scene-depth variants share the same interpretation. Geometry derivatives, not
+sampled-distance derivatives, provide the minimum singular scale. Distance is
+`(alpha-0.5)*2*spread*scale`, positive inside.
+
+ABI revision 11 carries scalar distance mode/spread/radius and effect RGBA in the
+152-byte `DisunityUiDraw`. Mode 0 means coverage, 1 fill, 2 outline and 3 glow.
+Copy-out/decode validate style and geometry. Managed records and native host
+records/layout assertions are generated from those same fields; mismatched
+revisions are rejected.
+
 Soft clipping and stencil/pop-material masks remain future work. Camera/world
 text and world-space graphics use the scene path. The live 2D text append includes
 its generated underline graphics through `append_graphics` before glyph quads;

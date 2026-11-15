@@ -5,7 +5,7 @@ use worldrunner_render_plan::{
     SceneFadeReference, SceneMaterial, SceneObject, SceneTexture, threshold_texels,
 };
 
-use crate::geometry::{fade_band_meters, millimeter_to_meter, model_matrix};
+use crate::geometry::{fade_band_meters, millimeter_to_meter, millimeters_to_meters, model_matrix};
 mod span;
 use span::Span;
 
@@ -44,14 +44,17 @@ impl Fade {
         }
     }
 
-    pub fn empty(self, object: SceneObject, eye: Vec3) -> bool {
+    /// Whether no fragment of `object` survives this material's fade from `eye`. `distances`
+    /// holds the distances already measured for this placement and eye.
+    pub fn empty(self, object: SceneObject, eye: Vec3, distances: &mut Distances) -> bool {
         let Some(band) = object.fade().or(self.band) else {
             return false;
         };
         if !eye.is_finite() {
             return false;
         }
-        self.empty_at(self.distance(object, eye), fade_band_meters(band))
+        let distance = distances.measure(self.reference, || self.distance(object, eye));
+        self.empty_at(distance, fade_band_meters(band))
     }
 
     fn empty_at(self, distance: Span, mut band: [f32; 2]) -> bool {
@@ -95,28 +98,62 @@ impl Fade {
     }
 
     fn distance(self, object: SceneObject, eye: Vec3) -> Span {
+        let mut eye = eye.to_array().map(Span::point);
+        let Some(authored) = self.reference else {
+            // The model matrix's translation, without building the matrix: only an authored
+            // reference offset needs its rotation and scale.
+            let origin = millimeters_to_meters(object.transform().position_millimeters);
+            return Span::length(std::array::from_fn(|axis| {
+                eye[axis].sub(Span::point(origin[axis]))
+            }));
+        };
         let model = model_matrix(object.transform());
         let mut reference = model.w_axis.truncate().to_array().map(Span::point);
-        let mut eye = eye.to_array().map(Span::point);
-        if let Some(authored) = self.reference {
-            let local = authored
-                .offset_millimeters()
-                .map(|v| Span::point(millimeter_to_meter(i64::from(v))));
-            let linear = [model.x_axis, model.y_axis, model.z_axis].map(|v| v.to_array());
-            for axis in 0..3 {
-                reference[axis] = Span::sum4([
-                    reference[axis],
-                    Span::point(linear[0][axis]).mul(local[0]),
-                    Span::point(linear[1][axis]).mul(local[1]),
-                    Span::point(linear[2][axis]).mul(local[2]),
-                ]);
-            }
-            if let Some(clamp) = authored.eye_vertical_clamp_millimeters() {
-                eye[2] = eye[2]
-                    .maximum(reference[2].add(Span::point(millimeter_to_meter(i64::from(clamp)))));
-            }
+        let local = authored
+            .offset_millimeters()
+            .map(|v| Span::point(millimeter_to_meter(i64::from(v))));
+        let linear = [model.x_axis, model.y_axis, model.z_axis].map(|v| v.to_array());
+        for axis in 0..3 {
+            reference[axis] = Span::sum4([
+                reference[axis],
+                Span::point(linear[0][axis]).mul(local[0]),
+                Span::point(linear[1][axis]).mul(local[1]),
+                Span::point(linear[2][axis]).mul(local[2]),
+            ]);
+        }
+        if let Some(clamp) = authored.eye_vertical_clamp_millimeters() {
+            eye[2] = eye[2]
+                .maximum(reference[2].add(Span::point(millimeter_to_meter(i64::from(clamp)))));
         }
         Span::length(std::array::from_fn(|axis| eye[axis].sub(reference[axis])))
+    }
+}
+
+/// One placement's distances from one eye, per fade reference, so the materials it draws
+/// with measure each distance once.
+#[derive(Debug, Default)]
+pub(crate) struct Distances {
+    origin: Option<Span>,
+    referenced: Option<(SceneFadeReference, Span)>,
+}
+
+impl Distances {
+    fn measure(
+        &mut self,
+        reference: Option<SceneFadeReference>,
+        distance: impl FnOnce() -> Span,
+    ) -> Span {
+        match reference {
+            None => *self.origin.get_or_insert_with(distance),
+            Some(reference) => match self.referenced {
+                Some((stored, span)) if stored == reference => span,
+                _ => {
+                    let span = distance();
+                    self.referenced = Some((reference, span));
+                    span
+                }
+            },
+        }
     }
 }
 

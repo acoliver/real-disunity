@@ -49,7 +49,6 @@ internal static class CommandBufferTests
         var material = new Material(Material.SpriteLit);
         var probes = new (string Member, Action Call)[]
         {
-            ("DrawMeshInstancedIndirect", () => buffer.DrawMeshInstancedIndirect(new Mesh(), 0, material, 0, new ComputeBuffer(1, 4), 0, new MaterialPropertyBlock())),
             ("SetViewport", () => buffer.SetViewport(new Rect(0, 0, 1, 1))),
         };
         foreach (var (member, call) in probes)

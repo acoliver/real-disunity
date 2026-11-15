@@ -80,6 +80,7 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             submesh,
             pass,
             block,
+            instances,
         } => {
             WORK_DRAW_MESH.write(out)?;
             mesh.write(out)?;
@@ -87,6 +88,7 @@ pub(super) fn write_context(work: &OffscreenWork, out: &mut Writer) -> Result<()
             material.write(out)?;
             submesh.write(out)?;
             pass.write(out)?;
+            instances.write(out)?;
             block.write(out)
         }
         OffscreenWork::DrawProcedural {
@@ -145,6 +147,7 @@ pub(super) fn read_context(kind: u8, input: &mut Reader<'_>) -> Result<Offscreen
             material: Wire::read(input)?,
             submesh: Wire::read(input)?,
             pass: Wire::read(input)?,
+            instances: Wire::read(input)?,
             block: Wire::read(input)?,
         }),
         WORK_DRAW_PROCEDURAL => Ok(OffscreenWork::DrawProcedural {

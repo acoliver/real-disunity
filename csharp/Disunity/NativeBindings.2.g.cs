@@ -723,6 +723,17 @@ namespace Disunity.Native
         [DllImport(__DllName, EntryPoint = "disunity_material_set_pass", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_set_pass(ulong world, ulong material, uint pass);
         /// <summary>
+        ///  Binds the compute buffer `buffer` to the property `name` of a material as a structured
+        ///  buffer, replacing the buffer bound to the name. A `buffer` of 0 removes the binding. A buffer
+        ///  that is not alive is refused and the material is unchanged. Draws of the material read the
+        ///  buffer's contents when the host draws.
+        ///
+        ///  # Safety
+        ///  `name` spans `length` readable bytes.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_material_set_buffer", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_material_set_buffer(ulong world, ulong material, byte* name, uint length, ulong buffer);
+        /// <summary>
         ///  # Safety
         ///  `output` is writable for one record.
         /// </summary>
@@ -734,13 +745,5 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_material_read", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_material_read(ulong world, ulong material, DisunityMaterialInfo* output);
-        /// <summary>
-        ///  Creates a render texture and writes its id.
-        ///
-        ///  # Safety
-        ///  `desc` is readable for one record; `output` is writable for one id.
-        /// </summary>
-        [DllImport(__DllName, EntryPoint = "disunity_render_texture_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern DisunityResult disunity_render_texture_create(ulong world, DisunityRenderTexture* desc, ulong* output);
     }
 }

@@ -251,6 +251,9 @@ pub(super) fn list_step(
         else {
             continue;
         };
+        if item.instances == 0 {
+            continue;
+        }
         let look = Look {
             selector: &item.pass,
             values: &list.values,
@@ -258,7 +261,10 @@ pub(super) fn list_step(
             globals,
             signature,
         };
-        if let Some(draw) = planned_draw(svc, frame, &look, (material, item.renderer, item.slot))? {
+        if let Some(mut draw) =
+            planned_draw(svc, frame, &look, (material, item.renderer, item.slot))?
+        {
+            draw.geometry.instances = 0..item.instances;
             draws.push(draw);
         }
     }

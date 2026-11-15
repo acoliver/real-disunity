@@ -35,6 +35,7 @@ fn draw(material: MaterialId) -> OffscreenWork {
         submesh: 2,
         pass: -1,
         block: None,
+        instances: 1,
     }
 }
 
@@ -62,6 +63,7 @@ fn mesh_draws_are_recorded_in_call_order_and_taken_with_the_frame() {
             submesh: 0,
             pass: 3,
             block: None,
+            instances: 1,
         },
     ];
     for record in records.clone() {
@@ -88,6 +90,7 @@ fn a_matrix_value_that_is_not_finite_is_refused() {
             submesh: 0,
             pass: 0,
             block: None,
+            instances: 1,
         };
         assert_eq!(
             graphics_error(world.record_offscreen(record)),
@@ -120,6 +123,7 @@ fn a_zero_mesh_identity_and_a_pass_below_minus_one_are_refused() {
         submesh: 0,
         pass: 0,
         block: None,
+        instances: 1,
     };
     assert_eq!(
         graphics_error(world.record_offscreen(zero)),
@@ -132,6 +136,7 @@ fn a_zero_mesh_identity_and_a_pass_below_minus_one_are_refused() {
         submesh: 0,
         pass: -2,
         block: None,
+        instances: 1,
     };
     assert_eq!(
         graphics_error(world.record_offscreen(low)),
@@ -144,6 +149,7 @@ fn a_zero_mesh_identity_and_a_pass_below_minus_one_are_refused() {
         submesh: 0,
         pass: -1,
         block: None,
+        instances: 1,
     };
     world.record_offscreen(accepted).unwrap();
     assert_eq!(world.offscreen_work().len(), 1);
@@ -158,10 +164,11 @@ fn the_wire_carries_every_field_under_tag_sixteen() {
         submesh: 9,
         pass: -1,
         block: None,
+        instances: 7,
     };
     let bytes = encode_work(&record).unwrap();
     assert_eq!(bytes[0], 16);
-    assert_eq!(bytes.len(), 1 + 8 + 16 * 4 + 8 + 4 + 4 + 1);
+    assert_eq!(bytes.len(), 1 + 8 + 16 * 4 + 8 + 4 + 4 + 4 + 1);
     assert_eq!(decode_work(&bytes).unwrap(), record);
     assert!(decode_work(&bytes[..bytes.len() - 1]).is_err());
 }
@@ -213,6 +220,7 @@ fn a_draw_with_a_property_block_is_recorded_and_carried_with_every_value() {
         submesh: 0,
         pass: 1,
         block: Some(Box::new(every_kind())),
+        instances: 1,
     };
     world.record_offscreen(record.clone()).unwrap();
     assert_eq!(world.offscreen_work(), std::slice::from_ref(&record));
@@ -251,6 +259,7 @@ fn a_block_that_names_a_gone_render_texture_or_no_texture_is_refused() {
             submesh: 0,
             pass: 0,
             block: Some(Box::new(block)),
+            instances: 1,
         }
     };
     let gone =
@@ -294,8 +303,49 @@ fn a_draw_names_the_render_textures_its_block_reads() {
         submesh: 0,
         pass: 0,
         block: Some(Box::new(block)),
+        instances: 1,
     };
     assert!(with.names_render_texture(named));
     assert!(!with.names_render_texture(other));
     assert!(!draw(material).names_render_texture(named));
+}
+
+fn instanced(material: MaterialId, instances: u32) -> OffscreenWork {
+    OffscreenWork::DrawMesh {
+        mesh: 1 << 41,
+        matrix: matrix(1.0),
+        material,
+        submesh: 0,
+        pass: 0,
+        block: None,
+        instances,
+    }
+}
+
+#[test]
+fn a_draw_records_how_many_instances_it_makes_and_a_zero_count_keeps_its_place() {
+    let mut world = world();
+    let material = material(&mut world);
+    let records = vec![
+        instanced(material, 1),
+        instanced(material, 0),
+        instanced(material, 7),
+    ];
+    for record in records.clone() {
+        world.record_offscreen(record).unwrap();
+    }
+    assert_eq!(world.take_offscreen(), records);
+}
+
+#[test]
+fn the_wire_round_trips_the_instance_count_of_a_draw() {
+    let material = MaterialId::from_bits(0x0000_0003_0000_0002);
+    for count in [0, 1, 7, u32::MAX] {
+        let record = instanced(material, count);
+        let bytes = encode_work(&record).unwrap();
+        assert_eq!(decode_work(&bytes).unwrap(), record, "{count} instances");
+    }
+    let one = encode_work(&instanced(material, 1)).unwrap();
+    let many = encode_work(&instanced(material, 0x0102_0304)).unwrap();
+    assert_ne!(one, many, "the count is part of the encoding");
 }

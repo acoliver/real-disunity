@@ -1,7 +1,8 @@
 //! Materials and the global shader state.
-use super::properties::check_name;
+use super::properties::{check_name, upsert};
 use super::{
-    GraphicsError, MaterialId, PropertyValue, ShaderId, ShaderProperties, TextureRef, TextureSlot,
+    ComputeBufferId, GraphicsError, MaterialId, PropertyValue, ShaderId, ShaderProperties,
+    TextureRef, TextureSlot,
 };
 use crate::{World, WorldError};
 
@@ -19,6 +20,9 @@ pub struct WorldMaterial {
     /// The passes switched off, by `LightMode`, sorted.
     pub disabled_passes: Vec<String>,
     pub properties: ShaderProperties,
+    /// The structured buffers bound to shader properties by name, sorted by name. A buffer's
+    /// contents are the compute buffer's, read when a draw runs.
+    pub buffers: Vec<(String, ComputeBufferId)>,
     pub generation: u64,
 }
 
@@ -37,7 +41,13 @@ pub enum MaterialEdit {
         enabled: bool,
     },
     Property(PropertyValue),
-    /// Removes every property value; keywords and passes stay.
+    /// Binds a live compute buffer to a property name as a structured buffer, replacing the one
+    /// bound to it, or removes the binding when `buffer` is `None`.
+    Buffer {
+        name: String,
+        buffer: Option<ComputeBufferId>,
+    },
+    /// Removes every property value and buffer binding; keywords and passes stay.
     ClearProperties,
 }
 
@@ -98,6 +108,7 @@ impl World {
             keywords: Vec::new(),
             disabled_passes: Vec::new(),
             properties: ShaderProperties::default(),
+            buffers: Vec::new(),
             generation: 1,
         };
         Ok(MaterialId(self.graphics.materials.insert(material)?))
@@ -122,10 +133,33 @@ impl World {
                 switch_name(&mut material.disabled_passes, &name, !enabled)?;
             }
             MaterialEdit::Property(value) => material.properties.set(value)?,
-            MaterialEdit::ClearProperties => material.properties = ShaderProperties::default(),
+            MaterialEdit::Buffer {
+                name,
+                buffer: Some(buffer),
+            } => upsert(&mut material.buffers, name, buffer)?,
+            MaterialEdit::Buffer { name, buffer: None } => {
+                material.buffers.retain(|(held, _)| *held != name);
+            }
+            MaterialEdit::ClearProperties => {
+                material.properties = ShaderProperties::default();
+                material.buffers.clear();
+            }
         }
         material.generation += 1;
         Ok(())
+    }
+
+    /// Binds a live compute buffer to a property name of a material as a structured buffer,
+    /// replacing the buffer bound to the name, or removes the binding when `buffer` is `None`.
+    /// A buffer that is not alive, or a name that is empty or over 256 bytes, is refused and the
+    /// material stays as it was.
+    pub fn set_material_buffer(
+        &mut self,
+        id: MaterialId,
+        name: String,
+        buffer: Option<ComputeBufferId>,
+    ) -> Result<(), WorldError> {
+        self.edit_material(id, MaterialEdit::Buffer { name, buffer })
     }
 
     /// Checks what an edit names before the material is touched.
@@ -135,6 +169,12 @@ impl World {
                 self.shader(*shader)?;
             }
             MaterialEdit::Property(value) => self.check_property(value)?,
+            MaterialEdit::Buffer { name, buffer } => {
+                check_name(name)?;
+                if let Some(buffer) = buffer {
+                    self.compute_buffer(*buffer)?;
+                }
+            }
             MaterialEdit::RenderQueue(_)
             | MaterialEdit::Keyword { .. }
             | MaterialEdit::Pass { .. }

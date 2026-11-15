@@ -36,6 +36,7 @@ fn item(renderer: u64, material: Option<u64>) -> ListDraw {
         slot: 0,
         material: material.map(MaterialId),
         pass: alpha(),
+        instances: 1,
     }
 }
 
@@ -89,6 +90,24 @@ fn a_list_draws_its_items_over_what_the_target_holds() {
             assert_eq!(pixel(&image, 8, (x + 4, y)), CLEAR, "right ({x}, {y})");
         }
     }
+}
+
+#[test]
+fn a_list_item_of_no_instances_draws_nothing_and_its_neighbours_still_draw() {
+    let mut rig = Rig::new();
+    let none = ListDraw {
+        instances: 0,
+        ..item(1, None)
+    };
+    let records = vec![list(whole(TARGET), vec![none, item(2, None)])];
+    let frame = frame_of(&mut rig, records);
+    let image = render(&mut rig, &frame);
+    assert_eq!(
+        pixel(&image, 8, (1, 3)),
+        ZERO,
+        "the left renderer has no instances"
+    );
+    assert_eq!(pixel(&image, 8, (6, 3)), BLUE, "the right renderer draws");
 }
 
 #[test]

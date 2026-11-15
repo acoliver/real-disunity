@@ -183,11 +183,12 @@ impl Mapper<'_> {
                 submesh,
                 pass,
                 block,
+                instances,
             } => self.draw_mesh(
                 (*mesh, *submesh),
                 matrix,
                 (*material, *pass),
-                block.as_deref(),
+                (block.as_deref(), *instances),
             ),
             OffscreenWork::DrawProcedural {
                 matrix,

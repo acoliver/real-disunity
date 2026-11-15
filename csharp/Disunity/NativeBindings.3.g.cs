@@ -11,6 +11,14 @@ namespace Disunity.Native
     internal static unsafe partial class NativeBindings
     {
         /// <summary>
+        ///  Creates a render texture and writes its id.
+        ///
+        ///  # Safety
+        ///  `desc` is readable for one record; `output` is writable for one id.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_render_texture_create", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_render_texture_create(ulong world, DisunityRenderTexture* desc, ulong* output);
+        /// <summary>
         ///  Replaces a render texture's description and raises its generation.
         ///
         ///  # Safety
@@ -177,6 +185,15 @@ namespace Disunity.Native
         /// </summary>
         [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
         internal static extern DisunityResult disunity_offscreen_draw_mesh(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass);
+        /// <summary>
+        ///  Records the draw of `disunity_offscreen_draw_mesh` that makes `instances` instances of the
+        ///  sub-mesh. A count of 0 is a draw of nothing that keeps its place among the frame's records.
+        ///
+        ///  # Safety
+        ///  `matrix` is readable for 16 floats.
+        /// </summary>
+        [DllImport(__DllName, EntryPoint = "disunity_offscreen_draw_mesh_instanced", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+        internal static extern DisunityResult disunity_offscreen_draw_mesh_instanced(ulong world, ulong mesh, float* matrix, ulong material, uint submesh, int pass, uint instances);
         /// <summary>
         ///  Records a draw of `vertex_count` generated vertices, `instance_count` times, with `matrix`
         ///  (16 floats, column-major) and the `material`'s `pass` (-1 for every pass), into the bound

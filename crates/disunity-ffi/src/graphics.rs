@@ -10,8 +10,8 @@ use crate::{
 use worldrunner_world_simulation::{
     MAX_RENDERER_MATERIALS,
     graphics::{
-        MaterialEdit, MaterialId, RenderTextureId, ShaderId, ShaderSource, WorldRenderTexture,
-        WorldSampler, WorldShader,
+        ComputeBufferId, MaterialEdit, MaterialId, RenderTextureId, ShaderId, ShaderSource,
+        WorldRenderTexture, WorldSampler, WorldShader,
     },
 };
 
@@ -249,6 +249,30 @@ pub extern "C" fn disunity_material_set_pass(
     mutate(world, |s| {
         s.native
             .set_active_pass(MaterialId::from_bits(material), pass)?;
+        Ok(())
+    })
+}
+
+/// Binds the compute buffer `buffer` to the property `name` of a material as a structured
+/// buffer, replacing the buffer bound to the name. A `buffer` of 0 removes the binding. A buffer
+/// that is not alive is refused and the material is unchanged. Draws of the material read the
+/// buffer's contents when the host draws.
+///
+/// # Safety
+/// `name` spans `length` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_material_set_buffer(
+    world: u64,
+    material: u64,
+    name: *const u8,
+    length: u32,
+    buffer: u64,
+) -> DisunityResult {
+    mutate(world, |s| {
+        let name = unsafe { text(name, length) }?;
+        let buffer = (buffer != 0).then(|| ComputeBufferId::from_bits(buffer));
+        s.native
+            .set_material_buffer(MaterialId::from_bits(material), name, buffer)?;
         Ok(())
     })
 }

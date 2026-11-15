@@ -88,6 +88,7 @@ wire_struct!(WorldMaterial {
     keywords,
     disabled_passes,
     properties,
+    buffers,
     generation
 });
 wire_struct!(GlobalShaderState {

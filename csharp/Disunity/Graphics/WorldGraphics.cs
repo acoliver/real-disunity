@@ -86,6 +86,14 @@ internal static unsafe partial class WorldGraphics
         fixed (byte* pointer = bytes) Check(NativeBindings.disunity_shader_keyword_write(target.World, scope, target.Id, pointer, (uint)bytes.Length, enabled ? 1u : 0u));
     }
 
+    /// <summary>Binds the world's compute buffer <paramref name="buffer"/> to a property name of a material as a structured buffer; 0
+    /// removes the binding.</summary>
+    internal static void WriteMaterialBuffer(Link material, string name, ulong buffer)
+    {
+        var bytes = Encoding.UTF8.GetBytes(name);
+        fixed (byte* pointer = bytes) Check(NativeBindings.disunity_material_set_buffer(material.World, material.Id, pointer, (uint)bytes.Length, buffer));
+    }
+
     internal static void ClearProperties(uint scope, Link target) => Check(NativeBindings.disunity_shader_properties_clear(target.World, scope, target.Id));
 
     /// <summary>Sends the current value of property <paramref name="id"/> of <paramref name="store"/>.</summary>

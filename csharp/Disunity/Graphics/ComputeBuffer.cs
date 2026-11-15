@@ -34,6 +34,17 @@ public sealed class ComputeBuffer : IDisposable
         (this.count, this.stride, _type) = (count, stride, type);
     }
 
+    /// <summary>Whether the buffer was ever bound to a compute kernel. A kernel may write a buffer it is bound to, and nothing here
+    /// tells whether it did, so the contents the CPU wrote may not be current once this is true.</summary>
+    internal bool BoundToKernel { get; private set; }
+
+    /// <summary>Notes that a compute kernel has the buffer bound.</summary>
+    internal void NoteKernelBinding() => BoundToKernel = true;
+
+    /// <summary>Reads bytes at <paramref name="byteOffset"/> from the contents the world holds for the CPU, without the GPU flush
+    /// that <see cref="GetData(Array)"/> runs first, so a recorded command can read them while the buffer that holds it runs.</summary>
+    internal void ReadWritten(long byteOffset, Span<byte> destination) => WorldCompute.ReadBuffer(WorldLink, byteOffset, destination);
+
     public int count { get; }
 
     public int stride { get; }

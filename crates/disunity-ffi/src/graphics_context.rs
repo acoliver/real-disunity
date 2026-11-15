@@ -140,6 +140,35 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh(
     submesh: u32,
     pass: i32,
 ) -> DisunityResult {
+    unsafe { draw_mesh(world, (mesh, matrix), material, (submesh, pass, 1)) }
+}
+
+/// Records the draw of `disunity_offscreen_draw_mesh` that makes `instances` instances of the
+/// sub-mesh. A count of 0 is a draw of nothing that keeps its place among the frame's records.
+///
+/// # Safety
+/// `matrix` is readable for 16 floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn disunity_offscreen_draw_mesh_instanced(
+    world: u64,
+    mesh: u64,
+    matrix: *const f32,
+    material: u64,
+    submesh: u32,
+    pass: i32,
+    instances: u32,
+) -> DisunityResult {
+    unsafe { draw_mesh(world, (mesh, matrix), material, (submesh, pass, instances)) }
+}
+
+/// # Safety
+/// `matrix` is readable for 16 floats.
+unsafe fn draw_mesh(
+    world: u64,
+    (mesh, matrix): (u64, *const f32),
+    material: u64,
+    (submesh, pass, instances): (u32, i32, u32),
+) -> DisunityResult {
     mutate(world, |s| {
         let block = std::mem::take(&mut s.draw_block);
         if matrix.is_null() {
@@ -157,6 +186,7 @@ pub unsafe extern "C" fn disunity_offscreen_draw_mesh(
             submesh,
             pass,
             block: (!block.is_empty()).then(|| Box::new(block)),
+            instances,
         })?;
         Ok(())
     })

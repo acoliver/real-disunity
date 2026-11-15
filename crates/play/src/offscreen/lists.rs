@@ -344,6 +344,7 @@ impl<'a> Mapper<'a> {
                     slot: candidate.slot,
                     material: replacement,
                     pass: selector.clone(),
+                    instances: 1,
                 }
             })
             .collect()

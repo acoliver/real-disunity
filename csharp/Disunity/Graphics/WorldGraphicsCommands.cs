@@ -116,14 +116,15 @@ internal static unsafe partial class WorldGraphics
         }
     }
 
-    /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it.</summary>
-    internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, int submesh, int pass)
+    /// <summary>Records a draw of a stored mesh (its renderer identity) with the matrix column by column, as the world holds it, and
+    /// <paramref name="instances"/> instances of the sub-mesh; none is a draw of nothing that keeps its place.</summary>
+    internal static void RecordDrawMesh(ulong mesh, Matrix4x4 matrix, ulong material, (int Submesh, int Pass) draw, uint instances)
     {
         var columns = stackalloc float[16];
         for (var column = 0; column < 4; column++)
             for (var row = 0; row < 4; row++)
                 columns[column * 4 + row] = matrix[row, column];
-        Check(NativeBindings.disunity_offscreen_draw_mesh(World, mesh, columns, material, (uint)submesh, pass));
+        Check(NativeBindings.disunity_offscreen_draw_mesh_instanced(World, mesh, columns, material, (uint)draw.Submesh, draw.Pass, instances));
     }
 
     /// <summary>Records a draw of generated vertices with the matrix column by column, as the world holds it. Topology 0 is a

@@ -30,7 +30,7 @@ impl FrameRenderer {
             .ssao
             .as_ref()
             .is_some_and(|screen| screen.geometry.gbuffer.is_some());
-        if !(complete && produced) {
+        if !(produced && (complete || gbuffer.renders())) {
             if gbuffer.renders() {
                 return Err(FrameError::FeaturePreparation {
                     feature: "opaque G-buffer",

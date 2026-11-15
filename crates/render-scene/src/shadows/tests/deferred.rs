@@ -66,26 +66,21 @@ pub(super) fn capture(
     view: &SceneView,
     path: SceneOpaquePath,
 ) -> Result<Captured, ShadowError> {
-    let size = [view.viewport().width, view.viewport().height];
-    let effects = source
-        .effects()
-        .unwrap()
-        .clone()
-        .with_opaque_path(path)
-        .unwrap();
-    let mut frame = FrameRenderer::hdr(
-        context,
-        size,
-        OffscreenTarget::COLOR_FORMAT,
-        1,
-        ToneMap::Reinhard,
-        Some(&effects),
-    )
-    .unwrap();
+    capture_with_settings(context, source, view, path, settings())
+}
+
+pub(super) fn capture_with_settings(
+    context: &GpuContext,
+    source: &RenderScene,
+    view: &SceneView,
+    path: SceneOpaquePath,
+    shadows: DirectionalShadowSettings,
+) -> Result<Captured, ShadowError> {
+    let mut frame = frame(context, source, view, path);
     let mut renderer = ShadowedScene::with_target(
         context,
         source,
-        settings(),
+        shadows,
         wgpu::TextureFormat::Rgba16Float,
         1,
     )
@@ -115,7 +110,34 @@ pub(super) fn capture(
     output.encode_readback(&mut encoder).unwrap();
     let submission = encoder.finish().submit().unwrap();
     output.read_encoded(context, submission).unwrap();
-    Ok(Captured {
+    Ok(captured(context, &frame))
+}
+
+pub(super) fn frame(
+    context: &GpuContext,
+    source: &RenderScene,
+    view: &SceneView,
+    path: SceneOpaquePath,
+) -> FrameRenderer {
+    let effects = source
+        .effects()
+        .unwrap()
+        .clone()
+        .with_opaque_path(path)
+        .unwrap();
+    FrameRenderer::hdr(
+        context,
+        [view.viewport().width, view.viewport().height],
+        OffscreenTarget::COLOR_FORMAT,
+        1,
+        ToneMap::Reinhard,
+        Some(&effects),
+    )
+    .unwrap()
+}
+
+pub(super) fn captured(context: &GpuContext, frame: &FrameRenderer) -> Captured {
+    Captured {
         colour: read(context, frame.targets().texture()),
         lit: frame
             .feature_target(FeatureTarget::DeferredLighting(LightingTarget::Colour))
@@ -128,7 +150,7 @@ pub(super) fn capture(
                     .map(|code| u16::from_le_bytes([code[0], code[1]]))
                     .collect()
             }),
-    })
+    }
 }
 
 #[test]

@@ -177,26 +177,7 @@ impl ShadowedScene {
         state: &mut SceneDepthFitting,
     ) -> Result<Option<AdoptedFit>, ShadowError> {
         let (source_frame, terms) = frame;
-        if source_frame < state.next_frame {
-            return Err(SdsmError::FrameIdentity.into());
-        }
-        let requested = u32::try_from(self.effects.shadows().extents_millimeters().len())
-            .expect("four cascades");
-        if requested != self.map.depth.layers() {
-            return Err(SdsmError::CascadeLayers {
-                allocated: self.map.depth.layers(),
-                requested,
-            }
-            .into());
-        }
-        state.select_time(self.scheduler.selected_time);
-        self.scheduler.prepare_receiver_gradients(
-            context.device(),
-            &self.gpu,
-            self.settings.normal_bias_meters,
-        )?;
-        self.scheduler
-            .prepare_scene_inputs(context.device(), &self.gpu);
+        self.prepare_sdsm_producers(context, attachments.1, source_frame, state)?;
         let metadata = state.bind(context, &self.scheduler, attachments.0.size())?;
         let frame = self
             .scheduler
@@ -238,6 +219,45 @@ impl ShadowedScene {
         result
     }
 
+    fn prepare_sdsm_producers(
+        &mut self,
+        context: &GpuContext,
+        depth: &AttachmentView,
+        source_frame: u64,
+        state: &mut SceneDepthFitting,
+    ) -> Result<(), ShadowError> {
+        if source_frame < state.next_frame {
+            return Err(SdsmError::FrameIdentity.into());
+        }
+        let requested = u32::try_from(self.effects.shadows().extents_millimeters().len())
+            .expect("four cascades");
+        if requested != self.map.depth.layers() {
+            return Err(SdsmError::CascadeLayers {
+                allocated: self.map.depth.layers(),
+                requested,
+            }
+            .into());
+        }
+        self.scheduler.validate_opaque_depth(depth)?;
+        self.scheduler
+            .validate_opaque_normal_bias(self.settings.normal_bias_meters)?;
+        state.select_time(self.scheduler.selected_time);
+        self.scheduler.prepare_receiver_gradients(
+            context.device(),
+            &self.gpu,
+            self.settings.normal_bias_meters,
+        )?;
+        self.scheduler
+            .prepare_scene_inputs(context.device(), &self.gpu);
+        let depth = self.scheduler.forward_depth(&self.gpu, depth);
+        let selected = self.scheduler.receiver_pipelines(&self.pipelines, depth);
+        let velocity = selected.writes_velocity();
+        self.scheduler
+            .match_producer_velocity(context.device(), velocity);
+        self.gpu.track_previous_transforms(velocity);
+        Ok(())
+    }
+
     fn capture_contract(
         &mut self,
         input: &RenderInput<'_>,
@@ -265,7 +285,28 @@ impl ShadowedScene {
         for term in input.terms {
             suffix.extend(self.scheduler.capture_texture_keys(&term.textures())?);
         }
-        let prefix = scene_keys;
+        let mut prefix = scene_keys;
+        if self
+            .scheduler
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders)
+        {
+            let velocity = self.scheduler.targets().velocity_texture().cloned();
+            let textures: Vec<_> = velocity.as_ref().into_iter().collect();
+            prefix.extend(self.scheduler.capture_texture_keys(&textures)?);
+        }
+        let metadata = self.capture_metadata_keys(input)?;
+        let scene_depth = self
+            .scheduler
+            .capture_texture_keys(&[input.attachments.1.texture()])?[0];
+        Ok(capture_writes(prefix, suffix, metadata, scene_depth, key).map_err(SdsmError::from)?)
+    }
+
+    fn capture_metadata_keys(
+        &mut self,
+        input: &RenderInput<'_>,
+    ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, ShadowError> {
         // With reflections installed the prefix prepass also writes the reflection material.
         let material = self
             .scheduler
@@ -278,14 +319,37 @@ impl ShadowedScene {
             input.metadata.passes.depth_levels()[0],
         ];
         written.extend(material.as_ref());
+        let gbuffer_textures: Vec<_> = self
+            .scheduler
+            .gbuffer
+            .as_ref()
+            .filter(|gbuffer| gbuffer.renders())
+            .into_iter()
+            .flat_map(|gbuffer| gbuffer.written_textures().cloned())
+            .collect();
+        written.extend(gbuffer_textures.iter());
         if let Some(receiver) = &input.metadata.receiver {
             written.extend(receiver.textures.iter());
         }
-        let metadata = self.scheduler.capture_texture_keys(&written)?;
-        let scene_depth = self
-            .scheduler
-            .capture_texture_keys(&[input.attachments.1.texture()])?[0];
-        Ok(capture_writes(prefix, suffix, metadata, scene_depth, key).map_err(SdsmError::from)?)
+        Ok(self.scheduler.capture_texture_keys(&written)?)
+    }
+
+    fn encode_fitted_prefix(
+        &mut self,
+        input: &RenderInput<'_>,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> Result<(), ShadowError> {
+        self.scheduler
+            .begin_timing(input.source_frame)
+            .map_err(worldrunner_render_post::FrameError::from)?;
+        self.scheduler.encode_depth_prefix(
+            input.context.device(),
+            encoder,
+            (&mut self.gpu, &self.pipelines),
+            &input.frame,
+            &input.metadata,
+        )?;
+        Ok(())
     }
 
     fn render_capture(
@@ -312,16 +376,7 @@ impl ShadowedScene {
                 },
                 fitting.ticket(input.source_frame),
                 |encoder, _, _| {
-                    self.scheduler
-                        .begin_timing(input.source_frame)
-                        .map_err(worldrunner_render_post::FrameError::from)?;
-                    self.scheduler.encode_depth_prefix(
-                        context.device(),
-                        encoder,
-                        (&mut self.gpu, &self.pipelines),
-                        &input.frame,
-                        &input.metadata,
-                    )?;
+                    self.encode_fitted_prefix(input, encoder)?;
                     Ok::<_, ShadowError>(())
                 },
             )
@@ -379,16 +434,7 @@ impl ShadowedScene {
         let prepared = context
             .submission()
             .prepare(context.device(), |encoder, _| {
-                self.scheduler
-                    .begin_timing(input.source_frame)
-                    .map_err(worldrunner_render_post::FrameError::from)?;
-                self.scheduler.encode_depth_prefix(
-                    context.device(),
-                    encoder,
-                    (&mut self.gpu, &self.pipelines),
-                    &input.frame,
-                    &input.metadata,
-                )?;
+                self.encode_fitted_prefix(input, encoder)?;
                 pending = Some(fitting.encode(
                     context.device(),
                     encoder,

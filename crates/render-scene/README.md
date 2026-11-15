@@ -1031,33 +1031,50 @@ at depth and normal discontinuities.
 
 `SceneOpaquePath::GBUFFER_RENDER`, `experiment(Render, AllStock, Compact,
 MaterialOwnedDepth)`, makes the visible frame come from the G-buffer. It needs the
-depth prepass (screen-space AO or reflections): without it the frame is refused with
+metadata installation through screen-space AO, reflections or depth fitting. Without
+it the frame is refused with
 `FrameError::FeaturePreparation { feature: "opaque G-buffer" }` and the reason
-`rendering from the G-buffer needs the depth prepass`, and like the observation it
-refuses a multisampled frame. The frame is:
+`rendering from the G-buffer needs the depth prepass`. It refuses a multisampled
+frame. The checked scene depth must be the frame-owned depth target at its canonical
+mip and layer. A foreign depth attachment returns a named error before stock scene
+preparation, including on devices without stencil support. Forward and observation
+retain their existing checked-attachment rules. The frame is:
 
-1. The depth prepass clears and writes the scene depth, as in every prepass frame; SSAO
-   and the depth pyramid follow.
-2. `OpaqueGbuffer`: the producers store terrain, meshes and impostor cards, testing the
-   prepass depth `Equal` and writing none. When the frame's colour draws write the TAA
-   object-motion residual, the producers write it too (`@location(4)`, the same
-   residual as the forward velocity entries, zero for terrain), and the slot clears the
-   velocity target in Opaque's place.
-3. `OpaqueLighting`: the lighting pass takes Opaque's colour target and, with
-   reflections, its two reflection products, with Opaque's clears, so the lit surfaces
-   are the scene colour and SSR reads the lighting pass's environment and factor where
-   Opaque's draws wrote them before. No diagnostic lighting targets are allocated.
-4. `Opaque` loads those targets, the depth and the velocity and draws only what has no
-   producer: the sky, the celestial meshes and the dynamic meshes. Terrain and objects
-   are not drawn again.
-5. Water, transparency, SSR and post as in Forward: the after-opaque snapshot copies the
-   lit colour.
+1. `DepthNormalPrepass` clears and writes depth, G0-G3, the canonical normal and
+   coverage target, optional velocity, and optional SSR material in one terrain/object
+   geometry walk. Depth winners mark stencil when shared depth has a stencil plane.
+   Masked and relief surfaces use the material producer's coverage and fragment depth.
+2. The depth pyramid and SSAO consume those metadata targets. Same-frame depth fitting
+   submits this producer and the first depth level before adopting its fit and drawing
+   fitted shadow casters. The continuation retains the producer's physical resources,
+   velocity attachment and pending colour-draw publication. Camera selection and colour
+   draw counters publish only after the suffix succeeds. A refused suffix leaves admitted
+   player work unconsumed; the next frame starts a fresh producer publication.
+3. `OpaqueLighting` takes Opaque's colour target and, with reflections, its environment
+   and factor products, including their clears. No diagnostic lighting targets are
+   allocated and Render has no separate `OpaqueGbuffer` geometry walk.
+4. `Opaque` loads those targets, depth and velocity, and draws the sky, celestial meshes
+   and dynamic meshes. It does not draw terrain or stored objects again.
+5. Water, transparency, SSR and post use the existing suffix. The after-opaque snapshot
+   copies lit colour; post-water final SSR depth remains a separate product.
 
-The prepass stays the depth owner because it is already there in every frame that has
-producers (SSAO and SSR need it before Opaque), so the G-buffer slot adds no depth work;
-moving the depth writes into the slot would mean a second full depth pass or dropping
-the prepass's metadata outputs. Forward stays the default and draws the same bytes as
-before.
+The ordered producer outputs are G0-G3, optional `Rg16Float` velocity,
+`Rgba16Float` canonical normals, and optional `Rgba16Float` SSR material. Their
+aligned attachment charge is 34, 38, 42 or 46 bytes with five to seven attachments.
+Admission checks this composition against enabled device limits before allocation.
+Render supports Front receivers at zero normal bias. An Opposing reservation or
+nonzero shadow normal bias returns a named admission error before retained state
+changes. Front uses G3's geometric normal and reconstructed scene depth. It retains
+quad displacements within the normal's 7+7-bit octahedral quantization cone and
+replaces incompatible displacements with the current pixel's receiver-plane solve.
+The compatibility bound is `abs(dot(normal, delta)) <= sqrt(18)/127 * length(delta)`;
+it conservatively contains tangents after G3 rounding and normalization. A displacement
+across another surface can still be accepted inside that cone. The tests in
+`src/gbuffer/front_tests.rs` cover the bound across octahedral folds and axes, reject
+an outside displacement, and check the plane solve with both projection types.
+Both displacements feed the existing projected-gradient solver, without receiver-payload
+attachments. Forward remains the default; observation keeps its separate read-only
+`OpaqueGbuffer` pass.
 
 Differences from Forward: the G-buffer quantisation above; scattering materials that also have a per-pixel
 metalness keep only the scattering amount; shadow receiver-plane derivatives come from

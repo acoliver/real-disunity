@@ -16,6 +16,7 @@ struct SceneDeferredCamera {
     scene_from_clip: mat4x4<f32>,
     // Scene direction from view direction, the transpose of the producers' view_from_scene.
     scene_from_view: mat3x3<f32>,
+    receiver_policy: vec4<u32>,
 }
 
 @group(1) @binding(16) var scene_deferred_g0: texture_2d<f32>;
@@ -43,6 +44,7 @@ fn scene_deferred_position(pixel: vec2<f32>, depth: f32) -> vec3<f32> {
 
 struct SceneDeferredSurface {
     position: vec3<f32>,
+    geometric_normal: vec3<f32>,
     surface: SceneShadingSurface,
     record: SceneLightingRecord,
     // The per-pixel back-scattering amount and the emission intensity.
@@ -63,6 +65,7 @@ fn scene_deferred_surface(pixel: vec4<f32>) -> SceneDeferredSurface {
     let position = scene_deferred_position(pixel.xy, textureLoad(scene_deferred_depth, texel, 0));
     return SceneDeferredSurface(
         position,
+        stored.geometric_normal,
         SceneShadingSurface(vec4<f32>(stored.base_colour, 1.0), stored.shading_normal,
             vec3<f32>(stored.roughness, metal, stored.ao)),
         scene_lighting_records[stored.lighting_record],
@@ -71,9 +74,23 @@ fn scene_deferred_surface(pixel: vec4<f32>) -> SceneDeferredSurface {
     );
 }
 
+var<private> scene_deferred_geometric_normal: vec3<f32>;
+// The lit pixel as a rasterised fragment: pixel centre, no depth, and 1 / clip w. Front's
+// receiver-plane solve takes the forward terrain footprint's fragment.
+var<private> scene_deferred_fragment: vec4<f32>;
+var<private> scene_deferred_covered: bool;
+
+fn scene_deferred_receiver_normal(shading: vec3<f32>, geometric: vec3<f32>, renders: bool) -> vec3<f32> {
+    return select(shading, geometric, renders);
+}
+
 // Exactly the forward mesh shading after decals (scene_finish_shading), on stored values.
 fn scene_deferred_shade(pixel: vec4<f32>) -> vec4<f32> {
     let deferred = scene_deferred_surface(pixel);
+    scene_deferred_geometric_normal = deferred.geometric_normal;
+    let clip_w = dot(transpose(frame.view_projection)[3], vec4<f32>(deferred.position, 1.0));
+    scene_deferred_fragment = vec4<f32>(pixel.xy, 0.0, 1.0 / clip_w);
+    scene_deferred_covered = deferred.covered;
     // SCENE_DEFERRED_PIXEL
     let position = deferred.position;
     let normal = deferred.surface.normal;

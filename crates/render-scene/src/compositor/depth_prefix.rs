@@ -3,7 +3,25 @@ use worldrunner_render_post::{
     BorrowedFeature, FeatureDeclaration, FeaturePass, FrameError, PassSlot,
 };
 
+fn prefix_depth(
+    gpu: &crate::draw::SceneGpu,
+    source: &crate::scene_metadata::SceneMetadata,
+) -> crate::renderer::depth::DepthMode {
+    use crate::renderer::depth::DepthMode;
+    if !source.depth.format().has_stencil_aspect() {
+        DepthMode::Independent
+    } else if gpu.has_relief() && source.receiver.is_none() {
+        DepthMode::Shared
+    } else {
+        DepthMode::Reuse
+    }
+}
+
 impl FrameRenderer {
+    pub(crate) fn draw_publications(&self) -> crate::draw::DrawPublications {
+        crate::draw::DrawPublications::with_producer(self.producer_draw.clone())
+    }
+
     pub(crate) fn capture_texture_keys(
         &mut self,
         textures: &[&wgpu::Texture],
@@ -25,43 +43,15 @@ impl FrameRenderer {
         source: &crate::scene_metadata::SceneMetadata,
     ) -> Result<(), FrameError> {
         let (gpu, pipelines) = scene;
+        gpu.prepare_dynamic(encoder, pipelines)?;
         gpu.prepare_terrain_geometry(device, encoder, frame, source.size)?;
         gpu.prepare_depth_prefix_pages(device, encoder, frame, source.size)?;
         let mut passes = Vec::new();
         let mut views = Vec::new();
         let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
-        crate::ssao::passes::prepass(source, material, &mut passes, &mut views)?;
-        let screen_declaration = source.passes.schedule_metadata(&mut passes, &mut views)?;
-        let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
-        prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
-        prepass.depth_format = Some(source.depth.format());
-        prepass.additional_color_formats = passes
-            .iter()
-            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
-            .expect("prepass declaration")
-            .additional_colors
-            .iter()
-            .map(|attachment| attachment.format)
-            .collect();
-        let depth_mode = if source.depth.format().has_stencil_aspect() {
-            if gpu.has_relief() && source.receiver.is_none() {
-                crate::renderer::depth::DepthMode::Shared
-            } else {
-                crate::renderer::depth::DepthMode::Reuse
-            }
-        } else {
-            crate::renderer::depth::DepthMode::Independent
-        };
-        let mut geometry = super::SceneFeature {
-            publications: crate::draw::DrawPublications::default(),
-            gpu,
-            pipelines,
-            frame: *frame,
-            screen: Some(source.geometry_for_depth(depth_mode)),
-            programs: None,
-            deferred: None,
-            renders: false,
-        };
+        let (prepass, screen_declaration) =
+            self.prefix_declarations(source, &mut passes, &mut views)?;
+        let mut geometry = self.prefix_geometry(gpu, pipelines, frame, source)?;
         let mut screen = crate::ssao::passes::ScreenFeature {
             ssao: source,
             material,
@@ -89,6 +79,63 @@ impl FrameRenderer {
                 },
             ],
         )
+    }
+
+    fn prefix_geometry<'a>(
+        &self,
+        gpu: &'a mut crate::draw::SceneGpu,
+        pipelines: &'a crate::renderer::ScenePipelines,
+        frame: &crate::frame::FrameUniform,
+        source: &crate::scene_metadata::SceneMetadata,
+    ) -> Result<super::SceneFeature<'a>, FrameError> {
+        let depth_mode = prefix_depth(gpu, source);
+        let screen = source.geometry_for_depth(depth_mode);
+        super::scene::prepare_terrain(gpu, frame, pipelines, Some(&screen))?;
+        Ok(super::SceneFeature {
+            publications: self.draw_publications(),
+            gpu,
+            pipelines,
+            frame: *frame,
+            screen: Some(screen),
+            programs: None,
+            deferred: None,
+            renders: self
+                .gbuffer
+                .as_ref()
+                .is_some_and(crate::gbuffer::Gbuffer::renders),
+        })
+    }
+
+    fn prefix_declarations(
+        &self,
+        source: &crate::scene_metadata::SceneMetadata,
+        passes: &mut Vec<worldrunner_render_post::PassDeclaration>,
+        views: &mut Vec<worldrunner_render_post::AttachmentView>,
+    ) -> Result<(FeaturePass, FeatureDeclaration), FrameError> {
+        let material = self.ssr.as_ref().map(crate::ssr::Ssr::material_target);
+        crate::ssao::passes::prepass(source, material, passes, views)?;
+        let screen = source.passes.schedule_metadata(passes, views)?;
+        if let Some(gbuffer) = self.gbuffer.as_ref().filter(|gbuffer| gbuffer.renders()) {
+            let (producer, _) = source.geometry.gbuffer.as_ref().expect("early producer");
+            let velocity = self.velocity_attachment(producer.writes_velocity())?;
+            gbuffer.fuse_prepass(passes, views, velocity.as_ref())?;
+            return Ok((
+                crate::gbuffer::producer_pass(producer, source.depth.format()),
+                screen,
+            ));
+        }
+        let mut prepass = FeaturePass::new(PassSlot::DepthNormalPrepass);
+        prepass.color_format = Some(wgpu::TextureFormat::Rgba16Float);
+        prepass.depth_format = Some(source.depth.format());
+        prepass.additional_color_formats = passes
+            .iter()
+            .find(|pass| pass.slot == PassSlot::DepthNormalPrepass)
+            .expect("prepass declaration")
+            .additional_colors
+            .iter()
+            .map(|attachment| attachment.format)
+            .collect();
+        Ok((prepass, screen))
     }
 
     pub(crate) fn capture_effect_keys(

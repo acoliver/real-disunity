@@ -68,26 +68,10 @@ impl PreparedFeature for SceneFeature<'_> {
             self.gpu.draw_deferred_lighting(pass, pipelines, inputs);
             return;
         }
+        if self.draw_metadata(context.slot, pass) {
+            return;
+        }
         if let Some(screen) = &self.screen {
-            if context.slot == PassSlot::OpaqueGbuffer {
-                if let Some((pipelines, group)) = &screen.gbuffer {
-                    let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
-                    if self.renders {
-                        let ao = colour_pipelines(self.pipelines, Some(screen)).has_ao_receiver();
-                        self.publications.record_gbuffer(draw, false, ao);
-                    }
-                }
-                return;
-            }
-            if context.slot == PassSlot::DepthNormalPrepass {
-                self.publications.prepass();
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.prepass_pipelines(),
-                    &screen.group,
-                ));
-                return;
-            }
             if let Some((pipelines, group)) = &screen.forward {
                 pass.set_bind_group(3, group, &[]);
                 if self.renders {
@@ -123,6 +107,36 @@ impl PreparedFeature for SceneFeature<'_> {
 }
 
 impl SceneFeature<'_> {
+    fn draw_metadata(&self, slot: PassSlot, pass: &mut wgpu::RenderPass<'_>) -> bool {
+        let Some(screen) = &self.screen else {
+            return false;
+        };
+        if slot == PassSlot::OpaqueGbuffer || (self.renders && slot == PassSlot::DepthNormalPrepass)
+        {
+            if self.renders {
+                self.publications.prepass();
+            }
+            if let Some((pipelines, group)) = &screen.gbuffer {
+                let draw = self.gpu.draw_gbuffer(pass, pipelines, group);
+                if self.renders {
+                    let ao = colour_pipelines(self.pipelines, Some(screen)).has_ao_receiver();
+                    self.publications.record_gbuffer(draw, false, ao);
+                }
+            }
+            return true;
+        }
+        if slot == PassSlot::DepthNormalPrepass {
+            self.publications.prepass();
+            self.publications.record(self.gpu.draw_prepass(
+                pass,
+                screen.prepass_pipelines(),
+                &screen.group,
+            ));
+            return true;
+        }
+        false
+    }
+
     /// The pipelines the colour pass draws with, after binding set 3 as that pass does.
     fn colour_pipelines(
         &self,
@@ -155,7 +169,7 @@ pub(crate) fn colour_pipelines<'a>(
 /// prepass when the frame has screen-space passes, and the colour pass with the forward
 /// pipelines when those are installed. The celestial bodies' pipelines are prepared too. Preparing is done before the passes open, where a
 /// refusal is still an error.
-fn prepare_terrain(
+pub(super) fn prepare_terrain(
     gpu: &crate::draw::SceneGpu,
     frame: &crate::frame::FrameUniform,
     pipelines: &crate::renderer::ScenePipelines,
@@ -209,6 +223,135 @@ fn validate_effects(
     renderer.validate_post(gpu.post)
 }
 
+struct SceneDraw<'a> {
+    gpu: &'a mut crate::draw::SceneGpu,
+    pipelines: &'a crate::renderer::ScenePipelines,
+    color: &'a AttachmentView,
+    depth: &'a AttachmentView,
+    frame: crate::frame::FrameUniform,
+    screen: Option<crate::scene_metadata::Geometry>,
+    velocity: Option<AttachmentView>,
+    programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    depth_mode: crate::renderer::depth::DepthMode,
+}
+
+struct ScenePassPlan<'a> {
+    depth_id: worldrunner_render_post::ResourceRef,
+    depth_texture: &'a wgpu::Texture,
+    declaration: FeatureDeclaration,
+    passes: Vec<PassDeclaration>,
+    views: Vec<AttachmentView>,
+}
+
+fn declare_scene_passes<'a>(
+    renderer: &mut FrameRenderer,
+    device: &wgpu::Device,
+    scene: &mut SceneDraw<'a>,
+) -> Result<ScenePassPlan<'a>, FrameError> {
+    let SceneDraw {
+        gpu,
+        pipelines,
+        color,
+        depth,
+        velocity,
+        depth_mode,
+        ..
+    } = scene;
+    let color_id = attachment_resource("scene color", color);
+    let depth_id = renderer.scene_depth_resource(depth);
+    let mut opaque = PassDeclaration::new(PassSlot::Opaque);
+    opaque.color = Some(renderer.color_attachment(color_id, color));
+    opaque.depth = Some(attachment(depth_id, depth, true));
+    if *depth_mode == crate::renderer::depth::DepthMode::Reuse {
+        opaque.depth.as_mut().expect("scene depth").load =
+            worldrunner_render_post::AttachmentLoad::Load;
+    }
+    let mut declaration = SceneFeature::declaration(pipelines);
+    if let Some(screen) = &renderer.ssao {
+        crate::ssao::passes::geometry_declaration(&mut declaration, screen);
+        crate::gbuffer::declare_producer(&mut declaration, screen);
+    }
+    let mut views = vec![
+        color.with_resource(color_id)?,
+        depth.with_resource(depth_id)?,
+    ];
+    declare_velocity(&mut opaque, &mut views, velocity.as_ref())?;
+    let mut passes = vec![opaque];
+    gpu.plan_celestial(
+        device,
+        color.size(),
+        &mut passes,
+        &mut views,
+        &mut declaration,
+    );
+    Ok(ScenePassPlan {
+        depth_id,
+        depth_texture: depth.texture(),
+        declaration,
+        passes,
+        views,
+    })
+}
+
+fn encode_scene_passes(
+    renderer: &mut FrameRenderer,
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    mut scene: SceneDraw<'_>,
+) -> Result<(), FrameError> {
+    let plan = declare_scene_passes(renderer, device, &mut scene)?;
+    let SceneDraw {
+        gpu,
+        pipelines,
+        frame,
+        screen,
+        programs,
+        depth_mode,
+        ..
+    } = scene;
+    let ScenePassPlan {
+        depth_id,
+        depth_texture,
+        mut declaration,
+        passes,
+        views,
+    } = plan;
+    let deferred = renderer.prepare_deferred_lighting(
+        device,
+        (gpu, colour_pipelines(pipelines, screen.as_ref())),
+        (
+            depth_id,
+            depth_texture,
+            depth_mode == crate::renderer::depth::DepthMode::Reuse,
+        ),
+        &frame,
+        &mut declaration,
+    )?;
+    let mut feature = SceneFeature {
+        publications: renderer.draw_publications(),
+        screen,
+        programs,
+        gpu,
+        pipelines,
+        frame,
+        deferred,
+        renders: renderer
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders),
+    };
+    renderer.encode_frame(
+        device,
+        encoder,
+        (&passes, &views),
+        &mut [BorrowedFeature {
+            declaration,
+            prepared: &mut feature,
+        }],
+        (frame, None),
+    )
+}
+
 /// Encodes a resident unshadowed scene through the feature boundary.
 /// Checked attachments retain their selected mip, array layer and view format.
 /// The submission and abandonment rules of [`FrameRenderer`] apply.
@@ -221,6 +364,7 @@ pub fn encode_scene(
     frame: crate::frame::FrameUniform,
 ) -> Result<(), FrameError> {
     let (gpu, pipelines) = scene;
+    renderer.validate_opaque_depth(attachments.1)?;
     renderer.validate_taa_depth(attachments.1)?;
     validate_effects(renderer, gpu, pipelines)?;
     if let Some(screen) = &mut renderer.ssao {
@@ -243,65 +387,20 @@ pub fn encode_scene(
     gpu.prepare_terrain_pages(device, encoder, &frame, color.size())?;
     let screen = renderer.geometry_for_depth(depth_mode);
     prepare_terrain(gpu, &frame, pipelines, screen.as_ref())?;
-    let color_id = attachment_resource("scene color", color);
-    let depth_id = renderer.scene_depth_resource(depth);
-    let mut opaque = PassDeclaration::new(PassSlot::Opaque);
-    opaque.color = Some(renderer.color_attachment(color_id, color));
-    opaque.depth = Some(attachment(depth_id, depth, true));
-    if depth_mode == crate::renderer::depth::DepthMode::Reuse {
-        opaque.depth.as_mut().expect("scene depth").load =
-            worldrunner_render_post::AttachmentLoad::Load;
-    }
-    let mut declaration = SceneFeature::declaration(pipelines);
-    if let Some(screen) = &renderer.ssao {
-        crate::ssao::passes::geometry_declaration(&mut declaration, screen);
-        crate::gbuffer::declare_producer(&mut declaration, screen);
-    }
-    let mut views = vec![
-        color.with_resource(color_id)?,
-        depth.with_resource(depth_id)?,
-    ];
-    declare_velocity(&mut opaque, &mut views, velocity.as_ref())?;
-    let mut passes = vec![opaque];
-    gpu.plan_celestial(
-        device,
-        color.size(),
-        &mut passes,
-        &mut views,
-        &mut declaration,
-    );
-    let deferred = renderer.prepare_deferred_lighting(
-        device,
-        (gpu, colour_pipelines(pipelines, screen.as_ref())),
-        (
-            depth_id,
-            depth.texture(),
-            depth_mode == crate::renderer::depth::DepthMode::Reuse,
-        ),
-        &frame,
-        &mut declaration,
-    )?;
-    let mut feature = SceneFeature {
-        publications: crate::draw::DrawPublications::default(),
-        screen,
-        programs,
-        gpu,
-        pipelines,
-        frame,
-        deferred,
-        renders: renderer
-            .gbuffer
-            .as_ref()
-            .is_some_and(crate::gbuffer::Gbuffer::renders),
-    };
-    renderer.encode_frame(
+    encode_scene_passes(
+        renderer,
         device,
         encoder,
-        (&passes, &views),
-        &mut [BorrowedFeature {
-            declaration,
-            prepared: &mut feature,
-        }],
-        (frame, None),
+        SceneDraw {
+            gpu,
+            pipelines,
+            color,
+            depth,
+            frame,
+            screen,
+            velocity,
+            programs,
+            depth_mode,
+        },
     )
 }

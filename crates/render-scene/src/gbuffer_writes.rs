@@ -1,6 +1,9 @@
 //! The producer side of the deferred G-buffer: the stock terrain and object sources whose fragment
 //! stage stores the surface material in the four G-buffer targets instead of lighting it, and the
-//! pipelines the scene draws into the `OpaqueGbuffer` slot with.
+//! pipelines used by observation and by the early depth-writing material pass.
+
+mod early;
+pub(crate) use early::EarlyOutputs;
 
 use crate::gbuffer::GBUFFER_WGSL;
 use crate::renderer::ScenePipelines;
@@ -148,7 +151,7 @@ fn replace_once(source: &str, from: &str, to: &str) -> String {
     assert_eq!(
         source.matches(from).count(),
         1,
-        "G-buffer velocity anchor {from:?}"
+        "G-buffer source anchor {from:?}"
     );
     source.replace(from, to)
 }
@@ -205,6 +208,44 @@ pub(crate) fn pipelines(
     velocity: bool,
 ) -> (ScenePipelines, wgpu::BindGroup) {
     crate::scene_metadata::pipelines_from_sources(device, camera, &sources(velocity))
+}
+
+/// The early material producer and its camera group. Orchestration installs these only for
+/// Render and uses `producer_depth` on the actual scene depth before drawing.
+pub(crate) fn early_pipelines(
+    device: &wgpu::Device,
+    camera: &wgpu::Buffer,
+    outputs: EarlyOutputs,
+) -> (ScenePipelines, wgpu::BindGroup) {
+    crate::scene_metadata::pipelines_from_sources(device, camera, &outputs.sources())
+}
+
+/// The ordered formats of either producer source. Observation keeps its existing outputs.
+pub(crate) fn source_formats(source: &str) -> Vec<wgpu::TextureFormat> {
+    if let Some(outputs) = EarlyOutputs::from_source(source) {
+        return outputs.formats();
+    }
+    let mut formats = crate::gbuffer::GBUFFER_FORMATS.to_vec();
+    if source.contains(crate::velocity::MARKER) {
+        formats.push(worldrunner_render_post::VELOCITY_FORMAT);
+    }
+    formats
+}
+
+/// Observation tests completed depth without writing. Early material production owns winners
+/// and, on shared depth, their stencil marks for later read-only consumers.
+pub(crate) fn producer_depth(
+    early: Option<EarlyOutputs>,
+    format: wgpu::TextureFormat,
+) -> crate::renderer::depth::DepthMode {
+    use crate::renderer::depth::DepthMode;
+    if early.is_none() {
+        DepthMode::Reuse
+    } else if format.has_stencil_aspect() {
+        DepthMode::Prepass
+    } else {
+        DepthMode::Independent
+    }
 }
 
 #[cfg(test)]

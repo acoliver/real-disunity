@@ -3,8 +3,24 @@
 //! before Opaque, which draws only the sky. The frame stays close to Forward, every stored pixel
 //! is lit, the sky appears exactly where nothing is stored, and water over the deferred terrain
 //! refracts the lit opaque snapshot as it refracts the forward one.
-use super::deferred::{Captured, capture, ssao};
+use super::deferred::{Captured, ssao};
 use super::*;
+
+fn front_settings() -> DirectionalShadowSettings {
+    DirectionalShadowSettings {
+        normal_bias_meters: 0.0,
+        ..settings()
+    }
+}
+
+fn capture(
+    context: &GpuContext,
+    source: &RenderScene,
+    view: &SceneView,
+    path: SceneOpaquePath,
+) -> Result<Captured, ShadowError> {
+    super::deferred::capture_with_settings(context, source, view, path, front_settings())
+}
 
 /// Relative error a stored pixel may have against Forward, and the absolute floor below which
 /// values count as equal: the G-buffer quantisation the lighting step measured (shading normal
@@ -211,6 +227,9 @@ fn gpu_shadowed_render_path_matches_forward_without_unlit_holes() {
             capture(&context, &source, &view(), SceneOpaquePath::GBUFFER_RENDER).unwrap();
         // Rendering allocates no diagnostic lighting target: the lit surfaces are the scene colour.
         assert!(rendered.lit.is_none(), "{label}");
+        if !with_water {
+            compare_observation(&context, &source, &forward);
+        }
         let (share, mean) = compare(&label, &rendered, &forward);
         assert!(
             share <= EDGE_SHARE,
@@ -222,6 +241,66 @@ fn gpu_shadowed_render_path_matches_forward_without_unlit_holes() {
         let again = capture(&context, &source, &view(), SceneOpaquePath::GBUFFER_RENDER).unwrap();
         assert!(again.colour == rendered.colour, "{label}: not repeatable");
     }
+}
+
+fn compare_observation(context: &GpuContext, source: &RenderScene, forward: &Captured) {
+    let observed = capture(
+        context,
+        source,
+        &view(),
+        SceneOpaquePath::GBUFFER_OBSERVATION,
+    )
+    .unwrap();
+    assert_eq!(observed.colour, forward.colour);
+    let errors = stored_errors(
+        observed.lit.as_ref().unwrap(),
+        &halves(&forward.colour),
+        observed.g3.as_ref().unwrap(),
+    );
+    let (_, share, mean) = share_and_mean(&errors);
+    assert!(share <= EDGE_SHARE, "observation: edge share {share}");
+    assert!(mean <= MEAN, "observation: mean error {mean}");
+}
+
+#[test]
+fn gpu_render_path_walks_opaque_geometry_once() {
+    use worldrunner_render_post::PassSlot;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(Vec::clear);
+    let captured = capture(
+        &context,
+        &source(false, true),
+        &view(),
+        SceneOpaquePath::GBUFFER_RENDER,
+    )
+    .unwrap();
+    let passes = crate::scene_metadata::EXECUTED_PASSES.with_borrow_mut(std::mem::take);
+    let geometry: Vec<_> = passes
+        .iter()
+        .filter(|slot| matches!(slot, PassSlot::DepthNormalPrepass | PassSlot::OpaqueGbuffer))
+        .collect();
+    assert_eq!(
+        geometry,
+        [&PassSlot::DepthNormalPrepass],
+        "opaque geometry passes: {passes:?}"
+    );
+    assert_eq!(
+        passes
+            .iter()
+            .filter(|slot| **slot == PassSlot::OpaqueLighting)
+            .count(),
+        1,
+        "one lighting pass"
+    );
+    let g3 = captured.g3.expect("stored material targets");
+    let lit = halves(&captured.colour);
+    assert!(g3.iter().any(|code| *code != 0));
+    assert!(
+        g3.iter()
+            .zip(lit.chunks_exact(4))
+            .any(|(code, pixel)| { *code != 0 && pixel[..3].iter().any(|value| *value > 0.0) })
+    );
 }
 
 #[test]
@@ -263,7 +342,7 @@ fn gpu_water_over_deferred_terrain_refracts_the_lit_opaque_snapshot() {
             .any(|(a, b)| (a - b).abs() > 0.005);
         assert!(
             rendered_change,
-            "pixel {index}: the water is missing over deferred terrain"
+            "pixel {index}: missing water; Forward dry={fd:?} wet={fw:?}; Render dry={rd:?} wet={rw:?}"
         );
         changed_errors.push(
             rw[..3]
@@ -313,83 +392,16 @@ fn gpu_render_path_without_the_depth_prepass_is_refused_by_name() {
 /// G-buffer stays close to Forward under the fitted cascades.
 #[test]
 fn gpu_depth_fitted_capture_renders_both_gbuffer_paths() {
-    use crate::compositor::{FeatureTarget, FrameRenderer};
-    use crate::gbuffer::GbufferTarget;
-    use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = source(false, true);
     let view = view();
-    let size = [view.viewport().width, view.viewport().height];
-    let mut captured = Vec::new();
-    for path in [
+    let captured = [
         SceneOpaquePath::Forward,
         SceneOpaquePath::GBUFFER_OBSERVATION,
         SceneOpaquePath::GBUFFER_RENDER,
-    ] {
-        let effects = source
-            .effects()
-            .unwrap()
-            .clone()
-            .with_opaque_path(path)
-            .unwrap();
-        let mut frame = FrameRenderer::hdr(
-            &context,
-            size,
-            OffscreenTarget::COLOR_FORMAT,
-            1,
-            worldrunner_render_post::ToneMap::Reinhard,
-            Some(&effects),
-        )
-        .unwrap();
-        let mut renderer = ShadowedScene::with_target(
-            &context,
-            &source,
-            settings(),
-            wgpu::TextureFormat::Rgba16Float,
-            1,
-        )
-        .unwrap();
-        renderer
-            .set_depth_fitting(
-                &context,
-                Some(SdsmSettings {
-                    policy: AdoptionPolicy::SameFrameCapture,
-                    range: super::sdsm::policy(),
-                }),
-            )
-            .unwrap();
-        let color = AttachmentView::new(
-            ResourceRef::new("scene color"),
-            frame.targets().scene().texture(),
-        )
-        .unwrap();
-        let depth = AttachmentView::new(
-            ResourceRef::new("scene depth"),
-            frame.targets().depth().texture(),
-        )
-        .unwrap();
-        let fit = renderer
-            .render_depth_fitted_with(&context, &view, (&color, &depth), 10, &mut frame)
-            .unwrap_or_else(|error| panic!("{path:?}: {error:?}"));
-        assert_eq!(fit.map(|fit| fit.source_frame), Some(10), "{path:?}");
-        context
-            .device()
-            .poll(wgpu::PollType::wait_indefinitely())
-            .unwrap();
-        captured.push(Captured {
-            colour: super::deferred::read(&context, frame.targets().texture()),
-            lit: None,
-            g3: frame
-                .feature_target(FeatureTarget::Gbuffer(GbufferTarget::G3))
-                .map(|texture| {
-                    super::deferred::read(&context, texture)
-                        .chunks_exact(2)
-                        .map(|code| u16::from_le_bytes([code[0], code[1]]))
-                        .collect()
-                }),
-        });
-    }
+    ]
+    .map(|path| fitted_capture(&context, &source, &view, path));
     // The observation keeps the forward frame.
     assert!(
         captured[1].colour == captured[0].colour,
@@ -401,4 +413,50 @@ fn gpu_depth_fitted_capture_renders_both_gbuffer_paths() {
         "{share} of stored pixels over {RELATIVE}"
     );
     assert!(mean <= MEAN, "mean error {mean}");
+}
+
+fn fitted_capture(
+    context: &GpuContext,
+    source: &RenderScene,
+    view: &SceneView,
+    path: SceneOpaquePath,
+) -> Captured {
+    use crate::shadows::sdsm::{AdoptionPolicy, SdsmSettings};
+    let mut frame = super::deferred::frame(context, source, view, path);
+    let mut renderer = ShadowedScene::with_target(
+        context,
+        source,
+        front_settings(),
+        wgpu::TextureFormat::Rgba16Float,
+        1,
+    )
+    .unwrap();
+    renderer
+        .set_depth_fitting(
+            context,
+            Some(SdsmSettings {
+                policy: AdoptionPolicy::SameFrameCapture,
+                range: super::sdsm::policy(),
+            }),
+        )
+        .unwrap();
+    let color = AttachmentView::new(
+        ResourceRef::new("scene color"),
+        frame.targets().scene().texture(),
+    )
+    .unwrap();
+    let depth = AttachmentView::new(
+        ResourceRef::new("scene depth"),
+        frame.targets().depth().texture(),
+    )
+    .unwrap();
+    let fit = renderer
+        .render_depth_fitted_with(context, view, (&color, &depth), 10, &mut frame)
+        .unwrap_or_else(|error| panic!("{path:?}: {error:?}"));
+    assert_eq!(fit.map(|fit| fit.source_frame), Some(10), "{path:?}");
+    context
+        .device()
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    super::deferred::captured(context, &frame)
 }

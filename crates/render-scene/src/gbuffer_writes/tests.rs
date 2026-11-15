@@ -3,6 +3,9 @@
 
 use naga::{Binding, ScalarKind, ShaderStage, TypeInner, VectorSize};
 
+#[path = "early_tests.rs"]
+mod early;
+
 fn module(label: &str, source: &str) -> naga::Module {
     let module = naga::front::wgsl::parse_str(source)
         .unwrap_or_else(|error| panic!("{label}: {}", error.emit_to_string(source)));

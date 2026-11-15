@@ -1,5 +1,9 @@
 //! Opaque-path admission: the renderer's admission of the selected path, and the CPU-only
 //! census query for the opaque material experiment contract.
+mod early;
+pub use early::validate_receiver_reservation;
+pub(crate) use early::{admit_early_producer, validate_hdr_admission};
+
 use super::RendererConfiguration;
 use std::collections::BTreeSet;
 
@@ -65,6 +69,17 @@ pub enum OpaqueAdmissionError {
     /// The scene's lighting records exceed what the layout's record index addresses.
     #[error("opaque path needs {records} material records, limit is {limit}")]
     RecordOverflow { records: u32, limit: u32 },
+    /// The early Render producer cannot reserve an opposing receiver representation.
+    #[error("opaque G-buffer Render does not support Opposing receiver reservations")]
+    UnsupportedOpposingReceiver,
+    /// Enabled device attachment bytes cannot hold the ordered producer outputs.
+    #[error(
+        "opaque G-buffer needs {required} color attachment bytes per sample, available {available}"
+    )]
+    ColorAttachmentBytes { required: u32, available: u32 },
+    /// Enabled device attachment slots cannot hold the producer outputs.
+    #[error("opaque G-buffer needs {required} color attachments, available {available}")]
+    ColorAttachments { required: u32, available: u32 },
 }
 
 /// Reports the formats and capacities required by both layouts without allocation or encoding.
@@ -124,6 +139,16 @@ pub(crate) fn allocate_path(
     config: FrameConfig,
     reflections: bool,
 ) -> Result<Option<crate::gbuffer::Gbuffer>, PostError> {
+    admit_early_producer(
+        path,
+        config.samples,
+        super::ReceiverGradientReservation::None,
+        crate::gbuffer_writes::EarlyOutputs {
+            velocity: false,
+            reflections,
+        },
+        &device.limits(),
+    )?;
     admit_path(path, config.samples).map(|usage| {
         usage.map(|usage| {
             crate::gbuffer::Gbuffer::new(device, config.size, (config.format, reflections), usage)
@@ -132,23 +157,47 @@ pub(crate) fn allocate_path(
 }
 
 impl super::FrameRenderer {
+    pub(crate) fn validate_opaque_depth(
+        &self,
+        depth: &worldrunner_render_post::AttachmentView,
+    ) -> Result<(), FrameError> {
+        if self
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders)
+            && (depth.texture() != self.targets().depth().texture()
+                || depth.resource().mip != 0
+                || depth.resource().layer != 0)
+        {
+            return Err(FrameError::FeaturePreparation {
+                feature: "opaque G-buffer",
+                reason: "rendering from the G-buffer needs the frame depth target".to_owned(),
+            });
+        }
+        Ok(())
+    }
+
     /// Builds the scene's G-buffer pipelines when the frame uses the G-buffer and has the
     /// prepass metadata whose depth and screen camera they use. A screen that already has them,
     /// and a frame without a G-buffer or metadata, are left as they are.
     pub(crate) fn install_gbuffer_producer(&mut self, device: &wgpu::Device) {
-        if self.gbuffer.is_none() {
+        let Some(gbuffer) = &self.gbuffer else {
             return;
-        }
+        };
+        let outputs = crate::gbuffer_writes::EarlyOutputs {
+            velocity: false,
+            reflections: self.ssr.is_some(),
+        };
         if let Some(screen) = self
             .ssao
             .as_mut()
             .filter(|screen| screen.geometry.gbuffer.is_none())
         {
-            screen.geometry.gbuffer = Some(crate::gbuffer_writes::pipelines(
-                device,
-                &screen.uniform,
-                false,
-            ));
+            screen.geometry.gbuffer = Some(if gbuffer.renders() {
+                crate::gbuffer_writes::early_pipelines(device, &screen.uniform, outputs)
+            } else {
+                crate::gbuffer_writes::pipelines(device, &screen.uniform, false)
+            });
         }
     }
 
@@ -164,17 +213,21 @@ impl super::FrameRenderer {
         {
             return;
         }
+        let outputs = crate::gbuffer_writes::EarlyOutputs {
+            velocity,
+            reflections: self.ssr.is_some(),
+        };
         if let Some(screen) = self.ssao.as_mut().filter(|screen| {
             screen
                 .geometry
                 .gbuffer
                 .as_ref()
-                .is_some_and(|(pipelines, _)| pipelines.writes_velocity() != velocity)
+                .is_none_or(|(pipelines, _)| pipelines.early_outputs() != Some(outputs))
         }) {
-            screen.geometry.gbuffer = Some(crate::gbuffer_writes::pipelines(
+            screen.geometry.gbuffer = Some(crate::gbuffer_writes::early_pipelines(
                 device,
                 &screen.uniform,
-                velocity,
+                outputs,
             ));
         }
     }
@@ -193,12 +246,7 @@ pub(crate) fn admit_path(
             return Err(PostError::UnsupportedProfile("opaque path experiment"));
         }
     };
-    validate_samples(samples).map_err(|error| {
-        PostError::Frame(FrameError::FeaturePreparation {
-            feature: "opaque G-buffer",
-            reason: error.to_string(),
-        })
-    })?;
+    validate_samples(samples).map_err(PostError::from)?;
     Ok(Some(usage))
 }
 
@@ -261,11 +309,7 @@ fn layout(
     limits: &wgpu::Limits,
     record_count: u32,
 ) -> OpaqueLayoutAdmission {
-    let color_attachment_byte_cost = formats.iter().fold(0u32, |total, format| {
-        let cost = format.target_pixel_byte_cost().unwrap();
-        let alignment = format.target_component_alignment().unwrap();
-        total.next_multiple_of(alignment) + cost
-    });
+    let color_attachment_byte_cost = early::color_attachment_byte_cost(&formats);
     let byte_limit = limits.max_color_attachment_bytes_per_sample;
     let attachment_limit = limits.max_color_attachments;
     OpaqueLayoutAdmission {

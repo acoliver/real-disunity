@@ -163,6 +163,11 @@ impl RetainedHost {
         effects: &SceneEffects,
         options: &ViewerOptions,
     ) -> Result<(), ViewerError> {
+        worldrunner_render_scene::compositor::opaque::validate_receiver_reservation(
+            effects.opaque_path(),
+            crate::presentation::receiver_reservation(options.shadows),
+        )
+        .map_err(worldrunner_render_post::PostError::from)?;
         worldrunner_render_scene::post_settings(effects)?;
         if let Some(water) = effects.water() {
             worldrunner_render_scene::water::validate_settings(water)?;

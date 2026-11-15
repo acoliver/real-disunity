@@ -14,6 +14,8 @@
 //! reads, and Opaque loads them and draws only the surfaces without a producer. With
 //! velocity, the producers write the object-motion residual and the G-buffer slot clears the
 //! velocity target in Opaque's place.
+mod early;
+pub(crate) use early::producer_pass;
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_post::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, FeatureDeclaration, FrameError,
@@ -171,6 +173,11 @@ impl Gbuffer {
         views: &mut Vec<AttachmentView>,
         features: impl IntoIterator<Item = &'a FeatureDeclaration>,
     ) -> Result<(), FrameError> {
+        if self.renders() {
+            let velocity = early::move_early_velocity(passes, views)?;
+            self.fuse_prepass(passes, views, velocity.as_ref())?;
+            return lighting::schedule_render(passes);
+        }
         let mut pass = PassDeclaration::new(PassSlot::OpaqueGbuffer);
         for target in GbufferTarget::ALL {
             let view = AttachmentView::new(
@@ -194,52 +201,9 @@ impl Gbuffer {
             views.push(view);
         }
         passes.push(pass);
-        let features: Vec<_> = features.into_iter().collect();
-        if self.renders() {
-            lighting::schedule_render(passes)?;
-            move_velocity(passes, features.iter().copied())?;
-        } else {
-            self.lighting.schedule(passes, views)?;
-        }
+        self.lighting.schedule(passes, views)?;
         attach_producer_depth(passes, features)
     }
-}
-
-/// When the producers write the object-motion residual, the G-buffer slot clears and writes
-/// the velocity target that Opaque declared, and Opaque loads it for its remaining draws.
-fn move_velocity<'a>(
-    passes: &mut [PassDeclaration],
-    features: impl IntoIterator<Item = &'a FeatureDeclaration>,
-) -> Result<(), FrameError> {
-    let writes = features
-        .into_iter()
-        .flat_map(|feature| &feature.passes)
-        .filter(|pass| pass.slot == PassSlot::OpaqueGbuffer)
-        .any(|pass| {
-            pass.additional_color_formats
-                .contains(&worldrunner_render_post::VELOCITY_FORMAT)
-        });
-    if !writes {
-        return Ok(());
-    }
-    let opaque = passes
-        .iter_mut()
-        .find(|pass| pass.slot == PassSlot::Opaque)
-        .ok_or(FrameError::MissingSlot(PassSlot::Opaque))?;
-    let velocity = opaque
-        .additional_colors
-        .iter_mut()
-        .find(|attachment| attachment.resource.name == "scene velocity")
-        .ok_or(FrameError::AttachmentContract(PassSlot::OpaqueGbuffer))?;
-    let cleared = velocity.clone();
-    velocity.load = AttachmentLoad::Load;
-    passes
-        .iter_mut()
-        .find(|pass| pass.slot == PassSlot::OpaqueGbuffer)
-        .ok_or(FrameError::MissingSlot(PassSlot::OpaqueGbuffer))?
-        .additional_colors
-        .push(cleared);
-    Ok(())
 }
 
 /// Declares the scene's G-buffer producer pass when the prepass metadata carries G-buffer
@@ -252,15 +216,16 @@ pub(crate) fn declare_producer(
     let Some((pipelines, _)) = &screen.geometry.gbuffer else {
         return;
     };
-    let mut pass = worldrunner_render_post::FeaturePass::new(PassSlot::OpaqueGbuffer);
-    pass.color_format = Some(GBUFFER_FORMATS[0]);
-    pass.additional_color_formats = GBUFFER_FORMATS[1..].to_vec();
-    if pipelines.writes_velocity() {
-        pass.additional_color_formats
-            .push(worldrunner_render_post::VELOCITY_FORMAT);
+    let pass = producer_pass(pipelines, screen.depth.format());
+    if let Some(existing) = declaration
+        .passes
+        .iter_mut()
+        .find(|existing| existing.slot == pass.slot)
+    {
+        *existing = pass;
+    } else {
+        declaration.passes.push(pass);
     }
-    pass.depth_format = Some(screen.depth.format());
-    declaration.passes.push(pass);
 }
 
 /// Gives the slot the scene depth when a producer declares a depth format there.

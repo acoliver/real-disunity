@@ -5,6 +5,9 @@ use crate::scene_metadata::receiver::{self as metadata, ReceiverLayout};
 use crate::shader::{ENVIRONMENT_WGSL, TERRAIN_WGSL};
 use worldrunner_render_plan::SceneSsaoReceiver;
 
+#[path = "front_tests.rs"]
+mod front;
+
 /// The receiver siblings `ScenePipelines` derives from `source`: the gathering SSAO receiver
 /// when the source loads nearest AO, and for shadowed sources the receiver-payload consumer and
 /// the card-reject consumer of each payload layout.

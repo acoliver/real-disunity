@@ -28,10 +28,17 @@ pub(crate) struct DrawPublications {
     geometry: Cell<Option<super::TerrainGeometryStatistics>>,
     /// The G-buffer slot's draw when the frame renders from the G-buffer, published with the
     /// sky count once Opaque has drawn the rest.
-    gbuffer: RefCell<Option<ColorDraw>>,
+    gbuffer: Rc<RefCell<Option<ColorDraw>>>,
 }
 
 impl DrawPublications {
+    pub(crate) fn with_producer(gbuffer: Rc<RefCell<Option<ColorDraw>>>) -> Self {
+        Self {
+            gbuffer,
+            ..Self::default()
+        }
+    }
+
     /// Holds the G-buffer slot's draw of a frame that renders from the G-buffer. Its surfaces
     /// receive the lighting pass's shadows (`shadows`) and screen AO (`ao`), as the colour
     /// pass's surfaces receive its own.
@@ -50,6 +57,8 @@ impl DrawPublications {
             .take()
             .expect("the G-buffer slot draws before Opaque");
         draw.sky = sky;
+        let shadows = self.effects.get().shadows.installation == super::PassInstallation::Installed;
+        draw.shadows = super::ReceiverBindings::new(shadows, draw.terrain_bound && shadows);
         self.record_color(scene, draw);
     }
 
@@ -80,6 +89,8 @@ impl DrawPublications {
         effects.shadows.installation = shadows;
         if context.completed_in_prefix(worldrunner_render_post::PassSlot::DepthNormalPrepass) {
             effects.ssao.prepass = super::PassExecution::Ran;
+        } else {
+            self.gbuffer.borrow_mut().take();
         }
         if screen {
             effects.ssao.installation = super::PassInstallation::Installed;

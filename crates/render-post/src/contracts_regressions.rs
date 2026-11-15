@@ -618,3 +618,51 @@ fn execute_read_only_draw(device: &wgpu::Device, queue: &wgpu::Queue, storage: b
     );
     no_gpu_errors(device, scope);
 }
+
+#[test]
+fn a_sampled_view_binds_when_each_level_has_a_use_at_its_own_version() {
+    let (device, _queue) = device();
+    let mut registry = ResourceRegistry::default();
+    let key = import(&mut registry, &storage_array(&device));
+    let levels = |mips: std::ops::Range<u32>, version| {
+        registry
+            .view(
+                key,
+                TextureRange {
+                    mips,
+                    layers: 0..2,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                version,
+            )
+            .unwrap()
+    };
+    let (whole, base, second) = (levels(0..2, 3), levels(0..1, 3), levels(1..2, 5));
+    let entry = binding(
+        whole,
+        TextureBindingKind::Sampled(wgpu::TextureSampleType::Float { filterable: false }),
+    );
+    let checked = CheckedBindings::build(&device, &registry, std::slice::from_ref(&entry)).unwrap();
+    let mut consumer = reader(&device, &mut registry, "levels at their own versions");
+    consumer
+        .uses
+        .push(ResourceUse::read(base.clone(), UseKind::Sampled));
+    assert_eq!(
+        checked.validate(&registry, &consumer),
+        Err(ContractError::Binding(key)),
+        "the second level has no use"
+    );
+    consumer
+        .uses
+        .push(ResourceUse::read(second.clone(), UseKind::Sampled));
+    assert_eq!(checked.validate(&registry, &consumer), Ok(()));
+    let mut no_base = reader(&device, &mut registry, "only the second level");
+    no_base
+        .uses
+        .push(ResourceUse::read(second, UseKind::Sampled));
+    assert_eq!(
+        checked.validate(&registry, &no_base),
+        Err(ContractError::Binding(key)),
+        "the base level has no use at the view's version"
+    );
+}

@@ -48,7 +48,9 @@ impl RenderScene {
             source: Box::new(source),
         };
         for (offset, mesh) in meshes.iter().enumerate() {
-            mesh.validate().map_err(|error| named(offset, error))?;
+            mesh.validate()
+                .and_then(|()| self.geometry.validate_mesh_skinning(mesh))
+                .map_err(|error| named(offset, error))?;
         }
         let meshes_before = self.geometry.meshes.len();
         if u32::try_from(meshes_before + meshes.len()).is_err() {
@@ -108,8 +110,11 @@ impl RenderScene {
         let materials = table_limit(self.resources.materials().len(), "materials")?;
         mesh_materials(&mesh, materials)?;
         let index = usize::try_from(handle.raw()).expect("u32 table index fits usize");
+        self.geometry.validate_mesh_skinning(&mesh)?;
         let mut proposed = self.clone();
         Arc::make_mut(&mut proposed.geometry.meshes)[index] = mesh;
+        // A replacement can gain or lose a skeleton, so the objects drawing it need rechecking.
+        proposed.geometry.validate_objects()?;
         proposed.validate_mesh_scalar_channels()?;
         self.geometry = proposed.geometry;
         Ok(())

@@ -80,8 +80,8 @@ pub(super) fn signature(
         None => None,
     };
     Ok(match (color, depth) {
-        (Some(color), depth) => TargetSignature::new(&[color], depth, 1)?,
-        (None, Some(depth)) => TargetSignature::depth_only(depth, 1)?,
+        (Some(color), depth) => TargetSignature::attachments(&[color], depth, 1)?,
+        (None, Some(depth)) => TargetSignature::depth_attachment(depth, 1)?,
         (None, None) => {
             return Err(OffscreenError::Unknown(
                 "a color or depth buffer to draw into".to_owned(),

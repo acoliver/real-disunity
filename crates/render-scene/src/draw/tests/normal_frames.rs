@@ -192,7 +192,7 @@ fn stored_tangents_follow_handedness_mirrored_uv_and_affine_scale_in_all_normal_
             let batch = gpu.instances.batches.values().next().unwrap();
             context
                 .queue()
-                .write_buffer(batch.buffer.as_ref().unwrap(), 0, &model);
+                .write_buffer(batch.buffer.as_deref().unwrap(), 0, &model);
             let n = Vec3::new(scale.x.recip(), 0.0, scale.z.recip()).normalize() * scale.x.signum();
             let t = Vec3::new(scale.x, 0.0, -scale.z).normalize();
             let sign = if handedness < 0 { -1.0 } else { 1.0 };

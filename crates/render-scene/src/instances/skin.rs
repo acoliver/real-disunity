@@ -1,9 +1,9 @@
 //! What a placement's skin pose is checked against, and the descriptor it is drawn with.
 
-use worldrunner_render_plan::{RenderScene, SceneMesh, SceneObject, SkeletonHandle};
+use worldrunner_render_plan::{RenderScene, SceneMesh, SceneObject, SceneSkinPose, SkeletonHandle};
 
 use super::InstanceError;
-use crate::skinning::{PoseRange, ScenePalette};
+use crate::skinning::{PoseRange, ScenePalette, palette_rows};
 
 /// The skeleton joint counts, the skeletons of each mesh's skinned levels and the range of each
 /// pose in the scene palette.
@@ -16,6 +16,45 @@ pub(crate) struct SkinTables {
     /// For each mesh, the skeleton of each skinned level. Empty for a rigid mesh.
     mesh_skeletons: Vec<Vec<SkeletonHandle>>,
     poses: Vec<PoseRange>,
+    /// How far each pose can carry a point, indexed like `poses`.
+    reaches: Vec<PoseReach>,
+}
+
+/// How far the joints of one pose can move a point of the mesh they skin, over the current and
+/// the previous palette.
+///
+/// A joint carries the point `v` to `A v + t`, so it moves it by at most `|(A - I) v| + |t|`,
+/// and `|(A - I) v|` is at most the Frobenius norm of `A - I` times `|v|`. A skinned vertex
+/// blends its joints with weights that sum to one, so it moves by no more than the joint that
+/// moves it furthest.
+#[derive(Clone, Copy, Debug, Default)]
+struct PoseReach {
+    /// The largest Frobenius norm of a joint's linear part minus the identity.
+    linear: f32,
+    /// The largest length of a joint's translation, in metres.
+    translation: f32,
+}
+
+impl PoseReach {
+    fn of(pose: &SceneSkinPose) -> Self {
+        let joints = pose.current().iter().chain(pose.previous());
+        joints.fold(Self::default(), |reach, joint| {
+            let rows = palette_rows(joint);
+            let mut linear = 0.0_f32;
+            let mut translation = 0.0_f32;
+            for (row, values) in rows.iter().enumerate() {
+                for (column, value) in values[..3].iter().enumerate() {
+                    let rest = if row == column { 1.0 } else { 0.0 };
+                    linear += (value - rest) * (value - rest);
+                }
+                translation += values[3] * values[3];
+            }
+            Self {
+                linear: reach.linear.max(linear.sqrt()),
+                translation: reach.translation.max(translation.sqrt()),
+            }
+        })
+    }
 }
 
 /// The skeletons of the skinned levels of `mesh`, in level order.
@@ -39,7 +78,23 @@ impl SkinTables {
                 .collect(),
             mesh_skeletons: geometry.meshes().iter().map(mesh_skeletons).collect(),
             poses: ScenePalette::ranges_of(geometry.skin_poses()).unwrap_or_default(),
+            reaches: geometry.skin_poses().iter().map(PoseReach::of).collect(),
         }
+    }
+
+    /// How far, in metres of the mesh's own space, the pose of `object` can carry a point that
+    /// lies within `radius` metres of the mesh origin. Zero for a rigid mesh.
+    pub(crate) fn reach(&self, object: &SceneObject, radius: f32) -> f32 {
+        let mesh = usize::try_from(object.mesh().raw()).expect("u32 table index fits usize");
+        let Some(reach) = object
+            .skin_pose()
+            .filter(|_| self.is_skinned(mesh))
+            .and_then(|pose| self.reaches.get(pose.raw() as usize))
+        else {
+            return 0.0;
+        };
+        // Rounding in the palette and in the vertex stage stays within the margin.
+        (reach.linear * radius + reach.translation) * 1.000_01
     }
 
     /// Whether `mesh` has a skinned level, so its placements carry a skin descriptor.

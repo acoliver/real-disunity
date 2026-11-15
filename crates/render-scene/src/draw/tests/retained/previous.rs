@@ -31,10 +31,13 @@ impl Fixture {
     fn buffers(&self) -> (Vec<u8>, Vec<u8>) {
         let batch = self.gpu.instances.batches.values().next().unwrap();
         let length = batch.bytes.len() as u64;
-        let read = |buffer: &Option<wgpu::Buffer>| {
-            super::scheduler::buffer_bytes(&self.context, buffer.as_ref().unwrap(), length)
+        let read = |buffer: Option<&wgpu::Buffer>| {
+            super::scheduler::buffer_bytes(&self.context, buffer.unwrap(), length)
         };
-        (read(&batch.buffer), read(&batch.previous))
+        (
+            read(batch.buffer.as_deref()),
+            read(batch.previous.as_deref()),
+        )
     }
 
     fn flush(&mut self) {
@@ -184,4 +187,35 @@ fn a_velocity_history_reset_survives_cancellation_and_initializes_current_transf
     let (next, previous) = fixture.buffers();
     assert_ne!(next, current);
     assert_eq!(previous, current);
+}
+
+#[test]
+fn instance_buffers_count_in_the_authority_census_until_the_scene_drops() {
+    use worldrunner_render_gpu::census::ResourceClass;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    // A private authority, so other scenes on the shared device do not touch its tally.
+    let authority =
+        worldrunner_render_gpu::submission::SubmissionAuthority::new(context.queue().clone());
+    let source = scene(SceneAlphaMode::Opaque, false, 2);
+    let pipelines = ScenePipelines::with_taa_velocity(context.device(), HDR, 1).unwrap();
+    let mut gpu = SceneGpu::upload(context.device(), &authority, &source, &pipelines).unwrap();
+    gpu.flush_instances(context.device(), &authority).unwrap();
+    let expected: u64 = gpu
+        .instances
+        .batches
+        .values()
+        .flat_map(|batch| [batch.buffer.as_deref(), batch.previous.as_deref()])
+        .map(|buffer| buffer.unwrap().size())
+        .sum();
+    assert!(expected > 0);
+    assert_eq!(
+        authority.census().snapshot().get(ResourceClass::Instance),
+        expected
+    );
+    drop(gpu);
+    assert_eq!(
+        authority.census().snapshot().get(ResourceClass::Instance),
+        0
+    );
 }

@@ -50,6 +50,7 @@ fn setup(camera: ComponentHandle, target: TargetRef) -> OffscreenWork {
         view: matrix(-1.0),
         projection: matrix(0.5),
         target,
+        buffers: None,
     }
 }
 
@@ -175,8 +176,8 @@ fn snapshot_of(records: &[OffscreenWork], world: &mut World) -> GraphicsSnapshot
 }
 
 #[test]
-fn the_wire_version_is_eight_and_every_context_record_round_trips() {
-    assert_eq!(WIRE_VERSION, 8);
+fn the_wire_version_is_nine_and_every_context_record_round_trips() {
+    assert_eq!(WIRE_VERSION, 9);
     let mut world = world();
     let camera = camera(&mut world);
     let id = texture(&mut world);
@@ -318,6 +319,7 @@ fn camera_setup_keeps_the_bits_of_its_matrices() {
         view: odd,
         projection: odd.map(|v| -v),
         target: TargetRef::CameraTarget,
+        buffers: None,
     };
     let back = decode_work(&encode_work(&record).unwrap()).unwrap();
     let OffscreenWork::SetupCamera {

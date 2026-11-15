@@ -512,9 +512,7 @@ impl ProgramRuntime {
                 colors: request.signature.color_count(),
             });
         }
-        if let Some(fragment) = &request.program.fragment {
-            check_color_outputs(&fragment.color_outputs(), request.colors)?;
-        }
+        request.check_color_outputs()?;
         if request.state.stencil.is_some() && !request.signature.has_stencil() {
             return Err(ProgramError::UnsupportedState {
                 what: "stencil without a stencil attachment",
@@ -638,19 +636,6 @@ pub(crate) struct VertexLayout<'a> {
 
 /// Everything a render pipeline is built from. `colors` has one state per colour attachment of
 /// the signature.
-/// Refuses a colour target the draw writes (a write mask that is not empty) at a location the
-/// fragment stage has no output for. wgpu builds such a pipeline without complaint, and the
-/// attachment then receives undefined values on Vulkan and Metal. A target with an empty write
-/// mask may go without an output. An output with no target is allowed: wgpu discards it.
-fn check_color_outputs(outputs: &[u32], colors: &[ColorState]) -> Result<(), ProgramError> {
-    for (location, color) in (0u32..).zip(colors) {
-        if !color.write_mask.is_empty() && !outputs.contains(&location) {
-            return Err(ProgramError::TargetWithoutFragmentOutput { location });
-        }
-    }
-    Ok(())
-}
-
 pub(crate) struct PipelineRequest<'a> {
     pub(crate) program: &'a GraphicsProgram,
     pub(crate) state: &'a RenderState,
@@ -663,6 +648,23 @@ pub(crate) struct PipelineRequest<'a> {
 }
 
 impl PipelineRequest<'_> {
+    /// Refuses a colour target the draw writes (a write mask that is not empty) at a location the
+    /// fragment stage has no output for. wgpu builds such a pipeline without complaint, and the
+    /// attachment then receives undefined values on Vulkan and Metal. A target with an empty write
+    /// mask may go without an output, and an output with no target is allowed: wgpu discards it.
+    pub(crate) fn check_color_outputs(&self) -> Result<(), ProgramError> {
+        let Some(fragment) = &self.program.fragment else {
+            return Ok(());
+        };
+        let outputs = fragment.color_outputs();
+        for (location, color) in (0u32..).zip(self.colors) {
+            if !color.write_mask.is_empty() && !outputs.contains(&location) {
+                return Err(ProgramError::TargetWithoutFragmentOutput { location });
+            }
+        }
+        Ok(())
+    }
+
     fn vertex_buffers(&self) -> Vec<Option<wgpu::VertexBufferLayout<'_>>> {
         self.layouts
             .iter()

@@ -100,7 +100,7 @@ impl Scene {
                     .create_view(&wgpu::TextureViewDescriptor::default()),
             )
             .unwrap();
-        encoder.finish().submit()?;
+        encoder.finish().submit().unwrap();
         Ok(())
     }
 

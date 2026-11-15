@@ -275,7 +275,7 @@ pub fn stage_in(
 }
 
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::error::ProgramError;
 use worldrunner_render_program::unity::runtime::{ProgramRuntime, TargetHandle, TargetImage};
@@ -298,7 +298,7 @@ impl Gpu {
 
     /// A device that also asks for `optional` where the adapter has it.
     pub fn with_optional(optional: wgpu::Features) -> Self {
-        let instance = headless_instance();
+        let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("the program tests need a GPU adapter");

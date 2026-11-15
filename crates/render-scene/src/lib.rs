@@ -13,6 +13,7 @@ pub mod device;
 pub mod draw;
 pub mod dynamic;
 pub mod frame;
+pub mod gbuffer;
 pub mod geometry;
 mod instances;
 mod object;

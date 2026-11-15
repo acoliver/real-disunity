@@ -181,6 +181,7 @@ pub(super) fn configure_effects(
     // Legacy output has no screen-space metadata; depth fitting there draws its own prepass.
     settings.depth_fitting = settings.hdr.and(effects.depth_fitting().copied());
     settings.water = effects.water_bodies().to_vec();
+    settings.opaque_path = effects.opaque_path();
     if let Some((exposure, _)) = &mut settings.hdr {
         *exposure = f64::from(effects.grading().exposure_micro) / 1_000_000.0;
     }

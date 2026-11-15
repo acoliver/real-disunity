@@ -320,6 +320,8 @@ mod cost_tests;
 #[cfg(test)]
 mod family_tests;
 #[cfg(test)]
+mod gbuffer_tests;
+#[cfg(test)]
 mod path_tests;
 #[cfg(test)]
 mod program_tests;

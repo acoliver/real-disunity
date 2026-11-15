@@ -87,6 +87,15 @@ impl TextureTable {
                 )?,
                 RenderDimension::D2,
             ),
+            SourceDimension::D3 => (
+                runtime.create_texture_3d(
+                    "offscreen source volume",
+                    source.size,
+                    format,
+                    &source.bytes,
+                )?,
+                RenderDimension::D3(1),
+            ),
             SourceDimension::Cube => {
                 if source.size[0] != source.size[1] {
                     return Err(OffscreenError::CubeShape {

@@ -81,6 +81,24 @@ fn the_grey_cube_is_one_grey_texel_on_each_of_six_faces_and_a_cube_named_grey_ge
     );
 }
 
+#[test]
+fn the_grey_volume_is_one_grey_texel_one_slice_deep_and_a_volume_named_grey_gets_it() {
+    let volume = DefaultTexture::Grey3d.texture();
+    assert_eq!(
+        (volume.dimension, volume.size),
+        (SourceDimension::D3, [1, 1])
+    );
+    assert_eq!(volume.bytes, DefaultTexture::Grey.texture().bytes);
+    assert_eq!(
+        volume.graphics_format,
+        DefaultTexture::Grey.texture().graphics_format
+    );
+    assert_eq!(
+        DefaultTexture::named(DefaultTexture::Grey3d.name(), 3),
+        Some(DefaultTexture::Grey3d)
+    );
+}
+
 /// The texel of each name, as bytes: Unity's colours (1, 1, 1, 1), (0, 0, 0, 1), (0.5, 0.5, 0.5, 1),
 /// the neutral normal (0.5, 0.5, 1, 0.5) and (1, 0, 0, 1), with 0.5 as the byte 128.
 const COLOURS: [(&str, [u8; 4]); 8] = [
@@ -101,6 +119,7 @@ fn every_name_unity_knows_gives_its_texel_in_each_dimension_a_draw_can_sample() 
             (2, SourceDimension::D2, 1),
             (4, SourceDimension::Cube, 6),
             (5, SourceDimension::D2Array(1), 1),
+            (3, SourceDimension::D3, 1),
         ] {
             let texture = DefaultTexture::named(name, dimension)
                 .unwrap_or_else(|| panic!("{name} at dimension {dimension} is a default"))
@@ -151,9 +170,10 @@ fn the_spellings_of_grey_are_one_texture_and_a_name_is_matched_as_written() {
             DefaultTexture::named(name, 5),
             Some(DefaultTexture::GreyArray)
         );
+        assert_eq!(DefaultTexture::named(name, 3), Some(DefaultTexture::Grey3d));
     }
     for name in ["", "White", "BUMP", "Grey", "lineargrey", "transparent"] {
-        for dimension in [2, 4, 5] {
+        for dimension in [2, 3, 4, 5] {
             assert_eq!(DefaultTexture::named(name, dimension), None, "{name}");
         }
     }
@@ -161,8 +181,8 @@ fn the_spellings_of_grey_are_one_texture_and_a_name_is_matched_as_written() {
 
 #[test]
 fn a_dimension_a_draw_cannot_sample_gets_no_default() {
-    // Unity's TextureDimension: 0 none, 1 any, 3 volume, 6 cube array, and one it does not have.
-    for dimension in [0, 1, 3, 6, 7, -1] {
+    // Unity's TextureDimension: 0 none, 1 any, 6 cube array, and one it does not have.
+    for dimension in [0, 1, 6, 7, -1] {
         assert_eq!(
             DefaultTexture::named("white", dimension),
             None,
@@ -183,7 +203,7 @@ fn the_table_has_one_default_for_each_colour_and_shape_and_each_names_itself() {
         assert!(!seen.contains(&key), "{key:?} twice");
         seen.push(key);
     }
-    assert_eq!(seen.len(), 5 * 3);
+    assert_eq!(seen.len(), 5 * 4);
 }
 
 #[test]
@@ -197,6 +217,7 @@ fn a_shader_declares_a_default_for_each_texture_property_that_names_one_the_host
         property("_Layers", 4, "white", 5),
         property("_Sky", 4, "grey", 4),
         property("_Volume", 4, "black", 3),
+        property("_Stack", 4, "black", 6),
         property("_Mystery", 4, "mystery", 2),
         property("_Tint", 0, "white", 2),
     ]);
@@ -208,6 +229,7 @@ fn a_shader_declares_a_default_for_each_texture_property_that_names_one_the_host
             ("_Normals".to_owned(), DefaultTexture::Bump),
             ("_Layers".to_owned(), DefaultTexture::WhiteArray),
             ("_Sky".to_owned(), DefaultTexture::GreyCube),
+            ("_Volume".to_owned(), DefaultTexture::Black3d),
         ]
     );
 }

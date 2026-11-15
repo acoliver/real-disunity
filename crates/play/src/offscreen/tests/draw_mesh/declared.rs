@@ -13,8 +13,9 @@ use worldrunner_unity_serialized::shader_parameters::{ResourceKind, VariantParam
 use super::{GREEN, MESH, Mat4, World, draw_mesh, flush, identity_view, left_half, scene, stored};
 use super::{Run, shader};
 
-/// The vertex stage and the three fragment stages: the texture the slot holds is sampled at the
-/// vertex's texture coordinate (2D), along +Z (cube) or at layer 0 (2D array) and written as it is.
+/// The vertex stage and the fragment stages: the texture the slot holds is sampled at the vertex's
+/// texture coordinate (2D), at its middle slice (3D), along +Z (cube) or at layer 0 (2D array) and
+/// written as it is.
 const VERTEX: &str = "
 struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
 @vertex fn vs_main(@location(0) position: vec3<f32>, @location(1) uv: vec2<f32>) -> VOut {
@@ -63,7 +64,9 @@ pub(super) fn passes(file: &str) -> SyntheticShader {
     let dimension: i32 = dimension.parse().unwrap();
     // The dimension codes of a player variant's texture: 4 is 2D, 6 is 3D, 8 a cube, 10 an array.
     let (code, sample) = match dimension {
-        2 => (4, SAMPLE_2D),
+        // No player variant has a cube-array code (6), so that slot is 2D: only the property's
+        // declaration of a cube array matters to the default.
+        2 | 6 => (4, SAMPLE_2D),
         3 => (6, SAMPLE_3D),
         4 => (8, SAMPLE_CUBE),
         5 => (10, SAMPLE_ARRAY),
@@ -221,6 +224,15 @@ fn the_empty_default_name_stays_missing() {
 }
 
 #[test]
-fn a_declared_volume_stays_missing_because_a_draw_has_no_volume_default() {
-    assert_missing("black", 3);
+fn an_unset_declared_volume_reads_a_one_slice_volume_of_the_named_default() {
+    assert_reads("black", 3, [0.0, 0.0, 0.0, 1.0]);
+    assert_reads("white", 3, [1.0; 4]);
+    assert_reads("grey", 3, [0.5, 0.5, 0.5, 1.0]);
+}
+
+/// A property declared as a cube array has no default: the offscreen state uploads no cube-array
+/// source, so the property stays missing, as an unknown name does.
+#[test]
+fn a_declared_cube_array_stays_missing_because_no_cube_array_default_is_uploaded() {
+    assert_missing("black", 6);
 }

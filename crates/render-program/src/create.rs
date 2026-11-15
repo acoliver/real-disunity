@@ -190,8 +190,24 @@ impl ProgramRuntime {
         self.create_source_texture(label, TextureKind::Array, size, layers, format, bytes)
     }
 
-    /// The upload of a 2D texture (one layer), a cube (six) or an array (`faces`), `size` being
-    /// one face.
+    /// Uploads a 3D texture one slice deep: `size` is the slice and `bytes` its one level, as
+    /// [`create_texture_2d`](Self::create_texture_2d) takes one. The texture is sampled through a
+    /// 3D view. A deeper volume has no upload.
+    ///
+    /// # Errors
+    /// Fails as for a 2D texture, and when the device's 3D extent limit is below the slice.
+    pub fn create_texture_3d(
+        &mut self,
+        label: &str,
+        size: [u32; 2],
+        format: wgpu::TextureFormat,
+        bytes: &[u8],
+    ) -> Result<TextureHandle, ProgramError> {
+        self.create_source_texture(label, TextureKind::D3, size, 1, format, bytes)
+    }
+
+    /// The upload of a 2D texture (one layer), a one-slice 3D texture, a cube (six) or an array
+    /// (`faces`), `size` being one face.
     fn create_source_texture(
         &mut self,
         label: &str,
@@ -261,7 +277,7 @@ impl ProgramRuntime {
         let entry = match kind {
             TextureKind::Cube => entry_viewed(texture, wgpu::TextureViewDimension::Cube),
             TextureKind::Array => entry_viewed(texture, wgpu::TextureViewDimension::D2Array),
-            TextureKind::D2 => entry(texture),
+            TextureKind::D2 | TextureKind::D3 => entry(texture),
         };
         Ok(self.store.add_texture(entry, reservation))
     }

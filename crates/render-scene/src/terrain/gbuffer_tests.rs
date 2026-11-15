@@ -86,20 +86,25 @@ struct Drawn {
 fn prepare(context: &GpuContext, frame: Frame, opaque_path: SceneOpaquePath) -> Drawn {
     let scene = frame.scene();
     let uniform = frame.uniform(&scene);
+    prepare_scene(context, &scene, &uniform, frame.configuration(opaque_path))
+}
+
+fn prepare_scene(
+    context: &GpuContext,
+    scene: &RenderScene,
+    uniform: &FrameUniform,
+    configuration: RendererConfiguration,
+) -> Drawn {
     let pipelines = ScenePipelines::new(context.device(), HDR);
-    let gpu = SceneGpu::upload(context.device(), context.submission(), &scene, &pipelines).unwrap();
-    gpu.set_frame(context.queue(), uniform);
-    let renderer = ConfiguredFrameRenderer::new(
-        context,
-        frame.configuration(opaque_path),
-        AllocationBudget(1 << 28),
-    )
-    .unwrap();
+    let gpu = SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
+    gpu.set_frame(context.queue(), *uniform);
+    let renderer =
+        ConfiguredFrameRenderer::new(context, configuration, AllocationBudget(1 << 28)).unwrap();
     Drawn {
         renderer,
         gpu,
         pipelines,
-        frame: uniform,
+        frame: *uniform,
     }
 }
 
@@ -539,3 +544,6 @@ fn gbuffer_slot_producer_writes_surfaces_the_reference_decodes() {
         check_decoded(&gbuffer(&context, &drawn.renderer));
     }
 }
+
+#[path = "gbuffer_object_tests.rs"]
+mod object_tests;

@@ -162,7 +162,7 @@ fn draws_whose_arena_was_dropped_in_the_recording_frame_fail_the_encode_by_name(
         ProgramError::Lease(LeaseError::Expired).to_string()
     );
     assert_eq!(
-        fixture.gpu.statistics().meshes,
+        fixture.gpu.statistics().passes.opaque_objects.meshes,
         DrawCount::default(),
         "no stock draw was recorded"
     );

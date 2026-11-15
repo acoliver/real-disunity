@@ -72,7 +72,7 @@ fn check_reference(transform: SceneTransform) {
                         bounded.lo <= actual && bounded.hi >= actual,
                         "{transform:?}, {eye:?}, {clamp:?}, {fused}: {bounded:?} versus {actual}"
                     );
-                    if policy.empty(object, eye) {
+                    if policy.empty(object, eye, &mut Distances::default()) {
                         assert!(actual >= 6.0);
                     }
                 }
@@ -100,4 +100,37 @@ fn shader_distance(
         eye.z = eye.z.max(point[2] + millimeter_to_meter(i64::from(clamp)));
     }
     (eye - Vec3::from_array(point)).length()
+}
+
+#[test]
+fn an_unreferenced_distance_starts_at_the_model_translation_bit_for_bit() {
+    let mut value = 0x2545_f491_4f6c_dd1d_u64;
+    for _ in 0..10_000 {
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        let position = [0, 21, 42]
+            .map(|shift| i64::try_from((value >> shift) % 5_000_000_000).unwrap() - 2_500_000);
+        let transform = SceneTransform {
+            position_millimeters: position,
+            rotation: SceneRotation {
+                x: 0,
+                y: 382_683,
+                z: 0,
+                w: 923_880,
+            },
+            scale_millionths: 1 + value % 4_000_000,
+        };
+        assert_eq!(
+            crate::geometry::millimeters_to_meters(position)
+                .to_array()
+                .map(f32::to_bits),
+            model_matrix(&transform)
+                .w_axis
+                .truncate()
+                .to_array()
+                .map(f32::to_bits),
+            "{transform:?}"
+        );
+    }
 }

@@ -840,19 +840,31 @@ Device acquisition, encoding and readback errors still fail the probe.
 
 ## Submitted geometry statistics
 
-`SceneGpu::statistics()` reads the last submitted main-camera mesh/impostor draw
-selection and decal counts without allocating or polling. The transactional
-compositor publishes both at submission; cancelled encoders do not publish them.
-The immediate `set_frame` API updates decal counts with its CPU frame state.
-Counts include each material slot and
-LOD transition complement, with instance counts summed across those draws.
-These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
+`SceneGpu::statistics()` reads the last submitted pass draws and decal counts
+without allocating or polling. The transactional compositor publishes both at
+submission; cancelled encoders do not publish them. The immediate `set_frame` API
+updates decal counts with its CPU frame state.
 
 `passes` counts CPU-encoded calls and instances for main terrain, transparent
 water, background sky (including discs), native screen-space text (`passes.ui`),
-and each of four directional shadow cascades. Counts are recorded alongside the draw commands and published only on
-submission. A skipped cascade reports zero draws, even when its cached map is
-reused. Metadata, water masks and separate celestial mesh passes are excluded.
+the main camera's objects in the depth/normal prepass (`passes.prepass_objects`)
+and the colour pass (`passes.opaque_objects`), and each of four directional
+shadow cascades. Counts are recorded by the code that issues the draw commands
+and published only on submission. A skipped cascade reports zero draws, even when
+its cached map is reused. Water masks, capture-term replays and separate celestial
+mesh passes are excluded.
+
+Object counts are the indexed draws the recorder issued: one per material slot of
+each drawn level, plus the preceding level's slots for an LOD transition
+complement, with instance counts summed across those draws. A draw counts under
+`impostors` when its material is an impostor, otherwise under `meshes`.
+`ObjectDraws::recording` says how the pass recorded its selection: `Compacted`
+draws each (batch, LOD) group once from the view's gathered instances, `Ranged`
+draws each selected instance range because the view's gathered instances did not
+hold this selection (the resident path never gathers), and `NotRecorded` means the
+pass did not run in that frame. Compaction merges ranges but keeps every material
+slot and transition complement, so a compacted count never exceeds the ranged
+count of the same selection.
 Submitted `SceneStatistics::effects` records directional-shadow installation,
 SSAO installation and enablement, prepass execution, and typed mesh/terrain
 receiver bindings. These follow the installed features and encoded binding

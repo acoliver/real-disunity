@@ -18,7 +18,8 @@ impl OffscreenOperations {
     ///
     /// # Errors
     /// Fails when the texture is not one the frame uses, has no such mip and layer, or the
-    /// operations never write it, and when `resource` is already exported.
+    /// operations never write it, when `resource` names another mip or layer, and when
+    /// `resource` is already exported.
     pub fn export(
         &mut self,
         texture: TextureId,
@@ -33,6 +34,15 @@ impl OffscreenOperations {
         if mip >= imported.mips || layer >= imported.layers {
             return Err(OffscreenError::NoSuchSubresource {
                 texture,
+                mip,
+                element: layer,
+            });
+        }
+        // A pass samples the mip and layer its resource names, so the name must be the cell
+        // the export checked; otherwise validation accepts a read of a cell nothing wrote.
+        if (resource.mip, resource.layer) != (mip, layer) {
+            return Err(OffscreenError::ExportNamesAnotherSubresource {
+                resource,
                 mip,
                 element: layer,
             });

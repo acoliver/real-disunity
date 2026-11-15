@@ -124,6 +124,16 @@ pub enum OffscreenError {
     },
     #[error("{0:?} is exported twice")]
     ExportedTwice(worldrunner_render_post::ResourceRef),
+    #[error(
+        "{resource:?} names mip {} of layer {}, but the export is mip {mip} of element {element}",
+        .resource.mip,
+        .resource.layer
+    )]
+    ExportNamesAnotherSubresource {
+        resource: worldrunner_render_post::ResourceRef,
+        mip: u32,
+        element: u32,
+    },
     #[error("the cells of {texture:?} that a draw samples were written at different points")]
     MixedVersions { texture: TextureId },
     #[error("set {set} binding {binding} is {what}, which offscreen draws do not bind")]

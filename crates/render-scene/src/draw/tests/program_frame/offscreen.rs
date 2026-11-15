@@ -504,7 +504,11 @@ fn the_admitted_work_reports_only_the_written_textures_the_host_exported() {
     let mut player = player(&mut fixture);
     let authority = fixture.context.submission().clone();
     let (mut operations, _) = build(&mut player);
-    let (camera, element) = (ResourceRef::new("camera"), ResourceRef::new("element"));
+    let element = ResourceRef {
+        layer: 2,
+        ..ResourceRef::new("element")
+    };
+    let camera = ResourceRef::new("camera");
     operations.export(A, 0, 0, camera).unwrap();
     operations.export(ARRAY, 0, 2, element).unwrap();
     let refused = |result: Result<(), OffscreenError>| result.unwrap_err().to_string();
@@ -515,6 +519,11 @@ fn the_admitted_work_reports_only_the_written_textures_the_host_exported() {
     assert_eq!(
         refused(operations.export(ARRAY, 1, 2, ResourceRef::new("small"))),
         "texture TextureId(12) has no mip 1 of element 2"
+    );
+    let misnamed = ResourceRef::new("misnamed");
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 2, misnamed)),
+        format!("{misnamed:?} names mip 0 of layer 0, but the export is mip 0 of element 2")
     );
     assert_eq!(
         refused(operations.export(TextureId(99), 0, 0, ResourceRef::new("unknown"))),

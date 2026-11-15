@@ -77,6 +77,7 @@ impl SceneGpu {
     pub(crate) fn draw_contours<P: PassCommands + ?Sized>(&self, pass: &mut P, draw: &ContourDraw) {
         let frame = self.drawing_uniform();
         let selection = self.select_objects(None, &frame);
+        let mut drawn = super::ObjectDraws::new(super::ObjectRecording::Ranged);
         pass.set_bind_group(0, &self.drawing_frame_group());
         for range in &selection.ranges {
             for (id, selected) in intersections(range, &self.instances.contour_members) {
@@ -84,7 +85,7 @@ impl SceneGpu {
                 let mut sink =
                     super::object_runtime::PreparedSink::new(pass, &self.objects, &draw.context);
                 // The camera's compacted instance indices do not address original skin streams.
-                self.record_lod_range(&mut sink, &selected);
+                self.record_lod_range(&mut sink, &selected, &mut drawn);
             }
         }
     }

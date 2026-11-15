@@ -457,6 +457,7 @@ fn upload_built(context: &mut PrepareContext<'_>, built: &Built) -> Result<GpuLo
             reason: error.to_string(),
         })?;
     Ok(GpuLod {
+        layout: crate::object::layout::GeometryLayout::Static,
         transition: None,
         vertices: buffer(
             context,

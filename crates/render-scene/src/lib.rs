@@ -25,6 +25,7 @@ mod sampling;
 mod scene_metadata;
 pub mod shader;
 pub mod shadows;
+mod skinning;
 mod ssao;
 mod ssr;
 pub mod terrain;

@@ -14,6 +14,7 @@ impl Streaming {
         self.residency.observe(current.iter().copied(), false);
         let observation = crate::terrain::streaming::observe(
             self.scene.terrain().expect("terrain"),
+            &self.height_bounds,
             &current,
             frame.selection_view_projection(),
             viewport,
@@ -49,10 +50,15 @@ impl Streaming {
         };
         let keys: Vec<_> = residents.iter().map(|(key, _)| *key).collect();
         let drawn: Vec<_> = if submitted {
-            super::culling::visible(self.scene.terrain().expect("terrain"), matrix, residents)
-                .into_iter()
-                .map(|(key, _)| *key)
-                .collect()
+            super::culling::visible(
+                self.scene.terrain().expect("terrain"),
+                &self.height_bounds,
+                matrix,
+                residents,
+            )
+            .into_iter()
+            .map(|(key, _)| *key)
+            .collect()
         } else {
             Vec::new()
         };

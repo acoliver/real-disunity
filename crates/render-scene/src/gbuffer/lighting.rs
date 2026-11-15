@@ -96,6 +96,10 @@ impl LightingTargets {
             .map(|(_, texture)| texture)
     }
 
+    pub(crate) fn textures(&self) -> impl Iterator<Item = &wgpu::Texture> {
+        self.textures.iter().map(|(_, texture)| texture)
+    }
+
     pub(crate) fn format(&self) -> wgpu::TextureFormat {
         self.textures[0].1.format()
     }

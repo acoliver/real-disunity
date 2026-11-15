@@ -119,6 +119,11 @@ impl Gbuffer {
         self.lighting.texture(target)
     }
 
+    /// Every target the lighting pass writes, in location order.
+    pub(crate) fn lighting_textures(&self) -> impl Iterator<Item = &wgpu::Texture> {
+        self.lighting.textures()
+    }
+
     /// The lighting pass's colour format and whether it writes the reflection products.
     pub(crate) fn lighting_outputs(&self) -> (wgpu::TextureFormat, bool) {
         (self.lighting.format(), self.lighting.reflections())

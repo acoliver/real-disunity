@@ -6,6 +6,8 @@
 //! `_PerFrame` and write it as the colour of the quad they draw. Every expected texel comes from
 //! the values the test gives the light, the globals and the placement, not from the output.
 
+use std::collections::BTreeSet;
+
 use glam::{Mat4, Quat, Vec3};
 use worldrunner_render_program::unity::synthetic::shaders::{no_cull, variant};
 use worldrunner_render_program::unity::synthetic::{
@@ -400,4 +402,53 @@ fn a_camera_render_with_no_light_set_by_the_script_uses_the_hosts_main_light() {
     let [first, second] = flush_and_read_both(world, targets);
     assert_close(&first, &filled([0.4, 0.2, 0.6]));
     assert_close(&second, &filled([0.4, 0.2, 0.6]));
+}
+
+/// The constants and state properties the report names after the frame is flushed.
+fn unset_after_flush(mut world: World) -> BTreeSet<String> {
+    let directory = tempfile::tempdir().unwrap();
+    let mut host = host(directory.path());
+    let snapshot = snapshot(&mut world);
+    let outcome = host.flush(&snapshot, &Quad).unwrap();
+    assert!(
+        outcome.report.failures.is_empty(),
+        "{:?}",
+        outcome.report.failures
+    );
+    outcome.report.unset_constants
+}
+
+fn names(entries: &[&str]) -> BTreeSet<String> {
+    entries.iter().map(|name| (*name).to_owned()).collect()
+}
+
+#[test]
+fn the_report_names_the_constants_no_layer_set_for_a_list_draw() {
+    // No light in the world and none set by the script: both members of `_PerFrame` stay at zero.
+    let mut world = world();
+    let drawn = target(&mut world, ARGB32);
+    quad(&mut world, "light_color", 0, [0.5, 1.0, -0.5, 0.0]);
+    quad(&mut world, "light_color", 1, [0.5, 1.0, 0.5, 0.0]);
+    two_lists(&mut world, drawn, (&|_| {}, &|_| {}));
+    assert_eq!(unset_after_flush(world), names(&[COLOR, POSITION]));
+}
+
+#[test]
+fn the_report_names_only_the_constants_the_script_left_unset() {
+    // The script sets the colour before every draw, camera render included; the world has no
+    // light, so the direction is the one no layer sets.
+    let mut world = world();
+    let drawn = target(&mut world, ARGB32);
+    quad(&mut world, "light_color", 0, [0.5, 1.0, -0.5, 0.0]);
+    quad(&mut world, "light_color", 1, [0.5, 1.0, 0.5, 0.0]);
+    set_global(&mut world, COLOR, A);
+    two_lists(&mut world, drawn, (&|_| {}, &|_| {}));
+    assert_eq!(unset_after_flush(world), names(&[POSITION]));
+}
+
+#[test]
+fn the_report_names_nothing_when_a_layer_set_every_constant() {
+    let (mut world, drawn) = halves_world("light_color", DARK);
+    two_lists(&mut world, drawn, (&|_| {}, &|_| {}));
+    assert_eq!(unset_after_flush(world), BTreeSet::new());
 }

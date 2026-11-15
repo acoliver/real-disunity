@@ -15,7 +15,7 @@
 //!
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -59,6 +59,26 @@ fn top_counts_line(title: &str, counts: &BTreeMap<String, usize>, top: usize) ->
         .collect();
     let line = format!("{title}: {}", named.join(", "));
     Some(match ranked.len().saturating_sub(top) {
+        0 => line,
+        more => format!("{line}, and {more} more"),
+    })
+}
+
+/// The most names the unset constants line gives.
+const TOP_UNSET: usize = 8;
+
+/// `constants or state properties no layer set: _A, _B`: the first `top` of `names` in name order,
+/// and `and N more` for those past them. There is no line for no names.
+fn unset_constants_line(unset: &BTreeSet<String>, top: usize) -> Option<String> {
+    if unset.is_empty() {
+        return None;
+    }
+    let shown: Vec<&str> = unset.iter().take(top).map(String::as_str).collect();
+    let line = format!(
+        "constants or state properties no layer set: {}",
+        shown.join(", ")
+    );
+    Some(match unset.len().saturating_sub(top) {
         0 => line,
         more => format!("{line}, and {more} more"),
     })
@@ -156,6 +176,9 @@ pub struct GpuWorkReport {
     pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
+    /// The constant buffer members and fixed-state properties no layer set for a draw (see
+    /// `Report::unset_constants`), over every piece of work.
+    pub unset_constants: BTreeSet<String>,
     /// What the adapter mapped, by description (see `Report::census`).
     pub census: BTreeMap<String, usize>,
     /// What the culling records and renderer lists did, by description, and the draws the lists
@@ -265,6 +288,7 @@ impl GpuWorkReport {
         for (name, count) in &report.unresolved_textures {
             *self.unresolved_textures.entry(name.clone()).or_default() += count;
         }
+        self.unset_constants.extend(report.unset_constants.clone());
         for (name, count) in &report.census {
             *self.census.entry(name.clone()).or_default() += count;
         }
@@ -285,6 +309,12 @@ impl GpuWorkReport {
                 entry.texture, entry.written, entry.total, entry.key, entry.tag
             );
             *self.partial_reads.entry(name).or_default() += entry.reads;
+        }
+    }
+
+    fn print_unset_constants(&self) {
+        if let Some(line) = unset_constants_line(&self.unset_constants, TOP_UNSET) {
+            eprintln!("[gpu] {line}");
         }
     }
 
@@ -344,6 +374,7 @@ impl GpuWorkReport {
                 eprintln!("[gpu] {title}: {name}: {count}");
             }
         }
+        self.print_unset_constants();
         for trace in &self.traces {
             for line in trace.lines() {
                 eprintln!("[gpu] {line}");
@@ -700,6 +731,39 @@ mod tests {
     #[test]
     fn there_is_no_missing_texture_line_without_missing_textures() {
         assert_eq!(top_counts_line("t", &BTreeMap::new(), 5), None);
+    }
+
+    fn names(entries: &[&str]) -> BTreeSet<String> {
+        entries.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_unset_constants_line_names_the_first_names_in_order_and_counts_the_rest() {
+        assert_eq!(
+            unset_constants_line(&names(&["_B", "_C", "_A"]), 8).as_deref(),
+            Some("constants or state properties no layer set: _A, _B, _C")
+        );
+        assert_eq!(
+            unset_constants_line(&names(&["_D", "_B", "_E", "_A", "_C"]), 2).as_deref(),
+            Some("constants or state properties no layer set: _A, _B, and 3 more")
+        );
+        assert_eq!(unset_constants_line(&BTreeSet::new(), 8), None);
+    }
+
+    #[test]
+    fn the_run_report_keeps_each_unset_constant_once_over_every_piece_of_work() {
+        let mut report = GpuWorkReport::default();
+        let first = Report {
+            unset_constants: names(&["_B", "_A"]),
+            ..Report::default()
+        };
+        let second = Report {
+            unset_constants: names(&["_A", "_C"]),
+            ..Report::default()
+        };
+        report.add(&first, "frame");
+        report.add(&second, "flush");
+        assert_eq!(report.unset_constants, names(&["_A", "_B", "_C"]));
     }
 
     fn listing(names: &[&str]) -> Report {

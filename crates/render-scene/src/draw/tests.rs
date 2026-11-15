@@ -86,6 +86,7 @@ mod taa_screen_space_tests;
 mod temporal;
 mod terrain_blend;
 mod terrain_mip_bias;
+mod texture_tier;
 mod velocity;
 
 /// The colour format every test renders into.

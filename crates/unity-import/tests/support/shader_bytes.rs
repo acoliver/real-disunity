@@ -9,8 +9,10 @@ use worldrunner_unity_serialized::write::ObjectWriter;
 /// stencil operation sets of 4, 3 stencil values, 3 fog values and 4 fog color values.
 const STATE_VALUES: u16 = 86;
 
-fn write_state(w: &mut ObjectWriter) {
-    w.string("PassState").unwrap();
+/// Writes a pass's render state. A built player keeps the name a pass declares here, in the state,
+/// and leaves the pass's own name field empty.
+fn write_state(w: &mut ObjectWriter, name: &str) {
+    w.string(name).unwrap();
     for value in 1..=STATE_VALUES {
         if value == 57 {
             w.u8(1).align();
@@ -31,7 +33,7 @@ fn write_empty_program(w: &mut ObjectWriter) {
 
 fn write_pass(w: &mut ObjectWriter, name: &str) {
     w.i32(0).i32(0);
-    write_state(w);
+    write_state(w, name);
     w.u32(0);
     for _ in 0..6 {
         write_empty_program(w);
@@ -39,7 +41,7 @@ fn write_pass(w: &mut ObjectWriter, name: &str) {
     w.u8(0).u8(0).align();
     w.string("")
         .unwrap()
-        .string(name)
+        .string("")
         .unwrap()
         .string("")
         .unwrap();

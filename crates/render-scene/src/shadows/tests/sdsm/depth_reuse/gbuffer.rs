@@ -128,9 +128,9 @@ fn gpu_stock_depth_prefix_plan_lists_what_the_fused_producer_completes() {
     let _session = crate::test_support::SceneTestSession::acquire();
     let context = context();
     let source = render_source();
-    let (mut frame, renderer) = fitted_frame(&context, &source);
+    let (mut frame, mut renderer) = fitted_frame(&context, &source);
     let prefix = frame
-        .stock_depth_prefix(context.device(), &renderer.gpu)
+        .stock_depth_prefix(context.device(), (&mut renderer.gpu, &renderer.pipelines))
         .unwrap();
     let plan = prefix.plan();
     let entries: Vec<_> = plan

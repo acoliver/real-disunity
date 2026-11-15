@@ -131,10 +131,11 @@ impl FrameRenderer {
         crate::draw::DrawPublications::with_producer(self.producer_draw.clone())
     }
 
-    /// The stock depth prefix of the frame `gpu` is drawn in. It prepares the renderer's inputs
-    /// from the scene first, as [`prepare_stock_scene`](super::prepare_stock_scene) does, then
-    /// plans the prefix from the screen-space metadata and the G-buffer path the renderer holds
-    /// and from whether the scene draws relief.
+    /// The stock depth prefix of the frame `scene` is drawn in. It prepares the renderer's inputs
+    /// from the scene first, as [`prepare_stock_scene`](super::prepare_stock_scene) does, takes
+    /// the same decision on whether the colour draws write velocity, then plans the prefix from
+    /// the screen-space metadata and the G-buffer path the renderer holds and from whether the
+    /// scene draws relief. `pipelines` are the ones the suffix draws with.
     ///
     /// # Errors
     /// `FrameError::UnsupportedEffect("stock depth prefix needs screen-space metadata")` when the
@@ -142,14 +143,16 @@ impl FrameRenderer {
     pub fn stock_depth_prefix(
         &mut self,
         device: &wgpu::Device,
-        gpu: &crate::draw::SceneGpu,
+        scene: (&mut crate::draw::SceneGpu, &crate::renderer::ScenePipelines),
     ) -> Result<StockDepthPrefix, FrameError> {
+        let (gpu, pipelines) = scene;
         if self.ssao.is_none() {
             return Err(FrameError::UnsupportedEffect(
                 "stock depth prefix needs screen-space metadata",
             ));
         }
         self.prepare_scene_inputs(device, gpu);
+        self.adopt_scene_velocity(device, gpu, pipelines);
         let source = self.ssao.as_ref().expect("metadata checked").clone();
         StockDepthPrefix::new(self, source, gpu.has_relief())
     }

@@ -196,7 +196,9 @@ impl Frame {
     ) -> Result<(), FrameError> {
         let device = self.context.device();
         let uniform = self.uniform(view);
-        let prefix = self.renderer.stock_depth_prefix(device, &self.gpu)?;
+        let prefix = self
+            .renderer
+            .stock_depth_prefix(device, (&mut self.gpu, &self.pipelines))?;
         prefix.encode(
             &mut self.renderer,
             device,
@@ -304,7 +306,7 @@ impl Frame {
         let uniform = self.uniform(view);
         let prefix = self
             .renderer
-            .stock_depth_prefix(&device, &self.gpu)
+            .stock_depth_prefix(&device, (&mut self.gpu, &self.pipelines))
             .unwrap();
         let writes = self.capture_writes(&prefix);
         let first = authority
@@ -345,7 +347,7 @@ impl Frame {
     fn prepass_depth_texture(&mut self) -> wgpu::Texture {
         let prefix = self
             .renderer
-            .stock_depth_prefix(self.context.device(), &self.gpu)
+            .stock_depth_prefix(self.context.device(), (&mut self.gpu, &self.pipelines))
             .unwrap();
         let plan = prefix.plan();
         let resource = prepass_depth_of(&plan);
@@ -360,7 +362,7 @@ impl Frame {
     fn sampler(&mut self, seen: &Rc<RefCell<Seen>>) -> Sampler {
         let prefix = self
             .renderer
-            .stock_depth_prefix(self.context.device(), &self.gpu)
+            .stock_depth_prefix(self.context.device(), (&mut self.gpu, &self.pipelines))
             .unwrap();
         let reads = [
             prepass_depth_of(&prefix.plan()),
@@ -605,7 +607,9 @@ fn gpu_a_prefix_contribution_with_an_unproduced_read_is_refused_before_anything_
         .clone()
         .prepare(&device, |encoder, _| {
             let uniform = frame.uniform(&view(0));
-            let prefix = frame.renderer.stock_depth_prefix(&device, &frame.gpu)?;
+            let prefix = frame
+                .renderer
+                .stock_depth_prefix(&device, (&mut frame.gpu, &frame.pipelines))?;
             prefix.encode(
                 &mut frame.renderer,
                 &device,
@@ -649,7 +653,9 @@ fn gpu_a_prefix_contribution_is_encoded_with_the_prefix_and_found_completed_by_t
         .clone()
         .prepare(&device, |encoder, _| {
             let uniform = frame.uniform(&view(0));
-            let prefix = frame.renderer.stock_depth_prefix(&device, &frame.gpu)?;
+            let prefix = frame
+                .renderer
+                .stock_depth_prefix(&device, (&mut frame.gpu, &frame.pipelines))?;
             prefix.encode(
                 &mut frame.renderer,
                 &device,

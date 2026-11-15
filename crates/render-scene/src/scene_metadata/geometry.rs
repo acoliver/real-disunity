@@ -1,5 +1,6 @@
 use super::output::MetadataOutput;
 use crate::renderer::ScenePipelines;
+use crate::shader::rewrite::ShaderRewrite;
 
 fn camera_group(
     device: &wgpu::Device,
@@ -40,10 +41,30 @@ pub(crate) fn pipelines(
 pub(crate) fn sources(output: MetadataOutput) -> (String, String) {
     let camera = include_str!("../ssao/camera.wgsl");
     let object_source = crate::shader::ENVIRONMENT_WGSL
-        .replace("fn fs_relief_opaque(", "fn unused_relief_opaque(")
-        .replace("fn fs_relief_masked(", "fn unused_relief_masked(")
-        .replace("fn fs_opaque(", "fn unused_opaque(")
-        .replace("fn fs_masked(", "fn unused_masked(");
+        .anchored(
+            "scene_metadata::geometry::sources",
+            1,
+            "fn fs_relief_opaque(",
+            "fn unused_relief_opaque(",
+        )
+        .anchored(
+            "scene_metadata::geometry::sources",
+            1,
+            "fn fs_relief_masked(",
+            "fn unused_relief_masked(",
+        )
+        .anchored(
+            "scene_metadata::geometry::sources",
+            1,
+            "fn fs_opaque(",
+            "fn unused_opaque(",
+        )
+        .anchored(
+            "scene_metadata::geometry::sources",
+            1,
+            "fn fs_masked(",
+            "fn unused_masked(",
+        );
     let object = format!("{object_source}\n{camera}\n{}", output.object_fragment());
     let terrain = format!(
         "{}\n{camera}",

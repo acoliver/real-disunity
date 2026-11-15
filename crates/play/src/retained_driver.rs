@@ -1,9 +1,10 @@
 //! Plays a built player's scene in the scene viewer's retained path, which draws 3D objects.
 //!
 //! Each update advances the game, reads the mesh renderers its frame shows and turns them into
-//! retained edits (see [`SceneTables`]). The first frame that shows a mesh object sets the
-//! viewer's camera to the game's camera; after that the window's pointer and keys orbit it
-//! ([`Navigation`]) while the keys also reach the game's `Input`. Screen-space UI uses the
+//! retained edits (see [`SceneTables`]). From the first frame that shows a mesh object the
+//! viewer follows the game's camera, sent again whenever its pose or lens changes. Before then
+//! the window's pointer and keys orbit the opening view ([`Navigation`]); keys always reach the
+//! game's `Input`. Screen-space UI uses the
 //! engine overlay; ordinary 2D scene quads remain outside this retained path.
 
 #[cfg(test)]
@@ -158,7 +159,7 @@ struct PlayerRetainedDriver {
     navigation: Navigation,
     lighting: SceneLighting,
     lens: SceneCamera,
-    /// Whether the window has started at the game's camera.
+    /// The game's camera the window follows.
     start: CameraStart,
     /// The camera last accepted by the viewer, from the pose it opens with.
     publication: CameraPublication,
@@ -177,6 +178,11 @@ impl PlayerRetainedDriver {
         window: PlayerWindow,
         lighting: SceneLighting,
     ) -> Result<Self, PlayError> {
+        // The opening view can be orbited until the game presents a camera, which then owns it.
+        let mut navigation = Navigation::default();
+        navigation
+            .start(viewer_options(&window).pose, orbit_limits())
+            .map_err(PlayError::Invalid)?;
         Ok(Self {
             host,
             tables: SceneTables::new().map_err(|error| scene_error("the tables", &error))?,
@@ -184,7 +190,7 @@ impl PlayerRetainedDriver {
             player_textures: PlayerTextures::default(),
             ui: PlayerUi::default(),
             sprites: SpriteTextures::default(),
-            navigation: Navigation::default(),
+            navigation,
             lighting,
             lens: viewer_options(&window).camera,
             start: CameraStart::default(),
@@ -308,8 +314,8 @@ impl PlayerRetainedDriver {
         }
     }
 
-    /// Points the viewer at the game's camera once the first mesh object shows, then sends the
-    /// pose the navigation moves it to.
+    /// Points the viewer at the game's camera on every frame that shows objects and presents a
+    /// changed camera. Navigation moves only the opening view, before the game presents one.
     fn camera(
         &mut self,
         viewer: &mut RetainedHost,
@@ -323,11 +329,9 @@ impl PlayerRetainedDriver {
         let moved = match step.start {
             Some((pose, lens)) => {
                 self.lens = lens;
-                if let Err(error) = self.navigation.start(pose, orbit_limits()) {
-                    eprintln!("the camera cannot be orbited: {error}");
-                }
                 Some(pose)
             }
+            None if self.start.following() => None,
             None => self.navigation.take_moved(),
         };
         let render_shadows = self.host.presentation_render_shadows()?;

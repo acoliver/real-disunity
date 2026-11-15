@@ -193,6 +193,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Keyboard, focus and resize events arrive in `LiveTick::input`. Convert the keys you care about into `InputEvent`s and push them before calling `advance`. Set `LiveFrame::exit` to close the window. For UI text, enable the `ui` feature, register a TrueType font in a `FontBook`, add `Canvas`, `RectTransform` and `Text` components, and append `extract_ui` output to the plan with `append_ui`.
 
+For a caller-owned immediate overlay without Canvas objects, see
+[Drawing an immediate overlay](immediate-ui.md). It builds a detached presentation
+for the existing retained compositor.
+
 ## Draw a 3D scene
 
 3D content goes through `RenderScene`, a validated description of meshes, materials, textures, terrain, lights and effects. A game builds one with the constructors in `worldrunner::scene::plan` and hands it to `worldrunner::scene::viewer::run` for a window, or to `worldrunner::scene::gpu::offscreen::capture_scene` for a headless image. `run_with_updates` gives a per-frame callback that can move, add and hide instances without re-uploading the scene.

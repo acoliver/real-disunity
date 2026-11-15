@@ -17,8 +17,8 @@ impl PreparedFeature for Resident<'_> {
     fn prepare(&mut self, _: &mut PrepareContext<'_>) -> Result<(), FrameError> {
         Ok(())
     }
-    fn commit(&mut self, _: &mut PrepareContext<'_>) {
-        self.scene.reset_pass_statistics();
+    fn commit(&mut self, context: &mut PrepareContext<'_>) {
+        self.scene.reset_pass_statistics(context);
     }
     fn finish_draws(&mut self, context: &mut PrepareContext<'_>) {
         self.publications.publish(context, self.scene);

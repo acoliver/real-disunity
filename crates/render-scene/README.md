@@ -57,12 +57,20 @@ constrained budgets, independent of resident storage and upload-completion histo
 Selected leaves are returned in derived-key order. Relative to history-based tie
 admission, only exact-error ties can change which geometry becomes resident.
 
+Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
+and streaming policy. Terminal ranges scan all inclusive source samples; parents
+union their children's ranges. Camera selection projects each node's own surface
+height range. CPU selector callers construct and reuse the cache with the same
+terrain source and policy they pass to `select` and `error`.
+
 Camera terrain submissions use the shared mesh frustum plane test against each
-resident leaf's full terrain-wide height range and skirt bottom. Culling only
-filters recorded draws: selection, residency, mesh builds and uploads still cover
-the whole grid. Each camera pass uses its own raster matrix, including projection
-jitter. Shadow cascades retain their own light-frustum and slice-hull selection;
-they never use the camera's culled subset. Nonstreaming terrain stays unculled.
+resident leaf's cached height range and the terrain-wide skirt bottom, padded
+outward for floating-point rounding. Culling only filters recorded draws:
+selection, residency, mesh builds and uploads still cover the whole grid. Each
+camera pass uses its own raster matrix, including projection jitter. Shadow
+cascades use terrain-wide height ranges for their footprint and geometry bounds,
+with their own light-frustum and slice-hull selection; they never use the camera's
+culled subset. Nonstreaming terrain stays unculled.
 
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies
@@ -832,19 +840,31 @@ Device acquisition, encoding and readback errors still fail the probe.
 
 ## Submitted geometry statistics
 
-`SceneGpu::statistics()` reads the last submitted main-camera mesh/impostor draw
-selection and decal counts without allocating or polling. The transactional
-compositor publishes both at submission; cancelled encoders do not publish them.
-The immediate `set_frame` API updates decal counts with its CPU frame state.
-Counts include each material slot and
-LOD transition complement, with instance counts summed across those draws.
-These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
+`SceneGpu::statistics()` reads the last submitted pass draws and decal counts
+without allocating or polling. The transactional compositor publishes both at
+submission; cancelled encoders do not publish them. The immediate `set_frame` API
+updates decal counts with its CPU frame state.
 
 `passes` counts CPU-encoded calls and instances for main terrain, transparent
 water, background sky (including discs), native screen-space text (`passes.ui`),
-and each of four directional shadow cascades. Counts are recorded alongside the draw commands and published only on
-submission. A skipped cascade reports zero draws, even when its cached map is
-reused. Metadata, water masks and separate celestial mesh passes are excluded.
+the main camera's objects in the depth/normal prepass (`passes.prepass_objects`)
+and the colour pass (`passes.opaque_objects`), and each of four directional
+shadow cascades. Counts are recorded by the code that issues the draw commands
+and published only on submission. A skipped cascade reports zero draws, even when
+its cached map is reused. Water masks, capture-term replays and separate celestial
+mesh passes are excluded.
+
+Object counts are the indexed draws the recorder issued: one per material slot of
+each drawn level, plus the preceding level's slots for an LOD transition
+complement, with instance counts summed across those draws. A draw counts under
+`impostors` when its material is an impostor, otherwise under `meshes`.
+`ObjectDraws::recording` says how the pass recorded its selection: `Compacted`
+draws each (batch, LOD) group once from the view's gathered instances, `Ranged`
+draws each selected instance range because the view's gathered instances did not
+hold this selection (the resident path never gathers), and `NotRecorded` means the
+pass did not run in that frame. Compaction merges ranges but keeps every material
+slot and transition complement, so a compacted count never exceeds the ranged
+count of the same selection.
 Submitted `SceneStatistics::effects` records directional-shadow installation,
 SSAO installation and enablement, prepass execution, and typed mesh/terrain
 receiver bindings. These follow the installed features and encoded binding

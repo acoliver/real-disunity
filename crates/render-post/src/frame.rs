@@ -412,11 +412,25 @@ pub struct BuildContext<'a> {
     pub device: &'a wgpu::Device,
     pub targets: &'a FrameTargets,
 }
+/// One buffer operation staged by a preparation, encoded in staging order.
+enum Staged {
+    Copy {
+        source: (wgpu::Buffer, u64),
+        destination: (wgpu::Buffer, u64),
+        bytes: u64,
+    },
+    Dispatch {
+        label: &'static str,
+        pipeline: wgpu::ComputePipeline,
+        group: wgpu::BindGroup,
+        workgroups: [u32; 3],
+    },
+}
 pub struct PrepareContext<'a> {
     device: &'a wgpu::Device,
     encoder: &'a mut wgpu::CommandEncoder,
     publications: worldrunner_render_gpu::submission::Publications,
-    copies: Vec<(wgpu::Buffer, u64, wgpu::Buffer, u64, u64)>,
+    staged: Vec<Staged>,
     views: Vec<AttachmentView>,
     completed: Vec<PassSlot>,
 }
@@ -430,7 +444,7 @@ impl<'a> PrepareContext<'a> {
             device,
             encoder,
             publications,
-            copies: Vec::new(),
+            staged: Vec::new(),
             views: Vec::new(),
             completed: Vec::new(),
         })
@@ -463,8 +477,7 @@ impl<'a> PrepareContext<'a> {
         self.device
     }
     pub fn copy_buffer(&mut self, source: &wgpu::Buffer, destination: &wgpu::Buffer, bytes: u64) {
-        self.copies
-            .push((source.clone(), 0, destination.clone(), 0, bytes));
+        self.copy_buffer_region((source, 0), (destination, 0), bytes);
     }
     /// Stages a copy of `bytes` bytes between buffer offsets, encoded after the copies staged
     /// before it. A gather that reads bytes uploaded in this context therefore sees them.
@@ -475,13 +488,27 @@ impl<'a> PrepareContext<'a> {
         destination: (&wgpu::Buffer, u64),
         bytes: u64,
     ) {
-        self.copies.push((
-            source.0.clone(),
-            source.1,
-            destination.0.clone(),
-            destination.1,
+        self.staged.push(Staged::Copy {
+            source: (source.0.clone(), source.1),
+            destination: (destination.0.clone(), destination.1),
             bytes,
-        ));
+        });
+    }
+    /// Stages one compute dispatch, encoded in its own compute pass after the copies and
+    /// dispatches staged before it, so it reads bytes uploaded or copied earlier in this context.
+    pub fn dispatch(
+        &mut self,
+        label: &'static str,
+        pipeline: &wgpu::ComputePipeline,
+        group: &wgpu::BindGroup,
+        workgroups: [u32; 3],
+    ) {
+        self.staged.push(Staged::Dispatch {
+            label,
+            pipeline: pipeline.clone(),
+            group: group.clone(),
+            workgroups,
+        });
     }
     pub fn upload_buffer(&mut self, destination: &wgpu::Buffer, offset: u64, bytes: &[u8]) {
         use wgpu::util::DeviceExt;
@@ -492,16 +519,48 @@ impl<'a> PrepareContext<'a> {
                 contents: bytes,
                 usage: wgpu::BufferUsages::COPY_SRC,
             });
-        self.copies
-            .push((staging, 0, destination.clone(), offset, bytes.len() as u64));
+        self.staged.push(Staged::Copy {
+            source: (staging, 0),
+            destination: (destination.clone(), offset),
+            bytes: bytes.len() as u64,
+        });
     }
-    /// Publishes staged copies only after all fallible preparations succeed.
+    /// Publishes staged copies and dispatches only after all fallible preparations succeed.
     pub fn finish(self) -> Vec<wgpu::Buffer> {
-        let mut retained = Vec::with_capacity(self.copies.len());
-        for (source, source_offset, destination, offset, bytes) in self.copies {
-            self.encoder
-                .copy_buffer_to_buffer(&source, source_offset, &destination, offset, bytes);
-            retained.push(source);
+        let mut retained = Vec::with_capacity(self.staged.len());
+        for staged in self.staged {
+            match staged {
+                Staged::Copy {
+                    source,
+                    destination,
+                    bytes,
+                } => {
+                    self.encoder.copy_buffer_to_buffer(
+                        &source.0,
+                        source.1,
+                        &destination.0,
+                        destination.1,
+                        bytes,
+                    );
+                    retained.push(source.0);
+                }
+                Staged::Dispatch {
+                    label,
+                    pipeline,
+                    group,
+                    workgroups,
+                } => {
+                    let mut pass = self
+                        .encoder
+                        .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                            label: Some(label),
+                            timestamp_writes: None,
+                        });
+                    pass.set_pipeline(&pipeline);
+                    pass.set_bind_group(0, &group, &[]);
+                    pass.dispatch_workgroups(workgroups[0], workgroups[1], workgroups[2]);
+                }
+            }
         }
         retained
     }

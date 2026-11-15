@@ -53,10 +53,10 @@ pub use effect_statistics::{
 pub use geometry_statistics::{
     TerrainGeometryStatistics, TerrainLeafIdentity, TerrainStreamingStatistics,
 };
-pub use pass_statistics::PassDrawStatistics;
+pub use pass_statistics::{ObjectDraws, ObjectRecording, PassDrawStatistics};
 mod streaming;
 mod terrain_runtime;
-pub(crate) use publication::{ColorDraw, DrawPublications, SelectionPublication};
+pub(crate) use publication::{ColorDraw, DrawPublications, DrawnObjects, SelectionPublication};
 pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPageStatistics};
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
@@ -307,6 +307,8 @@ pub struct SceneGpu {
     >,
     views: [selection_reuse::View; 5],
     caster_fits: selection_reuse::CasterFits,
+    /// The instance mirror and pipelines every view's compaction gathers with.
+    gather: compaction::Shared,
     terrain: Option<GpuTerrain>,
     pub(crate) overlay: Option<std::rc::Rc<overlay::OverlayGpu>>,
     dynamic: crate::dynamic::DynamicGpu,
@@ -430,6 +432,7 @@ impl SceneGpu {
             drawing_frame: RefCell::new(None),
             views: Default::default(),
             caster_fits: selection_reuse::CasterFits::default(),
+            gather: compaction::Shared::default(),
             terrain,
             overlay: previous.and_then(|gpu| gpu.overlay.clone()),
             dynamic: crate::dynamic::DynamicGpu::default(),
@@ -507,12 +510,12 @@ impl SceneGpu {
         pass: &mut RenderPass<'_>,
         pipelines: &ScenePipelines,
         group: &BindGroup,
-    ) -> SelectionPublication {
+    ) -> DrawnObjects {
         // Both passes consume the same camera selection, compacted instances and terrain stream.
         // The forward-only draws are appended after that paired prefix.
         pass.set_bind_group(3, group, &[]);
         self.draw_color_pass(pass, pipelines, None, Route::Prepass)
-            .selection
+            .drawn
     }
 
     pub(crate) fn draw_shadowed(
@@ -588,7 +591,7 @@ impl SceneGpu {
         let selected = self.selected_pipelines(pipelines, &frame);
         let pipelines = &selected;
         let frame_group = self.drawing_frame_group();
-        let selection = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
+        let drawn = self.draw_objects_prepared(pass, &frame_group, pipelines.object_context());
         let (terrain, terrain_bound) = self.draw_terrain_runtime(pass, pipelines, shadow);
         let mut sky_count = DrawCount::default();
         if route == Route::Forward {
@@ -606,7 +609,7 @@ impl SceneGpu {
                 .draw(pass, self.drawing_frame_slot(), pipelines);
         }
         ColorDraw {
-            selection,
+            drawn,
             terrain,
             sky: sky_count,
             shadows: ReceiverBindings::new(shadow.is_some(), terrain_bound && shadow.is_some()),

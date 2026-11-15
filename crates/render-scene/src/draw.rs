@@ -63,6 +63,7 @@ pub(crate) use streaming::await_builds;
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
 use crate::instances::Instances;
+pub use crate::instances::skin::SkinMeshError;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
@@ -132,6 +133,15 @@ pub enum DrawError {
     SkinPalette {
         /// Entries the palettes of every pose need.
         entries: u64,
+    },
+    /// A mesh's skin references do not fit the resident skeleton and pose tables.
+    #[error("mesh {mesh} does not fit the resident skin tables: {source}")]
+    SkinReference {
+        /// Table index of the mesh.
+        mesh: usize,
+        /// What does not fit.
+        #[source]
+        source: SkinMeshError,
     },
     /// The device cannot hold the skin palette or read it from the vertex stage.
     #[error(transparent)]

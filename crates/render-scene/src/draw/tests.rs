@@ -36,6 +36,7 @@ mod alpha_coverage;
 mod alpha_factor;
 mod anisotropy;
 mod append;
+mod append_skinning;
 mod compaction;
 mod curved_wind;
 mod decal_mip_bias;

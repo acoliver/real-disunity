@@ -65,6 +65,61 @@ pub(crate) fn mesh_skeletons(mesh: &SceneMesh) -> Vec<SkeletonHandle> {
         .collect()
 }
 
+/// Why a mesh's skin references do not fit the resident skeleton and pose tables.
+#[derive(Debug, thiserror::Error)]
+pub enum SkinMeshError {
+    /// A level is skinned to a skeleton beyond the resident table.
+    #[error("a level is skinned to skeleton {skeleton}, and {resident} skeletons are resident")]
+    Skeleton {
+        /// The skeleton handle the level names.
+        skeleton: u32,
+        /// Skeletons in the resident table.
+        resident: usize,
+    },
+    /// An influence names a joint the level's skeleton does not have.
+    #[error("an influence names joint {joint} of skeleton {skeleton}, which has {joints} joints")]
+    Joint {
+        /// The skeleton handle the level names.
+        skeleton: u32,
+        /// The joint index the influence names.
+        joint: u32,
+        /// Joints in that skeleton.
+        joints: u32,
+    },
+    /// A live placement of the mesh could not be drawn with it.
+    #[error("a live placement of the mesh cannot take it: {0}")]
+    Placement(#[from] InstanceError),
+}
+
+/// What a skinned mesh asks of the skeleton table: the skeleton one of its levels names and how
+/// many joints that skeleton must have for the level's influences to name only its own joints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SkinNeed {
+    skeleton: SkeletonHandle,
+    joints: u32,
+}
+
+/// The skeleton and joint count each skinned level of `mesh` needs, in level order.
+///
+/// Every joint lane counts, the unweighted ones too, as the scene's own validation does.
+pub(crate) fn skin_needs(mesh: &SceneMesh) -> Vec<SkinNeed> {
+    mesh.lods()
+        .iter()
+        .filter_map(|lod| {
+            let skeleton = lod.skeleton()?;
+            let joints = lod
+                .skin_influences()
+                .into_iter()
+                .flatten()
+                .flat_map(|influence| influence.joints)
+                .map(|joint| u32::from(joint) + 1)
+                .max()
+                .unwrap_or(0);
+            Some(SkinNeed { skeleton, joints })
+        })
+        .collect()
+}
+
 impl SkinTables {
     /// The tables of `scene`. A scene whose palettes overflow the 32-bit entry index has no
     /// pose ranges here; preparation refuses such a scene before any placement is made.
@@ -104,6 +159,34 @@ impl SkinTables {
             .is_some_and(|skeletons| !skeletons.is_empty())
     }
 
+    /// Checks that every skeleton and joint `needs` names is in the resident table.
+    ///
+    /// # Errors
+    ///
+    /// Fails for the first skeleton beyond the table, or the first level whose influences name a
+    /// joint its skeleton lacks.
+    pub(crate) fn admit(&self, needs: &[SkinNeed]) -> Result<(), SkinMeshError> {
+        for need in needs {
+            let skeleton = need.skeleton.raw();
+            let joints =
+                *self
+                    .skeleton_joints
+                    .get(skeleton as usize)
+                    .ok_or(SkinMeshError::Skeleton {
+                        skeleton,
+                        resident: self.skeleton_joints.len(),
+                    })?;
+            if need.joints > joints {
+                return Err(SkinMeshError::Joint {
+                    skeleton,
+                    joint: need.joints - 1,
+                    joints,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Makes `meshes` addressable after the ones the scene started with.
     pub(crate) fn extend_meshes(&mut self, meshes: Vec<Vec<SkeletonHandle>>) {
         self.mesh_skeletons.extend(meshes);
@@ -120,8 +203,9 @@ impl SkinTables {
     ///
     /// # Errors
     ///
-    /// Fails when a skinned mesh's object has no pose, a pose outside the scene's table, or a
-    /// pose with other joint counts than the skeletons of the mesh's skinned levels.
+    /// Fails when a skinned mesh's object has no pose, a pose outside the scene's table, a
+    /// skeleton outside the scene's table, or a pose with other joint counts than the skeletons
+    /// of the mesh's skinned levels.
     pub(crate) fn check(&self, object: &SceneObject) -> Result<Option<[u32; 4]>, InstanceError> {
         let mesh = usize::try_from(object.mesh().raw()).expect("u32 table index fits usize");
         let Some(skeletons) = self.mesh_skeletons.get(mesh).filter(|s| !s.is_empty()) else {
@@ -136,7 +220,14 @@ impl SkinTables {
                 index: handle.raw(),
             })?;
         for skeleton in skeletons {
-            let joints = self.skeleton_joints[skeleton.raw() as usize];
+            let joints = self
+                .skeleton_joints
+                .get(skeleton.raw() as usize)
+                .copied()
+                .ok_or(InstanceError::Resource {
+                    resource: "skeleton",
+                    index: skeleton.raw(),
+                })?;
             if joints != range.joints {
                 return Err(InstanceError::SkinPoseJoints {
                     pose_joints: range.joints,

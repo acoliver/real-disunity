@@ -18,6 +18,7 @@ use worldrunner_render_plan::{
 use super::resources::{GroupInputs, material_group, table_index, upload_meshes, upload_textures};
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
+use crate::instances::skin::{SkinNeed, skin_needs};
 use crate::renderer::ScenePipelines;
 use crate::texture::{OwnedPreparedTexture, prepare_texture};
 use crate::upload::{upload_buffer, upload_texture};
@@ -47,6 +48,8 @@ pub struct PreparedAppend {
     selection: Vec<MeshSelection>,
     /// The skeleton of each skinned level of each appended mesh.
     skeletons: Vec<Vec<SkeletonHandle>>,
+    /// What each appended mesh asks of the resident skeleton table.
+    needs: Vec<Vec<SkinNeed>>,
     materials: Vec<SceneMaterial>,
 }
 
@@ -83,6 +86,7 @@ impl PreparedAppend {
                 .iter()
                 .map(crate::instances::skin::mesh_skeletons)
                 .collect(),
+            needs: append.meshes.iter().map(skin_needs).collect(),
             materials: append.materials.clone(),
         })
     }
@@ -450,6 +454,21 @@ impl SceneGpu {
         self.resource_counters.appended.push(reservation);
     }
 
+    /// Refuses an append whose meshes name a skeleton or joint the resident tables lack, which
+    /// would leave placements of the mesh that cannot be admitted.
+    fn admit_skins(&self, prepared: &PreparedAppend) -> Result<(), DrawError> {
+        for (offset, needs) in prepared.needs.iter().enumerate() {
+            self.instances
+                .skin
+                .admit(needs)
+                .map_err(|source| DrawError::SkinReference {
+                    mesh: prepared.base.meshes + offset,
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
     /// Uploads the textures and meshes of `prepared`, binds its materials and makes them
     /// addressable after the resident ones. `source` is the append `prepared` was made from.
     ///
@@ -457,8 +476,8 @@ impl SceneGpu {
     ///
     /// # Errors
     ///
-    /// Returns [`DrawError`] for an append prepared against other table sizes or a failed
-    /// upload.
+    /// Returns [`DrawError`] for an append prepared against other table sizes, one whose meshes
+    /// name skeletons or joints the resident tables lack, or a failed upload.
     pub fn append_prepared(
         &mut self,
         device: &Device,
@@ -474,6 +493,7 @@ impl SceneGpu {
                 "it was prepared against other resident tables",
             ));
         }
+        self.admit_skins(&prepared)?;
         let queue = authority.queue();
         let (textures, new_views) = upload_textures(device, authority, &prepared.textures)?;
         let old_count = self.retained.textures.len();

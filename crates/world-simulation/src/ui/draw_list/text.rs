@@ -1,4 +1,9 @@
 use super::super::{GlyphLayout, HorizontalOverflow, TextMeasurement, TextRun, VerticalOverflow};
+use super::super::{
+    GlyphRaster, TextLayout,
+    distance::effect_raster,
+    presentation::{UiDistanceMode, UiDistanceStyle},
+};
 use super::{
     UiDrawKind, UiDrawList, UiError, UiTextEffect, UiTextPlacement, check_color, check_transform,
     multiply, rotate,
@@ -57,8 +62,15 @@ impl UiDrawList<'_> {
         if characters > self.limits.max_characters {
             return Err(UiError::GlyphLimit);
         }
-        let layout = self.fonts.layout(run, placement.layout_size)?;
-        let passes = if effect == UiTextEffect::None { 1 } else { 2 };
+        let (effect, raster) = raster_parameters(effect, scale)?;
+        let layout = self
+            .fonts
+            .layout_with_raster(run, placement.layout_size, raster)?;
+        let passes = if matches!(effect, UiTextEffect::Shadow { .. }) {
+            2
+        } else {
+            1
+        };
         self.check_count(
             layout
                 .glyphs
@@ -85,31 +97,7 @@ impl UiDrawList<'_> {
         }
         let identity = u64::try_from(existing.unwrap_or(self.atlases.len()))
             .map_err(|_| UiError::AtlasLimit)?;
-        let mut draws = Vec::with_capacity(layout.glyphs.len() * passes);
-        if let UiTextEffect::Shadow { color, offset } = effect {
-            for glyph in &layout.glyphs {
-                let mut color = color;
-                color[3] *= run.color[3] * glyph.color[3];
-                draws.push(self.glyph(
-                    glyph,
-                    placement,
-                    offset,
-                    color,
-                    identity,
-                    layout.atlas.size.as_vec2(),
-                )?);
-            }
-        }
-        for glyph in &layout.glyphs {
-            draws.push(self.glyph(
-                glyph,
-                placement,
-                Vec2::ZERO,
-                multiply(run.color, glyph.color),
-                identity,
-                layout.atlas.size.as_vec2(),
-            )?);
-        }
+        let draws = self.text_draws(run, placement, effect, &layout, identity, raster)?;
         self.commit(draws)?;
         if references_atlas && existing.is_none() {
             self.presentation.coverage.insert(
@@ -125,6 +113,60 @@ impl UiDrawList<'_> {
         self.characters = characters;
         self.atlas_pixels = pixels;
         Ok(())
+    }
+    fn text_draws(
+        &self,
+        run: &TextRun,
+        placement: UiTextPlacement,
+        effect: UiTextEffect,
+        layout: &TextLayout,
+        identity: u64,
+        raster: GlyphRaster,
+    ) -> Result<Vec<super::UiDraw>, UiError> {
+        let mut draws = Vec::with_capacity(layout.glyphs.len());
+        if let UiTextEffect::Shadow { color, offset } = effect {
+            for glyph in &layout.glyphs {
+                let mut color = color;
+                color[3] *= run.color[3] * glyph.color[3];
+                draws.push(self.glyph(
+                    glyph,
+                    placement,
+                    offset,
+                    color,
+                    identity,
+                    layout.atlas.size.as_vec2(),
+                )?);
+            }
+        }
+        for glyph in &layout.glyphs {
+            let mut draw = self.glyph(
+                glyph,
+                placement,
+                Vec2::ZERO,
+                multiply(run.color, glyph.color),
+                identity,
+                layout.atlas.size.as_vec2(),
+            )?;
+            let style = match effect {
+                UiTextEffect::Outline { color, size } => {
+                    Some((UiDistanceMode::Outline, color, size))
+                }
+                UiTextEffect::Glow { color, size } => Some((UiDistanceMode::Glow, color, size)),
+                _ => None,
+            };
+            if let Some((mode, mut color, radius_px)) = style {
+                color[3] *= run.color[3] * glyph.color[3];
+                draw.distance_field = Some(UiDistanceStyle {
+                    spread_px: glam::UVec2::splat(raster.padding).as_vec2().x,
+                    radius_px,
+                    mode,
+                    effect_color: self.effective(color),
+                });
+                draw.validate_distance()?;
+            }
+            draws.push(draw);
+        }
+        Ok(draws)
     }
     fn glyph(
         &self,
@@ -159,11 +201,35 @@ impl UiDrawList<'_> {
     }
 }
 fn validate_effect(effect: UiTextEffect) -> Result<(), UiError> {
-    if let UiTextEffect::Shadow { color, offset } = effect {
-        check_color(color)?;
-        if !offset.is_finite() {
-            return Err(UiError::InvalidRect);
+    match effect {
+        UiTextEffect::None => (),
+        UiTextEffect::Shadow { color, offset } => {
+            check_color(color)?;
+            if !offset.is_finite() {
+                return Err(UiError::InvalidRect);
+            }
+        }
+        UiTextEffect::Outline { color, size } | UiTextEffect::Glow { color, size } => {
+            check_color(color)?;
+            if !size.is_finite() || size < 0. {
+                return Err(UiError::InvalidTextEffect);
+            }
         }
     }
     Ok(())
+}
+
+fn raster_parameters(
+    effect: UiTextEffect,
+    scale: Vec2,
+) -> Result<(UiTextEffect, GlyphRaster), UiError> {
+    Ok(match effect {
+        UiTextEffect::Outline { size, .. } | UiTextEffect::Glow { size, .. } if size == 0. => {
+            (UiTextEffect::None, GlyphRaster::default())
+        }
+        UiTextEffect::Outline { size, .. } | UiTextEffect::Glow { size, .. } => {
+            (effect, effect_raster(size, scale)?)
+        }
+        _ => (effect, GlyphRaster::default()),
+    })
 }

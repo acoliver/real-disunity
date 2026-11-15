@@ -318,7 +318,8 @@ fn layout_line(
                 &outlined,
                 c,
                 Vec2::new(x, extent.y),
-                builder.raster.padding,
+                builder.raster,
+                font.font,
             )?
         {
             if let Some(span) = run.span(byte) {
@@ -338,7 +339,8 @@ fn raster(
     glyph: &ab_glyph::OutlinedGlyph,
     character: char,
     origin: Vec2,
-    padding: u32,
+    raster: GlyphRaster,
+    font: &FontArc,
 ) -> Result<Option<GlyphLayout>, UiError> {
     let bounds = glyph.px_bounds();
     let min = Vec2::new(bounds.min.x, bounds.min.y);
@@ -346,9 +348,12 @@ fn raster(
     if max.cmple(min).any() {
         return Ok(None);
     }
-    let padding = UVec2::splat(padding).as_vec2();
+    let padding = UVec2::splat(raster.padding).as_vec2();
     let (min, max) = (min - padding, max + padding);
-    let (atlas_min, atlas_size) = atlas.insert(glyph, min, max)?;
+    let (atlas_min, atlas_size) = match raster.mode {
+        super::RenderMode::Coverage => atlas.insert(glyph, min, max)?,
+        super::RenderMode::Sdf => atlas.insert_distance(font, glyph, min, max, raster.padding)?,
+    };
     Ok(Some(GlyphLayout {
         character,
         color: [1.; 4],

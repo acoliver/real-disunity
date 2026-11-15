@@ -94,6 +94,7 @@ impl ShadowSchedule {
         crate::compositor::declare_velocity(opaque, &mut self.views, velocity.as_ref())?;
         if let Some(screen) = &scheduler.ssao {
             crate::ssao::passes::geometry_declaration(&mut self.declaration, screen);
+            crate::gbuffer::declare_producer(&mut self.declaration, screen, depth);
             if let Some(receiver) = &screen.receiver {
                 self.declaration
                     .passes

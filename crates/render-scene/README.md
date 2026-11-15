@@ -984,7 +984,10 @@ it is defined at the singular point n.z = -1, which encodes as (1, 0.5) and
 decodes to (0, 0, -1). The decode is `f = min(|4 enc - 2|^2, 4)`,
 `n = ((4 enc - 2) sqrt(1 - f / 4), 1 - f / 2)`. Measured quantisation of the
 shading normal: at most 0.25 degrees for camera-facing normals, 0.35 for
-z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1. The
+z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1, on
+Metal. lavapipe and RADV round some stores to the neighbouring code, so the GPU
+probe holds each stored normal to the worst decode within one code of the CPU
+mirror's code, or the band bound if that is larger. The
 geometric normal's 7+7 bit octahedral code is within 1.9 degrees. Base colour is
 within 0.0045 in linear units, roughness, metal and AO within half a code, and
 emission within 1/255 through its square-root transfer. Every target clears to
@@ -997,6 +1000,20 @@ readback; `Readback` reads `Rgb10a2Unorm` and `R16Uint` natively. The CPU tests
 check the quantisation through a Rust mirror of the WGSL and validate the module
 with naga; the GPU tests draw a small terrain scene with and without the path,
 and a producer that writes known surfaces through `scene_gbuffer_encode`.
+
+The scene itself is a producer. When the frame observes the G-buffer and Opaque
+loads the completed prepass depth (`DepthMode::Reuse`), the prepass metadata carries
+G-buffer pipelines (four targets), and the scene feature draws the camera's selection
+into the slot through the same walk as the colour pass, in the unshadowed and the
+shadowed scene. Other depth modes declare no producer and leave the cleared targets
+untouched. Each fragment entry stores the material its forward entry would light,
+before any lighting: terrain stores `terrain_material`, objects `shade_material`,
+and impostor cards `scene_card_gbuffer_material`, which is derived from the frozen
+`scene_card_shade` by counted rewrites. Scattering materials set flag bit 0 and
+store their per-pixel amount in G2.y with metal 0. For scattering materials whose
+mask is not packed, forward lights both the metalness and the amount that
+`scene_mask_response` returns, and the G-buffer keeps only the amount. Frames
+without the depth prepass store nothing.
 
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
 candidate-layout colour attachment byte costs, attachment limits, and material-record

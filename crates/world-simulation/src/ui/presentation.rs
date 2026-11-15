@@ -1,5 +1,6 @@
 //! Detached screen-space draws from the world's UI extraction, without live object handles.
 use super::contribution::UiRenderPlan;
+pub use super::distance::{UiDistanceMode, UiDistanceStyle, validate_distance_mapping};
 use crate::presentation::CoverageTexture;
 use std::collections::BTreeMap;
 
@@ -20,6 +21,8 @@ pub struct UiDraw {
     pub corners: [[f32; 3]; 4],
     pub uv_rect: [f32; 4],
     pub color: [f32; 4],
+    /// None samples coverage unchanged; Some interprets the shared atlas as signed distance.
+    pub distance_field: Option<UiDistanceStyle>,
     /// Optional linear straight-alpha multipliers in BL/BR/TR/TL order; None is white.
     /// Triangles use the first three colours. Every channel must be finite and in 0..=1.
     pub corner_colors: Option<[[f32; 4]; 4]>,
@@ -29,6 +32,20 @@ pub struct UiDraw {
     pub sorting_order: i32,
     pub hierarchy_order: usize,
     pub clip_rect: [u32; 4],
+}
+
+impl UiDraw {
+    pub fn validate_distance(&self) -> Result<(), super::UiError> {
+        if let Some(style) = self.distance_field {
+            style.validate()?;
+            if self.kind != UiDrawKind::Text || self.texture.is_none() || self.triangle_uv.is_some()
+            {
+                return Err(super::UiError::InvalidTextEffect);
+            }
+            validate_distance_mapping(self.corners, self.uv_rect)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -98,6 +115,7 @@ impl UiPresentation {
                     kind: UiDrawKind::Graphic,
                     depth_test: false,
                     corner_colors: None,
+                    distance_field: None,
                     triangle_uv: Some(triangle.map(|v| [v.uv[0], 1. - v.uv[1]])),
                     corners: [a.position, b.position, c.position, c.position],
                     uv_rect: [0.; 4],
@@ -114,6 +132,7 @@ impl UiPresentation {
                     kind: UiDrawKind::Graphic,
                     depth_test: false,
                     corner_colors: None,
+                    distance_field: None,
                     triangle_uv: None,
                     corners: quad.corners,
                     uv_rect: quad.uv_rect,
@@ -150,6 +169,7 @@ impl UiPresentation {
                     kind: UiDrawKind::Text,
                     depth_test: false,
                     corner_colors: None,
+                    distance_field: None,
                     triangle_uv: None,
                     corners: glyph.corners,
                     uv_rect: [uv[0][0], uv[2][1], uv[2][0], uv[0][1]],

@@ -245,10 +245,14 @@ fn upload_contact_materials(
     );
     let materials = scene.resources().materials().len();
     assert_eq!(imports.len(), materials);
-    let objects = crate::object::prepared::PreparedObjects::new(authority.clone(), imports);
+    let objects = crate::object::prepared::PreparedObjects::new(authority.clone(), imports, None);
     for material in 0..materials {
         objects
-            .pipeline(layouts.object_context(), 0, material)
+            .pipeline(
+                layouts.object_context(),
+                (0, material),
+                crate::object::layout::GeometryLayout::Static,
+            )
             .unwrap_or_else(|error| panic!("material {material} prepares: {error}"));
     }
     Ok(heights)

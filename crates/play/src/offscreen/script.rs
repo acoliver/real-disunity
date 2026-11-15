@@ -20,8 +20,8 @@ use worldrunner_render_program::unity::offscreen::frame::{
 };
 use worldrunner_world_simulation::ComponentHandle;
 use worldrunner_world_simulation::graphics::{
-    CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, PropertyValue as WorldValue, RendererListDesc, TargetRef, TextureRef,
-    WorldRenderTexture,
+    CameraBuffers, MAX_COLOR_TARGETS, OffscreenWork, PropertyValue as WorldValue, RendererListDesc,
+    TargetRef, TextureRef, WorldRenderTexture,
 };
 
 use super::assets::sampler_of_world;

@@ -1,6 +1,7 @@
 //! Tessellates canonical Z-up terrain using the shared mesh upload layout.
 
 pub(crate) mod chunks;
+mod height_bounds;
 pub mod pages;
 pub(crate) mod planes;
 pub(crate) mod prepared;
@@ -332,3 +333,6 @@ mod tests;
 
 #[cfg(test)]
 mod streaming_tests;
+
+#[cfg(test)]
+mod height_bounds_tests;

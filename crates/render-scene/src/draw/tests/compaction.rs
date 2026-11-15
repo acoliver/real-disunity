@@ -13,7 +13,7 @@ pub(super) fn slot(material: u32, indices: std::ops::Range<u32>) -> SceneLodMate
     SceneLodMaterialSlot::new(MaterialHandle::from_raw(material), indices).unwrap()
 }
 
-fn mesh() -> SceneMesh {
+pub(super) fn mesh() -> SceneMesh {
     let near = card(None).lods()[0]
         .clone()
         .with_material_slots(vec![slot(0, 0..6)])
@@ -73,25 +73,32 @@ pub(super) fn unlit(pose: CameraPose) -> FrameUniform {
     frame
 }
 
-struct Rig {
-    context: GpuContext,
+pub(super) struct Rig {
+    pub(super) context: GpuContext,
     pipelines: ScenePipelines,
-    gpu: SceneGpu,
+    pub(super) gpu: SceneGpu,
     target: OffscreenTarget,
     renderer: FrameRenderer,
 }
 
 impl Rig {
     fn new(ranged_only: bool) -> Self {
-        let context = context();
-        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-        let mut gpu =
-            SceneGpu::upload(context.device(), context.submission(), &cards(), &pipelines).unwrap();
-        let handles: Vec<_> = gpu.instance_handles().collect();
+        let mut rig = Self::over(&cards(), ranged_only);
+        let handles = rig.handles();
         // Slot 2 of material 0 and slot 1 of material 2.
         for hidden in [4, 3] {
-            gpu.set_instance_visible(handles[hidden], false).unwrap();
+            rig.gpu
+                .set_instance_visible(handles[hidden], false)
+                .unwrap();
         }
+        rig
+    }
+
+    pub(super) fn over(scene: &RenderScene, ranged_only: bool) -> Self {
+        let context = context();
+        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+        let gpu =
+            SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
         gpu.views[0]
             .compaction
             .observed
@@ -113,7 +120,7 @@ impl Rig {
         }
     }
 
-    fn prepare(
+    pub(super) fn prepare(
         &mut self,
         frame: &FrameUniform,
     ) -> worldrunner_render_gpu::submission::PreparedFrame {
@@ -141,12 +148,12 @@ impl Rig {
             .unwrap()
     }
 
-    fn render(&mut self, frame: &FrameUniform) -> RgbaImage {
+    pub(super) fn render(&mut self, frame: &FrameUniform) -> RgbaImage {
         let submission = self.prepare(frame).submit().unwrap();
         self.target.read_encoded(&self.context, submission).unwrap()
     }
 
-    fn handles(&self) -> Vec<InstanceHandle> {
+    pub(super) fn handles(&self) -> Vec<InstanceHandle> {
         self.gpu.instance_handles().collect()
     }
 
@@ -154,8 +161,24 @@ impl Rig {
         self.gpu.views[0].compaction.observed.staged.get()
     }
 
-    fn compacted_draws(&self) -> usize {
+    pub(super) fn compacted_draws(&self) -> usize {
         self.gpu.views[0].compaction.observed.compacted_draws.get()
+    }
+
+    /// Records the committed camera selection again into a command tally, through the program
+    /// runtime with the pipelines the colour pass selected, and returns the indexed draws the
+    /// tally saw with what the recorder counted.
+    fn recorded_draws(&self) -> (u64, crate::draw::ObjectDraws) {
+        let mut tally = crate::object::cost_tests::Tally::default();
+        let frame_group = self.gpu.drawing_frame_group();
+        let selected = self
+            .gpu
+            .selected_pipelines(&self.pipelines, &self.gpu.drawing_uniform());
+        let drawn = self
+            .gpu
+            .draw_objects_prepared(&mut tally, &frame_group, selected.object_context())
+            .objects;
+        (u64::from(tally.0.draws), drawn)
     }
 }
 
@@ -298,4 +321,34 @@ fn a_cancelled_edit_is_gathered_again_by_the_frame_that_publishes_it() {
         .set_instance_transform(handle, moved(-1_000))
         .unwrap();
     assert_eq!(published.pixels, ranged.render(&unlit(pose_at(0))).pixels);
+}
+
+#[test]
+fn camera_statistics_publish_the_draws_the_recorder_issued_for_fragmented_ranges() {
+    use crate::draw::ObjectRecording;
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let mut compacted = Rig::new(false);
+    let mut per_range = Rig::new(true);
+    let frame = unlit(pose_at(0));
+    compacted.render(&frame);
+    per_range.render(&frame);
+    let (selected_ranges, groups) = compacted
+        .gpu
+        .published_ranges_and_groups(crate::draw::selection_reuse::CAMERA);
+    assert!(
+        selected_ranges > groups,
+        "the hidden cards split each batch's selection"
+    );
+    let gathered = compacted.gpu.statistics().passes.opaque_objects;
+    let walked = per_range.gpu.statistics().passes.opaque_objects;
+    assert_eq!(gathered.recording, ObjectRecording::Compacted);
+    assert_eq!(walked.recording, ObjectRecording::Ranged);
+    assert_eq!(gathered.total().instances, walked.total().instances);
+    assert!(gathered.total().calls >= groups as u64);
+    assert!(gathered.total().calls < walked.total().calls);
+    for (rig, published) in [(&compacted, gathered), (&per_range, walked)] {
+        let (tallied, recorded) = rig.recorded_draws();
+        assert_eq!(recorded, published);
+        assert_eq!(tallied, published.total().calls);
+    }
 }

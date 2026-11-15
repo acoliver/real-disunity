@@ -37,7 +37,7 @@ impl PreparedFeature for SceneFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.gpu.reset_pass_statistics(context);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Absent,
@@ -81,11 +81,11 @@ impl PreparedFeature for SceneFeature<'_> {
             }
             if context.slot == PassSlot::DepthNormalPrepass {
                 self.publications.prepass();
-                self.publications.record(self.gpu.draw_prepass(
-                    pass,
-                    screen.prepass_pipelines(),
-                    &screen.group,
-                ));
+                self.publications.record_prepass(
+                    self.gpu,
+                    self.gpu
+                        .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+                );
                 return;
             }
             if let Some((pipelines, group)) = &screen.forward {

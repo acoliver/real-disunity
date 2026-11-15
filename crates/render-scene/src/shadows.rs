@@ -39,6 +39,8 @@ mod refresh;
 mod resources;
 pub(crate) use resources::SHADOW_UNIFORM_BYTES;
 #[cfg(test)]
+pub(crate) use resources::depth_source as caster_source;
+#[cfg(test)]
 pub(crate) use resources::{depth_source, receiver_sources};
 
 /// The object shadow casters of `pipelines` for `settings` and `sampling`, for the captures that
@@ -735,7 +737,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.gpu.reset_pass_statistics(context);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Installed,
@@ -744,6 +746,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.select_views(context);
         self.gpu.prepare_view_compaction(context, None, &self.frame);
         self.prepare_cascade_compaction(context);
         // Each light view has its own immutable uniform range; billboards keep the main eye.
@@ -782,11 +785,11 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.prepass_pipelines(),
-                &screen.group,
-            ));
+            self.publications.record_prepass(
+                self.gpu,
+                self.gpu
+                    .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+            );
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;

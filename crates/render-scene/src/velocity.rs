@@ -40,6 +40,8 @@
 //! Pipelines that write velocity carry [`MARKER`] in their source; it is how the target list
 //! learns about the second colour target.
 
+use crate::shader::rewrite::ShaderRewrite;
+
 /// Whether reflection forward draws can also write the residual.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ReflectionVelocity {
@@ -95,19 +97,6 @@ fn scene_object_velocity(input: VertexOutput) -> vec2<f32> {
     return vec2<f32>(0.5 * motion.x, -0.5 * motion.y);
 }
 ";
-
-fn replace_times(source: &str, from: &str, to: &str, times: usize) -> String {
-    assert_eq!(
-        source.matches(from).count(),
-        times,
-        "velocity rewrite target changed: {from}"
-    );
-    source.replace(from, to)
-}
-
-fn replace_once(source: &str, from: &str, to: &str) -> String {
-    replace_times(source, from, to, 1)
-}
 
 /// Declarations behind the previous-transform vertex buffer (locations 12 to 15, the layout of
 /// the instance buffer's matrix). The model matrix is handed to the delta through a private
@@ -167,30 +156,45 @@ fn billboard_basis(mode: u32, pivot: vec3<f32>) -> mat3x3<f32> { return billboar
 /// Reflection and screen-space variants apply their own fragment rewrite afterwards, so the
 /// vertex stage is rewritten first, on the stock source.
 pub(crate) fn vertex_source(source: &str) -> String {
-    let source = replace_once(
-        source,
+    let source = source.anchored(
+        "velocity::vertex_source",
+        1,
         "    @location(4) ambient_occlusion: f32,",
         "    @location(4) ao_delta: vec4<f32>,",
     );
-    let source = replace_times(&source, "input.ambient_occlusion", "input.ao_delta.x", 2);
-    let source = replace_times(&source, "out.ambient_occlusion", "out.ao_delta.x", 5);
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::vertex_source",
+        2,
+        "input.ambient_occlusion",
+        "input.ao_delta.x",
+    );
+    let source = source.anchored(
+        "velocity::vertex_source",
+        5,
+        "out.ambient_occlusion",
+        "out.ao_delta.x",
+    );
+    let source = source.anchored(
+        "velocity::vertex_source",
+        1,
         "    let displacement = scene_geometry_displacement(out.world_position,",
         "    out.ao_delta = vec4<f32>(out.ao_delta.x, scene_object_world_delta(vertex, out.world_position, instance));\n    let displacement = scene_geometry_displacement(out.world_position,",
     );
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::vertex_source",
+        1,
         "@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {",
         "@vertex fn vs_main(vertex: VertexInput, instance: InstanceInput, previous: PreviousInstance) -> VertexOutput {\n    scene_previous_model = mat4x4<f32>(previous.model_column_0, previous.model_column_1, previous.model_column_2, previous.model_column_3);\n    scene_card_local = vertex.position;",
     );
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::vertex_source",
+        1,
         "            out.world_position = capture_center + billboard_basis(vertex.lod_billboard_mode & 3u, capture_center) * scale * shaped;",
         "            out.world_position = capture_center + billboard_basis(vertex.lod_billboard_mode & 3u, capture_center) * scale * shaped;\n            scene_card_local = shaped;",
     );
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::vertex_source",
+        1,
         "fn billboard_basis(mode: u32, pivot: vec3<f32>) -> mat3x3<f32> {\n    let to_camera = frame.camera_position.xyz - pivot;",
         "fn billboard_basis_from(camera: vec3<f32>, mode: u32, pivot: vec3<f32>) -> mat3x3<f32> {\n    let to_camera = camera - pivot;",
     );
@@ -200,23 +204,27 @@ pub(crate) fn vertex_source(source: &str) -> String {
 /// The object source with velocity-writing fragment entry points and the `world_delta` varying.
 pub(crate) fn object_source(source: &str) -> String {
     let source = vertex_source(source);
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::object_source",
+        1,
         "@fragment\nfn fs_relief_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
         "fn shaded_relief_opaque(input: VertexOutput, front_facing: bool) -> SceneSurfaceOutput",
     );
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::object_source",
+        1,
         "@fragment\nfn fs_relief_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> SceneSurfaceOutput",
         "fn shaded_relief_masked(input: VertexOutput, front_facing: bool) -> SceneSurfaceOutput",
     );
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::object_source",
+        1,
         "@fragment\nfn fs_opaque(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>",
         "fn shaded_opaque(input: VertexOutput, front_facing: bool) -> vec4<f32>",
     );
-    let source = replace_once(
-        &source,
+    let source = source.anchored(
+        "velocity::object_source",
+        1,
         "@fragment\nfn fs_masked(input: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32>",
         "fn shaded_masked(input: VertexOutput, front_facing: bool) -> vec4<f32>",
     );
@@ -232,8 +240,9 @@ pub(crate) fn object_source(source: &str) -> String {
 
 /// The terrain source with a fragment entry point that writes a zero residual.
 pub(crate) fn terrain_source(source: &str) -> String {
-    let source = replace_once(
-        source,
+    let source = source.anchored(
+        "velocity::terrain_source",
+        1,
         "@fragment\nfn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32>",
         "fn shaded_terrain(input: TerrainVertexOutput) -> vec4<f32>",
     );
@@ -262,7 +271,7 @@ pub(crate) fn reflection_object_source(source: &str) -> String {
             "@fragment fn {name}(input: VertexOutput, @builtin(front_facing) front: bool) -> {output}"
         );
         let to = format!("fn reflected_{name}(input: VertexOutput, front: bool) -> {output}");
-        source = replace_once(&source, &from, &to);
+        source = source.anchored("velocity::reflection_object_source", 1, &from, &to);
     }
     format!(
         "{source}\n{REFLECTION_OUTPUT}{OBJECT_RESIDUAL}
@@ -277,8 +286,9 @@ struct SceneVelocityReliefOutput {{ @builtin(frag_depth) depth: f32, @location(0
 
 /// Reflection forward terrain source with a zero residual at `@location(3)`.
 pub(crate) fn reflection_terrain_source(source: &str) -> String {
-    let source = replace_once(
-        source,
+    let source = source.anchored(
+        "velocity::reflection_terrain_source",
+        1,
         "@fragment fn fs_terrain(input: TerrainVertexOutput) -> ReflectionOutput",
         "fn reflected_terrain(input: TerrainVertexOutput) -> ReflectionOutput",
     );
@@ -293,8 +303,9 @@ pub(crate) fn reflection_terrain_source(source: &str) -> String {
 /// is how billboards and impostor cards behaved before the previous camera was tracked.
 #[cfg(test)]
 pub(crate) fn current_camera_object_source(source: &str) -> String {
-    replace_once(
-        &object_source(source),
+    object_source(source).anchored(
+        "velocity::current_camera_object_source",
+        1,
         "scene_card_position(previous_frame.camera_time.xyz,",
         "scene_card_position(frame.camera_position.xyz,",
     )

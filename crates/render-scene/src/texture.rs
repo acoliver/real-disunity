@@ -1,7 +1,10 @@
 //! Validation and upload preparation for raw texels and standard DDS textures.
 use thiserror::Error;
 use wgpu::TextureFormat;
-use worldrunner_render_plan::{SceneTexture, TexelFormat, TextureColorSpace, TextureEncoding};
+use worldrunner_render_plan::{
+    SceneDdsFormat, SceneTexture, SceneValidationError, TexelFormat, TextureColorSpace,
+    TextureEncoding,
+};
 
 /// Byte length of the DDS magic number.
 const MAGIC_LEN: usize = 4;
@@ -93,6 +96,15 @@ pub enum TextureError {
         /// The declared height in texels.
         height: u32,
     },
+    /// The texture's source bytes were released and only validated metadata remains.
+    #[error("texture source bytes have been released")]
+    SourceReleased,
+    /// The DX10 header does not describe one two-dimensional, single-layer, non-cube texture.
+    #[error("DDS container is not a single two-dimensional, non-cube texture")]
+    UnsupportedDdsLayout,
+    /// The described texture violates the scene's descriptor invariants.
+    #[error("texture descriptor is invalid: {0}")]
+    Descriptor(#[from] SceneValidationError),
     /// The payload ran out before the declared mip chain did.
     #[error("mip level {level} needs {needed} bytes but only {available} remain")]
     TruncatedPayload {
@@ -217,6 +229,7 @@ impl OwnedPreparedTexture {
 pub fn prepare_texture(texture: &SceneTexture) -> Result<PreparedTexture<'_>, TextureError> {
     match texture.payload() {
         SceneTexture::SpecularCube(cube) => prepare_cube(cube),
+        SceneTexture::Released(_) => Err(TextureError::SourceReleased),
         SceneTexture::Sampled { .. } => unreachable!("payload removes sampling wrapper"),
         SceneTexture::Texels {
             format,
@@ -303,6 +316,27 @@ fn prepare_dds(
     bytes: &[u8],
     declared: TextureColorSpace,
 ) -> Result<PreparedTexture<'_>, TextureError> {
+    let parsed = parse_dds(bytes, declared)?;
+    Ok(PreparedTexture {
+        cube: None,
+        format: parsed.gpu_format,
+        width: parsed.width,
+        height: parsed.height,
+        mips: parsed.mips,
+    })
+}
+
+/// The validated header facts and borrowed mip chain of one DDS container.
+struct ParsedDds<'a> {
+    format: SceneDdsFormat,
+    gpu_format: TextureFormat,
+    width: u32,
+    height: u32,
+    mips: Vec<MipLevel<'a>>,
+}
+
+/// Validates a DDS container's header, format, colour space and mip chain.
+fn parse_dds(bytes: &[u8], declared: TextureColorSpace) -> Result<ParsedDds<'_>, TextureError> {
     if bytes.len() < MAGIC_LEN || &bytes[..MAGIC_LEN] != MAGIC {
         return Err(TextureError::NotADdsContainer);
     }
@@ -328,7 +362,7 @@ fn prepare_dds(
         return Err(TextureError::ZeroExtent { width, height });
     }
     let code = read_u32(bytes, OFFSET_DXGI_FORMAT);
-    let (format, _block_bytes, container_space) =
+    let (gpu_format, format, container_space) =
         dxgi_format(code).ok_or(TextureError::UnsupportedDxgiFormat { code })?;
     if container_space != declared {
         return Err(TextureError::ColorSpaceDisagreement {
@@ -339,15 +373,15 @@ fn prepare_dds(
     }
 
     let mips = canonical_mips(
-        format,
+        gpu_format,
         width,
         height,
         read_u32(bytes, OFFSET_MIP_COUNT).max(1),
         &bytes[DX10_HEADER_END..],
     )?;
-    Ok(PreparedTexture {
-        cube: None,
+    Ok(ParsedDds {
         format,
+        gpu_format,
         width,
         height,
         mips,
@@ -378,16 +412,41 @@ fn canonical_mips(
     )
 }
 
-const fn dxgi_format(code: u32) -> Option<(TextureFormat, u32, TextureColorSpace)> {
+const fn dxgi_format(code: u32) -> Option<(TextureFormat, SceneDdsFormat, TextureColorSpace)> {
+    use SceneDdsFormat::{Bc1Rgba, Bc3Rgba, Bc4R, Bc5Rg, Bc7Rgba};
     match code {
-        71 => Some((TextureFormat::Bc1RgbaUnorm, 8, TextureColorSpace::Linear)),
-        72 => Some((TextureFormat::Bc1RgbaUnormSrgb, 8, TextureColorSpace::Srgb)),
-        77 => Some((TextureFormat::Bc3RgbaUnorm, 16, TextureColorSpace::Linear)),
-        78 => Some((TextureFormat::Bc3RgbaUnormSrgb, 16, TextureColorSpace::Srgb)),
-        80 => Some((TextureFormat::Bc4RUnorm, 8, TextureColorSpace::Linear)),
-        83 => Some((TextureFormat::Bc5RgUnorm, 16, TextureColorSpace::Linear)),
-        98 => Some((TextureFormat::Bc7RgbaUnorm, 16, TextureColorSpace::Linear)),
-        99 => Some((TextureFormat::Bc7RgbaUnormSrgb, 16, TextureColorSpace::Srgb)),
+        71 => Some((
+            TextureFormat::Bc1RgbaUnorm,
+            Bc1Rgba,
+            TextureColorSpace::Linear,
+        )),
+        72 => Some((
+            TextureFormat::Bc1RgbaUnormSrgb,
+            Bc1Rgba,
+            TextureColorSpace::Srgb,
+        )),
+        77 => Some((
+            TextureFormat::Bc3RgbaUnorm,
+            Bc3Rgba,
+            TextureColorSpace::Linear,
+        )),
+        78 => Some((
+            TextureFormat::Bc3RgbaUnormSrgb,
+            Bc3Rgba,
+            TextureColorSpace::Srgb,
+        )),
+        80 => Some((TextureFormat::Bc4RUnorm, Bc4R, TextureColorSpace::Linear)),
+        83 => Some((TextureFormat::Bc5RgUnorm, Bc5Rg, TextureColorSpace::Linear)),
+        98 => Some((
+            TextureFormat::Bc7RgbaUnorm,
+            Bc7Rgba,
+            TextureColorSpace::Linear,
+        )),
+        99 => Some((
+            TextureFormat::Bc7RgbaUnormSrgb,
+            Bc7Rgba,
+            TextureColorSpace::Srgb,
+        )),
         _ => None,
     }
 }
@@ -398,6 +457,9 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
     word.copy_from_slice(&bytes[offset..offset + 4]);
     u32::from_le_bytes(word)
 }
+
+mod release;
+pub use release::{TextureReleaseError, describe_texture, release_texture_sources};
 
 #[cfg(test)]
 mod tests;

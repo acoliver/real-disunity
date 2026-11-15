@@ -18,8 +18,12 @@ pub enum UiError {
     StackUnderflow,
     #[error("draw-list stacks must be balanced before finishing")]
     UnbalancedStack,
-    #[error("the requested FontBook raster mode is unsupported")]
-    UnsupportedRaster,
+    #[error("invalid text effect parameters")]
+    InvalidTextEffect,
+    #[error("distance field exceeds side, spread or scratch limits")]
+    DistanceFieldLimit,
+    #[error("distance text requires an invertible affine quad and UV mapping")]
+    InvalidDistanceMapping,
     #[error("invalid annotation geometry or alignment")]
     InvalidAnnotation,
     #[error("annotation segment or frame vertex budget exceeded")]

@@ -160,6 +160,11 @@ impl InstanceBatch {
             .filter_map(|(slot, value)| value.map(|(object, visible)| (slot, object, visible)))
     }
 
+    /// Every allocated slot; removed ones are `None`.
+    pub fn slots(&self) -> &[Option<(SceneObject, bool)>] {
+        &self.placements
+    }
+
     pub fn has_pending(&self) -> bool {
         if worldrunner_render_gpu::submission::Publications::current().is_some_and(|current| {
             self.encoded

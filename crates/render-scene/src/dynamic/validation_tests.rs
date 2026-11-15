@@ -58,6 +58,7 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
             uv_rect: [0., 0., 1., 1.],
             color: [0.5; 4],
             corner_colors: Some(colors),
+            distance_field: None,
             texture: None,
             sorting_layer: 0,
             sorting_order: 0,
@@ -82,4 +83,33 @@ fn presentation_conversion_preserves_and_validates_corner_metadata() {
             })
         ));
     }
+}
+
+#[test]
+fn distance_metadata_requires_overlay_textures_and_affine_quads() {
+    use worldrunner_render_plan::ui::{UiDistanceMode, UiDistanceStyle};
+    let mut quad = DynamicQuad {
+        overlay: true,
+        texture: Some(0),
+        corners: Some([[0., 0., 0.], [16., 0., 0.], [16., 16., 0.], [0., 16., 0.]]),
+        distance_field: Some(UiDistanceStyle {
+            spread_px: 8.,
+            radius_px: 2.,
+            mode: UiDistanceMode::Outline,
+            effect_color: [1.; 4],
+        }),
+        ..DynamicQuad::default()
+    };
+    assert!(validate_quad(&quad, 0, 1).is_ok());
+    quad.overlay = false;
+    assert!(validate_quad(&quad, 0, 1).is_err());
+    quad.overlay = true;
+    quad.texture = None;
+    assert!(validate_quad(&quad, 0, 1).is_err());
+    quad.texture = Some(0);
+    quad.uv_rect = [0.; 4];
+    assert!(validate_quad(&quad, 0, 1).is_err());
+    quad.uv_rect = [0., 0., 1., 1.];
+    quad.corners.as_mut().unwrap()[2][0] = 15.;
+    assert!(validate_quad(&quad, 0, 1).is_err());
 }

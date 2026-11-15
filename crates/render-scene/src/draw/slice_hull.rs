@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 
 use glam::{Mat4, Vec2, Vec3};
 
-use super::visibility::{Bounds, Frustum};
+use super::visibility::{Bounds, Frustum, GROUP_MARGIN};
 use super::{DrawCount, SceneGpu};
 use worldrunner_render_program::runtime::{PassCommands, PreparedPipeline};
 
@@ -65,6 +65,58 @@ impl SliceHull {
             corners
                 .iter()
                 .all(|&corner| (b - a).perp_dot(corner - a) < 0.0)
+        })
+    }
+
+    /// Whether `overlaps` is false for every box inside `bounds`, with margins that cover the
+    /// rounding of those tests, so a cascade can reject a group of casters from its box.
+    pub(super) fn excludes(&self, bounds: Bounds, matrix: Mat4) -> bool {
+        let light = bounds.transformed_enclosing(matrix);
+        let (low, high) = (light.min.truncate(), light.max.truncate());
+        let (hull_low, hull_high) = self.extent();
+        if hull_high.x < low.x || hull_low.x > high.x || hull_high.y < low.y || hull_low.y > high.y
+        {
+            return true;
+        }
+        let corners = [
+            low,
+            Vec2::new(high.x, low.y),
+            high,
+            Vec2::new(low.x, high.y),
+        ];
+        let reach = low.abs().max(high.abs());
+        self.edges().any(|(a, b)| {
+            let edge = b - a;
+            let magnitude =
+                edge.x.abs() * (reach.y + a.y.abs()) + edge.y.abs() * (reach.x + a.x.abs());
+            corners
+                .iter()
+                .all(|&corner| edge.perp_dot(corner - a) < -GROUP_MARGIN * magnitude)
+        })
+    }
+
+    /// Whether `overlaps` is true for every box inside `bounds`: the enclosing light-space
+    /// rectangle lies inside every edge by more than the rounding of those tests.
+    pub(super) fn covers(&self, bounds: Bounds, matrix: Mat4) -> bool {
+        if self.points.len() < 3 {
+            return false;
+        }
+        let light = bounds.transformed_enclosing(matrix);
+        let (low, high) = (light.min.truncate(), light.max.truncate());
+        let corners = [
+            low,
+            Vec2::new(high.x, low.y),
+            high,
+            Vec2::new(low.x, high.y),
+        ];
+        let reach = low.abs().max(high.abs());
+        self.edges().all(|(a, b)| {
+            let edge = b - a;
+            let magnitude =
+                edge.x.abs() * (reach.y + a.y.abs()) + edge.y.abs() * (reach.x + a.x.abs());
+            corners
+                .iter()
+                .all(|&corner| edge.perp_dot(corner - a) > GROUP_MARGIN * magnitude)
         })
     }
 

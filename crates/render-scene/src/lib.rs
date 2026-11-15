@@ -14,6 +14,7 @@ pub mod draw;
 pub mod dynamic;
 pub mod frame;
 pub mod gbuffer;
+mod gbuffer_writes;
 pub mod geometry;
 mod instances;
 mod object;

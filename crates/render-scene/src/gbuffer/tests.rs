@@ -404,3 +404,17 @@ fn gbuffer_targets_are_allocated_only_for_the_observation_path() {
     settings.opaque_path = worldrunner_render_plan::SceneOpaquePath::Forward;
     assert_eq!(refused, settings.allocations().validate(&limits).unwrap());
 }
+
+#[test]
+fn scene_producer_requires_opaque_to_load_completed_prepass_depth() {
+    use crate::renderer::depth::DepthMode;
+
+    assert!(super::producer_depth_available(DepthMode::Reuse));
+    for depth in [
+        DepthMode::Independent,
+        DepthMode::Shared,
+        DepthMode::Prepass,
+    ] {
+        assert!(!super::producer_depth_available(depth), "{depth:?}");
+    }
+}

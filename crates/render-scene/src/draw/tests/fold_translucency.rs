@@ -4,7 +4,7 @@ use worldrunner_render_plan::{
     SceneTerrainContact, SceneTint, SceneTranslucency, SceneTranslucencyParts,
 };
 
-pub(super) fn folded_scene(height: i64) -> RenderScene {
+pub(crate) fn folded_scene(height: i64) -> RenderScene {
     folded_placement(height, 0, None)
 }
 fn folded_placement(height: i64, minimum: u32, placement: Option<SceneTransform>) -> RenderScene {

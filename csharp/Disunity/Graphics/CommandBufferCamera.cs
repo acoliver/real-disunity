@@ -13,7 +13,7 @@ public sealed partial class CommandBuffer
     {
         ThrowIfReleased();
         ArgumentNullException.ThrowIfNull(camera);
-        var (view, projection, _) = camera.SetupValues();
+        var (view, projection, _, _) = camera.SetupValues();
         SetViewProjectionMatrices(view, projection);
     }
 }

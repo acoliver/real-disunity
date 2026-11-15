@@ -8,7 +8,7 @@ use worldrunner_render_program::unity::offscreen::frame::Record;
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
     MaterialEdit, OffscreenWork, PropertyValue as WorldValue, RenderTextureId, ShaderProperties,
-    TextureRef, WorldRenderTexture, WorldSampler,
+    TargetRef, TextureRef, WorldRenderTexture, WorldSampler,
 };
 use worldrunner_world_simulation::presentation::{Camera, CameraClear};
 use worldrunner_world_simulation::{ComponentHandle, MeshRenderer, World};
@@ -257,18 +257,14 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
     };
     let commands = [
         OffscreenWork::SetRenderTarget {
-            color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
-                target,
-            )],
+            color: vec![TargetRef::Render(target)],
             depth: None,
             mip: 0,
             face: -1,
             slice: -1,
         },
         OffscreenWork::SetRenderTarget {
-            color: vec![worldrunner_world_simulation::graphics::TargetRef::Render(
-                other,
-            )],
+            color: vec![TargetRef::Render(other)],
             depth: None,
             mip: 0,
             face: -1,
@@ -303,7 +299,8 @@ fn every_script_command(world: &mut World, camera: ComponentHandle, target: Rend
             camera,
             view: glam::Mat4::IDENTITY.to_cols_array(),
             projection: glam::Mat4::IDENTITY.to_cols_array(),
-            target: worldrunner_world_simulation::graphics::TargetRef::Render(target),
+            target: TargetRef::Render(target),
+            buffers: None,
         },
         OffscreenWork::Cull {
             id: 5,

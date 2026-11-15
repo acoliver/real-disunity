@@ -16,6 +16,7 @@ use crate::packet::TargetSignature;
 use crate::properties::PropertyValue;
 use crate::unity::shader::{PassSelector, ResolveError};
 
+use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::{Attachment, Attachments, Camera, Material, OffscreenFrame, Record, SubMesh};
 use super::list_steps::{self, Loads};
@@ -270,7 +271,10 @@ fn pass_report(
             },
             depth: match (info.and_then(|info| info.depth), camera.clear_depth) {
                 (None, _) => "no depth".to_owned(),
-                (Some(_), true) => format!("clear {DEPTH_CLEAR:?}"),
+                (Some(_), true) => format!(
+                    "clear {:?}",
+                    depth_range::depth_clear(DEPTH_CLEAR, svc.reversed_depth)
+                ),
                 (Some(_), false) => "load".to_owned(),
             },
         },

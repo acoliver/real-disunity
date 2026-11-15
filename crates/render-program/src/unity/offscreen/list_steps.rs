@@ -11,6 +11,7 @@ use crate::ids::TextureId;
 use crate::packet::TargetSignature;
 
 use super::ListDraws;
+use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::{Attachments, Clear, DrawList, OffscreenFrame};
 use super::plan::Services;
@@ -178,10 +179,13 @@ fn depth_attachment(
     let view = svc
         .tracker
         .cell_view(key, (mip, 0), wgpu::TextureAspect::All, after)?;
+    let reversed = svc.reversed_depth;
     Ok(Some(DepthAttachment {
         view,
         before: clear.is_none().then_some(before),
-        load: clear.map_or(AttachmentLoad::Load, AttachmentLoad::ClearDepth),
+        load: clear.map_or(AttachmentLoad::Load, |depth| {
+            AttachmentLoad::ClearDepth(depth_range::depth_clear(depth, reversed))
+        }),
         store: wgpu::StoreOp::Store,
         read_only: false,
     }))

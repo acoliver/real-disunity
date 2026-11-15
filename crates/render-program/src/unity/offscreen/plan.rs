@@ -30,6 +30,7 @@ use worldrunner_unity_serialized::shader_parameters::ResourceKind;
 
 use super::constants_plan::ConstantsPlan;
 use super::defaults::{DeclaredInputs, DefaultBuffers, Fill, declared_inputs, default_for};
+use super::depth_range;
 use super::error::OffscreenError;
 use super::frame::UndeclaredTextures;
 use super::meshes::MeshTable;
@@ -245,6 +246,8 @@ pub(super) struct Services<'a> {
     /// Whether the draws planned now use a fragment stage that writes a constant colour, whatever
     /// the pass's own does.
     pub(super) constant_fragment: bool,
+    /// Whether depth is reversed (near 1, far 0): see `depth_range`.
+    pub(super) reversed_depth: bool,
 }
 
 impl Services<'_> {
@@ -396,8 +399,10 @@ impl Services<'_> {
             entry
         };
         self.counts.program_time += started.elapsed();
-        let state = resolve_state(&resolved.state, &spec.layers.values())?;
+        let mut state = resolve_state(&resolved.state, &spec.layers.values())?;
         self.missing.extend(state.defaulted);
+        state.state.depth_compare =
+            depth_range::depth_test(state.state.depth_compare, self.reversed_depth);
         Ok((entry, state.state))
     }
 
@@ -635,7 +640,9 @@ impl Services<'_> {
                 SamplerBinding {
                     binding: slot.binding,
                     visibility: slot.visibility,
-                    sampler: self.samplers.comparison(state, sampling::SHADOW_COMPARE),
+                    sampler: self
+                        .samplers
+                        .comparison(state, depth_range::shadow_compare(self.reversed_depth)),
                 },
             ));
             return;

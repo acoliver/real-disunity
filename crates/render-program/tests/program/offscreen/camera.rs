@@ -608,3 +608,45 @@ fn a_pass_without_the_tag_counts_as_the_value_the_camera_gives_untagged_passes()
     frame.cameras.get_mut(&CAMERA).unwrap().pass = counting_untagged_as(&["Other"], "Alpha");
     assert_eq!(rig.build(&frame).unwrap().unmatched_draws(), 2);
 }
+
+#[test]
+fn with_reversed_depth_the_larger_depth_is_nearer_and_the_clear_is_the_far_value() {
+    let mut rig = Rig::new();
+    rig.state.set_reversed_depth(true);
+    let mut frame = halves(&mut rig, (1 << LEFT) | (1 << RIGHT));
+    frame.render_textures[0].depth_bits = 32;
+    // Both cover the target. The red one is at depth 0.8, which is the nearer when near is 1,
+    // and the blue one at 0.2. The pass's `LEqual` test is `GreaterEqual` and the clear is 0, so
+    // a quad that is drawn at all passed against the far value.
+    rig.state
+        .set_mesh(&mut rig.runtime, QUAD, &quad(0.8))
+        .unwrap();
+    rig.state
+        .set_mesh(&mut rig.runtime, super::rig::NEAR_QUAD, &quad(0.2))
+        .unwrap();
+    for id in [RendererId(1), RendererId(2)] {
+        frame.renderers.get_mut(&id).unwrap().per_draw = layer(&[("_Place", [1.0, 1.0, 0.0, 0.0])]);
+    }
+    frame.renderers.get_mut(&RendererId(2)).unwrap().mesh = super::rig::NEAR_QUAD;
+    // The farther blue quad is drawn after the nearer red one: the depth test rejects it.
+    frame
+        .materials
+        .get_mut(&MaterialId(1))
+        .unwrap()
+        .render_queue = 2000;
+    frame
+        .materials
+        .get_mut(&MaterialId(2))
+        .unwrap()
+        .render_queue = 3000;
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (4, 4)), RED, "far quad drawn second");
+    // Drawn first, the far quad is covered by the near one.
+    frame
+        .materials
+        .get_mut(&MaterialId(2))
+        .unwrap()
+        .render_queue = 1000;
+    let image = render(&mut rig, &frame);
+    assert_eq!(pixel(&image, 8, (4, 4)), RED, "far quad drawn first");
+}

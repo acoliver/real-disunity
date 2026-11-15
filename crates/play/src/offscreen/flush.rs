@@ -199,7 +199,8 @@ impl OffscreenHost {
         adapter: OffscreenAdapter,
         compute: ComputeAdapter,
     ) -> Self {
-        let state = OffscreenState::new(&runtime);
+        let mut state = OffscreenState::new(&runtime);
+        state.set_reversed_depth(super::reversed_depth());
         Self {
             runtime,
             arena,

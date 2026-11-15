@@ -35,7 +35,8 @@
 //! * `unity_MatrixVP` is [`clip_from_gl`](super::camera::clip_from_gl) times the OpenGL
 //!   projection times the view. The projection is the engine layer's; the clip space is the one
 //!   `render-program`'s conventions tests measured. Whether the player expects a reversed depth
-//!   range is not known, so depth is not reversed.
+//!   range is not known, so depth is not reversed unless the experiment switch
+//!   ([`reversed_depth`](super::reversed_depth), `RD_REVERSED_DEPTH=1`) is on.
 //! * `_WorldSpaceCameraPos` is the translation of the inverse of the view, with 0 in the fourth
 //!   component for a member of three floats to ignore.
 //! * `_MainLightPosition` and `_MainLightColor` (four floats each) come from the main light of the

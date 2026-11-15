@@ -113,3 +113,25 @@ fn the_scale_of_the_camera_object_does_not_change_the_view() {
     let point = [4.0, 1.0, 9.0];
     assert_close(&clip(&scaled, 1.5, point), &clip(&plain, 1.5, point));
 }
+
+#[test]
+fn reversed_depth_runs_from_w_at_the_near_plane_to_0_at_the_far_plane() {
+    use super::super::camera::{clip_from_gl_with, projection, world_to_camera};
+    let view = view(perspective_90(), Vec3::new(1.0, 2.0, 3.0), Quat::IDENTITY);
+    let to_clip =
+        clip_from_gl_with(true) * projection(&view.settings, 1.0) * world_to_camera(&view);
+    let depth = |point: [f32; 3]| {
+        let clip = to_clip * glam::Vec4::new(point[0], point[1], point[2], 1.0);
+        clip.z / clip.w
+    };
+    assert_close(&[depth([1.0, 2.0, 4.0])], &[1.0]);
+    assert_close(&[depth([1.0, 2.0, 103.0])], &[0.0]);
+    // x and y are those of the unreversed clip space.
+    let plain = clip_from_gl_with(false) * projection(&view.settings, 1.0) * world_to_camera(&view);
+    let point = glam::Vec4::new(1.5, 2.5, 5.0, 1.0);
+    assert_close(
+        &(to_clip * point).to_array()[..2],
+        &(plain * point).to_array()[..2],
+    );
+    assert_close(&[(to_clip * point).w], &[(plain * point).w]);
+}

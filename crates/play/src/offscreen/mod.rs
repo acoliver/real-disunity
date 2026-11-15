@@ -52,6 +52,7 @@ mod camera;
 mod census;
 mod compute;
 mod defaults;
+mod depth_range;
 mod flush;
 mod frame;
 mod holdings;
@@ -83,13 +84,14 @@ pub use builtins::{
     PROJECTION_PARAMS, SCREEN_PARAMS, VIEW, VIEW_PROJECTION, WORLD_TO_OBJECT,
     WORLD_TRANSFORM_PARAMS, add_main_light, add_screen_size, camera_layer, draw_layer,
 };
-pub use camera::{clip_from_gl, projection, world_to_camera};
+pub use camera::{clip_from_gl, clip_from_gl_with, projection, world_to_camera};
 pub use census::{ComputeCensus, ShaderCensus, compute_census, shader_census};
 pub use compute::{
     BufferTrace, ComputeAdapter, ComputeLoadError, ComputeSupply, DispatchTrace, NoKernels,
     SampledSource, TextureTrace,
 };
 pub use defaults::DefaultTexture;
+pub use depth_range::{REVERSED_DEPTH_ENV, reversed_depth};
 pub use flush::{BufferSink, BufferWrite, FlushError, FlushOutcome, OffscreenHost};
 pub use frame::{
     Adapted, Available, BLIT_MESH, Placed, Reclaimed, RendererSkip, Report, Settings, ShaderInfo,

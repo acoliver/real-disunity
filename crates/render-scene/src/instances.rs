@@ -86,6 +86,8 @@ pub(crate) struct Instances {
     #[cfg(test)]
     pub fade_cull_disabled: bool,
     pub batches: BTreeMap<BatchKey, InstanceBatch>,
+    /// Counts the instance buffers; a scene built without a device keeps an unshared tally.
+    pub(crate) census: worldrunner_render_gpu::census::MemoryCensus,
 }
 
 impl Instances {
@@ -132,6 +134,7 @@ impl Instances {
             #[cfg(test)]
             fade_cull_disabled: false,
             batches: BTreeMap::new(),
+            census: worldrunner_render_gpu::census::MemoryCensus::new(),
         };
         for object in scene.geometry().objects() {
             instances
@@ -196,6 +199,12 @@ impl Instances {
     /// Keeps previous-frame transforms for velocity pipelines.
     pub fn tracking_previous(mut self, track: bool) -> Self {
         self.track_previous = track;
+        self
+    }
+
+    /// Counts this scene's instance buffers in `census`.
+    pub fn counted(mut self, census: worldrunner_render_gpu::census::MemoryCensus) -> Self {
+        self.census = census;
         self
     }
 

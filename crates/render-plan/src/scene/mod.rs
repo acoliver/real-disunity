@@ -109,6 +109,11 @@ mod lod_material;
 pub use lod_material::SceneLodMaterialSlot;
 mod lod_policy;
 pub use lod_policy::SceneFoldSampling;
+mod skinning;
+pub use skinning::{
+    SceneAffineMatrix, SceneSkeleton, SceneSkinInfluence, SceneSkinPose, SkeletonHandle,
+    SkinPoseHandle,
+};
 mod fade_coverage;
 mod impostor;
 mod material_features;
@@ -233,10 +238,13 @@ impl RenderScene {
             geometry: SceneGeometry {
                 meshes: self.geometry.meshes.clone(),
                 objects: objects.into_boxed_slice(),
+                skeletons: self.geometry.skeletons.clone(),
+                skin_poses: self.geometry.skin_poses.clone(),
             },
             terrain: self.terrain.clone(),
             effects,
         };
+        scene.geometry.validate()?;
         scene.validate_references()?;
         Ok(scene)
     }

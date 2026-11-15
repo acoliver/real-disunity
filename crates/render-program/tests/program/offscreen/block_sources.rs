@@ -3,7 +3,7 @@
 
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::unity::offscreen::OffscreenError;
-use worldrunner_render_program::unity::offscreen::frame::SourceTexture;
+use worldrunner_render_program::unity::offscreen::frame::{SourceDimension, SourceTexture};
 
 use super::formats::{blit_frame, blit_setup};
 use super::rig::Rig;
@@ -36,6 +36,7 @@ fn two_blocks() -> SourceTexture {
     let bytes = [flat_block(0), flat_block(1023)].concat();
     SourceTexture {
         id: TextureId(5),
+        dimension: SourceDimension::D2,
         size: [8, 4],
         graphics_format: BC6H_UFLOAT,
         bytes,

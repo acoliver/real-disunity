@@ -229,8 +229,18 @@ fn pass_report(
     let mut states = std::collections::BTreeMap::<String, usize>::new();
     for draw in draws {
         let state = &draw.plan.state;
+        let stencil = state.stencil.as_ref().map_or_else(String::new, |stencil| {
+            format!(
+                ", stencil reference {} read mask {} write mask {} front {:?} back {:?}",
+                stencil.reference,
+                stencil.ops.read_mask,
+                stencil.ops.write_mask,
+                stencil.ops.front,
+                stencil.ops.back
+            )
+        });
         let words = format!(
-            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}",
+            "cull {:?}, depth test {:?} write {}, color mask {}, blend {}{stencil}",
             state.cull,
             state.depth_compare,
             state.depth_write,
@@ -434,6 +444,7 @@ pub(super) fn counted(
     match planned {
         Ok(draw) => {
             svc.counts.note_defaulted(&draw.vertices.defaulted);
+            svc.counts.note_undeclared(&draw.plan.undeclared);
             Ok(Some(draw))
         }
         Err(OffscreenError::Resolve(ResolveError::NoPass { .. })) => {
@@ -729,6 +740,7 @@ fn blit_step(
     let plan = svc.plan_program(&spec)?;
     let vertices = svc.plan_vertices(mesh, &plan.entry)?;
     svc.counts.note_defaulted(&vertices.defaulted);
+    svc.counts.note_undeclared(&plan.undeclared);
     let count = blit_vertex_count(svc, mesh)?;
     let (imported, _) = svc.import(target)?;
     let color = imported

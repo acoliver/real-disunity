@@ -331,7 +331,7 @@ fn unsupported_sample_counts_fail_with_a_typed_error_before_allocation() {
         assert_eq!(result.err(), Some(PostError::SampleCount(invalid)));
     }
     // A device without adapter-specific format features cannot render 2x or 8x, whatever the adapter reports.
-    let instance = worldrunner_render_gpu::device::headless_instance();
+    let instance = worldrunner_render_gpu::test_support::test_instance();
     let adapter =
         pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
             .unwrap();

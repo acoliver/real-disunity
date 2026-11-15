@@ -30,7 +30,7 @@ fn scan(instances: &Instances, meshes: &[MeshSelection], matrix: Mat4, view: &Vi
         let mut boxes = vec![[Vec3::ZERO; 2]; shape.reliefs().len()];
         for (slot, object, visible) in batch.placements() {
             selection.stats.considered += 1;
-            shape.fill(mesh, instances, object.transform(), &mut boxes);
+            shape.fill(mesh, instances, &object, &mut boxes);
             let bounds = placement::placement(&boxes, shape.reliefs(), stretch);
             let admitted = visible
                 && (!view.casters_only || object.casts_shadow())
@@ -86,7 +86,7 @@ fn scan_casters(
         let mut boxes = vec![[Vec3::ZERO; 2]; shape.reliefs().len()];
         for (_, object, visible) in batch.placements() {
             if visible && object.casts_shadow() {
-                shape.fill(&meshes[mesh], instances, object.transform(), &mut boxes);
+                shape.fill(&meshes[mesh], instances, &object, &mut boxes);
                 let bounds = placement::placement(&boxes, shape.reliefs(), 0.0);
                 near = near.min(caster_near(bounds, receiver));
             }

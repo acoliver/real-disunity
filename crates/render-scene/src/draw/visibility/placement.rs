@@ -1,7 +1,7 @@
 //! Placement bounds for one batch: cached view-independent boxes and a per-view relief term.
 
 use glam::Vec3;
-use worldrunner_render_plan::SceneTransform;
+use worldrunner_render_plan::{SceneObject, SceneTransform};
 
 use super::{Bounds, MeshSelection};
 use crate::geometry::model_matrix;
@@ -46,20 +46,24 @@ impl BatchShape {
         &self.reliefs
     }
 
-    /// Stores each relief group's view-independent box around `transform` in `boxes`.
+    /// Stores each relief group's view-independent box around `object` in `boxes`. A skinned
+    /// placement is bounded where its pose can carry its vertices, not where its bind geometry
+    /// lies; setting a slot's object, and so its pose, clears its stored boxes.
     pub fn fill(
         &self,
         mesh: &MeshSelection,
         instances: &Instances,
-        transform: &SceneTransform,
+        object: &SceneObject,
         boxes: &mut [[Vec3; 2]],
     ) {
+        let transform = object.transform();
+        let reach = instances.skin.reach(object, mesh.radius());
         for (stored, &relief) in boxes.iter_mut().zip(&self.reliefs) {
             let group = self
                 .materials
                 .iter()
                 .filter(|&&material| instances.impostor_extents[material][1].to_bits() == relief)
-                .map(|&material| view_independent(mesh, instances, transform, material))
+                .map(|&material| view_independent(mesh, instances, transform, reach, material))
                 .reduce(union)
                 .expect("every relief group has a material");
             *stored = [group.min, group.max];
@@ -81,12 +85,8 @@ pub(super) fn refresh(
             .slots()
             .iter()
             .enumerate()
-            .filter_map(|(slot, placement)| {
-                placement
-                    .as_ref()
-                    .map(|(object, _)| (slot, object.transform()))
-            }),
-        |transform, boxes| shape.fill(mesh, instances, transform, boxes),
+            .filter_map(|(slot, placement)| placement.as_ref().map(|(object, _)| (slot, object))),
+        |object, boxes| shape.fill(mesh, instances, object, boxes),
     );
 }
 
@@ -117,6 +117,7 @@ fn view_independent(
     mesh: &MeshSelection,
     instances: &Instances,
     transform: &SceneTransform,
+    reach: f32,
     material: usize,
 ) -> Bounds {
     let impostor = instances.impostor_extents[material];
@@ -125,6 +126,7 @@ fn view_independent(
         instances.wind_extents[material],
         instances.curved_wind[material],
         [impostor[0], impostor[2]],
+        reach,
     )
     .expanded(Vec3::splat(
         impostor[2] * model_matrix(transform).x_axis.truncate().length(),

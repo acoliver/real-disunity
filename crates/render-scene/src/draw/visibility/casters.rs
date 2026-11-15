@@ -24,7 +24,7 @@ pub(in crate::draw) fn caster_placement(
     let mesh = &meshes[key.1];
     let shape = BatchShape::new(mesh, instances, key.2);
     let mut boxes = vec![[Vec3::ZERO; 2]; shape.reliefs().len()];
-    shape.fill(mesh, instances, object.transform(), &mut boxes);
+    shape.fill(mesh, instances, &object, &mut boxes);
     Some(super::super::caster_edits::CasterBounds {
         bounds: placement::placement(&boxes, shape.reliefs(), 0.0),
         relief: largest_relief(shape.reliefs()),

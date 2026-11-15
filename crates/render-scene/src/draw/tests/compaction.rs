@@ -73,25 +73,32 @@ pub(super) fn unlit(pose: CameraPose) -> FrameUniform {
     frame
 }
 
-struct Rig {
-    context: GpuContext,
+pub(super) struct Rig {
+    pub(super) context: GpuContext,
     pipelines: ScenePipelines,
-    gpu: SceneGpu,
+    pub(super) gpu: SceneGpu,
     target: OffscreenTarget,
     renderer: FrameRenderer,
 }
 
 impl Rig {
     fn new(ranged_only: bool) -> Self {
-        let context = context();
-        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
-        let mut gpu =
-            SceneGpu::upload(context.device(), context.submission(), &cards(), &pipelines).unwrap();
-        let handles: Vec<_> = gpu.instance_handles().collect();
+        let mut rig = Self::over(&cards(), ranged_only);
+        let handles = rig.handles();
         // Slot 2 of material 0 and slot 1 of material 2.
         for hidden in [4, 3] {
-            gpu.set_instance_visible(handles[hidden], false).unwrap();
+            rig.gpu
+                .set_instance_visible(handles[hidden], false)
+                .unwrap();
         }
+        rig
+    }
+
+    pub(super) fn over(scene: &RenderScene, ranged_only: bool) -> Self {
+        let context = context();
+        let pipelines = ScenePipelines::new(context.device(), COLOR_FORMAT);
+        let gpu =
+            SceneGpu::upload(context.device(), context.submission(), scene, &pipelines).unwrap();
         gpu.views[0]
             .compaction
             .observed
@@ -113,7 +120,7 @@ impl Rig {
         }
     }
 
-    fn prepare(
+    pub(super) fn prepare(
         &mut self,
         frame: &FrameUniform,
     ) -> worldrunner_render_gpu::submission::PreparedFrame {
@@ -141,12 +148,12 @@ impl Rig {
             .unwrap()
     }
 
-    fn render(&mut self, frame: &FrameUniform) -> RgbaImage {
+    pub(super) fn render(&mut self, frame: &FrameUniform) -> RgbaImage {
         let submission = self.prepare(frame).submit().unwrap();
         self.target.read_encoded(&self.context, submission).unwrap()
     }
 
-    fn handles(&self) -> Vec<InstanceHandle> {
+    pub(super) fn handles(&self) -> Vec<InstanceHandle> {
         self.gpu.instance_handles().collect()
     }
 
@@ -154,7 +161,7 @@ impl Rig {
         self.gpu.views[0].compaction.observed.staged.get()
     }
 
-    fn compacted_draws(&self) -> usize {
+    pub(super) fn compacted_draws(&self) -> usize {
         self.gpu.views[0].compaction.observed.compacted_draws.get()
     }
 

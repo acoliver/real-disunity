@@ -62,7 +62,8 @@ fn assert_matches_reference(mesh: &SceneMesh, materials: &[Material]) {
     let selection = MeshSelection::new(mesh);
     let mut instances = instances(materials);
     for placement in placements() {
-        let handle = instances.add(object(placement), true).unwrap();
+        let placed = object(placement);
+        let handle = instances.add(placed, true).unwrap();
         let (&key, batch) = instances.batches.iter().next().unwrap();
         let (slot, _, _) = batch.placements().next().unwrap();
         placement::refresh(&selection, &instances, key.2, batch);

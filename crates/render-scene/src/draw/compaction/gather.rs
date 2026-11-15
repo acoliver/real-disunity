@@ -20,11 +20,42 @@ struct Pipeline {
     pipeline: wgpu::ComputePipeline,
 }
 
-/// The two gather entry points: records only, and records with previous transforms.
+/// The gather entry points, indexed by [`entry`]: records alone, or with previous transforms,
+/// skin descriptors, or both.
 #[derive(Debug)]
 pub(super) struct Pipelines {
-    current: Pipeline,
-    previous: Pipeline,
+    entries: [Pipeline; 4],
+}
+
+/// The bindings each entry point reads (false) or writes (true): the run list, then a mirror
+/// and a view buffer for each half it gathers.
+const ENTRIES: [(&str, &[(u32, bool)]); 4] = [
+    ("gather", &[(0, false), (1, false), (2, true)]),
+    (
+        "gather_with_previous",
+        &[(0, false), (1, false), (2, true), (3, false), (4, true)],
+    ),
+    (
+        "gather_with_skin",
+        &[(0, false), (1, false), (2, true), (5, false), (6, true)],
+    ),
+    (
+        "gather_with_previous_and_skin",
+        &[
+            (0, false),
+            (1, false),
+            (2, true),
+            (3, false),
+            (4, true),
+            (5, false),
+            (6, true),
+        ],
+    ),
+];
+
+/// The entry point that gathers the halves `bindings` names.
+fn entry(bindings: &Bindings<'_>) -> usize {
+    usize::from(bindings.previous.is_some()) + 2 * usize::from(bindings.skin.is_some())
 }
 
 impl Pipelines {
@@ -33,12 +64,11 @@ impl Pipelines {
             label: Some("instance gather"),
             source: wgpu::ShaderSource::Wgsl(SOURCE.into()),
         });
-        let pipeline = |entry, writable: &[bool]| {
-            let entries: Vec<_> = writable
+        let pipeline = |(entry, bindings): (&str, &[(u32, bool)])| {
+            let entries: Vec<_> = bindings
                 .iter()
-                .enumerate()
-                .map(|(binding, &writable)| wgpu::BindGroupLayoutEntry {
-                    binding: u32::try_from(binding).expect("five bindings"),
+                .map(|&(binding, writable)| wgpu::BindGroupLayoutEntry {
+                    binding,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage {
@@ -70,8 +100,7 @@ impl Pipelines {
             Pipeline { layout, pipeline }
         };
         Self {
-            current: pipeline("gather", &[false, false, true]),
-            previous: pipeline("gather_with_previous", &[false, false, true, false, true]),
+            entries: ENTRIES.map(pipeline),
         }
     }
 }
@@ -88,6 +117,8 @@ pub(super) struct Bindings<'a> {
     pub mirror: &'a mirror::Buffers,
     pub current: &'a Buffer,
     pub previous: Option<&'a Buffer>,
+    /// The view's skin descriptors, gathered from the mirror's skin half by the same runs.
+    pub skin: Option<&'a Buffer>,
 }
 
 /// A view's run list buffer, reused across frames and grown when a list outgrows it, and the
@@ -143,10 +174,7 @@ impl Shared {
     ) {
         let device = context.device().clone();
         let pipelines = self.pipelines.get_or_init(|| Pipelines::new(&device));
-        let pipeline = match bindings.previous {
-            Some(_) => &pipelines.previous,
-            None => &pipelines.current,
-        };
+        let pipeline = &pipelines.entries[entry(bindings)];
         let bytes = run_bytes(runs);
         let mut scratch = scratch.borrow_mut();
         let list = scratch.runs_holding(&device, census, bytes.len() as u64);
@@ -218,14 +246,23 @@ impl Scratch {
                 .expect("previous mirror for a previous gather");
             buffers.extend([Buffer::clone(mirror), previous.clone()]);
         }
+        if let Some(skin) = bindings.skin {
+            let mirror = bindings
+                .mirror
+                .skin
+                .as_ref()
+                .expect("skin mirror for a skin gather");
+            buffers.extend([Buffer::clone(mirror), skin.clone()]);
+        }
         if let Some((_, group)) = self.group.as_ref().filter(|(bound, _)| *bound == buffers) {
             return group.clone();
         }
+        let (_, slots) = ENTRIES[entry(bindings)];
         let entries: Vec<_> = buffers
             .iter()
-            .enumerate()
-            .map(|(binding, buffer)| wgpu::BindGroupEntry {
-                binding: u32::try_from(binding).expect("five bindings"),
+            .zip(slots)
+            .map(|(buffer, &(binding, _))| wgpu::BindGroupEntry {
+                binding,
                 resource: buffer.as_entire_binding(),
             })
             .collect();

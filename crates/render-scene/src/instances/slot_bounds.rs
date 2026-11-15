@@ -4,7 +4,6 @@
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use glam::Vec3;
-use worldrunner_render_plan::SceneTransform;
 
 mod tree;
 pub(crate) use tree::{Node, Tree};
@@ -37,13 +36,13 @@ impl SlotBounds {
     }
 
     /// Fills the boxes of every live slot that has none and regroups the slots when they
-    /// changed. `live` lists the batch's allocated slots in order; `fill` computes one
-    /// placement's boxes, one per relief scale.
-    pub fn refresh<'a>(
+    /// changed. `live` lists the batch's allocated slots in order with their placements;
+    /// `fill` computes one placement's boxes, one per relief scale.
+    pub fn refresh<'a, P: 'a>(
         &mut self,
         reliefs: &[u32],
-        live: impl Iterator<Item = (usize, &'a SceneTransform)>,
-        mut fill: impl FnMut(&SceneTransform, &mut [[Vec3; 2]]),
+        live: impl Iterator<Item = (usize, &'a P)>,
+        mut fill: impl FnMut(&P, &mut [[Vec3; 2]]),
     ) {
         if !self.stale && reliefs == self.reliefs {
             return;
@@ -56,14 +55,14 @@ impl SlotBounds {
             self.stale = true;
         }
         let mut slots = Vec::new();
-        for (position, transform) in live {
+        for (position, placement) in live {
             if position >= self.valid.len() {
                 self.valid.resize(position + 1, false);
                 self.boxes.resize((position + 1) * stride, [Vec3::ZERO; 2]);
             }
             if !self.valid[position] {
                 fill(
-                    transform,
+                    placement,
                     &mut self.boxes[position * stride..(position + 1) * stride],
                 );
                 self.valid[position] = true;

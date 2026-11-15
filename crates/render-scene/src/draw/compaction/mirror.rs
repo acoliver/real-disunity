@@ -2,8 +2,9 @@
 //!
 //! Each batch keeps its own vertex buffer, and a compute dispatch binds only a handful of
 //! buffers, while a view selects from hundreds of batches. The mirror gives every gathered batch
-//! a fixed record range in one buffer (and one more for previous transforms), so a single
-//! dispatch gathers a whole view. A batch's range is copied again only when the batch's content
+//! a fixed record range in one buffer (and one more for previous transforms, and one for the skin
+//! descriptors of skinned batches at the same record indices), so a single dispatch gathers a
+//! whole view. A batch's range is copied again only when the batch's content
 //! generation moved since the mirror copied it, so a moving view over unchanged placements
 //! copies nothing into the mirror.
 //!
@@ -20,7 +21,7 @@ use worldrunner_render_gpu::census::{ResourceClass, Tracked};
 use worldrunner_render_gpu::submission::Publications;
 use worldrunner_render_post::PrepareContext;
 
-use super::STRIDE;
+use super::{SKIN_STRIDE, STRIDE};
 use crate::instances::{BatchKey, InstanceBatch, Instances};
 
 /// The record range of one batch in the mirror.
@@ -90,18 +91,31 @@ impl Layout {
     }
 }
 
-/// The batch content generation a mirror range holds, and whether it holds previous transforms.
+/// The batch content generation a mirror range holds, and whether it holds previous transforms
+/// and skin descriptors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Held {
     content: u64,
     previous: bool,
+    skin: bool,
 }
 
-/// The mirror buffers; `previous` exists once a gather needed previous transforms.
+/// Which halves beside the current records a gather reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Halves {
+    pub previous: bool,
+    /// The skin descriptors of skinned batches; set while the scene has skinned batches.
+    pub skin: bool,
+}
+
+/// The mirror buffers; `previous` exists once a gather needed previous transforms, and `skin`
+/// once a gather needed skin descriptors.
 #[derive(Clone, Debug)]
 pub(super) struct Buffers {
     pub current: Rc<Tracked<Buffer>>,
     pub previous: Option<Rc<Tracked<Buffer>>>,
+    /// One 16-byte descriptor per record, at the record's index.
+    pub skin: Option<Rc<Tracked<Buffer>>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -137,25 +151,25 @@ impl Mirror {
 
     /// Brings the ranges of `keys` up to their batches' content, staging the copies in
     /// `context`, and returns the mirror state the gather reads. Every key must name a batch
-    /// with a flushed buffer, and with a previous buffer when `previous`.
+    /// with a flushed buffer, with a previous buffer when `halves.previous`, and with a flushed
+    /// skin stream when the batch is skinned.
     pub fn prepare(
         &self,
         context: &mut PrepareContext<'_>,
         instances: &Instances,
         keys: &[BatchKey],
-        previous: bool,
+        halves: Halves,
     ) -> State {
         let batches = &instances.batches;
         let owner = context.publications();
         let mut state = self.state_in(&owner);
         let mut layout = state.layout.clone();
-        let fits = state
-            .buffers
-            .as_ref()
-            .is_some_and(|buffers| !previous || buffers.previous.is_some())
-            && keys
-                .iter()
-                .all(|key| layout.reserve(*key, reserved(flushed(batches, *key))));
+        let fits = state.buffers.as_ref().is_some_and(|buffers| {
+            (!halves.previous || buffers.previous.is_some())
+                && (!halves.skin || buffers.skin.is_some())
+        }) && keys
+            .iter()
+            .all(|key| layout.reserve(*key, reserved(flushed(batches, *key))));
         if fits {
             // A batch that moved to the end holds nothing at its new range yet.
             let moved = &state.layout.extents;
@@ -164,10 +178,10 @@ impl Mirror {
                 .retain(|key, _| layout.extents.get(key) == moved.get(key));
             state.layout = layout;
         } else {
-            state = Self::allocate(context.device(), &state, instances, keys, previous);
+            state = Self::allocate(context.device(), &state, instances, keys, halves);
         }
         for &key in keys {
-            Self::refresh(context, &mut state, (key, &batches[&key]), previous);
+            Self::refresh(context, &mut state, (key, &batches[&key]), halves);
         }
         *self.drawing.borrow_mut() = Some((owner, state.clone()));
         let committed = self.committed.clone();
@@ -185,7 +199,7 @@ impl Mirror {
         state: &State,
         instances: &Instances,
         keys: &[BatchKey],
-        previous: bool,
+        halves: Halves,
     ) -> State {
         let batches = &instances.batches;
         let sizes: BTreeMap<BatchKey, u32> = state
@@ -202,27 +216,29 @@ impl Mirror {
             bytes <= limits.max_buffer_size && bytes <= limits.max_storage_buffer_binding_size,
             "gather mirror of {bytes} bytes exceeds the device's storage buffer limits"
         );
-        let create = |label| {
+        let create = |label, size| {
             Rc::new(instances.census.create_buffer(
                 device,
                 ResourceClass::Instance,
                 &wgpu::BufferDescriptor {
                     label: Some(label),
-                    size: bytes,
+                    size,
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 },
             ))
         };
-        let keep_previous = state
-            .buffers
-            .as_ref()
-            .is_some_and(|buffers| buffers.previous.is_some());
+        let kept = |half: fn(&Buffers) -> bool| state.buffers.as_ref().is_some_and(half);
+        let previous = halves.previous || kept(|buffers| buffers.previous.is_some());
+        let skin = halves.skin || kept(|buffers| buffers.skin.is_some());
+        let skin_bytes =
+            (u64::from(layout.capacity) * SKIN_STRIDE).max(wgpu::COPY_BUFFER_ALIGNMENT);
         State {
             layout,
             buffers: Some(Buffers {
-                current: create("gather mirror"),
-                previous: (previous || keep_previous).then(|| create("gather previous mirror")),
+                current: create("gather mirror", bytes),
+                previous: previous.then(|| create("gather previous mirror", bytes)),
+                skin: skin.then(|| create("gather skin mirror", skin_bytes)),
             }),
             held: BTreeMap::new(),
         }
@@ -233,17 +249,18 @@ impl Mirror {
         context: &mut PrepareContext<'_>,
         state: &mut State,
         (key, batch): (BatchKey, &InstanceBatch),
-        previous: bool,
+        halves: Halves,
     ) {
+        let previous = halves.previous;
+        let skin = halves.skin && batch.skin.is_some();
         let held = Held {
             content: batch.content(),
             previous,
+            skin,
         };
-        if state
-            .held
-            .get(&key)
-            .is_some_and(|h| h.content == held.content && (h.previous || !previous))
-        {
+        if state.held.get(&key).is_some_and(|h| {
+            h.content == held.content && (h.previous || !previous) && (h.skin || !skin)
+        }) {
             return;
         }
         let buffers = state.buffers.as_ref().expect("allocated gather mirror");
@@ -259,6 +276,18 @@ impl Mirror {
                 .expect("allocated previous mirror");
             let records = records.min(u64::from(reserved(source)));
             context.copy_buffer_region((source, 0), (target, base), records * STRIDE);
+        }
+        if skin {
+            let stream = batch
+                .skin
+                .as_ref()
+                .expect("a skinned batch has a skin stream");
+            let source = stream.buffer.as_deref().expect("flushed skin stream");
+            let target: &Buffer = buffers.skin.as_deref().expect("allocated skin mirror");
+            // The stream holds the same slots as the instance buffer, a descriptor each.
+            let records = records.min(source.size() / SKIN_STRIDE);
+            let base = u64::from(state.layout.base(key)) * SKIN_STRIDE;
+            context.copy_buffer_region((source, 0), (target, base), records * SKIN_STRIDE);
         }
         state.held.insert(key, held);
     }

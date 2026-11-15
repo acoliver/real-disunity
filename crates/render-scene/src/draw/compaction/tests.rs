@@ -200,6 +200,8 @@ fn the_gather_shader_validates_and_copies_whole_instance_records() {
     .unwrap();
     let words = INSTANCE_BYTES / 4;
     assert!(SOURCE.contains(&format!("const RECORD_WORDS: u32 = {words}u;")));
+    let skin_words = crate::skinning::SKIN_INSTANCE_BYTES / 4;
+    assert!(SOURCE.contains(&format!("const SKIN_WORDS: u32 = {skin_words}u;")));
     let entries: Vec<_> = module
         .entry_points
         .iter()
@@ -207,7 +209,12 @@ fn the_gather_shader_validates_and_copies_whole_instance_records() {
         .collect();
     assert_eq!(
         entries,
-        [("gather", [64, 1, 1]), ("gather_with_previous", [64, 1, 1])]
+        [
+            ("gather", [64, 1, 1]),
+            ("gather_with_previous", [64, 1, 1]),
+            ("gather_with_skin", [64, 1, 1]),
+            ("gather_with_previous_and_skin", [64, 1, 1]),
+        ]
     );
     assert!(SOURCE.contains("const LANES: u32 = 64u;"));
 }

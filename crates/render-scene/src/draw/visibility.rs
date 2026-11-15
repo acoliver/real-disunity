@@ -134,20 +134,30 @@ impl MeshSelection {
             .unwrap_or_else(|| self.ceilings_squared.len().saturating_sub(1))
     }
 
+    /// The distance from the mesh origin to the farthest point of its bounding box, in metres.
+    pub(super) fn radius(&self) -> f32 {
+        self.bounds.min.abs().max(self.bounds.max.abs()).length()
+    }
+
+    /// The bounds of a placement over the vertices of every level. `reach` is how far, in the
+    /// mesh's own space, a pose can carry a vertex from its bind position.
     pub(super) fn wind_bounds(
         &self,
         transform: &SceneTransform,
         extent: Vec3,
         curved: Option<Vec3>,
         shape: [f32; 2],
+        reach: f32,
     ) -> Bounds {
         let [shaped_radius, capture_radius] = shape;
-        let mut bounds = self.world_bounds(transform);
         let model = model_matrix(transform);
         let scale = model.x_axis.truncate().length();
+        let mut bounds = self
+            .world_bounds(transform)
+            .expanded(Vec3::splat(reach * scale));
         if shaped_radius > 0.0 {
             let center = model.w_axis.truncate();
-            let extent = Vec3::splat(shaped_radius * scale * 1.000_01);
+            let extent = Vec3::splat((shaped_radius + reach) * scale * 1.000_01);
             bounds.min = bounds.min.min(center - extent);
             bounds.max = bounds.max.max(center + extent);
         }
@@ -156,12 +166,7 @@ impl MeshSelection {
         };
         // Each arc is bounded by twice its input length, including arbitrary
         // force directions. Projection and attachment together fit six radii.
-        let radius = self
-            .bounds
-            .min
-            .abs()
-            .max(self.bounds.max.abs())
-            .length()
+        let radius = (self.radius() + reach)
             .max(self.billboard_radius.unwrap_or(0.0))
             .max(shaped_radius)
             + capture_radius;
@@ -178,7 +183,7 @@ impl MeshSelection {
         impostor: [f32; 3],
         relief_stretch: f32,
     ) -> Bounds {
-        self.wind_bounds(transform, wind, curved, [impostor[0], impostor[2]])
+        self.wind_bounds(transform, wind, curved, [impostor[0], impostor[2]], 0.0)
             .expanded(Vec3::splat(
                 impostor[2] * model_matrix(transform).x_axis.truncate().length(),
             ))

@@ -282,6 +282,7 @@ impl Content for Session<'_> {
                 temporal_history_reset: renderer.temporal_history_reset(),
                 presentation_budget_bytes: renderer.presentation_budget_bytes(),
                 capture_pool_bytes: renderer.capture_pool_bytes(),
+                resident_bytes: renderer.resident_bytes(),
             });
             self.notify(&RetainedEvent::Presented { frame: self.frame })
                 .map_err(ViewerError::Driver)?;

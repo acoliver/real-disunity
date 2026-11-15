@@ -74,7 +74,7 @@ public sealed partial class Camera
 
     /// <summary>
     /// Makes this camera's settings match <paramref name="other"/>: lens, clear mode, depth, culling,
-    /// rectangle, target, custom matrices and the stored settings. Whether the camera is enabled stays as it is.
+    /// rectangle, target (texture or buffers), custom matrices and the stored settings. Whether the camera is enabled stays as it is.
     /// </summary>
     public unsafe void CopyFrom(Camera other)
     {
@@ -87,6 +87,8 @@ public sealed partial class Camera
         Write(settings);
         WriteMatrix(ProjectionKind, projection);
         WriteMatrix(WorldToCameraKind, view);
+        var buffers = WorldGraphics.ReadCameraBuffers(other.Handle);
+        WorldGraphics.WriteCameraBuffers(Handle, buffers?.Colors ?? [], buffers?.Depth ?? 0);
         _aspectOverride = other._aspectOverride;
         renderingPath = other.renderingPath;
         opaqueSortMode = other.opaqueSortMode;
@@ -109,13 +111,20 @@ public sealed partial class Camera
     /// and offers no explicit request for, so it throws <see cref="NotSupportedException"/>. While a render pipeline is being
     /// called by the host, the call renders through it instead: the pipeline's Render
     /// runs once with this camera alone and no <c>CameraRender</c> is recorded. Called from inside a pipeline's Render it
-    /// throws <see cref="InvalidOperationException"/>, the engine's choice. A destroyed camera throws.</summary>
+    /// throws <see cref="InvalidOperationException"/>, the engine's choice. A camera with <see cref="SetTargetBuffers(RenderBuffer, RenderBuffer)"/>
+    /// buffers renders only through a pipeline, because the camera's own render has one target; outside one the call throws
+    /// <see cref="NotSupportedException"/>. A destroyed camera throws.</summary>
     public void Render()
     {
         ThrowIfDestroyed();
         if (DisunityHost.TryRenderThroughPipeline(this)) return;
         if (targetTexture is not { } target)
         {
+            if (WorldGraphics.ReadCameraBuffers(Handle) is not null)
+            {
+                throw new NotSupportedException("Camera.Render with SetTargetBuffers outside a render pipeline is not supported: "
+                    + "the camera's own render has one target; render through a pipeline, or set targetTexture");
+            }
             throw new NotSupportedException("Camera.Render without a targetTexture draws to the screen, which is not supported: "
                 + "the host draws the screen from the frame's selected camera; set targetTexture to render into a texture");
         }
@@ -131,18 +140,69 @@ public sealed partial class Camera
         UndrawnCalls.Note("Camera.RenderWithShader");
     }
 
-    /// <summary>Completes without drawing until the native draw surface exists (#171): the buffers are not bound and
-    /// <see cref="targetTexture"/> is left as it is. A destroyed camera or a null buffer array throws.</summary>
+    /// <summary>The most color buffers a camera draws into, which the world and wgpu share.</summary>
+    private const int MaxColorBuffers = 8;
+
+    /// <summary>Makes the camera draw into the color buffer of <paramref name="colorBuffer"/>'s render texture and the depth
+    /// buffer of <paramref name="depthBuffer"/>'s, which may be another render texture's. It replaces
+    /// <see cref="targetTexture"/>, which reads null afterwards, and setting <see cref="targetTexture"/> replaces the buffers.
+    /// A destroyed camera throws <see cref="InvalidOperationException"/>; see the array overload for the buffers it refuses.</summary>
     public void SetTargetBuffers(RenderBuffer colorBuffer, RenderBuffer depthBuffer)
     {
         ThrowIfDestroyed();
-        UndrawnCalls.Note("Camera.SetTargetBuffers");
+        WriteTargetBuffers([colorBuffer], depthBuffer);
     }
 
+    /// <summary>Makes the camera draw into the color buffers of one to eight render textures, which a pass fills from the fragment
+    /// stage's outputs in this order, and the depth buffer of <paramref name="depthBuffer"/>'s render texture, which may be none
+    /// of theirs or none at all (<c>default</c>). The camera's pipeline then renders into them as it does into the camera
+    /// target, and a later pass reads each one as the texture it is. The engine refuses with <see cref="ArgumentException"/> a
+    /// color buffer that is not a live render texture's color surface, a depth buffer that is not a live render texture's depth
+    /// surface, none or more than eight color buffers, one render texture twice, and buffers of different sizes. A null array
+    /// throws <see cref="ArgumentNullException"/> and a destroyed camera <see cref="InvalidOperationException"/>.</summary>
     public void SetTargetBuffers(RenderBuffer[] colorBuffer, RenderBuffer depthBuffer)
     {
         ArgumentNullException.ThrowIfNull(colorBuffer);
-        SetTargetBuffers(default(RenderBuffer), depthBuffer);
+        ThrowIfDestroyed();
+        WriteTargetBuffers(colorBuffer, depthBuffer);
+    }
+
+    private void WriteTargetBuffers(RenderBuffer[] colors, RenderBuffer depth)
+    {
+        const string member = "Camera.SetTargetBuffers";
+        if (colors.Length is 0 or > MaxColorBuffers)
+            throw new ArgumentException($"{member}: {colors.Length} color buffers; a camera draws into one to eight", "colorBuffer");
+        var textures = colors.Select(buffer => BufferTexture(buffer, surface: 0, member, "colorBuffer")).ToArray();
+        var depthTexture = depth.m_RenderTextureInstanceID == 0 ? null : BufferTexture(depth, surface: 1, member, "depthBuffer");
+        for (var index = 0; index < textures.Length; index++)
+        {
+            if (textures.Take(index).Contains(textures[index]))
+                throw new ArgumentException($"{member}: color buffer {index} is a render texture that is also an earlier color buffer", "colorBuffer");
+            RequireSize(textures[0], textures[index], $"color buffer {index}", member);
+        }
+        if (depthTexture is not null) RequireSize(textures[0], depthTexture, "the depth buffer", member);
+        var all = textures.ToList();
+        if (depthTexture is not null) all.Add(depthTexture);
+        foreach (var texture in all)
+            if (!texture.IsCreated()) texture.Create();
+        WorldGraphics.WriteCameraBuffers(Handle, textures.Select(texture => texture.WorldId).ToArray(), depthTexture?.WorldId ?? 0);
+    }
+
+    /// <summary>The render texture a buffer names, if it is a live one's surface <paramref name="surface"/> (0 the color, 1 the depth).</summary>
+    private static RenderTexture BufferTexture(RenderBuffer buffer, long surface, string member, string parameter)
+    {
+        var texture = buffer.m_RenderTextureInstanceID == 0 ? null : ObjectRegistry.Find(buffer.m_RenderTextureInstanceID) as RenderTexture;
+        if (texture is null || !texture)
+            throw new ArgumentException($"{member}: the {parameter} is not a live render texture's buffer", parameter);
+        if ((buffer.m_BufferPtr.ToInt64() & 1) != surface)
+            throw new ArgumentException($"{member}: the {parameter} is a render texture's {(surface == 0 ? "depth" : "color")} buffer, not its {(surface == 0 ? "color" : "depth")} buffer", parameter);
+        return texture;
+    }
+
+    private static void RequireSize(RenderTexture first, RenderTexture other, string what, string member)
+    {
+        if (other.width != first.width || other.height != first.height)
+            throw new ArgumentException($"{member}: {what} is {other.width}x{other.height} and the first color buffer is {first.width}x{first.height}");
     }
 
     private CommandBufferSlots<CameraEvent> CommandBuffers => CommandBufferSlots<CameraEvent>.Of(this);

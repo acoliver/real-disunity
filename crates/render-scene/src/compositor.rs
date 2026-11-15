@@ -13,6 +13,9 @@ mod depth_prefix;
 pub(crate) mod depth_reuse;
 mod environment;
 pub(crate) mod forward_order;
+mod frozen;
+#[cfg(test)]
+mod frozen_tests;
 mod hdr;
 mod offscreen;
 mod output;
@@ -607,12 +610,16 @@ impl FrameRenderer {
         });
         {
             let mut combined = planned.features(features);
-            encode_planned(
+            frozen::encode_frozen_plan(
                 &mut self.chain,
                 device,
                 encoder,
-                (&schedule.passes, views),
-                head.as_slice(),
+                &worldrunner_render_post::FramePlan {
+                    passes: &schedule.passes,
+                    views,
+                    requested: &[],
+                    operations: head.as_slice(),
+                },
                 &mut combined,
             )?;
         }
@@ -709,26 +716,3 @@ mod post_tests;
 #[cfg(test)]
 #[path = "compositor_repeated_opaque_tests.rs"]
 mod repeated_opaque_tests;
-
-fn encode_planned(
-    chain: &mut PostChain<FrameOutput>,
-    device: &wgpu::Device,
-    encoder: &mut wgpu::CommandEncoder,
-    plan: (&[PassDeclaration], &[AttachmentView]),
-    operations: &[worldrunner_render_post::OperationsGroup<'_>],
-    features: &mut [BorrowedFeature<'_>],
-) -> Result<(), FrameError> {
-    #[cfg(test)]
-    plan_trace::record(false, plan.0, features, operations);
-    chain.encode_geometry(
-        device,
-        encoder,
-        &worldrunner_render_post::FramePlan {
-            passes: plan.0,
-            views: plan.1,
-            requested: &[],
-            operations,
-        },
-        features,
-    )
-}

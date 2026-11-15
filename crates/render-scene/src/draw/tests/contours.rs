@@ -6,6 +6,8 @@ use worldrunner_render_plan::{
 };
 use worldrunner_render_post::{AttachmentView, ResourceRef, ToneMap};
 
+mod capture_tests;
+
 const SIZE: [u32; 2] = [32, 24];
 
 #[derive(Clone, Copy)]
@@ -13,11 +15,12 @@ enum Shape {
     Quad,
     Cutout,
     Occluded,
+    Hidden,
 }
 
 fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
     let hole = matches!(shape, Shape::Cutout);
-    let occluder = matches!(shape, Shape::Occluded);
+    let occluder = matches!(shape, Shape::Occluded | Shape::Hidden);
     let mut styles = vec![None; 256];
     styles[255] = Some(SceneContourStyle::default());
     let mut parts = effect_parts();
@@ -50,13 +53,28 @@ fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
     .with_contour_id(id);
     let mut objects = vec![object];
     if occluder {
-        objects.push(object.with_contour_id(0).with_transform(SceneTransform {
-            position_millimeters: [250, 0, -125],
-            scale_millionths: 500_000,
-            ..identity()
-        }));
+        let hidden = matches!(shape, Shape::Hidden);
+        objects.push(SceneObject::new(
+            SceneTransform {
+                position_millimeters: if hidden { [0, 0, -125] } else { [250, 0, -125] },
+                scale_millionths: if hidden { 1_000_000 } else { 500_000 },
+                ..identity()
+            },
+            MeshHandle::from_raw(0),
+            MaterialHandle::from_raw(1),
+        ));
     }
-    let mut pixels = vec![255; 4 * 4 * 4];
+    RenderScene::new(SceneParts {
+        resources: resources(hole),
+        geometry: SceneGeometry::new(vec![mesh], objects).unwrap(),
+        terrain: None,
+        effects: Some(effects),
+    })
+    .unwrap()
+}
+
+fn resources(hole: bool) -> SceneResources {
+    let mut pixels: Vec<_> = (0..16).flat_map(|_| [255, 0, 0, 255]).collect();
     if hole {
         for y in 1..3 {
             for x in 1..3 {
@@ -76,10 +94,22 @@ fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
         filter: TextureFilter::Point,
         ..Default::default()
     });
-    RenderScene::new(SceneParts {
-        resources: SceneResources::new(
-            vec![texture],
-            vec![material(
+    let occluder = SceneMaterial::new(SceneMaterialParts {
+        albedo: TextureHandle::from_raw(1),
+        normal: None,
+        roughness_metallic: None,
+        ambient_occlusion: None,
+        self_illumination: None,
+        roughness_micro: 1_000_000,
+        metalness_micro: 0,
+        alpha_mode: SceneAlphaMode::Opaque,
+        double_sided: true,
+    })
+    .unwrap();
+    SceneResources::new(
+        vec![texture, white_texture()],
+        vec![
+            material(
                 if hole {
                     SceneAlphaMode::Mask {
                         cutoff_micro: 500_000,
@@ -88,13 +118,10 @@ fn source(id: u8, shape: Shape, prepass: bool, gbuffer: bool) -> RenderScene {
                     SceneAlphaMode::Opaque
                 },
                 true,
-            )],
-        )
-        .unwrap(),
-        geometry: SceneGeometry::new(vec![mesh], objects).unwrap(),
-        terrain: None,
-        effects: Some(effects),
-    })
+            ),
+            occluder,
+        ],
+    )
     .unwrap()
 }
 
@@ -240,7 +267,7 @@ fn gpu_contour_quad_cutout_and_occlusion_exact_masks_on_both_paths() {
     let context = context();
     for prepass in [false, true] {
         for gbuffer in [false, true] {
-            for shape in [Shape::Quad, Shape::Cutout, Shape::Occluded] {
+            for shape in [Shape::Quad, Shape::Cutout, Shape::Occluded, Shape::Hidden] {
                 let hole = matches!(shape, Shape::Cutout);
                 let occluder = matches!(shape, Shape::Occluded);
                 let source = source(255, shape, prepass, gbuffer);
@@ -256,19 +283,27 @@ fn gpu_contour_quad_cutout_and_occlusion_exact_masks_on_both_paths() {
                     }
                 );
                 assert_eq!(mask.len(), (SIZE[0] * SIZE[1]) as usize);
+                if hole {
+                    assert_eq!(mask[(12 * SIZE[0] + 16) as usize], 0, "hole centre");
+                    assert!(
+                        mask.contains(&255),
+                        "the cutout must retain visible coverage"
+                    );
+                }
                 for y in 0..SIZE[1] {
                     for x in 0..SIZE[0] {
                         let covered = (8..24).contains(&x) && (6..18).contains(&y);
-                        let cutout = hole && (12..20).contains(&x) && (9..15).contains(&y);
-                        let hidden = occluder && (16..24).contains(&x) && (9..15).contains(&y);
-                        let expected = if covered && !cutout && !hidden {
-                            255
-                        } else {
-                            0
-                        };
+                        let hidden = matches!(shape, Shape::Hidden)
+                            || (occluder && (16..24).contains(&x) && (9..15).contains(&y));
+                        let index = (y * SIZE[0] + x) as usize;
+                        let pixel = &image.color[index * 4..index * 4 + 4];
+                        let visible = pixel[0] > pixel[1] && pixel[0] > pixel[2];
+                        if !hole {
+                            assert_eq!(visible, covered && !hidden, "colour x={x} y={y}");
+                        }
                         assert_eq!(
-                            mask[(y * SIZE[0] + x) as usize],
-                            expected,
+                            mask[index],
+                            if visible { 255 } else { 0 },
                             "x={x} y={y} hole={hole} hidden={occluder} prepass={prepass} gbuffer={gbuffer}"
                         );
                     }

@@ -16,15 +16,44 @@ impl FrameRenderer {
     ) -> Result<Option<crate::draw::ContourDraw>, FrameError> {
         let (scene, pipelines) = scene;
         let count = scene.contour_member_count();
-        self.contours.validate(count, self.contour_format, plan.0)?;
+        self.provision_contours(gpu.0, count, plan.0)?;
         let draw = if count == 0 {
             None
         } else {
             Some(scene.prepare_contours(pipelines, frame)?)
         };
         self.contours
-            .schedule(gpu, (self.frame_slot, count), plan)?;
+            .schedule(gpu.1, (self.frame_slot, count), plan)?;
         Ok(draw)
+    }
+
+    fn provision_contours(
+        &mut self,
+        device: &wgpu::Device,
+        members: usize,
+        passes: &[PassDeclaration],
+    ) -> Result<Option<wgpu::Texture>, FrameError> {
+        self.contours
+            .validate(members, self.contour_format, passes)?;
+        let depth = passes
+            .iter()
+            .find(|pass| pass.slot == worldrunner_render_post::PassSlot::Opaque)
+            .and_then(|pass| pass.depth.as_ref());
+        Ok(self
+            .contours
+            .provision(device, self.frame_slot, members, depth))
+    }
+
+    pub(crate) fn capture_contour_keys(
+        &mut self,
+        device: &wgpu::Device,
+        scene: &crate::draw::SceneGpu,
+        depth: &AttachmentView,
+    ) -> Result<Vec<worldrunner_render_gpu::submission::capture::WriteKey>, FrameError> {
+        let mut opaque = PassDeclaration::new(worldrunner_render_post::PassSlot::Opaque);
+        opaque.depth = Some(super::attachment(depth.resource(), depth, true));
+        let texture = self.provision_contours(device, scene.contour_member_count(), &[opaque])?;
+        self.capture_texture_keys(&texture.iter().collect::<Vec<_>>())
     }
 
     /// Last submitted visible ID image of the selected frame slot, in `R8Uint` at the

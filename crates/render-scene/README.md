@@ -1093,13 +1093,17 @@ A table without live nonzero IDs prepares no contour pipelines and allocates no
 ID target or pass. Clearing the last ID removes the selected frame slot's target
 on successful submission; abandonment preserves its submitted target. Targets
 are isolated by admitted frame slot and replaced when their extent changes.
+Same-frame shadow depth-fitting captures provision the active slot's target before
+building the capture write contract and declare its physical allocation in the
+suffix. Suffix scheduling reuses that allocation without publishing it early.
 `RendererConfiguration::contour_ids` explicitly reserves the three-slot target
 budget and admits the format/sample combination; it defaults to false. The
 unconfigured `FrameRenderer` constructors allocate lazily when membership appears.
 Unsupported format/sample combinations fail instead of reducing MSAA.
 
 `FrameRenderer::contour_target` returns the selected slot's last submitted ID
-texture; `contour_statistics` reports its pass, target and sample counts.
+texture; `contour_statistics` describes that published target's pass, target and
+sample counts. These are snapshot values, not execution or allocation counters.
 `encode_contour_capture` records an explicit capture-only extraction into a
 single-sample R8Uint COPY_SRC texture. For sample index s, source pixel (x,y)
 appears at `(s * width + x, y)`. This reads exact unsigned IDs with textureLoad,

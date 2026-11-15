@@ -99,9 +99,43 @@ impl Targets {
         validate_format(features, depth.samples)
     }
 
+    pub(crate) fn provision(
+        &mut self,
+        device: &wgpu::Device,
+        slot: usize,
+        members: usize,
+        depth: Option<&AttachmentDeclaration>,
+    ) -> Option<wgpu::Texture> {
+        if members == 0 {
+            return None;
+        }
+        let depth = depth.expect("validated opaque depth");
+        if self.pending[slot].as_ref().is_none_or(|texture| {
+            [texture.width(), texture.height()] != depth.size
+                || texture.sample_count() != depth.samples
+        }) {
+            self.pending[slot] = Some(device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(RESOURCE.name),
+                size: wgpu::Extent3d {
+                    width: depth.size[0],
+                    height: depth.size[1],
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: depth.samples,
+                dimension: wgpu::TextureDimension::D2,
+                format: FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            }));
+        }
+        self.pending[slot].clone()
+    }
+
     pub(crate) fn schedule(
         &mut self,
-        gpu: (&wgpu::Device, &wgpu::CommandEncoder),
+        encoder: &wgpu::CommandEncoder,
         input: (usize, usize),
         plan: (
             &mut Vec<PassDeclaration>,
@@ -109,7 +143,6 @@ impl Targets {
             &mut FeatureDeclaration,
         ),
     ) -> Result<(), FrameError> {
-        let (device, encoder) = gpu;
         let (slot, members) = input;
         let (passes, views, declaration) = plan;
         let owner = worldrunner_render_gpu::submission::Publications::for_encoder(encoder)?;
@@ -123,26 +156,6 @@ impl Targets {
                     .find(|pass| pass.slot == PassSlot::Opaque)
                     .and_then(|pass| pass.depth.as_ref())
                     .expect("validated opaque depth");
-                if self.pending[slot].as_ref().is_none_or(|texture| {
-                    [texture.width(), texture.height()] != depth.size
-                        || texture.sample_count() != depth.samples
-                }) {
-                    self.pending[slot] = Some(device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some(RESOURCE.name),
-                        size: wgpu::Extent3d {
-                            width: depth.size[0],
-                            height: depth.size[1],
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: depth.samples,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: FORMAT,
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                            | wgpu::TextureUsages::TEXTURE_BINDING,
-                        view_formats: &[],
-                    }));
-                }
                 let texture = self.pending[slot].as_ref().expect("active contour target");
                 views.push(AttachmentView::new(RESOURCE, texture)?);
                 let pass = pass(depth);
@@ -279,6 +292,80 @@ mod tests {
                 depth.samples
             );
         }
+    }
+
+    #[test]
+    fn gpu_contour_provisioning_reuses_slots_and_defers_publication() {
+        let _session = crate::test_support::SceneTestSession::acquire();
+        let context = crate::device::GpuContext::shared_for_test().unwrap();
+        let device = context.device();
+        let mut targets = Targets::default();
+        assert!(targets.provision(device, 2, 0, None).is_none());
+        assert!(targets.pending.iter().all(Option::is_none));
+        assert!(targets.published.borrow().iter().all(Option::is_none));
+        assert!(targets.encoded.is_none());
+        let mut depth = AttachmentDeclaration {
+            resource: ResourceRef::new("scene depth"),
+            format: wgpu::TextureFormat::Depth32Float,
+            size: [32, 24],
+            samples: 1,
+            load: AttachmentLoad::ClearDepth(1.0),
+            store: wgpu::StoreOp::Store,
+            read_only: false,
+        };
+        let first = targets.provision(device, 1, 1, Some(&depth)).unwrap();
+        assert_eq!(
+            targets.provision(device, 1, 1, Some(&depth)),
+            Some(first.clone())
+        );
+        assert!(targets.target(1).is_none());
+        assert!(targets.encoded.is_none());
+        let other = targets.provision(device, 0, 1, Some(&depth)).unwrap();
+        assert_ne!(first, other);
+        let mut opaque = PassDeclaration::new(PassSlot::Opaque);
+        opaque.depth = Some(depth.clone());
+        let mut passes = vec![opaque];
+        let mut views = Vec::new();
+        let mut declaration = FeatureDeclaration::new(PassSlot::Opaque);
+        let encoder = context.submission().begin(device).unwrap();
+        targets
+            .schedule(
+                &encoder,
+                (1, 1),
+                (&mut passes, &mut views, &mut declaration),
+            )
+            .unwrap();
+        assert_eq!(views[0].texture(), &first);
+        assert!(targets.target(1).is_none());
+        drop(encoder);
+        assert!(targets.target(1).is_none());
+        let encoder = context.submission().begin(device).unwrap();
+        targets
+            .schedule(
+                &encoder,
+                (1, 1),
+                (&mut passes, &mut views, &mut declaration),
+            )
+            .unwrap();
+        encoder.finish().submit().unwrap();
+        assert_eq!(targets.target(1), Some(first.clone()));
+        depth.size = [48, 36];
+        let resized = targets.provision(device, 1, 1, Some(&depth)).unwrap();
+        assert_ne!(resized, first);
+        assert_eq!([resized.width(), resized.height()], depth.size);
+        passes[0].depth = Some(depth);
+        let encoder = context.submission().begin(device).unwrap();
+        targets
+            .schedule(
+                &encoder,
+                (1, 1),
+                (&mut passes, &mut views, &mut declaration),
+            )
+            .unwrap();
+        drop(encoder);
+        assert_eq!(targets.target(1), Some(first));
+        assert!(targets.target(0).is_none());
+        assert!(targets.target(2).is_none());
     }
 
     #[test]

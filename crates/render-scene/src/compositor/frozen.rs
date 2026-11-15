@@ -44,5 +44,5 @@ pub(super) fn encode_frozen_plan(
 ) -> Result<(), FrameError> {
     #[cfg(test)]
     plan_trace::record(false, plan.passes, features, plan.operations);
-    chain.encode_geometry(device, encoder, plan, features)
+    chain.encode_frozen(device, encoder, plan, features)
 }

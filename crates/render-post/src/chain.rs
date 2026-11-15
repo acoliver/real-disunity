@@ -1,3 +1,4 @@
+mod frozen;
 #[path = "geometry_prefix.rs"]
 mod geometry_prefix;
 
@@ -595,22 +596,32 @@ impl<F: StageFactory> PostChain<F> {
         plan: &crate::FramePlan<'_>,
         borrowed: &mut [crate::BorrowedFeature<'_>],
     ) -> Result<(), crate::FrameError> {
+        let declarations = self.declarations(borrowed);
+        crate::frame::validate_plan(
+            plan.passes,
+            &declarations,
+            plan.requested,
+            plan.views,
+            plan.operations,
+        )?;
+        self.encode_validated(device, encoder, plan, borrowed, &declarations)
+    }
+
+    /// Encodes a plan that has passed validation.
+    fn encode_validated(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &crate::FramePlan<'_>,
+        borrowed: &mut [crate::BorrowedFeature<'_>],
+        declarations: &[crate::FeatureDeclaration],
+    ) -> Result<(), crate::FrameError> {
         let crate::FramePlan {
             passes,
             views,
-            requested,
             operations,
+            ..
         } = *plan;
-        let declarations: Vec<_> = borrowed
-            .iter()
-            .map(|feature| feature.declaration.clone())
-            .chain(
-                self.features
-                    .iter()
-                    .map(|feature| feature.declaration.clone()),
-            )
-            .collect();
-        crate::frame::validate_plan(passes, &declarations, requested, views, operations)?;
         let completed = self.completed_geometry_prefix(encoder, plan)?;
         let mut local_registry = crate::contracts::ResourceRegistry::default();
         let registry = self
@@ -618,7 +629,7 @@ impl<F: StageFactory> PostChain<F> {
             .as_mut()
             .unwrap_or(&mut local_registry);
         let raster =
-            crate::contracts::stock::compile(device, passes, views, &declarations, registry)?;
+            crate::contracts::stock::compile(device, passes, views, declarations, registry)?;
         self.prepare_features(device, encoder, borrowed, views, &completed)?;
         let timing = self.timing_state();
         let mut groups = crate::frame::OperationsSchedule::new(passes, operations);

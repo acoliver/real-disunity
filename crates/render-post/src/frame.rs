@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod frozen;
 mod operations;
+pub(crate) use frozen::validate_stock_order;
 pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
 pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
 
@@ -227,6 +229,15 @@ pub enum FrameError {
     UnsupportedEffect(&'static str),
     #[error("attachment view does not match its declared subresource: {0:?}")]
     AttachmentView(ResourceRef),
+    /// A frozen plan lists a pass before one that the stock passes need it to follow.
+    #[error("pass {pass} is listed before {needs}, which the stock passes need it to follow")]
+    StockOrder { pass: PassEntry, needs: PassEntry },
+    /// A pass reads the depth that Opaque draws with before a prepass or Opaque has written it.
+    #[error("pass {pass} reads {resource:?} before the opaque depth is complete")]
+    IncompleteDepth {
+        pass: PassEntry,
+        resource: ResourceRef,
+    },
     /// A geometry pass attaches a texture that operations groups write.
     #[error("pass {pass} attaches {resource:?}, which operations write; passes may only read it")]
     OffscreenWrite {

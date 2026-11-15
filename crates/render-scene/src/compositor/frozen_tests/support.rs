@@ -4,12 +4,13 @@ use crate::device::GpuContext;
 use std::{cell::Cell, cell::RefCell, rc::Rc};
 use worldrunner_render_gpu::submission::PrepareError;
 use worldrunner_render_post::{
-    AttachmentView, BorrowedFeature, DrawContext, FeatureDeclaration, FeaturePass, FrameError,
-    FramePlan, PassDeclaration, PassEntry, PassSlot, PrepareContext, PreparedFeature, ResourceRef,
-    ToneMap, color_texture,
+    AttachmentDeclaration, AttachmentView, BorrowedFeature, DrawContext, FeatureDeclaration,
+    FeaturePass, FrameError, FramePlan, PassDeclaration, PassEntry, PassSlot, PrepareContext,
+    PreparedFeature, ResourceRef, ToneMap, color_texture,
 };
 
 pub(super) const SIZE: u32 = 16;
+pub(super) const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 pub(super) const OUTPUT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 /// Counts its preparations and records the entry of every pass it is asked to draw in.
@@ -63,7 +64,20 @@ impl Rig {
         }
     }
 
-    fn view(&mut self, name: &'static str, format: wgpu::TextureFormat) -> AttachmentView {
+    pub(super) fn device(&self) -> &wgpu::Device {
+        self.context.device()
+    }
+
+    /// The format of the renderer's scene colour.
+    pub(super) fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    pub(super) fn view(
+        &mut self,
+        name: &'static str,
+        format: wgpu::TextureFormat,
+    ) -> AttachmentView {
         let texture = color_texture(self.context.device(), name, [SIZE, SIZE], format);
         let view = AttachmentView::new(ResourceRef::new(name), &texture).unwrap();
         self.textures.push(texture);
@@ -76,6 +90,12 @@ impl Rig {
         let mut pass = PassDeclaration::new(PassSlot::Opaque);
         pass.color = Some(attachment(view.resource(), &view, false));
         (pass, view)
+    }
+
+    /// A depth target in [`DEPTH`] and the attachment that clears it.
+    pub(super) fn depth(&mut self, name: &'static str) -> (AttachmentDeclaration, AttachmentView) {
+        let view = self.view(name, DEPTH);
+        (attachment(view.resource(), &view, true), view)
     }
 
     /// Encodes `plan` through the frozen entry in one transaction and submits it.

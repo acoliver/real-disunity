@@ -293,6 +293,7 @@ fn admit_scene_draw(fixture: &mut Fixture, player: &mut Player, recording: &wgpu
         depth_write: true,
         color_write: wgpu::ColorWrites::ALL,
         blend: None,
+        stencil: None,
     };
     let packet = DrawPacket {
         program: &player.patch,

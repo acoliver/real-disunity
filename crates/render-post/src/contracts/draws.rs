@@ -13,6 +13,7 @@ pub struct CheckedDraw {
     geometry: super::DrawGeometry,
     vertex_abi: Vec<super::geometry::VertexAbi>,
     primitive: wgpu::PrimitiveState,
+    stencil_reference: Option<u32>,
 }
 impl CheckedDraw {
     /// Retains the actual creation contract, rather than accepting caller-reported metadata.
@@ -75,7 +76,19 @@ impl CheckedDraw {
             geometry,
             vertex_abi,
             primitive: descriptor.primitive,
+            stencil_reference: None,
         })
+    }
+    /// The stencil reference the draw sets on the pass before it draws. The pipeline's stencil
+    /// test and `Replace` operations read it; a draw that sets none leaves the pass's reference,
+    /// which is 0 until one is set. The reference is the draw's and not the pipeline's, so draws
+    /// of one pipeline may each carry another.
+    #[must_use]
+    pub fn with_stencil_reference(self, reference: u32) -> Self {
+        Self {
+            stencil_reference: Some(reference),
+            ..self
+        }
     }
     /// Another draw of this pipeline with other bindings and geometry.
     ///
@@ -149,6 +162,9 @@ impl CheckedDraw {
     }
     pub(super) fn encode(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.pipeline);
+        if let Some(reference) = self.stencil_reference {
+            pass.set_stencil_reference(reference);
+        }
         for (index, binding) in self.bindings.iter().enumerate() {
             pass.set_bind_group(
                 u32::try_from(index).expect("bounded binding count"),

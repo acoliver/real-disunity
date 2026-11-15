@@ -72,6 +72,9 @@ pub struct Report {
     /// The camera draws that read a constant for a vertex channel their mesh lacks, by
     /// `channel C for input I as FORMAT`. These draws are recorded; they are not failures.
     pub defaulted_channels: BTreeMap<String, usize>,
+    /// The camera draws that read the grey default for a texture property no layer set and the
+    /// shader does not declare, by the property. These draws are recorded; they are not failures.
+    pub undeclared_defaults: BTreeMap<String, usize>,
     /// The texture properties that named no texture the frame can read, by `name: reason`.
     pub unresolved_textures: BTreeMap<String, usize>,
     /// Where building the frame spent its time.
@@ -169,6 +172,9 @@ impl Report {
         }
         for entry in operations.missing_texture_draws() {
             *self.missing_textures.entry(entry.texture).or_default() += entry.draws;
+        }
+        for entry in operations.undeclared_default_draws() {
+            *self.undeclared_defaults.entry(entry.texture).or_default() += entry.draws;
         }
         for entry in operations.missing_channel_draws() {
             let name = format!("channel {} for input {}", entry.channel, entry.input);
@@ -285,6 +291,9 @@ impl Report {
         }
         for (name, count) in other.defaulted_channels {
             *self.defaulted_channels.entry(name).or_default() += count;
+        }
+        for (name, count) in other.undeclared_defaults {
+            *self.undeclared_defaults.entry(name).or_default() += count;
         }
     }
 }

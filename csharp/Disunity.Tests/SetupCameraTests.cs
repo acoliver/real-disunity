@@ -13,6 +13,8 @@ internal static class SetupCameraTests
         {
             SetupRecordsTheCameraAsItIsNow();
             Console.WriteLine("PASS: SetupCameraProperties queues the camera's view, projection and target as they are when it is called");
+            SetupRecordsTheCameraBuffers();
+            Console.WriteLine("PASS: SetupCameraProperties records the camera target and the color and depth buffers the camera had when it was called");
             SetupFollowsTheCommandsAroundIt();
             Console.WriteLine("PASS: a camera setup is sent at Submit in order with the command buffers executed before and after it");
             SetupRefusesWhatItCannotRecord();
@@ -53,15 +55,40 @@ internal static class SetupCameraTests
         context.Submit();
         var taken = CommandWireReader.Take();
         Expect.Equal(1, taken.Length, "one setup record");
-        var expected = $"view={Matrix(view)} projection={Matrix(camera.projectionMatrix)} target=Camera";
+        var expected = $"view={Matrix(view)} projection={Matrix(camera.projectionMatrix)} target=Camera buffers=-";
         Expect.That(taken[0].EndsWith(expected, StringComparison.Ordinal) || taken[0].Contains("view=" + Matrix(view)), $"the camera as it was when called: {taken[0]}");
-        Expect.That(taken[0].Contains("projection=" + Matrix(camera.projectionMatrix)) && taken[0].EndsWith("target=Camera", StringComparison.Ordinal), $"projection and screen target: {taken[0]}");
+        Expect.That(taken[0].Contains("projection=" + Matrix(camera.projectionMatrix)) && taken[0].EndsWith("target=Camera buffers=-", StringComparison.Ordinal), $"projection and screen target: {taken[0]}");
         var target = new RenderTexture(16, 16, 0);
         camera.targetTexture = target;
         context.SetupCameraProperties(camera, false);
         context.Submit();
         var withTexture = CommandWireReader.Take();
-        Expect.That(withTexture[0].EndsWith($"target=Render:{target.WorldId}", StringComparison.Ordinal), $"a target texture is the target: {withTexture[0]}");
+        Expect.That(withTexture[0].EndsWith($"target=Render:{target.WorldId} buffers=-", StringComparison.Ordinal), $"a target texture is the target: {withTexture[0]}");
+    }
+
+    private static void SetupRecordsTheCameraBuffers()
+    {
+        var camera = NewCamera();
+        var colors = new[] { new RenderTexture(16, 16, 0), new RenderTexture(16, 16, 0), new RenderTexture(16, 16, 0) };
+        var depth = new RenderTexture(16, 16, 24);
+        camera.SetTargetBuffers(colors.Select(color => color.colorBuffer).ToArray(), depth.depthBuffer);
+        var context = default(ScriptableRenderContext);
+        CommandWireReader.Take();
+        context.SetupCameraProperties(camera);
+        // A change after the call, to the buffers or the target, is not in the record.
+        camera.targetTexture = new RenderTexture(16, 16, 0);
+        context.Submit();
+        var taken = CommandWireReader.Take();
+        Expect.Equal(1, taken.Length, "one setup record");
+        var ids = string.Join(",", colors.Select(color => color.WorldId));
+        Expect.That(taken[0].EndsWith($"target=Camera buffers=[{ids}]/{depth.WorldId}", StringComparison.Ordinal),
+            $"the camera target with the three colors in order and the depth: {taken[0]}");
+        camera.SetTargetBuffers(colors[0].colorBuffer, default);
+        context.SetupCameraProperties(camera);
+        context.Submit();
+        var alone = CommandWireReader.Take();
+        Expect.That(alone[0].EndsWith($"target=Camera buffers=[{colors[0].WorldId}]/-", StringComparison.Ordinal),
+            $"one color and no depth texture: {alone[0]}");
     }
 
     private static void SetupFollowsTheCommandsAroundIt()

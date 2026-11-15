@@ -12,7 +12,7 @@ use wgpu::{
     ShaderStages, StorageTextureAccess, TextureDimension, TextureFormat, TextureViewDimension,
 };
 use worldrunner_render_gpu::configuration::AllocationBudget;
-use worldrunner_render_gpu::device::{DeviceRequirements, headless_instance, request_device};
+use worldrunner_render_gpu::device::{DeviceRequirements, request_device};
 use worldrunner_render_gpu::submission::SubmissionAuthority;
 use worldrunner_render_program::binding::{
     BindingAddress, BindingSource, ResourceBinding, ResourceKind, ResourceLayout,
@@ -149,7 +149,7 @@ struct Gpu {
 
 impl Gpu {
     fn new() -> Self {
-        let instance = headless_instance();
+        let instance = worldrunner_render_gpu::test_support::test_instance();
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .expect("the storage image tests need a GPU adapter");

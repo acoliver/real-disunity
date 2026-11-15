@@ -15,6 +15,7 @@ mod layers;
 mod lifetime;
 mod lists;
 mod mips;
+mod multiple_targets;
 mod procedural;
 mod resample;
 mod resolve;

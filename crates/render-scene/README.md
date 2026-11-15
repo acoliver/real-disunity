@@ -985,6 +985,14 @@ counts for a prepared scene. Callers invoke it explicitly; it is independent of
 material-family classification, enforces the 16-bit material-ID capacity of 65,536
 records, and refuses sample counts other than one with a typed error.
 
+## Composing with the stock scene
+
+A caller outside the crate can draw its own passes around the stock scene and read what the stock scene produced. `compositor::prepare_stock_scene` takes the inputs `encode_scene` takes and returns a `StockSceneFeature`, an opaque `PreparedFeature` with `declaration()`, `plan()` and `frame()`. The caller clones the plan's passes and views, appends its own, borrows the feature mutably in a `BorrowedFeature` beside its own features and calls `FrameRenderer::encode_frame` with `frame()`. `encode_scene` is that path with no additions. The feature owns the pipelines it selected and holds the scene exclusively until it is dropped, but holds no borrow of the renderer.
+
+A frame with screen-space metadata can also split off its depth and normal prepass. `FrameRenderer::stock_depth_prefix` returns a `StockDepthPrefix` and refuses a renderer that has no metadata. `plan()` lists exactly the entries the prefix completes, `PassEntry::new(PassSlot::DepthNormalPrepass)` and `PassEntry::new(PassSlot::DepthPyramid(0))`, with their views. `encode` runs the prefix and appends the caller's own passes, views and features to it before the whole list is validated. A caller feature in a later entry reads the original device depth by declaring the prepass depth attachment of that plan, and reads the lit colour by declaring `scene color`; `PrepareContext::resource` gives it the views and `PrepareContext::completed_in_prefix` tells it which entries the prefix completed. `FeatureTarget::Depth` holds linear metres and is a different resource from the device depth.
+
+`FrameRenderer::capture_texture_keys` and `capture_effect_keys` give the write keys a capture needs when the prefix is submitted alone and the suffix prepared afterwards. A role stays a label: a read of an earlier resource must be declared and is checked like any other.
+
 ## Native-resolution RCAS
 
 `RendererConfiguration::post.native_rcas` selects an optional native RCAS pass.

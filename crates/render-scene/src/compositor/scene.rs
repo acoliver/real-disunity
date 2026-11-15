@@ -165,7 +165,8 @@ pub fn encode_scene(
     let writes_velocity = renderer.draws_velocity(pipelines);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
-    let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    let (programs, offscreen) =
+        encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
@@ -208,14 +209,17 @@ pub fn encode_scene(
         pipelines,
         frame,
     };
-    renderer.encode_frame(
+    renderer.encode_frame_with(
         device,
         encoder,
         (&passes, &views),
+        offscreen
+            .as_ref()
+            .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut feature,
         }],
-        (frame, None),
+        &(frame, None),
     )
 }

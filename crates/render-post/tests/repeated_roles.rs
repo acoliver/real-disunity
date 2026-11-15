@@ -161,6 +161,7 @@ fn passes_run_in_authored_order_and_a_role_can_run_twice() {
                 passes: &passes,
                 views: &views,
                 requested: &[],
+                operations: &[],
             },
             &mut features,
         )
@@ -234,6 +235,7 @@ fn a_repeated_entry_is_refused_before_any_feature_prepares_or_draws() {
                 passes: &passes,
                 views: &views,
                 requested: &[],
+                operations: &[],
             },
             &mut [BorrowedFeature {
                 declaration: Fill::declaration(entry),
@@ -288,6 +290,7 @@ fn a_prefix_that_encoded_one_entry_of_a_role_does_not_skip_the_next_entry_of_tha
                 passes: &passes[..1],
                 views: &views[..1],
                 requested: &[],
+                operations: &[],
             },
             &mut [BorrowedFeature {
                 declaration: Fill::declaration(first),
@@ -303,6 +306,7 @@ fn a_prefix_that_encoded_one_entry_of_a_role_does_not_skip_the_next_entry_of_tha
                 passes: &passes,
                 views: &views,
                 requested: &[],
+                operations: &[],
             },
             &mut [
                 BorrowedFeature {
@@ -387,6 +391,7 @@ fn a_feature_declared_in_two_entries_of_one_role_tells_them_apart() {
                 passes: &passes,
                 views: &views,
                 requested: &[],
+                operations: &[],
             },
             &mut [BorrowedFeature {
                 declaration,

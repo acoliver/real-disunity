@@ -72,6 +72,7 @@ impl FrameRenderer {
                 passes: &passes,
                 views: &views,
                 requested: &[],
+                operations: &[],
             },
             &mut [
                 BorrowedFeature {

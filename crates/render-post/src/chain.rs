@@ -589,6 +589,7 @@ impl<F: StageFactory> PostChain<F> {
             passes,
             views,
             requested,
+            operations,
         } = *plan;
         let declarations: Vec<_> = borrowed
             .iter()
@@ -601,6 +602,7 @@ impl<F: StageFactory> PostChain<F> {
             .collect();
         crate::frame::validate_frame_inputs(passes, &declarations, requested, views)?;
         crate::frame::validate_views(passes, views)?;
+        crate::frame::validate_operations(passes, operations)?;
         let completed = self.completed_geometry_prefix(encoder, plan)?;
         let mut local_registry = crate::contracts::ResourceRegistry::default();
         let registry = self
@@ -610,11 +612,14 @@ impl<F: StageFactory> PostChain<F> {
         let raster =
             crate::contracts::stock::compile(device, passes, views, &declarations, registry)?;
         self.prepare_features(device, encoder, borrowed, views, &completed)?;
+        let timing = self.timing_state();
+        let mut groups = crate::frame::OperationsSchedule::new(passes, operations);
         for (index, declaration) in passes.iter().enumerate() {
             let entry = declaration.entry();
             if completed.contains(&entry) {
                 continue;
             }
+            groups.encode_before(index, &timing, encoder)?;
             let context = crate::DrawContext::new(entry);
             let stamp = self.stamp(crate::PassId::Geometry(entry));
             raster.encode_stock_pass(index, entry, encoder, stamp.as_ref(), |pass| {
@@ -642,6 +647,7 @@ impl<F: StageFactory> PostChain<F> {
                 }
             })?;
         }
+        groups.encode_rest(&timing, encoder)?;
         self.finish_feature_draws(device, encoder, borrowed)
     }
 

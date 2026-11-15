@@ -235,25 +235,29 @@ fn raw_draw(
             })
             .create_view(&TextureViewDescriptor::default())
     });
-    let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        color_attachments: &[Some(RenderPassColorAttachment {
-            view: &views[0],
-            depth_slice: None,
-            resolve_target: None,
-            ops: Operations {
-                load: LoadOp::Clear(Color::BLACK),
-                store: StoreOp::Store,
-            },
-        })],
-        depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-            view: &views[1],
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(1.0),
-                store: StoreOp::Store,
+    let pass = worldrunner_render_gpu::submission::RecordingRenderPass::begin(
+        encoder,
+        &RenderPassDescriptor {
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: &views[0],
+                depth_slice: None,
+                resolve_target: None,
+                ops: Operations {
+                    load: LoadOp::Clear(Color::BLACK),
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
+                view: &views[1],
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(1.0),
+                    store: StoreOp::Store,
+                }),
+                stencil_ops: None,
             }),
-            stencil_ops: None,
-        }),
-        ..Default::default()
-    });
-    gpu.draw(&mut pass, pipelines);
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    gpu.draw(pass, pipelines).unwrap();
 }

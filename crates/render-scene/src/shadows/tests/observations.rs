@@ -194,6 +194,9 @@ fn skipped_frame(context: &GpuContext, resident: &mut ShadowedScene, frame: &mut
         pipelines: &pipelines,
         screen: None,
         programs: None,
+        deferred: None,
+        renders: false,
+        opaque_drawn: std::cell::Cell::new(false),
     };
     let mut encoder = context.submission().begin(context.device()).unwrap();
     FrameRenderer::new(context.device())

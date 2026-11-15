@@ -11,6 +11,7 @@ fn geometry_encoder_labels_match_timing_identities() {
         Celestial,
         OpaqueGbuffer,
         Opaque,
+        OpaqueLighting,
         AfterOpaqueSnapshot,
         AfterOpaqueDepth,
         TransparentWater,

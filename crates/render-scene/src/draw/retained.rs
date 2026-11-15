@@ -243,8 +243,8 @@ impl SceneGpu {
     }
 
     /// Discards per-instance motion, for the first frame after a camera cut.
-    /// The next submitted upload initializes previous transforms from the current placements.
-    /// Abandoning its preparation leaves the reset pending.
+    /// The next visible frame initializes previous transforms from the current placements.
+    /// Upload-only submissions and abandoned colour draws leave the reset pending.
     pub fn reset_velocity_history(&mut self) {
         for batch in self.instances.batches.values_mut() {
             batch.reset_velocity_history();
@@ -265,9 +265,13 @@ impl SceneGpu {
         let mut writes = Vec::new();
         let track = self.instances.track_previous;
         let census = &self.instances.census;
+        let mut candidates = self.instance_history.borrow_mut();
+        candidates.clear();
         for (&(_, mesh, material), batch) in &mut self.instances.batches {
-            for instances in crate::instances::batch::flush_prepared(batch, context, census, track)
-            {
+            let (ranges, candidate) =
+                crate::instances::batch::flush_prepared(batch, context, census, track);
+            candidates.extend(candidate);
+            for instances in ranges {
                 writes.push(InstanceWrite {
                     mesh,
                     material,
@@ -280,6 +284,38 @@ impl SceneGpu {
 }
 
 impl SceneGpu {
+    /// CPU-only last-colour state. Capture prefixes and resource uploads never own this key.
+    pub(crate) fn instance_history_key(
+        &self,
+    ) -> worldrunner_render_gpu::submission::capture::WriteKey {
+        crate::compositor::publication::key(&self.instance_history)
+    }
+
+    pub(super) fn publish_instance_history(
+        &self,
+        context: &worldrunner_render_post::PrepareContext<'_>,
+    ) {
+        // Capture records a write violation and refuses the prepared frame before enqueue.
+        let _ = self.stage_instance_history(&context.publications());
+    }
+
+    pub(super) fn stage_instance_history(
+        &self,
+        owner: &worldrunner_render_gpu::submission::Publications,
+    ) -> Result<(), worldrunner_render_gpu::submission::capture::WriteError> {
+        let candidates = self.instance_history.borrow().clone();
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        owner
+            .clone()
+            .stage_write(self.instance_history_key(), move || {
+                for candidate in candidates {
+                    candidate.publish();
+                }
+            })
+    }
+
     #[cfg(test)]
     pub(crate) fn current_frame(&self) -> Option<crate::frame::FrameUniform> {
         self.frame.get()

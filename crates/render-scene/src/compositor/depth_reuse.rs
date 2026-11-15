@@ -43,7 +43,12 @@ pub(crate) fn mode(samples: u32, paired: bool, relief: bool) -> DepthMode {
 
 impl FrameRenderer {
     pub(crate) fn share_metadata_depth(&mut self, device: &wgpu::Device) {
-        if self.targets().scene_depth() == SceneDepth::Ownership {
+        if self.targets().scene_depth() == SceneDepth::Ownership
+            || self
+                .gbuffer
+                .as_ref()
+                .is_some_and(crate::gbuffer::Gbuffer::renders)
+        {
             let depth = self.targets().depth().texture().clone();
             if let Some(screen) = &mut self.ssao {
                 screen.share_depth(device, &depth);
@@ -52,6 +57,14 @@ impl FrameRenderer {
     }
 
     pub(crate) fn prepare_metadata_depth(&mut self, device: &wgpu::Device, gpu: &SceneGpu) {
+        if self
+            .gbuffer
+            .as_ref()
+            .is_some_and(crate::gbuffer::Gbuffer::renders)
+        {
+            self.share_metadata_depth(device);
+            return;
+        }
         if self.targets().scene_depth() != SceneDepth::Ownership {
             return;
         }
@@ -85,6 +98,13 @@ impl FrameRenderer {
             .as_ref()
             .is_some_and(|screen| screen.depth == *depth.texture());
         if paired {
+            if self
+                .gbuffer
+                .as_ref()
+                .is_some_and(crate::gbuffer::Gbuffer::renders)
+            {
+                return DepthMode::Reuse;
+            }
             let local_receivers = self
                 .ssao
                 .as_ref()
@@ -125,6 +145,7 @@ impl FrameRenderer {
             crate::scene_metadata::SceneMetadata::new(device, config.size, screen.settings).unwrap()
         });
         self.install_reflections(device).unwrap();
+        self.install_gbuffer_producer(device);
         if self.water.is_some() {
             self.chain
                 .register(

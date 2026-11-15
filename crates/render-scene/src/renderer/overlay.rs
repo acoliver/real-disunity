@@ -1,3 +1,5 @@
+use crate::shader::rewrite::ShaderRewrite;
+
 pub(crate) fn build(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -117,7 +119,9 @@ pub(crate) fn depth_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 
 pub(crate) fn source(depth: bool) -> String {
     let source = include_str!("../shader/overlay.wgsl")
-        .replace(
+        .anchored(
+            "renderer::overlay::source",
+            1,
             "UI_DEPTH_BINDINGS",
             if depth {
                 include_str!("../shader/overlay_depth.wgsl")
@@ -125,7 +129,9 @@ pub(crate) fn source(depth: bool) -> String {
                 ""
             },
         )
-        .replace(
+        .anchored(
+            "renderer::overlay::source",
+            1,
             "UI_DEPTH_TEST",
             if depth { "test_ui_depth(input);" } else { "" },
         );

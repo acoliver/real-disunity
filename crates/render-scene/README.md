@@ -1140,6 +1140,11 @@ instances with TAA and SSR. Its caller-preparation refusal submits nothing, pres
 completed raw and resolved colour, metadata, statistics and temporal state, and compares
 retry and settling products with an uninterrupted control.
 
+[The same-frame capture fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/retained_retry.rs)
+covers program-admission and caller-preparation refusal after a physical prefix. It
+checks one submission on refusal and two on success before reading products, preserves
+completed statistics and temporal state, and compares retry and settling with a control.
+
 The ordered producer outputs are G0-G3, optional `Rg16Float` velocity,
 `Rgba16Float` canonical normals, and optional `Rgba16Float` SSR material. Their
 aligned attachment charge is 34, 38, 42 or 46 bytes with five to seven attachments.

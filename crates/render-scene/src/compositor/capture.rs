@@ -27,6 +27,10 @@ pub enum FeatureTarget {
     /// Water-facing trace confidence in alpha of `Rgba16Float`, at trace resolution.
     /// Available only when the water-facing bank is enabled.
     SsrConfidenceWater,
+    /// One of the four deferred G-buffer targets at the scene extent, in its own format.
+    /// Available only with `SceneOpaquePath::GBUFFER_OBSERVATION`; it holds what the
+    /// `OpaqueGbuffer` slot wrote in the last encoded frame, zero where nothing drew.
+    Gbuffer(crate::gbuffer::GbufferTarget),
 }
 
 /// Logical capture rectangle and sample-lane layout in an existing allocation.
@@ -75,6 +79,9 @@ impl FrameRenderer {
                             == worldrunner_render_plan::SceneSsrHitFacing::AnyForWaterReceivers
                 })
                 .map(crate::ssr::Ssr::confidence_target),
+            FeatureTarget::Gbuffer(target) => {
+                self.gbuffer.as_ref().map(|gbuffer| gbuffer.texture(target))
+            }
         }
     }
 

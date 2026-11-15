@@ -1,9 +1,11 @@
-//! CPU-only admission query for the opaque material experiment contract.
+//! Opaque-path admission: the renderer's admission of the selected path, and the CPU-only
+//! census query for the opaque material experiment contract.
 use super::RendererConfiguration;
 use std::collections::BTreeSet;
 
 use thiserror::Error;
-use worldrunner_render_plan::{SceneAlphaMode, SceneOpaqueStorage};
+use worldrunner_render_plan::{SceneAlphaMode, SceneOpaquePath, SceneOpaqueStorage};
+use worldrunner_render_post::{FrameConfig, FrameError, PostError};
 
 use crate::draw::PreparedScene;
 
@@ -96,12 +98,7 @@ fn admission_report(
     );
     let compact = layout(
         SceneOpaqueStorage::Compact,
-        [
-            wgpu::TextureFormat::Rgb10a2Unorm,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            wgpu::TextureFormat::Rgba8Unorm,
-            compact_id.texture_format(),
-        ],
+        crate::gbuffer::GBUFFER_FORMATS,
         compact_id,
         limits,
         record_count,
@@ -120,6 +117,37 @@ impl RendererConfiguration {
         limits: &wgpu::Limits,
     ) -> Result<OpaqueAdmissionReport, OpaqueAdmissionError> {
         admission_report(prepared, limits, self.frame.samples)
+    }
+}
+
+/// Admits the selected opaque path for `config` and allocates what it needs: nothing for
+/// Forward, the four G-buffer targets for the G-buffer observation. The G-buffer is
+/// single-sample, so a multisampled frame is refused with the admission's sample error.
+pub(crate) fn allocate_path(
+    device: &wgpu::Device,
+    path: SceneOpaquePath,
+    config: FrameConfig,
+) -> Result<Option<crate::gbuffer::Gbuffer>, PostError> {
+    admit_path(path, config.samples)
+        .map(|gbuffer| gbuffer.then(|| crate::gbuffer::Gbuffer::new(device, config.size)))
+}
+
+/// Whether `path` allocates the G-buffer, refusing paths this renderer cannot draw.
+pub(crate) fn admit_path(path: SceneOpaquePath, samples: u32) -> Result<bool, PostError> {
+    match path {
+        SceneOpaquePath::Forward => Ok(false),
+        SceneOpaquePath::GBUFFER_OBSERVATION => {
+            validate_samples(samples).map_err(|error| {
+                PostError::Frame(FrameError::FeaturePreparation {
+                    feature: "opaque G-buffer",
+                    reason: error.to_string(),
+                })
+            })?;
+            Ok(true)
+        }
+        SceneOpaquePath::Experiment(_) => {
+            Err(PostError::UnsupportedProfile("opaque path experiment"))
+        }
     }
 }
 

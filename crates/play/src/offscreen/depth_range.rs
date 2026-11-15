@@ -15,7 +15,7 @@
 //!   the same value, so depth written through the host's matrices follows the state's convention.
 //!
 //! A built player run by `play` is [`DepthRange::PLAYER`], reversed. The evidence is an Old World
-//! RomeTurn42 run, frame 16 (board 133, posts 3214, 3220 and 3238). With forward depth (clear 1,
+//! `RomeTurn42` run, frame 16 (board 133, posts 3214, 3220 and 3238). With forward depth (clear 1,
 //! `ZTest LEqual` as `LessEqual`) every camera texture held one value across the screen: the
 //! normals were exactly (0, 0, -1, 0) and the depth 0.0076. With reversed depth (clear 0, depth
 //! tests and the shadow comparison reversed, the host projection mapping near to w and far to 0)

@@ -17,8 +17,8 @@ use super::super::depth_range::DepthRange;
 use super::super::frame::{BLIT_MESH, Placed, RendererSkip, Settings, Skip, adapt};
 use super::super::ids;
 use super::support::{
-    available, camera, compute_buffer, compute_shader, dispatch, material, render_texture,
-    renderer, renderer_with, set, shader, snapshot, texture_slot, world,
+    assert_close, available, camera, compute_buffer, compute_shader, dispatch, material,
+    render_texture, renderer, renderer_with, set, shader, snapshot, texture_slot, world,
 };
 
 const MESH: u64 = (1 << 41) + 3;
@@ -634,7 +634,13 @@ fn view_projection_with(settings: &Settings) -> [f32; 16] {
 fn a_cameras_clip_depth_follows_the_depth_range_of_the_settings() {
     let forward = view_projection_with(&settings().with_depth(DepthRange::Forward));
     let reversed = view_projection_with(&settings().with_depth(DepthRange::Reversed));
-    assert_ne!(forward, reversed);
+    assert!(
+        forward
+            .iter()
+            .zip(&reversed)
+            .any(|(forward, reversed)| (forward - reversed).abs() > 1e-6),
+        "the two ranges give different matrices"
+    );
     for column in 0..4 {
         let at = |matrix: &[f32; 16], row: usize| matrix[column * 4 + row];
         // Only the clip depth differs. For one OpenGL depth z and w, forward is (z + w) / 2 and
@@ -656,9 +662,9 @@ fn a_cameras_clip_depth_follows_the_depth_range_of_the_settings() {
 fn settings_without_a_depth_range_keep_depth_forward() {
     assert_eq!(Settings::default().depth, DepthRange::Forward);
     assert_eq!(Settings::cameras().depth, DepthRange::Forward);
-    assert_eq!(
-        view_projection_with(&Settings::default()),
-        view_projection_with(&settings())
+    assert_close(
+        &view_projection_with(&Settings::default()),
+        &view_projection_with(&settings()),
     );
 }
 

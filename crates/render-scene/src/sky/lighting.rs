@@ -1,4 +1,5 @@
 //! Celestial contribution selections specialize the existing material pipeline.
+use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_plan::SceneCelestialLighting;
 
 const NAMES: [&str; 3] = [
@@ -44,12 +45,7 @@ pub(crate) fn source(source: String, lighting: SceneCelestialLighting) -> String
     let mut source = source;
     for (index, (old, new)) in replacements.into_iter().enumerate() {
         let count = if index == 2 { 2 } else { 1 };
-        assert_eq!(
-            source.matches(old).count(),
-            count,
-            "celestial lighting source contract"
-        );
-        source = source.replace(old, new);
+        source = source.anchored("sky::lighting::source", count, old, new);
     }
     for name in NAMES {
         source.push_str("\noverride ");
@@ -62,13 +58,13 @@ pub(crate) fn source(source: String, lighting: SceneCelestialLighting) -> String
 pub(crate) fn composition_source(source: String, composition: (bool, bool, bool)) -> String {
     let (physical, separate, object_exposure) = composition;
     if separate {
-        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
+        source.anchored("sky::lighting::composition_source", 2, "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
             "return vec4<f32>(colour * scene_surface_transmission(input.world_position) * albedo_sample.a, albedo_sample.a);")
     } else if physical {
-        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
+        source.anchored("sky::lighting::composition_source", 2, "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
             "return vec4<f32>(colour, albedo_sample.a);")
     } else if object_exposure {
-        source.replace("return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
+        source.anchored("sky::lighting::composition_source", 2, "return vec4<f32>(apply_exposure(apply_height_fog(colour, input.world_position)), albedo_sample.a);",
             "return vec4<f32>(apply_height_fog(colour, input.world_position), albedo_sample.a);")
     } else {
         source

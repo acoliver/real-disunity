@@ -1,3 +1,4 @@
+use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_post::{
     AttachmentView, FeatureDeclaration, FeaturePass, PassDeclaration, PassSlot, ResourceRef,
 };
@@ -172,7 +173,9 @@ fn composite_shader(device: &wgpu::Device, samples: u32) -> wgpu::ShaderModule {
     )
     .to_owned();
     if samples > 1 {
-        source = source.replace(
+        source = source.anchored(
+            "sky::mesh_target::composite_shader",
+            1,
             "var radiance:texture_2d<f32>",
             "var radiance:texture_multisampled_2d<f32>",
         );

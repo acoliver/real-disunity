@@ -9,6 +9,7 @@ mod receiver_tests;
 #[cfg(test)]
 pub(crate) mod tests;
 
+use crate::shader::rewrite::ShaderRewrite;
 use worldrunner_render_plan::SceneSsao;
 use worldrunner_render_post::FrameError;
 
@@ -54,8 +55,9 @@ pub(crate) fn ambient_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 pub(crate) fn ambient_source(source: &str) -> String {
     format!(
         "{}\n{}",
-        replace_marker(
-            source,
+        source.anchored(
+            "ssao::ambient_source",
+            1,
             "/* SCREEN_AMBIENT_FACTOR */",
             "* screen_ao(world_position)"
         ),
@@ -75,9 +77,4 @@ pub(crate) fn scalar(value: u64) -> f32 {
     let value = u32::try_from(value).expect("bounded SSAO setting");
     f32::from(u16::try_from(value >> 16).expect("upper half")) * 65536.0
         + f32::from(u16::try_from(value & 65535).expect("lower half"))
-}
-
-fn replace_marker(source: &str, marker: &str, replacement: &str) -> String {
-    assert_eq!(source.matches(marker).count(), 1, "shader marker {marker}");
-    source.replacen(marker, replacement, 1)
 }

@@ -101,7 +101,11 @@ fn capture(
         stock.0.to_owned()
     };
     let object = if let Some(term) = output.1 {
-        crate::compositor::terms::term_sources((&object, stock.1), term).0
+        if frozen {
+            crate::compositor::terms::frozen_term_sources((&object, stock.1), term).0
+        } else {
+            crate::compositor::terms::term_sources((&object, stock.1), term).0
+        }
     } else {
         object
     };

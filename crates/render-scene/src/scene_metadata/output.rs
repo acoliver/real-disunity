@@ -1,5 +1,7 @@
 //! The screen metadata a geometry pipeline set writes, and the shader text that selects it.
 
+use crate::shader::rewrite::ShaderRewrite;
+
 /// Present in the object source of pipelines that write the normal and the reflection material
 /// together, which is how `ScenePipelines` knows to build two colour targets for them.
 pub(crate) const MERGED_MARKER: &str = "struct SceneMetadataOutput";
@@ -44,8 +46,13 @@ const MERGED_ENTRIES: &str = include_str!("merged_entries.wgsl");
 
 fn fragment(kind: &str, expression: &str, entries: &str) -> String {
     let body = GEOMETRY
-        .replace("METADATA_TYPE", kind)
-        .replace("METADATA_OUTPUT", expression);
+        .anchored("scene_metadata::output::fragment", 1, "METADATA_TYPE", kind)
+        .anchored(
+            "scene_metadata::output::fragment",
+            1,
+            "METADATA_OUTPUT",
+            expression,
+        );
     format!("{PREPARATION}\n{body}\n{entries}")
 }
 
@@ -81,10 +88,17 @@ impl MetadataOutput {
             Self::Material => (TERRAIN_MATERIAL.to_owned(), false),
         };
         assert_eq!(stock.matches(TERRAIN_RETURN).count(), 1);
-        let mut source = stock.replace(TERRAIN_RETURN, &format!("return {value};"));
+        let mut source = stock.anchored(
+            "scene_metadata::output::terrain_source",
+            1,
+            TERRAIN_RETURN,
+            &format!("return {value};"),
+        );
         if merged {
             assert_eq!(source.matches(TERRAIN_SIGNATURE).count(), 1);
-            source = source.replace(
+            source = source.anchored(
+                "scene_metadata::output::terrain_source",
+                1,
                 TERRAIN_SIGNATURE,
                 "fn fs_terrain(input: TerrainVertexOutput) -> SceneMetadataOutput",
             );

@@ -658,7 +658,9 @@ impl Services<'_> {
         id: TextureId,
     ) -> Result<(super::tracker::Imported, Option<SamplerState>), OffscreenError> {
         let info = self.textures.get(id)?;
-        if info.dimension.is_volume() {
+        // A render volume is deep and only kernels touch it. An uploaded 3D source is one slice,
+        // a single cell like a 2D texture, which a draw samples through a 3D view.
+        if info.dimension.is_volume() && info.spec.is_some() {
             return Err(OffscreenError::VolumeInGraph(id));
         }
         for handle in info.handles() {

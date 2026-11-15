@@ -1,6 +1,6 @@
 use super::{
     AccessMode, CheckedView, ContractError, RasterPass, ResourceLifetime, ResourceRegistry,
-    Semantic, UseKind,
+    ResourceUse, Semantic, UseKind,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -63,18 +63,36 @@ impl CheckedBindings {
                 }
                 TextureBindingKind::Storage(_) => (UseKind::Storage, AccessMode::ReadWrite),
             };
-            if !pass.uses.iter().any(|usage| {
-                usage.view.allocation == entry.view.allocation
-                    && usage.view.version == entry.view.version
-                    && usage.view.range.contains(&entry.view.range)
-                    && usage.kind == kind
-                    && usage.access == access
-            }) {
+            if !covered(&pass.uses, &entry.view, kind, access) {
                 return Err(ContractError::Binding(entry.view.allocation));
             }
         }
         Ok(())
     }
+}
+
+/// Whether the pass declares a use for every level of a bound view. The base level's use is at
+/// the view's version; each later level may be covered by a use at the version that level was
+/// written at, so a mip chain whose levels were written one at a time binds as one view. The
+/// versions themselves are checked against the frame's writes with the uses.
+fn covered(uses: &[ResourceUse], view: &CheckedView, kind: UseKind, access: AccessMode) -> bool {
+    let matches = |usage: &&ResourceUse, mip: u32| {
+        let mut level = view.range.clone();
+        level.mips = mip..mip + 1;
+        usage.view.allocation == view.allocation
+            && usage.view.range.contains(&level)
+            && usage.kind == kind
+            && usage.access == access
+    };
+    let base = view.range.mips.start;
+    uses.iter()
+        .any(|usage| matches(&usage, base) && usage.view.version == view.version)
+        && view
+            .range
+            .mips
+            .clone()
+            .skip(1)
+            .all(|mip| uses.iter().any(|usage| matches(&usage, mip)))
 }
 
 pub(super) fn check_layout(

@@ -133,7 +133,11 @@ fn gpu_stock_depth_prefix_plan_lists_what_the_fused_producer_completes() {
         .stock_depth_prefix(context.device(), &renderer.gpu)
         .unwrap();
     let plan = prefix.plan();
-    let entries: Vec<_> = plan.passes.iter().map(|pass| pass.entry()).collect();
+    let entries: Vec<_> = plan
+        .passes
+        .iter()
+        .map(worldrunner_render_post::PassDeclaration::entry)
+        .collect();
     assert_eq!(
         entries,
         [

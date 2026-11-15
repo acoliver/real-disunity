@@ -13,7 +13,9 @@ use super::rig::{Fixture, NEAR_DEPTH, RED, engine_depth, engine_scene};
 use super::{COLOR_FORMAT, settings};
 use worldrunner_render_gpu::configuration::AllocationBudget;
 use worldrunner_render_post::contracts::RasterId;
-use worldrunner_render_post::{PassEntry, PassId, PassSlot, TimingMode};
+use worldrunner_render_post::{
+    FrameOperations, OperationsOutput, PassEntry, PassId, PassSlot, ResourceRef, TimingMode,
+};
 use worldrunner_render_program::ids::{
     CameraId, MaterialId, MeshId, RendererId, ShaderId, TextureId,
 };
@@ -24,7 +26,7 @@ use worldrunner_render_program::unity::offscreen::frame::{
     Renderer,
 };
 use worldrunner_render_program::unity::offscreen::{
-    OffscreenOperations, OffscreenState, PendingImage,
+    OffscreenError, OffscreenOperations, OffscreenState, PendingImage,
 };
 use worldrunner_render_program::unity::runtime::{
     BoundResource, DrawPacket, Geometry, GraphicsProgram, ProgramArena, ProgramRuntime, VertexInput,
@@ -494,4 +496,88 @@ fn a_cancelled_frame_submits_nothing_and_the_next_frame_does_not_see_its_offscre
         .arena
         .retire()
         .expect("the cancelled frame released the arena");
+}
+
+#[test]
+fn the_admitted_work_reports_only_the_written_textures_the_host_exported() {
+    let mut fixture = timed();
+    let mut player = player(&mut fixture);
+    let authority = fixture.context.submission().clone();
+    let (mut operations, _) = build(&mut player);
+    let element = ResourceRef {
+        layer: 2,
+        ..ResourceRef::new("element")
+    };
+    let camera = ResourceRef::new("camera");
+    operations.export(A, 0, 0, camera).unwrap();
+    operations.export(ARRAY, 0, 2, element).unwrap();
+    let refused = |result: Result<(), OffscreenError>| result.unwrap_err().to_string();
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 0, ResourceRef::new("untouched"))),
+        "no operation of the frame writes mip 0 of element 0 of TextureId(12)"
+    );
+    assert_eq!(
+        refused(operations.export(ARRAY, 1, 2, ResourceRef::new("small"))),
+        "texture TextureId(12) has no mip 1 of element 2"
+    );
+    let misnamed = ResourceRef::new("misnamed");
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 2, misnamed)),
+        format!("{misnamed:?} names mip 0 of layer 0, but the export is mip 0 of element 2")
+    );
+    let other_mip = ResourceRef {
+        mip: 1,
+        layer: 2,
+        ..ResourceRef::new("other mip")
+    };
+    assert_eq!(
+        refused(operations.export(ARRAY, 0, 2, other_mip)),
+        format!("{other_mip:?} names mip 1 of layer 2, but the export is mip 0 of element 2")
+    );
+    assert_eq!(
+        refused(operations.export(TextureId(99), 0, 0, ResourceRef::new("unknown"))),
+        "texture TextureId(99) is neither registered nor in the frame"
+    );
+    assert_eq!(
+        refused(operations.export(B, 0, 0, camera)),
+        format!("{camera:?} is exported twice")
+    );
+    let recording = authority.begin(fixture.context.device()).unwrap();
+    let admitted = operations.admit(&recording).unwrap();
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    assert_eq!(
+        admitted.produces(),
+        [
+            OperationsOutput::new(camera, format, [8, 8]),
+            OperationsOutput::new(element, format, [8, 8]),
+        ]
+    );
+    recording.finish().cancel();
+}
+
+#[test]
+fn a_render_texture_with_a_depth_buffer_exports_its_colour() {
+    let mut fixture = timed();
+    let mut player = player(&mut fixture);
+    let authority = fixture.context.submission().clone();
+    let mut frame = frame();
+    // A's depth buffer is Depth24PlusStencil8; the export must still describe the colour.
+    frame.render_textures[0].depth_bits = 24;
+    let mut operations = player
+        .state
+        .build(&mut player.runtime, &player.arena, &frame)
+        .unwrap();
+    let camera = ResourceRef::new("camera");
+    operations.export(A, 0, 0, camera).unwrap();
+    let recording = authority.begin(fixture.context.device()).unwrap();
+    let admitted = operations.admit(&recording).unwrap();
+    assert_eq!(
+        admitted.produces(),
+        [OperationsOutput::new(
+            camera,
+            wgpu::TextureFormat::Rgba8Unorm,
+            [8, 8]
+        )]
+    );
+    recording.finish().cancel();
 }

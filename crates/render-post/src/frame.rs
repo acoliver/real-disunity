@@ -3,6 +3,10 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod operations;
+pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
+pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
     ShadowCasters(u32),
@@ -223,6 +227,12 @@ pub enum FrameError {
     UnsupportedEffect(&'static str),
     #[error("attachment view does not match its declared subresource: {0:?}")]
     AttachmentView(ResourceRef),
+    /// A geometry pass attaches a texture that operations groups write.
+    #[error("pass {pass} attaches {resource:?}, which operations write; passes may only read it")]
+    OffscreenWrite {
+        pass: PassEntry,
+        resource: ResourceRef,
+    },
 }
 
 /// Validates the authored sequence without allocating, preparing or encoding anything.
@@ -231,7 +241,20 @@ pub fn validate_frame(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
 ) -> Result<(), FrameError> {
-    validate_frame_inputs(passes, features, requested, &[])
+    validate_frame_inputs(passes, features, requested, &[], &[])
+}
+
+/// The checks `encode_geometry` makes before anything is prepared, in its order.
+pub(crate) fn validate_plan(
+    passes: &[PassDeclaration],
+    features: &[FeatureDeclaration],
+    requested: &[&'static str],
+    views: &[AttachmentView],
+    operations: &[OperationsGroup<'_>],
+) -> Result<(), FrameError> {
+    validate_operations(passes, views, operations)?;
+    validate_frame_inputs(passes, features, requested, views, operations)?;
+    validate_views(passes, views)
 }
 
 pub(crate) fn validate_frame_inputs(
@@ -239,6 +262,7 @@ pub(crate) fn validate_frame_inputs(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
     views: &[AttachmentView],
+    operations: &[OperationsGroup<'_>],
 ) -> Result<(), FrameError> {
     validate_transparency(features)?;
     let repeated = passes.iter().enumerate().find_map(|(index, pass)| {
@@ -268,9 +292,11 @@ pub(crate) fn validate_frame_inputs(
             }
         }
     }
+    let outputs = GroupOutputs::new(passes, operations);
+    // A retained view a group writes has contents only from the group's position on.
     let mut produced: BTreeMap<_, _> = views
         .iter()
-        .filter(|view| view.retained)
+        .filter(|view| view.retained && !outputs.writes(view.resource()))
         .map(|view| {
             (
                 view.resource(),
@@ -286,7 +312,9 @@ pub(crate) fn validate_frame_inputs(
             )
         })
         .collect();
-    for pass in passes {
+    for (index, pass) in passes.iter().enumerate() {
+        outputs.refuse_writes(pass)?;
+        produced.extend(outputs.left_before(index));
         let attachments: Vec<_> = pass
             .color
             .iter()
@@ -825,4 +853,6 @@ pub struct FramePlan<'a> {
     pub passes: &'a [PassDeclaration],
     pub views: &'a [AttachmentView],
     pub requested: &'a [&'static str],
+    /// Operations groups the executor encodes at their positions in `passes`.
+    pub operations: &'a [OperationsGroup<'a>],
 }

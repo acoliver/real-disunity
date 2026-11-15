@@ -79,7 +79,8 @@ fn invalid_feature_contract_is_rejected_before_build_and_after_resize() {
                 &FramePlan {
                     passes: &[pass],
                     views: &[view],
-                    requested: &[]
+                    requested: &[],
+                    operations: &[],
                 },
                 &mut []
             ),
@@ -143,6 +144,7 @@ fn checked_nonzero_subresources_are_valid_in_generic_executor() {
                 passes: &[pass],
                 views: &[view],
                 requested: &[],
+                operations: &[],
             },
             &mut [],
         )

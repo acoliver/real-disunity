@@ -10,6 +10,7 @@
 mod constants_plan;
 mod defaults;
 mod error;
+mod exports;
 mod finish;
 mod format;
 pub mod frame;
@@ -29,10 +30,10 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use worldrunner_render_gpu::submission::{FrameLease, SubmissionAuthority};
-use worldrunner_render_post::StageId;
 use worldrunner_render_post::contracts::{
     CheckedDraw, RasterId, ResourceUse, TypedOperation, TypedWork, UseKind,
 };
+use worldrunner_render_post::{OperationsOutput, StageId};
 
 use crate::arena::ProgramArena;
 use crate::budget::Reservation;
@@ -374,6 +375,7 @@ impl OffscreenState {
             tracker,
             operations,
             reads,
+            exports: Vec::new(),
             shares,
             missing: missing.into_iter().collect(),
             counts,
@@ -528,6 +530,7 @@ pub struct OffscreenOperations {
     tracker: Tracker,
     operations: Vec<TypedOperation>,
     reads: Vec<ResourceUse>,
+    exports: Vec<OperationsOutput>,
     shares: Vec<Arc<Reservation>>,
     missing: Vec<String>,
     counts: DrawCounts,
@@ -833,6 +836,7 @@ impl OffscreenOperations {
             registry,
             self.lease,
             Pins::new(&self.authority, self.shares),
+            self.exports,
         );
         admitted.retain(encoder)?;
         Ok(admitted)

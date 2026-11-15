@@ -528,8 +528,21 @@ impl FrameRenderer {
         features: &mut [BorrowedFeature<'_>],
         input: (crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
     ) -> Result<(), FrameError> {
+        self.encode_frame_with(device, encoder, plan, None, features, &input)
+    }
+    /// [`Self::encode_frame`] with `head`, work that records commands of its own, encoded
+    /// by the executor immediately before the first pass of the ordered frame.
+    pub(crate) fn encode_frame_with(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: (&[PassDeclaration], &[AttachmentView]),
+        head: Option<&dyn worldrunner_render_post::FrameOperations>,
+        features: &mut [BorrowedFeature<'_>],
+        input: &(crate::frame::FrameUniform, Option<&wgpu::BindGroup>),
+    ) -> Result<(), FrameError> {
         let config = self.targets().config();
-        let (frame, shadow) = input;
+        let (frame, shadow) = *input;
         self.validate_environment_conventions(frame.specular_convention)?;
         let (passes, views) = plan;
         let mut passes = passes.to_vec();
@@ -610,11 +623,16 @@ impl FrameRenderer {
             }
         }
         forward_order::forward_order(&mut passes);
+        let head = head.map(|work| worldrunner_render_post::OperationsGroup {
+            before: passes.first().map(PassDeclaration::entry),
+            work,
+        });
         encode_planned(
             &mut self.chain,
             device,
             encoder,
             (&passes, &views),
+            head.as_slice(),
             &mut combined,
         )?;
         self.publish_snapshots(encoder, request);
@@ -660,6 +678,7 @@ impl FrameRenderer {
                 passes,
                 views,
                 requested: &[],
+                operations: &[],
             },
             features,
         )
@@ -725,6 +744,7 @@ fn encode_planned(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     plan: (&[PassDeclaration], &[AttachmentView]),
+    operations: &[worldrunner_render_post::OperationsGroup<'_>],
     features: &mut [BorrowedFeature<'_>],
 ) -> Result<(), FrameError> {
     chain.encode_geometry(
@@ -734,6 +754,7 @@ fn encode_planned(
             passes: plan.0,
             views: plan.1,
             requested: &[],
+            operations,
         },
         features,
     )

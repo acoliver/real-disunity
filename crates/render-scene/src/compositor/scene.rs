@@ -245,6 +245,7 @@ struct SceneDraw<'a> {
     screen: Option<crate::scene_metadata::Geometry>,
     velocity: Option<AttachmentView>,
     programs: Option<worldrunner_render_program::runtime::AdmittedPrograms>,
+    offscreen: Option<worldrunner_render_program::offscreen::AdmittedOffscreen>,
     depth_mode: crate::renderer::depth::DepthMode,
 }
 
@@ -319,6 +320,7 @@ fn encode_scene_passes(
         frame,
         screen,
         programs,
+        offscreen,
         depth_mode,
         ..
     } = scene;
@@ -354,15 +356,18 @@ fn encode_scene_passes(
             .is_some_and(crate::gbuffer::Gbuffer::renders),
         opaque_drawn: std::cell::Cell::new(false),
     };
-    renderer.encode_frame(
+    renderer.encode_frame_with(
         device,
         encoder,
         (&passes, &views),
+        offscreen
+            .as_ref()
+            .map(|work| work as &dyn worldrunner_render_post::FrameOperations),
         &mut [BorrowedFeature {
             declaration,
             prepared: &mut feature,
         }],
-        (frame, None),
+        &(frame, None),
     )
 }
 
@@ -392,7 +397,8 @@ pub fn encode_scene(
     renderer.match_producer_velocity(device, writes_velocity);
     gpu.track_previous_transforms(writes_velocity);
     let velocity = renderer.velocity_attachment(writes_velocity)?;
-    let programs = encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
+    let (programs, offscreen) =
+        encode_player_work(gpu, encoder, renderer, (pipelines, velocity.is_some()))?;
     gpu.prepare_dynamic(encoder, pipelines)?;
     let frame = renderer.prepare_uniform(frame)?;
     let (color, depth) = attachments;
@@ -414,6 +420,7 @@ pub fn encode_scene(
             screen,
             velocity,
             programs,
+            offscreen,
             depth_mode,
         },
     )

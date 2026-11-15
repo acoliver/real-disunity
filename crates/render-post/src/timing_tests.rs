@@ -475,6 +475,7 @@ fn render_frames(
                     passes,
                     views,
                     requested: &[],
+                    operations: &[],
                 },
                 &mut [],
             )

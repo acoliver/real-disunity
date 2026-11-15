@@ -1145,7 +1145,9 @@ completed raw and resolved colour, metadata, statistics and temporal state. Its 
 `StockDepthPrefix` case submits exactly one prefix before refusing suffix preparation.
 That refusal preserves completed colour, confidence, statistics and temporal state while
 G3 and velocity contain the moved geometry. A fresh ordinary retry preserves that motion;
-retry and settling products match an uninterrupted control in both cases.
+retry and settling products match an uninterrupted control in both cases. Declaring one
+scene's resident write keys while encoding a different dirty scene fails capture admission
+with an undeclared resident key before submission; both scenes keep their completed products.
 
 [The same-frame capture fixture](src/shadows/tests/sdsm/depth_reuse/gbuffer/retained_retry.rs)
 covers program-admission and caller-preparation refusal after a physical prefix. It

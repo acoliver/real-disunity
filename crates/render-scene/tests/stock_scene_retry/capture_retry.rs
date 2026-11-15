@@ -1,5 +1,7 @@
 use super::{Products, Refusal, Scene};
-use worldrunner_render_gpu::submission::capture::{CaptureError, CaptureOutcome, CaptureWrites};
+use worldrunner_render_gpu::submission::capture::{
+    CaptureError, CaptureOutcome, CaptureWrites, WriteError, WriteKey,
+};
 use worldrunner_render_plan::RenderScene;
 use worldrunner_render_scene::{
     compositor::{StockDepthPrefix, prepare_stock_scene},
@@ -225,4 +227,78 @@ fn empty_plan() -> FramePlan<'static> {
         views: &[],
         requested: &[],
     }
+}
+
+#[test]
+fn public_stock_prefix_rejects_foreign_residents_before_submission() {
+    let _session = worldrunner_render_scene::test_support::SceneTestSession::acquire();
+    let context = GpuContext::shared_for_test_with_features(wgpu::Features::empty()).unwrap();
+    let validation = context
+        .device()
+        .push_error_scope(wgpu::ErrorFilter::Validation);
+    let source = super::fixture::source();
+    let mut a = Scene::new(&context, &source);
+    let mut b = Scene::new(&context, &source);
+    a.complete(&context);
+    b.complete(&context);
+    let a_completed = Products::read(&context, &a);
+    let b_completed = Products::read(&context, &b);
+    let statistics = (a.gpu.statistics(), b.gpu.statistics());
+    let selections = (a.gpu.view_stats(), b.gpu.view_stats());
+    let temporal = (
+        a.frame.projection_jitter_index(),
+        a.frame.has_temporal_history(),
+    );
+    b.move_retained_instance();
+    assert_foreign_residents(&context, &mut a, &mut b);
+    assert_eq!((a.gpu.statistics(), b.gpu.statistics()), statistics);
+    assert_eq!((a.gpu.view_stats(), b.gpu.view_stats()), selections);
+    assert_eq!(a.frame.projection_jitter_index(), temporal.0);
+    assert_eq!(a.frame.has_temporal_history(), temporal.1);
+    assert_eq!(Products::read(&context, &a), a_completed);
+    assert_eq!(Products::read(&context, &b), b_completed);
+    assert!(pollster::block_on(validation.pop()).is_none());
+}
+
+fn assert_foreign_residents(context: &GpuContext, a: &mut Scene, b: &mut Scene) {
+    let device = context.device();
+    let authority = context.submission();
+    let prefix = a.frame.stock_depth_prefix(device, &a.gpu).unwrap();
+    assert_prefix_plan(&prefix);
+    let a_keys = a.gpu.capture_write_keys(device).unwrap();
+    let b_keys = b.gpu.capture_write_keys(device).unwrap();
+    assert!(!b_keys.is_empty());
+    assert!(a_keys.iter().all(|key| !b_keys.contains(key)));
+    let writes = capture_writes(a, device, &prefix);
+    let declared: Vec<_> = writes.prefix_keys().collect();
+    assert!(a_keys.iter().all(|key| declared.contains(key)));
+    assert!(b_keys.iter().all(|key| !declared.contains(key)));
+    let submitted = authority.submitted_serial();
+    let mut encoded = false;
+    let result = authority.begin_capture(device, writes, (), |encoder, _, ()| {
+        prefix.encode(
+            &mut a.frame,
+            device,
+            encoder,
+            (&mut b.gpu, &b.pipelines),
+            b.uniform,
+            (&empty_plan(), &mut []),
+        )?;
+        encoded = true;
+        Ok::<_, FrameError>(())
+    });
+    assert!(
+        encoded,
+        "prefix encoding must reach the capture scope check"
+    );
+    match result {
+        Err(CaptureError::Write(WriteError::Undeclared(key))) => {
+            assert!(matches!(key, WriteKey::Resident(_)));
+            assert!(b_keys.contains(&key));
+            assert!(!declared.contains(&key));
+        }
+        Err(error) => panic!("unexpected capture failure: {error:?}"),
+        Ok(_) => panic!("foreign scene unexpectedly admitted under declared resident keys"),
+    }
+    assert_eq!(authority.submitted_serial(), submitted);
 }

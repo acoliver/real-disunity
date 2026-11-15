@@ -46,8 +46,10 @@ internal sealed class VisibleLightSet
 
     public void SetIndexMap(NativeArray<int> map) => _indexMap = map.ToArray();
 
-    /// <summary>Finds the lights the parameters see: an enabled light on an active GameObject whose layer is in the culling
-    /// mask, that is directional or whose sphere (position and range) is not wholly outside a plane of the culling matrix.</summary>
+    /// <summary>Finds the lights the parameters see: an enabled light on an active GameObject that is directional or whose
+    /// sphere (position and range) is not wholly outside a plane of the culling matrix. The light's own layer does not hide
+    /// it: the culling mask chooses the renderers a camera draws, and a light on a layer the camera does not draw still lights
+    /// them, as Old World's scene lights do.</summary>
     public static VisibleLightSet Collect(in ScriptableCullingParameters parameters)
     {
         var planes = GeometryUtility.CalculateFrustumPlanes(parameters.cullingMatrix);
@@ -55,7 +57,7 @@ internal sealed class VisibleLightSet
         var others = new List<(Light Light, VisibleLight Data)>();
         foreach (var light in ObjectRegistry.SceneObjects(typeof(Light)).OfType<Light>())
         {
-            if (!light || !light.isActiveAndEnabled || (parameters.cullingMask & (1u << light.gameObject.layer)) == 0) continue;
+            if (!light || !light.isActiveAndEnabled) continue;
             var type = light.type;
             if (type == LightType.Directional) directional.Add((light, Describe(light, type, VisibleLightFlags.None)));
             else if (TrySphere(planes, light, out var flags)) others.Add((light, Describe(light, type, flags)));

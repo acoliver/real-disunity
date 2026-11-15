@@ -92,13 +92,14 @@ internal static class VisibleLightTests
         disabled.enabled = false;
         var inactive = NewLight(LightType.Point, new Vector3(0f, 0f, 14f));
         inactive.gameObject.SetActive(false);
-        var hidden = NewLight(LightType.Point, new Vector3(0f, 0f, 16f));
-        hidden.gameObject.layer = 5;
+        var otherLayer = NewLight(LightType.Point, new Vector3(0f, 0f, 16f));
+        otherLayer.gameObject.layer = 5;
 
         var results = Cull(camera, mask: 1u);
         var lights = results.visibleLights;
-        Expect.Equal(3, lights.Length, "the directional light and the two lights in the frustum");
-        Expect.That(lights[0].light == sun && lights[1].light == inside && lights[2].light == spot, "directional first, then creation order");
+        Expect.Equal(4, lights.Length, "the directional light and the three lights in the frustum, whatever their own layer");
+        Expect.That(lights[0].light == sun && lights[1].light == inside && lights[2].light == spot && lights[3].light == otherLayer,
+            "directional first, then creation order; a light on a layer the camera does not draw still lights what it draws");
 
         Expect.Equal(LightType.Directional, lights[0].lightType, "directional type");
         Expect.Equal(VisibleLightFlags.None, lights[0].flags, "a directional light has no plane flags");
@@ -184,19 +185,17 @@ internal static class VisibleLightTests
     {
         var camera = NewCamera();
         var onDefault = NewLight(LightType.Point, new Vector3(0f, 0f, 10f));
-        var onFive = NewLight(LightType.Point, new Vector3(0f, 0f, 11f));
-        onFive.gameObject.layer = 5;
         var first = Cull(camera, 1u);
-        var second = Cull(camera, 1u << 5);
-        Expect.That(first.visibleLights.Length == 1 && first.visibleLights[0].light == onDefault, "the first mask sees layer 0");
-        Expect.That(second.visibleLights.Length == 1 && second.visibleLights[0].light == onFive, "the second mask sees layer 5");
+        var later = NewLight(LightType.Point, new Vector3(0f, 0f, 11f));
+        var second = Cull(camera, 1u);
+        Expect.That(first.visibleLights.Length == 1 && first.visibleLights[0].light == onDefault, "the first cull sees the one light");
+        Expect.That(second.visibleLights.Length == 2 && second.visibleLights[1].light == later, "the second sees the light made after the first");
         var seen = first.visibleLights[0];
         onDefault.enabled = false;
         onDefault.type = LightType.Spot;
         Expect.That(first.visibleLights[0] == seen && first.visibleLights[0].lightType == LightType.Point,
             "a later change does not alter a result that was already made");
-        Expect.Equal(0, Cull(camera, 1u).visibleLights.Length, "a new cull sees the change");
-        Expect.Equal(0, Cull(camera, 1u << 9).visibleLights.Length, "a mask that holds no light layer");
+        Expect.Equal(1, Cull(camera, 1u).visibleLights.Length, "a new cull sees the change");
     }
 
     private static void IndexMaps()

@@ -57,7 +57,7 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     /// reaches the world's offscreen list at <see cref="Submit"/>, in order with the commands executed before and after. Parameters
     /// that did not come from <see cref="Camera.TryGetCullingParameters(out ScriptableCullingParameters)"/> throw
     /// <see cref="InvalidOperationException"/>. The visible lights are found at this call, not at <see cref="Submit"/>: the
-    /// result lists the enabled lights on active GameObjects whose layer is in the culling mask and that are directional or whose
+    /// result lists the enabled lights on active GameObjects, whatever their layer, that are directional or whose
     /// range sphere is not wholly outside the planes of the culling matrix, directional lights first (see
     /// <see cref="CullingResults"/>). The engine has no offscreen vertex lights or reflection probes to report.</summary>
     public CullingResults Cull(ref ScriptableCullingParameters parameters)

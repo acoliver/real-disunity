@@ -191,6 +191,10 @@ struct Inner {
     lost: Arc<Mutex<Option<String>>>,
     submitted: AtomicU64,
     completed: AtomicU64,
+    /// Serials whose completion callback has not finished all of its bookkeeping. A callback
+    /// removes its serial last, so a serial missing here has advanced `completed`, released
+    /// its `in_flight` count and dropped its leases.
+    unsettled: Mutex<std::collections::BTreeSet<u64>>,
     census: crate::census::MemoryCensus,
 }
 
@@ -206,6 +210,7 @@ impl SubmissionAuthority {
             lost: Arc::new(Mutex::new(None)),
             submitted: AtomicU64::new(0),
             completed: AtomicU64::new(0),
+            unsettled: Mutex::default(),
             census: crate::census::MemoryCensus::new(),
         }))
     }
@@ -269,6 +274,17 @@ impl SubmissionAuthority {
     }
     pub fn completed_serial(&self) -> u64 {
         self.0.completed.load(Ordering::Acquire)
+    }
+    /// Whether every submission up to `serial` has finished its completion bookkeeping. The
+    /// callback that does it runs on whichever thread's poll collected it, which can be after
+    /// another thread's wait for the same submission has returned.
+    pub fn settled_through(&self, serial: u64) -> bool {
+        self.0
+            .unsettled
+            .lock()
+            .unwrap()
+            .first()
+            .is_none_or(|&first| first > serial)
     }
     pub fn begin(&self, device: &wgpu::Device) -> Result<RecordingFrame, SubmitError> {
         self.retire_capture();
@@ -357,13 +373,17 @@ impl SubmissionAuthority {
         for usage in &leases {
             usage.submitted(serial);
         }
-        // Native enqueue may dispatch earlier callbacks synchronously. Never take the submission lock here.
+        self.0.unsettled.lock().unwrap().insert(serial);
+        // Native enqueue may dispatch earlier callbacks synchronously. Never take the submission
+        // lock here, and hold no lock across the registration.
         let inner = Arc::downgrade(&self.0);
         queue.on_submitted_work_done(move || {
-            let _retained = leases;
+            let retained = leases;
             if let Some(inner) = inner.upgrade() {
                 inner.completed.fetch_max(serial, Ordering::AcqRel);
                 inner.in_flight.fetch_sub(1, Ordering::AcqRel);
+                drop(retained);
+                inner.unsettled.lock().unwrap().remove(&serial);
             }
         });
         Ok(submission)

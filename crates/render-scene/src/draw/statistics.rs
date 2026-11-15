@@ -45,7 +45,7 @@ pub struct SceneStatistics {
     pub passes: super::PassDrawStatistics,
     pub effects: super::EffectStatistics,
     pub terrain_pages: TerrainPageStatistics,
-    /// None before an owning terrain draw, or in a submitted frame without terrain.
+    /// None before an owning composition, or without streaming terrain or a static terrain draw.
     pub terrain_geometry: Option<super::TerrainGeometryStatistics>,
     pub meshes: DrawCount,
     pub impostors: DrawCount,

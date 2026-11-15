@@ -1,29 +1,31 @@
 //! Byte-level captures of dynamic quads that carry clip rectangles.
 //!
 //! The clip rectangle of a quad splits draws in both places that stage quads, and only the
-//! retained-UI overlay scissors to it. So the scene's pass is compared with [`Legacy::draw`],
-//! which clips nothing, and the overlay's draw with [`Legacy::draw_scissored`], the fixed path's
-//! scissor. The overlay's own pipeline is not what is compared here: its draw is recorded with
-//! the fixed unlit pipeline, which isolates the grouping, the material groups, the scissor and
-//! the counts from the shader it draws with.
+//! retained-UI overlay scissors to it. So the scene's pass has to draw the clipped quads as it
+//! draws the same quads without clip rectangles, and the overlay's own pipeline has to draw
+//! only what is left inside the scissors. Each comparison is between two renders of one run on
+//! one device, never against stored bytes.
 
 use super::*;
+use crate::draw::DrawCount;
 use crate::dynamic::{DynamicBindings, DynamicGpu, QuadTarget};
+use crate::offscreen::OffscreenTarget;
+use crate::upload::{material_bind_group_layout, material_sampler, placeholder_with_view};
 
 const FULL: [u32; 4] = [0, 0, SIZE, SIZE];
 
-/// Clip rectangles in lower-left pixels, per quad index of [`quads`].
+/// Clip rectangles in lower-left pixels, per quad index.
 struct Case {
     name: &'static str,
-    quads: Vec<DynamicQuad>,
-    /// Whether the overlay's scissor removes pixels the scene's pass draws.
+    clip: fn(usize) -> Option<[u32; 4]>,
+    /// Whether the overlay's scissor removes pixels the unclipped quads draw.
     clips: bool,
     /// Whether anything of the quads is left inside the overlay's scissors.
     visible: bool,
 }
 
-fn clipped(clip: impl Fn(usize) -> Option<[u32; 4]>) -> Vec<DynamicQuad> {
-    quads()
+fn clipped(quads: Vec<DynamicQuad>, clip: impl Fn(usize) -> Option<[u32; 4]>) -> Vec<DynamicQuad> {
+    quads
         .into_iter()
         .enumerate()
         .map(|(index, quad)| DynamicQuad {
@@ -34,65 +36,148 @@ fn clipped(clip: impl Fn(usize) -> Option<[u32; 4]>) -> Vec<DynamicQuad> {
 }
 
 fn cases() -> Vec<Case> {
-    let case = |name, quads, clips, visible| Case {
-        name,
-        quads,
-        clips,
-        visible,
-    };
+    fn case(
+        name: &'static str,
+        clip: fn(usize) -> Option<[u32; 4]>,
+        clips: bool,
+        visible: bool,
+    ) -> Case {
+        Case {
+            name,
+            clip,
+            clips,
+            visible,
+        }
+    }
     vec![
         case(
             "partial",
-            clipped(|index| (index != 2).then_some([6, 6, 16, 20])),
+            |index| (index != 2).then_some([6, 6, 16, 20]),
             true,
             true,
         ),
         case(
             "disjoint",
-            clipped(|index| {
+            |index| {
                 Some(if index % 2 == 0 {
                     [0, 0, 14, SIZE]
                 } else {
                     [18, 0, 14, SIZE]
                 })
-            }),
+            },
             true,
             true,
         ),
-        case("full", clipped(|_| Some(FULL)), false, true),
-        case("oversized", clipped(|_| Some([8, 8, 100, 100])), true, true),
-        case("outside", clipped(|_| Some([40, 0, 8, 8])), true, false),
+        case("full", |_| Some(FULL), false, true),
+        case("oversized", |_| Some([8, 8, 100, 100]), true, true),
+        case("outside", |_| Some([40, 0, 8, 8]), true, false),
         case(
             "mixed",
-            clipped(|index| {
+            |index| {
                 Some(if index % 2 == 0 {
                     FULL
                 } else {
                     [SIZE, 4, 4, 4]
                 })
-            }),
+            },
             true,
             true,
         ),
     ]
 }
 
-/// What both paths drew, the counts the two paths reported, and the clear colour left alone.
-struct Drawn {
-    ours: Vec<Vec<u8>>,
-    reference: Vec<Vec<u8>>,
-    unclipped: Vec<Vec<u8>>,
-    untouched: Vec<Vec<u8>>,
-    counts: (DrawCount, DrawCount),
+#[test]
+fn clipped_dynamic_quads_draw_in_the_scene_pass_as_unclipped_quads_do_in_every_target_set() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let textures = textures();
+    let context = context();
+    for config in &CONFIGS {
+        if !supported(&context, config) {
+            println!(
+                "UNLIT-CLIP-CAPTURE config={} skipped: format or samples unsupported",
+                config.name
+            );
+            continue;
+        }
+        let unclipped = capture(&context, config, &textures, &quads());
+        for case in cases() {
+            let quads = clipped(quads(), case.clip);
+            let drawn = capture(&context, config, &textures, &quads);
+            for (index, (drawn, unclipped)) in drawn.iter().zip(&unclipped).enumerate() {
+                assert!(
+                    drawn == unclipped,
+                    "{} {}: attachment {index} differs from the same quads without clip \
+                     rectangles, but the scene's pass does not clip",
+                    config.name,
+                    case.name
+                );
+            }
+            let adapter = context.adapter().get_info().name;
+            for (index, image) in drawn.iter().enumerate() {
+                println!(
+                    "UNLIT-CLIP-CAPTURE adapter={adapter:?} config={} path=scene case={} attachment={index} bytes={} hash={:016x}",
+                    config.name,
+                    case.name,
+                    image.len(),
+                    digest(image)
+                );
+            }
+        }
+    }
 }
 
-/// Stages `quads` as the overlay does, over its own material layout.
-fn overlay_staged(
-    context: &GpuContext,
-    textures: &[SceneTexture],
-    quads: &[DynamicQuad],
-) -> DynamicGpu {
-    let (device, queue) = (context.device(), context.queue());
+/// A screen-space quad of the overlay: pixels from `(left, bottom)` to `(right, top)`.
+fn pixels((left, bottom): (f32, f32), (right, top): (f32, f32)) -> DynamicQuad {
+    DynamicQuad {
+        overlay: true,
+        corners: Some([
+            [left, bottom, 0.0],
+            [right, bottom, 0.0],
+            [right, top, 0.0],
+            [left, top, 0.0],
+        ]),
+        ..DynamicQuad::default()
+    }
+}
+
+/// Four overlapping quads over the 32 pixel target, two of them textured, in submission order.
+fn overlay_quads() -> Vec<DynamicQuad> {
+    vec![
+        DynamicQuad {
+            texture: Some(0),
+            tint: [1.0, 1.0, 1.0, 0.8],
+            ..pixels((2.0, 2.0), (30.0, 14.0))
+        },
+        DynamicQuad {
+            texture: Some(1),
+            tint: [1.0, 0.5, 0.25, 0.6],
+            hierarchy_order: 1,
+            ..pixels((4.0, 10.0), (26.0, 28.0))
+        },
+        DynamicQuad {
+            tint: [0.2, 0.8, 1.0, 0.5],
+            hierarchy_order: 2,
+            ..pixels((16.0, 2.0), (30.0, 30.0))
+        },
+        DynamicQuad {
+            tint: [1.0, 0.0, 0.0, 0.5],
+            hierarchy_order: 3,
+            ..pixels((0.0, 18.0), (32.0, 32.0))
+        },
+    ]
+}
+
+/// What the overlay drew over the target the compositor draws it into, and its draw count.
+struct Overlaid {
+    image: Vec<u8>,
+    drawn: DrawCount,
+}
+
+/// Draws `quads` with the overlay's own pipeline and draw into a cleared target of the output
+/// format, as the compositor does, but without depth.
+fn overlay(context: &GpuContext, textures: &[SceneTexture], quads: &[DynamicQuad]) -> Overlaid {
+    let device = context.device();
+    let (queue, format) = (context.queue(), OffscreenTarget::COLOR_FORMAT);
     let (placeholder, _) = placeholder_with_view(device, queue);
     let sampler = material_sampler(device);
     let layout = material_bind_group_layout(device);
@@ -110,167 +195,118 @@ fn overlay_staged(
             quads,
         )
         .unwrap();
-    staged
-}
-
-fn draw_both(
-    context: &GpuContext,
-    (config, built): (&Config, &Built),
-    (textures, quads): (&[SceneTexture], &[DynamicQuad]),
-    overlay: bool,
-) -> Drawn {
-    let view = view();
-    let legacy = Legacy::new(context, &built.pipelines, textures, quads, &view);
-    let target = (&built.formats[..], config.samples);
-    let bind_screen = |pass: &mut wgpu::RenderPass<'_>| {
-        if let Some(screen) = &built.screen {
-            pass.set_bind_group(3, screen, &[]);
-        }
-    };
-    let mut counts = (DrawCount::default(), DrawCount::default());
-    let (ours, reference) = if overlay {
-        let staged = overlay_staged(context, textures, quads);
-        let ours = render(context, target, |pass| {
-            bind_screen(pass);
-            pass.set_bind_group(0, legacy.frame_group(), &[]);
-            counts.0 = staged
-                .draw_overlay(pass, legacy.pipeline(), [SIZE, SIZE], None)
-                .0;
-        });
-        let reference = render(context, target, |pass| {
-            bind_screen(pass);
-            counts.1 = legacy.draw_scissored(pass, [SIZE, SIZE]);
-        });
-        (ours, reference)
-    } else {
-        let mut gpu =
-            SceneGpu::empty(context.device(), context.submission(), &built.pipelines).unwrap();
-        gpu.set_dynamic_contribution(
-            context.device(),
-            context.submission(),
-            &built.pipelines,
-            textures,
-            quads,
-        )
-        .unwrap();
-        gpu.set_frame(context.queue(), FrameUniform::unlit(&view));
-        let ours = render(context, target, |pass| {
-            bind_screen(pass);
-            gpu.draw(pass, &built.pipelines);
-        });
-        let reference = render(context, target, |pass| {
-            bind_screen(pass);
-            legacy.draw(pass);
-        });
-        (ours, reference)
-    };
-    let unclipped = render(context, target, |pass| {
-        bind_screen(pass);
-        legacy.draw(pass);
+    let pipeline = crate::renderer::overlay::build(device, format, [SIZE, SIZE], &layout, false);
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("overlay clip capture"),
+        size: wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
     });
-    let untouched = render(context, target, |_| {});
-    Drawn {
-        ours,
-        reference,
-        unclipped,
-        untouched,
-        counts,
-    }
-}
-
-fn print(context: &GpuContext, (config, path, case): (&Config, &str, &str), images: &[Vec<u8>]) {
-    let adapter = context.adapter().get_info().name;
-    for (index, image) in images.iter().enumerate() {
-        println!(
-            "UNLIT-CLIP-CAPTURE adapter={adapter:?} config={} path={path} case={case} attachment={index} bytes={} hash={:016x}",
-            config.name,
-            image.len(),
-            digest(image)
-        );
-    }
-}
-
-fn check_unwritten(drawn: &Drawn, (config, case): (&Config, &Case), colour_drawn: bool) {
-    for (index, (ours, untouched)) in drawn.ours.iter().zip(&drawn.untouched).enumerate() {
-        let name = format!("{} {}", config.name, case.name);
-        if index == 0 && colour_drawn {
-            assert!(ours != untouched, "{name}: the quads drew nothing");
-        } else {
-            assert!(ours == untouched, "{name}: attachment {index} was written");
-        }
-    }
-}
-
-fn each_config(mut run: impl FnMut(&GpuContext, &Config, &Built)) {
-    let context = context();
-    for config in &CONFIGS {
-        if !supported(&context, config) {
-            println!(
-                "UNLIT-CLIP-CAPTURE config={} skipped: format or samples unsupported",
-                config.name
-            );
-            continue;
-        }
-        let built = build(context.device(), config);
-        run(&context, config, &built);
-    }
-}
-
-#[test]
-fn clipped_dynamic_quads_match_the_fixed_pipeline_in_the_scene_pass_in_every_target_set() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let textures = textures();
-    each_config(|context, config, built| {
-        for case in cases() {
-            let drawn = draw_both(context, (config, built), (&textures, &case.quads), false);
-            for (index, (ours, reference)) in drawn.ours.iter().zip(&drawn.reference).enumerate() {
-                assert!(
-                    ours == reference,
-                    "{} {}: attachment {index} differs from the fixed pipeline's unclipped scene pass",
-                    config.name,
-                    case.name
-                );
-            }
-            check_unwritten(&drawn, (config, &case), true);
-            print(context, (config, "scene", case.name), &drawn.ours);
-        }
-    });
-}
-
-#[test]
-fn clipped_overlay_quads_match_the_fixed_pipeline_scissored_in_every_target_set() {
-    let _session = crate::test_support::SceneTestSession::acquire();
-    let textures = textures();
-    each_config(|context, config, built| {
-        for case in cases() {
-            let drawn = draw_both(context, (config, built), (&textures, &case.quads), true);
-            for (index, (ours, reference)) in drawn.ours.iter().zip(&drawn.reference).enumerate() {
-                assert!(
-                    ours == reference,
-                    "{} {}: attachment {index} differs from the fixed pipeline's scissored draw",
-                    config.name,
-                    case.name
-                );
-            }
-            assert_eq!(
-                drawn.counts.0, drawn.counts.1,
-                "{} {}: draw counts differ",
-                config.name, case.name
-            );
-            check_unwritten(&drawn, (config, &case), case.visible);
-            assert_eq!(
-                drawn.ours[0] != drawn.unclipped[0],
-                case.clips,
-                "{} {}: the scissor {} the output",
-                config.name,
-                case.name,
-                if case.clips {
-                    "did not clip"
-                } else {
-                    "clipped"
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = context.submission().begin(device).unwrap();
+    let drawn = {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("overlay clip capture"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(fill(0, format)),
+                    store: wgpu::StoreOp::Store,
                 },
-            );
-            print(context, (config, "overlay", case.name), &drawn.ours);
+            })],
+            ..wgpu::RenderPassDescriptor::default()
+        });
+        staged
+            .draw_overlay(&mut pass, &pipeline, [SIZE, SIZE], None)
+            .0
+    };
+    let staging = copy_results(device, &mut encoder, &[target]);
+    let index = encoder.finish().submit().unwrap();
+    let image = read_results(device, index, staging).remove(0);
+    Overlaid { image, drawn }
+}
+
+#[test]
+fn clipped_overlay_quads_draw_only_inside_their_scissors() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let textures = textures();
+    let context = context();
+    let unclipped = overlay(&context, &textures, &overlay_quads());
+    let untouched = overlay(&context, &textures, &[]);
+    assert!(
+        unclipped.image != untouched.image,
+        "the unclipped overlay quads drew nothing"
+    );
+    for case in cases() {
+        let quads = clipped(overlay_quads(), case.clip);
+        let drawn = overlay(&context, &textures, &quads);
+        let name = case.name;
+        assert_eq!(
+            drawn.image != untouched.image,
+            case.visible,
+            "{name}: the overlay draws exactly when something is left inside the scissors"
+        );
+        assert_eq!(
+            drawn.image != unclipped.image,
+            case.clips,
+            "{name}: the scissor changes the output exactly when it removes pixels"
+        );
+        if !case.clips {
+            assert_eq!(drawn.drawn, unclipped.drawn, "{name}: draw counts differ");
         }
-    });
+        if !case.visible {
+            assert_eq!(
+                drawn.drawn,
+                DrawCount::default(),
+                "{name}: a draw was recorded"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_overlay_scissor_keeps_the_pixels_inside_its_lower_left_rectangle() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = context();
+    let edge = f32::from(u8::try_from(SIZE).unwrap());
+    let covering = DynamicQuad {
+        tint: [1.0, 1.0, 1.0, 1.0],
+        ..pixels((0.0, 0.0), (edge, edge))
+    };
+    let clip = [6, 4, 16, 10];
+    let clipped_quad = DynamicQuad {
+        clip_rect: Some(clip),
+        ..covering
+    };
+    let whole = overlay(&context, &[], &[covering]).image;
+    let scissored = overlay(&context, &[], &[clipped_quad]).image;
+    let untouched = overlay(&context, &[], &[]).image;
+    assert!(whole != untouched, "the covering quad drew nothing");
+    let bytes_per_pixel = whole.len() / (SIZE * SIZE) as usize;
+    for row in 0..SIZE {
+        for column in 0..SIZE {
+            let start = (row * SIZE + column) as usize * bytes_per_pixel;
+            let texel = start..start + bytes_per_pixel;
+            // Rows read back from the top, and the clip counts from the bottom.
+            let bottom = SIZE - 1 - row;
+            let inside = (clip[0]..clip[0] + clip[2]).contains(&column)
+                && (clip[1]..clip[1] + clip[3]).contains(&bottom);
+            let expected = if inside { &whole } else { &untouched };
+            assert!(
+                scissored[texel.clone()] == expected[texel],
+                "pixel {column}, {bottom} (from the bottom) should be {}",
+                if inside { "drawn" } else { "untouched" }
+            );
+        }
+    }
 }

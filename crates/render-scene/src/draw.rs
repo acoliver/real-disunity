@@ -32,8 +32,6 @@ pub(crate) mod decals;
 pub use decals::validate_decal_materials;
 mod descriptors;
 mod dynamic;
-#[cfg(test)]
-mod legacy_object_access;
 mod lod_material;
 mod object_runtime;
 pub(crate) mod overlay;
@@ -61,8 +59,6 @@ pub use statistics::{DrawCount, ResourceStatistics, SceneStatistics, TerrainPage
 pub use streaming::TerrainGeometryRequest;
 #[cfg(test)]
 pub(crate) use streaming::await_builds;
-#[cfg(test)]
-pub(crate) use streaming::legacy_access::{LegacyInputs, PageSlot};
 #[cfg(test)]
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
@@ -376,7 +372,7 @@ impl SceneGpu {
             resource_counters: statistics::ResourceCounters::new(&prepared),
             decal_counts: std::rc::Rc::default(),
             decals,
-            celestial: celestial::upload(device, scene, pipelines, &meshes, &materials),
+            celestial: celestial::upload(device, scene, pipelines, &meshes),
             sky: crate::sky::Sky::upload(device, scene, pipelines, &views, &placeholder_view)?,
             casters: caster_edits::CasterEdits::default(),
             post: resources::post_settings(scene)?,
@@ -392,7 +388,9 @@ impl SceneGpu {
             objects,
             meshes,
             mesh_selection: prepared.selection,
-            instances: Instances::new(scene).tracking_previous(pipelines.writes_velocity()),
+            instances: Instances::new(scene)
+                .tracking_previous(pipelines.writes_velocity())
+                .counted(authority.census().clone()),
             frame: std::rc::Rc::new(Cell::new(None)),
             drawing_frame: RefCell::new(None),
             views: Default::default(),

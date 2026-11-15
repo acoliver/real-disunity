@@ -74,16 +74,68 @@ fn a_refused_camera_is_reported_and_a_usable_one_starts_the_window() {
 }
 
 #[test]
-fn once_started_a_changed_game_camera_leaves_the_view_to_navigation() {
+fn the_window_follows_the_game_camera_as_it_moves() {
+    let mut start = CameraStart::default();
+    assert!(!start.following(), "navigation owns the opening view");
+    assert!(start.next(true, Some(&perspective(1.0))).start.is_some());
+    assert!(start.following());
+    let moved = perspective(9.0);
+    assert_eq!(
+        start.next(true, Some(&moved)).start,
+        Some(scene_camera(&moved).unwrap()),
+        "a moved game camera is shown"
+    );
+}
+
+#[test]
+fn a_changed_lens_alone_is_shown() {
     let mut start = CameraStart::default();
     assert!(start.next(true, Some(&perspective(1.0))).start.is_some());
-    let later = start.next(true, Some(&perspective(9.0)));
+    let wider = state(
+        1.0,
+        CameraLens::Perspective {
+            vertical_fov_radians: 1.2,
+            near_meters: 0.3,
+            far_meters: 1000.0,
+        },
+    );
     assert_eq!(
-        later,
-        StartStep {
-            start: None,
-            note: None
-        }
+        start.next(true, Some(&wider)).start,
+        Some(scene_camera(&wider).unwrap())
+    );
+}
+
+#[test]
+fn an_unchanged_game_camera_is_sent_once() {
+    let mut start = CameraStart::default();
+    assert!(start.next(true, Some(&perspective(1.0))).start.is_some());
+    let quiet = StartStep {
+        start: None,
+        note: None,
+    };
+    assert_eq!(start.next(true, Some(&perspective(1.0))), quiet);
+    assert_eq!(
+        start.next(false, Some(&perspective(5.0))),
+        quiet,
+        "no objects"
+    );
+}
+
+#[test]
+fn a_camera_that_goes_missing_keeps_the_last_one_shown() {
+    let mut start = CameraStart::default();
+    assert!(start.next(true, Some(&perspective(1.0))).start.is_some());
+    let missing = start.next(true, None);
+    assert_eq!(missing.start, None);
+    assert!(
+        missing
+            .note
+            .is_some_and(|note| note.contains("keeps the last one shown"))
+    );
+    assert!(start.following(), "the game still owns the view");
+    assert!(
+        start.next(true, Some(&perspective(1.0))).start.is_none(),
+        "the camera that returns unchanged is already shown"
     );
 }
 

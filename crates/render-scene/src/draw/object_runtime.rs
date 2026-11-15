@@ -1,11 +1,11 @@
 //! Records the forward objects through the program runtime.
 //!
-//! The walk over a view's selection is the fixed path's ([`DrawSink`]); only how a draw reaches
-//! the pass differs. A change of pipeline or material binds the prepared pipeline of the pair
-//! (the pipeline and the material's set), and every draw is one [`GeometryDraw`] over the
-//! buffers the walk named. The pass records the commands the fixed path recorded: a buffer is
-//! set when the walk names it, a pipeline when it differs from the one set, and the material's
-//! group when the material changes.
+//! The walk over a view's selection is shared with the test-only fixed sink and key sink
+//! ([`DrawSink`]); only how a draw reaches the pass differs. A change of pipeline or material
+//! binds the prepared pipeline of the pair (the pipeline and the material's set), and every draw
+//! is one [`GeometryDraw`] over the buffers the walk named. The pass records a buffer when the
+//! walk names it, a pipeline when it differs from the one set, and the material's group when the
+//! material changes.
 
 use std::rc::Rc;
 
@@ -195,9 +195,28 @@ impl<P: PassCommands + ?Sized> DrawSink for PreparedSink<'_, P> {
     }
 }
 
+/// Collects the pipeline index of every draw, after a mask, without recording anything.
+#[cfg(test)]
+struct KeySink {
+    mask: usize,
+    keys: std::collections::BTreeSet<usize>,
+}
+
+#[cfg(test)]
+impl DrawSink for KeySink {
+    fn instances(&mut self, _: &Buffer, _: Option<&Buffer>) {}
+
+    fn vertices(&mut self, _: &Buffer) {}
+
+    fn indices(&mut self, _: &Buffer) {}
+
+    fn draw(&mut self, draw: Draw) {
+        self.keys.insert(draw.pipeline ^ self.mask);
+    }
+}
+
 impl SceneGpu {
-    /// Records the scene's objects through the program runtime, as
-    /// [`draw_objects`](Self::draw_objects) records them with the fixed pipelines. The frame
+    /// Records the scene's objects through the program runtime. The frame
     /// group is bound here; the shadow and screen groups are the pass's, bound before this.
     pub(crate) fn draw_objects_prepared<P: PassCommands + ?Sized>(
         &self,
@@ -225,6 +244,27 @@ impl SceneGpu {
         let mut sink = PreparedSink::new(pass, &self.objects, context);
         let count = self.record_selection(&mut sink, (shadow, &view.frame), &view.selection.ranges);
         self.end_objects(view, shadow, count)
+    }
+
+    /// The group the object draws bind at set 0, for tests that record the objects into pass
+    /// commands of their own.
+    #[cfg(test)]
+    pub(crate) fn drawing_frame_group_for_test(&self) -> wgpu::BindGroup {
+        self.drawing_frame_group()
+    }
+
+    /// The keys, as indices into `PipelineKey::ALL` after `mask`, that the camera view's
+    /// selection draws now. It runs the walk a pass records and keeps each draw's pipeline.
+    #[cfg(test)]
+    pub(crate) fn pipeline_keys_drawn(&self, mask: usize) -> std::collections::BTreeSet<usize> {
+        let frame = self.drawing_uniform();
+        let selection = self.select_objects(None, &frame);
+        let mut sink = KeySink {
+            mask,
+            keys: std::collections::BTreeSet::new(),
+        };
+        self.record_selection(&mut sink, (None, &frame), &selection.ranges);
+        sink.keys
     }
 
     /// [`draw_objects_prepared`](Self::draw_objects_prepared), sending pipeline index `i` to the

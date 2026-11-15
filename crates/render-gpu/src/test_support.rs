@@ -76,11 +76,25 @@ pub fn assert_shared_gpu_usable() {
     }
 }
 
+/// The headless instance for GPU tests: [`crate::device::headless_instance`] without
+/// `InstanceFlags::DEBUG`, so the Vulkan backend does not load `VK_EXT_debug_utils`.
+///
+/// Parallel test devices crashed inside the Vulkan loader while naming objects through
+/// `VK_EXT_debug_utils` (hub issue 12ae16c68a94). Discarding labels is not enough: wgpu-hal
+/// names every command buffer it begins, with an empty name when there is no label, whenever
+/// the extension is loaded. wgpu validation messages keep their labels. `WGPU_DEBUG=1` loads
+/// the extension again for a debugging run.
+pub fn test_instance() -> Instance {
+    Instance::new(crate::device::headless_descriptor(
+        wgpu::InstanceFlags::default().difference(wgpu::InstanceFlags::DEBUG),
+    ))
+}
+
 fn shared() -> Result<&'static SharedGpu, TestGpuError> {
     assert_shared_gpu_usable();
     SHARED
         .get_or_init(|| {
-            let instance = crate::device::headless_instance();
+            let instance = test_instance();
             let adapter =
                 pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,

@@ -80,6 +80,26 @@ page lookup, so it has identical semantics for live and cached materials.
 
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
+
+`texture::release_texture_sources` converts a `SceneResources` table into a new
+table whose textures are `SceneTexture::Released` descriptors. It reads each source
+through the preparation parser, including texel colour spaces, `DDS` headers,
+`DXGI` formats, colour-space declarations and complete mip chains. Descriptor
+admission also requires a valid single-layer, two-dimensional, non-cube DX10
+header. Header inspection borrows the bytes and permits trailing container bytes,
+which remain part of the logical source length. Descriptor lengths include the
+148-byte DDS header and must fit an addressable source allocation. It copies no
+payload. The first failing texture stops the conversion
+with `TextureReleaseError::Texture` naming its table index and the underlying
+`TextureError`; the input is never modified. KTX and opaque encodings cannot be
+uploaded and are rejected the same way. `texture::describe_texture` returns the
+descriptor of one texture. A released texture fails `prepare_texture`, and so
+`PreparedScene::new`, with `TextureError::SourceReleased`. Converting a table that
+is already released returns an equal table. The input table and its clones keep
+their bytes, so a clone can still be prepared and drawn. The conversion makes no
+claim about process memory: reclaiming memory needs every holder of the sources to
+drop them. Retained-host release, upload staging and material bind groups do not
+use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. The HDR
 profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through

@@ -1,6 +1,6 @@
 use super::{
-    SceneImpostorChannels, SceneMaterial, SceneTexture, SceneValidationError, TexelFormat,
-    TextureEncoding, TextureHandle,
+    SceneImpostorChannels, SceneMaterial, SceneTexture, SceneTextureDescriptor,
+    SceneValidationError, TexelFormat, TextureEncoding, TextureHandle,
 };
 
 /// A stored scalar component, before any material factor or lighting operation.
@@ -176,6 +176,14 @@ impl super::RenderScene {
     }
 }
 
+fn texel_channel_count(format: TexelFormat) -> u32 {
+    match format {
+        TexelFormat::R8Unorm => 1,
+        TexelFormat::Rg8Unorm | TexelFormat::Rg16Float => 2,
+        TexelFormat::Rgba8Unorm | TexelFormat::Bgra8Unorm | TexelFormat::Rgba16Float => 4,
+    }
+}
+
 fn validate_channel(
     textures: &[SceneTexture],
     part: &'static str,
@@ -188,10 +196,11 @@ fn validate_channel(
     // Texture references are checked before channel admission.
     let texture = &textures[handle.raw() as usize];
     let count = match texture.payload() {
-        SceneTexture::Texels { format, .. } => match format {
-            TexelFormat::R8Unorm => 1,
-            TexelFormat::Rg8Unorm | TexelFormat::Rg16Float => 2,
-            TexelFormat::Rgba8Unorm | TexelFormat::Bgra8Unorm | TexelFormat::Rgba16Float => 4,
+        SceneTexture::Texels { format, .. } => texel_channel_count(*format),
+        SceneTexture::Released(descriptor) => match descriptor {
+            SceneTextureDescriptor::Texels(texels) => texel_channel_count(texels.format),
+            SceneTextureDescriptor::Dds(dds) => dds.format.channel_count(),
+            SceneTextureDescriptor::SpecularCube(_) => return Ok(()),
         },
         SceneTexture::Encoded {
             encoding: TextureEncoding::DdsContainer,

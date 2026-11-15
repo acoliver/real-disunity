@@ -24,6 +24,7 @@ use super::support::{available, material, render_texture, shader, snapshot, worl
 const FORWARD: &str = "UniversalForward";
 const CASTER: &str = "ShadowCaster";
 const UNLIT: &str = "Unlit";
+const DEFAULT_UNLIT: &str = "SRPDefaultUnlit";
 /// The meshes the renderers draw, one for each so a test can tell them apart in the frame.
 const MESH: u64 = 100;
 
@@ -132,13 +133,15 @@ fn draw(world: &mut World, desc: RendererListDesc) {
         .unwrap();
 }
 
-/// The shaders `available` knows, each with the `LightMode` values `MODES` gives its name.
+/// The shaders `available` knows, each with the `LightMode` values and the pass with no tag that
+/// `MODES` gives its name.
 fn with_modes(snapshot: &worldrunner_world_simulation::graphics::GraphicsSnapshot) -> Available {
     let mut available = available(snapshot, 3, &[]);
     for (id, info) in &mut available.shaders {
         let name = &snapshot.shaders[id].name;
-        let (_, modes) = MODES.iter().find(|(held, _)| held == name).unwrap();
+        let (_, modes, untagged) = MODES.iter().find(|(held, ..)| held == name).unwrap();
         info.light_modes = modes.iter().map(|mode| (*mode).to_owned()).collect();
+        info.has_untagged = *untagged;
     }
     available
 }
@@ -191,10 +194,26 @@ fn shaders(world: &mut World) -> [MaterialId; 3] {
     .map(|shader| material(world, shader))
 }
 
-const MODES: [(&str, &[&str]); 3] = [
-    ("forward-and-caster", &[FORWARD, CASTER]),
-    ("unlit", &[UNLIT]),
-    ("forward", &[FORWARD]),
+/// Three more: 3 has one pass with no tag, 4 has a forward pass and a pass with no tag, and 5 has
+/// one pass tagged `Always`.
+fn untagged_shaders(world: &mut World) -> [MaterialId; 3] {
+    [
+        shader(world, "untagged"),
+        shader(world, "forward-and-untagged"),
+        shader(world, "always"),
+    ]
+    .map(|shader| material(world, shader))
+}
+
+/// The name of each shader, the `LightMode` values of its tagged passes and whether it has a pass
+/// with no tag.
+const MODES: [(&str, &[&str], bool); 6] = [
+    ("forward-and-caster", &[FORWARD, CASTER], false),
+    ("unlit", &[UNLIT], false),
+    ("forward", &[FORWARD], false),
+    ("untagged", &[], true),
+    ("forward-and-untagged", &[FORWARD], true),
+    ("always", &["Always"], false),
 ];
 
 #[test]
@@ -279,9 +298,10 @@ fn a_drawing_list_admits_by_layer_queue_and_pass_tag_and_counts_the_rest_by_reas
     assert_eq!(drawn, [(0, 0), (4, 0)]);
     assert_eq!(
         listed[0].draws[0].pass,
-        PassSelector::Tag {
+        PassSelector::TagWithUntagged {
             key: "LightMode".to_owned(),
             values: vec![FORWARD.to_owned()],
+            untagged: DEFAULT_UNLIT.to_owned(),
         }
     );
     let report = &adapted.report.lists;
@@ -309,6 +329,97 @@ fn the_first_listed_tag_a_shader_has_names_the_pass_a_draw_is_counted_under() {
     assert_eq!(
         adapted.report.lists.draws_by_tag,
         counts(&[(FORWARD, 1), (UNLIT, 1)])
+    );
+}
+
+#[test]
+fn a_list_naming_srp_default_unlit_draws_a_shader_with_a_pass_with_no_light_mode() {
+    let mut world = world();
+    let [_, _, forward] = shaders(&mut world);
+    let [untagged, ..] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[untagged], None);
+    placed(&mut world, (1, 0, Vec3::ZERO), &[forward], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, DEFAULT_UNLIT]));
+    let adapted = run(&mut world, |_| {});
+    let listed = lists(&adapted);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(meshes(&adapted, listed[0]), [(0, 0), (1, 0)]);
+    let report = &adapted.report.lists;
+    assert_eq!(
+        report.draws_by_tag,
+        counts(&[(FORWARD, 1), (DEFAULT_UNLIT, 1)])
+    );
+    assert!(report.left_out.is_empty(), "{:?}", report.left_out);
+}
+
+#[test]
+fn a_list_not_naming_srp_default_unlit_leaves_out_a_shader_with_a_pass_with_no_light_mode() {
+    let mut world = world();
+    let [_, _, forward] = shaders(&mut world);
+    let [untagged, ..] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[untagged], None);
+    placed(&mut world, (1, 0, Vec3::ZERO), &[forward], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    let listed = lists(&adapted);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(meshes(&adapted, listed[0]), [(1, 0)]);
+    let report = &adapted.report.lists;
+    assert_eq!(report.draws_by_tag, counts(&[(FORWARD, 1)]));
+    assert_eq!(
+        report.left_out,
+        counts(&[("no pass with the list's tags", 1)])
+    );
+}
+
+#[test]
+fn a_list_with_nothing_but_untagged_shaders_is_empty_unless_it_names_srp_default_unlit() {
+    let mut world = world();
+    let [untagged, ..] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[untagged], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, "UniversalForwardOnly"]));
+    draw(
+        &mut world,
+        drawing(&["UniversalForwardOnly", DEFAULT_UNLIT]),
+    );
+    let adapted = run(&mut world, |_| {});
+    assert_eq!(lists(&adapted).len(), 1);
+    assert_eq!(adapted.report.lists.empty, 1);
+    assert_eq!(adapted.report.lists.drawn, 1);
+}
+
+#[test]
+fn a_list_counts_a_shader_with_a_tagged_and_an_untagged_pass_under_the_first_tag_it_names() {
+    let mut world = world();
+    let [_, mixed, _] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[mixed], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, DEFAULT_UNLIT]));
+    draw(&mut world, drawing(&[DEFAULT_UNLIT, FORWARD]));
+    let adapted = run(&mut world, |_| {});
+    // The list's own order of tags decides, as it does for tagged passes.
+    assert_eq!(
+        adapted.report.lists.draws_by_tag,
+        counts(&[(FORWARD, 1), (DEFAULT_UNLIT, 1)])
+    );
+    assert_eq!(lists(&adapted).len(), 2);
+}
+
+#[test]
+fn a_pass_tagged_always_is_not_a_pass_with_no_light_mode_for_a_list() {
+    let mut world = world();
+    let [.., always] = untagged_shaders(&mut world);
+    placed(&mut world, (0, 0, Vec3::ZERO), &[always], None);
+    scene(&mut world, Mat4::IDENTITY, u32::MAX);
+    draw(&mut world, drawing(&[FORWARD, DEFAULT_UNLIT]));
+    let adapted = run(&mut world, |_| {});
+    assert!(lists(&adapted).is_empty());
+    assert_eq!(
+        adapted.report.lists.left_out,
+        counts(&[("no pass with the list's tags", 1)])
     );
 }
 

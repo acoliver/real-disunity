@@ -1007,7 +1007,9 @@ forward object source with `gbuffer.wgsl` and `shader/gbuffer_lighting.wgsl` app
 so every shadow, SSAO receiver, reflection and receiver-payload variant and every
 specialisation constant is the forward one. Its inputs are set 1, bindings 16 to 22: the
 four targets, the scene depth, the record table and a camera block (inverse
-view-projection and inverse view rotation). Per pixel it reconstructs the position once
+view-projection and inverse view rotation). The inverse projection centres clip depth
+on one, combining its depth and translation columns in f64 before the f32 upload to
+avoid cancellation near the far plane. Per pixel it reconstructs the position once
 from depth, decodes the surface, and evaluates exactly the forward mesh shading after
 decals: `scene_surface_lighting` (sun with the cascades and the selected disk highlight,
 SH or hemisphere ambient, material and screen AO through the selected occlusion rules,
@@ -1065,13 +1067,16 @@ Admission checks this composition against enabled device limits before allocatio
 Render supports Front receivers at zero normal bias. An Opposing reservation or
 nonzero shadow normal bias returns a named admission error before retained state
 changes. Front uses G3's geometric normal and reconstructed scene depth. It retains
-quad displacements within the normal's 7+7-bit octahedral quantization cone and
-replaces incompatible displacements with the current pixel's receiver-plane solve.
-The compatibility bound is `abs(dot(normal, delta)) <= sqrt(18)/127 * length(delta)`;
-it conservatively contains tangents after G3 rounding and normalization. A displacement
-across another surface can still be accepted inside that cone. The tests in
-`src/gbuffer/front_tests.rs` cover the bound across octahedral folds and axes, reject
-an outside displacement, and check the plane solve with both projection types.
+quad displacements within the normal's 7+7-bit octahedral quantization cone only when
+both texels of the derivative pair are covered and carry the same geometric-normal
+code. Material flags do not affect that comparison. Other displacements use the
+current pixel's receiver-plane solve. The compatibility bound is
+`abs(dot(normal, delta)) <= sqrt(18)/127 * length(delta)`; it conservatively contains
+tangents after G3 rounding and normalization. Parallel surfaces with the same code
+can still be accepted inside that cone. The tests in `src/gbuffer/front_tests.rs`
+cover the bound across octahedral folds and axes, reject an outside displacement or
+missing pair provenance, preserve the other coordinate of each derivative pair, and
+check the plane solve with both projection types.
 Both displacements feed the existing projected-gradient solver, without receiver-payload
 attachments. Forward remains the default; observation keeps its separate read-only
 `OpaqueGbuffer` pass.

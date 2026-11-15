@@ -386,13 +386,14 @@ fn inputs_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-/// The camera block for a frame's `view_projection` and right-handed `view`: the inverse of
-/// the projection the producers rasterised with, and the inverse of the view rotation they
-/// encoded normals with.
+/// The camera block for a frame's `view_projection` and right-handed `view`: the inverse
+/// projection with clip depth centred on one, and the inverse view rotation for normals.
 pub(crate) fn camera_bytes(view_projection: glam::Mat4, view: glam::Mat4) -> [u8; CAMERA_BYTES] {
-    let scene_from_clip = view_projection.inverse();
+    let mut scene_from_clip = view_projection.as_dmat4().inverse();
+    // Combine the cancelling depth and translation terms before rounding to the GPU format.
+    scene_from_clip.w_axis += scene_from_clip.z_axis;
     let scene_from_view = glam::Mat3::from_mat4(view).transpose();
-    let mut values = scene_from_clip.to_cols_array().to_vec();
+    let mut values = scene_from_clip.as_mat4().to_cols_array().to_vec();
     for column in [
         scene_from_view.x_axis,
         scene_from_view.y_axis,

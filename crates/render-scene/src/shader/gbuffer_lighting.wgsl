@@ -12,7 +12,7 @@
 // in uniform control flow.
 
 struct SceneDeferredCamera {
-    // Scene position from clip position, the inverse of frame.view_projection.
+    // Inverse of frame.view_projection for homogeneous clip depth z - w.
     scene_from_clip: mat4x4<f32>,
     // Scene direction from view direction, the transpose of the producers' view_from_scene.
     scene_from_view: mat3x3<f32>,
@@ -38,7 +38,10 @@ fn vs_scene_deferred_lighting(@builtin(vertex_index) vertex: u32) -> @builtin(po
 fn scene_deferred_position(pixel: vec2<f32>, depth: f32) -> vec3<f32> {
     let size = vec2<f32>(textureDimensions(scene_deferred_depth));
     let ndc = vec2<f32>(pixel.x / size.x * 2.0 - 1.0, 1.0 - pixel.y / size.y * 2.0);
-    let scene = scene_deferred_camera.scene_from_clip * vec4<f32>(ndc, depth, 1.0);
+    let inverse = scene_deferred_camera.scene_from_clip;
+    let scene = fma(inverse[0], vec4<f32>(ndc.x),
+        fma(inverse[1], vec4<f32>(ndc.y),
+            fma(inverse[2], vec4<f32>(depth - 1.0), inverse[3])));
     return scene.xyz / scene.w;
 }
 

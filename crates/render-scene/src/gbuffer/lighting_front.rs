@@ -19,12 +19,34 @@ const QUAD_PLANE: &str = "fn scene_front_on_plane(quad: vec3<f32>, normal: vec3<
     return abs(dot(normal, quad)) <= normal_error * length(quad);
 }";
 
+/// Both raster lanes in the derivative pair must carry the same geometric normal.
+const PAIR_PROVENANCE: &str =
+    "fn scene_front_pair_origin(pixel: vec2<i32>, direction: vec2<i32>) -> vec2<i32> {
+    return pixel - (pixel & vec2<i32>(1)) * direction;
+}
+fn scene_front_pair_provenance(axis: vec2<f32>) -> bool {
+    let pixel = vec2<i32>(scene_deferred_fragment.xy);
+    let direction = vec2<i32>(axis);
+    let first = scene_front_pair_origin(pixel, direction);
+    let second = first + direction;
+    let size = vec2<i32>(textureDimensions(scene_deferred_g3));
+    if any(first < vec2<i32>(0)) || any(second >= size) {
+        return false;
+    }
+    let first_g3 = textureLoad(scene_deferred_g3, first, 0).r;
+    let second_g3 = textureLoad(scene_deferred_g3, second, 0).r;
+    return first_g3 != 0u && second_g3 != 0u
+        && (first_g3 & 0xfffffffcu) == (second_g3 & 0xfffffffcu);
+}";
+
 /// Observation and pixels the producer did not cover retain the quad difference.
 const DELTA: &str = "fn scene_front_receiver_delta(quad: vec3<f32>, axis: vec2<f32>) -> vec3<f32> {
     let normal = scene_deferred_geometric_normal;
     let on_plane = scene_front_on_plane(quad, normal);
     let solved = scene_front_displacement(scene_deferred_fragment, axis, normal);
-    let plane = scene_deferred_camera.receiver_policy.x != 0u && scene_deferred_covered && !on_plane;
+    let provenance = scene_front_pair_provenance(axis);
+    let plane = scene_deferred_camera.receiver_policy.x != 0u && scene_deferred_covered
+        && (!provenance || !on_plane);
     return select(quad, solved, plane);
 }";
 
@@ -81,7 +103,10 @@ pub(super) fn source(object: &str) -> String {
     let object = object
         .replace(original, &prepared)
         .replace(cascaded, &cascade(cascaded));
-    format!("{object}\n{}\n{QUAD_PLANE}\n{DELTA}\n", displacement())
+    format!(
+        "{object}\n{}\n{QUAD_PLANE}\n{PAIR_PROVENANCE}\n{DELTA}\n",
+        displacement()
+    )
 }
 
 #[cfg(test)]

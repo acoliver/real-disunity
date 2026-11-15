@@ -273,3 +273,94 @@ fn oct_normal_bound_contains_reference_normals_across_folds_and_axes() {
         }
     }
 }
+
+#[test]
+fn front_pair_origin_preserves_the_other_pixel_coordinate() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
+    let (_, object) = object_variants()
+        .into_iter()
+        .find(|(_, object)| {
+            object.contains("fn cascaded_sunlight_visibility(")
+                && !object.contains("fn scene_receiver_load(")
+        })
+        .unwrap();
+    let shader = source(&object);
+    let origin = metadata::function_source(&shader, "scene_front_pair_origin");
+    let entry = "@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;
+@compute @workgroup_size(1) fn evaluate_math() {
+    let pixel = vec2<i32>(179, 79);
+    let across = scene_front_pair_origin(pixel, vec2<i32>(1, 0));
+    let down = scene_front_pair_origin(pixel, vec2<i32>(0, 1));
+    result[0] = vec4<f32>(vec2<f32>(across), vec2<f32>(down));
+}";
+    let actual =
+        crate::shader::gpu_math_tests::evaluate_source(&context, origin, entry, None, None);
+    assert_eq!(actual, [178.0, 79.0, 179.0, 78.0]);
+}
+
+#[test]
+fn front_pair_provenance_checks_coverage_and_geometric_normal_codes() {
+    let (_, object) = object_variants()
+        .into_iter()
+        .find(|(_, object)| {
+            object.contains("fn cascaded_sunlight_visibility(")
+                && !object.contains("fn scene_receiver_load(")
+        })
+        .expect("a shadowed frame without a receiver payload");
+    let shader = source(&object);
+    let provenance = metadata::function_source(&shader, "scene_front_pair_provenance");
+    assert!(provenance.contains("textureDimensions(scene_deferred_g3)"));
+    assert!(provenance.contains("textureLoad(scene_deferred_g3, first, 0).r"));
+    assert!(provenance.contains("textureLoad(scene_deferred_g3, second, 0).r"));
+    assert!(provenance.contains("first_g3 != 0u && second_g3 != 0u"));
+    assert!(provenance.contains("0xfffffffcu"));
+    assert!(provenance.contains("second >= size"));
+    let delta = metadata::function_source(&shader, "scene_front_receiver_delta");
+    assert!(delta.contains("!provenance || !on_plane"));
+}
+
+#[test]
+fn front_rejects_coplanar_quad_from_uncovered_or_normal_discontinuous_neighbor() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    let context = crate::device::GpuContext::shared_for_test().unwrap();
+    let (_, object) = object_variants()
+        .into_iter()
+        .find(|(_, object)| {
+            object.contains("fn cascaded_sunlight_visibility(")
+                && !object.contains("fn scene_receiver_load(")
+        })
+        .expect("a shadowed frame without a receiver payload");
+    let shader = source(&object);
+    let front = [
+        "scene_front_displacement",
+        "scene_front_on_plane",
+        "scene_front_receiver_delta",
+    ]
+    .map(|name| metadata::function_source(&shader, name))
+    .join("\n");
+    let shader = format!(
+        "{ENVIRONMENT_WGSL}\nstruct FrontTestCamera {{ receiver_policy: vec4<u32>, }};\nvar<private> scene_deferred_camera: FrontTestCamera;\nvar<private> scene_deferred_geometric_normal: vec3<f32>;\nvar<private> scene_deferred_fragment: vec4<f32>;\nvar<private> scene_deferred_covered: bool;\nfn scene_front_pair_provenance(axis: vec2<f32>) -> bool {{ return false; }}\n{front}"
+    );
+    let frame = displacement_frame();
+    let pixel = glam::Vec2::new(128.5, 120.5);
+    let position = plane_position(
+        frame.view_projection,
+        glam::Vec2::new(257.0, 241.0),
+        pixel,
+        (glam::Vec3::ZERO, glam::Vec3::Z),
+    );
+    let reciprocal_w = 1.0 / (frame.view_projection * position.extend(1.0)).w;
+    let entry = format!(
+        "@group(0) @binding(1) var<storage, read_write> result: array<vec4<f32>>;\n@compute @workgroup_size(1) fn evaluate_math() {{\n    scene_deferred_camera.receiver_policy = vec4<u32>(1u, 0u, 0u, 0u);\n    scene_deferred_geometric_normal = vec3<f32>(0.0, 0.0, 1.0);\n    scene_deferred_fragment = vec4<f32>({}, {}, 0.0, {});\n    scene_deferred_covered = true;\n    let quad = vec3<f32>(1.0, 0.0, 0.0);\n    let selected = scene_front_receiver_delta(quad, vec2<f32>(1.0, 0.0));\n    let expected = scene_front_displacement(scene_deferred_fragment, vec2<f32>(1.0, 0.0), scene_deferred_geometric_normal);\n    result[0] = vec4<f32>(selected, length(selected - expected));\n}}",
+        pixel.x, pixel.y, reciprocal_w
+    );
+    let actual = crate::shader::gpu_math_tests::evaluate_source(
+        &context,
+        &shader,
+        &entry,
+        Some(&frame),
+        None,
+    );
+    assert!(actual[3] < 2e-4, "coplanar quad was admitted: {actual:?}");
+}

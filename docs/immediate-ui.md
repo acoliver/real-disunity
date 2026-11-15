@@ -31,8 +31,11 @@ fn panel(fonts: &FontBook) -> Result<worldrunner::ui::presentation::UiPresentati
 
 Rectangles use physical pixels from the viewport's top-left, with positive Y
 down. Negative dimensions and nonfinite inputs fail. Zero-area destinations and
-empty clips draw nothing. Clip rectangles intersect as floats and round inward
-only when emitted as integer scissors. They do not cut or distort rotated quads.
+empty clips draw nothing. `push_clip` intersects with the active clip;
+`push_clip_replace` pushes a rectangle bounded only by the viewport. `pop_clip`
+restores the previous clip for either operation. Rectangles remain floats and
+round inward only when emitted as integer scissors. They do not cut or distort
+rotated quads.
 
 Colours are linear straight-alpha RGBA in 0..=1. `set_color` and `set_alpha`
 replace the current modifier values. `push_modifier` saves the current values and

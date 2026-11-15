@@ -27,8 +27,8 @@ pub(super) fn procedural_step(
     globals: Globals<'_>,
     draw: &ProceduralDraw,
 ) -> Result<Step, OffscreenError> {
-    let target = list_steps::usable(svc, draw.target)?;
-    let signature = list_steps::signature(svc, target)?;
+    let target = list_steps::usable(svc, draw.target.clone())?;
+    let signature = list_steps::signature(svc, &target)?;
     let material = frame
         .materials
         .get(&draw.material)
@@ -70,7 +70,7 @@ pub(super) fn procedural_step(
     let pass = list_steps::attachments_pass(
         svc,
         raster_id("offscreen procedural", index),
-        target,
+        &target,
         &loads,
         &draws,
     )?;

@@ -554,6 +554,7 @@ LightmappingTests.Run();
 Hash128Tests.Run();
 FilteringAndStateTests.Run();
 CullingDataTests.Run();
+VisibleLightTests.Run();
 TransformAccessArrayTests.Run();
 RenderEntryPointTests.Run();
 SceneManagerTests.Run();

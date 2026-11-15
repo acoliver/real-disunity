@@ -56,14 +56,18 @@ public struct ScriptableRenderContext : IEquatable<ScriptableRenderContext>
     /// <summary>Queues a culling of the world's renderers with the parameters and returns a handle to the result. The record
     /// reaches the world's offscreen list at <see cref="Submit"/>, in order with the commands executed before and after. Parameters
     /// that did not come from <see cref="Camera.TryGetCullingParameters(out ScriptableCullingParameters)"/> throw
-    /// <see cref="InvalidOperationException"/>. The result has no visible lights or probes (the engine has no light culling).</summary>
+    /// <see cref="InvalidOperationException"/>. The visible lights are found at this call, not at <see cref="Submit"/>: the
+    /// result lists the enabled lights on active GameObjects whose layer is in the culling mask and that are directional or whose
+    /// range sphere is not wholly outside the planes of the culling matrix, directional lights first (see
+    /// <see cref="CullingResults"/>). The engine has no offscreen vertex lights or reflection probes to report.</summary>
     public CullingResults Cull(ref ScriptableCullingParameters parameters)
     {
         if (parameters.CameraHandle == 0) throw new InvalidOperationException("ScriptableRenderContext.Cull: the parameters did not come from a camera");
         var id = WorldGraphics.NextHandle();
         var copy = parameters;
+        var lights = VisibleLightSet.Collect(parameters);
         lock (Pending) Pending.Add(() => WorldGraphics.RecordCull(id, copy));
-        return new CullingResults { Handle = id };
+        return new CullingResults { Handle = id, Lights = lights };
     }
     /// <summary>Queues a record that draws after it use the camera's view and projection matrices and target, read now. The
     /// record reaches the world's offscreen list at <see cref="Submit"/>. A null camera throws <see cref="ArgumentNullException"/>, a

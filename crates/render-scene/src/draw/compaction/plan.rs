@@ -3,12 +3,25 @@ use std::ops::Range;
 use crate::draw::visibility::SelectedRange;
 use crate::instances::BatchKey;
 
-/// One gather copy: selected slots of a batch to a position in the view buffer.
+/// One selected range: slots of a batch gathered to a position in the view buffer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Gather {
     pub key: BatchKey,
     pub source: Range<u32>,
     pub destination: u32,
+}
+
+/// Records one gather workgroup copies at most; longer runs are split so no workgroup
+/// serializes a whole large batch.
+pub(super) const RUN_RECORDS: u32 = 64;
+
+/// One run of the gather dispatch: `count` records from mirror record `source` to view
+/// record `destination`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Run {
+    pub source: u32,
+    pub destination: u32,
+    pub count: u32,
 }
 
 /// The layout of a compacted view buffer.
@@ -51,5 +64,40 @@ impl Plan {
             plan.total = end;
         }
         Some(plan)
+    }
+
+    /// The gather runs that read every selected range from a mirror holding batch `key` from
+    /// record `base(key)`. Ranges contiguous in both the mirror and the view buffer merge, and
+    /// runs longer than [`RUN_RECORDS`] split.
+    pub fn runs(&self, base: impl Fn(BatchKey) -> u32) -> Vec<Run> {
+        let mut merged: Vec<Run> = Vec::with_capacity(self.copies.len());
+        for copy in &self.copies {
+            let source = base(copy.key)
+                .checked_add(copy.source.start)
+                .expect("mirror records fit u32");
+            let count = copy.source.end - copy.source.start;
+            match merged.last_mut().filter(|run| {
+                run.source + run.count == source && run.destination + run.count == copy.destination
+            }) {
+                Some(run) => run.count += count,
+                None => merged.push(Run {
+                    source,
+                    destination: copy.destination,
+                    count,
+                }),
+            }
+        }
+        merged
+            .into_iter()
+            .flat_map(|run| {
+                (0..run.count)
+                    .step_by(RUN_RECORDS as usize)
+                    .map(move |offset| Run {
+                        source: run.source + offset,
+                        destination: run.destination + offset,
+                        count: (run.count - offset).min(RUN_RECORDS),
+                    })
+            })
+            .collect()
     }
 }

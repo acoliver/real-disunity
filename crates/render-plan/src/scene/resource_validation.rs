@@ -92,7 +92,7 @@ fn require_texture(
                 handle: handle.raw(),
                 limit: textures.len() as u64,
             })?;
-    if matches!(texture.payload(), SceneTexture::SpecularCube(_)) {
+    if texture.is_specular_cube() {
         return Err(SceneValidationError::UnsupportedInput { part });
     }
     Ok(())

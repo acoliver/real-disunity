@@ -5,7 +5,7 @@ use crate::scene::opaque::{
 };
 
 #[test]
-fn opaque_path_defaults_to_forward_and_refuses_every_experiment() {
+fn opaque_path_defaults_to_forward_and_admits_only_the_gbuffer_observation() {
     let effects = SceneEffects::new(parts()).unwrap();
     assert_eq!(effects.opaque_path(), SceneOpaquePath::Forward);
     assert_eq!(
@@ -27,14 +27,21 @@ fn opaque_path_defaults_to_forward_and_refuses_every_experiment() {
                     SceneOpaqueVisibility::MaterialOwnedDepth,
                     SceneOpaqueVisibility::CoveragePrefix,
                 ] {
-                    assert_eq!(
-                        effects
-                            .clone()
-                            .with_opaque_path(SceneOpaquePath::experiment(
-                                mode, family, storage, visibility,
-                            )),
-                        Err(SceneValidationError::UnsupportedOpaquePath)
-                    );
+                    let path = SceneOpaquePath::experiment(mode, family, storage, visibility);
+                    let admitted = (mode, family, storage, visibility)
+                        == (
+                            SceneOpaqueMode::Observe,
+                            SceneOpaqueFamily::Terrain,
+                            SceneOpaqueStorage::Compact,
+                            SceneOpaqueVisibility::MaterialOwnedDepth,
+                        );
+                    let selected = effects.clone().with_opaque_path(path);
+                    if admitted {
+                        assert_eq!(path, SceneOpaquePath::GBUFFER_OBSERVATION);
+                        assert_eq!(selected.map(|effects| effects.opaque_path()), Ok(path));
+                    } else {
+                        assert_eq!(selected, Err(SceneValidationError::UnsupportedOpaquePath));
+                    }
                 }
             }
         }

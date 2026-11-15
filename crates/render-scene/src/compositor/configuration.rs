@@ -31,6 +31,9 @@ pub struct RendererConfiguration {
     pub water: Vec<worldrunner_render_plan::SceneWaterBody>,
     /// Reserve the existing frame-depth snapshots for depth-tested UI.
     pub ui_depth: bool,
+    /// The opaque rendering contract. `GBUFFER_OBSERVATION` adds the four G-buffer targets
+    /// and requires a single-sample frame.
+    pub opaque_path: worldrunner_render_plan::SceneOpaquePath,
     pub frame_slots: usize,
     pub timing: TimingMode,
     /// Host-owned persistent storage, staging, readbacks and CPU accumulation.
@@ -55,6 +58,7 @@ impl RendererConfiguration {
             receiver_gradients: super::ReceiverGradientReservation::Opposing,
             water: Vec::new(),
             ui_depth: false,
+            opaque_path: worldrunner_render_plan::SceneOpaquePath::Forward,
             frame_slots: 3,
             timing: TimingMode::Disabled,
             additional: AllocationSet::default(),
@@ -67,6 +71,9 @@ impl RendererConfiguration {
         ));
         screen_allocations(self, &mut set);
         snapshots::allocations(self, &mut set);
+        if super::opaque::admit_path(self.opaque_path, self.frame.samples).unwrap_or(false) {
+            crate::gbuffer::allocations(self.frame.size, &mut set);
+        }
         if self.timing != TimingMode::Disabled {
             set.extend(worldrunner_render_post::allocation::timing_allocations());
         }
@@ -129,6 +136,7 @@ impl RendererConfiguration {
         if !(1..=3).contains(&self.frame_slots) {
             return Err(PostError::UnsupportedProfile("frame slot count"));
         }
+        super::opaque::admit_path(self.opaque_path, self.frame.samples)?;
         if self.hdr.is_none()
             && (self.post.enabled()
                 || self.ssao.is_some()
@@ -673,6 +681,7 @@ fn build(
         ssr: None,
         ssao_requested: settings.ssao,
         ssr_requested: settings.ssr,
+        gbuffer: super::opaque::allocate_path(device, settings.opaque_path, settings.frame)?,
     };
     renderer.install_reflections(device)?;
     renderer.share_metadata_depth(device);

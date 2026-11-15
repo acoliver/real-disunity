@@ -12,7 +12,7 @@ use wgpu::{BufferUsages, Device, TextureView, TextureViewDescriptor};
 use worldrunner_render_gpu::configuration::AllocationSet;
 use worldrunner_render_plan::{
     MeshHandle, RenderScene, SceneAppend, SceneFadeCoverage, SceneMaterial, SceneMesh,
-    SceneTexture, TextureHandle,
+    SceneTexture, SkeletonHandle, TextureHandle,
 };
 
 use super::resources::{
@@ -20,6 +20,7 @@ use super::resources::{
 };
 use super::visibility::MeshSelection;
 use super::{DrawError, PreparedScene, SceneGpu, descriptors, prepared};
+use crate::instances::skin::{SkinNeed, skin_needs};
 use crate::renderer::ScenePipelines;
 use crate::texture::{OwnedPreparedTexture, prepare_texture};
 use crate::upload::{upload_buffer, upload_texture};
@@ -47,6 +48,10 @@ pub struct PreparedAppend {
     textures: Vec<OwnedPreparedTexture>,
     meshes: Vec<prepared::PreparedMesh>,
     selection: Vec<MeshSelection>,
+    /// The skeleton of each skinned level of each appended mesh.
+    skeletons: Vec<Vec<SkeletonHandle>>,
+    /// What each appended mesh asks of the resident skeleton table.
+    needs: Vec<Vec<SkinNeed>>,
     materials: Vec<SceneMaterial>,
 }
 
@@ -78,6 +83,12 @@ impl PreparedAppend {
             textures,
             meshes,
             selection,
+            skeletons: append
+                .meshes
+                .iter()
+                .map(crate::instances::skin::mesh_skeletons)
+                .collect(),
+            needs: append.meshes.iter().map(skin_needs).collect(),
             materials: append.materials.clone(),
         })
     }
@@ -135,6 +146,9 @@ impl PreparedScene {
         }
         for mesh in &self.meshes {
             mesh_allocations(&mut set, mesh);
+        }
+        if !self.palette.is_empty() {
+            set.buffer("scene skin palette", self.palette.bytes().len() as u64, 1);
         }
         set
     }
@@ -387,6 +401,8 @@ pub struct PreparedMeshReplacement {
     index: usize,
     mesh: prepared::PreparedMesh,
     selection: MeshSelection,
+    skeletons: Vec<SkeletonHandle>,
+    needs: Vec<SkinNeed>,
 }
 
 impl PreparedMeshReplacement {
@@ -408,6 +424,8 @@ impl PreparedMeshReplacement {
             index,
             mesh: prepared::prepare_mesh(index, mesh)?,
             selection: MeshSelection::new(mesh),
+            skeletons: crate::instances::skin::mesh_skeletons(mesh),
+            needs: skin_needs(mesh),
         })
     }
 
@@ -440,6 +458,48 @@ impl SceneGpu {
         self.resource_counters.appended.push(reservation);
     }
 
+    /// Refuses an append whose meshes name a skeleton or joint the resident tables lack, which
+    /// would leave placements of the mesh that cannot be admitted.
+    fn admit_skins(&self, prepared: &PreparedAppend) -> Result<(), DrawError> {
+        for (offset, needs) in prepared.needs.iter().enumerate() {
+            self.instances
+                .skin
+                .admit(needs)
+                .map_err(|source| DrawError::SkinReference {
+                    mesh: prepared.base.meshes + offset,
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Refuses a replacement of mesh `replacement.index` that names a skeleton or joint the
+    /// resident tables lack, or that a live placement's pose cannot drive, so that no placement
+    /// of the mesh is left unable to draw.
+    fn admit_replacement(&self, replacement: &PreparedMeshReplacement) -> Result<(), DrawError> {
+        let index = replacement.index;
+        let skin = &self.instances.skin;
+        let refuse = |source| DrawError::SkinReference {
+            mesh: index,
+            source,
+        };
+        skin.admit(&replacement.needs).map_err(refuse)?;
+        if replacement.skeletons.is_empty() {
+            return Ok(());
+        }
+        for (_, object, _) in self
+            .instances
+            .batches
+            .iter()
+            .filter(|(key, _)| key.1 == index)
+            .flat_map(|(_, batch)| batch.placements())
+        {
+            skin.check_pose(&replacement.skeletons, &object)
+                .map_err(|error| refuse(error.into()))?;
+        }
+        Ok(())
+    }
+
     /// Uploads the textures and meshes of `prepared`, binds its materials and makes them
     /// addressable after the resident ones. `source` is the append `prepared` was made from.
     ///
@@ -447,8 +507,8 @@ impl SceneGpu {
     ///
     /// # Errors
     ///
-    /// Returns [`DrawError`] for an append prepared against other table sizes or a failed
-    /// upload.
+    /// Returns [`DrawError`] for an append prepared against other table sizes, one whose meshes
+    /// name skeletons or joints the resident tables lack, or a failed upload.
     pub fn append_prepared(
         &mut self,
         device: &Device,
@@ -464,6 +524,7 @@ impl SceneGpu {
                 "it was prepared against other resident tables",
             ));
         }
+        self.admit_skins(&prepared)?;
         let queue = authority.queue();
         let (textures, new_views) = upload_textures(device, authority, &prepared.textures)?;
         let old_count = self.retained.textures.len();
@@ -502,6 +563,7 @@ impl SceneGpu {
         self.mesh_selection.extend(prepared.selection);
         self.instances
             .extend_resources(&prepared.materials, self.meshes.len());
+        self.instances.skin.extend_meshes(prepared.skeletons);
         Ok(())
     }
 
@@ -577,7 +639,9 @@ impl SceneGpu {
     ///
     /// # Errors
     ///
-    /// Returns [`DrawError`] for a handle outside the resident table.
+    /// Returns [`DrawError`] for a handle outside the resident table, a replacement whose skin
+    /// changes how the mesh's placements batch, or a skinned replacement that names skeletons or
+    /// joints the resident tables lack or that the pose of a live placement cannot drive.
     pub fn replace_mesh_prepared(
         &mut self,
         device: &Device,
@@ -588,6 +652,15 @@ impl SceneGpu {
         if index >= self.meshes.len() {
             return Err(needs_rebuild("mesh", index, "it is not resident"));
         }
+        if self.instances.skin.is_skinned(index) == replacement.skeletons.is_empty() {
+            // Placements batch by mesh, and a skinned mesh's batches carry a skin stream.
+            return Err(needs_rebuild(
+                "mesh",
+                index,
+                "its skinning changed, and placements keep skin streams per mesh",
+            ));
+        }
+        self.admit_replacement(&replacement)?;
         let bytes = mesh_payload_bytes(&replacement.mesh);
         let uploaded = upload_meshes(device, queue, std::slice::from_ref(&replacement.mesh))
             .pop()
@@ -595,6 +668,9 @@ impl SceneGpu {
         self.resource_counters.replace_mesh(index, bytes);
         self.meshes[index] = uploaded;
         self.mesh_selection[index] = replacement.selection;
+        self.instances
+            .skin
+            .replace_mesh(index, replacement.skeletons);
         self.instances.forget_mesh_bounds(index);
         self.casters.global();
         Ok(())

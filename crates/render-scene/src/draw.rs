@@ -63,6 +63,7 @@ pub(crate) use streaming::await_builds;
 pub(crate) use terrain_runtime::paths as terrain_paths;
 mod visibility;
 use crate::instances::Instances;
+pub use crate::instances::skin::SkinMeshError;
 pub use crate::instances::{InstanceError, InstanceHandle, InstanceWrite};
 use visibility::MeshSelection;
 pub use visibility::ViewStats;
@@ -127,6 +128,24 @@ pub enum DrawError {
         /// Smaller of the buffer and storage binding limits.
         limit: u64,
     },
+    /// The scene's skin palettes need more entries than the shader indexes with 32 bits.
+    #[error("skin palettes need {entries} entries, beyond the 32-bit palette index")]
+    SkinPalette {
+        /// Entries the palettes of every pose need.
+        entries: u64,
+    },
+    /// A mesh's skin references do not fit the resident skeleton and pose tables.
+    #[error("mesh {mesh} does not fit the resident skin tables: {source}")]
+    SkinReference {
+        /// Table index of the mesh.
+        mesh: usize,
+        /// What does not fit.
+        #[source]
+        source: SkinMeshError,
+    },
+    /// The device cannot hold the skin palette or read it from the vertex stage.
+    #[error(transparent)]
+    SkinAdmission(#[from] crate::skinning::admission::SkinAdmissionError),
     #[error(transparent)]
     Submission(#[from] worldrunner_render_gpu::submission::SubmitError),
     /// The environmental profile requests an unsupported stock effect.
@@ -197,6 +216,8 @@ pub enum DrawError {
 /// One mesh level held as the buffer pair a draw needs.
 #[derive(Clone, Debug)]
 struct GpuLod {
+    /// The vertex format of `vertices` and `transition`.
+    layout: crate::object::layout::GeometryLayout,
     transition: Option<Buffer>,
     vertices: Buffer,
     indices: Buffer,
@@ -355,8 +376,20 @@ impl SceneGpu {
             },
         );
         let meshes = upload_meshes(device, queue, &prepared.meshes);
-        let objects =
-            crate::object::prepared::PreparedObjects::new(authority.clone(), material_imports);
+        let palette = (!prepared.palette.is_empty()).then(|| {
+            upload_buffer(
+                device,
+                queue,
+                "scene skin palette",
+                BufferUsages::STORAGE,
+                prepared.palette.bytes(),
+            )
+        });
+        let objects = crate::object::prepared::PreparedObjects::new(
+            authority.clone(),
+            material_imports,
+            palette,
+        );
         objects.warm(pipelines.object_context());
         let terrain = resources::upload_terrain(
             device,

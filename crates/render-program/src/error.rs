@@ -47,6 +47,10 @@ pub enum ProgramError {
     #[error("the program has no fragment stage, and the pass has {colors} colour attachments")]
     NoFragmentForColors { colors: usize },
     #[error(
+        "colour attachment {location} is written (its write mask is not empty), and the fragment stage has no output at that location"
+    )]
+    TargetWithoutFragmentOutput { location: u32 },
+    #[error(
         "set {set} binding {binding} imports {semantic}, and the draw imports nothing of that name"
     )]
     MissingImport {

@@ -169,6 +169,7 @@ pub(super) fn upload_meshes(
                 .lods
                 .iter()
                 .map(|lod| GpuLod {
+                    layout: lod.layout,
                     transition: lod.transition.as_ref().map(|bytes| {
                         upload_buffer(
                             device,
@@ -394,6 +395,7 @@ pub(super) fn post_settings(
 
 fn terrain_lod(device: &Device, queue: &Queue, mesh: &crate::terrain::TerrainMesh) -> GpuLod {
     GpuLod {
+        layout: crate::object::layout::GeometryLayout::Static,
         transition: None,
         vertices: upload_buffer(
             device,

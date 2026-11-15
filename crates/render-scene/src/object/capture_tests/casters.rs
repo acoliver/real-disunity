@@ -127,3 +127,55 @@ fn object_casters_write_the_depth_of_the_cascades_that_cover_cards() {
     );
     println!("OBJECT-CAPTURE-SUMMARY set=casters compared={compared} skipped=0");
 }
+
+/// A light frame looking down -Z at the ground plane the skinning ribbon lies on.
+fn ribbon_light() -> Mat4 {
+    glam::camera::rh::proj::directx::orthographic(-1.5, 1.5, -1.5, 1.5, 0.5, 12.0)
+        * glam::camera::rh::view::look_at_mat4(Vec3::new(0.0, 0.0, 6.0), Vec3::ZERO, Vec3::Y)
+}
+
+/// The caster depth of `scene` in one cascade over the ribbon.
+fn ribbon_map(
+    context: &crate::device::GpuContext,
+    scene: &worldrunner_render_plan::RenderScene,
+) -> Vec<u8> {
+    let device = context.device();
+    let pipelines = crate::renderer::ScenePipelines::new(device, TextureFormat::Rgba16Float);
+    let mut rig = Rig::moving(context, &pipelines, scene, false);
+    let sampling = worldrunner_render_plan::SceneShadowSampling::default();
+    let live = crate::shadows::object_casters(&pipelines, settings(), sampling);
+    rig.gpu.prepare_object_context(&live).unwrap();
+    let matrix = ribbon_light();
+    let buffer = crate::upload::upload_buffer(
+        device,
+        context.queue(),
+        "skinned caster frame",
+        wgpu::BufferUsages::UNIFORM,
+        &crate::shadows::light_frame(&rig.frame, matrix).to_bytes(),
+    );
+    let group = crate::draw::decals::empty_group(device, pipelines.frame_layout(), &buffer);
+    capture(&mut rig, &live, ((0, matrix), &group))
+        .drawn
+        .swap_remove(0)
+}
+
+/// Skinned objects cast through the caster programs: at the rest pose the map is the rigid
+/// ribbon's, and moving joint 1 moves the depth it writes.
+#[test]
+fn skinned_casters_write_the_posed_depth() {
+    let _session = crate::test_support::SceneTestSession::acquire();
+    // The ribbon's material samples a BC1 texture, so this needs the BC-capable test device.
+    let context = crate::device::GpuContext::shared_for_test()
+        .expect("GPU acceptance requires a real adapter with BC support");
+    let skinning = crate::draw::tests::skinning::posed;
+    let rest = ribbon_map(&context, &skinning(0));
+    assert_eq!(
+        rest,
+        ribbon_map(&context, &crate::draw::tests::skinning::rigid())
+    );
+    assert_ne!(
+        rest,
+        ribbon_map(&context, &skinning(400)),
+        "joint 1 moves the right quad"
+    );
+}

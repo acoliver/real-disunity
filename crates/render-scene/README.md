@@ -57,12 +57,20 @@ constrained budgets, independent of resident storage and upload-completion histo
 Selected leaves are returned in derived-key order. Relative to history-based tie
 admission, only exact-error ties can change which geometry becomes resident.
 
+Streaming state owns a `TerrainHeightBounds` cache built once per terrain source
+and streaming policy. Terminal ranges scan all inclusive source samples; parents
+union their children's ranges. Camera selection projects each node's own surface
+height range. CPU selector callers construct and reuse the cache with the same
+terrain source and policy they pass to `select` and `error`.
+
 Camera terrain submissions use the shared mesh frustum plane test against each
-resident leaf's full terrain-wide height range and skirt bottom. Culling only
-filters recorded draws: selection, residency, mesh builds and uploads still cover
-the whole grid. Each camera pass uses its own raster matrix, including projection
-jitter. Shadow cascades retain their own light-frustum and slice-hull selection;
-they never use the camera's culled subset. Nonstreaming terrain stays unculled.
+resident leaf's cached height range and the terrain-wide skirt bottom, padded
+outward for floating-point rounding. Culling only filters recorded draws:
+selection, residency, mesh builds and uploads still cover the whole grid. Each
+camera pass uses its own raster matrix, including projection jitter. Shadow
+cascades use terrain-wide height ranges for their footprint and geometry bounds,
+with their own light-frustum and slice-hull selection; they never use the camera's
+culled subset. Nonstreaming terrain stays unculled.
 
 Terrain material normals use +X along layer U and +Y along layer V. Unrotated
 U follows east and V follows north in the Z-up scene. Appearance rotation applies
@@ -80,6 +88,26 @@ page lookup, so it has identical semantics for live and cached materials.
 
 Raw-texel applications can request an empty GPU feature set. DDS block-compressed
 scenes must request BC support. Invalid texture payloads return typed errors.
+
+`texture::release_texture_sources` converts a `SceneResources` table into a new
+table whose textures are `SceneTexture::Released` descriptors. It reads each source
+through the preparation parser, including texel colour spaces, `DDS` headers,
+`DXGI` formats, colour-space declarations and complete mip chains. Descriptor
+admission also requires a valid single-layer, two-dimensional, non-cube DX10
+header. Header inspection borrows the bytes and permits trailing container bytes,
+which remain part of the logical source length. Descriptor lengths include the
+148-byte DDS header and must fit an addressable source allocation. It copies no
+payload. The first failing texture stops the conversion
+with `TextureReleaseError::Texture` naming its table index and the underlying
+`TextureError`; the input is never modified. KTX and opaque encodings cannot be
+uploaded and are rejected the same way. `texture::describe_texture` returns the
+descriptor of one texture. A released texture fails `prepare_texture`, and so
+`PreparedScene::new`, with `TextureError::SourceReleased`. Converting a table that
+is already released returns an equal table. The input table and its clones keep
+their bytes, so a clone can still be prepared and drawn. The conversion makes no
+claim about process memory: reclaiming memory needs every holder of the sources to
+drop them. Retained-host release, upload staging and material bind groups do not
+use this conversion yet.
 Opaque and alpha-masked materials, metallic-roughness lighting, exposure, and
 explicit single-map and cascaded directional shadows are implemented. The HDR
 profile also supports SSAO, water, SSR, adaptive exposure, bloom and FXAA through
@@ -832,19 +860,31 @@ Device acquisition, encoding and readback errors still fail the probe.
 
 ## Submitted geometry statistics
 
-`SceneGpu::statistics()` reads the last submitted main-camera mesh/impostor draw
-selection and decal counts without allocating or polling. The transactional
-compositor publishes both at submission; cancelled encoders do not publish them.
-The immediate `set_frame` API updates decal counts with its CPU frame state.
-Counts include each material slot and
-LOD transition complement, with instance counts summed across those draws.
-These mesh fields exclude shadow, metadata, dynamic quad, terrain, water and sky draws.
+`SceneGpu::statistics()` reads the last submitted pass draws and decal counts
+without allocating or polling. The transactional compositor publishes both at
+submission; cancelled encoders do not publish them. The immediate `set_frame` API
+updates decal counts with its CPU frame state.
 
 `passes` counts CPU-encoded calls and instances for main terrain, transparent
 water, background sky (including discs), native screen-space text (`passes.ui`),
-and each of four directional shadow cascades. Counts are recorded alongside the draw commands and published only on
-submission. A skipped cascade reports zero draws, even when its cached map is
-reused. Metadata, water masks and separate celestial mesh passes are excluded.
+the main camera's objects in the depth/normal prepass (`passes.prepass_objects`)
+and the colour pass (`passes.opaque_objects`), and each of four directional
+shadow cascades. Counts are recorded by the code that issues the draw commands
+and published only on submission. A skipped cascade reports zero draws, even when
+its cached map is reused. Water masks, capture-term replays and separate celestial
+mesh passes are excluded.
+
+Object counts are the indexed draws the recorder issued: one per material slot of
+each drawn level, plus the preceding level's slots for an LOD transition
+complement, with instance counts summed across those draws. A draw counts under
+`impostors` when its material is an impostor, otherwise under `meshes`.
+`ObjectDraws::recording` says how the pass recorded its selection: `Compacted`
+draws each (batch, LOD) group once from the view's gathered instances, `Ranged`
+draws each selected instance range because the view's gathered instances did not
+hold this selection (the resident path never gathers), and `NotRecorded` means the
+pass did not run in that frame. Compaction merges ranges but keeps every material
+slot and transition complement, so a compacted count never exceeds the ranged
+count of the same selection.
 Submitted `SceneStatistics::effects` records directional-shadow installation,
 SSAO installation and enablement, prepass execution, and typed mesh/terrain
 receiver bindings. These follow the installed features and encoded binding
@@ -944,7 +984,10 @@ it is defined at the singular point n.z = -1, which encodes as (1, 0.5) and
 decodes to (0, 0, -1). The decode is `f = min(|4 enc - 2|^2, 4)`,
 `n = ((4 enc - 2) sqrt(1 - f / 4), 1 - f / 2)`. Measured quantisation of the
 shading normal: at most 0.25 degrees for camera-facing normals, 0.35 for
-z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1. The
+z >= -0.5, 0.7 for z >= -0.9, and 6 degrees anywhere including at z = -1, on
+Metal. lavapipe and RADV round some stores to the neighbouring code, so the GPU
+probe holds each stored normal to the worst decode within one code of the CPU
+mirror's code, or the band bound if that is larger. The
 geometric normal's 7+7 bit octahedral code is within 1.9 degrees. Base colour is
 within 0.0045 in linear units, roughness, metal and AO within half a code, and
 emission within 1/255 through its square-root transfer. Every target clears to
@@ -957,6 +1000,20 @@ readback; `Readback` reads `Rgb10a2Unorm` and `R16Uint` natively. The CPU tests
 check the quantisation through a Rust mirror of the WGSL and validate the module
 with naga; the GPU tests draw a small terrain scene with and without the path,
 and a producer that writes known surfaces through `scene_gbuffer_encode`.
+
+The scene itself is a producer. When the frame observes the G-buffer and Opaque
+loads the completed prepass depth (`DepthMode::Reuse`), the prepass metadata carries
+G-buffer pipelines (four targets), and the scene feature draws the camera's selection
+into the slot through the same walk as the colour pass, in the unshadowed and the
+shadowed scene. Other depth modes declare no producer and leave the cleared targets
+untouched. Each fragment entry stores the material its forward entry would light,
+before any lighting: terrain stores `terrain_material`, objects `shade_material`,
+and impostor cards `scene_card_gbuffer_material`, which is derived from the frozen
+`scene_card_shade` by counted rewrites. Scattering materials set flag bit 0 and
+store their per-pixel amount in G2.y with metal 0. For scattering materials whose
+mask is not packed, forward lights both the metalness and the amount that
+`scene_mask_response` returns, and the G-buffer keeps only the amount. Frames
+without the depth prepass store nothing.
 
 `RendererConfiguration::opaque_admission_report` lists opaque material families and
 candidate-layout colour attachment byte costs, attachment limits, and material-record

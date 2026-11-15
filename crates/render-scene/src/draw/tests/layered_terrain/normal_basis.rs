@@ -10,13 +10,25 @@ fn with_strength(scene: &RenderScene, strength: f32) -> RenderScene {
         .unwrap()
 }
 
+/// The stock terrain source with its strength-scaled normal replaced by `normal`, inside
+/// `terrain_material` and up to the decal projection that consumes it.
 fn reference_source(normal: &str) -> String {
     let source = crate::shader::TERRAIN_WGSL;
-    let start = source
-        .find("    let strength = bitcast<f32>(terrain.surfaces[0].normal_strength_bits")
-        .unwrap();
-    let end = start + source[start..].find("    // Terrain has neither").unwrap();
-    format!("{}{normal}\n{}", &source[..start], &source[end..])
+    let from = "    let strength = bitcast<f32>(terrain.surfaces[0].normal_strength_bits";
+    let to = "    let projected = scene_project_decals(input.world_position, geometric, 2u,";
+    assert_eq!(
+        source.matches(from).count(),
+        1,
+        "one strength-scaled normal"
+    );
+    assert_eq!(
+        source.matches(to).count(),
+        1,
+        "one terrain decal projection"
+    );
+    let start = source.find(from).unwrap();
+    let end = start + source[start..].find(to).unwrap();
+    format!("{}{normal}\n\n{}", &source[..start], &source[end..])
 }
 
 #[test]

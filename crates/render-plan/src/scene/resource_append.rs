@@ -26,12 +26,20 @@ impl SceneResources {
         }
         Arc::make_mut(&mut self.textures).extend(textures);
         Arc::make_mut(&mut self.materials).extend(materials);
-        let result = self.validate_entries(first_texture, first_material);
-        if result.is_err() {
-            Arc::make_mut(&mut self.textures).truncate(first_texture);
-            Arc::make_mut(&mut self.materials).truncate(first_material);
+        let result = self
+            .validate_entries(first_texture, first_material)
+            .and_then(|()| self.total_with(&self.textures[first_texture..]));
+        match result {
+            Ok(total) => {
+                self.logical_bytes = total;
+                Ok(())
+            }
+            Err(error) => {
+                Arc::make_mut(&mut self.textures).truncate(first_texture);
+                Arc::make_mut(&mut self.materials).truncate(first_material);
+                Err(error)
+            }
         }
-        result
     }
 
     /// Validates the entries from the given positions on, naming the first one that fails.
@@ -65,10 +73,13 @@ impl SceneResources {
         texture: SceneTexture,
     ) -> Result<(), SceneValidationError> {
         texture.validate()?;
+        let total = self.total_replacing(index, &texture)?;
         let old = std::mem::replace(&mut Arc::make_mut(&mut self.textures)[index], texture);
         let result = self.validate_from(self.textures.len(), 0);
         if result.is_err() {
             Arc::make_mut(&mut self.textures)[index] = old;
+        } else {
+            self.logical_bytes = total;
         }
         result
     }

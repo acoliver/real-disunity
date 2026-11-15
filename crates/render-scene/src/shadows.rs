@@ -528,6 +528,10 @@ impl ShadowedScene {
         if let Some(screen) = screen {
             gpu.prepare_terrain(screen.prepass_pipelines(), frame)?;
             gpu.prepare_objects(screen.prepass_pipelines(), frame)?;
+            if let Some((gbuffer, _)) = &screen.gbuffer {
+                gpu.prepare_terrain(gbuffer, frame)?;
+                gpu.prepare_objects(gbuffer, frame)?;
+            }
         }
         gpu.prepare_terrain(selected, frame)?;
         gpu.prepare_objects(selected, frame)?;
@@ -732,7 +736,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         Ok(())
     }
     fn commit(&mut self, context: &mut worldrunner_render_post::PrepareContext<'_>) {
-        self.gpu.reset_pass_statistics();
+        self.gpu.reset_pass_statistics(context);
         self.publications.install(
             context,
             crate::draw::PassInstallation::Installed,
@@ -741,6 +745,7 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         );
         self.gpu.prepare_instances(context);
         self.gpu.commit_frame(context, self.frame);
+        self.select_views(context);
         self.gpu.prepare_view_compaction(context, None, &self.frame);
         self.prepare_cascade_compaction(context);
         // Each light view has its own immutable uniform range; billboards keep the main eye.
@@ -768,14 +773,18 @@ impl worldrunner_render_post::PreparedFeature for ShadowFeature<'_> {
         }
         #[cfg(test)]
         crate::scene_metadata::record_pass(context.slot);
-        if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
+        if context.slot == worldrunner_render_post::PassSlot::OpaqueGbuffer {
+            let screen = self.screen.as_ref().expect("declared G-buffer producer");
+            let (pipelines, group) = screen.gbuffer.as_ref().expect("G-buffer pipelines");
+            self.gpu.draw_gbuffer(pass, pipelines, group);
+        } else if context.slot == worldrunner_render_post::PassSlot::DepthNormalPrepass {
             self.publications.prepass();
             let screen = self.screen.as_ref().expect("declared prepass");
-            self.publications.record(self.gpu.draw_prepass(
-                pass,
-                screen.prepass_pipelines(),
-                &screen.group,
-            ));
+            self.publications.record_prepass(
+                self.gpu,
+                self.gpu
+                    .draw_prepass(pass, screen.prepass_pipelines(), &screen.group),
+            );
         } else if let worldrunner_render_post::PassSlot::ShadowCasters(index) = context.slot {
             if self.cascades.no_receivers {
                 return;

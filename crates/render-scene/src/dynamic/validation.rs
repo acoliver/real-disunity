@@ -34,6 +34,7 @@ pub(crate) fn validate_quad(
     index: usize,
     texture_count: usize,
 ) -> Result<(), DynamicError> {
+    super::distance::validate(quad, index)?;
     validate_overlay_depth(quad, index)?;
     validate_overlay_metadata(quad, index)?;
     let invalid = |field| DynamicError::InvalidQuad { index, field };

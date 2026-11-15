@@ -24,6 +24,7 @@ fn fixture() -> (UiPresentation, SpriteTextures) {
             kind: UiDrawKind::Graphic,
             depth_test: false,
             corner_colors: None,
+            distance_field: None,
             triangle_uv: None,
             corners: [[0., 0., 0.], [8., 0., 0.], [8., 8., 0.], [0., 8., 0.]],
             uv_rect: [0., 0., 1., 1.],

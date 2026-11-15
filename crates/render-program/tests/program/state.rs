@@ -228,9 +228,7 @@ fn a_property_that_is_not_a_float_is_a_named_error() {
 
 #[test]
 fn state_this_slice_does_not_draw_is_a_named_error() {
-    let cases: [(&str, Change); 6] = [
-        ("stencil", |s| s.stencil.both.compare = fixed(3.0)),
-        ("stencil", |s| s.stencil.front.pass = fixed(2.0)),
+    let cases: [(&str, Change); 4] = [
         ("depth offset", |s| s.depth.offset_units = fixed(-1.0)),
         ("depth offset", |s| s.depth.offset_factor = fixed(1.0)),
         ("alpha to coverage", |s| s.depth.alpha_to_mask = fixed(1.0)),
@@ -268,4 +266,157 @@ fn an_integer_property_is_a_state_value_too() {
     let resolved = resolve_state(&state, &[&material]).unwrap();
     assert_eq!(resolved.state.cull, Some(Face::Front));
     assert_eq!(resolved.state.depth_compare, CompareFunction::Greater);
+}
+
+fn replace_where_equal(state: &mut ShaderState, reference: f32) {
+    state.stencil.both.pass = fixed(2.0);
+    state.stencil.both.compare = fixed(3.0);
+    state.stencil.reference = fixed(reference);
+}
+
+#[test]
+fn a_state_that_keeps_the_stencil_and_always_passes_has_no_stencil() {
+    assert_eq!(
+        resolve_state(&opaque_state(), &[]).unwrap().state.stencil,
+        None
+    );
+    let mut state = opaque_state();
+    state.stencil.both.compare = fixed(0.0);
+    state.stencil.reference = fixed(7.0);
+    assert_eq!(resolve_state(&state, &[]).unwrap().state.stencil, None);
+}
+
+#[test]
+fn every_unity_stencil_operation_resolves_to_its_wgpu_operation() {
+    use wgpu::StencilOperation as Op;
+    let operations = [
+        Op::Keep,
+        Op::Zero,
+        Op::Replace,
+        Op::IncrementClamp,
+        Op::DecrementClamp,
+        Op::Invert,
+        Op::IncrementWrap,
+        Op::DecrementWrap,
+    ];
+    for (value, expected) in (0u8..).map(f32::from).zip(operations) {
+        let mut state = opaque_state();
+        state.stencil.both.compare = fixed(3.0);
+        state.stencil.both.pass = fixed(value);
+        state.stencil.both.fail = fixed(value);
+        state.stencil.both.z_fail = fixed(value);
+        let stencil = resolve_state(&state, &[]).unwrap().state.stencil.unwrap();
+        for face in [stencil.ops.front, stencil.ops.back] {
+            assert_eq!(
+                (face.pass_op, face.fail_op, face.depth_fail_op),
+                (expected, expected, expected),
+                "StencilOp {value}"
+            );
+            assert_eq!(face.compare, CompareFunction::Equal);
+        }
+    }
+}
+
+#[test]
+fn the_reference_and_masks_come_from_the_state_or_the_properties_it_names() {
+    let mut state = opaque_state();
+    replace_where_equal(&mut state, 1.0);
+    state.stencil.read_mask = named(255.0, "_StencilReadMask");
+    state.stencil.write_mask = named(255.0, "_StencilWriteMask");
+    state.stencil.reference = named(1.0, "_StencilRef");
+    let defaulted = resolve_state(&state, &[]).unwrap();
+    let stencil = defaulted.state.stencil.unwrap();
+    assert_eq!(
+        (
+            stencil.reference,
+            stencil.ops.read_mask,
+            stencil.ops.write_mask
+        ),
+        (1, 255, 255)
+    );
+    assert_eq!(
+        defaulted.defaulted,
+        ["_StencilReadMask", "_StencilWriteMask", "_StencilRef"]
+    );
+    let material = floats(&[
+        ("_StencilRef", 9.0),
+        ("_StencilReadMask", 15.0),
+        ("_StencilWriteMask", 240.0),
+    ]);
+    let stencil = resolve_state(&state, &[&material])
+        .unwrap()
+        .state
+        .stencil
+        .unwrap();
+    assert_eq!(
+        (
+            stencil.reference,
+            stencil.ops.read_mask,
+            stencil.ops.write_mask
+        ),
+        (9, 15, 240)
+    );
+}
+
+#[test]
+fn a_face_takes_its_own_stencil_values_and_the_rest_from_both() {
+    use wgpu::StencilOperation as Op;
+    let mut state = opaque_state();
+    replace_where_equal(&mut state, 1.0);
+    state.stencil.back.pass = fixed(5.0);
+    state.stencil.back.compare = fixed(7.0);
+    state.stencil.front.z_fail = fixed(6.0);
+    let stencil = resolve_state(&state, &[]).unwrap().state.stencil.unwrap();
+    let (front, back) = (stencil.ops.front, stencil.ops.back);
+    assert_eq!(
+        (front.compare, front.pass_op, front.depth_fail_op),
+        (CompareFunction::Equal, Op::Replace, Op::IncrementWrap)
+    );
+    assert_eq!(
+        (back.compare, back.pass_op, back.depth_fail_op),
+        (CompareFunction::GreaterEqual, Op::Invert, Op::Keep)
+    );
+}
+
+#[test]
+fn a_stencil_value_with_no_meaning_is_a_named_error_for_the_face_that_holds_it() {
+    let cases: [(&str, Change, f32); 5] = [
+        (
+            "stencil pass operation",
+            |s| s.stencil.both.pass = fixed(8.0),
+            8.0,
+        ),
+        (
+            "front stencil depth-fail operation",
+            |s| {
+                s.stencil.front.z_fail = fixed(9.0);
+            },
+            9.0,
+        ),
+        (
+            "back stencil comparison",
+            |s| s.stencil.back.compare = fixed(9.0),
+            9.0,
+        ),
+        (
+            "stencil reference",
+            |s| s.stencil.reference = fixed(256.0),
+            256.0,
+        ),
+        (
+            "stencil write mask",
+            |s| s.stencil.write_mask = fixed(-1.0),
+            -1.0,
+        ),
+    ];
+    for (field, change, value) in cases {
+        let mut state = opaque_state();
+        state.stencil.both.compare = fixed(3.0);
+        change(&mut state);
+        assert_eq!(
+            resolve_state(&state, &[]).unwrap_err(),
+            StateError::UnknownValue { field, value },
+            "{field}"
+        );
+    }
 }

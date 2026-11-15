@@ -12,7 +12,7 @@ use worldrunner_disunity_runtime::{
 use worldrunner_render_program::ids::TextureId;
 use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_render_program::unity::offscreen::frame::{
-    ChannelFormat, Mesh, MeshChannel, MeshIndices, SourceTexture, SubMesh,
+    ChannelFormat, Mesh, MeshChannel, MeshIndices, SourceDimension, SourceTexture, SubMesh,
 };
 use worldrunner_world_simulation::MAX_RENDERER_MATERIALS;
 use worldrunner_world_simulation::graphics::WorldSampler;
@@ -357,6 +357,7 @@ pub fn texture_of(
     if stored.format == BC6H {
         return Ok(SourceTexture {
             id,
+            dimension: SourceDimension::D2,
             size: [stored.width, stored.height],
             graphics_format: BC6H_UFLOAT,
             bytes: block_base_level(stored, "BC6H", 16)?,
@@ -370,6 +371,7 @@ pub fn texture_of(
     {
         return Ok(SourceTexture {
             id,
+            dimension: SourceDimension::D2,
             size: [stored.width, stored.height],
             graphics_format,
             bytes: block_base_level(stored, name, block_bytes)?,
@@ -378,6 +380,7 @@ pub fn texture_of(
     }
     Ok(SourceTexture {
         id,
+        dimension: SourceDimension::D2,
         size: [stored.width, stored.height],
         graphics_format: if stored.linear {
             RGBA8_LINEAR

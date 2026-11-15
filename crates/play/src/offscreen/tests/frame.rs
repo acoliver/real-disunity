@@ -2,9 +2,8 @@
 
 use glam::{Quat, Vec3};
 use std::collections::BTreeMap;
-use worldrunner_render_program::ids::{CameraId, MeshId, RendererId, ShaderId, TextureId};
+use worldrunner_render_program::ids::{CameraId, MeshId, RendererId, ShaderId};
 use worldrunner_render_program::properties::PropertyValue;
-use worldrunner_render_program::sampler::{Filter, SamplerState, Wrap};
 use worldrunner_render_program::unity::offscreen::frame::Record;
 use worldrunner_render_program::unity::shader::PassSelector;
 use worldrunner_world_simulation::graphics::{
@@ -23,7 +22,7 @@ use super::support::{
 
 const MESH: u64 = (1 << 41) + 3;
 
-fn settings() -> Settings {
+pub(super) fn settings() -> Settings {
     Settings {
         light_modes: vec!["Alpha".to_owned(), "Fallback".to_owned()],
         untagged_light_mode: None,
@@ -36,7 +35,7 @@ fn draw(world: &mut World, camera: ComponentHandle, target: RenderTextureId) {
         .unwrap();
 }
 
-fn blit(
+pub(super) fn blit(
     world: &mut World,
     source: TextureRef,
     target: RenderTextureId,
@@ -817,114 +816,6 @@ fn a_renderer_with_no_material_at_all_is_skipped() {
             .renderers_skipped
             .get(&RendererSkip::NoMaterial),
         Some(&1)
-    );
-}
-
-#[test]
-fn a_stored_texture_the_host_can_read_is_named_by_its_identity() {
-    let mut world = world();
-    let (a, b) = (
-        render_texture(&mut world, [8, 8]),
-        render_texture(&mut world, [8, 8]),
-    );
-    let shader = shader(&mut world, "Blit");
-    let material = material(&mut world, shader);
-    set(
-        &mut world,
-        material,
-        WorldValue::Texture("_Lookup".into(), texture_slot(TextureRef::Asset(1 << 40))),
-    );
-    blit(&mut world, TextureRef::Asset(1 << 40), b, Some(material), 0);
-    blit(&mut world, TextureRef::Render(a), b, Some(material), 0);
-    let snapshot = snapshot(&mut world);
-    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[1 << 40]), &settings());
-    let input = adapted.frame.materials[&ids::material(material)]
-        .properties
-        .textures["_Lookup"];
-    assert_eq!(input.texture, TextureId(1 << 40));
-    let Record::Blit { source, .. } = &adapted.frame.records[0] else {
-        panic!("a blit");
-    };
-    assert_eq!(*source, TextureId(1 << 40));
-}
-
-#[test]
-fn a_texture_property_that_names_no_texture_the_frame_can_read_is_counted_by_name_and_reason() {
-    let mut world = world();
-    let target = render_texture(&mut world, [8, 8]);
-    let shader = shader(&mut world, "Blit");
-    let material = material(&mut world, shader);
-    for (name, texture) in [
-        ("_NotUploaded", TextureRef::Asset(1 << 40)),
-        ("_Uploaded", TextureRef::Asset(1 << 41)),
-        ("_Nothing", TextureRef::None),
-    ] {
-        set(
-            &mut world,
-            material,
-            WorldValue::Texture(name.into(), texture_slot(texture)),
-        );
-    }
-    blit(
-        &mut world,
-        TextureRef::Render(target),
-        target,
-        Some(material),
-        0,
-    );
-    let snapshot = snapshot(&mut world);
-    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[1 << 41]), &settings());
-    assert_eq!(
-        adapted.report.unresolved_textures,
-        BTreeMap::from([
-            ("_NotUploaded: asset not readable by the host".to_owned(), 1),
-            ("_Nothing: no texture set".to_owned(), 1),
-        ])
-    );
-}
-
-#[test]
-fn a_render_texture_named_by_a_property_is_read_with_its_own_sampler() {
-    let mut world = world();
-    let description = WorldRenderTexture {
-        width: 8,
-        height: 8,
-        format: 8,
-        depth_bits: 0,
-        mip_count: 1,
-        srgb: false,
-        dimension: 2,
-        volume_depth: 1,
-        sampler: WorldSampler {
-            wrap_u: 1,
-            wrap_v: 2,
-            wrap_w: 0,
-            filter: 0,
-            aniso_level: 1,
-            mip_bias: 0.0,
-        },
-        generation: 0,
-    };
-    let (a, b) = (
-        world.create_render_texture(description).unwrap(),
-        render_texture(&mut world, [8, 8]),
-    );
-    world
-        .set_global_property(WorldValue::Texture(
-            "_Lookup".into(),
-            texture_slot(TextureRef::Render(a)),
-        ))
-        .unwrap();
-    blit(&mut world, TextureRef::Render(a), b, None, 0);
-    let snapshot = snapshot(&mut world);
-    let adapted = adapt(&snapshot, &available(&snapshot, 1, &[]), &settings());
-    assert_eq!(
-        adapted.frame.globals.textures["_Lookup"].sampler,
-        Some(SamplerState {
-            wrap_u: Wrap::Clamp,
-            wrap_v: Wrap::Mirror,
-            filter: Filter::Point,
-        })
     );
 }
 

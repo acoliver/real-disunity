@@ -422,8 +422,14 @@ fn terrain_quad_footprint(fragment: vec4<f32>, axis: vec2<f32>, normal: vec3<f32
     return clamp(displacement.xy * direction, vec2<f32>(-1e4), vec2<f32>(1e4));
 }
 
-@fragment
-fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
+// A terrain fragment's material after projected decals: the values the forward path lights and
+// the G-buffer stores, evaluated once by either.
+struct TerrainMaterial {
+    geometric: vec3<f32>,
+    projected: SceneDecalSurface,
+}
+
+fn terrain_material(input: TerrainVertexOutput) -> TerrainMaterial {
     let world_xy = input.world_position.xy;
     let footprint_normal = normalize(terrain_face_normal(input.world_position.xy, input.plane_index, input.skirt_axis));
     let world_xy_dx = terrain_quad_footprint(input.clip_position, vec2<f32>(1.0, 0.0), footprint_normal);
@@ -449,10 +455,16 @@ fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
         );
     }
 
-    // Terrain has neither an ambient occlusion map nor a screen-space
-    // occlusion pass, so its ambient contribution remains unoccluded.
     let projected = scene_project_decals(input.world_position, geometric, 2u,
         blended.albedo, vec2<f32>(blended.roughness, blended.metalness), normal);
+    return TerrainMaterial(geometric, projected);
+}
+
+@fragment
+fn fs_terrain(input: TerrainVertexOutput) -> @location(0) vec4<f32> {
+    let projected = terrain_material(input).projected;
+    // Terrain has neither an ambient occlusion map nor a screen-space
+    // occlusion pass, so its ambient contribution remains unoccluded.
     let lighting = scene_surface_lighting(
         input.world_position,
         projected.normal,

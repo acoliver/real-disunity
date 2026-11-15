@@ -44,6 +44,13 @@ impl TextureInfo {
         self.color.into_iter().chain(self.depth)
     }
 
+    /// Whether this is a render texture whose storage is the one `spec` describes.
+    fn holds(&self, spec: &RenderTextureSpec) -> bool {
+        self.spec
+            .as_ref()
+            .is_some_and(|made| made.same_storage(spec))
+    }
+
     /// The storage copies, readbacks and samples use: the color, or the depth when there is none.
     pub(super) fn primary(&self) -> TextureHandle {
         self.color
@@ -53,7 +60,8 @@ impl TextureInfo {
 }
 
 /// The textures by id. A render texture is created when the frame first names it and again when
-/// its spec changes; the replaced storage is released as soon as the runtime is not recording.
+/// the storage its spec describes changes (see [`RenderTextureSpec::same_storage`]); the replaced
+/// storage is released as soon as the runtime is not recording.
 #[derive(Default)]
 pub(super) struct TextureTable {
     textures: HashMap<TextureId, TextureInfo>,
@@ -127,8 +135,9 @@ impl TextureTable {
         self.storage.extend(ids);
     }
 
-    /// Creates every render texture of the frame that is new, whose spec changed or that a kernel
-    /// binds as storage and was made without storage binding.
+    /// Creates every render texture of the frame that is new, whose storage changed or that a
+    /// kernel binds as storage and was made without storage binding. A texture whose spec differs
+    /// only in `generation` keeps its storage and its contents and records the new spec.
     pub(super) fn sync(
         &mut self,
         runtime: &mut ProgramRuntime,
@@ -137,9 +146,10 @@ impl TextureTable {
         self.release_waiting(runtime);
         for spec in specs {
             let storage = self.storage.contains(&spec.id) && storage_format(runtime, spec);
-            let held = self.textures.get(&spec.id);
-            let current = held.and_then(|t| t.spec.as_ref());
-            if current != Some(spec) || held.is_some_and(|t| t.storage != storage) {
+            let held = self.textures.get_mut(&spec.id);
+            if let Some(info) = held.filter(|t| t.holds(spec) && t.storage == storage) {
+                info.spec = Some(spec.clone());
+            } else {
                 let info = create_render_texture(runtime, spec, storage)?;
                 self.replace(runtime, spec.id, info);
             }
@@ -219,8 +229,8 @@ impl TextureTable {
     }
 
     /// The bytes the render textures of `specs` would add: those the table has not made or made
-    /// from another spec. The storage a replaced texture held is given back later and is not
-    /// subtracted.
+    /// with other storage (see [`RenderTextureSpec::same_storage`]). The storage a replaced
+    /// texture held is given back later and is not subtracted.
     pub(super) fn new_render_bytes(
         &self,
         runtime: &ProgramRuntime,
@@ -228,7 +238,7 @@ impl TextureTable {
     ) -> u64 {
         specs
             .iter()
-            .filter(|spec| self.textures.get(&spec.id).and_then(|t| t.spec.as_ref()) != Some(*spec))
+            .filter(|spec| !self.textures.get(&spec.id).is_some_and(|t| t.holds(spec)))
             .map(|spec| render_bytes(spec, runtime.device()))
             .sum()
     }

@@ -76,7 +76,9 @@ impl RenderDimension {
 }
 
 /// A render texture or texture array the frame draws into, copies into or samples. The state
-/// creates the texture again when anything but the id changes.
+/// creates the texture again, empty, when a field that shapes its storage changes (see
+/// [`same_storage`](Self::same_storage)). A rise of `generation` alone, which is what a sampler
+/// edit makes, keeps the texture and its contents.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RenderTextureSpec {
     pub id: TextureId,
@@ -98,6 +100,20 @@ impl RenderTextureSpec {
     #[must_use]
     pub const fn layers(&self) -> u32 {
         self.dimension.layers()
+    }
+
+    /// Whether a texture made from `self` can serve `other`: every field but `generation` is
+    /// the same, so the storage has the same shape, format and size and keeps what it holds.
+    /// `generation` is how the host says the texture was edited, and a sampler edit changes no
+    /// storage. The one rule that decides when storage is made again, for the state's creation
+    /// of the texture and for its count of the bytes a frame would add.
+    #[must_use]
+    pub fn same_storage(&self, other: &Self) -> bool {
+        let without_generation = |spec: &Self| Self {
+            generation: 0,
+            ..spec.clone()
+        };
+        without_generation(self) == without_generation(other)
     }
 }
 

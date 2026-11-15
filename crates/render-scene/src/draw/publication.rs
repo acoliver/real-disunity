@@ -10,8 +10,14 @@ pub(crate) struct SelectionPublication {
     pub(super) selection: Selection,
 }
 
-pub(crate) struct ColorDraw {
+/// A camera or shadow view's selection to publish with the object draws its pass recorded.
+pub(crate) struct DrawnObjects {
     pub selection: SelectionPublication,
+    pub objects: super::ObjectDraws,
+}
+
+pub(crate) struct ColorDraw {
+    pub drawn: DrawnObjects,
     pub terrain: super::DrawCount,
     pub sky: super::DrawCount,
     pub shadows: super::ReceiverBindings,
@@ -32,11 +38,21 @@ impl DrawPublications {
             .set(scene.drawing_geometry_statistics(draw.terrain));
         scene.pass_counters.terrain.record(draw.terrain);
         scene.pass_counters.sky.record(draw.sky);
+        scene
+            .pass_counters
+            .opaque_objects
+            .record(draw.drawn.objects);
         let mut effects = self.effects.get();
         effects.shadows.receivers = draw.shadows;
         effects.ssao.receivers = draw.ssao;
         self.effects.set(effects);
-        self.record(draw.selection);
+        self.record(draw.drawn.selection);
+    }
+
+    /// Records the main camera's depth/normal prepass objects.
+    pub fn record_prepass(&self, scene: &super::SceneGpu, drawn: DrawnObjects) {
+        scene.pass_counters.prepass_objects.record(drawn.objects);
+        self.record(drawn.selection);
     }
 
     pub fn record(&self, selection: SelectionPublication) {

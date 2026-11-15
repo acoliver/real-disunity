@@ -50,6 +50,7 @@ mod terrain_access;
 mod unlit;
 pub(crate) use specular::{constants as specular_constants, unlit_source};
 
+use crate::shader::rewrite::ShaderRewrite;
 use depth::DepthMode;
 use std::borrow::Cow;
 
@@ -509,14 +510,18 @@ pub(crate) fn celestial_source(
 ) -> String {
     let source = DepthMode::Independent
         .vertex_source(ENVIRONMENT_WGSL)
-        .replace(
+        .anchored(
+            "renderer::celestial_source",
+            1,
             "@location(0) world_position: vec3<f32>,",
             "@location(0) @interpolate(perspective, sample) world_position: vec3<f32>,",
         );
     let source = crate::sky::lighting::composition_source(source, composition);
     let source = crate::sky::lighting::source(source, lighting);
     let vertex = if anchored {
-        crate::sky::meshes::VERTEX.replace(
+        crate::sky::meshes::VERTEX.anchored(
+            "renderer::celestial_source",
+            1,
             "instance.model_column_3.xyz+frame.camera_position.xyz",
             "instance.model_column_3.xyz",
         )

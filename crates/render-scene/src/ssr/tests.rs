@@ -2,6 +2,8 @@
 mod ao_accuracy_tests;
 #[path = "application_policy_tests.rs"]
 mod application_policy_tests;
+#[path = "assembly_tests.rs"]
+mod assembly_tests;
 #[path = "controls_tests.rs"]
 mod controls_tests;
 #[path = "fidelity_tests.rs"]

@@ -183,3 +183,6 @@ mod relief_dependencies;
 
 #[cfg(test)]
 mod shadow_uniformity_tests;
+
+#[cfg(test)]
+mod skinning_tests;

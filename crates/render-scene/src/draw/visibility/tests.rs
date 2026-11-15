@@ -467,7 +467,7 @@ fn enlarged_plane_with_oblique_curvature_keeps_analytically_visible_tip() {
         .unwrap();
     let meshes = [MeshSelection::new(&source.geometry().meshes()[0])];
     let late_shape = meshes[0]
-        .wind_bounds(&placement, Vec3::ZERO, Some(Vec3::ZERO), [0.0; 2])
+        .wind_bounds(&placement, Vec3::ZERO, Some(Vec3::ZERO), [0.0; 2], 0.0)
         .expanded(impostor_extent([20.0, 0.0], &placement, 1.0));
     assert!(!Frustum::new(Mat4::IDENTITY).intersects(late_shape));
     let mut selection = Selection::default();

@@ -33,10 +33,28 @@ pub use scroll::UiScrollView;
 mod renderer;
 mod sdf;
 mod text;
+mod text_metrics;
+pub use text_metrics::TextMeasurement;
+pub mod draw_list;
+pub use draw_list::*;
 mod text_cache;
 mod text_field;
 mod text_geometry;
 pub use text_cache::TextCacheStats;
+/// Raster resource parameters, included in the `FontBook` layout cache identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GlyphRaster {
+    pub mode: RenderMode,
+    pub padding: u32,
+}
+impl Default for GlyphRaster {
+    fn default() -> Self {
+        Self {
+            mode: RenderMode::Coverage,
+            padding: 0,
+        }
+    }
+}
 pub use text_field::{TextFieldStyle, TextReject, UiTextField};
 mod wrap;
 use crate::{ObjectHandle, WorldError};
@@ -56,6 +74,7 @@ pub use text::{
     GlyphLayout, HorizontalAlign, HorizontalOverflow, LineMetrics, TextLayout, TextRun, TextSpan,
     UiLinkId, VerticalAlign, VerticalOverflow,
 };
+pub use wrap::{LineBreakCandidates, advance_text, line_break_info};
 
 pub use crate::{FontId, UiError};
 

@@ -248,3 +248,12 @@ fn renderer_builds_gbuffer_targets_for_a_producer_source() {
         assert_eq!(formats, crate::gbuffer::GBUFFER_FORMATS.to_vec());
     }
 }
+
+#[test]
+fn object_gbuffer_normalizes_the_folded_normal_at_storage() {
+    let source = include_str!("objects.wgsl");
+    assert!(
+        source.contains("select(evaluated.geometric_normal, normalize(evaluated.surface.normal),")
+    );
+    assert!(source.contains("length(evaluated.surface.normal) > 0.000001"));
+}

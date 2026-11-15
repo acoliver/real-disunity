@@ -3,6 +3,10 @@ use std::collections::BTreeMap;
 
 use crate::FrameTargets;
 
+mod operations;
+pub use operations::{FrameOperations, OperationsGroup, OperationsOutput};
+pub(crate) use operations::{GroupOutputs, OperationsSchedule, validate_operations};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassSlot {
     ShadowCasters(u32),
@@ -215,6 +219,12 @@ pub enum FrameError {
     UnsupportedEffect(&'static str),
     #[error("attachment view does not match its declared subresource: {0:?}")]
     AttachmentView(ResourceRef),
+    /// A geometry pass attaches a texture that operations groups write.
+    #[error("pass {pass} attaches {resource:?}, which operations write; passes may only read it")]
+    OffscreenWrite {
+        pass: PassEntry,
+        resource: ResourceRef,
+    },
 }
 
 /// Validates the authored sequence without allocating, preparing or encoding anything.
@@ -223,7 +233,20 @@ pub fn validate_frame(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
 ) -> Result<(), FrameError> {
-    validate_frame_inputs(passes, features, requested, &[])
+    validate_frame_inputs(passes, features, requested, &[], &[])
+}
+
+/// The checks `encode_geometry` makes before anything is prepared, in its order.
+pub(crate) fn validate_plan(
+    passes: &[PassDeclaration],
+    features: &[FeatureDeclaration],
+    requested: &[&'static str],
+    views: &[AttachmentView],
+    operations: &[OperationsGroup<'_>],
+) -> Result<(), FrameError> {
+    validate_operations(passes, views, operations)?;
+    validate_frame_inputs(passes, features, requested, views, operations)?;
+    validate_views(passes, views)
 }
 
 pub(crate) fn validate_frame_inputs(
@@ -231,6 +254,7 @@ pub(crate) fn validate_frame_inputs(
     features: &[FeatureDeclaration],
     requested: &[&'static str],
     views: &[AttachmentView],
+    operations: &[OperationsGroup<'_>],
 ) -> Result<(), FrameError> {
     validate_transparency(features)?;
     let repeated = passes.iter().enumerate().find_map(|(index, pass)| {
@@ -260,9 +284,11 @@ pub(crate) fn validate_frame_inputs(
             }
         }
     }
+    let outputs = GroupOutputs::new(passes, operations);
+    // A retained view a group writes has contents only from the group's position on.
     let mut produced: BTreeMap<_, _> = views
         .iter()
-        .filter(|view| view.retained)
+        .filter(|view| view.retained && !outputs.writes(view.resource()))
         .map(|view| {
             (
                 view.resource(),
@@ -278,7 +304,9 @@ pub(crate) fn validate_frame_inputs(
             )
         })
         .collect();
-    for pass in passes {
+    for (index, pass) in passes.iter().enumerate() {
+        outputs.refuse_writes(pass)?;
+        produced.extend(outputs.left_before(index));
         let attachments: Vec<_> = pass
             .color
             .iter()
@@ -751,105 +779,6 @@ pub(crate) fn validate_views(
         }
     }
     Ok(())
-}
-
-/// Work that records commands of its own into the frame's encoder, outside the raster passes
-/// of the plan: a checked operations list the host admitted, for one.
-pub trait FrameOperations {
-    /// Records the work into `encoder`. `timing` is the frame's timer; work that lists itself
-    /// in the frame's timing (as `PassId::Operation`) does so through it.
-    ///
-    /// # Errors
-    /// Whatever refuses the work, for example a resource replaced since admission. The frame
-    /// is abandoned.
-    fn encode_operations(
-        &self,
-        timing: Option<&crate::TimingState>,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<(), FrameError>;
-}
-
-/// An operations group and where it runs in the authored pass list.
-#[derive(Clone, Copy)]
-pub struct OperationsGroup<'a> {
-    /// The entry the group runs immediately before. `None` runs it after every pass.
-    pub before: Option<PassEntry>,
-    pub work: &'a dyn FrameOperations,
-}
-impl std::fmt::Debug for OperationsGroup<'_> {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("OperationsGroup")
-            .field("before", &self.before)
-            .finish_non_exhaustive()
-    }
-}
-
-/// Refuses a group positioned before an entry the plan does not author.
-pub(crate) fn validate_operations(
-    passes: &[PassDeclaration],
-    operations: &[OperationsGroup<'_>],
-) -> Result<(), FrameError> {
-    for entry in operations.iter().filter_map(|group| group.before) {
-        if !passes.iter().any(|pass| pass.entry() == entry) {
-            return Err(FrameError::MissingPass(entry));
-        }
-    }
-    Ok(())
-}
-
-/// The groups of one `encode_geometry` call in the order they run, each at the index of the pass
-/// it runs before (`passes.len()` for a group that runs after every pass). Groups at one position
-/// keep their order in the plan.
-///
-/// A group runs immediately before the first pass at or after its position that the call
-/// encodes, so a group positioned before an entry a depth-fitted prefix already encoded runs at
-/// the head of the call that follows the prefix.
-pub(crate) struct OperationsSchedule<'a> {
-    pending: std::collections::VecDeque<(usize, &'a dyn FrameOperations)>,
-}
-impl<'a> OperationsSchedule<'a> {
-    pub(crate) fn new(passes: &[PassDeclaration], operations: &[OperationsGroup<'a>]) -> Self {
-        let mut scheduled: Vec<_> = operations
-            .iter()
-            .map(|group| {
-                let index = group.before.map_or(passes.len(), |entry| {
-                    passes
-                        .iter()
-                        .position(|pass| pass.entry() == entry)
-                        .unwrap_or(passes.len())
-                });
-                (index, group.work)
-            })
-            .collect();
-        scheduled.sort_by_key(|(index, _)| *index);
-        Self {
-            pending: scheduled.into(),
-        }
-    }
-
-    /// Encodes every group positioned at or before pass `index`, which the caller is about to
-    /// encode.
-    pub(crate) fn encode_before(
-        &mut self,
-        index: usize,
-        timing: &crate::TimingState,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<(), FrameError> {
-        while let Some((_, work)) = self.pending.pop_front_if(|(at, _)| *at <= index) {
-            work.encode_operations(Some(timing), encoder)?;
-        }
-        Ok(())
-    }
-
-    /// Encodes the groups still waiting, which follow the last pass the call encoded.
-    pub(crate) fn encode_rest(
-        &mut self,
-        timing: &crate::TimingState,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<(), FrameError> {
-        self.encode_before(usize::MAX, timing, encoder)
-    }
 }
 
 /// Complete borrowed geometry contract, validated before feature preparation.

@@ -600,9 +600,7 @@ impl<F: StageFactory> PostChain<F> {
                     .map(|feature| feature.declaration.clone()),
             )
             .collect();
-        crate::frame::validate_frame_inputs(passes, &declarations, requested, views)?;
-        crate::frame::validate_views(passes, views)?;
-        crate::frame::validate_operations(passes, operations)?;
+        crate::frame::validate_plan(passes, &declarations, requested, views, operations)?;
         let completed = self.completed_geometry_prefix(encoder, plan)?;
         let mut local_registry = crate::contracts::ResourceRegistry::default();
         let registry = self

@@ -230,8 +230,8 @@ mod prepare_context_tests;
 pub use frame::{
     AttachmentDeclaration, AttachmentLoad, AttachmentView, BorrowedFeature, BuildContext,
     DrawContext, FeatureDeclaration, FeatureId, FeaturePass, FrameError, FrameFeature,
-    FrameOperations, FramePlan, OperationsGroup, PassDeclaration, PassEntry, PassSlot,
-    PrepareContext, PreparedFeature, ResourceRef, validate_frame,
+    FrameOperations, FramePlan, OperationsGroup, OperationsOutput, PassDeclaration, PassEntry,
+    PassSlot, PrepareContext, PreparedFeature, ResourceRef, validate_frame,
 };
 #[cfg(test)]
 mod copy_gpu_tests;
